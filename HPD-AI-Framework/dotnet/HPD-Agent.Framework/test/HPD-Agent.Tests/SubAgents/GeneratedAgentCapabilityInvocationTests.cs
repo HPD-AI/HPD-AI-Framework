@@ -64,12 +64,12 @@ public sealed class GeneratedAgentCapabilityInvocationTests
             new HPDAIFunctionFactoryOptions
             {
                 Name = "GeneratedReviewer",
-                Description = "Generated-shape branch-native subagent wrapper",
+                Description = "Generated-shape thread-native subagent wrapper",
                 RequiresPermission = true,
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["IsSubAgent"] = true,
-                    ["ExecutionModel"] = "BranchNative",
+                    ["ExecutionModel"] = "ThreadNative",
                     ["ParentToolHarness"] = "GeneratedAgentHarness",
                 },
             });

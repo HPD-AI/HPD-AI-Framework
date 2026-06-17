@@ -18,7 +18,7 @@ public class MiddlewareStateObservabilityTests
             stateFactories: factories,
             state: state,
             sessionId: "session-1",
-            branchId: "main",
+            threadId: "main",
             iteration: 3,
             phase: "before_model_call",
             batchId: null,
@@ -27,7 +27,7 @@ public class MiddlewareStateObservabilityTests
 
         Assert.Equal("TestAgent", evt.AgentName);
         Assert.Equal("session-1", evt.SessionId);
-        Assert.Equal("main", evt.BranchId);
+        Assert.Equal("main", evt.ThreadId);
         Assert.Equal(3, evt.Iteration);
         Assert.Equal("before_model_call", evt.Phase);
         Assert.Equal(1, evt.StateCount);
@@ -36,7 +36,7 @@ public class MiddlewareStateObservabilityTests
         Assert.Equal(typeof(ErrorTrackingStateData).FullName, entry.Key);
         Assert.Equal(typeof(ErrorTrackingStateData).FullName, entry.Type);
         Assert.Equal("ErrorTracking", entry.PropertyName);
-        Assert.Equal(StateScope.Branch, entry.Scope);
+        Assert.Equal(StateScope.Thread, entry.Scope);
         Assert.False(entry.Persistent);
         Assert.Equal(1, entry.Version);
         Assert.False(entry.Redacted);
@@ -94,7 +94,7 @@ public class MiddlewareStateObservabilityTests
                 PropertyName: "ErrorTracking",
                 Version: 1,
                 Persistent: false,
-                Scope: StateScope.Branch,
+                Scope: StateScope.Thread,
                 Deserialize: json => JsonSerializer.Deserialize<ErrorTrackingStateData>(json),
                 Serialize: state => JsonSerializer.Serialize((ErrorTrackingStateData)state))
         };

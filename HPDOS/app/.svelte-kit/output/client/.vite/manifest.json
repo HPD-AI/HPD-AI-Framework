@@ -70,7 +70,7 @@
   },
   "_B0qMKQ4g.js": {
     "file": "_app/immutable/chunks/B0qMKQ4g.js",
-    "name": "branches",
+    "name": "threads",
     "imports": [
       "_DiyOmBHr.js"
     ]

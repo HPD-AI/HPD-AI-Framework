@@ -72,10 +72,10 @@ public sealed class TeamsBot(
             return false;
 
         var platformKey = TeamsThreadId.FormatRaw(turn.ConversationId, turn.ServiceUrl);
-        var (sessionId, branchId) = await _sessionMapper.ResolveAsync(platformKey, ct);
+        var (sessionId, threadId) = await _sessionMapper.ResolveAsync(platformKey, ct);
         await PersistTeamsMetadataAsync(sessionId, platformKey, turn, ct);
 
-        return await StreamNativeAsync(turn, sessionId, branchId, text, ct);
+        return await StreamNativeAsync(turn, sessionId, threadId, text, ct);
     }
 
     public Task ProcessReactionAsync(ITurnContext turnContext, CancellationToken ct)
@@ -159,11 +159,11 @@ public sealed class TeamsBot(
     private async Task<bool> StreamNativeAsync(
         ITeamsTurn turn,
         string sessionId,
-        string branchId,
+        string threadId,
         string text,
         CancellationToken ct)
     {
-        if (!_sessionManager.TryAcquireBranchOperationLock(sessionId, branchId))
+        if (!_sessionManager.TryAcquireThreadOperationLock(sessionId, threadId))
             return false;
 
         var streamStarted = false;
@@ -202,7 +202,7 @@ public sealed class TeamsBot(
             {
                 AgentId = agentId,
                 SessionId = sessionId,
-                BranchId = branchId,
+                ThreadId = threadId,
                 RunConfig = attachments.Count > 0
                     ? new AgentRunConfig
                     {
@@ -220,7 +220,7 @@ public sealed class TeamsBot(
         {
             if (streamStarted)
                 await turn.EndStreamAsync(ct);
-            _sessionManager.ReleaseBranchOperationLock(sessionId, branchId);
+            _sessionManager.ReleaseThreadOperationLock(sessionId, threadId);
         }
     }
 

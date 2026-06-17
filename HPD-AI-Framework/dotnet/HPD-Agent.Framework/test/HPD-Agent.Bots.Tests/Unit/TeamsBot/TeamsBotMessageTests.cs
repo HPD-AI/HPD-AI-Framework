@@ -28,7 +28,7 @@ public class TeamsBotMessageTests
     }
 
     [Fact]
-    public async Task ProcessMessageAsync_WhenBranchOperationLockHeld_ReturnsFalseWithoutStartingStream()
+    public async Task ProcessMessageAsync_WhenThreadOperationLockHeld_ReturnsFalseWithoutStartingStream()
     {
         var (bot, sessionManager) = CreateBot();
         var turn = new FakeTeamsTurn
@@ -38,8 +38,8 @@ public class TeamsBotMessageTests
             ServiceUrl = "https://smba.trafficmanager.net/amer/"
         };
         var platformKey = TeamsThreadId.FormatRaw(turn.ConversationId, turn.ServiceUrl);
-        var (sessionId, branchId) = await bot.SessionMapper.ResolveAsync(platformKey);
-        sessionManager.TryAcquireBranchOperationLock(sessionId, branchId).Should().BeTrue();
+        var (sessionId, threadId) = await bot.SessionMapper.ResolveAsync(platformKey);
+        sessionManager.TryAcquireThreadOperationLock(sessionId, threadId).Should().BeTrue();
 
         try
         {
@@ -51,12 +51,12 @@ public class TeamsBotMessageTests
         }
         finally
         {
-            sessionManager.ReleaseBranchOperationLock(sessionId, branchId);
+            sessionManager.ReleaseThreadOperationLock(sessionId, threadId);
         }
     }
 
     [Fact]
-    public async Task ProcessMessageAsync_WhenBranchOperationLockHeld_CreatesOrFindsPlatformSession()
+    public async Task ProcessMessageAsync_WhenThreadOperationLockHeld_CreatesOrFindsPlatformSession()
     {
         var (bot, sessionManager) = CreateBot();
         var turn = new FakeTeamsTurn
@@ -66,8 +66,8 @@ public class TeamsBotMessageTests
             ServiceUrl = "https://smba.trafficmanager.net/amer/"
         };
         var platformKey = TeamsThreadId.FormatRaw(turn.ConversationId, turn.ServiceUrl);
-        var (sessionId, branchId) = await bot.SessionMapper.ResolveAsync(platformKey);
-        sessionManager.TryAcquireBranchOperationLock(sessionId, branchId).Should().BeTrue();
+        var (sessionId, threadId) = await bot.SessionMapper.ResolveAsync(platformKey);
+        sessionManager.TryAcquireThreadOperationLock(sessionId, threadId).Should().BeTrue();
 
         try
         {
@@ -78,7 +78,7 @@ public class TeamsBotMessageTests
         }
         finally
         {
-            sessionManager.ReleaseBranchOperationLock(sessionId, branchId);
+            sessionManager.ReleaseThreadOperationLock(sessionId, threadId);
         }
     }
 
@@ -99,8 +99,8 @@ public class TeamsBotMessageTests
             }
         };
         var platformKey = TeamsThreadId.FormatRaw(turn.ConversationId, turn.ServiceUrl);
-        var (sessionId, branchId) = await bot.SessionMapper.ResolveAsync(platformKey);
-        sessionManager.TryAcquireBranchOperationLock(sessionId, branchId).Should().BeTrue();
+        var (sessionId, threadId) = await bot.SessionMapper.ResolveAsync(platformKey);
+        sessionManager.TryAcquireThreadOperationLock(sessionId, threadId).Should().BeTrue();
 
         try
         {
@@ -119,7 +119,7 @@ public class TeamsBotMessageTests
         }
         finally
         {
-            sessionManager.ReleaseBranchOperationLock(sessionId, branchId);
+            sessionManager.ReleaseThreadOperationLock(sessionId, threadId);
         }
     }
 

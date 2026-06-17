@@ -53,7 +53,7 @@ internal static class ConsoleBranding
             });
 
     private static string HeaderDetail(AgentTuiShellContext context)
-        => $"HPD Agent TUI  agent: {context.Scope.AgentId}  session: {context.Scope.SessionId}  branch: {context.Scope.BranchId}";
+        => $"HPD Agent TUI  agent: {context.Scope.AgentId}  session: {context.Scope.SessionId}  thread: {context.Scope.ThreadId}";
 
     private sealed class ConsoleHeader(string detail) : IComponent
     {

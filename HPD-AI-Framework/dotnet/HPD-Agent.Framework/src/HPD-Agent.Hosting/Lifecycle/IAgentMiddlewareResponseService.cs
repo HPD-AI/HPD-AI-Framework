@@ -7,7 +7,7 @@ public interface IAgentMiddlewareResponseService
     Task<AgentServiceResult<RespondResult>> RespondAsync(
         string agentId,
         string sessionId,
-        string branchId,
+        string threadId,
         IResponseEvent response,
         CancellationToken cancellationToken = default);
 }

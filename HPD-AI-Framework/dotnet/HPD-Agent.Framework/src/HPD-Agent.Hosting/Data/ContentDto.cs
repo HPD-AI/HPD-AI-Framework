@@ -2,7 +2,7 @@ namespace HPD.Agent.Hosting.Data;
 
 /// <summary>
 /// Data transfer object for content metadata.
-/// Content items are scoped to a session branch.
+/// Content items are scoped to a session thread.
 /// </summary>
 /// <param name="ContentId">Unique identifier for this content</param>
 /// <param name="Version">Opaque content version token for conditional writes/deletes</param>

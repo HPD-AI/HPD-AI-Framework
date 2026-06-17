@@ -221,9 +221,9 @@ public static class AgentConfigValidator
     {
         switch (retention)
         {
-            case PreserveBranchHistoryOptions:
+            case PreserveThreadHistoryOptions:
                 break;
-            case CompactBranchHistoryOptions compact:
+            case CompactThreadHistoryOptions compact:
                 ValidateCompactionBoundary(compact.Boundary, errors);
                 break;
             case DeleteCompactedMessagesOptions delete:

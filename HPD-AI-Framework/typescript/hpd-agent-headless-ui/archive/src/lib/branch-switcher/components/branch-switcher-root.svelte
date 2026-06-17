@@ -1,21 +1,21 @@
 <script lang="ts">
 	import { mergeProps, boxWith } from 'svelte-toolbelt';
-	import type { BranchSwitcherRootProps, BranchSwitcherRootHTMLProps } from '../types.js';
-	import { BranchSwitcherRootState } from '../branch-switcher.svelte.js';
+	import type { ThreadSwitcherRootProps, ThreadSwitcherRootHTMLProps } from '../types.js';
+	import { ThreadSwitcherRootState } from '../thread-switcher.svelte.js';
 
 	let {
-		branch,
+		thread,
 		class: className,
 		child,
 		children,
 		...restProps
-	}: BranchSwitcherRootProps = $props();
+	}: ThreadSwitcherRootProps = $props();
 
-	const rootState = BranchSwitcherRootState.create({
-		branch: boxWith(() => branch),
+	const rootState = ThreadSwitcherRootState.create({
+		thread: boxWith(() => thread),
 	});
 
-	const mergedProps = $derived(mergeProps(restProps, rootState.props, className ? { class: className } : {}) as BranchSwitcherRootHTMLProps);
+	const mergedProps = $derived(mergeProps(restProps, rootState.props, className ? { class: className } : {}) as ThreadSwitcherRootHTMLProps);
 </script>
 
 {#if child}

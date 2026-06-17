@@ -7,7 +7,7 @@ import type {
 } from './types/agent.js';
 import type {
   AgentComparisonResult,
-  BranchComparisonResult,
+  ThreadComparisonResult,
   CostBreakdown,
   EvaluatorSummary,
   FailureRateResult,
@@ -19,21 +19,21 @@ import type {
 } from './types/evals.js';
 import type {
   ContentReference,
-  Branch,
-  BranchEvent,
-  BranchMessage,
-  CreateBranchRequest,
+  Thread,
+  ThreadEvent,
+  ThreadMessage,
+  CreateThreadRequest,
   CreateSessionRequest,
-  ForkBranchRequest,
+  ForkThreadRequest,
   AIContent,
   ListSessionsOptions,
   SearchSessionsRequest,
   Session,
-  SiblingBranch,
+  SiblingThread,
   UpdateSessionRequest,
-  UpdateBranchRequest,
+  UpdateThreadRequest,
 } from './types/session.js';
-import type { BranchRun } from './types/branch-run.js';
+import type { ThreadRun } from './types/thread-run.js';
 import type { TransportRequestOptions } from './transports/options.js';
 
 export class AgentHttpApi {
@@ -172,85 +172,85 @@ export class AgentHttpApi {
     await this.send(`/sessions/${sessionId}`, { method: 'DELETE' }, 'Failed to delete session');
   }
 
-  async listBranches(sessionId: string): Promise<Branch[]> {
-    const response = await this.fetch(this.url(`/sessions/${sessionId}/branches`), {
+  async listThreads(sessionId: string): Promise<Thread[]> {
+    const response = await this.fetch(this.url(`/sessions/${sessionId}/threads`), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
-    return this.readJson(response, 'Failed to list branches');
+    return this.readJson(response, 'Failed to list threads');
   }
 
-  async getBranch(sessionId: string, branchId: string): Promise<Branch | null> {
-    const response = await this.fetch(this.url(`/sessions/${sessionId}/branches/${branchId}`), {
+  async getThread(sessionId: string, threadId: string): Promise<Thread | null> {
+    const response = await this.fetch(this.url(`/sessions/${sessionId}/threads/${threadId}`), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
     if (response.status === 404) return null;
-    return this.readJson(response, 'Failed to get branch');
+    return this.readJson(response, 'Failed to get thread');
   }
 
-  async createBranch(sessionId: string, options: CreateBranchRequest = {}): Promise<Branch> {
-    if (!options.agentId) throw new Error('createBranch() requires agentId');
+  async createThread(sessionId: string, options: CreateThreadRequest = {}): Promise<Thread> {
+    if (!options.agentId) throw new Error('createThread() requires agentId');
     const { agentId, ...body } = options;
-    const response = await this.fetch(this.url(`/agents/${agentId}/sessions/${sessionId}/branches`), {
+    const response = await this.fetch(this.url(`/agents/${agentId}/sessions/${sessionId}/threads`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    return this.readJson(response, 'Failed to create branch');
+    return this.readJson(response, 'Failed to create thread');
   }
 
-  async forkBranch(sessionId: string, branchId: string, options: ForkBranchRequest): Promise<Branch> {
-    if (!options.agentId) throw new Error('forkBranch() requires agentId');
+  async forkThread(sessionId: string, threadId: string, options: ForkThreadRequest): Promise<Thread> {
+    if (!options.agentId) throw new Error('forkThread() requires agentId');
     const { agentId, ...body } = options;
-    const response = await this.fetch(this.url(`/agents/${agentId}/sessions/${sessionId}/branches/${branchId}/fork`), {
+    const response = await this.fetch(this.url(`/agents/${agentId}/sessions/${sessionId}/threads/${threadId}/fork`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    return this.readJson(response, 'Failed to fork branch');
+    return this.readJson(response, 'Failed to fork thread');
   }
 
-  async updateBranch(sessionId: string, branchId: string, request: UpdateBranchRequest): Promise<Branch> {
-    const response = await this.fetch(this.url(`/sessions/${sessionId}/branches/${branchId}`), {
+  async updateThread(sessionId: string, threadId: string, request: UpdateThreadRequest): Promise<Thread> {
+    const response = await this.fetch(this.url(`/sessions/${sessionId}/threads/${threadId}`), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
     });
-    return this.readJson(response, 'Failed to update branch');
+    return this.readJson(response, 'Failed to update thread');
   }
 
-  async deleteBranch(sessionId: string, branchId: string, options?: { recursive?: boolean }): Promise<void> {
-    const url = this.url(`/sessions/${sessionId}/branches/${branchId}`, {
+  async deleteThread(sessionId: string, threadId: string, options?: { recursive?: boolean }): Promise<void> {
+    const url = this.url(`/sessions/${sessionId}/threads/${threadId}`, {
       recursive: options?.recursive ? true : undefined,
     });
     const response = await this.fetch(url, { method: 'DELETE' });
     if (!response.ok) {
       const text = await response.text().catch(() => 'Unknown error');
-      throw new Error(`Failed to delete branch: HTTP ${response.status}: ${text}`);
+      throw new Error(`Failed to delete thread: HTTP ${response.status}: ${text}`);
     }
   }
 
-  async getBranchEvents(sessionId: string, branchId: string): Promise<BranchEvent[]> {
-    const response = await this.fetch(this.url(`/sessions/${sessionId}/branches/${branchId}/events`), {
+  async getThreadEvents(sessionId: string, threadId: string): Promise<ThreadEvent[]> {
+    const response = await this.fetch(this.url(`/sessions/${sessionId}/threads/${threadId}/events`), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
 
-    if (response.status === 404 && await this.getBranch(sessionId, branchId) !== null) {
+    if (response.status === 404 && await this.getThread(sessionId, threadId) !== null) {
       return [];
     }
 
-    return this.readJson(response, 'Failed to get branch events');
+    return this.readJson(response, 'Failed to get thread events');
   }
 
-  async getBranchMessages(sessionId: string, branchId: string): Promise<BranchMessage[]> {
-    const events = await this.getBranchEvents(sessionId, branchId);
-    const byId = new Map<string, BranchMessage>();
+  async getThreadMessages(sessionId: string, threadId: string): Promise<ThreadMessage[]> {
+    const events = await this.getThreadEvents(sessionId, threadId);
+    const byId = new Map<string, ThreadMessage>();
 
     for (const event of events) {
       if (event.type === 'MESSAGE_STARTED') {
-        const started = event as BranchEvent & {
+        const started = event as ThreadEvent & {
           messageId?: string;
           role?: string;
           authorName?: string;
@@ -267,7 +267,7 @@ export class AgentHttpApi {
           authorName: started.authorName,
         });
       } else if (event.type === 'CONTENT_ADDED') {
-        const added = event as BranchEvent & {
+        const added = event as ThreadEvent & {
           messageId?: string;
           content?: AIContent;
         };
@@ -281,62 +281,62 @@ export class AgentHttpApi {
     return [...byId.values()];
   }
 
-  async getBranchRuns(agentId: string, sessionId: string, branchId: string): Promise<BranchRun[]> {
+  async getThreadRuns(agentId: string, sessionId: string, threadId: string): Promise<ThreadRun[]> {
     const response = await this.fetch(
-      this.url(`/agents/${agentId}/sessions/${sessionId}/branches/${branchId}/runs`),
+      this.url(`/agents/${agentId}/sessions/${sessionId}/threads/${threadId}/runs`),
       {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       },
     );
-    return this.readJson(response, 'Failed to get branch runs');
+    return this.readJson(response, 'Failed to get thread runs');
   }
 
-  async getActiveBranchRun(agentId: string, sessionId: string, branchId: string): Promise<BranchRun | null> {
+  async getActiveThreadRun(agentId: string, sessionId: string, threadId: string): Promise<ThreadRun | null> {
     const response = await this.fetch(
-      this.url(`/agents/${agentId}/sessions/${sessionId}/branches/${branchId}/runs/active`),
+      this.url(`/agents/${agentId}/sessions/${sessionId}/threads/${threadId}/runs/active`),
       {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       },
     );
     if (response.status === 404) return null;
-    return this.readNullableJson(response, 'Failed to get active branch run');
+    return this.readNullableJson(response, 'Failed to get active thread run');
   }
 
-  async getBranchRun(
+  async getThreadRun(
     agentId: string,
     sessionId: string,
-    branchId: string,
+    threadId: string,
     runtimeRunId: string,
-  ): Promise<BranchRun | null> {
+  ): Promise<ThreadRun | null> {
     const response = await this.fetch(
-      this.url(`/agents/${agentId}/sessions/${sessionId}/branches/${branchId}/runs/${runtimeRunId}`),
+      this.url(`/agents/${agentId}/sessions/${sessionId}/threads/${threadId}/runs/${runtimeRunId}`),
       {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       },
     );
     if (response.status === 404) return null;
-    return this.readNullableJson(response, 'Failed to get branch run');
+    return this.readNullableJson(response, 'Failed to get thread run');
   }
 
-  async getBranchSiblings(sessionId: string, branchId: string): Promise<SiblingBranch[]> {
-    const response = await this.fetch(this.url(`/sessions/${sessionId}/branches/${branchId}/siblings`), {
+  async getThreadSiblings(sessionId: string, threadId: string): Promise<SiblingThread[]> {
+    const response = await this.fetch(this.url(`/sessions/${sessionId}/threads/${threadId}/siblings`), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
     return this.readJson(response, 'Failed to get siblings');
   }
 
-  async getNextSibling(sessionId: string, branchId: string): Promise<Branch | null> {
-    const branch = await this.getBranch(sessionId, branchId);
-    return branch?.nextSiblingId ? this.getBranch(sessionId, branch.nextSiblingId) : null;
+  async getNextSibling(sessionId: string, threadId: string): Promise<Thread | null> {
+    const thread = await this.getThread(sessionId, threadId);
+    return thread?.nextSiblingId ? this.getThread(sessionId, thread.nextSiblingId) : null;
   }
 
-  async getPreviousSibling(sessionId: string, branchId: string): Promise<Branch | null> {
-    const branch = await this.getBranch(sessionId, branchId);
-    return branch?.previousSiblingId ? this.getBranch(sessionId, branch.previousSiblingId) : null;
+  async getPreviousSibling(sessionId: string, threadId: string): Promise<Thread | null> {
+    const thread = await this.getThread(sessionId, threadId);
+    return thread?.previousSiblingId ? this.getThread(sessionId, thread.previousSiblingId) : null;
   }
 
   async listAgents(): Promise<AgentSummaryDto[]> {
@@ -390,10 +390,10 @@ export class AgentHttpApi {
     return this.readJson(response, 'Failed to get scores');
   }
 
-  async getScoresByBranch(sessionId: string, branchId?: string): Promise<ScoreRecord[]> {
-    const url = this.url('/evals/scores/by-branch', { sessionId, branchId });
+  async getScoresByThread(sessionId: string, threadId?: string): Promise<ScoreRecord[]> {
+    const url = this.url('/evals/scores/by-thread', { sessionId, threadId });
     const response = await this.fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-    return this.readJson(response, 'Failed to get scores by branch');
+    return this.readJson(response, 'Failed to get scores by thread');
   }
 
   async writeScore(record: Omit<ScoreRecord, 'id'>): Promise<ScoreRecord> {
@@ -445,15 +445,15 @@ export class AgentHttpApi {
     return this.readJson(response, 'Failed to get agent comparison');
   }
 
-  async getBranchComparison(sessionId: string, branchId1: string, branchId2: string, evaluatorNames: string[]): Promise<BranchComparisonResult> {
-    const url = this.url('/evals/branch-comparison', {
+  async getThreadComparison(sessionId: string, threadId1: string, threadId2: string, evaluatorNames: string[]): Promise<ThreadComparisonResult> {
+    const url = this.url('/evals/thread-comparison', {
       sessionId,
-      branchId1,
-      branchId2,
+      threadId1,
+      threadId2,
       evaluatorNames: evaluatorNames.join(','),
     });
     const response = await this.fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-    return this.readJson(response, 'Failed to get branch comparison');
+    return this.readJson(response, 'Failed to get thread comparison');
   }
 
   async getToolUsage(from?: string, to?: string): Promise<Record<string, ToolUsageSummary>> {
@@ -474,10 +474,10 @@ export class AgentHttpApi {
     return this.readJson(response, 'Failed to get scores by version');
   }
 
-  async uploadContent(sessionId: string, branchId: string, file: File | Blob, name?: string): Promise<ContentReference> {
+  async uploadContent(sessionId: string, threadId: string, file: File | Blob, name?: string): Promise<ContentReference> {
     const form = new FormData();
     form.append('file', file, name ?? (file instanceof File ? file.name : 'upload'));
-    const response = await this.fetch(this.url(`/sessions/${sessionId}/branches/${branchId}/content`), {
+    const response = await this.fetch(this.url(`/sessions/${sessionId}/threads/${threadId}/content`), {
       method: 'POST',
       body: form,
     });

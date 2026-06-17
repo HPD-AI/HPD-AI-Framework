@@ -160,7 +160,7 @@ using var errorSubscription = agent.SubscribeAny(evt =>
 await EnsureSessionAsync(agent, options.SessionId);
 CliConsole.WriteErrorLine(
     ConsoleColor.DarkCyan,
-    $"Interactive coding CLI started. session={options.SessionId} branch={options.BranchId}. Type exit or quit to leave.");
+    $"Interactive coding CLI started. session={options.SessionId} thread={options.ThreadId}. Type exit or quit to leave.");
 CliConsole.WriteErrorLine(
     ConsoleColor.DarkCyan,
     "Execution profile: local HPD sandbox backend");
@@ -190,7 +190,7 @@ while (true)
     {
         try
         {
-            await agent.RunAsync(prompt, sessionId: options.SessionId, branchId: options.BranchId);
+            await agent.RunAsync(prompt, sessionId: options.SessionId, threadId: options.ThreadId);
         }
         catch (Exception ex)
         {
@@ -347,7 +347,7 @@ static void PrintUsage()
       --list-tools       Print registered coding toolharness tool names.
       --model VALUE      OpenRouter model id. Defaults to OPENROUTER_MODEL or deepseek/deepseek-v4-pro.
       --session VALUE    Session id. Defaults to coding-cli-session.
-      --branch VALUE     Branch id. Defaults to main.
+      --thread VALUE     Thread id. Defaults to main.
       --help             Show this help.
     """);
 }
@@ -377,7 +377,7 @@ file sealed record CodingCliOptions(
     string? ConfigPath,
     string? Model,
     string SessionId,
-    string BranchId,
+    string ThreadId,
     bool ListTools,
     bool ShowHelp)
 {
@@ -387,7 +387,7 @@ file sealed record CodingCliOptions(
         string? configPath = null;
         string? model = null;
         var sessionId = "coding-cli-session";
-        var branchId = "main";
+        var threadId = "main";
         var listTools = false;
         var showHelp = false;
 
@@ -410,8 +410,8 @@ file sealed record CodingCliOptions(
                 case "--session" when i + 1 < args.Length:
                     sessionId = args[++i];
                     break;
-                case "--branch" when i + 1 < args.Length:
-                    branchId = args[++i];
+                case "--thread" when i + 1 < args.Length:
+                    threadId = args[++i];
                     break;
                 default:
                     prompt = prompt is null ? args[i] : $"{prompt} {args[i]}";
@@ -419,7 +419,7 @@ file sealed record CodingCliOptions(
             }
         }
 
-        return new CodingCliOptions(prompt, configPath, model, sessionId, branchId, listTools, showHelp);
+        return new CodingCliOptions(prompt, configPath, model, sessionId, threadId, listTools, showHelp);
     }
 }
 

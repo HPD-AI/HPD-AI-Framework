@@ -9,7 +9,7 @@ namespace HPD.Agent.Evaluations.Integration;
 
 /// <summary>
 /// Eval-scoped trace collector for judge calls. Uses AsyncLocal so concurrent
-/// evaluator tasks keep independent trace buffers without touching branch state.
+/// evaluator tasks keep independent trace buffers without touching thread state.
 /// </summary>
 internal static class EvalTraceContext
 {

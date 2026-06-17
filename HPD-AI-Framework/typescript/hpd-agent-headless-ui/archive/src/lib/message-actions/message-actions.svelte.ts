@@ -2,10 +2,10 @@
  * MessageActions State Management
  *
  * Compound headless component for message-level actions: Edit, Retry, and
- * branch navigation (Prev / Next / Position).
+ * thread navigation (Prev / Next / Position).
  *
- * The branch navigator becomes active at the user message row where siblings diverge.
- * Siblings are branches that share the same preceding context (forked at messageIndex - 1).
+ * The thread navigator becomes active at the user message row where siblings diverge.
+ * Siblings are threads that share the same preceding context (forked at messageIndex - 1).
  * The ◀ ▶ counter is naturally scoped to the right bubble without any manual condition
  * in the consumer template.
  *
@@ -13,7 +13,7 @@
  *
  * @example
  * ```svelte
- * <MessageActions.Root {workspace} {messageIndex} role="user" branch={workspace.activeBranch}>
+ * <MessageActions.Root {workspace} {messageIndex} role="user" thread={workspace.activeThread}>
  *   <MessageActions.EditButton>
  *     {#snippet children({ edit, status })}
  *       <button onclick={() => edit(draft)} disabled={status === 'pending'}>Edit</button>
@@ -40,7 +40,7 @@ import { type ReadableBox } from 'svelte-toolbelt';
 import { createHPDAttrs, boolToEmptyStrOrUndef } from '$lib/internal/attrs.js';
 import type { Workspace } from '../workspace/types.ts';
 import type { MessageRole } from '../agent/types.ts';
-import type { Branch } from '@hpd-research/hpd-agent-client';
+import type { Thread } from '@hpd-research/hpd-agent-client';
 import type {
 	MessageActionStatus,
 	MessageActionsRootHTMLProps,
@@ -80,7 +80,7 @@ interface MessageActionsRootStateOpts {
 	workspace: ReadableBox<Workspace>;
 	messageIndex: ReadableBox<number>;
 	role: ReadableBox<MessageRole>;
-	branch?: ReadableBox<Branch | null | undefined>;
+	thread?: ReadableBox<Thread | null | undefined>;
 }
 
 export class MessageActionsRootState {
@@ -106,18 +106,18 @@ export class MessageActionsRootState {
 	readonly role = $derived.by(() => this.#opts.role.current);
 	readonly pending = $derived.by(() => this.#pendingCount > 0);
 
-	// (branch prop kept for API compatibility but no longer drives sibling detection)
-	readonly #branch = $derived.by(() => this.#opts.branch?.current ?? null);
+	// (thread prop kept for API compatibility but no longer drives sibling detection)
+	readonly #thread = $derived.by(() => this.#opts.thread?.current ?? null);
 
-	// Sibling group at this message row — computed purely from workspace.branches.
+	// Sibling group at this message row — computed purely from workspace.threads.
 	//
 	// A sibling group exists at messageIndex when there are forks that share the
 	// same preceding context message id.
-	// We find any such fork, look up its source (the original branch in the group),
+	// We find any such fork, look up its source (the original thread in the group),
 	// then collect all forks at that same (source, forkAtMessageId) point.
 	//
-	// This is entirely independent of which branch is currently active — so the
-	// switcher stays visible even when you navigate to a branch whose fork point
+	// This is entirely independent of which thread is currently active — so the
+	// switcher stays visible even when you navigate to a thread whose fork point
 	// is at a different message row.
 	readonly #siblingsAtThisRow = $derived.by(() => {
 		const messages = this.workspace.state?.messages ?? [];
@@ -126,44 +126,44 @@ export class MessageActionsRootState {
 				.map(index => messages[index]?.id)
 				.filter((id): id is string => !!id)
 		);
-		const all = this.workspace.branches;
-		const branchProp = this.#branch;
+		const all = this.workspace.threads;
+		const threadProp = this.#thread;
 
-		if (all.size === 0 && branchProp && !branchProp.isOriginal) {
-			const forkedHere = !!branchProp.forkedAtMessageId &&
-				forkAtMessageIds.has(branchProp.forkedAtMessageId);
-			if (!forkedHere || branchProp.totalSiblings <= 1) return [];
+		if (all.size === 0 && threadProp && !threadProp.isOriginal) {
+			const forkedHere = !!threadProp.forkedAtMessageId &&
+				forkAtMessageIds.has(threadProp.forkedAtMessageId);
+			if (!forkedHere || threadProp.totalSiblings <= 1) return [];
 
-			return Array.from({ length: branchProp.totalSiblings }, (_, index) => {
-				if (index === branchProp.siblingIndex) return branchProp;
+			return Array.from({ length: threadProp.totalSiblings }, (_, index) => {
+				if (index === threadProp.siblingIndex) return threadProp;
 
 				return {
-					...branchProp,
+					...threadProp,
 					id:
-						index === branchProp.siblingIndex - 1 && branchProp.previousSiblingId
-							? branchProp.previousSiblingId
-							: index === branchProp.siblingIndex + 1 && branchProp.nextSiblingId
-								? branchProp.nextSiblingId
-								: `${branchProp.id}-sibling-${index}`,
+						index === threadProp.siblingIndex - 1 && threadProp.previousSiblingId
+							? threadProp.previousSiblingId
+							: index === threadProp.siblingIndex + 1 && threadProp.nextSiblingId
+								? threadProp.nextSiblingId
+								: `${threadProp.id}-sibling-${index}`,
 					isOriginal: index === 0,
 					siblingIndex: index,
-					previousSiblingId: index > 0 ? `${branchProp.id}-sibling-${index - 1}` : undefined,
+					previousSiblingId: index > 0 ? `${threadProp.id}-sibling-${index - 1}` : undefined,
 					nextSiblingId:
-						index < branchProp.totalSiblings - 1
-							? `${branchProp.id}-sibling-${index + 1}`
+						index < threadProp.totalSiblings - 1
+							? `${threadProp.id}-sibling-${index + 1}`
 							: undefined,
 				};
 			});
 		}
 
-		// Find any fork at this row to identify the source branch.
+		// Find any fork at this row to identify the source thread.
 		const anyFork = Array.from(all.values()).find(
 			b => !b.isOriginal && !!b.forkedAtMessageId && forkAtMessageIds.has(b.forkedAtMessageId)
 		);
 		if (!anyFork) return [];
 
 		const sourceId = anyFork.forkedFrom!;
-		const source = all.get(sourceId) ?? (branchProp?.id === sourceId ? branchProp : undefined);
+		const source = all.get(sourceId) ?? (threadProp?.id === sourceId ? threadProp : undefined);
 		const forks = Array.from(all.values()).filter(
 			b => b.forkedFrom === sourceId && !!b.forkedAtMessageId && forkAtMessageIds.has(b.forkedAtMessageId)
 		);
@@ -174,32 +174,32 @@ export class MessageActionsRootState {
 	// The currently active sibling in this row's group.
 	//
 	// Resolution order:
-	// 1. If the branch prop is a direct member of this row's sibling group, use it.
+	// 1. If the thread prop is a direct member of this row's sibling group, use it.
 	//    This handles the common case where MessageActions.Root is rendered with
-	//    branch={workspace.activeBranch} and the active branch is in this group.
-	// 2. Otherwise find which sibling is an ancestor-or-equal of workspace.activeBranch.
-	//    This handles the "stateless switcher" case: even when the active branch is
+	//    thread={workspace.activeThread} and the active thread is in this group.
+	// 2. Otherwise find which sibling is an ancestor-or-equal of workspace.activeThread.
+	//    This handles the "stateless switcher" case: even when the active thread is
 	//    at a deeper fork (different message), the switcher at this row shows which
 	//    path the user took through this group.
-	// 3. Fall back to the first sibling (original branch) if no match.
+	// 3. Fall back to the first sibling (original thread) if no match.
 	readonly #activeSiblingInRow = $derived.by(() => {
 		const siblings = this.#siblingsAtThisRow;
 		if (siblings.length === 0) return null;
 
-		// 1. Branch prop direct match
-		const branchProp = this.#branch;
-		if (branchProp) {
-			const direct = siblings.find(b => b.id === branchProp.id);
+		// 1. Thread prop direct match
+		const threadProp = this.#thread;
+		if (threadProp) {
+			const direct = siblings.find(b => b.id === threadProp.id);
 			if (direct) return direct;
 		}
 
-		// 2. workspace.activeBranch ancestry match
-		const activeBranchId = this.workspace.activeBranchId;
-		const activeBranch = this.workspace.activeBranch;
-		if (activeBranchId && activeBranch) {
-			const direct = siblings.find(b => b.id === activeBranchId);
+		// 2. workspace.activeThread ancestry match
+		const activeThreadId = this.workspace.activeThreadId;
+		const activeThread = this.workspace.activeThread;
+		if (activeThreadId && activeThread) {
+			const direct = siblings.find(b => b.id === activeThreadId);
 			if (direct) return direct;
-			const ancestorIds = new Set(Object.values(activeBranch.ancestors ?? {}));
+			const ancestorIds = new Set(Object.values(activeThread.ancestors ?? {}));
 			const ancestor = siblings.find(b => ancestorIds.has(b.id));
 			if (ancestor) return ancestor;
 		}
@@ -261,7 +261,7 @@ export class MessageActionsRootState {
 		if (!active?.previousSiblingId) return;
 		const idx = siblings.findIndex(b => b.id === active.id);
 		if (idx <= 0) return;
-		await this.workspace.switchBranch(siblings[idx - 1].id);
+		await this.workspace.switchThread(siblings[idx - 1].id);
 	};
 
 	readonly goNext = async (): Promise<void> => {
@@ -270,7 +270,7 @@ export class MessageActionsRootState {
 		if (!active?.nextSiblingId) return;
 		const idx = siblings.findIndex(b => b.id === active.id);
 		if (idx < 0 || idx >= siblings.length - 1) return;
-		await this.workspace.switchBranch(siblings[idx + 1].id);
+		await this.workspace.switchThread(siblings[idx + 1].id);
 	};
 
 	// ============================================

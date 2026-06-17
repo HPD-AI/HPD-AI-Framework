@@ -1,32 +1,32 @@
 /**
- * BranchSwitcher - Compound headless component for sibling branch navigation
+ * ThreadSwitcher - Compound headless component for sibling thread navigation
  *
  * @example
  * ```svelte
  * <script>
- *   import * as BranchSwitcher from '@hpd-research/hpd-agent-svelte-headless-ui/branch-switcher';
+ *   import * as ThreadSwitcher from '@hpd-research/hpd-agent-svelte-headless-ui/thread-switcher';
  * </script>
  *
- * <BranchSwitcher.Root branch={branchManager.activeBranch}>
+ * <ThreadSwitcher.Root thread={threadManager.activeThread}>
  *   {#snippet children({ hasSiblings })}
  *     {#if hasSiblings}
- *       <BranchSwitcher.Prev onclick={() => branchManager.goToPreviousSibling()} />
- *       <BranchSwitcher.Position />
- *       <BranchSwitcher.Next onclick={() => branchManager.goToNextSibling()} />
+ *       <ThreadSwitcher.Prev onclick={() => threadManager.goToPreviousSibling()} />
+ *       <ThreadSwitcher.Position />
+ *       <ThreadSwitcher.Next onclick={() => threadManager.goToNextSibling()} />
  *     {/if}
  *   {/snippet}
- * </BranchSwitcher.Root>
+ * </ThreadSwitcher.Root>
  * ```
  */
 
 export * from './exports.ts';
 
 export {
-	BranchSwitcherRootState,
-	BranchSwitcherPrevState,
-	BranchSwitcherNextState,
-	BranchSwitcherPositionState,
-	branchSwitcherAttrs,
-} from './branch-switcher.svelte.js';
+	ThreadSwitcherRootState,
+	ThreadSwitcherPrevState,
+	ThreadSwitcherNextState,
+	ThreadSwitcherPositionState,
+	threadSwitcherAttrs,
+} from './thread-switcher.svelte.js';
 
 export type * from './types.js';

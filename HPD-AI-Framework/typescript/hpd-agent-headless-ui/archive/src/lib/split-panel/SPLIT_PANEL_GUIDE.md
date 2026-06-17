@@ -673,7 +673,7 @@ This is a headless UI library - you provide all styling. Components expose data 
 | Selector | Description |
 |----------|-------------|
 | `[data-split-panel-root]` | Root container |
-| `[data-split-panel-split]` | Split containers (branches) |
+| `[data-split-panel-split]` | Split containers (threads) |
 | `[data-split-panel-pane]` | Pane containers (leaves) |
 | `[data-split-panel-handle]` | Resize handles |
 | `[data-orientation="horizontal"]` | Horizontal split/handle |

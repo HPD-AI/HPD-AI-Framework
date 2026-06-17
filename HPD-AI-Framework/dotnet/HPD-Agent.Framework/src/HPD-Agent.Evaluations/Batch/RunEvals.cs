@@ -360,7 +360,7 @@ public static class RunEvals
                 Source = EvaluationSource.Test,
                 AgentName = turnCtx.AgentName,
                 SessionId = turnCtx.SessionId,
-                BranchId = turnCtx.BranchId,
+                ThreadId = turnCtx.ThreadId,
                 TurnIndex = turnCtx.TurnIndex,
                 ProviderKey = turnCtx.ProviderKey,
                 ModelId = turnCtx.ModelId,
@@ -483,7 +483,7 @@ public static class RunEvals
                 Result = result,
                 Source = EvaluationSource.Test,
                 SessionId = turnCtx.SessionId,
-                BranchId = turnCtx.BranchId,
+                ThreadId = turnCtx.ThreadId,
                 TurnIndex = turnCtx.TurnIndex,
                 AgentName = turnCtx.AgentName,
                 ProviderKey = turnCtx.ProviderKey,
@@ -541,9 +541,9 @@ public static class RunEvals
         {
             AgentName = string.IsNullOrWhiteSpace(source.AgentName) ? fallbackAgentName : source.AgentName,
             // Batch identity intentionally wins here: score storage groups batch
-            // results by experiment/case through SessionId and BranchId.
+            // results by experiment/case through SessionId and ThreadId.
             SessionId = experimentName ?? "eval",
-            BranchId = caseName,
+            ThreadId = caseName,
             ConversationId = caseName,
             TurnIndex = source.TurnIndex,
             UserInput = string.IsNullOrEmpty(source.UserInput) ? userInput : source.UserInput,
@@ -588,8 +588,8 @@ public static class RunEvals
 
         if (!string.IsNullOrWhiteSpace(source.SessionId))
             attributes.TryAdd("source_session_id", source.SessionId);
-        if (!string.IsNullOrWhiteSpace(source.BranchId))
-            attributes.TryAdd("source_branch_id", source.BranchId);
+        if (!string.IsNullOrWhiteSpace(source.ThreadId))
+            attributes.TryAdd("source_thread_id", source.ThreadId);
         if (!string.IsNullOrWhiteSpace(source.ConversationId))
             attributes.TryAdd("source_conversation_id", source.ConversationId);
 

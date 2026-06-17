@@ -246,7 +246,7 @@ internal static class ReflectionToolFactory
                     await agent.RunAsync(new UserTextInputEvent(query)
                     {
                         SessionId = route.SessionId,
-                        BranchId = route.BranchId
+                        ThreadId = route.ThreadId
                     }, cancellationToken).ConfigureAwait(false);
 
                     SubAgentRuntime.MarkCompleted(functionContext, route);
@@ -271,7 +271,7 @@ internal static class ReflectionToolFactory
                     ["CapabilityType"] = "SubAgent",
                     ["IsContainer"] = false,
                     ["IsSubAgent"] = true,
-                    ["ExecutionModel"] = "BranchNative",
+                    ["ExecutionModel"] = "ThreadNative",
                     ["ParentToolHarness"] = method.DeclaringType?.Name,
                     ["RequiresPermission"] = true
                 }

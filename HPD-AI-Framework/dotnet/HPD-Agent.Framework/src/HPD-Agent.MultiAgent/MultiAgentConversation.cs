@@ -6,7 +6,7 @@ using Microsoft.Extensions.AI;
 namespace HPD.MultiAgent;
 
 /// <summary>
-/// Determines how a multi-agent workflow writes node agent transcripts into HPD sessions and branches.
+/// Determines how a multi-agent workflow writes node agent transcripts into HPD sessions and threads.
 /// </summary>
 public enum MultiAgentConversationMode
 {
@@ -16,19 +16,19 @@ public enum MultiAgentConversationMode
     None,
 
     /// <summary>
-    /// Route every node agent turn into one shared workflow branch.
+    /// Route every node agent turn into one shared workflow thread.
     /// </summary>
-    SharedWorkflowBranch,
+    SharedWorkflowThread,
 
     /// <summary>
-    /// Route each node agent into a stable branch inside one workflow session.
+    /// Route each node agent into a stable thread inside one workflow session.
     /// </summary>
-    BranchPerAgent,
+    ThreadPerAgent,
 
     /// <summary>
-    /// Fork one branch per node agent from a shared workflow root branch.
+    /// Fork one thread per node agent from a shared workflow root thread.
     /// </summary>
-    ForkBranchPerAgent
+    ForkThreadPerAgent
 }
 
 /// <summary>
@@ -47,14 +47,14 @@ public sealed record MultiAgentConversationConfig
     public string? SessionId { get; init; }
 
     /// <summary>
-    /// Root branch id used by shared and forked policies.
+    /// Root thread id used by shared and forked policies.
     /// </summary>
-    public string RootBranchId { get; init; } = "workflow";
+    public string RootThreadId { get; init; } = "workflow";
 
     /// <summary>
-    /// Prefix used when creating per-agent branches.
+    /// Prefix used when creating per-agent threads.
     /// </summary>
-    public string BranchPrefix { get; init; } = "workflow-agent";
+    public string ThreadPrefix { get; init; } = "workflow-agent";
 }
 
 /// <summary>
@@ -64,40 +64,40 @@ public static class MultiAgentConversationPolicies
 {
     public static MultiAgentConversationConfig None() => new();
 
-    public static MultiAgentConversationConfig SharedWorkflowBranch(
+    public static MultiAgentConversationConfig SharedWorkflowThread(
         string? sessionId = null,
-        string rootBranchId = "workflow") =>
+        string rootThreadId = "workflow") =>
         new()
         {
-            Mode = MultiAgentConversationMode.SharedWorkflowBranch,
+            Mode = MultiAgentConversationMode.SharedWorkflowThread,
             SessionId = sessionId,
-            RootBranchId = rootBranchId
+            RootThreadId = rootThreadId
         };
 
-    public static MultiAgentConversationConfig BranchPerAgent(
+    public static MultiAgentConversationConfig ThreadPerAgent(
         string? sessionId = null,
-        string branchPrefix = "workflow-agent") =>
+        string threadPrefix = "workflow-agent") =>
         new()
         {
-            Mode = MultiAgentConversationMode.BranchPerAgent,
+            Mode = MultiAgentConversationMode.ThreadPerAgent,
             SessionId = sessionId,
-            BranchPrefix = branchPrefix
+            ThreadPrefix = threadPrefix
         };
 
-    public static MultiAgentConversationConfig ForkBranchPerAgent(
+    public static MultiAgentConversationConfig ForkThreadPerAgent(
         string? sessionId = null,
-        string rootBranchId = "workflow",
-        string branchPrefix = "workflow-agent") =>
+        string rootThreadId = "workflow",
+        string threadPrefix = "workflow-agent") =>
         new()
         {
-            Mode = MultiAgentConversationMode.ForkBranchPerAgent,
+            Mode = MultiAgentConversationMode.ForkThreadPerAgent,
             SessionId = sessionId,
-            RootBranchId = rootBranchId,
-            BranchPrefix = branchPrefix
+            RootThreadId = rootThreadId,
+            ThreadPrefix = threadPrefix
         };
 }
 
-public sealed record MultiAgentConversationRoute(string? SessionId, string? BranchId);
+public sealed record MultiAgentConversationRoute(string? SessionId, string? ThreadId);
 
 public sealed record MultiAgentConversationContext(
     string WorkflowExecutionId,
@@ -172,7 +172,7 @@ internal sealed class MultiAgentConversationRuntime : IMultiAgentConversationRun
             ? $"workflow-{Normalize(workflowName)}-{Normalize(executionId)}"
             : config.SessionId!;
         _sessionSetup = new Lazy<Task>(() => EnsureSessionAsync(CancellationToken.None));
-        _rootSetup = new Lazy<Task<string>>(() => EnsureRootBranchAsync(CancellationToken.None));
+        _rootSetup = new Lazy<Task<string>>(() => EnsureRootThreadAsync(CancellationToken.None));
     }
 
     public ValueTask<MultiAgentConversationRoute> ResolveRouteAsync(
@@ -196,12 +196,12 @@ internal sealed class MultiAgentConversationRuntime : IMultiAgentConversationRun
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(route.SessionId) ||
-            string.IsNullOrWhiteSpace(route.BranchId))
+            string.IsNullOrWhiteSpace(route.ThreadId))
         {
             return NoopRouteLease.Instance;
         }
 
-        var key = $"{route.SessionId}:{route.BranchId}";
+        var key = $"{route.SessionId}:{route.ThreadId}";
         var gate = _routeLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         return new SemaphoreRouteLease(gate);
@@ -215,18 +215,18 @@ internal sealed class MultiAgentConversationRuntime : IMultiAgentConversationRun
 
         return _config.Mode switch
         {
-            MultiAgentConversationMode.SharedWorkflowBranch =>
+            MultiAgentConversationMode.SharedWorkflowThread =>
                 new MultiAgentConversationRoute(_sessionId, await _rootSetup.Value.ConfigureAwait(false)),
 
-            MultiAgentConversationMode.BranchPerAgent =>
+            MultiAgentConversationMode.ThreadPerAgent =>
                 new MultiAgentConversationRoute(
                     _sessionId,
-                    await EnsureAgentBranchAsync(context, forkFromRoot: false, cancellationToken).ConfigureAwait(false)),
+                    await EnsureAgentThreadAsync(context, forkFromRoot: false, cancellationToken).ConfigureAwait(false)),
 
-            MultiAgentConversationMode.ForkBranchPerAgent =>
+            MultiAgentConversationMode.ForkThreadPerAgent =>
                 new MultiAgentConversationRoute(
                     _sessionId,
-                    await EnsureAgentBranchAsync(context, forkFromRoot: true, cancellationToken).ConfigureAwait(false)),
+                    await EnsureAgentThreadAsync(context, forkFromRoot: true, cancellationToken).ConfigureAwait(false)),
 
             _ => new MultiAgentConversationRoute(null, null)
         };
@@ -252,97 +252,97 @@ internal sealed class MultiAgentConversationRuntime : IMultiAgentConversationRun
             cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<string> EnsureRootBranchAsync(CancellationToken cancellationToken)
+    private async Task<string> EnsureRootThreadAsync(CancellationToken cancellationToken)
     {
         await _sessionSetup.Value.ConfigureAwait(false);
 
-        var rootBranchId = NormalizeBranchId(_config.RootBranchId);
-        var branch = await _store.LoadBranchAsync(_sessionId, rootBranchId, cancellationToken).ConfigureAwait(false);
-        if (branch == null)
+        var rootThreadId = NormalizeThreadId(_config.RootThreadId);
+        var thread = await _store.LoadThreadAsync(_sessionId, rootThreadId, cancellationToken).ConfigureAwait(false);
+        if (thread == null)
         {
             var bootstrap = new Agent.Agent(new AgentConfig { Name = "MultiAgentConversationBootstrap" }, null, null);
             bootstrap.Config!.SessionStore = _store;
             bootstrap.Config.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = true };
-            await bootstrap.CreateBranchAsync(_sessionId, rootBranchId, "Workflow", cancellationToken).ConfigureAwait(false);
-            branch = await _store.LoadBranchAsync(_sessionId, rootBranchId, cancellationToken).ConfigureAwait(false);
+            await bootstrap.CreateThreadAsync(_sessionId, rootThreadId, "Workflow", cancellationToken).ConfigureAwait(false);
+            thread = await _store.LoadThreadAsync(_sessionId, rootThreadId, cancellationToken).ConfigureAwait(false);
         }
 
-        if (branch != null)
+        if (thread != null)
         {
-            ApplyWorkflowMetadata(branch, nodeId: null, agent: null);
+            ApplyWorkflowMetadata(thread, nodeId: null, agent: null);
 
-            if (_config.Mode == MultiAgentConversationMode.ForkBranchPerAgent && branch.Messages.Count == 0)
+            if (_config.Mode == MultiAgentConversationMode.ForkThreadPerAgent && thread.Messages.Count == 0)
             {
-                branch.AddMessage(new ChatMessage(ChatRole.User, _originalInput)
+                thread.AddMessage(new ChatMessage(ChatRole.User, _originalInput)
                 {
                     MessageId = $"workflow-input-{Normalize(_executionId)}"
                 });
             }
 
-            await _store.SaveInitialBranchAsync(_sessionId, branch, cancellationToken).ConfigureAwait(false);
+            await _store.SaveInitialThreadAsync(_sessionId, thread, cancellationToken).ConfigureAwait(false);
         }
 
-        return rootBranchId;
+        return rootThreadId;
     }
 
-    private async Task<string> EnsureAgentBranchAsync(
+    private async Task<string> EnsureAgentThreadAsync(
         MultiAgentConversationContext context,
         bool forkFromRoot,
         CancellationToken cancellationToken)
     {
-        var branchId = BuildAgentBranchId(context.NodeId);
-        var existing = await _store.LoadBranchAsync(_sessionId, branchId, cancellationToken).ConfigureAwait(false);
+        var threadId = BuildAgentThreadId(context.NodeId);
+        var existing = await _store.LoadThreadAsync(_sessionId, threadId, cancellationToken).ConfigureAwait(false);
         if (existing != null)
         {
-            return branchId;
+            return threadId;
         }
 
         if (forkFromRoot)
         {
-            var rootBranchId = await _rootSetup.Value.ConfigureAwait(false);
-            var root = await _store.LoadBranchAsync(_sessionId, rootBranchId, cancellationToken).ConfigureAwait(false)
-                ?? throw new InvalidOperationException($"Workflow root branch '{rootBranchId}' was not found.");
+            var rootThreadId = await _rootSetup.Value.ConfigureAwait(false);
+            var root = await _store.LoadThreadAsync(_sessionId, rootThreadId, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"Workflow root thread '{rootThreadId}' was not found.");
             var forkPoint = root.Messages.LastOrDefault()?.MessageId
-                ?? throw new InvalidOperationException($"Workflow root branch '{rootBranchId}' has no message to fork from.");
+                ?? throw new InvalidOperationException($"Workflow root thread '{rootThreadId}' has no message to fork from.");
 
-            await context.Agent.ForkBranchAsync(
+            await context.Agent.ForkThreadAsync(
                 _sessionId,
-                rootBranchId,
-                branchId,
+                rootThreadId,
+                threadId,
                 forkPoint,
-                BuildBranchMetadata(context.NodeId, context.Agent),
+                BuildThreadMetadata(context.NodeId, context.Agent),
                 cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            await context.Agent.CreateBranchAsync(
+            await context.Agent.CreateThreadAsync(
                 _sessionId,
-                branchId,
+                threadId,
                 context.NodeId,
                 cancellationToken).ConfigureAwait(false);
         }
 
-        var branch = await _store.LoadBranchAsync(_sessionId, branchId, cancellationToken).ConfigureAwait(false);
-        if (branch != null)
+        var thread = await _store.LoadThreadAsync(_sessionId, threadId, cancellationToken).ConfigureAwait(false);
+        if (thread != null)
         {
-            ApplyWorkflowMetadata(branch, context.NodeId, context.Agent);
-            await _store.SaveInitialBranchAsync(_sessionId, branch, cancellationToken).ConfigureAwait(false);
+            ApplyWorkflowMetadata(thread, context.NodeId, context.Agent);
+            await _store.SaveInitialThreadAsync(_sessionId, thread, cancellationToken).ConfigureAwait(false);
         }
 
-        return branchId;
+        return threadId;
     }
 
-    private string BuildAgentBranchId(string nodeId)
+    private string BuildAgentThreadId(string nodeId)
     {
-        var prefix = NormalizeBranchId(_config.BranchPrefix);
+        var prefix = NormalizeThreadId(_config.ThreadPrefix);
         return $"{prefix}-{Normalize(_executionId)}-{Normalize(nodeId)}";
     }
 
-    private void ApplyWorkflowMetadata(Branch branch, string? nodeId, Agent.Agent? agent)
+    private void ApplyWorkflowMetadata(HPD.Agent.Thread thread, string? nodeId, Agent.Agent? agent)
     {
-        foreach (var kvp in BuildBranchMetadata(nodeId, agent))
+        foreach (var kvp in BuildThreadMetadata(nodeId, agent))
         {
-            branch.Metadata[kvp.Key] = kvp.Value;
+            thread.Metadata[kvp.Key] = kvp.Value;
         }
     }
 
@@ -363,13 +363,13 @@ internal sealed class MultiAgentConversationRuntime : IMultiAgentConversationRun
             ["workflowName"] = _workflowName,
             ["workflowExecutionId"] = _executionId,
             ["conversationMode"] = _config.Mode.ToString(),
-            ["rootBranchId"] = NormalizeBranchId(_config.RootBranchId),
-            ["branchPrefix"] = NormalizeBranchId(_config.BranchPrefix),
+            ["rootThreadId"] = NormalizeThreadId(_config.RootThreadId),
+            ["threadPrefix"] = NormalizeThreadId(_config.ThreadPrefix),
             ["createdBy"] = "multi-agent"
         };
     }
 
-    private Dictionary<string, object> BuildBranchMetadata(string? nodeId, Agent.Agent? agent)
+    private Dictionary<string, object> BuildThreadMetadata(string? nodeId, Agent.Agent? agent)
     {
         var metadata = new Dictionary<string, object>(StringComparer.Ordinal)
         {
@@ -395,7 +395,7 @@ internal sealed class MultiAgentConversationRuntime : IMultiAgentConversationRun
         return metadata;
     }
 
-    private static string NormalizeBranchId(string value)
+    private static string NormalizeThreadId(string value)
     {
         var normalized = Normalize(value);
         return string.IsNullOrWhiteSpace(normalized) ? "workflow" : normalized;

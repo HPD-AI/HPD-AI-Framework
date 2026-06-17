@@ -95,8 +95,8 @@ export interface CreateAgentOptions {
 	/** Session ID (optional, will be generated if not provided) */
 	sessionId?: string;
 
-	/** Branch ID (default: 'main') */
-	branchId?: string;
+	/** Thread ID (default: 'main') */
+	threadId?: string;
 
 	/** Transport type (default: 'sse') */
 	transport?: 'sse' | 'websocket';

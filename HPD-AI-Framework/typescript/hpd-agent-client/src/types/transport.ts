@@ -6,8 +6,8 @@ import type { AgentEvent, AgentRunInputEvent, RespondResult } from './events.js'
 export interface RuntimeScope {
   /** Session ID for scoped transports */
   sessionId?: string;
-  /** Branch ID for scoped transports (default: 'main') */
-  branchId?: string;
+  /** Thread ID for scoped transports (default: 'main') */
+  threadId?: string;
   /** Optional AbortSignal for cancellation */
   signal?: AbortSignal;
   /** Agent definition ID to run when the input event omits agentId */
@@ -21,7 +21,7 @@ export interface RunTransportOptions {
 /**
  * Abstract runtime transport interface.
  * Implementations handle only event streaming and request-session runtime input.
- * HTTP resources such as sessions, branches, agents, evals, and contents are owned
+ * HTTP resources such as sessions, threads, agents, evals, and contents are owned
  * by AgentHttpApi rather than duplicated by every transport.
  */
 export interface AgentTransport {

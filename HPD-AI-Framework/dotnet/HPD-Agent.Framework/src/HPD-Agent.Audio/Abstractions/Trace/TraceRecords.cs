@@ -50,11 +50,11 @@ public sealed record AudioLedgerTraceRecord : RealtimeAudioTraceRecord
     public required LedgerRecordFamily LedgerFamily { get; init; }
 }
 
-public sealed record AudioBranchProjectionTraceRecord : RealtimeAudioTraceRecord
+public sealed record AudioThreadProjectionTraceRecord : RealtimeAudioTraceRecord
 {
-    public required BranchProjectionId ProjectionId { get; init; }
+    public required ThreadProjectionId ProjectionId { get; init; }
 
-    public BranchProjectedEventRef? ProjectedEvent { get; init; }
+    public ThreadProjectedEventRef? ProjectedEvent { get; init; }
 }
 
 public sealed record AudioAssistantOutputTraceRecord : RealtimeAudioTraceRecord

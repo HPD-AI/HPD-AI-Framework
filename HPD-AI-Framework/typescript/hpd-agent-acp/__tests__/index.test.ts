@@ -72,9 +72,9 @@ function makeBridge(clientOverrides: Partial<MockClient> = {}) {
 
 type MockClient = {
   createSession: ReturnType<typeof vi.fn>;
-  createBranch:  ReturnType<typeof vi.fn>;
-  listBranches:  ReturnType<typeof vi.fn>;
-  getBranchMessages: ReturnType<typeof vi.fn>;
+  createThread:  ReturnType<typeof vi.fn>;
+  listThreads:  ReturnType<typeof vi.fn>;
+  getThreadMessages: ReturnType<typeof vi.fn>;
   stream?:       ReturnType<typeof vi.fn>;
   run:           ReturnType<typeof vi.fn>;
   on:            ReturnType<typeof vi.fn>;
@@ -110,7 +110,7 @@ function makeMockClient(overrides: Partial<MockClient> = {}): MockClient {
     if (overrides.stream) {
       return overrides.stream(
         input.sessionId,
-        input.branchId,
+        input.threadId,
         [{ role: 'user', content: input.text }],
         {
           onEvent: emit,
@@ -133,9 +133,9 @@ function makeMockClient(overrides: Partial<MockClient> = {}): MockClient {
 
   return {
     createSession:    overrides.createSession    ?? vi.fn().mockResolvedValue({ id: 'hpd-sess-1', createdAt: '', lastActivity: '', metadata: {} }),
-    createBranch:     overrides.createBranch     ?? vi.fn().mockResolvedValue({ id: 'hpd-branch-1', sessionId: 'hpd-sess-1' }),
-    listBranches:     overrides.listBranches     ?? vi.fn().mockResolvedValue([{ id: 'hpd-branch-1', sessionId: 'hpd-sess-1' }]),
-    getBranchMessages: overrides.getBranchMessages ?? vi.fn().mockResolvedValue([]),
+    createThread:     overrides.createThread     ?? vi.fn().mockResolvedValue({ id: 'hpd-thread-1', sessionId: 'hpd-sess-1' }),
+    listThreads:     overrides.listThreads     ?? vi.fn().mockResolvedValue([{ id: 'hpd-thread-1', sessionId: 'hpd-sess-1' }]),
+    getThreadMessages: overrides.getThreadMessages ?? vi.fn().mockResolvedValue([]),
     stream:           overrides.stream,
     run,
     on,
@@ -222,7 +222,7 @@ describe('createBridge — authenticate', () => {
 });
 
 describe('createBridge — session/new', () => {
-  it('creates HPD session+branch and returns stable sessionId', async () => {
+  it('creates HPD session+thread and returns stable sessionId', async () => {
     const { send, waitFor, client } = makeBridge();
     send(sessionNewMsg(2));
 
@@ -230,7 +230,7 @@ describe('createBridge — session/new', () => {
     expect(msg.id).toBe(2);
     expect(msg.result.sessionId).toBe('hpd-sess-1');
     expect(client.createSession).toHaveBeenCalledOnce();
-    expect(client.createBranch).toHaveBeenCalledWith('hpd-sess-1');
+    expect(client.createThread).toHaveBeenCalledWith('hpd-sess-1');
   });
 
   it('acpSessionId equals hpdSessionId in registry', async () => {
@@ -258,7 +258,7 @@ describe('createBridge — session/load', () => {
 
   it('replays history as session/update notifications before responding', async () => {
     const client = makeMockClient({
-      getBranchMessages: vi.fn().mockResolvedValue([
+      getThreadMessages: vi.fn().mockResolvedValue([
         { id: 'm1', role: 'user',      contents: [{ $type: 'text', text: 'hi' }],    timestamp: '' },
         { id: 'm2', role: 'assistant', contents: [{ $type: 'text', text: 'hello' }], timestamp: '' },
       ]),
@@ -279,18 +279,18 @@ describe('createBridge — session/load', () => {
     expect(notifications[1].params.update.content.text).toBe('hello');
   });
 
-  it('fetches branches from HPD on bridge restart (unknown session)', async () => {
+  it('fetches threads from HPD on bridge restart (unknown session)', async () => {
     const { send, waitFor, client } = makeBridge();
     send(sessionLoadMsg(3, 'hpd-sess-1'));
 
     const msgs = await waitFor(1) as any[];
-    expect(client.listBranches).toHaveBeenCalledWith('hpd-sess-1');
+    expect(client.listThreads).toHaveBeenCalledWith('hpd-sess-1');
     expect(msgs[0].result).toBeNull();
   });
 
-  it('returns ResourceNotFound error when listBranches returns empty', async () => {
+  it('returns ResourceNotFound error when listThreads returns empty', async () => {
     const { send, waitFor } = makeBridge({
-      listBranches: vi.fn().mockResolvedValue([]),
+      listThreads: vi.fn().mockResolvedValue([]),
     });
     send(sessionLoadMsg(3, 'unknown-sess'));
 

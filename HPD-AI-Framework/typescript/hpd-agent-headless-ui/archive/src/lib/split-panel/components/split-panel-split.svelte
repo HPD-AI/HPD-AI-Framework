@@ -2,7 +2,7 @@
 	SplitPanel.Split Component
 
 	Split container that arranges children along an axis (horizontal/vertical).
-	Represents a BranchNode in the layout tree. Enables declarative nested layouts.
+	Represents a ThreadNode in the layout tree. Enables declarative nested layouts.
 
 	Usage:
 		<SplitPanel.Split axis="horizontal">

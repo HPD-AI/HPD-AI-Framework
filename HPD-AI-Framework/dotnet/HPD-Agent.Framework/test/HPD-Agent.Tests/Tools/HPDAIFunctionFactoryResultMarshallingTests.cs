@@ -243,14 +243,14 @@ public class HPDAIFunctionFactoryResultMarshallingTests
     {
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
         var session = new global::HPD.Agent.Session("session-1");
-        var branch = new global::HPD.Agent.Branch("session-1") { Id = "branch-1" };
+        var thread = new global::HPD.Agent.Thread("session-1") { Id = "thread-1" };
         var agentContext = new AgentContext(
             "AgentA",
             "conversation-1",
             state,
             new EventCoordinator(),
             session,
-            branch,
+            thread,
             CancellationToken.None);
         var beforeContext = agentContext.AsBeforeFunction(
             function,

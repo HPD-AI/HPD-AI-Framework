@@ -35,7 +35,7 @@ public sealed class AudioRuntimeAttachmentOptions
 
     public Func<IInputContentSourceResolver, IAudioInteractionSessionFactory>? InteractionSessionFactoryResolver { get; set; }
 
-    public IBranchProjectionSink? BranchProjectionSink { get; set; }
+    public IThreadProjectionSink? ThreadProjectionSink { get; set; }
 
     public AssistantOutputSynthesisMode AssistantOutputSynthesisMode { get; set; }
 

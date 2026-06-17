@@ -7,7 +7,7 @@
 		state: externalState,
 		client,
 		sessionId = null,
-		branchId = null,
+		threadId = null,
 		disabled = false,
 		class: className,
 		child,
@@ -23,7 +23,7 @@
 			return (sid: string, bid: string, file: File) => client.uploadContent(sid, bid, file);
 		}),
 		sessionId: boxWith(() => sessionId ?? null),
-		branchId: boxWith(() => branchId ?? null),
+		threadId: boxWith(() => threadId ?? null),
 		disabled: boxWith(() => disabled),
 	});
 	const state = $derived(externalState ?? internalState);

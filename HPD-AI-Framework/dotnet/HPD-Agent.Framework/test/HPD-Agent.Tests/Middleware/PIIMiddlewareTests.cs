@@ -36,7 +36,7 @@ public class PIIMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // Assert
-        var processed = context.BranchHistory.Single();
+        var processed = context.ThreadHistory.Single();
         Assert.Contains("[EMAIL_REDACTED]", processed.Text);
         Assert.DoesNotContain("john.doe@example.com", processed.Text);
     }
@@ -61,7 +61,7 @@ public class PIIMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // Assert
-        var processed = context.BranchHistory.Single();
+        var processed = context.ThreadHistory.Single();
         // Should show first char, mask middle, keep @domain
         Assert.Contains("j***@example.com", processed.Text);
     }
@@ -93,8 +93,8 @@ public class PIIMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context2, CancellationToken.None);
 
         // Assert - same email should produce same hash
-        var hash1 = context1.BranchHistory.Single().Text;
-        var hash2 = context2.BranchHistory.Single().Text;
+        var hash1 = context1.ThreadHistory.Single().Text;
+        var hash2 = context2.ThreadHistory.Single().Text;
         Assert.Equal(hash1, hash2);
         Assert.Contains("<email_hash:", hash1);
     }
@@ -119,7 +119,7 @@ public class PIIMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // Assert
-        var processed = context.BranchHistory.Single().Text!;
+        var processed = context.ThreadHistory.Single().Text!;
         Assert.DoesNotContain("@", processed);
         Assert.Equal(2, CountOccurrences(processed, "[EMAIL_REDACTED]"));
     }
@@ -172,7 +172,7 @@ public class PIIMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // Assert
-        var processed = context.BranchHistory.Single().Text!;
+        var processed = context.ThreadHistory.Single().Text!;
         Assert.Contains("***", processed);
         Assert.Contains("1111", processed); // Should keep last 4 digits
     }
@@ -198,7 +198,7 @@ public class PIIMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // Assert - message should pass through unchanged
-        var processed = context.BranchHistory.Single().Text!;
+        var processed = context.ThreadHistory.Single().Text!;
         Assert.Contains("1234567890123456", processed);
     }
 
@@ -249,7 +249,7 @@ public class PIIMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // Assert
-        var processed = context.BranchHistory.Single().Text!;
+        var processed = context.ThreadHistory.Single().Text!;
         Assert.Contains("[SSN_REDACTED]", processed);
         Assert.DoesNotContain("123-45-6789", processed);
     }
@@ -278,7 +278,7 @@ public class PIIMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // Assert
-        var processed = context.BranchHistory.Single().Text!;
+        var processed = context.ThreadHistory.Single().Text!;
         Assert.Contains("***", processed);
         Assert.Contains("4567", processed); // Should keep last 4 digits
     }
@@ -307,7 +307,7 @@ public class PIIMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // Assert
-        var processed = context.BranchHistory.Single().Text!;
+        var processed = context.ThreadHistory.Single().Text!;
         Assert.DoesNotContain("192.168.1.1", processed);
         Assert.Contains("<ipaddress_hash:", processed);
     }
@@ -336,7 +336,7 @@ public class PIIMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // Assert
-        var processed = context.BranchHistory.Single().Text!;
+        var processed = context.ThreadHistory.Single().Text!;
         Assert.Contains("test@test.com", processed);
     }
 
@@ -365,7 +365,7 @@ public class PIIMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // Assert
-        var processed = context.BranchHistory.Single().Text!;
+        var processed = context.ThreadHistory.Single().Text!;
         Assert.Contains("[EMPLOYEEID_REDACTED]", processed);
         Assert.DoesNotContain("EMP-123456", processed);
     }
@@ -411,7 +411,7 @@ public class PIIMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // Assert - message should pass through
-        var processed = context.BranchHistory.Single().Text!;
+        var processed = context.ThreadHistory.Single().Text!;
         Assert.Contains("test@test.com", processed);
     }
 
@@ -512,7 +512,7 @@ public class PIIMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // Assert
-        var processed = context.BranchHistory.Single().Text!;
+        var processed = context.ThreadHistory.Single().Text!;
         if (expectedValid)
         {
             Assert.Contains("[CREDITCARD_REDACTED]", processed);
@@ -541,7 +541,7 @@ public class PIIMiddlewareTests
             state,
             new HPD.Events.Core.EventCoordinator(),
             new global::HPD.Agent.Session("test-session"),
-            new global::HPD.Agent.Branch("test-session"),
+            new global::HPD.Agent.Thread("test-session"),
             CancellationToken.None);
 
         // PIIMiddleware uses BeforeMessageTurnAsync, so create the appropriate context
@@ -578,7 +578,7 @@ public class PIIMiddlewareTests
             agentState,
             new HPD.Events.Core.EventCoordinator(),
             new global::HPD.Agent.Session("test-session"),
-            new global::HPD.Agent.Branch("test-session"),
+            new global::HPD.Agent.Thread("test-session"),
             CancellationToken.None);
     }
 

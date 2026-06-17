@@ -31,7 +31,7 @@ namespace HPD.Agent.Planning;
 ///
 /// <para><b>Session Persistence:</b></para>
 /// <para>
-/// Plans are automatically saved to Branch.MiddlewareState at the end of each run
+/// Plans are automatically saved to Thread.MiddlewareState at the end of each run
 /// and restored at agent start via LoadFromSession/SaveToSession (source-generated).
 /// </para>
 /// </remarks>
@@ -119,13 +119,13 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
         {
             new ChatMessage(ChatRole.System, planPrompt)
         };
-        messagesWithPlan.AddRange(context.BranchHistory);
+        messagesWithPlan.AddRange(context.ThreadHistory);
 
-        // V2: BranchHistory is mutable - replace content
-        context.BranchHistory.Clear();
+        // V2: ThreadHistory is mutable - replace content
+        context.ThreadHistory.Clear();
         foreach (var msg in messagesWithPlan)
         {
-            context.BranchHistory.Add(msg);
+            context.ThreadHistory.Add(msg);
         }
 
         _logger?.LogDebug(

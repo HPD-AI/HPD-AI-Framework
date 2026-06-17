@@ -21,7 +21,7 @@ internal static class MiddlewareResponseEndpoints
         IEndpointRouteBuilder endpoints,
         IAgentMiddlewareResponseService responses)
     {
-        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/responses", (string agentId, string sid, string bid, HttpRequest request, CancellationToken ct) =>
+        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/responses", (string agentId, string sid, string bid, HttpRequest request, CancellationToken ct) =>
                 Respond(agentId, sid, bid, request, responses, ct))
             .WithName("RespondToAgentRequest")
             .WithSummary("Respond to a request from the agent");

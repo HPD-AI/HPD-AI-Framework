@@ -21,7 +21,7 @@ public enum RealtimeAudioTraceRecordFamily
     InteractionUpdate = 3,
     TurnDecision = 4,
     Ledger = 5,
-    BranchProjection = 6,
+    ThreadProjection = 6,
     Clock = 7,
     Error = 8,
     AssistantOutput = 9,

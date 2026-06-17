@@ -26,19 +26,19 @@ function makeFile(name = 'test.png', type = 'image/png'): File {
 
 interface StateOpts {
 	sessionId?: string | null;
-	branchId?: string | null;
+	threadId?: string | null;
 	disabled?: boolean;
-	uploadFn?: (sessionId: string, branchId: string, file: File) => Promise<ContentReference>;
+	uploadFn?: (sessionId: string, threadId: string, file: File) => Promise<ContentReference>;
 }
 
 function makeState(opts: StateOpts = {}) {
 	const uploadFn = opts.uploadFn ?? vi.fn(async () => CONTENT);
 	const sessionId: string = 'sessionId' in opts ? (opts.sessionId as string) : 'sess-1';
-	const branchId: string = 'branchId' in opts ? (opts.branchId as string) : 'main';
+	const threadId: string = 'threadId' in opts ? (opts.threadId as string) : 'main';
 	const state = new FileAttachmentState({
 		uploadFn: boxWith(() => uploadFn),
 		sessionId: boxWith(() => sessionId),
-		branchId: boxWith(() => branchId),
+		threadId: boxWith(() => threadId),
 		disabled: boxWith(() => opts.disabled ?? false),
 	});
 	return { state, uploadFn: uploadFn as ReturnType<typeof vi.fn> };
@@ -122,10 +122,10 @@ describe('FileAttachmentState — add()', () => {
 		expect(state.hasAttachments).toBe(true);
 	});
 
-	it('passes sessionId and branchId to uploadFn', async () => {
-		const { state, uploadFn } = makeState({ sessionId: 'my-session', branchId: 'my-branch' });
+	it('passes sessionId and threadId to uploadFn', async () => {
+		const { state, uploadFn } = makeState({ sessionId: 'my-session', threadId: 'my-thread' });
 		await state.add([makeFile()]);
-		expect(uploadFn).toHaveBeenCalledWith('my-session', 'my-branch', expect.any(File));
+		expect(uploadFn).toHaveBeenCalledWith('my-session', 'my-thread', expect.any(File));
 	});
 
 	it('uploads files in parallel (uploadFn called once per file before any await)', async () => {

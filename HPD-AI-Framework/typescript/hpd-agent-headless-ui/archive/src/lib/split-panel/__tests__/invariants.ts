@@ -17,20 +17,20 @@ const FLEX_EPS = 1e-6;
  */
 export const invariants = {
 	/**
-	 * INV-1: Root is always a BranchNode.
+	 * INV-1: Root is always a ThreadNode.
 	 * Enforced in afterStructuralChange().
 	 */
-	rootIsBranch(state: SplitPanelState): boolean {
-		return state.root.type === 'branch';
+	rootIsThread(state: SplitPanelState): boolean {
+		return state.root.type === 'thread';
 	},
 
 	/**
 	 * INV-2: Active count matches flex sum rule.
-	 * For each branch: sum of active flexes === activeCount.
+	 * For each thread: sum of active flexes === activeCount.
 	 * Active means flex > FLEX_EPS.
 	 */
 	activeCountMatchesFlexSum(state: SplitPanelState): boolean {
-		const checkBranch = (node: LayoutNode): boolean => {
+		const checkThread = (node: LayoutNode): boolean => {
 			if (node.type === 'leaf') return true;
 
 			const activeCount = node.flexes.filter((f) => f > FLEX_EPS).length;
@@ -46,10 +46,10 @@ export const invariants = {
 			}
 
 			// Recursively check children
-			return node.children.every(checkBranch);
+			return node.children.every(checkThread);
 		};
 
-		return checkBranch(state.root);
+		return checkThread(state.root);
 	},
 
 	/**
@@ -71,7 +71,7 @@ export const invariants = {
 	 * A panel is collapsed iff its flex <= FLEX_EPS.
 	 */
 	collapsedMeansZeroFlex(state: SplitPanelState): boolean {
-		const checkBranch = (node: LayoutNode): boolean => {
+		const checkThread = (node: LayoutNode): boolean => {
 			if (node.type === 'leaf') return true;
 
 			for (let i = 0; i < node.children.length; i++) {
@@ -86,13 +86,13 @@ export const invariants = {
 				}
 
 				// Recurse
-				if (!checkBranch(child)) return false;
+				if (!checkThread(child)) return false;
 			}
 
 			return true;
 		};
 
-		return checkBranch(state.root);
+		return checkThread(state.root);
 	},
 
 	/**
@@ -101,7 +101,7 @@ export const invariants = {
 	 * This is a rendering invariant, checked via active children logic.
 	 */
 	handlesOnlyBetweenActive(state: SplitPanelState): boolean {
-		const checkBranch = (node: LayoutNode): boolean => {
+		const checkThread = (node: LayoutNode): boolean => {
 			if (node.type === 'leaf') return true;
 
 			// getActiveChildren should return consecutive pairs without gaps
@@ -115,27 +115,27 @@ export const invariants = {
 			// Handles exist between activeChildren[i] and activeChildren[i+1]
 			// This is correct by construction if we only render active children
 
-			return node.children.every(checkBranch);
+			return node.children.every(checkThread);
 		};
 
-		return checkBranch(state.root);
+		return checkThread(state.root);
 	},
 
 	/**
 	 * INV-6: Children array length matches flexes array length.
 	 */
 	childrenFlexesLengthMatch(state: SplitPanelState): boolean {
-		const checkBranch = (node: LayoutNode): boolean => {
+		const checkThread = (node: LayoutNode): boolean => {
 			if (node.type === 'leaf') return true;
 
 			if (node.children.length !== node.flexes.length) {
 				return false;
 			}
 
-			return node.children.every(checkBranch);
+			return node.children.every(checkThread);
 		};
 
-		return checkBranch(state.root);
+		return checkThread(state.root);
 	},
 
 	/**

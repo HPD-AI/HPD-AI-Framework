@@ -37,7 +37,7 @@ public static class HPDAgentEndpointRouteBuilderExtensions
     /// <remarks>
     /// Maps 20+ endpoints:
     /// - Session CRUD (Create, Search/List, Get, Update, Delete)
-    /// - Branch CRUD (List, Get, Create, Fork, Delete, Messages, Siblings)
+    /// - Thread CRUD (List, Get, Create, Fork, Delete, Messages, Siblings)
     /// - Content management (Upload, Download, List, Delete)
     /// - Streaming (SSE + WebSocket)
     /// - Middleware responses (Permissions, Client Tools)
@@ -72,10 +72,10 @@ public static class HPDAgentEndpointRouteBuilderExtensions
         // Map all endpoint groups
         if (options.MapSessions)
             SessionEndpoints.Map(routeGroup, hostingServices.Sessions);
-        if (options.MapBranches)
+        if (options.MapThreads)
         {
-            BranchEndpoints.Map(routeGroup, hostingServices.Branches);
-            BranchRunEndpoints.Map(routeGroup, hostingServices.BranchRuns);
+            ThreadEndpoints.Map(routeGroup, hostingServices.Threads);
+            ThreadRunEndpoints.Map(routeGroup, hostingServices.ThreadRuns);
         }
         if (options.MapContent)
             ContentEndpoints.Map(routeGroup, hostingServices.Content);

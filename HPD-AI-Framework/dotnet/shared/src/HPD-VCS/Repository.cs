@@ -175,7 +175,7 @@ public partial class Repository : IDisposable
         var initialViewData = new ViewData(
             workspaceCommitIds: new Dictionary<string, CommitId> { { "default", initialCommitId } },
             headCommitIds: new List<CommitId> { initialCommitId },
-            branches: new Dictionary<string, CommitId>()
+            threads: new Dictionary<string, CommitId>()
         );
 
         var initialViewId = await operationStore.WriteViewAsync(initialViewData);
@@ -424,23 +424,23 @@ public partial class Repository : IDisposable
             // For V1 implementation, we'll keep a simple filter - remove exact duplicates and basic checks
             newHeadCommits = await FilterHeadsAsync(newHeadCommits);
 
-            // Handle branch auto-advancement: move any branches that were pointing at the old commit
-            var newBranches = new Dictionary<string, CommitId>(_currentViewData.Branches);
+            // Handle thread auto-advancement: move any threads that were pointing at the old commit
+            var newThreads = new Dictionary<string, CommitId>(_currentViewData.Threads);
             if (oldWorkspaceCommitId.HasValue)
             {
-                // Find all branches that were pointing to the old commit and advance them
-                var branchesToAdvance = _currentViewData.Branches
+                // Find all threads that were pointing to the old commit and advance them
+                var threadsToAdvance = _currentViewData.Threads
                     .Where(kvp => kvp.Value.Equals(oldWorkspaceCommitId.Value))
                     .Select(kvp => kvp.Key)
                     .ToList();
 
-                foreach (var branchName in branchesToAdvance)
+                foreach (var threadName in threadsToAdvance)
                 {
-                    newBranches[branchName] = newCommitId;
+                    newThreads[threadName] = newCommitId;
                 }
             }
 
-            var newViewData = new ViewData(newWorkspaceCommits, newHeadCommits, newBranches);
+            var newViewData = new ViewData(newWorkspaceCommits, newHeadCommits, newThreads);
             var newViewId = await _operationStore.WriteViewAsync(newViewData);
 
             // opMeta: Timestamps, user/host from settings, description $"commit: {first line of message}".
@@ -548,7 +548,7 @@ public partial class Repository : IDisposable
             }            // Filter heads to remove any commit that is now an ancestor of another commit
             newHeadCommits = await FilterHeadsAsync(newHeadCommits);
 
-            var newViewData = new ViewData(newWorkspaceCommits, newHeadCommits, _currentViewData.Branches);
+            var newViewData = new ViewData(newWorkspaceCommits, newHeadCommits, _currentViewData.Threads);
             var newViewId = await _operationStore.WriteViewAsync(newViewData);
 
             // Step 6: Create operation metadata and data
@@ -1113,16 +1113,16 @@ public partial class Repository : IDisposable
     }
 
     /// <summary>
-    /// Creates a new branch pointing to the specified commit.
+    /// Creates a new thread pointing to the specified commit.
     /// /// </summary>
-    /// <param name="branchName">Name of the branch to create</param>
-    /// <param name="targetCommitId">Commit that the branch should point to</param>
+    /// <param name="threadName">Name of the thread to create</param>
+    /// <param name="targetCommitId">Commit that the thread should point to</param>
     /// <returns>Task representing the asynchronous operation</returns>
-    /// <exception cref="ArgumentException">Thrown when branch name is invalid or already exists</exception>
+    /// <exception cref="ArgumentException">Thrown when thread name is invalid or already exists</exception>
     /// <exception cref="InvalidOperationException">Thrown when target commit doesn't exist</exception>
-    public async Task CreateBranchAsync(string branchName, CommitId targetCommitId)
+    public async Task CreateThreadAsync(string threadName, CommitId targetCommitId)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchName, nameof(branchName));
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadName, nameof(threadName));
 
         using (FileLock.Acquire(_fileSystem, _lockFilePath))
         {
@@ -1133,22 +1133,22 @@ public partial class Repository : IDisposable
                 throw new InvalidOperationException($"Target commit {targetCommitId} does not exist.");
             }
 
-            // Check if branch already exists
-            if (_currentViewData.Branches.ContainsKey(branchName))
+            // Check if thread already exists
+            if (_currentViewData.Threads.ContainsKey(threadName))
             {
-                throw new ArgumentException($"Branch '{branchName}' already exists.", nameof(branchName));
+                throw new ArgumentException($"Thread '{threadName}' already exists.", nameof(threadName));
             }
 
-            // Create new view data with the new branch
-            var newBranches = new Dictionary<string, CommitId>(_currentViewData.Branches)
+            // Create new view data with the new thread
+            var newThreads = new Dictionary<string, CommitId>(_currentViewData.Threads)
             {
-                [branchName] = targetCommitId
+                [threadName] = targetCommitId
             };
 
             var newViewData = new ViewData(
                 workspaceCommitIds: _currentViewData.WorkspaceCommitIds,
                 headCommitIds: _currentViewData.HeadCommitIds,
-                branches: newBranches
+                threads: newThreads
             );
 
             var newViewId = await _operationStore.WriteViewAsync(newViewData);
@@ -1158,10 +1158,10 @@ public partial class Repository : IDisposable
             var operationMetadata = new OperationMetadata(
                 startTime: now,
                 endTime: now.AddMilliseconds(10),
-                description: $"create branch: {branchName}",
+                description: $"create thread: {threadName}",
                 username: "system", // TODO: Pass user settings if needed
                 hostname: Environment.MachineName,
-                tags: new Dictionary<string, string> { { "type", "create-branch" } }
+                tags: new Dictionary<string, string> { { "type", "create-thread" } }
             );
 
             var newOperationData = new OperationData(
@@ -1182,31 +1182,31 @@ public partial class Repository : IDisposable
     }
 
     /// <summary>
-    /// Deletes the specified branch.
+    /// Deletes the specified thread.
     /// </summary>
-    /// <param name="branchName">Name of the branch to delete</param>
+    /// <param name="threadName">Name of the thread to delete</param>
     /// <returns>Task representing the asynchronous operation</returns>
-    /// <exception cref="ArgumentException">Thrown when branch name is invalid or doesn't exist</exception>
-    public async Task DeleteBranchAsync(string branchName)
+    /// <exception cref="ArgumentException">Thrown when thread name is invalid or doesn't exist</exception>
+    public async Task DeleteThreadAsync(string threadName)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchName, nameof(branchName));
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadName, nameof(threadName));
 
         using (FileLock.Acquire(_fileSystem, _lockFilePath))
         {
-            // Check if branch exists
-            if (!_currentViewData.Branches.ContainsKey(branchName))
+            // Check if thread exists
+            if (!_currentViewData.Threads.ContainsKey(threadName))
             {
-                throw new ArgumentException($"Branch '{branchName}' does not exist.", nameof(branchName));
+                throw new ArgumentException($"Thread '{threadName}' does not exist.", nameof(threadName));
             }
 
-            // Create new view data without the branch
-            var newBranches = new Dictionary<string, CommitId>(_currentViewData.Branches);
-            newBranches.Remove(branchName);
+            // Create new view data without the thread
+            var newThreads = new Dictionary<string, CommitId>(_currentViewData.Threads);
+            newThreads.Remove(threadName);
 
             var newViewData = new ViewData(
                 workspaceCommitIds: _currentViewData.WorkspaceCommitIds,
                 headCommitIds: _currentViewData.HeadCommitIds,
-                branches: newBranches
+                threads: newThreads
             );
 
             var newViewId = await _operationStore.WriteViewAsync(newViewData);
@@ -1216,10 +1216,10 @@ public partial class Repository : IDisposable
             var operationMetadata = new OperationMetadata(
                 startTime: now,
                 endTime: now.AddMilliseconds(10),
-                description: $"delete branch: {branchName}",
+                description: $"delete thread: {threadName}",
                 username: "system", // TODO: Pass user settings if needed
                 hostname: Environment.MachineName,
-                tags: new Dictionary<string, string> { { "type", "delete-branch" } }
+                tags: new Dictionary<string, string> { { "type", "delete-thread" } }
             );
 
             var newOperationData = new OperationData(
@@ -1240,47 +1240,47 @@ public partial class Repository : IDisposable
     }
 
     /// <summary>
-    /// Gets the commit ID that the specified branch points to.
+    /// Gets the commit ID that the specified thread points to.
     /// </summary>
-    /// <param name="branchName">Name of the branch to get</param>
-    /// <returns>The commit ID that the branch points to, or null if the branch doesn't exist</returns>
-    public CommitId? GetBranch(string branchName)
+    /// <param name="threadName">Name of the thread to get</param>
+    /// <returns>The commit ID that the thread points to, or null if the thread doesn't exist</returns>
+    public CommitId? GetThread(string threadName)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchName, nameof(branchName));
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadName, nameof(threadName));
 
-        return _currentViewData.Branches.TryGetValue(branchName, out var commitId) ? commitId : null;
+        return _currentViewData.Threads.TryGetValue(threadName, out var commitId) ? commitId : null;
     }
 
     /// <summary>
-    /// Merges the specified branch into the current branch.
+    /// Merges the specified thread into the current thread.
     /// Creates a merge commit unless it's a fast-forward scenario.
     /// </summary>
-    /// <param name="otherBranchName">Name of the branch to merge into current branch</param>
+    /// <param name="otherThreadName">Name of the thread to merge into current thread</param>
     /// <param name="settings">User settings for commit signature</param>
     /// <returns>The commit ID of the merge result (new merge commit or fast-forwarded commit)</returns>
-    /// <exception cref="ArgumentException">Thrown when branch name is invalid or doesn't exist</exception>
+    /// <exception cref="ArgumentException">Thrown when thread name is invalid or doesn't exist</exception>
     /// <exception cref="InvalidOperationException">Thrown when merge cannot be completed</exception>
-    public async Task<CommitId> MergeAsync(string otherBranchName, UserSettings settings)
+    public async Task<CommitId> MergeAsync(string otherThreadName, UserSettings settings)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(otherBranchName, nameof(otherBranchName));
+        ArgumentException.ThrowIfNullOrWhiteSpace(otherThreadName, nameof(otherThreadName));
         ArgumentNullException.ThrowIfNull(settings);
 
         using (FileLock.Acquire(_fileSystem, _lockFilePath))
         {
             // 1. Get current and other commit IDs
             var currentCommitId = _currentViewData.WorkspaceCommitIds["default"];
-            var otherCommitId = GetBranch(otherBranchName);
+            var otherCommitId = GetThread(otherThreadName);
             
             if (!otherCommitId.HasValue)
             {
-                throw new ArgumentException($"Branch '{otherBranchName}' does not exist.", nameof(otherBranchName));
+                throw new ArgumentException($"Thread '{otherThreadName}' does not exist.", nameof(otherThreadName));
             }
 
             // 2. Find merge base using two-sided BFS
             var mergeBases = await FindMergeBasesAsync(currentCommitId, otherCommitId.Value);
             if (mergeBases.Count == 0)
             {
-                throw new InvalidOperationException("No common ancestor found between branches.");
+                throw new InvalidOperationException("No common ancestor found between threads.");
             }
             
             // For V1, use the first merge base
@@ -1289,13 +1289,13 @@ public partial class Repository : IDisposable
             // 3. Handle fast-forward scenarios
             if (baseCommitId.Equals(otherCommitId.Value))
             {
-                // Current branch is ahead; this is a no-op merge
+                // Current thread is ahead; this is a no-op merge
                 return currentCommitId;
             }
             
             if (baseCommitId.Equals(currentCommitId))
             {
-                // Fast-forward: checkout other commit and update branch pointer
+                // Fast-forward: checkout other commit and update thread pointer
                 await CheckoutAsync(otherCommitId.Value, new CheckoutOptions(), settings);
                 return otherCommitId.Value;
             }
@@ -1319,7 +1319,7 @@ public partial class Repository : IDisposable
 
             // 5. Create merge commit
             var now = DateTimeOffset.UtcNow;
-            var changeId = SimpleContentHashable.CreateChangeId($"merge-{otherBranchName}-{Guid.NewGuid()}");
+            var changeId = SimpleContentHashable.CreateChangeId($"merge-{otherThreadName}-{Guid.NewGuid()}");
             var signature = settings.GetSignature();
             
             var mergeCommitData = new CommitData(
@@ -1328,7 +1328,7 @@ public partial class Repository : IDisposable
                 associatedChangeId: changeId,
                 author: signature,
                 committer: signature,
-                description: $"Merge branch '{otherBranchName}'"
+                description: $"Merge thread '{otherThreadName}'"
             );
 
             var mergeCommitId = await _objectStore.WriteCommitAsync(mergeCommitData);
@@ -1340,16 +1340,16 @@ public partial class Repository : IDisposable
             };
 
             var newHeadCommits = new List<CommitId> { mergeCommitId };
-            var newBranches = new Dictionary<string, CommitId>(_currentViewData.Branches);
+            var newThreads = new Dictionary<string, CommitId>(_currentViewData.Threads);
 
-            var newViewData = new ViewData(newWorkspaceCommits, newHeadCommits, newBranches);
+            var newViewData = new ViewData(newWorkspaceCommits, newHeadCommits, newThreads);
             var newViewId = await _operationStore.WriteViewAsync(newViewData);
 
             // 7. Create operation metadata
             var operationMetadata = new OperationMetadata(
                 startTime: now,
                 endTime: DateTimeOffset.UtcNow,
-                description: $"merge: {otherBranchName}",
+                description: $"merge: {otherThreadName}",
                 username: settings.GetUsername(),
                 hostname: settings.GetHostname(),
                 tags: new Dictionary<string, string> { { "type", "merge" } }
@@ -2214,22 +2214,22 @@ public partial class Repository
             // Filter heads to remove any commit that is now an ancestor of another commit
             newHeadCommits = await FilterHeadsAsync(newHeadCommits);
 
-            // Update branch pointers if any were pointing to the working copy
-            var newBranches = new Dictionary<string, CommitId>(_currentViewData.Branches);
-            var branchesToAdvance = _currentViewData.Branches
+            // Update thread pointers if any were pointing to the working copy
+            var newThreads = new Dictionary<string, CommitId>(_currentViewData.Threads);
+            var threadsToAdvance = _currentViewData.Threads
                 .Where(kvp => kvp.Value.Equals(currentWorkingCopyId))
                 .Select(kvp => kvp.Key)
                 .ToList();
 
-            foreach (var branchName in branchesToAdvance)
+            foreach (var threadName in threadsToAdvance)
             {
-                newBranches[branchName] = finalizedCommitId;
+                newThreads[threadName] = finalizedCommitId;
             }
 
             var newViewData = new ViewData(
                 workspaceCommitIds: newWorkspaceCommits,
                 headCommitIds: newHeadCommits,
-                branches: newBranches,
+                threads: newThreads,
                 workingCopyId: newWorkingCopyId
             );
 
@@ -2314,7 +2314,7 @@ public partial class Repository
             var updatedViewData = new ViewData(
                 workspaceCommitIds: currentViewData.WorkspaceCommitIds,
                 headCommitIds: currentViewData.HeadCommitIds,
-                branches: currentViewData.Branches,
+                threads: currentViewData.Threads,
                 workingCopyId: workingCopyId
             );
 

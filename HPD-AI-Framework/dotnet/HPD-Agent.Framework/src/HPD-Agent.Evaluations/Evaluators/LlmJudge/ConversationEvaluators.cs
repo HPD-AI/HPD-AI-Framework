@@ -14,11 +14,11 @@ namespace HPD.Agent.Evaluations.Evaluators.LlmJudge;
 // ── ConversationEvalStateData ────────────────────────────────────────────────
 
 /// <summary>
-/// Branch-scoped persistent middleware state for conversation-level evaluators.
+/// Thread-scoped persistent middleware state for conversation-level evaluators.
 /// Accumulates facts across turns so evaluators can assess coherence and memory.
 /// Written by LiveEvaluationMiddleware.AfterMessageTurnAsync via UpdateMiddlewareState.
 /// </summary>
-[MiddlewareState(Persistent = true, Scope = StateScope.Branch)]
+[MiddlewareState(Persistent = true, Scope = StateScope.Thread)]
 public sealed record ConversationEvalStateData
 {
     /// <summary>Goal established in the first user turn (if detectable).</summary>
@@ -30,7 +30,7 @@ public sealed record ConversationEvalStateData
     /// <summary>Agent response texts from prior turns (truncated for space).</summary>
     public IReadOnlyList<string> PriorResponses { get; init; } = [];
 
-    /// <summary>Number of turns completed in this branch so far.</summary>
+    /// <summary>Number of turns completed in this thread so far.</summary>
     public int TurnCount { get; init; }
 }
 

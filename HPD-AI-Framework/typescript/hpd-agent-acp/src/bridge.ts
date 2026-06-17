@@ -126,9 +126,9 @@ export function createBridge(
 
   async function handleSessionNew(req: SessionNewRequest): Promise<void> {
     const hpdSession = await client.createSession();
-    const hpdBranch  = await client.createBranch(hpdSession.id);
+    const hpdThread  = await client.createThread(hpdSession.id);
 
-    const state = sessions.create(hpdSession.id, hpdBranch.id, req.params.cwd);
+    const state = sessions.create(hpdSession.id, hpdThread.id, req.params.cwd);
     writer.respondSessionNew(req.id, { sessionId: state.acpSessionId });
   }
 
@@ -141,17 +141,17 @@ export function createBridge(
 
     if (!session) {
       try {
-        const branches = await client.listBranches(hpdSessionId);
-        const branch = branches[0];
-        if (!branch) throw new Error('No branches found');
-        session = sessions.create(hpdSessionId, branch.id, req.params.cwd);
+        const threads = await client.listThreads(hpdSessionId);
+        const thread = threads[0];
+        if (!thread) throw new Error('No threads found');
+        session = sessions.create(hpdSessionId, thread.id, req.params.cwd);
       } catch {
         writer.respondError(req.id, JsonRpcErrorCode.ResourceNotFound, `Session not found: ${hpdSessionId}`);
         return;
       }
     }
 
-    const messages = await client.getBranchMessages(session.hpdSessionId, session.hpdBranchId);
+    const messages = await client.getThreadMessages(session.hpdSessionId, session.hpdThreadId);
     for (const msg of messages) {
       for (const part of msg.contents) {
         if (part.$type === 'text') {
@@ -273,7 +273,7 @@ export function createBridge(
       await client.run({
         type: EventTypes.USER_TEXT_INPUT,
         sessionId: session.hpdSessionId,
-        branchId: session.hpdBranchId,
+        threadId: session.hpdThreadId,
         agentId: config.agentName ?? 'default',
         text: promptText,
         runConfig: {

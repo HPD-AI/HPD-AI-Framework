@@ -16,8 +16,8 @@ export interface AcpSessionState {
   acpSessionId: string;
   /** HPD server session ID */
   hpdSessionId: string;
-  /** HPD server branch ID (always 'main' for new sessions) */
-  hpdBranchId: string;
+  /** HPD server thread ID (always 'main' for new sessions) */
+  hpdThreadId: string;
   /** Working directory declared by the editor on session/new */
   cwd: string;
 
@@ -72,7 +72,7 @@ export interface PendingClarification {
 export class SessionRegistry {
   readonly #sessions = new Map<string, AcpSessionState>();
 
-  create(hpdSessionId: string, hpdBranchId: string, cwd: string): AcpSessionState {
+  create(hpdSessionId: string, hpdThreadId: string, cwd: string): AcpSessionState {
     // Use the HPD session ID as the ACP session ID so it survives bridge restarts.
     // acpx stores and re-sends the session ID on reconnect — if we made up an opaque
     // ID it would be lost when the process exits. HPD session IDs are stable GUIDs.
@@ -80,7 +80,7 @@ export class SessionRegistry {
     const state: AcpSessionState = {
       acpSessionId,
       hpdSessionId,
-      hpdBranchId,
+      hpdThreadId,
       cwd,
       pendingPromptRequestId: null,
       streamAbort: null,

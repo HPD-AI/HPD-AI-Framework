@@ -1557,7 +1557,7 @@ public class AgentBuilder
 
     /// <summary>
     /// Includes reasoning/thinking content when projecting conversation history back to the model.
-    /// Reasoning is always recorded in branch events when observed; this controls only whether
+    /// Reasoning is always recorded in thread events when observed; this controls only whether
     /// reasoning blocks are included when sending history back to the provider,
     /// which is required for Anthropic extended thinking to work correctly across turns
     /// (ProtectedData must be round-tripped verbatim).
@@ -3826,7 +3826,7 @@ public static class AgentBuilderMemoryExtensions
     
 
     /// <summary>
-    /// Configures compaction to manage model context and optional durable branch history.
+    /// Configures compaction to manage model context and optional durable thread history.
     /// </summary>
     /// <param name="builder">The agent builder instance</param>
     /// <param name="configure">Configuration action for compaction settings</param>
@@ -3837,7 +3837,7 @@ public static class AgentBuilderMemoryExtensions
     ///     config.Enabled = true;
     ///     config.Strategy = new SummarizingCompactionOptions { TargetRecentMessageCount = 30 };
     ///     config.Trigger = new CountCompactionTriggerOptions { Threshold = 10 };
-    ///     config.Retention = new PreserveBranchHistoryOptions();
+    ///     config.Retention = new PreserveThreadHistoryOptions();
     /// });
     /// </code>
     /// </example>

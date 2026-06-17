@@ -70,7 +70,7 @@ public sealed class InputMediaSliceTests
             r.Disposition == InputMediaDisposition.RejectedByPolicy);
         Assert.DoesNotContain(ledgerRecords, r => r is TranscriptLedgerRecord);
         Assert.DoesNotContain(ledgerRecords, r => r is UserTurnLedgerRecord);
-        Assert.Empty(result.Branch.AsInMemoryBranch().ProjectedTurns);
+        Assert.Empty(result.Thread.AsInMemoryThread().ProjectedTurns);
         Assert.Contains(traceRecords.OfType<AudioInputContentTraceRecord>(), r =>
             r.Content.Id == content.Id &&
             r.Disposition == InputMediaDisposition.RejectedByPolicy);
@@ -122,19 +122,19 @@ public sealed class InputMediaSliceTests
     }
 
     [Fact]
-    public async Task InputMedia_FakeProviderOutput_ProjectsBranch()
+    public async Task InputMedia_FakeProviderOutput_ProjectsThread()
     {
-        var content = TestInputContent.Audio(name: "branch.ogg", mediaType: "audio/ogg");
+        var content = TestInputContent.Audio(name: "thread.ogg", mediaType: "audio/ogg");
 
         var result = await RunScenarioAsync(content);
         var ledgerRecords = result.Ledger.ToArray();
 
-        var projection = Assert.Single(result.Branch.AsInMemoryBranch().ProjectedTurns);
-        Assert.Equal("session-1", projection.Branch.SessionId);
-        Assert.Equal("main", projection.Branch.BranchId);
+        var projection = Assert.Single(result.Thread.AsInMemoryThread().ProjectedTurns);
+        Assert.Equal("session-1", projection.Thread.SessionId);
+        Assert.Equal("main", projection.Thread.ThreadId);
         Assert.Equal(content.Id, projection.Record.InputContentId);
-        Assert.Equal("transcript:branch.ogg", projection.Record.Text);
-        Assert.Contains(ledgerRecords.OfType<BranchProjectionLedgerRecord>(), r =>
+        Assert.Equal("transcript:thread.ogg", projection.Record.Text);
+        Assert.Contains(ledgerRecords.OfType<ThreadProjectionLedgerRecord>(), r =>
             r.Projection.InputContentId == content.Id &&
             r.ProjectedEvent is not null);
     }
@@ -276,7 +276,7 @@ public sealed class InputMediaSliceTests
         return runner.RunAsync(new AudioInteractionRuntimeRequest
         {
             SessionId = TestSessionId,
-            BranchRef = new BranchRef("session-1", "main"),
+            ThreadRef = new ThreadRef("session-1", "main"),
             Inputs = inputs ?? [],
             InputContentRefs = additionalContents is null
                 ? [content]

@@ -26,7 +26,7 @@ internal static class AgentEventContentPersistence
 
         AddIfPresent(tags, "event.id", evt.EventId);
         AddIfPresent(tags, "session", evt.SessionId);
-        AddIfPresent(tags, "branch", evt.BranchId);
+        AddIfPresent(tags, "thread", evt.ThreadId);
         AddIfPresent(tags, "trace", evt.TraceId);
         AddIfPresent(tags, "span", evt.SpanId);
 

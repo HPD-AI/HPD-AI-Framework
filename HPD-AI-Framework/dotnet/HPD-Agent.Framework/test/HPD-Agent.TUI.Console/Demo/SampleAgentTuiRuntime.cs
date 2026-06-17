@@ -10,7 +10,7 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
     private readonly Channel<AgentEvent> _events = Channel.CreateUnbounded<AgentEvent>();
     private readonly List<AgentEvent> _history = [];
     private readonly object _gate = new();
-    private AgentTuiBranchRun? _activeRun;
+    private AgentTuiThreadRun? _activeRun;
 
     public Task<AgentTuiRuntimeScope> EnsureScopeAsync(
         AgentTuiRuntimeScope? requested,
@@ -42,7 +42,7 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
-    public Task<IReadOnlyList<AgentEvent>> GetBranchEventsAsync(
+    public Task<IReadOnlyList<AgentEvent>> GetThreadEventsAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default)
     {
@@ -52,7 +52,7 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         }
     }
 
-    public Task<AgentTuiBranchRun?> GetActiveRunAsync(
+    public Task<AgentTuiThreadRun?> GetActiveRunAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default)
         => Task.FromResult(_activeRun);
@@ -70,19 +70,19 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
     {
         var runId = Guid.NewGuid().ToString("N");
         var startedAt = DateTimeOffset.UtcNow;
-        _activeRun = new AgentTuiBranchRun(runId, scope.AgentId, scope.SessionId, scope.BranchId, "running", startedAt);
+        _activeRun = new AgentTuiThreadRun(runId, scope.AgentId, scope.SessionId, scope.ThreadId, "running", startedAt);
 
-        await PublishAsync(new BranchRunStartedEvent(runId, scope.AgentId, startedAt)
+        await PublishAsync(new ThreadRunStartedEvent(runId, scope.AgentId, startedAt)
         {
             SessionId = scope.SessionId,
-            BranchId = scope.BranchId
+            ThreadId = scope.ThreadId
         }, cancellationToken);
 
         var messageId = Guid.NewGuid().ToString("N");
         await PublishAsync(new TextMessageStartEvent(messageId, "assistant")
         {
             SessionId = scope.SessionId,
-            BranchId = scope.BranchId,
+            ThreadId = scope.ThreadId,
             Metadata = AgentMetadata(scope, "sample-agent")
         }, cancellationToken);
 
@@ -91,7 +91,7 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         await PublishAsync(new TextDeltaEvent($"I received: **{EscapeMarkdown(userText)}**\n\n", messageId)
         {
             SessionId = scope.SessionId,
-            BranchId = scope.BranchId,
+            ThreadId = scope.ThreadId,
             Metadata = AgentMetadata(scope, "sample-agent")
         }, cancellationToken);
 
@@ -100,7 +100,7 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         await PublishAsync(new ToolCallStartEvent(callId, "sample.inspect", messageId, "SampleHarness")
         {
             SessionId = scope.SessionId,
-            BranchId = scope.BranchId,
+            ThreadId = scope.ThreadId,
             Metadata = AgentMetadata(scope, "tool", scope.AgentId, 1)
         }, cancellationToken);
 
@@ -108,7 +108,7 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         await PublishAsync(new ToolCallArgsEvent(callId, JsonSerializer.Serialize(new { path = "Program.cs" }))
         {
             SessionId = scope.SessionId,
-            BranchId = scope.BranchId,
+            ThreadId = scope.ThreadId,
             Metadata = AgentMetadata(scope, "tool", scope.AgentId, 1)
         }, cancellationToken);
 
@@ -116,7 +116,7 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         await PublishAsync(new ToolCallEndEvent(callId)
         {
             SessionId = scope.SessionId,
-            BranchId = scope.BranchId,
+            ThreadId = scope.ThreadId,
             Metadata = AgentMetadata(scope, "tool", scope.AgentId, 1)
         }, cancellationToken);
 
@@ -124,21 +124,21 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         await PublishAsync(new TextDeltaEvent("The shell updated a keyed tool row and kept the assistant markdown row alive.", messageId)
         {
             SessionId = scope.SessionId,
-            BranchId = scope.BranchId,
+            ThreadId = scope.ThreadId,
             Metadata = AgentMetadata(scope, "sample-agent")
         }, cancellationToken);
 
         await PublishAsync(new TextMessageEndEvent(messageId)
         {
             SessionId = scope.SessionId,
-            BranchId = scope.BranchId,
+            ThreadId = scope.ThreadId,
             Metadata = AgentMetadata(scope, "sample-agent")
         }, cancellationToken);
 
-        await PublishAsync(new BranchRunCompletedEvent(runId, scope.AgentId, Cancelled: false)
+        await PublishAsync(new ThreadRunCompletedEvent(runId, scope.AgentId, Cancelled: false)
         {
             SessionId = scope.SessionId,
-            BranchId = scope.BranchId
+            ThreadId = scope.ThreadId
         }, cancellationToken);
 
         _activeRun = null;

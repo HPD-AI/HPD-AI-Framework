@@ -17,8 +17,8 @@ public enum PropagationMode
     /// <summary>
     /// Skip all downstream dependent nodes.
     /// Mark dependents as Skipped with reason DependencyFailed.
-    /// Continue executing independent branches.
-    /// Use case: Branching workflows where one branch can fail independently.
+    /// Continue executing independent threads.
+    /// Use case: Threading workflows where one thread can fail independently.
     /// Example: Image processing fails → skip image nodes, continue text processing.
     /// </summary>
     SkipDependents,

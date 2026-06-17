@@ -1,9 +1,9 @@
 /**
  * MessageActions - Compound headless component for message-level actions
  *
- * Provides Edit, Retry, and branch navigation (Prev/Next/Position) all
+ * Provides Edit, Retry, and thread navigation (Prev/Next/Position) all
  * scoped to a single message bubble. The navigator parts (Prev/Next/Position)
- * only become active when the active branch was forked at this message row,
+ * only become active when the active thread was forked at this message row,
  * so no conditional logic is needed in the consumer template.
  *
  * @example
@@ -13,7 +13,7 @@
  *   let draft = $state('');
  * </script>
  *
- * <MessageActions.Root {workspace} messageIndex={i} role="user" branch={workspace.activeBranch}>
+ * <MessageActions.Root {workspace} messageIndex={i} role="user" thread={workspace.activeThread}>
  *   {#snippet children({ hasSiblings })}
  *     <MessageActions.EditButton>
  *       {#snippet children({ edit, status })}

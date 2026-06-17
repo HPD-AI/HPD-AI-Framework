@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { flushSync } from 'svelte';
 import { SplitPanelState } from '../state/split-panel-state.svelte.js';
-import type { LeafNode, BranchNode } from '../types/types.js';
+import type { LeafNode, ThreadNode } from '../types/types.js';
 
 // Helper to wait for a RAF cycle (resizeDivider batches via RAF)
 function waitForRaf(): Promise<void> {
@@ -41,10 +41,10 @@ describe('SplitPanelState - Collapse + Resize Interactions', () => {
 		state.addPanel('pane-4', [], { size: 150, minSize: 50 });
 	}
 
-	// Helper to get root branch
-	function getRootBranch(): BranchNode {
+	// Helper to get root thread
+	function getRootThread(): ThreadNode {
 		const root = state.root;
-		if (root.type !== 'branch') throw new Error('Root is not a branch');
+		if (root.type !== 'thread') throw new Error('Root is not a thread');
 		return root;
 	}
 
@@ -68,7 +68,7 @@ describe('SplitPanelState - Collapse + Resize Interactions', () => {
 
 	// Helper to get a leaf size from the root
 	function getLeafSize(index: number): number {
-		const root = getRootBranch();
+		const root = getRootThread();
 		const child = root.children[index];
 		if (child.type === 'leaf') {
 			return child.size;
@@ -78,7 +78,7 @@ describe('SplitPanelState - Collapse + Resize Interactions', () => {
 
 	// Helper to get a leaf flex from the root
 	function getLeafFlex(index: number): number {
-		const root = getRootBranch();
+		const root = getRootThread();
 		return root.flexes[index];
 	}
 
@@ -343,8 +343,8 @@ describe('SplitPanelState - Collapse + Resize Interactions', () => {
 			expect(getLeafFlex(0)).toBeLessThan(0.01);
 
 			// Resize should have accumulated on pane-2/pane-3
-			const pane2 = getRootBranch().children[1] as LeafNode;
-			const pane3 = getRootBranch().children[2] as LeafNode;
+			const pane2 = getRootThread().children[1] as LeafNode;
+			const pane3 = getRootThread().children[2] as LeafNode;
 
 			// Sizes should have changed from initial ~200px each
 			// One grew, one shrunk

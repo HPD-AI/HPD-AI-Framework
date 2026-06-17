@@ -79,7 +79,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         }
 
         // PHASE 2: Unified detection - check for ANY capability attribute
-        // This replaces the 3 separate detection branches (AIFunction, Skill, SubAgent)
+        // This replaces the 3 separate detection threads (AIFunction, Skill, SubAgent)
         var hasCapabilityMethods = methods.Any(method =>
         {
             var attrs = method.AttributeLists

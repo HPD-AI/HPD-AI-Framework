@@ -18,15 +18,15 @@ import { createWorkspace } from '../workspace.svelte.ts';
 import type { AgentClientLike, CreateWorkspaceOptions } from '../types.ts';
 import { EventTypes } from '@hpd-research/hpd-agent-client';
 import type {
-	Branch,
-	BranchMessage,
+	Thread,
+	ThreadMessage,
 	Session,
-	SiblingBranch,
+	SiblingThread,
 	CreateSessionRequest,
 	UpdateSessionRequest,
 	ListSessionsOptions,
-	CreateBranchRequest,
-	ForkBranchRequest,
+	CreateThreadRequest,
+	ForkThreadRequest,
 	AgentSummaryDto,
 	StoredAgentDto,
 	CreateAgentRequest,
@@ -48,7 +48,7 @@ function makeSession(id: string): Session {
 	return { id, createdAt: new Date().toISOString(), lastActivity: new Date().toISOString(), metadata: {} };
 }
 
-function makeBranch(id: string, sessionId: string, overrides: Partial<Branch> = {}): Branch {
+function makeThread(id: string, sessionId: string, overrides: Partial<Thread> = {}): Thread {
 	return {
 		id,
 		sessionId,
@@ -64,10 +64,10 @@ function makeBranch(id: string, sessionId: string, overrides: Partial<Branch> = 
 		siblingIndex: 0,
 		totalSiblings: 1,
 		isOriginal: true,
-		originalBranchId: undefined,
+		originalThreadId: undefined,
 		previousSiblingId: undefined,
 		nextSiblingId: undefined,
-		childBranches: [],
+		childThreads: [],
 		totalForks: 0,
 		...overrides,
 	};
@@ -78,7 +78,7 @@ const CONTENT2: ContentReference = { contentId: 'content-xyz', version: 'rev:1',
 
 function makeFakeClient(
 	sessions: Session[],
-	branches: Map<string, Branch[]>,
+	threads: Map<string, Thread[]>,
 	runImpl?: () => Promise<void>
 ): AgentClientLike {
 	const subscription = (): EventSubscription => ({ dispose: vi.fn() });
@@ -99,24 +99,24 @@ function makeFakeClient(
 		),
 		deleteSession: vi.fn(async () => {}),
 
-		// Branch CRUD
-		listBranches: vi.fn(async (sid: string) => branches.get(sid) ?? []),
-		getBranch: vi.fn(async (sid: string, bid: string) =>
-			(branches.get(sid) ?? []).find((b) => b.id === bid) ?? null
+		// Thread CRUD
+		listThreads: vi.fn(async (sid: string) => threads.get(sid) ?? []),
+		getThread: vi.fn(async (sid: string, bid: string) =>
+			(threads.get(sid) ?? []).find((b) => b.id === bid) ?? null
 		),
-		createBranch: vi.fn(async (sid: string, opts?: CreateBranchRequest) =>
-			makeBranch(opts?.branchId ?? 'new-branch', sid)
+		createThread: vi.fn(async (sid: string, opts?: CreateThreadRequest) =>
+			makeThread(opts?.threadId ?? 'new-thread', sid)
 		),
-		forkBranch: vi.fn(async (sid: string, _bid: string, opts: ForkBranchRequest) =>
-			makeBranch(opts.newBranchId ?? 'fork', sid, { isOriginal: false })
+		forkThread: vi.fn(async (sid: string, _bid: string, opts: ForkThreadRequest) =>
+			makeThread(opts.newThreadId ?? 'fork', sid, { isOriginal: false })
 		),
-		deleteBranch: vi.fn(async () => {}),
-		getBranchMessages: vi.fn(async (): Promise<BranchMessage[]> => []),
+		deleteThread: vi.fn(async () => {}),
+		getThreadMessages: vi.fn(async (): Promise<ThreadMessage[]> => []),
 
 		// Sibling navigation
-		getBranchSiblings: vi.fn(async (): Promise<SiblingBranch[]> => []),
-		getNextSibling: vi.fn(async (): Promise<Branch | null> => null),
-		getPreviousSibling: vi.fn(async (): Promise<Branch | null> => null),
+		getThreadSiblings: vi.fn(async (): Promise<SiblingThread[]> => []),
+		getNextSibling: vi.fn(async (): Promise<Thread | null> => null),
+		getPreviousSibling: vi.fn(async (): Promise<Thread | null> => null),
 
 		// Agent CRUD
 		listAgents: vi.fn(async (): Promise<AgentSummaryDto[]> => []),
@@ -161,8 +161,8 @@ function capturedTextInput(client: AgentClientLike) {
 describe('workspace.send() — runConfig threading', () => {
 	it('passes runConfig to the input event when provided', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeClient(sessions, threads);
 		const ws = await buildWorkspace(client);
 
 		const runConfig = { providerKey: 'anthropic', modelId: 'claude-sonnet-4-6', chat: { temperature: 0.7 } };
@@ -174,8 +174,8 @@ describe('workspace.send() — runConfig threading', () => {
 
 	it('passes undefined runConfig when send() called with no options', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeClient(sessions, threads);
 		const ws = await buildWorkspace(client);
 
 		await ws.send('hello');
@@ -186,8 +186,8 @@ describe('workspace.send() — runConfig threading', () => {
 
 	it('passes undefined runConfig when SendOptions has no runConfig field', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeClient(sessions, threads);
 		const ws = await buildWorkspace(client);
 
 		await ws.send('hello', {});
@@ -200,8 +200,8 @@ describe('workspace.send() — runConfig threading', () => {
 describe('workspace.send() — attachment injection', () => {
 	it('message content is unchanged when no attachments provided', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeClient(sessions, threads);
 		const ws = await buildWorkspace(client);
 
 		await ws.send('hello there');
@@ -212,8 +212,8 @@ describe('workspace.send() — attachment injection', () => {
 
 	it('message content is unchanged when attachments is an empty array', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeClient(sessions, threads);
 		const ws = await buildWorkspace(client);
 
 		await ws.send('hello there', { attachments: [] });
@@ -224,8 +224,8 @@ describe('workspace.send() — attachment injection', () => {
 
 	it('injects hpd-content:// URI for a single attachment', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeClient(sessions, threads);
 		const ws = await buildWorkspace(client);
 
 		await ws.send('look at this', { attachments: [CONTENT] });
@@ -236,8 +236,8 @@ describe('workspace.send() — attachment injection', () => {
 
 	it('injects hpd-content:// URIs for multiple attachments', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeClient(sessions, threads);
 		const ws = await buildWorkspace(client);
 
 		await ws.send('see both', { attachments: [CONTENT, CONTENT2] });
@@ -249,8 +249,8 @@ describe('workspace.send() — attachment injection', () => {
 
 	it('message content starts with the original text', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeClient(sessions, threads);
 		const ws = await buildWorkspace(client);
 
 		await ws.send('my message', { attachments: [CONTENT] });
@@ -261,23 +261,23 @@ describe('workspace.send() — attachment injection', () => {
 });
 
 describe('workspace.send() — event scope', () => {
-	it('stamps active session and branch onto the input event', async () => {
+	it('stamps active session and thread onto the input event', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeClient(sessions, threads);
 		const ws = await buildWorkspace(client);
 
 		await ws.send('hi');
 
 		const input = capturedTextInput(client);
 		expect(input.sessionId).toBe('s1');
-		expect(input.branchId).toBe('main');
+		expect(input.threadId).toBe('main');
 	});
 
 	it('stamps the active agent id when configured', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeClient(sessions, threads);
 		const ws = await buildWorkspace(client, { agentId: 'research-agent' });
 
 		await ws.send('hi');
@@ -290,8 +290,8 @@ describe('workspace.send() — event scope', () => {
 describe('workspace.client getter', () => {
 	it('exposes the injected AgentClientLike', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeClient(sessions, threads);
 		const ws = await buildWorkspace(client);
 
 		expect(ws.client).toBe(client);

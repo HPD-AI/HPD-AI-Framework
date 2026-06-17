@@ -35,12 +35,12 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
     {
         // Act - Try various 404 scenarios
         var sessionResponse = await _client.GetAsync("/sessions/nonexistent");
-        var branchResponse = await _client.GetAsync("/agents/test-agent/sessions/nonexistent/branches/main");
+        var threadResponse = await _client.GetAsync("/agents/test-agent/sessions/nonexistent/threads/main");
         var contentResponse = await _client.GetAsync("/sessions/nonexistent/content");
 
         // Assert
         sessionResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
-        branchResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        threadResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
         contentResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
@@ -52,9 +52,9 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
         var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
 
         // Act - Try to fork from a missing message id
-        var forkRequest = new ForkBranchRequest("fork", "missing-message", null, null, null);
+        var forkRequest = new ForkThreadRequest("fork", "missing-message", null, null, null);
         var response = await _client.PostAsJsonAsync(
-            $"/agents/test-agent/sessions/{session!.Id}/branches/main/fork",
+            $"/agents/test-agent/sessions/{session!.Id}/threads/main/fork",
             forkRequest);
 
         // Assert
@@ -68,10 +68,10 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
         var createResponse = await _client.PostAsync("/sessions", null);
         var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
 
-        // Act - Try to create duplicate branch
-        var request = new CreateBranchRequest("main", "Duplicate", null, null);
+        // Act - Try to create duplicate thread
+        var request = new CreateThreadRequest("main", "Duplicate", null, null);
         var response = await _client.PostAsJsonAsync(
-            $"/agents/test-agent/sessions/{session!.Id}/branches",
+            $"/agents/test-agent/sessions/{session!.Id}/threads",
             request);
 
         // Assert
@@ -121,10 +121,10 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
         var createResponse = await _client.PostAsync("/sessions", null);
         var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
 
-        // Try to create branch with missing data
+        // Try to create thread with missing data
         var emptyContent = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
         var response = await _client.PostAsync(
-            $"/agents/test-agent/sessions/{session!.Id}/branches",
+            $"/agents/test-agent/sessions/{session!.Id}/threads",
             emptyContent);
 
         // Assert - Should handle gracefully
@@ -149,7 +149,7 @@ public class ErrorHandlingTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var response = await PostInputAsync(
-             $"/agents/test-agent/sessions/{session!.Id}/branches/main/inputs",
+             $"/agents/test-agent/sessions/{session!.Id}/threads/main/inputs",
             streamRequest);
 
         response.StatusCode.Should().Be(HttpStatusCode.Accepted);

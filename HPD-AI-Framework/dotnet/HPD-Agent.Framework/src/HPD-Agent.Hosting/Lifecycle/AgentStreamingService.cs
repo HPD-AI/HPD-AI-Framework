@@ -13,67 +13,67 @@ public sealed class AgentStreamingService : IAgentStreamingService
         _agentManager = agentManager ?? throw new ArgumentNullException(nameof(agentManager));
     }
 
-    public async Task<AgentServiceResult<AgentStreamLease>> GetAgentForBranchAsync(
+    public async Task<AgentServiceResult<AgentStreamLease>> GetAgentForThreadAsync(
         string agentId,
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default)
     {
         if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
             return AgentServiceResult<AgentStreamLease>.NotFound;
 
-        if (await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken) == null)
+        if (await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken) == null)
             return AgentServiceResult<AgentStreamLease>.NotFound;
 
-        var agent = await _agentManager.GetOrBuildAgentRuntimeAsync(agentId, sessionId, branchId, cancellationToken);
+        var agent = await _agentManager.GetOrBuildAgentRuntimeAsync(agentId, sessionId, threadId, cancellationToken);
         return AgentServiceResult<AgentStreamLease>.Success(new AgentStreamLease(agent));
     }
 
     public async Task<AgentServiceResult> SubmitInputAsync(
         string agentId,
         string sessionId,
-        string branchId,
+        string threadId,
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
-        var lease = await GetAgentForBranchAsync(agentId, sessionId, branchId, cancellationToken)
+        var lease = await GetAgentForThreadAsync(agentId, sessionId, threadId, cancellationToken)
             .ConfigureAwait(false);
         if (lease.Status != AgentServiceStatus.Success)
             return new AgentServiceResult(lease.Status, lease.ErrorCode, lease.ErrorMessage, lease.ErrorMessages);
 
-        if (!_sessionManager.TryStartBranchRun(agentId, sessionId, branchId, out var run))
+        if (!_sessionManager.TryStartThreadRun(agentId, sessionId, threadId, out var run))
         {
             return AgentServiceResult.ConflictWith(
-                "BranchRunActive",
-                $"Branch '{branchId}' in session '{sessionId}' already has an active run.");
+                "ThreadRunActive",
+                $"Thread '{threadId}' in session '{sessionId}' already has an active run.");
         }
 
         var agent = lease.Value!.Agent;
-        input = ApplyRouteScope(input, agentId, sessionId, branchId, run.RuntimeRunId);
-        var startedEvent = new BranchRunStartedEvent(run.RuntimeRunId, agentId, run.StartedAt)
+        input = ApplyRouteScope(input, agentId, sessionId, threadId, run.RuntimeRunId);
+        var startedEvent = new ThreadRunStartedEvent(run.RuntimeRunId, agentId, run.StartedAt)
         {
             SessionId = sessionId,
-            BranchId = branchId
+            ThreadId = threadId
         };
 
         IDisposable? completionSubscription = null;
         completionSubscription = agent.SubscribeAny(evt =>
         {
-            if (evt is BranchRunCompletedEvent completed &&
+            if (evt is ThreadRunCompletedEvent completed &&
                 completed.SessionId == sessionId &&
-                completed.BranchId == branchId &&
+                completed.ThreadId == threadId &&
                 completed.RuntimeRunId == run.RuntimeRunId)
             {
-                _sessionManager.CompleteBranchRun(sessionId, branchId, completed.RuntimeRunId);
+                _sessionManager.CompleteThreadRun(sessionId, threadId, completed.RuntimeRunId);
                 completionSubscription?.Dispose();
             }
         });
 
         try
         {
-            await _sessionManager.Store.AppendBranchEventAsync(
+            await _sessionManager.Store.AppendThreadEventAsync(
                 sessionId,
-                branchId,
+                threadId,
                 startedEvent,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
 
@@ -83,8 +83,8 @@ public sealed class AgentStreamingService : IAgentStreamingService
         catch (Exception ex)
         {
             completionSubscription.Dispose();
-            _sessionManager.CompleteBranchRun(sessionId, branchId, run.RuntimeRunId);
-            var completedEvent = new BranchRunCompletedEvent(
+            _sessionManager.CompleteThreadRun(sessionId, threadId, run.RuntimeRunId);
+            var completedEvent = new ThreadRunCompletedEvent(
                 run.RuntimeRunId,
                 agentId,
                 ex is OperationCanceledException,
@@ -92,14 +92,14 @@ public sealed class AgentStreamingService : IAgentStreamingService
                 ex.Message)
             {
                 SessionId = sessionId,
-                BranchId = branchId
+                ThreadId = threadId
             };
 
             try
             {
-                await _sessionManager.Store.AppendBranchEventAsync(
+                await _sessionManager.Store.AppendThreadEventAsync(
                     sessionId,
-                    branchId,
+                    threadId,
                     completedEvent,
                     cancellationToken: CancellationToken.None).ConfigureAwait(false);
             }
@@ -117,28 +117,28 @@ public sealed class AgentStreamingService : IAgentStreamingService
     public async Task<AgentServiceResult> InterruptAsync(
         string agentId,
         string sessionId,
-        string branchId,
+        string threadId,
         InterruptionRequestEvent interruption,
         CancellationToken cancellationToken = default)
     {
-        var lease = await GetAgentForBranchAsync(agentId, sessionId, branchId, cancellationToken)
+        var lease = await GetAgentForThreadAsync(agentId, sessionId, threadId, cancellationToken)
             .ConfigureAwait(false);
         if (lease.Status != AgentServiceStatus.Success)
             return new AgentServiceResult(lease.Status, lease.ErrorCode, lease.ErrorMessage, lease.ErrorMessages);
 
-        var activeRun = _sessionManager.GetActiveBranchRun(sessionId, branchId);
+        var activeRun = _sessionManager.GetActiveThreadRun(sessionId, threadId);
         if (activeRun == null)
         {
             return AgentServiceResult.ConflictWith(
-                "BranchRunNotActive",
-                $"Branch '{branchId}' in session '{sessionId}' does not have an active run.");
+                "ThreadRunNotActive",
+                $"Thread '{threadId}' in session '{sessionId}' does not have an active run.");
         }
 
         var scoped = interruption with
         {
             AgentId = agentId,
             SessionId = sessionId,
-            BranchId = branchId,
+            ThreadId = threadId,
             RuntimeRunId = activeRun.RuntimeRunId
         };
 
@@ -150,7 +150,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
         AgentInputEvent input,
         string agentId,
         string sessionId,
-        string branchId,
+        string threadId,
         string? runtimeRunId = null)
     {
         return input switch
@@ -159,21 +159,21 @@ public sealed class AgentStreamingService : IAgentStreamingService
             {
                 AgentId = agentId,
                 SessionId = sessionId,
-                BranchId = branchId,
+                ThreadId = threadId,
                 RuntimeRunId = runtimeRunId ?? text.RuntimeRunId
             },
             UserMessagesInputEvent messages => messages with
             {
                 AgentId = agentId,
                 SessionId = sessionId,
-                BranchId = branchId,
+                ThreadId = threadId,
                 RuntimeRunId = runtimeRunId ?? messages.RuntimeRunId
             },
             InterruptionRequestEvent interruption => interruption with
             {
                 AgentId = agentId,
                 SessionId = sessionId,
-                BranchId = branchId,
+                ThreadId = threadId,
                 RuntimeRunId = runtimeRunId ?? interruption.RuntimeRunId
             },
             _ => input

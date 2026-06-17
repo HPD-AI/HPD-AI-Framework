@@ -5,27 +5,27 @@ namespace HPD.Agent;
 
 /// <summary>
 /// File-based session store using JSON files.
-/// V3 Architecture: Separate storage for Session metadata and branch event documents.
+/// V3 Architecture: Separate storage for Session metadata and thread event documents.
 /// </summary>
 /// <remarks>
 /// <para><b>Storage Structure:</b></para>
 /// <code>
 /// sessions/{sessionId}/
 ///   ├── session.json          ← Session metadata + session-scoped middleware state
-///   ├── branches/              ← All conversation branches
+///   ├── threads/              ← All conversation threads
 ///   │   ├── main/
-///   │   │   ├── branch.meta.json      ← Event stream metadata + next sequence number
-///   │   │   ├── branch.events.jsonl   ← Append-only branch event stream
-///   │   │   └── branch.projection.json ← Lazy Branch projection cache
+///   │   │   ├── thread.meta.json      ← Event stream metadata + next sequence number
+///   │   │   ├── thread.events.jsonl   ← Append-only thread event stream
+///   │   │   └── thread.projection.json ← Lazy Thread projection cache
 ///   │   ├── formal/
-///   │   │   ├── branch.meta.json
-///   │   │   ├── branch.events.jsonl
-///   │   │   └── branch.projection.json
+///   │   │   ├── thread.meta.json
+///   │   │   ├── thread.events.jsonl
+///   │   │   └── thread.projection.json
 ///   │   └── casual/
-///   │       ├── branch.meta.json
-///   │       ├── branch.events.jsonl
-///   │       └── branch.projection.json
-///   └── uncommitted.json       ← Crash recovery buffer (session-scoped, contains branchId)
+///   │       ├── thread.meta.json
+///   │       ├── thread.events.jsonl
+///   │       └── thread.projection.json
+///   └── uncommitted.json       ← Crash recovery buffer (session-scoped, contains threadId)
 /// </code>
 /// </remarks>
 public class JsonSessionStore : ISessionStore
@@ -109,121 +109,121 @@ public class JsonSessionStore : ISessionStore
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // BRANCH EVENT PERSISTENCE
+    // THREAD EVENT PERSISTENCE
     // ═══════════════════════════════════════════════════════════════════
 
-    public Task<Branch?> LoadBranchAsync(
+    public Task<Thread?> LoadThreadAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        var metadataPath = GetBranchMetadataFilePath(sessionId, branchId);
-        var eventsPath = GetBranchEventsFilePath(sessionId, branchId);
+        var metadataPath = GetThreadMetadataFilePath(sessionId, threadId);
+        var eventsPath = GetThreadEventsFilePath(sessionId, threadId);
 
         if (!File.Exists(metadataPath) && !File.Exists(eventsPath))
-            return Task.FromResult<Branch?>(null);
+            return Task.FromResult<Thread?>(null);
 
         lock (_lock)
         {
-            var projection = LoadBranchProjectionCacheNoLock(sessionId, branchId);
-            Branch branch;
+            var projection = LoadThreadProjectionCacheNoLock(sessionId, threadId);
+            Thread thread;
             long lastSequenceNumber;
 
             if (projection is not null)
             {
-                branch = projection.Branch;
+                thread = projection.Thread;
                 lastSequenceNumber = projection.LastSequenceNumber;
             }
             else
             {
-                branch = new Branch(sessionId, branchId);
+                thread = new Thread(sessionId, threadId);
                 lastSequenceNumber = 0;
             }
 
-            var tailEvents = ReadBranchEventsNoLock(sessionId, branchId)
+            var tailEvents = ReadThreadEventsNoLock(sessionId, threadId)
                 .Where(evt => evt.SequenceNumber > lastSequenceNumber)
                 .ToList();
 
             if (tailEvents.Count > 0)
-                BranchProjector.Apply(branch, tailEvents);
+                ThreadProjector.Apply(thread, tailEvents);
 
             if (projection is null || tailEvents.Count > 0)
             {
-                var metadata = LoadBranchMetadataNoLock(sessionId, branchId);
+                var metadata = LoadThreadMetadataNoLock(sessionId, threadId);
                 var checkpointSequence = tailEvents.Count == 0
                     ? lastSequenceNumber
                     : tailEvents.Max(evt => evt.SequenceNumber);
-                SaveBranchProjectionCacheNoLock(
+                SaveThreadProjectionCacheNoLock(
                     metadata,
-                    branch,
+                    thread,
                     checkpointSequence,
                     checkpointSequence == 0 ? DateTimeOffset.UtcNow : tailEvents.Last().Timestamp);
             }
 
-            return Task.FromResult(branch);
+            return Task.FromResult(thread);
         }
     }
 
-    public Task<BranchEventDocument?> LoadBranchDocumentAsync(
+    public Task<ThreadEventDocument?> LoadThreadDocumentAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        var metadataPath = GetBranchMetadataFilePath(sessionId, branchId);
-        var eventsPath = GetBranchEventsFilePath(sessionId, branchId);
+        var metadataPath = GetThreadMetadataFilePath(sessionId, threadId);
+        var eventsPath = GetThreadEventsFilePath(sessionId, threadId);
 
         if (!File.Exists(metadataPath) && !File.Exists(eventsPath))
-            return Task.FromResult<BranchEventDocument?>(null);
+            return Task.FromResult<ThreadEventDocument?>(null);
 
         lock (_lock)
         {
-            var metadata = LoadBranchMetadataNoLock(sessionId, branchId);
-            var events = ReadBranchEventsNoLock(sessionId, branchId).ToList();
-            var document = new BranchEventDocument
+            var metadata = LoadThreadMetadataNoLock(sessionId, threadId);
+            var events = ReadThreadEventsNoLock(sessionId, threadId).ToList();
+            var document = new ThreadEventDocument
             {
                 SessionId = metadata.SessionId,
-                BranchId = metadata.BranchId,
+                ThreadId = metadata.ThreadId,
                 CreatedAt = metadata.CreatedAt,
                 UpdatedAt = metadata.UpdatedAt,
                 NextSequenceNumber = metadata.NextSequenceNumber,
                 Events = events
             };
-            BranchEventValidation.RequireDocumentScope(document, sessionId, branchId);
-            return Task.FromResult<BranchEventDocument?>(document);
+            ThreadEventValidation.RequireDocumentScope(document, sessionId, threadId);
+            return Task.FromResult<ThreadEventDocument?>(document);
         }
     }
 
-    public Task AppendBranchEventAsync(
+    public Task AppendThreadEventAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         AgentEvent evt,
         long? expectedSequenceNumber = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
         ArgumentNullException.ThrowIfNull(evt);
 
-        var eventsPath = GetBranchEventsFilePath(sessionId, branchId);
+        var eventsPath = GetThreadEventsFilePath(sessionId, threadId);
 
         lock (_lock)
         {
-            var metadata = LoadBranchMetadataNoLock(sessionId, branchId, evt.Timestamp);
+            var metadata = LoadThreadMetadataNoLock(sessionId, threadId, evt.Timestamp);
 
             if (expectedSequenceNumber is not null &&
                 metadata.NextSequenceNumber - 1 != expectedSequenceNumber.Value)
             {
                 throw new InvalidOperationException(
-                    $"Branch '{branchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {metadata.NextSequenceNumber - 1}.");
+                    $"Thread '{threadId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {metadata.NextSequenceNumber - 1}.");
             }
 
-            evt = BranchEventValidation.PrepareForAppend(sessionId, branchId, evt);
+            evt = ThreadEventValidation.PrepareForAppend(sessionId, threadId, evt);
             evt.SequenceNumber = metadata.NextSequenceNumber;
 
             var directory = Path.GetDirectoryName(eventsPath);
@@ -232,29 +232,29 @@ public class JsonSessionStore : ISessionStore
 
             File.AppendAllText(
                 eventsPath,
-                JsonSerializer.Serialize(evt, BranchEventJson.CompactOptions) + System.Environment.NewLine);
+                JsonSerializer.Serialize(evt, ThreadEventJson.CompactOptions) + System.Environment.NewLine);
 
             metadata = metadata with
             {
                 UpdatedAt = evt.Timestamp,
                 NextSequenceNumber = metadata.NextSequenceNumber + 1
             };
-            metadata = ApplyBranchHeader(metadata, evt);
+            metadata = ApplyThreadHeader(metadata, evt);
 
-            SaveBranchMetadataNoLock(metadata);
+            SaveThreadMetadataNoLock(metadata);
 
         }
 
         return Task.CompletedTask;
     }
 
-    public async IAsyncEnumerable<AgentEvent> ReadBranchEventsAsync(
+    public async IAsyncEnumerable<AgentEvent> ReadThreadEventsAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         HPD.Events.ReplayReadOptions options,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var document = await LoadBranchDocumentAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false);
+        var document = await LoadThreadDocumentAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false);
         if (document is null)
             yield break;
 
@@ -262,38 +262,38 @@ public class JsonSessionStore : ISessionStore
             yield return evt;
     }
 
-    public Task<List<string>> ListBranchIdsAsync(
+    public Task<List<string>> ListThreadIdsAsync(
         string sessionId,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        var branchIds = new List<string>();
-        var branchesDir = GetBranchesDirectoryPath(sessionId);
+        var threadIds = new List<string>();
+        var threadsDir = GetThreadsDirectoryPath(sessionId);
 
-        if (Directory.Exists(branchesDir))
+        if (Directory.Exists(threadsDir))
         {
-            var branchDirs = Directory.GetDirectories(branchesDir);
-            branchIds.AddRange(branchDirs.Select(d => Path.GetFileName(d)!));
+            var threadDirs = Directory.GetDirectories(threadsDir);
+            threadIds.AddRange(threadDirs.Select(d => Path.GetFileName(d)!));
         }
 
-        return Task.FromResult(branchIds);
+        return Task.FromResult(threadIds);
     }
 
-    public Task DeleteBranchAsync(
+    public Task DeleteThreadAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
         lock (_lock)
         {
-            var branchDir = GetBranchDirectoryPath(sessionId, branchId);
-            if (Directory.Exists(branchDir))
+            var threadDir = GetThreadDirectoryPath(sessionId, threadId);
+            if (Directory.Exists(threadDir))
             {
-                Directory.Delete(branchDir, recursive: true);
+                Directory.Delete(threadDir, recursive: true);
             }
         }
 
@@ -406,131 +406,131 @@ public class JsonSessionStore : ISessionStore
     private string GetSessionFilePath(string sessionId)
         => Path.Combine(GetSessionDirectoryPath(sessionId), "session.json");
 
-    private string GetBranchesDirectoryPath(string sessionId)
-        => Path.Combine(GetSessionDirectoryPath(sessionId), "branches");
+    private string GetThreadsDirectoryPath(string sessionId)
+        => Path.Combine(GetSessionDirectoryPath(sessionId), "threads");
 
-    private string GetBranchDirectoryPath(string sessionId, string branchId)
-        => Path.Combine(GetBranchesDirectoryPath(sessionId), branchId);
+    private string GetThreadDirectoryPath(string sessionId, string threadId)
+        => Path.Combine(GetThreadsDirectoryPath(sessionId), threadId);
 
-    private string GetBranchMetadataFilePath(string sessionId, string branchId)
-        => Path.Combine(GetBranchDirectoryPath(sessionId, branchId), "branch.meta.json");
+    private string GetThreadMetadataFilePath(string sessionId, string threadId)
+        => Path.Combine(GetThreadDirectoryPath(sessionId, threadId), "thread.meta.json");
 
-    private string GetBranchEventsFilePath(string sessionId, string branchId)
-        => Path.Combine(GetBranchDirectoryPath(sessionId, branchId), "branch.events.jsonl");
+    private string GetThreadEventsFilePath(string sessionId, string threadId)
+        => Path.Combine(GetThreadDirectoryPath(sessionId, threadId), "thread.events.jsonl");
 
-    private string GetBranchProjectionCacheFilePath(string sessionId, string branchId)
-        => Path.Combine(GetBranchDirectoryPath(sessionId, branchId), "branch.projection.json");
+    private string GetThreadProjectionCacheFilePath(string sessionId, string threadId)
+        => Path.Combine(GetThreadDirectoryPath(sessionId, threadId), "thread.projection.json");
 
     private string GetUncommittedTurnFilePath(string sessionId)
         => Path.Combine(GetSessionDirectoryPath(sessionId), "uncommitted.json");
 
-    private BranchEventStreamMetadata LoadBranchMetadataNoLock(
+    private ThreadEventStreamMetadata LoadThreadMetadataNoLock(
         string sessionId,
-        string branchId,
+        string threadId,
         DateTimeOffset? createdAt = null)
     {
-        var metadataPath = GetBranchMetadataFilePath(sessionId, branchId);
+        var metadataPath = GetThreadMetadataFilePath(sessionId, threadId);
         if (File.Exists(metadataPath))
         {
             var json = File.ReadAllText(metadataPath);
             var metadata = JsonSerializer.Deserialize(
                 json,
-                SessionJsonContext.Combined.BranchEventStreamMetadata)
-                ?? throw new InvalidDataException($"Branch metadata '{metadataPath}' is empty.");
-            RequireMetadataScope(metadata, sessionId, branchId);
+                SessionJsonContext.Combined.ThreadEventStreamMetadata)
+                ?? throw new InvalidDataException($"Thread metadata '{metadataPath}' is empty.");
+            RequireMetadataScope(metadata, sessionId, threadId);
             return metadata;
         }
 
-        var eventsPath = GetBranchEventsFilePath(sessionId, branchId);
+        var eventsPath = GetThreadEventsFilePath(sessionId, threadId);
         if (File.Exists(eventsPath))
         {
             throw new InvalidDataException(
-                $"Branch event stream '{eventsPath}' is missing required metadata file '{metadataPath}'.");
+                $"Thread event stream '{eventsPath}' is missing required metadata file '{metadataPath}'.");
         }
 
         var now = createdAt ?? DateTimeOffset.UtcNow;
-        return new BranchEventStreamMetadata
+        return new ThreadEventStreamMetadata
         {
             SessionId = sessionId,
-            BranchId = branchId,
+            ThreadId = threadId,
             CreatedAt = now,
             UpdatedAt = now,
             NextSequenceNumber = 1
         };
     }
 
-    private static BranchEventStreamMetadata ApplyBranchHeader(
-        BranchEventStreamMetadata metadata,
+    private static ThreadEventStreamMetadata ApplyThreadHeader(
+        ThreadEventStreamMetadata metadata,
         AgentEvent evt)
     {
         return evt switch
         {
-            BranchCreatedEvent data => metadata with
+            ThreadCreatedEvent data => metadata with
             {
                 Name = data.Name,
                 Description = data.Description,
                 Tags = data.Tags,
-                Kind = data.BranchKind,
+                Kind = data.ThreadKind,
                 Visibility = data.Visibility,
                 ParentSessionId = data.ParentSessionId,
-                ParentBranchId = data.ParentBranchId,
+                ParentThreadId = data.ParentThreadId,
                 SubAgentName = data.SubAgentName,
                 SubAgentRunId = data.SubAgentRunId,
                 SubAgentSourceKind = data.SubAgentSourceKind,
                 ParentToolCallId = data.ParentToolCallId,
                 SessionPolicy = data.SessionPolicy,
-                BranchPolicy = data.BranchPolicy
+                ThreadPolicy = data.ThreadPolicy
             },
-            BranchMetadataUpdatedEvent data => metadata with
+            ThreadMetadataUpdatedEvent data => metadata with
             {
                 Name = data.Name,
                 Description = data.Description,
                 Tags = data.Tags,
-                Kind = data.BranchKind,
+                Kind = data.ThreadKind,
                 Visibility = data.Visibility,
                 ParentSessionId = data.ParentSessionId,
-                ParentBranchId = data.ParentBranchId,
+                ParentThreadId = data.ParentThreadId,
                 SubAgentName = data.SubAgentName,
                 SubAgentRunId = data.SubAgentRunId,
                 SubAgentSourceKind = data.SubAgentSourceKind,
                 ParentToolCallId = data.ParentToolCallId,
                 SessionPolicy = data.SessionPolicy,
-                BranchPolicy = data.BranchPolicy
+                ThreadPolicy = data.ThreadPolicy
             },
             MessageStartedEvent => metadata with { MessageCount = metadata.MessageCount + 1 },
-            BranchHistoryCompactedEvent data => metadata with { MessageCount = data.ReplacementMessages.Count },
+            ThreadHistoryCompactedEvent data => metadata with { MessageCount = data.ReplacementMessages.Count },
             _ => metadata
         };
     }
 
     private static void RequireMetadataScope(
-        BranchEventStreamMetadata metadata,
+        ThreadEventStreamMetadata metadata,
         string sessionId,
-        string branchId)
+        string threadId)
     {
         if (!StringComparer.Ordinal.Equals(metadata.SessionId, sessionId))
         {
             throw new InvalidDataException(
-                $"Branch metadata session scope '{metadata.SessionId}' does not match requested session '{sessionId}'.");
+                $"Thread metadata session scope '{metadata.SessionId}' does not match requested session '{sessionId}'.");
         }
 
-        if (!StringComparer.Ordinal.Equals(metadata.BranchId, branchId))
+        if (!StringComparer.Ordinal.Equals(metadata.ThreadId, threadId))
         {
             throw new InvalidDataException(
-                $"Branch metadata branch scope '{metadata.BranchId}' does not match requested branch '{branchId}'.");
+                $"Thread metadata thread scope '{metadata.ThreadId}' does not match requested thread '{threadId}'.");
         }
     }
 
-    private void SaveBranchMetadataNoLock(BranchEventStreamMetadata metadata)
+    private void SaveThreadMetadataNoLock(ThreadEventStreamMetadata metadata)
     {
-        var metadataPath = GetBranchMetadataFilePath(metadata.SessionId, metadata.BranchId);
-        var json = JsonSerializer.Serialize(metadata, SessionJsonContext.Combined.BranchEventStreamMetadata);
+        var metadataPath = GetThreadMetadataFilePath(metadata.SessionId, metadata.ThreadId);
+        var json = JsonSerializer.Serialize(metadata, SessionJsonContext.Combined.ThreadEventStreamMetadata);
         WriteAtomically(metadataPath, json);
     }
 
-    private List<AgentEvent> ReadBranchEventsNoLock(string sessionId, string branchId)
+    private List<AgentEvent> ReadThreadEventsNoLock(string sessionId, string threadId)
     {
-        var eventsPath = GetBranchEventsFilePath(sessionId, branchId);
+        var eventsPath = GetThreadEventsFilePath(sessionId, threadId);
         var events = new List<AgentEvent>();
         if (!File.Exists(eventsPath))
             return events;
@@ -540,71 +540,71 @@ public class JsonSessionStore : ISessionStore
             if (string.IsNullOrWhiteSpace(line))
                 continue;
 
-            var evt = JsonSerializer.Deserialize<AgentEvent>(line, BranchEventJson.Options)
-                ?? throw new InvalidDataException($"Branch event stream '{eventsPath}' contains an empty event line.");
-            evt = BranchEventValidation.HydrateEventScope(sessionId, branchId, evt);
-            BranchEventValidation.RequirePersistableScope(sessionId, branchId, evt);
+            var evt = JsonSerializer.Deserialize<AgentEvent>(line, ThreadEventJson.Options)
+                ?? throw new InvalidDataException($"Thread event stream '{eventsPath}' contains an empty event line.");
+            evt = ThreadEventValidation.HydrateEventScope(sessionId, threadId, evt);
+            ThreadEventValidation.RequirePersistableScope(sessionId, threadId, evt);
             events.Add(evt);
         }
 
         return events;
     }
 
-    private BranchProjectionCache? LoadBranchProjectionCacheNoLock(string sessionId, string branchId)
+    private ThreadProjectionCache? LoadThreadProjectionCacheNoLock(string sessionId, string threadId)
     {
-        var projectionPath = GetBranchProjectionCacheFilePath(sessionId, branchId);
+        var projectionPath = GetThreadProjectionCacheFilePath(sessionId, threadId);
         if (!File.Exists(projectionPath))
             return null;
 
         var json = File.ReadAllText(projectionPath);
         var projection = JsonSerializer.Deserialize(
             json,
-            SessionJsonContext.Combined.BranchProjectionCache)
-            ?? throw new InvalidDataException($"Branch projection cache '{projectionPath}' is empty.");
+            SessionJsonContext.Combined.ThreadProjectionCache)
+            ?? throw new InvalidDataException($"Thread projection cache '{projectionPath}' is empty.");
 
         if (!StringComparer.Ordinal.Equals(projection.SessionId, sessionId))
         {
             throw new InvalidDataException(
-                $"Branch projection cache session scope '{projection.SessionId}' does not match requested session '{sessionId}'.");
+                $"Thread projection cache session scope '{projection.SessionId}' does not match requested session '{sessionId}'.");
         }
 
-        if (!StringComparer.Ordinal.Equals(projection.BranchId, branchId))
+        if (!StringComparer.Ordinal.Equals(projection.ThreadId, threadId))
         {
             throw new InvalidDataException(
-                $"Branch projection cache branch scope '{projection.BranchId}' does not match requested branch '{branchId}'.");
+                $"Thread projection cache thread scope '{projection.ThreadId}' does not match requested thread '{threadId}'.");
         }
 
         return projection;
     }
 
-    private void SaveBranchProjectionCacheNoLock(
-        BranchEventStreamMetadata metadata,
-        Branch branch,
+    private void SaveThreadProjectionCacheNoLock(
+        ThreadEventStreamMetadata metadata,
+        Thread thread,
         long lastSequenceNumber,
         DateTimeOffset updatedAt)
     {
-        var projection = new BranchProjectionCache
+        var projection = new ThreadProjectionCache
         {
             SessionId = metadata.SessionId,
-            BranchId = metadata.BranchId,
+            ThreadId = metadata.ThreadId,
             LastSequenceNumber = lastSequenceNumber,
             CreatedAt = metadata.CreatedAt,
             UpdatedAt = updatedAt,
-            Branch = branch
+            Thread = thread
         };
 
-        var projectionPath = GetBranchProjectionCacheFilePath(metadata.SessionId, metadata.BranchId);
-        var json = JsonSerializer.Serialize(projection, SessionJsonContext.Combined.BranchProjectionCache);
+        var projectionPath = GetThreadProjectionCacheFilePath(metadata.SessionId, metadata.ThreadId);
+        var json = JsonSerializer.Serialize(projection, SessionJsonContext.Combined.ThreadProjectionCache);
         WriteAtomically(projectionPath, json);
     }
 
-    private void RequireExpectedSequenceNoLock(string sessionId, string branchId, long expectedSequenceNumber)
+    private void RequireExpectedSequenceNoLock(string sessionId, string threadId, long expectedSequenceNumber)
     {
-        var metadata = LoadBranchMetadataNoLock(sessionId, branchId);
+        var metadata = LoadThreadMetadataNoLock(sessionId, threadId);
         if (metadata.NextSequenceNumber - 1 != expectedSequenceNumber)
         {
             throw new InvalidOperationException(
-                $"Branch '{branchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {metadata.NextSequenceNumber - 1}.");
+                $"Thread '{threadId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {metadata.NextSequenceNumber - 1}.");
         }
     }
 

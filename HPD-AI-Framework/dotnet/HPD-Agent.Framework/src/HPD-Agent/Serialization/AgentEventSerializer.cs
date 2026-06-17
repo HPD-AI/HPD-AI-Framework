@@ -39,16 +39,16 @@ public static partial class AgentEventSerializer
         [typeof(UserTextInputEvent)] = EventTypes.Input.USER_TEXT_INPUT,
         [typeof(UserMessagesInputEvent)] = EventTypes.Input.USER_MESSAGES_INPUT,
 
-        // Branch Events
-        [typeof(BranchCreatedEvent)] = BranchEventTypes.BranchCreated,
-        [typeof(BranchForkedEvent)] = BranchEventTypes.BranchForked,
-        [typeof(BranchMetadataUpdatedEvent)] = BranchEventTypes.BranchMetadataUpdated,
-        [typeof(BranchTreeUpdatedEvent)] = BranchEventTypes.BranchTreeUpdated,
-        [typeof(MessageStartedEvent)] = BranchEventTypes.MessageStarted,
-        [typeof(MessageCompletedEvent)] = BranchEventTypes.MessageCompleted,
-        [typeof(ContentAddedEvent)] = BranchEventTypes.ContentAdded,
-        [typeof(BranchMiddlewareStateCommittedEvent)] = BranchEventTypes.BranchMiddlewareStateCommitted,
-        [typeof(BranchHistoryCompactedEvent)] = BranchEventTypes.BranchHistoryCompacted,
+        // Thread Events
+        [typeof(ThreadCreatedEvent)] = ThreadEventTypes.ThreadCreated,
+        [typeof(ThreadForkedEvent)] = ThreadEventTypes.ThreadForked,
+        [typeof(ThreadMetadataUpdatedEvent)] = ThreadEventTypes.ThreadMetadataUpdated,
+        [typeof(ThreadTreeUpdatedEvent)] = ThreadEventTypes.ThreadTreeUpdated,
+        [typeof(MessageStartedEvent)] = ThreadEventTypes.MessageStarted,
+        [typeof(MessageCompletedEvent)] = ThreadEventTypes.MessageCompleted,
+        [typeof(ContentAddedEvent)] = ThreadEventTypes.ContentAdded,
+        [typeof(ThreadMiddlewareStateCommittedEvent)] = ThreadEventTypes.ThreadMiddlewareStateCommitted,
+        [typeof(ThreadHistoryCompactedEvent)] = ThreadEventTypes.ThreadHistoryCompacted,
 
         // Message Turn Events
         [typeof(MessageTurnStartedEvent)] = EventTypes.MessageTurn.MESSAGE_TURN_STARTED,
@@ -59,8 +59,8 @@ public static partial class AgentEventSerializer
         [typeof(AgentTurnStartedEvent)] = EventTypes.AgentTurn.AGENT_TURN_STARTED,
         [typeof(AgentTurnFinishedEvent)] = EventTypes.AgentTurn.AGENT_TURN_FINISHED,
         [typeof(StateSnapshotEvent)] = EventTypes.AgentTurn.STATE_SNAPSHOT,
-        [typeof(BranchRunStartedEvent)] = EventTypes.AgentTurn.BRANCH_RUN_STARTED,
-        [typeof(BranchRunCompletedEvent)] = EventTypes.AgentTurn.BRANCH_RUN_COMPLETED,
+        [typeof(ThreadRunStartedEvent)] = EventTypes.AgentTurn.THREAD_RUN_STARTED,
+        [typeof(ThreadRunCompletedEvent)] = EventTypes.AgentTurn.THREAD_RUN_COMPLETED,
 
         // Content Events
         [typeof(TextMessageStartEvent)] = EventTypes.Content.TEXT_MESSAGE_START,
@@ -109,7 +109,7 @@ public static partial class AgentEventSerializer
         [typeof(TotalErrorThresholdExceededEvent)] = EventTypes.Middleware.TOTAL_ERROR_THRESHOLD_EXCEEDED,
         [typeof(PIIDetectedEvent)] = EventTypes.Middleware.PII_DETECTED,
 
-        // Branch events removed - branching is now an application-level concern
+        // Thread events removed - threading is now an application-level concern
 
         // Request Lifecycle Events
         [typeof(AgentRequestStartedEvent)] = EventTypes.RequestLifecycle.AGENT_REQUEST_STARTED,

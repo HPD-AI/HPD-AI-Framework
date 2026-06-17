@@ -459,7 +459,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         await agent.RunAsync(new UserMessagesInputEvent(messages)
         {
             SessionId = route.SessionId,
-            BranchId = route.BranchId,
+            ThreadId = route.ThreadId,
             RunConfig = runConfig
         }, ct).ConfigureAwait(false);
     }

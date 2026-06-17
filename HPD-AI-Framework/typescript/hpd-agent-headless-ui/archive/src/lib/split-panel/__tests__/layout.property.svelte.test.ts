@@ -37,7 +37,7 @@ import { arbOperation, type LayoutOperation } from './arbitraries.js';
 function applyOperation(state: SplitPanelState, history: LayoutHistory, op: LayoutOperation): void {
 	switch (op.type) {
 		case 'addPanel': {
-			// Add to root's first branch
+			// Add to root's first thread
 			const result = state.addPanel(`panel-${op.panelId}`, [], {
 				size: 200
 			});
@@ -84,7 +84,7 @@ function getAllPanelIds(state: SplitPanelState): string[] {
 	const traverse = (node: any): void => {
 		if (node.type === 'leaf') {
 			ids.push(node.id);
-		} else if (node.type === 'branch') {
+		} else if (node.type === 'thread') {
 			for (const child of node.children) {
 				traverse(child);
 			}
@@ -191,7 +191,7 @@ describe.skip('SplitPanelState Property-Based Tests', () => {
 					state.addPanel('p3', [], { size: 100 });
 
 					// Get flex ratios before resize
-					const root = state.root as { type: 'branch'; flexes: number[] };
+					const root = state.root as { type: 'thread'; flexes: number[] };
 					const ratiosBefore = Array.from(root.flexes).map((f, i, arr) => {
 						const total = arr.reduce((a, b) => a + b, 0);
 						return total > 0 ? f / total : 0;
@@ -293,7 +293,7 @@ describe.skip('SplitPanelState Property-Based Tests', () => {
 					const traverse = (node: any): void => {
 						if (node.type === 'leaf') {
 							allPanels.push(node);
-						} else if (node.type === 'branch') {
+						} else if (node.type === 'thread') {
 							for (const child of node.children) {
 								traverse(child);
 							}

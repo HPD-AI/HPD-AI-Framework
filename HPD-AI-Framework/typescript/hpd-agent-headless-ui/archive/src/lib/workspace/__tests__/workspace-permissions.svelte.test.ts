@@ -18,15 +18,15 @@ import type {
 	AgentEvent,
 	KnownAgentEvent,
 	AgentRunInputEvent,
-	Branch,
-	BranchMessage,
+	Thread,
+	ThreadMessage,
 	Session,
 	CreateSessionRequest,
 	UpdateSessionRequest,
 	ListSessionsOptions,
-	CreateBranchRequest,
-	ForkBranchRequest,
-	SiblingBranch,
+	CreateThreadRequest,
+	ForkThreadRequest,
+	SiblingThread,
 	CreateAgentRequest,
 	UpdateAgentRequest,
 	StoredAgentDto,
@@ -60,17 +60,17 @@ class FakeAgentClient implements AgentClientLike {
 	#resolveRun: (() => void) | null = null;
 	#runCallCount = 0;
 	#lastSessionId: string | null = null;
-	#lastBranchId: string | undefined = undefined;
+	#lastThreadId: string | undefined = undefined;
 	#lastRunInput: AgentRunInputEvent | null = null;
 	#runInputs: AgentRunInputEvent[] = [];
 
-	// CRUD state — minimal stubs sufficient for init (one session, one branch)
+	// CRUD state — minimal stubs sufficient for init (one session, one thread)
 	readonly #sessions: Session[] = [
 		{ id: 's1', createdAt: new Date().toISOString(), lastActivity: new Date().toISOString(), metadata: {} }
 	];
-	readonly #branches: Map<string, Branch[]> = new Map([['s1', [this.#makeBranch('main', 's1')]]]);
+	readonly #threads: Map<string, Thread[]> = new Map([['s1', [this.#makeThread('main', 's1')]]]);
 
-	#makeBranch(id: string, sessionId: string): Branch {
+	#makeThread(id: string, sessionId: string): Thread {
 		return {
 			id, sessionId, name: id, description: '',
 			createdAt: new Date().toISOString(),
@@ -78,13 +78,13 @@ class FakeAgentClient implements AgentClientLike {
 			messageCount: 0, tags: [],
 			siblingIndex: 0, totalSiblings: 1,
 			isOriginal: true,
-			childBranches: [], totalForks: 0
+			childThreads: [], totalForks: 0
 		};
 	}
 
 	get runCallCount() { return this.#runCallCount; }
 	get lastSessionId() { return this.#lastSessionId; }
-	get lastBranchId() { return this.#lastBranchId; }
+	get lastThreadId() { return this.#lastThreadId; }
 	get lastRunInput() { return this.#lastRunInput; }
 	get runInputs() { return this.#runInputs; }
 
@@ -134,7 +134,7 @@ class FakeAgentClient implements AgentClientLike {
 		}
 
 		this.#lastSessionId = input.sessionId ?? null;
-		this.#lastBranchId = input.branchId;
+		this.#lastThreadId = input.threadId;
 
 		return new Promise<void>((resolve) => {
 			this.#resolveRun = resolve;
@@ -164,28 +164,28 @@ class FakeAgentClient implements AgentClientLike {
 	}
 	async deleteSession(_id: string): Promise<void> {}
 
-	// ---- Branch CRUD ----
+	// ---- Thread CRUD ----
 
-	async listBranches(sid: string): Promise<Branch[]> {
-		return this.#branches.get(sid) ?? [];
+	async listThreads(sid: string): Promise<Thread[]> {
+		return this.#threads.get(sid) ?? [];
 	}
-	async getBranch(sid: string, bid: string): Promise<Branch | null> {
-		return (this.#branches.get(sid) ?? []).find((b) => b.id === bid) ?? null;
+	async getThread(sid: string, bid: string): Promise<Thread | null> {
+		return (this.#threads.get(sid) ?? []).find((b) => b.id === bid) ?? null;
 	}
-	async createBranch(_sid: string, _opts?: CreateBranchRequest): Promise<Branch> {
+	async createThread(_sid: string, _opts?: CreateThreadRequest): Promise<Thread> {
 		throw new Error('not needed in permission tests');
 	}
-	async forkBranch(_sid: string, _bid: string, _opts: ForkBranchRequest): Promise<Branch> {
+	async forkThread(_sid: string, _bid: string, _opts: ForkThreadRequest): Promise<Thread> {
 		throw new Error('not needed in permission tests');
 	}
-	async deleteBranch(_sid: string, _bid: string): Promise<void> {}
-	async getBranchMessages(_sid: string, _bid: string): Promise<BranchMessage[]> { return []; }
+	async deleteThread(_sid: string, _bid: string): Promise<void> {}
+	async getThreadMessages(_sid: string, _bid: string): Promise<ThreadMessage[]> { return []; }
 
 	// ---- Sibling navigation ----
 
-	async getBranchSiblings(_sid: string, _bid: string): Promise<SiblingBranch[]> { return []; }
-	async getNextSibling(_sid: string, _bid: string): Promise<Branch | null> { return null; }
-	async getPreviousSibling(_sid: string, _bid: string): Promise<Branch | null> { return null; }
+	async getThreadSiblings(_sid: string, _bid: string): Promise<SiblingThread[]> { return []; }
+	async getNextSibling(_sid: string, _bid: string): Promise<Thread | null> { return null; }
+	async getPreviousSibling(_sid: string, _bid: string): Promise<Thread | null> { return null; }
 
 	// ---- Agent CRUD ----
 
@@ -201,7 +201,7 @@ class FakeAgentClient implements AgentClientLike {
 
 	// ---- Content upload ----
 
-	async uploadContent(_sessionId: string, _branchId: string, _file: File | Blob, _name?: string): Promise<ContentReference> {
+	async uploadContent(_sessionId: string, _threadId: string, _file: File | Blob, _name?: string): Promise<ContentReference> {
 		throw new Error('not needed in permission tests');
 	}
 
@@ -533,11 +533,11 @@ describe('createWorkspace — clarification round-trip', () => {
 });
 
 // ============================================
-// Group C: run() is called with correct session + branch
+// Group C: run() is called with correct session + thread
 // ============================================
 
-describe('createWorkspace — send() targets correct session and branch', () => {
-	it('send() calls client.run with activeSessionId and activeBranchId', async () => {
+describe('createWorkspace — send() targets correct session and thread', () => {
+	it('send() calls client.run with activeSessionId and activeThreadId', async () => {
 		const client = new FakeAgentClient();
 		const ws = await buildWorkspace(client);
 
@@ -545,7 +545,7 @@ describe('createWorkspace — send() targets correct session and branch', () => 
 		await tick(50);
 
 		expect(client.lastSessionId).toBe('s1');
-		expect(client.lastBranchId).toBe('main');
+		expect(client.lastThreadId).toBe('main');
 
 		client.complete();
 		await sendPromise;

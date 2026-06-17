@@ -374,8 +374,8 @@ export class SplitPanelHandleState {
 			// Get parent node
 			const parent = layoutState.getNodeAt(parentPath);
 
-			if (parent.type !== 'branch') {
-				console.warn('Cannot reset: parent is not a branch node');
+			if (parent.type !== 'thread') {
+				console.warn('Cannot reset: parent is not a thread node');
 				return;
 			}
 
@@ -417,8 +417,8 @@ export class SplitPanelHandleState {
 			// Get parent node
 			const parent = layoutState.getNodeAt(parentPath);
 
-			if (parent.type !== 'branch') {
-				console.warn('Cannot toggle: parent is not a branch node');
+			if (parent.type !== 'thread') {
+				console.warn('Cannot toggle: parent is not a thread node');
 				return;
 			}
 
@@ -436,7 +436,7 @@ export class SplitPanelHandleState {
 				if (node.type === 'leaf') {
 					return node.id;
 				}
-				if (node.type === 'branch' && node.children.length > 0) {
+				if (node.type === 'thread' && node.children.length > 0) {
 					return findFirstLeaf(node.children[0]);
 				}
 				return null;

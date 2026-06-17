@@ -26,7 +26,7 @@ public sealed class FunctionExecutionContextTests
             AgentName = "AgentA",
             ConversationId = "conversation-1",
             SessionId = "session-1",
-            BranchId = "branch-1",
+            ThreadId = "thread-1",
             TraceId = "trace-1",
             FunctionCallId = "tool-call-1",
             FunctionName = "Search",
@@ -36,7 +36,7 @@ public sealed class FunctionExecutionContextTests
         context.AgentName.Should().Be("AgentA");
         context.ConversationId.Should().Be("conversation-1");
         context.SessionId.Should().Be("session-1");
-        context.BranchId.Should().Be("branch-1");
+        context.ThreadId.Should().Be("thread-1");
         context.TraceId.Should().Be("trace-1");
         context.FunctionCallId.Should().Be("tool-call-1");
         context.FunctionName.Should().Be("Search");
@@ -64,7 +64,7 @@ public sealed class FunctionExecutionContextTests
         type.GetProperty("HookContext").Should().BeNull();
         type.GetProperty("AgentContext").Should().BeNull();
         type.GetProperty("Session").Should().BeNull();
-        type.GetProperty("Branch").Should().BeNull();
+        type.GetProperty("Thread").Should().BeNull();
     }
 
     [Fact]
@@ -249,7 +249,7 @@ public sealed class FunctionExecutionContextTests
         type.GetProperty("AgentLoopState").Should().BeNull();
         type.GetProperty("ToolResultMetadata").Should().BeNull();
         type.GetProperty("Session").Should().BeNull();
-        type.GetProperty("Branch").Should().BeNull();
+        type.GetProperty("Thread").Should().BeNull();
     }
 
     private static FunctionExecutionContext CreateContext(
@@ -275,14 +275,14 @@ public sealed class FunctionExecutionContextTests
 
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
         var session = new global::HPD.Agent.Session("session-1");
-        var branch = new global::HPD.Agent.Branch("session-1") { Id = "branch-1" };
+        var thread = new global::HPD.Agent.Thread("session-1") { Id = "thread-1" };
         var agentContext = new AgentContext(
             "AgentA",
             "conversation-1",
             state,
             eventCoordinator ?? new EventCoordinator(),
             session,
-            branch,
+            thread,
             CancellationToken.None,
             services: services,
             traceId: traceId);

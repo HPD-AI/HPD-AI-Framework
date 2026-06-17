@@ -4,7 +4,7 @@ using HPD.Agent.Audio.Interaction;
 using HPD.Agent.Audio.Interruptions;
 using HPD.Agent.Audio.Ledger;
 using HPD.Agent.Audio.Runtime;
-using HPD.Agent.Audio.Runtime.Branch;
+using HPD.Agent.Audio.Runtime.Thread;
 using HPD.Agent.Audio.Runtime.Ledger;
 using HPD.Agent.Audio.Runtime.Output;
 using HPD.Agent.Audio.Runtime.Trace;
@@ -21,10 +21,10 @@ public sealed class FakeProviderOutputTruthTests
         var clock = new RuntimeClock();
         var sessionId = new AudioSessionId("session-interruption-smoke");
         var turnId = new AudioTurnId("turn-interruption-smoke");
-        var branchRef = new BranchRef("session-interruption-smoke", "main");
+        var threadRef = new ThreadRef("session-interruption-smoke", "main");
         var ledger = new InMemoryRealtimeConversationLedger();
         var trace = new InMemoryRealtimeAudioTraceStore();
-        var branch = new InMemoryBranchProjectionSink();
+        var thread = new InMemoryThreadProjectionSink();
         IOutputFlow outputFlow = new InMemoryOutputFlow(ids.NextOutputFlowId());
         var responseId = ids.NextResponseId();
         const string generatedText = "hello there, this tail was never heard";
@@ -73,7 +73,7 @@ public sealed class FakeProviderOutputTruthTests
         };
         await trace.AppendAsync(draftTrace);
 
-        Assert.Empty(branch.ProjectedTurns);
+        Assert.Empty(thread.ProjectedTurns);
 
         var interruptionEvidence = new InterruptionCandidate
         {
@@ -153,44 +153,44 @@ public sealed class FakeProviderOutputTruthTests
         };
         await trace.AppendAsync(interruptedOutputTrace);
 
-        var projection = new BranchProjectionRecord
+        var projection = new ThreadProjectionRecord
         {
             TurnId = turnId,
             Text = commit.Text,
-            Kind = BranchProjectionKind.AssistantOutput,
-            Role = BranchProjectionRole.Assistant,
+            Kind = ThreadProjectionKind.AssistantOutput,
+            Role = ThreadProjectionRole.Assistant,
             OutputFlowId = commit.OutputFlowId,
             ResponseId = commit.ResponseId
         };
-        var projectedEvent = await branch.ProjectAsync(branchRef, projection);
-        var projectionRecord = new BranchProjectionLedgerRecord
+        var projectedEvent = await thread.ProjectAsync(threadRef, projection);
+        var projectionRecord = new ThreadProjectionLedgerRecord
         {
             Id = ids.NextLedgerRecordId(),
             SessionId = sessionId,
-            Family = LedgerRecordFamily.BranchProjection,
+            Family = LedgerRecordFamily.ThreadProjection,
             RecordedAt = clock.Tick(),
-            ProjectionId = ids.NextBranchProjectionId(),
-            Branch = branchRef,
+            ProjectionId = ids.NextThreadProjectionId(),
+            Thread = threadRef,
             Projection = projection,
             ProjectedEvent = projectedEvent,
             Correlation = correlation
         };
         await ledger.AppendAsync(projectionRecord);
-        var branchTrace = new AudioBranchProjectionTraceRecord
+        var threadTrace = new AudioThreadProjectionTraceRecord
         {
             Id = ids.NextTraceRecordId(),
             SessionId = sessionId,
-            Family = RealtimeAudioTraceRecordFamily.BranchProjection,
+            Family = RealtimeAudioTraceRecordFamily.ThreadProjection,
             RecordedAt = clock.Tick(),
             ProjectionId = projectionRecord.ProjectionId,
             ProjectedEvent = projectedEvent,
             Correlation = correlation
         };
-        await trace.AppendAsync(branchTrace);
+        await trace.AppendAsync(threadTrace);
 
         var ledgerRecords = ledger.ToArray();
         var repairRecord = Assert.Single(ledgerRecords.OfType<InterruptionRepairLedgerRecord>());
-        var projectedTurn = Assert.Single(branch.ProjectedTurns);
+        var projectedTurn = Assert.Single(thread.ProjectedTurns);
 
         Assert.True(IndexOf(ledgerRecords, draftRecord) < IndexOf(ledgerRecords, repairLedgerRecord));
         Assert.True(IndexOf(ledgerRecords, repairLedgerRecord) < IndexOf(ledgerRecords, projectionRecord));
@@ -211,8 +211,8 @@ public sealed class FakeProviderOutputTruthTests
         var traceRecords = trace.ToArray();
         var repairTraceRecord = Assert.Single(traceRecords.OfType<AudioInterruptionRepairTraceRecord>());
         Assert.True(IndexOf(traceRecords, draftTrace) < IndexOf(traceRecords, repairTrace));
-        Assert.True(IndexOf(traceRecords, repairTrace) < IndexOf(traceRecords, branchTrace));
-        Assert.True(IndexOf(traceRecords, interruptedOutputTrace) < IndexOf(traceRecords, branchTrace));
+        Assert.True(IndexOf(traceRecords, repairTrace) < IndexOf(traceRecords, threadTrace));
+        Assert.True(IndexOf(traceRecords, interruptedOutputTrace) < IndexOf(traceRecords, threadTrace));
         Assert.Equal(InterruptionRepairQuality.LocalOnly, repairTraceRecord.Repair.RepairQuality);
         Assert.Equal(ProviderRepairStatus.Unsupported, repairTraceRecord.Repair.ProviderRepairStatus);
     }
@@ -224,10 +224,10 @@ public sealed class FakeProviderOutputTruthTests
         var clock = new RuntimeClock();
         var sessionId = new AudioSessionId("session-output-truth");
         var turnId = new AudioTurnId("turn-output-truth");
-        var branchRef = new BranchRef("session-output-truth", "main");
+        var threadRef = new ThreadRef("session-output-truth", "main");
         var ledger = new InMemoryRealtimeConversationLedger();
         var trace = new InMemoryRealtimeAudioTraceStore();
-        var branch = new InMemoryBranchProjectionSink();
+        var thread = new InMemoryThreadProjectionSink();
         IOutputFlow outputFlow = new InMemoryOutputFlow(ids.NextOutputFlowId());
         var responseId = ids.NextResponseId();
         var interactionSessionId = ids.NextInteractionSessionId();
@@ -295,8 +295,8 @@ public sealed class FakeProviderOutputTruthTests
             Correlation = correlation
         });
 
-        Assert.Empty(branch.ProjectedTurns);
-        Assert.DoesNotContain(ledger.ToArray().OfType<BranchProjectionLedgerRecord>(), r =>
+        Assert.Empty(thread.ProjectedTurns);
+        Assert.DoesNotContain(ledger.ToArray().OfType<ThreadProjectionLedgerRecord>(), r =>
             r.Projection.OutputFlowId == outputFlow.Id);
 
         var commit = await outputFlow.CompletePlayedAsync(new OutputPlaybackCursor
@@ -340,34 +340,34 @@ public sealed class FakeProviderOutputTruthTests
             Correlation = correlation
         });
 
-        var projection = new BranchProjectionRecord
+        var projection = new ThreadProjectionRecord
         {
             TurnId = turnId,
             Text = commit.Text,
-            Kind = BranchProjectionKind.AssistantOutput,
-            Role = BranchProjectionRole.Assistant,
+            Kind = ThreadProjectionKind.AssistantOutput,
+            Role = ThreadProjectionRole.Assistant,
             OutputFlowId = commit.OutputFlowId,
             ResponseId = commit.ResponseId
         };
-        var projectedEvent = await branch.ProjectAsync(branchRef, projection);
-        var projectionRecord = new BranchProjectionLedgerRecord
+        var projectedEvent = await thread.ProjectAsync(threadRef, projection);
+        var projectionRecord = new ThreadProjectionLedgerRecord
         {
             Id = ids.NextLedgerRecordId(),
             SessionId = sessionId,
-            Family = LedgerRecordFamily.BranchProjection,
+            Family = LedgerRecordFamily.ThreadProjection,
             RecordedAt = clock.Tick(),
-            ProjectionId = ids.NextBranchProjectionId(),
-            Branch = branchRef,
+            ProjectionId = ids.NextThreadProjectionId(),
+            Thread = threadRef,
             Projection = projection,
             ProjectedEvent = projectedEvent,
             Correlation = correlation
         };
         await ledger.AppendAsync(projectionRecord);
-        await trace.AppendAsync(new AudioBranchProjectionTraceRecord
+        await trace.AppendAsync(new AudioThreadProjectionTraceRecord
         {
             Id = ids.NextTraceRecordId(),
             SessionId = sessionId,
-            Family = RealtimeAudioTraceRecordFamily.BranchProjection,
+            Family = RealtimeAudioTraceRecordFamily.ThreadProjection,
             RecordedAt = clock.Tick(),
             ProjectionId = projectionRecord.ProjectionId,
             ProjectedEvent = projectedEvent,
@@ -376,8 +376,8 @@ public sealed class FakeProviderOutputTruthTests
 
         var ledgerRecords = ledger.ToArray();
         var assistantRecords = ledgerRecords.OfType<AssistantOutputLedgerRecord>().ToArray();
-        var branchProjectionRecord = Assert.Single(ledgerRecords.OfType<BranchProjectionLedgerRecord>());
-        var projectedTurn = Assert.Single(branch.ProjectedTurns);
+        var threadProjectionRecord = Assert.Single(ledgerRecords.OfType<ThreadProjectionLedgerRecord>());
+        var projectedTurn = Assert.Single(thread.ProjectedTurns);
 
         Assert.Collection(assistantRecords,
             draft =>
@@ -391,14 +391,14 @@ public sealed class FakeProviderOutputTruthTests
                 Assert.Equal(outputFlow.Id, completed.OutputFlowId);
             });
         Assert.True(IndexOf(ledgerRecords, draftRecord) < IndexOf(ledgerRecords, completedRecord));
-        Assert.True(IndexOf(ledgerRecords, completedRecord) < IndexOf(ledgerRecords, branchProjectionRecord));
-        Assert.Equal(outputFlow.Id, branchProjectionRecord.Projection.OutputFlowId);
-        Assert.Equal(responseId, branchProjectionRecord.Projection.ResponseId);
-        Assert.Equal(BranchProjectionKind.AssistantOutput, branchProjectionRecord.Projection.Kind);
-        Assert.Equal(BranchProjectionRole.Assistant, branchProjectionRecord.Projection.Role);
+        Assert.True(IndexOf(ledgerRecords, completedRecord) < IndexOf(ledgerRecords, threadProjectionRecord));
+        Assert.Equal(outputFlow.Id, threadProjectionRecord.Projection.OutputFlowId);
+        Assert.Equal(responseId, threadProjectionRecord.Projection.ResponseId);
+        Assert.Equal(ThreadProjectionKind.AssistantOutput, threadProjectionRecord.Projection.Kind);
+        Assert.Equal(ThreadProjectionRole.Assistant, threadProjectionRecord.Projection.Role);
         Assert.Equal("draft assistant text", projectedTurn.Record.Text);
         Assert.Equal(outputFlow.Id, projectedTurn.Record.OutputFlowId);
-        Assert.Equal(BranchProjectionRole.Assistant, projectedTurn.Record.Role);
+        Assert.Equal(ThreadProjectionRole.Assistant, projectedTurn.Record.Role);
 
         var traceRecords = trace.ToArray();
         var outputTraceRecords = traceRecords.OfType<AudioAssistantOutputTraceRecord>().ToArray();
@@ -407,7 +407,7 @@ public sealed class FakeProviderOutputTruthTests
             completed => Assert.Equal(OutputDisposition.PlayedComplete, completed.Disposition));
         Assert.True(IndexOf(traceRecords, providerUpdateTrace) < IndexOf(traceRecords, outputTraceRecords[1]));
         Assert.True(IndexOf(traceRecords, outputTraceRecords[1]) <
-            IndexOf(traceRecords, traceRecords.OfType<AudioBranchProjectionTraceRecord>().Single()));
+            IndexOf(traceRecords, traceRecords.OfType<AudioThreadProjectionTraceRecord>().Single()));
     }
 
     private static int IndexOf<T>(IReadOnlyList<T> records, T record)

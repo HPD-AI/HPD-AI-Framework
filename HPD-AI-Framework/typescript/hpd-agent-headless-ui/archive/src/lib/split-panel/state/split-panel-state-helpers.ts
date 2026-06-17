@@ -5,7 +5,7 @@
  * Separated for clarity and testability.
  */
 
-import type { LayoutNode, BranchNode, LeafNode } from '../types/index.js';
+import type { LayoutNode, ThreadNode, LeafNode } from '../types/index.js';
 
 /**
  * Encode a resize key for pending deltas map.
@@ -33,7 +33,7 @@ export function decodeResizeKey(key: string): { parentPath: number[]; dividerInd
 export function getNodeAt(root: LayoutNode, path: number[]): LayoutNode {
 	let current = root;
 	for (const index of path) {
-		if (current.type !== 'branch') {
+		if (current.type !== 'thread') {
 			throw new Error(`Invalid path: cannot traverse into leaf node`);
 		}
 		if (index < 0 || index >= current.children.length) {
@@ -75,13 +75,13 @@ export function isValidPath(root: LayoutNode, path: number[]): boolean {
 }
 
 /**
- * Get indices of active (non-collapsed) children in a branch.
+ * Get indices of active (non-collapsed) children in a thread.
  * Active children have flex > FLEX_EPS.
  */
-export function getActiveChildIndices(branch: BranchNode, flexEps: number): number[] {
+export function getActiveChildIndices(thread: ThreadNode, flexEps: number): number[] {
 	const result: number[] = [];
-	for (let i = 0; i < branch.children.length; i++) {
-		if (branch.flexes[i] > flexEps) {
+	for (let i = 0; i < thread.children.length; i++) {
+		if (thread.flexes[i] > flexEps) {
 			result.push(i);
 		}
 	}
@@ -101,7 +101,7 @@ export function removePanelRecursive(
 		return node.id === panelId ? { node: null, found: true } : { node, found: false };
 	}
 
-	// Branch node: recursively try to remove from children
+	// Thread node: recursively try to remove from children
 	let found = false;
 	const newChildren: LayoutNode[] = [];
 	const newFlexes: number[] = [];
@@ -127,19 +127,19 @@ export function removePanelRecursive(
 
 	// Panel was found and removed. Sanitize tree:
 	if (newChildren.length === 0) {
-		// Branch is now empty
+		// Thread is now empty
 		return { node: null, found: true };
 	}
 
 	if (newChildren.length === 1) {
-		// Branch has only one child, unwrap it
+		// Thread has only one child, unwrap it
 		return { node: newChildren[0], found: true };
 	}
 
-	// Branch still has multiple children, update it
+	// Thread still has multiple children, update it
 	return {
 		node: {
-			type: 'branch',
+			type: 'thread',
 			axis: node.axis,
 			children: newChildren,
 			flexes: newFlexes

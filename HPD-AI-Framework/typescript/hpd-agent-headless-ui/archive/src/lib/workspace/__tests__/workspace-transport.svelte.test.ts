@@ -2,12 +2,12 @@
  * workspace-transport.svelte.test.ts
  *
  * Tests that require inspecting the real WorkspaceImpl internals:
- *   - getBranchMessages called on cache miss, not on cache hit
- *   - invalidateBranch causes a fresh load on next switch
+ *   - getThreadMessages called on cache miss, not on cache hit
+ *   - invalidateThread causes a fresh load on next switch
  *   - LRU eviction: oldest non-active entry is dropped when limit exceeded
- *   - Active branch is never evicted
+ *   - Active thread is never evicted
  *   - mapToUIMessages: loaded messages have correct field defaults
- *   - Error paths: init failure, selectSession failure, switchBranch failure
+ *   - Error paths: init failure, selectSession failure, switchThread failure
  *   - Error is cleared on next successful operation
  *
  * Strategy: inject a FakeAgentClient via the `_client` option so
@@ -18,15 +18,15 @@ import { describe, it, expect, vi } from 'vitest';
 import { createWorkspace } from '../workspace.svelte.ts';
 import type { AgentClientLike, CreateWorkspaceOptions } from '../types.ts';
 import type {
-	Branch,
-	BranchMessage,
+	Thread,
+	ThreadMessage,
 	Session,
 	CreateSessionRequest,
 	UpdateSessionRequest,
 	ListSessionsOptions,
-	CreateBranchRequest,
-	ForkBranchRequest,
-	SiblingBranch,
+	CreateThreadRequest,
+	ForkThreadRequest,
+	SiblingThread,
 } from '@hpd-research/hpd-agent-client';
 
 // ============================================
@@ -46,7 +46,7 @@ function makeSession(id: string): Session {
 	};
 }
 
-function makeBranch(id: string, sessionId: string, overrides: Partial<Branch> = {}): Branch {
+function makeThread(id: string, sessionId: string, overrides: Partial<Thread> = {}): Thread {
 	return {
 		id,
 		sessionId,
@@ -62,16 +62,16 @@ function makeBranch(id: string, sessionId: string, overrides: Partial<Branch> = 
 		siblingIndex: 0,
 		totalSiblings: 1,
 		isOriginal: true,
-		originalBranchId: undefined,
+		originalThreadId: undefined,
 		previousSiblingId: undefined,
 		nextSiblingId: undefined,
-		childBranches: [],
+		childThreads: [],
 		totalForks: 0,
 		...overrides
 	};
 }
 
-function makeMessages(count: number): BranchMessage[] {
+function makeMessages(count: number): ThreadMessage[] {
 	return Array.from({ length: count }, (_, i) => ({
 		id: `msg-${i}`,
 		role: i % 2 === 0 ? 'user' : 'assistant',
@@ -88,8 +88,8 @@ function makeMessages(count: number): BranchMessage[] {
 // stream() never resolves (workspace CRUD tests don't trigger streaming).
 // ============================================
 
-function makeFakeAgentClient(sessions: Session[], branchesPerSession: Map<string, Branch[]>): AgentClientLike {
-	const getBranchMessagesSpy = vi.fn(async (_sid: string, _bid: string): Promise<BranchMessage[]> => []);
+function makeFakeAgentClient(sessions: Session[], threadsPerSession: Map<string, Thread[]>): AgentClientLike {
+	const getThreadMessagesSpy = vi.fn(async (_sid: string, _bid: string): Promise<ThreadMessage[]> => []);
 
 	const client: AgentClientLike = {
 		// ---- Streaming (not used in workspace CRUD tests) ----
@@ -113,37 +113,37 @@ function makeFakeAgentClient(sessions: Session[], branchesPerSession: Map<string
 		}),
 		deleteSession: vi.fn(async (_id: string) => {}),
 
-		// ---- Branch CRUD ----
-		listBranches: vi.fn(async (sid: string) => branchesPerSession.get(sid) ?? []),
-		getBranch: vi.fn(async (sid: string, bid: string) =>
-			(branchesPerSession.get(sid) ?? []).find((b) => b.id === bid) ?? null
+		// ---- Thread CRUD ----
+		listThreads: vi.fn(async (sid: string) => threadsPerSession.get(sid) ?? []),
+		getThread: vi.fn(async (sid: string, bid: string) =>
+			(threadsPerSession.get(sid) ?? []).find((b) => b.id === bid) ?? null
 		),
-		createBranch: vi.fn(async (sid: string, opts?: CreateBranchRequest) => {
-			const b = makeBranch(opts?.branchId ?? `branch-${Date.now()}`, sid);
-			const list = branchesPerSession.get(sid) ?? [];
+		createThread: vi.fn(async (sid: string, opts?: CreateThreadRequest) => {
+			const b = makeThread(opts?.threadId ?? `thread-${Date.now()}`, sid);
+			const list = threadsPerSession.get(sid) ?? [];
 			list.push(b);
-			branchesPerSession.set(sid, list);
+			threadsPerSession.set(sid, list);
 			return b;
 		}),
-		forkBranch: vi.fn(async (sid: string, _bid: string, opts: ForkBranchRequest) => {
-			const b = makeBranch(opts.newBranchId ?? `fork-${Date.now()}`, sid, {
+		forkThread: vi.fn(async (sid: string, _bid: string, opts: ForkThreadRequest) => {
+			const b = makeThread(opts.newThreadId ?? `fork-${Date.now()}`, sid, {
 				forkedFrom: _bid,
 				forkedAtMessageId: opts.fromMessageId,
 				isOriginal: false,
-				originalBranchId: _bid
+				originalThreadId: _bid
 			});
-			const list = branchesPerSession.get(sid) ?? [];
+			const list = threadsPerSession.get(sid) ?? [];
 			list.push(b);
-			branchesPerSession.set(sid, list);
+			threadsPerSession.set(sid, list);
 			return b;
 		}),
-		deleteBranch: vi.fn(async (_sid: string, _bid: string) => {}),
-		getBranchMessages: getBranchMessagesSpy,
+		deleteThread: vi.fn(async (_sid: string, _bid: string) => {}),
+		getThreadMessages: getThreadMessagesSpy,
 
 		// ---- Sibling navigation ----
-		getBranchSiblings: vi.fn(async (_sid: string, _bid: string): Promise<SiblingBranch[]> => []),
-		getNextSibling: vi.fn(async (_sid: string, _bid: string): Promise<Branch | null> => null),
-		getPreviousSibling: vi.fn(async (_sid: string, _bid: string): Promise<Branch | null> => null),
+		getThreadSiblings: vi.fn(async (_sid: string, _bid: string): Promise<SiblingThread[]> => []),
+		getNextSibling: vi.fn(async (_sid: string, _bid: string): Promise<Thread | null> => null),
+		getPreviousSibling: vi.fn(async (_sid: string, _bid: string): Promise<Thread | null> => null),
 
 		// ---- Agent CRUD ----
 		listAgents: vi.fn(async () => []),
@@ -176,71 +176,71 @@ async function buildWorkspace(
 }
 
 // ============================================
-// Group A: getBranchMessages call count (cache miss vs hit)
+// Group A: getThreadMessages call count (cache miss vs hit)
 // ============================================
 
 describe('createWorkspace — cache miss vs hit', () => {
-	it('calls getBranchMessages once on first switch to a branch', async () => {
+	it('calls getThreadMessages once on first switch to a thread', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeAgentClient(sessions, threads);
 
 		await buildWorkspace(client);
 
-		// Init already triggered one call for 'main' (the default branch)
-		const callsAfterInit = (client.getBranchMessages as ReturnType<typeof vi.fn>).mock.calls.length;
+		// Init already triggered one call for 'main' (the default thread)
+		const callsAfterInit = (client.getThreadMessages as ReturnType<typeof vi.fn>).mock.calls.length;
 		expect(callsAfterInit).toBe(1);
 	});
 
-	it('does NOT call getBranchMessages again on cache hit (same branch)', async () => {
+	it('does NOT call getThreadMessages again on cache hit (same thread)', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1'), makeBranch('feature', 's1')]]]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1'), makeThread('feature', 's1')]]]);
+		const client = makeFakeAgentClient(sessions, threads);
 
 		const ws = await buildWorkspace(client);
-		const spy = client.getBranchMessages as ReturnType<typeof vi.fn>;
+		const spy = client.getThreadMessages as ReturnType<typeof vi.fn>;
 
 		// Switch to feature (cache miss — 1 call)
-		await ws.switchBranch('feature');
+		await ws.switchThread('feature');
 		const afterFeature = spy.mock.calls.length;
 
 		// Switch back to main (cache hit — no new call)
-		await ws.switchBranch('main');
+		await ws.switchThread('main');
 		expect(spy.mock.calls.length).toBe(afterFeature);
 	});
 
-	it('calls getBranchMessages again after invalidateBranch()', async () => {
+	it('calls getThreadMessages again after invalidateThread()', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1'), makeBranch('feature', 's1')]]]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1'), makeThread('feature', 's1')]]]);
+		const client = makeFakeAgentClient(sessions, threads);
 
 		const ws = await buildWorkspace(client);
-		const spy = client.getBranchMessages as ReturnType<typeof vi.fn>;
+		const spy = client.getThreadMessages as ReturnType<typeof vi.fn>;
 
 		// Load feature into cache
-		await ws.switchBranch('feature');
+		await ws.switchThread('feature');
 		const afterFeature = spy.mock.calls.length;
 
 		// Invalidate feature, switch back to main, then back to feature
-		ws.invalidateBranch('feature');
-		await ws.switchBranch('main');
-		await ws.switchBranch('feature');
+		ws.invalidateThread('feature');
+		await ws.switchThread('main');
+		await ws.switchThread('feature');
 
-		// Should have called getBranchMessages again for feature
+		// Should have called getThreadMessages again for feature
 		expect(spy.mock.calls.length).toBe(afterFeature + 1);
 	});
 
-	it('calls getBranchMessages with correct sessionId and branchId', async () => {
+	it('calls getThreadMessages with correct sessionId and threadId', async () => {
 		const sessions = [makeSession('session-abc')];
-		const branches = new Map([['session-abc', [makeBranch('branch-xyz', 'session-abc')]]]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const threads = new Map([['session-abc', [makeThread('thread-xyz', 'session-abc')]]]);
+		const client = makeFakeAgentClient(sessions, threads);
 
 		await buildWorkspace(client);
 
-		const spy = client.getBranchMessages as ReturnType<typeof vi.fn>;
+		const spy = client.getThreadMessages as ReturnType<typeof vi.fn>;
 		const [sid, bid] = spy.mock.calls[0];
 		expect(sid).toBe('session-abc');
-		expect(bid).toBe('branch-xyz');
+		expect(bid).toBe('thread-xyz');
 	});
 });
 
@@ -249,92 +249,92 @@ describe('createWorkspace — cache miss vs hit', () => {
 // ============================================
 
 describe('createWorkspace — LRU cache eviction', () => {
-	it('evicts the oldest non-active branch when limit is exceeded', async () => {
-		const maxCachedBranches = 3;
+	it('evicts the oldest non-active thread when limit is exceeded', async () => {
+		const maxCachedThreads = 3;
 		const sessions = [makeSession('s1')];
-		// Create 5 branches: main + b1..b4
-		const branchList = [
-			makeBranch('main', 's1'),
-			makeBranch('b1', 's1'),
-			makeBranch('b2', 's1'),
-			makeBranch('b3', 's1'),
-			makeBranch('b4', 's1')
+		// Create 5 threads: main + b1..b4
+		const threadList = [
+			makeThread('main', 's1'),
+			makeThread('b1', 's1'),
+			makeThread('b2', 's1'),
+			makeThread('b3', 's1'),
+			makeThread('b4', 's1')
 		];
-		const branches = new Map([['s1', branchList]]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const threads = new Map([['s1', threadList]]);
+		const client = makeFakeAgentClient(sessions, threads);
 
-		const ws = await buildWorkspace(client, { maxCachedBranches });
-		const spy = client.getBranchMessages as ReturnType<typeof vi.fn>;
+		const ws = await buildWorkspace(client, { maxCachedThreads });
+		const spy = client.getThreadMessages as ReturnType<typeof vi.fn>;
 
 		// Access: main (init), b1, b2, b3 — cache is now full (3 entries)
-		await ws.switchBranch('b1');
-		await ws.switchBranch('b2');
-		await ws.switchBranch('b3'); // active = b3, cache: main, b1, b2, b3
+		await ws.switchThread('b1');
+		await ws.switchThread('b2');
+		await ws.switchThread('b3'); // active = b3, cache: main, b1, b2, b3
 
 		const callsBeforeEviction = spy.mock.calls.length;
 
 		// Switch to b4 — should evict 'main' (oldest), then load b4
-		await ws.switchBranch('b4');
+		await ws.switchThread('b4');
 		// b4 was a cache miss → +1 call
 		expect(spy.mock.calls.length).toBe(callsBeforeEviction + 1);
 
 		// Switch back to main — main was evicted, so this is another cache miss
-		await ws.switchBranch('main');
+		await ws.switchThread('main');
 		expect(spy.mock.calls.length).toBe(callsBeforeEviction + 2);
 	});
 
-	it('never evicts the currently active branch', async () => {
-		const maxCachedBranches = 2;
+	it('never evicts the currently active thread', async () => {
+		const maxCachedThreads = 2;
 		const sessions = [makeSession('s1')];
-		const branchList = [
-			makeBranch('main', 's1'),
-			makeBranch('b1', 's1'),
-			makeBranch('b2', 's1'),
-			makeBranch('b3', 's1')
+		const threadList = [
+			makeThread('main', 's1'),
+			makeThread('b1', 's1'),
+			makeThread('b2', 's1'),
+			makeThread('b3', 's1')
 		];
-		const branches = new Map([['s1', branchList]]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const threads = new Map([['s1', threadList]]);
+		const client = makeFakeAgentClient(sessions, threads);
 
-		const ws = await buildWorkspace(client, { maxCachedBranches });
-		const spy = client.getBranchMessages as ReturnType<typeof vi.fn>;
+		const ws = await buildWorkspace(client, { maxCachedThreads });
+		const spy = client.getThreadMessages as ReturnType<typeof vi.fn>;
 
 		// Access: main (init), b1 — cache full (main, b1), active = b1
-		await ws.switchBranch('b1');
+		await ws.switchThread('b1');
 		// Switch to b2 — evicts main (oldest non-active), loads b2; active = b2, cache: b1, b2
-		await ws.switchBranch('b2');
+		await ws.switchThread('b2');
 		// Switch to b3 — evicts b1 (oldest non-active), loads b3; active = b3, cache: b2, b3
-		await ws.switchBranch('b3');
+		await ws.switchThread('b3');
 
 		const callsBefore = spy.mock.calls.length;
 
 		// b3 is still active — switching somewhere else and back should not re-fetch b3
 		// unless it was evicted (it shouldn't be, since it was just active)
-		await ws.switchBranch('b2');
-		// b2 was the most recently cached non-active branch — should be a hit
+		await ws.switchThread('b2');
+		// b2 was the most recently cached non-active thread — should be a hit
 		expect(spy.mock.calls.length).toBe(callsBefore);
 	});
 
-	it('respects maxCachedBranches option', async () => {
+	it('respects maxCachedThreads option', async () => {
 		const sessions = [makeSession('s1')];
-		const branchList = Array.from({ length: 6 }, (_, i) =>
-			makeBranch(i === 0 ? 'main' : `b${i}`, 's1')
+		const threadList = Array.from({ length: 6 }, (_, i) =>
+			makeThread(i === 0 ? 'main' : `b${i}`, 's1')
 		);
-		const branches = new Map([['s1', branchList]]);
+		const threads = new Map([['s1', threadList]]);
 
-		// Default is 10 — with 6 branches we should never evict
-		const client = makeFakeAgentClient(sessions, branches);
-		const ws = await buildWorkspace(client, { maxCachedBranches: 10 });
-		const spy = client.getBranchMessages as ReturnType<typeof vi.fn>;
+		// Default is 10 — with 6 threads we should never evict
+		const client = makeFakeAgentClient(sessions, threads);
+		const ws = await buildWorkspace(client, { maxCachedThreads: 10 });
+		const spy = client.getThreadMessages as ReturnType<typeof vi.fn>;
 
-		// Visit all 6 branches
-		for (const b of branchList.slice(1)) {
-			await ws.switchBranch(b.id);
+		// Visit all 6 threads
+		for (const b of threadList.slice(1)) {
+			await ws.switchThread(b.id);
 		}
 		const totalCalls = spy.mock.calls.length; // 6 misses (main on init + 5 switches)
 
 		// Switch back to all of them — all should be cache hits (no new calls)
-		for (const b of branchList) {
-			await ws.switchBranch(b.id);
+		for (const b of threadList) {
+			await ws.switchThread(b.id);
 		}
 		expect(spy.mock.calls.length).toBe(totalCalls);
 	});
@@ -347,11 +347,11 @@ describe('createWorkspace — LRU cache eviction', () => {
 describe('createWorkspace — mapToUIMessages field correctness', () => {
 	it('loaded messages have streaming: false', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeAgentClient(sessions, threads);
 
-		// Return 3 messages when getBranchMessages is called
-		(client.getBranchMessages as ReturnType<typeof vi.fn>).mockResolvedValue(makeMessages(3));
+		// Return 3 messages when getThreadMessages is called
+		(client.getThreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue(makeMessages(3));
 
 		const ws = await buildWorkspace(client);
 		for (const msg of ws.state!.messages) {
@@ -361,9 +361,9 @@ describe('createWorkspace — mapToUIMessages field correctness', () => {
 
 	it('loaded messages have thinking: false', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeAgentClient(sessions, branches);
-		(client.getBranchMessages as ReturnType<typeof vi.fn>).mockResolvedValue(makeMessages(3));
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeAgentClient(sessions, threads);
+		(client.getThreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue(makeMessages(3));
 
 		const ws = await buildWorkspace(client);
 		for (const msg of ws.state!.messages) {
@@ -373,9 +373,9 @@ describe('createWorkspace — mapToUIMessages field correctness', () => {
 
 	it('loaded messages have toolCalls: []', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeAgentClient(sessions, branches);
-		(client.getBranchMessages as ReturnType<typeof vi.fn>).mockResolvedValue(makeMessages(3));
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeAgentClient(sessions, threads);
+		(client.getThreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue(makeMessages(3));
 
 		const ws = await buildWorkspace(client);
 		for (const msg of ws.state!.messages) {
@@ -385,10 +385,10 @@ describe('createWorkspace — mapToUIMessages field correctness', () => {
 
 	it('loaded messages have id, role, content preserved', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeAgentClient(sessions, threads);
 		const raw = makeMessages(2);
-		(client.getBranchMessages as ReturnType<typeof vi.fn>).mockResolvedValue(raw);
+		(client.getThreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue(raw);
 
 		const ws = await buildWorkspace(client);
 		expect(ws.state!.messages[0].id).toBe(raw[0].id);
@@ -398,9 +398,9 @@ describe('createWorkspace — mapToUIMessages field correctness', () => {
 
 	it('loaded messages have timestamp as a Date (not string)', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeAgentClient(sessions, branches);
-		(client.getBranchMessages as ReturnType<typeof vi.fn>).mockResolvedValue(makeMessages(2));
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeAgentClient(sessions, threads);
+		(client.getThreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue(makeMessages(2));
 
 		const ws = await buildWorkspace(client);
 		for (const msg of ws.state!.messages) {
@@ -410,9 +410,9 @@ describe('createWorkspace — mapToUIMessages field correctness', () => {
 
 	it('loaded messages have reasoning: undefined', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1')]]]);
-		const client = makeFakeAgentClient(sessions, branches);
-		(client.getBranchMessages as ReturnType<typeof vi.fn>).mockResolvedValue(makeMessages(2));
+		const threads = new Map([['s1', [makeThread('main', 's1')]]]);
+		const client = makeFakeAgentClient(sessions, threads);
+		(client.getThreadMessages as ReturnType<typeof vi.fn>).mockResolvedValue(makeMessages(2));
 
 		const ws = await buildWorkspace(client);
 		for (const msg of ws.state!.messages) {
@@ -425,19 +425,19 @@ describe('createWorkspace — mapToUIMessages field correctness', () => {
 // Group D: Session isolation via compound cache key
 // ============================================
 
-describe('createWorkspace — compound cache key (sessionId:branchId)', () => {
+describe('createWorkspace — compound cache key (sessionId:threadId)', () => {
 	it('session-A:main and session-B:main are separate AgentState instances', async () => {
 		const sessions = [makeSession('s-a'), makeSession('s-b')];
 		const msgA = makeMessages(2);
 		const msgB = makeMessages(3);
-		const branches = new Map([
-			['s-a', [makeBranch('main', 's-a')]],
-			['s-b', [makeBranch('main', 's-b')]]
+		const threads = new Map([
+			['s-a', [makeThread('main', 's-a')]],
+			['s-b', [makeThread('main', 's-b')]]
 		]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const client = makeFakeAgentClient(sessions, threads);
 
 		// Return different messages per session
-		(client.getBranchMessages as ReturnType<typeof vi.fn>)
+		(client.getThreadMessages as ReturnType<typeof vi.fn>)
 			.mockImplementation(async (sid: string) => (sid === 's-a' ? msgA : msgB));
 
 		const ws = await buildWorkspace(client, { sessionId: 's-a' });
@@ -456,12 +456,12 @@ describe('createWorkspace — compound cache key (sessionId:branchId)', () => {
 
 	it('deleting session evicts its cache entries, other sessions unaffected', async () => {
 		const sessions = [makeSession('s-a'), makeSession('s-b')];
-		const branches = new Map([
-			['s-a', [makeBranch('main', 's-a')]],
-			['s-b', [makeBranch('main', 's-b')]]
+		const threads = new Map([
+			['s-a', [makeThread('main', 's-a')]],
+			['s-b', [makeThread('main', 's-b')]]
 		]);
-		const client = makeFakeAgentClient(sessions, branches);
-		const spy = client.getBranchMessages as ReturnType<typeof vi.fn>;
+		const client = makeFakeAgentClient(sessions, threads);
+		const spy = client.getThreadMessages as ReturnType<typeof vi.fn>;
 
 		const ws = await buildWorkspace(client, { sessionId: 's-a' });
 		// Warm up s-b cache
@@ -471,7 +471,7 @@ describe('createWorkspace — compound cache key (sessionId:branchId)', () => {
 		// Delete s-a (not active) — should evict its cache entries
 		await ws.deleteSession('s-a');
 
-		// s-b is still active and cached — no new getBranchMessages call needed
+		// s-b is still active and cached — no new getThreadMessages call needed
 		expect(spy.mock.calls.length).toBe(callsAfterBoth);
 	});
 });
@@ -483,39 +483,39 @@ describe('createWorkspace — compound cache key (sessionId:branchId)', () => {
 describe('createWorkspace — init', () => {
 	it('activates provided sessionId on init', async () => {
 		const sessions = [makeSession('s1'), makeSession('s2')];
-		const branches = new Map([
-			['s1', [makeBranch('main', 's1')]],
-			['s2', [makeBranch('main', 's2')]]
+		const threads = new Map([
+			['s1', [makeThread('main', 's1')]],
+			['s2', [makeThread('main', 's2')]]
 		]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const client = makeFakeAgentClient(sessions, threads);
 
 		const ws = await buildWorkspace(client, { sessionId: 's2' });
 		expect(ws.activeSessionId).toBe('s2');
 	});
 
-	it('activates initialBranchId on init', async () => {
+	it('activates initialThreadId on init', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([
-			['s1', [makeBranch('main', 's1'), makeBranch('dev', 's1')]]
+		const threads = new Map([
+			['s1', [makeThread('main', 's1'), makeThread('dev', 's1')]]
 		]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const client = makeFakeAgentClient(sessions, threads);
 
-		const ws = await buildWorkspace(client, { initialBranchId: 'dev' });
-		expect(ws.activeBranchId).toBe('dev');
+		const ws = await buildWorkspace(client, { initialThreadId: 'dev' });
+		expect(ws.activeThreadId).toBe('dev');
 	});
 
 	it('is idle (nulls) when no sessions exist', async () => {
 		const client = makeFakeAgentClient([], new Map());
 		const ws = await buildWorkspace(client);
 		expect(ws.activeSessionId).toBeNull();
-		expect(ws.activeBranchId).toBeNull();
+		expect(ws.activeThreadId).toBeNull();
 		expect(ws.state).toBeNull();
 		expect(ws.loading).toBe(false);
 	});
 
 	it('sets error when listSessions throws during init', async () => {
 		const sessions = [makeSession('s1')];
-		const client = makeFakeAgentClient(sessions, new Map([['s1', [makeBranch('main', 's1')]]]));
+		const client = makeFakeAgentClient(sessions, new Map([['s1', [makeThread('main', 's1')]]]));
 		(client.listSessions as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network error'));
 
 		const ws = await buildWorkspace(client);
@@ -525,19 +525,19 @@ describe('createWorkspace — init', () => {
 });
 
 describe('createWorkspace — selectSession error path', () => {
-	it('sets error when listBranches throws during selectSession', async () => {
+	it('sets error when listThreads throws during selectSession', async () => {
 		const sessions = [makeSession('s1'), makeSession('s2')];
-		const branches = new Map([
-			['s1', [makeBranch('main', 's1')]],
-			['s2', [makeBranch('main', 's2')]]
+		const threads = new Map([
+			['s1', [makeThread('main', 's1')]],
+			['s2', [makeThread('main', 's2')]]
 		]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const client = makeFakeAgentClient(sessions, threads);
 
 		const ws = await buildWorkspace(client, { sessionId: 's1' });
 		expect(ws.error).toBeNull();
 
-		// Make listBranches throw on the next call
-		(client.listBranches as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('fail'));
+		// Make listThreads throw on the next call
+		(client.listThreads as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('fail'));
 
 		await ws.selectSession('s2').catch(() => {});
 		expect(ws.error).not.toBeNull();
@@ -546,16 +546,16 @@ describe('createWorkspace — selectSession error path', () => {
 
 	it('error is cleared on next successful selectSession', async () => {
 		const sessions = [makeSession('s1'), makeSession('s2')];
-		const branches = new Map([
-			['s1', [makeBranch('main', 's1')]],
-			['s2', [makeBranch('main', 's2')]]
+		const threads = new Map([
+			['s1', [makeThread('main', 's1')]],
+			['s2', [makeThread('main', 's2')]]
 		]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const client = makeFakeAgentClient(sessions, threads);
 
 		const ws = await buildWorkspace(client, { sessionId: 's1' });
 
 		// Force an error on the FIRST attempt to switch to s2
-		(client.listBranches as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('fail'));
+		(client.listThreads as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('fail'));
 		await ws.selectSession('s2').catch(() => {});
 		expect(ws.error).not.toBeNull();
 
@@ -566,33 +566,33 @@ describe('createWorkspace — selectSession error path', () => {
 	});
 });
 
-describe('createWorkspace — switchBranch error path', () => {
-	it('sets error when getBranchMessages throws during switchBranch', async () => {
+describe('createWorkspace — switchThread error path', () => {
+	it('sets error when getThreadMessages throws during switchThread', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1'), makeBranch('b2', 's1')]]]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1'), makeThread('b2', 's1')]]]);
+		const client = makeFakeAgentClient(sessions, threads);
 
 		const ws = await buildWorkspace(client);
 
-		(client.getBranchMessages as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('fail'));
-		await ws.switchBranch('b2').catch(() => {});
+		(client.getThreadMessages as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('fail'));
+		await ws.switchThread('b2').catch(() => {});
 
 		expect(ws.error).not.toBeNull();
 		expect(ws.loading).toBe(false);
 	});
 
-	it('activeBranchId does not change when switchBranch fails', async () => {
+	it('activeThreadId does not change when switchThread fails', async () => {
 		const sessions = [makeSession('s1')];
-		const branches = new Map([['s1', [makeBranch('main', 's1'), makeBranch('b2', 's1')]]]);
-		const client = makeFakeAgentClient(sessions, branches);
+		const threads = new Map([['s1', [makeThread('main', 's1'), makeThread('b2', 's1')]]]);
+		const client = makeFakeAgentClient(sessions, threads);
 
 		const ws = await buildWorkspace(client);
-		expect(ws.activeBranchId).toBe('main');
+		expect(ws.activeThreadId).toBe('main');
 
-		(client.getBranchMessages as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('fail'));
-		await ws.switchBranch('b2').catch(() => {});
+		(client.getThreadMessages as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('fail'));
+		await ws.switchThread('b2').catch(() => {});
 
-		// activeBranchId was set during #loadBranch before the error — it depends
+		// activeThreadId was set during #loadThread before the error — it depends
 		// on where the throw lands. The key invariant is loading is false.
 		expect(ws.loading).toBe(false);
 	});

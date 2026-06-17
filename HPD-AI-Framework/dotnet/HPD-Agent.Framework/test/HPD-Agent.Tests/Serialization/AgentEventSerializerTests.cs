@@ -81,14 +81,14 @@ public class AgentEventSerializerTests
         var textJson = AgentEventSerializer.ToJson(new UserTextInputEvent("hello")
         {
             SessionId = "s1",
-            BranchId = "main"
+            ThreadId = "main"
         });
 
         var messagesJson = AgentEventSerializer.ToJson(new UserMessagesInputEvent(
             [new ChatMessage(ChatRole.User, "hello")])
         {
             SessionId = "s1",
-            BranchId = "main"
+            ThreadId = "main"
         });
 
         Assert.Contains("\"type\":\"USER_TEXT_INPUT\"", textJson);
@@ -102,14 +102,14 @@ public class AgentEventSerializerTests
         var json = AgentEventSerializer.ToJson(new UserTextInputEvent("hello")
         {
             SessionId = "s1",
-            BranchId = "main"
+            ThreadId = "main"
         });
 
         var result = Assert.IsType<UserTextInputEvent>(AgentEventSerializer.FromJson(json));
 
         Assert.Equal("hello", result.Text);
         Assert.Equal("s1", result.SessionId);
-        Assert.Equal("main", result.BranchId);
+        Assert.Equal("main", result.ThreadId);
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class AgentEventSerializerTests
             [new ChatMessage(ChatRole.User, "hello")])
         {
             SessionId = "s1",
-            BranchId = "main",
+            ThreadId = "main",
             RunConfig = new AgentRunConfig
             {
                 CoalesceDeltas = true,
@@ -142,7 +142,7 @@ public class AgentEventSerializerTests
         var result = Assert.IsType<UserMessagesInputEvent>(AgentEventSerializer.FromJson(json));
 
         Assert.Equal("s1", result.SessionId);
-        Assert.Equal("main", result.BranchId);
+        Assert.Equal("main", result.ThreadId);
         Assert.Single(result.Messages);
         Assert.Equal(ChatRole.User, result.Messages[0].Role);
         Assert.Equal("hello", result.Messages[0].Text);
@@ -593,7 +593,7 @@ public class AgentEventSerializerTests
         var evt = new MiddlewareStateSnapshotEvent(
             AgentName: "TestAgent",
             SessionId: "session-1",
-            BranchId: "main",
+            ThreadId: "main",
             Iteration: 2,
             Phase: "before_model_call",
             BatchId: null,
@@ -606,7 +606,7 @@ public class AgentEventSerializerTests
                     Key: "HPD.Agent.ErrorTrackingStateData",
                     Type: typeof(ErrorTrackingStateData).FullName!,
                     PropertyName: "ErrorTracking",
-                    Scope: StateScope.Branch,
+                    Scope: StateScope.Thread,
                     Persistent: false,
                     Version: 1,
                     Json: JsonSerializer.SerializeToElement(new { ConsecutiveFailures = 3 }),
@@ -630,7 +630,7 @@ public class AgentEventSerializerTests
         var evt = new MiddlewareStateChangedEvent(
             AgentName: "TestAgent",
             SessionId: "session-1",
-            BranchId: "main",
+            ThreadId: "main",
             Iteration: 2,
             Phase: "after_parallel_batch",
             BatchId: "batch-1",
@@ -643,7 +643,7 @@ public class AgentEventSerializerTests
                     Key: "HPD.Agent.ErrorTrackingStateData",
                     Type: typeof(ErrorTrackingStateData).FullName!,
                     PropertyName: "ErrorTracking",
-                    Scope: StateScope.Branch,
+                    Scope: StateScope.Thread,
                     Persistent: false,
                     Version: 1,
                     ChangeType: "updated",
@@ -749,7 +749,7 @@ public class AgentEventSerializerTests
             FunctionName = "TestFunction",
             ConversationId = "conversation-1",
             SessionId = "session-1",
-            BranchId = "branch-1",
+            ThreadId = "thread-1",
             TraceId = "trace-1",
             Invocation = new ToolInvocationInfo("batch-1", "call-1", "TestFunction", 2)
         };

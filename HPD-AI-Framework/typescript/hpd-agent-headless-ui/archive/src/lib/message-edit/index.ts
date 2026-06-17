@@ -2,7 +2,7 @@
  * MessageEdit - Compound headless component for inline message editing
  *
  * Manages a draft textarea bound to a message index. On save, calls
- * `workspace.editMessage(index, draft)` which forks the branch and
+ * `workspace.editMessage(index, draft)` which forks the thread and
  * re-runs the model. On cancel, discards the draft with no side effects.
  *
  * @example

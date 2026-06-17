@@ -40,7 +40,7 @@ public enum ExecuteCommandCompletionKind
 public abstract record ExecuteCommandEvent : AgentEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 
     public required string ToolCallId { get; init; }
 
@@ -80,7 +80,7 @@ public sealed record ExecuteCommandOutputChunkEvent : ExecuteCommandEvent
 
     public override EventKind Kind { get; init; } = EventKind.Content;
 
-    public override bool ShouldPersistToBranch() => false;
+    public override bool ShouldPersistToThread() => false;
 
     public required ExecuteCommandStreamKind Stream { get; init; }
 
@@ -105,7 +105,7 @@ public sealed record ExecuteCommandProgressEvent : ExecuteCommandEvent
 
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;
 
-    public override bool ShouldPersistToBranch() => false;
+    public override bool ShouldPersistToThread() => false;
 
     public required long ElapsedMilliseconds { get; init; }
 
@@ -184,7 +184,7 @@ public sealed record ExecuteCommandBackgroundListEvent : ExecuteCommandEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;
 
-    public override bool ShouldPersistToBranch() => false;
+    public override bool ShouldPersistToThread() => false;
 
     public required int Count { get; init; }
 }

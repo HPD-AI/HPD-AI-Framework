@@ -462,7 +462,7 @@ public sealed class ReadFileTests : IDisposable
         typeof(FunctionExecutionContext).GetMethod("UpdateMiddlewareState").Should().BeNull();
         typeof(FunctionExecutionContext).GetProperty("State").Should().BeNull();
         typeof(FunctionExecutionContext).GetProperty("Session").Should().BeNull();
-        typeof(FunctionExecutionContext).GetProperty("Branch").Should().BeNull();
+        typeof(FunctionExecutionContext).GetProperty("Thread").Should().BeNull();
     }
 
     [Fact]
@@ -605,7 +605,7 @@ public sealed class ReadFileTests : IDisposable
             state,
             new EventCoordinator(),
             new Session("test-session"),
-            new Branch("test-session"),
+            new Thread("test-session"),
             CancellationToken.None);
     }
 

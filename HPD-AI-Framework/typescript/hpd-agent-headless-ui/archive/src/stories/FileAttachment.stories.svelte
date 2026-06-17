@@ -20,9 +20,9 @@
 				control: 'text',
 				description: 'Session ID passed to the upload function',
 			},
-			branchId: {
+			threadId: {
 				control: 'text',
-				description: 'Branch ID passed to the upload function',
+				description: 'Thread ID passed to the upload function',
 			},
 		},
 		parameters: {
@@ -36,7 +36,7 @@ lifecycle (\`uploading\` → \`done\` | \`error\`), and exposes a list of \`reso
 include in \`workspace.send()\`.
 
 ## Key design points
-- **Pre-constructed state pattern**: create \`new FileAttachmentState({ uploadFn, sessionId, branchId, disabled })\`
+- **Pre-constructed state pattern**: create \`new FileAttachmentState({ uploadFn, sessionId, threadId, disabled })\`
   outside the component so that \`state.resolvedContent\` is readable without entering the snippet.
 - **Immediate upload**: calling \`add(files)\` kicks off uploads in parallel right away.
 - **canSubmit**: \`false\` while any upload is in-progress or any entry has an error status.
@@ -50,7 +50,7 @@ include in \`workspace.send()\`.
   const state = new FileAttachmentState({
     uploadFn: { get current() { return (sid, bid, file) => client.uploadContent(sid, bid, file); } },
     sessionId: { get current() { return activeSessionId; } },
-    branchId: { get current() { return activeBranchId; } },
+    threadId: { get current() { return activeThreadId; } },
     disabled:  { get current() { return isStreaming; } },
   });
 <\/script>
@@ -82,7 +82,7 @@ include in \`workspace.send()\`.
 		uploadMode: 'success',
 		disabled: false,
 		sessionId: 'demo-session',
-		branchId: 'main',
+		threadId: 'main',
 	}}
 />
 
@@ -93,7 +93,7 @@ include in \`workspace.send()\`.
 		uploadMode: 'error',
 		disabled: false,
 		sessionId: 'demo-session',
-		branchId: 'main',
+		threadId: 'main',
 	}}
 />
 
@@ -104,7 +104,7 @@ include in \`workspace.send()\`.
 		uploadMode: 'slow',
 		disabled: false,
 		sessionId: 'demo-session',
-		branchId: 'main',
+		threadId: 'main',
 	}}
 />
 
@@ -115,6 +115,6 @@ include in \`workspace.send()\`.
 		uploadMode: 'success',
 		disabled: true,
 		sessionId: 'demo-session',
-		branchId: 'main',
+		threadId: 'main',
 	}}
 />

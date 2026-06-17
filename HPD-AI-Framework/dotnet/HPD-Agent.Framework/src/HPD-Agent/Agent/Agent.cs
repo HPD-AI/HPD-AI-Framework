@@ -36,8 +36,8 @@ public sealed class Agent
     // V2: AgentContext is now passed through middleware hooks, no need for AsyncLocal storage
     // AsyncLocal storage for root agent tracking in nested agent calls
     private static readonly AsyncLocal<Agent?> _rootAgent = new();
-    //  CurrentSession AsyncLocal removed. Session/Branch are now passed explicitly to RunAsync.
-    // If ambient access is needed, use AgentContext.Session/AgentContext.Branch in middleware.
+    //  CurrentSession AsyncLocal removed. Session/Thread are now passed explicitly to RunAsync.
+    // If ambient access is needed, use AgentContext.Session/AgentContext.Thread in middleware.
 
     // Specialized component fields for delegation
     private readonly MessageProcessor _messageProcessor;
@@ -111,8 +111,8 @@ public sealed class Agent
         internal set => _rootAgent.Value = value;
     }
 
-    //  CurrentSession property removed. Use Session/Branch passed explicitly via RunAsync parameters.
-    // In middleware, access via AgentContext.Session and AgentContext.Branch.
+    //  CurrentSession property removed. Use Session/Thread passed explicitly via RunAsync parameters.
+    // In middleware, access via AgentContext.Session and AgentContext.Thread.
 
     /// <summary>
     /// Metadata about this chat client, compatible with Microsoft.Extensions.AI patterns
@@ -668,17 +668,17 @@ public sealed class Agent
     private void PublishProjectedLifecycleEvent(AgentEvent evt) =>
         _eventCoordinator.Emit(EnrichOutputEvent(evt));
 
-    private async Task CommitBranchMessagesAsync(
+    private async Task CommitThreadMessagesAsync(
         Session? session,
-        Branch? branch,
+        Thread? thread,
         IEnumerable<ChatMessage> messages,
         CancellationToken cancellationToken)
     {
-        if (branch == null)
+        if (thread == null)
             return;
 
         var newMessages = new List<ChatMessage>();
-        var existingIds = branch.Messages
+        var existingIds = thread.Messages
             .Where(message => !string.IsNullOrWhiteSpace(message.MessageId))
             .Select(message => message.MessageId!)
             .ToHashSet(StringComparer.Ordinal);
@@ -696,7 +696,7 @@ public sealed class Agent
         if (newMessages.Count == 0)
             return;
 
-        branch.AddMessages(newMessages);
+        thread.AddMessages(newMessages);
 
         var store = Config?.SessionStore;
         if (store == null)
@@ -704,17 +704,17 @@ public sealed class Agent
 
         if (session != null)
         {
-            session.LastActivity = branch.LastActivity;
+            session.LastActivity = thread.LastActivity;
             await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
         }
 
-        foreach (var message in newMessages.Where(ShouldPersistMessageSnapshotAsBranchEvents))
+        foreach (var message in newMessages.Where(ShouldPersistMessageSnapshotAsThreadEvents))
         {
-            foreach (var evt in BranchMessageEventConverter.ToBranchEvents(branch.SessionId, branch.Id, message))
+            foreach (var evt in ThreadMessageEventConverter.ToThreadEvents(thread.SessionId, thread.Id, message))
             {
-                await store.AppendBranchEventAsync(
-                    branch.SessionId,
-                    branch.Id,
+                await store.AppendThreadEventAsync(
+                    thread.SessionId,
+                    thread.Id,
                     evt,
                     cancellationToken: cancellationToken).ConfigureAwait(false);
             }
@@ -723,12 +723,12 @@ public sealed class Agent
 
     private async Task ReconcileCommittedTurnHistoryAsync(
         Session? session,
-        Branch? branch,
+        Thread? thread,
         List<ChatMessage> turnHistory,
         IReadOnlyList<string?> messageIdsBeforeAfterTurn,
         CancellationToken cancellationToken)
     {
-        if (branch == null || turnHistory.Count == 0)
+        if (thread == null || turnHistory.Count == 0)
             return;
 
         var changedMessages = new List<ChatMessage>();
@@ -741,24 +741,24 @@ public sealed class Agent
                 !string.IsNullOrWhiteSpace(messageIdsBeforeAfterTurn[i]))
             {
                 message.MessageId = messageIdsBeforeAfterTurn[i];
-                message.CreatedAt ??= branch.Messages.FirstOrDefault(m => m.MessageId == message.MessageId)?.CreatedAt
+                message.CreatedAt ??= thread.Messages.FirstOrDefault(m => m.MessageId == message.MessageId)?.CreatedAt
                     ?? DateTimeOffset.UtcNow;
             }
 
             EnsureMessageIdentity(message);
 
-            var existingIndex = branch.Messages.FindIndex(existing => existing.MessageId == message.MessageId);
+            var existingIndex = thread.Messages.FindIndex(existing => existing.MessageId == message.MessageId);
             if (existingIndex >= 0)
             {
-                if (!ReferenceEquals(branch.Messages[existingIndex], message))
+                if (!ReferenceEquals(thread.Messages[existingIndex], message))
                 {
-                    branch.Messages[existingIndex] = message;
+                    thread.Messages[existingIndex] = message;
                     changedMessages.Add(message);
                 }
             }
             else
             {
-                branch.Messages.Add(message);
+                thread.Messages.Add(message);
                 changedMessages.Add(message);
             }
         }
@@ -766,7 +766,7 @@ public sealed class Agent
         if (changedMessages.Count == 0)
             return;
 
-        branch.LastActivity = DateTime.UtcNow;
+        thread.LastActivity = DateTime.UtcNow;
 
         var store = Config?.SessionStore;
         if (store == null)
@@ -774,12 +774,12 @@ public sealed class Agent
 
         if (session != null)
         {
-            session.LastActivity = branch.LastActivity;
+            session.LastActivity = thread.LastActivity;
             await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
         }
 
-        // Reconciled ChatMessage snapshots should not be re-expanded into branch events during
-        // normal turns; that would duplicate the events already appended to branch history.
+        // Reconciled ChatMessage snapshots should not be re-expanded into thread events during
+        // normal turns; that would duplicate the events already appended to thread history.
     }
 
     private static void EnsureMessageIdentity(ChatMessage message)
@@ -788,16 +788,16 @@ public sealed class Agent
         message.CreatedAt ??= DateTimeOffset.UtcNow;
     }
 
-    private static bool ShouldPersistMessageSnapshotAsBranchEvents(ChatMessage message)
+    private static bool ShouldPersistMessageSnapshotAsThreadEvents(ChatMessage message)
         => message.Role == ChatRole.User || message.Role == ChatRole.System;
 
-    private async Task AppendBranchRuntimeEventAsync(
+    private async Task AppendThreadRuntimeEventAsync(
         Session? session,
-        Branch? branch,
+        Thread? thread,
         AgentEvent evt,
         CancellationToken cancellationToken)
     {
-        if (session == null || branch == null)
+        if (session == null || thread == null)
             return;
 
         var store = Config?.SessionStore;
@@ -806,9 +806,9 @@ public sealed class Agent
 
         try
         {
-            await store.AppendBranchEventAsync(
+            await store.AppendThreadEventAsync(
                 session.Id,
-                branch.Id,
+                thread.Id,
                 evt,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
@@ -818,26 +818,26 @@ public sealed class Agent
         }
         catch
         {
-            // Runtime-only branch events are best-effort diagnostics; transcript events are committed separately.
+            // Runtime-only thread events are best-effort diagnostics; transcript events are committed separately.
         }
     }
 
-    private Task AppendBranchFailureRuntimeEventAsync(
+    private Task AppendThreadFailureRuntimeEventAsync(
         Session? session,
-        Branch? branch,
+        Thread? thread,
         string? messageTurnId,
         string? conversationId,
         Exception exception)
     {
-        if (branch == null)
+        if (thread == null)
             return Task.CompletedTask;
 
-        return AppendBranchRuntimeEventAsync(
+        return AppendThreadRuntimeEventAsync(
             session,
-            branch,
-            BranchEventFactory.TurnFailed(
-                branch.SessionId,
-                branch.Id,
+            thread,
+            ThreadEventFactory.TurnFailed(
+                thread.SessionId,
+                thread.Id,
                 messageTurnId,
                 conversationId,
                 AgentId,
@@ -846,9 +846,9 @@ public sealed class Agent
             CancellationToken.None);
     }
 
-    private Task AppendPersistableAgentBranchEventAsync(
+    private Task AppendPersistableAgentThreadEventAsync(
         Session? session,
-        Branch? branch,
+        Thread? thread,
         AgentEvent evt,
         string? messageTurnId,
         string? conversationId,
@@ -862,12 +862,12 @@ public sealed class Agent
         if (evt is MessageTurnStartedEvent or MessageTurnFinishedEvent)
             return Task.CompletedTask;
 
-        if (!evt.ShouldPersistToBranch() || branch == null)
+        if (!evt.ShouldPersistToThread() || thread == null)
             return Task.CompletedTask;
 
-        var branchEvent = BranchEventFactory.FromAgentEvent(
-            branch.SessionId,
-            branch.Id,
+        var threadEvent = ThreadEventFactory.FromAgentEvent(
+            thread.SessionId,
+            thread.Id,
             evt,
             messageTurnId,
             conversationId,
@@ -877,9 +877,9 @@ public sealed class Agent
             terminationReason,
             turnMessageCount);
 
-        return branchEvent == null
+        return threadEvent == null
             ? Task.CompletedTask
-            : AppendBranchRuntimeEventAsync(session, branch, branchEvent, cancellationToken);
+            : AppendThreadRuntimeEventAsync(session, thread, threadEvent, cancellationToken);
     }
 
     private async Task PersistAgentEventContentAsync(
@@ -914,7 +914,7 @@ public sealed class Agent
     private async Task SaveTurnCheckpointAsync(
         ISessionStore? store,
         Session? session,
-        Branch? branch,
+        Thread? thread,
         string turnId,
         DateTime turnStartTime,
         AgentLoopState state,
@@ -926,7 +926,7 @@ public sealed class Agent
         await store.SaveUncommittedTurnAsync(new UncommittedTurn
         {
             SessionId = session.Id,
-            BranchId = branch?.Id ?? UncommittedTurn.DefaultBranch,
+            ThreadId = thread?.Id ?? UncommittedTurn.DefaultThread,
             TurnId = turnId,
             Iteration = state.Iteration,
             CompletedFunctions = state.CompletedFunctions,
@@ -970,7 +970,7 @@ public sealed class Agent
         var messagesInput = new UserMessagesInputEvent([message])
         {
             SessionId = input.SessionId,
-            BranchId = input.BranchId,
+            ThreadId = input.ThreadId,
             AgentId = input.AgentId,
             RunConfig = input.RunConfig
         };
@@ -983,16 +983,16 @@ public sealed class Agent
         HPD.Events.IEventCoordinator eventCoordinator,
         CancellationToken cancellationToken)
     {
-        if (input.Session != null || input.Branch != null)
+        if (input.Session != null || input.Thread != null)
         {
-            if (input.Session is null || input.Branch is null)
-                throw new InvalidOperationException("UserMessagesInputEvent must provide both Session and Branch for process-local scoped runs.");
+            if (input.Session is null || input.Thread is null)
+                throw new InvalidOperationException("UserMessagesInputEvent must provide both Session and Thread for process-local scoped runs.");
 
             var result = new AgentTurnResultBuilder();
             await foreach (var evt in RunTurnStreamAsync(
                 input.Messages,
                 input.Session,
-                input.Branch,
+                input.Thread,
                 input.RunConfig,
                 eventCoordinator,
                 cancellationToken).ConfigureAwait(false))
@@ -1005,16 +1005,16 @@ public sealed class Agent
 
         if (!string.IsNullOrWhiteSpace(input.SessionId))
         {
-            var (session, branch) = await LoadSessionAndBranchAsync(
+            var (session, thread) = await LoadSessionAndThreadAsync(
                 input.SessionId,
-                input.BranchId,
+                input.ThreadId,
                 cancellationToken).ConfigureAwait(false);
 
             var result = new AgentTurnResultBuilder();
             await foreach (var evt in RunTurnStreamAsync(
                 input.Messages,
                 session,
-                branch,
+                thread,
                 input.RunConfig,
                 eventCoordinator,
                 cancellationToken).ConfigureAwait(false))
@@ -1024,7 +1024,7 @@ public sealed class Agent
 
             if (Config?.SessionStoreOptions?.PersistAfterTurn == true)
             {
-                await SaveSessionAndBranchAsync(session, branch, cancellationToken).ConfigureAwait(false);
+                await SaveSessionAndThreadAsync(session, thread, cancellationToken).ConfigureAwait(false);
             }
 
             return result.Build();
@@ -1174,12 +1174,12 @@ public sealed class Agent
     {
         if (string.IsNullOrWhiteSpace(input.RuntimeRunId) ||
             string.IsNullOrWhiteSpace(input.SessionId) ||
-            string.IsNullOrWhiteSpace(input.BranchId))
+            string.IsNullOrWhiteSpace(input.ThreadId))
         {
             return;
         }
 
-        var evt = new BranchRunCompletedEvent(
+        var evt = new ThreadRunCompletedEvent(
             input.RuntimeRunId!,
             input.AgentId ?? _name,
             cancelled,
@@ -1187,7 +1187,7 @@ public sealed class Agent
             error?.Message)
         {
             SessionId = input.SessionId,
-            BranchId = input.BranchId
+            ThreadId = input.ThreadId
         };
 
         var store = Config?.SessionStore;
@@ -1195,9 +1195,9 @@ public sealed class Agent
         {
             try
             {
-                await store.AppendBranchEventAsync(
+                await store.AppendThreadEventAsync(
                     input.SessionId!,
-                    input.BranchId!,
+                    input.ThreadId!,
                     evt,
                     cancellationToken: CancellationToken.None).ConfigureAwait(false);
             }
@@ -1624,7 +1624,7 @@ public sealed class Agent
     public Task<AgentTurnResult> RunAsync(
         string userMessage,
         string? sessionId = null,
-        string? branchId = "main",
+        string? threadId = "main",
         AgentRunConfig? runConfig = null,
         CancellationToken cancellationToken = default)
     {
@@ -1633,7 +1633,7 @@ public sealed class Agent
         return RunAsync(new UserTextInputEvent(userMessage)
         {
             SessionId = sessionId,
-            BranchId = branchId,
+            ThreadId = threadId,
             RunConfig = runConfig
         }, cancellationToken);
     }
@@ -1649,7 +1649,7 @@ public sealed class Agent
         List<ChatMessage> turnHistory,
         TaskCompletionSource<IReadOnlyList<ChatMessage>> historyCompletionSource,
         Session? session = null,
-        Branch? branch = null,
+        Thread? thread = null,
         Dictionary<string, object>? initialContextProperties = null,
         AgentRunConfig? runConfig = null,
         HPD.Events.IEventCoordinator? eventCoordinator = null,
@@ -1723,18 +1723,18 @@ public sealed class Agent
             conversationId = Guid.NewGuid().ToString();
         }
 
-        var isResumeTurn = newInputMessages.Count == 0 && branch?.ExecutionState != null;
+        var isResumeTurn = newInputMessages.Count == 0 && thread?.ExecutionState != null;
 
         try
         {
-            if (branch is not null)
+            if (thread is not null)
             {
-                await AppendBranchRuntimeEventAsync(
+                await AppendThreadRuntimeEventAsync(
                     session,
-                    branch,
-                    BranchEventFactory.TurnStarted(
-                        branch.SessionId,
-                        branch.Id,
+                    thread,
+                    ThreadEventFactory.TurnStarted(
+                        thread.SessionId,
+                        thread.Id,
                         messageTurnId,
                         conversationId,
                         AgentId,
@@ -1788,8 +1788,8 @@ public sealed class Agent
                 // RESUME PATH: Restore from uncommitted turn (crash recovery)
                 var restoreStopwatch = Stopwatch.StartNew();
 
-                // Reconstruct full message list from the durable branch transcript.
-                sharedMessages = branch!.Messages.ToList();
+                // Reconstruct full message list from the durable thread transcript.
+                sharedMessages = thread!.Messages.ToList();
 
                 var restoredMiddlewareState = ValidateMiddlewareSchema(uncommittedTurn.MiddlewareState);
 
@@ -1837,10 +1837,10 @@ public sealed class Agent
                     }, CancellationToken.None);
                 }
 
-                // Load persistent middleware state from session + branch ( split by scope)
+                // Load persistent middleware state from session + thread ( split by scope)
                 var sessionState = MiddlewareState.LoadFromSession(session, _stateFactories);
-                var branchState = MiddlewareState.LoadFromBranch(branch, _stateFactories);
-                var persistentState = sessionState.Merge(branchState);
+                var threadState = MiddlewareState.LoadFromThread(thread, _stateFactories);
+                var persistentState = sessionState.Merge(threadState);
 
                 // Initialize state with FULL uncompacted history
                 // PreparedTurn.MessagesForLLM contains the compacted version (for LLM calls)
@@ -1912,7 +1912,7 @@ public sealed class Agent
                 initialState: state,
                 eventCoordinator: eventCoordinator,
                 session: session,
-                branch: branch,
+                thread: thread,
                 cancellationToken: effectiveCancellationToken,
                 parentChatClient: _baseClient,  // Pass chat client for SubAgent inheritance
                 services: _serviceProvider,     // Pass service provider for DI
@@ -1991,9 +1991,9 @@ public sealed class Agent
                 }
             }
 
-            await CommitBranchMessagesAsync(
+            await CommitThreadMessagesAsync(
                 session,
-                branch,
+                thread,
                 turnHistory,
                 effectiveCancellationToken).ConfigureAwait(false);
 
@@ -2388,7 +2388,7 @@ public sealed class Agent
                             stateFactories: _stateFactories,
                             state: modelRequest.State.MiddlewareState,
                             sessionId: agentContext.Session?.Id,
-                            branchId: agentContext.Branch?.Id,
+                            threadId: agentContext.Thread?.Id,
                             iteration: state.Iteration,
                             phase: "before_model_call",
                             batchId: null,
@@ -2490,14 +2490,14 @@ public sealed class Agent
                                             transcriptUpdate.Text,
                                             turnHistory,
                                             sharedMessages) &&
-                                            branch is not null)
+                                            thread is not null)
                                         {
-                                            await AppendBranchRuntimeEventAsync(
+                                            await AppendThreadRuntimeEventAsync(
                                                 session,
-                                                branch,
-                                                BranchEventFactory.TextDelta(
-                                                    branch.SessionId,
-                                                    branch.Id,
+                                                thread,
+                                                ThreadEventFactory.TextDelta(
+                                                    thread.SessionId,
+                                                    thread.Id,
                                                     messageTurnId,
                                                     transcriptMessageId,
                                                     transcriptUpdate.Text.Trim(),
@@ -2678,14 +2678,14 @@ public sealed class Agent
                                             transcriptUpdate.Text,
                                             turnHistory,
                                             sharedMessages) &&
-                                            branch is not null)
+                                            thread is not null)
                                         {
-                                            await AppendBranchRuntimeEventAsync(
+                                            await AppendThreadRuntimeEventAsync(
                                                 session,
-                                                branch,
-                                                BranchEventFactory.TextDelta(
-                                                    branch.SessionId,
-                                                    branch.Id,
+                                                thread,
+                                                ThreadEventFactory.TextDelta(
+                                                    thread.SessionId,
+                                                    thread.Id,
                                                     messageTurnId,
                                                     transcriptMessageId,
                                                     transcriptUpdate.Text.Trim(),
@@ -2890,7 +2890,7 @@ public sealed class Agent
                         }
 
                         // Commit the full observed assistant message. Model-history filtering happens
-                        // only when projecting branch/shared messages into the model turn request.
+                        // only when projecting thread/shared messages into the model turn request.
                         var historyContents = coalescedContents.ToList();
 
                         // Add to history if there's ANY content (text OR tool calls)
@@ -2898,15 +2898,15 @@ public sealed class Agent
                         {
                             var historyMessage = new ChatMessage(ChatRole.Assistant, historyContents);
                             turnHistory.Add(historyMessage);
-                            await CommitBranchMessagesAsync(
+                            await CommitThreadMessagesAsync(
                                 session,
-                                branch,
+                                thread,
                                 [historyMessage],
                                 effectiveCancellationToken).ConfigureAwait(false);
                             await SaveTurnCheckpointAsync(
                                 store,
                                 session,
-                                branch,
+                                thread,
                                 messageTurnId,
                                 orchestrationStartTime,
                                 state,
@@ -3029,15 +3029,15 @@ public sealed class Agent
 
                         // Add all results to turnHistory (middleware will filter ephemeral results in AfterMessageTurnAsync)
                         turnHistory.Add(toolResultMessage);
-                        await CommitBranchMessagesAsync(
+                        await CommitThreadMessagesAsync(
                             session,
-                            branch,
+                            thread,
                             [toolResultMessage],
                             effectiveCancellationToken).ConfigureAwait(false);
                         await SaveTurnCheckpointAsync(
                             store,
                             session,
-                            branch,
+                            thread,
                             messageTurnId,
                             orchestrationStartTime,
                             state,
@@ -3118,15 +3118,15 @@ public sealed class Agent
 
                                 // Add to turnHistory for session persistence
                                 turnHistory.Add(finalAssistantMessage);
-                                await CommitBranchMessagesAsync(
+                                await CommitThreadMessagesAsync(
                                     session,
-                                    branch,
+                                    thread,
                                     [finalAssistantMessage],
                                     effectiveCancellationToken).ConfigureAwait(false);
                                 await SaveTurnCheckpointAsync(
                                     store,
                                     session,
-                                    branch,
+                                    thread,
                                     messageTurnId,
                                     orchestrationStartTime,
                                     state,
@@ -3206,15 +3206,15 @@ public sealed class Agent
 
                         // Also add to turnHistory for session persistence
                         turnHistory.Add(finalAssistantMessage);
-                        await CommitBranchMessagesAsync(
+                        await CommitThreadMessagesAsync(
                             session,
-                            branch,
+                            thread,
                             [finalAssistantMessage],
                             effectiveCancellationToken).ConfigureAwait(false);
                         await SaveTurnCheckpointAsync(
                             store,
                             session,
-                            branch,
+                            thread,
                             messageTurnId,
                             orchestrationStartTime,
                             state,
@@ -3225,14 +3225,14 @@ public sealed class Agent
 
             // Emit MESSAGE TURN finished event
             turnStopwatch.Stop();
-            if (branch is not null)
+            if (thread is not null)
             {
-                await AppendBranchRuntimeEventAsync(
+                await AppendThreadRuntimeEventAsync(
                     session,
-                    branch,
-                    BranchEventFactory.TurnCompleted(
-                        branch.SessionId,
-                        branch.Id,
+                    thread,
+                    ThreadEventFactory.TurnCompleted(
+                        thread.SessionId,
+                        thread.Id,
                         messageTurnId,
                         conversationId,
                         AgentId,
@@ -3327,10 +3327,10 @@ public sealed class Agent
 
             // Durable transcript messages are committed incrementally at stable message boundaries.
             // AfterMessageTurn may still rewrite turnHistory for next-turn behavior, so reconcile
-            // those edits back into the already-committed branch messages by stable message ID.
+            // those edits back into the already-committed thread messages by stable message ID.
             await ReconcileCommittedTurnHistoryAsync(
                 session,
-                branch,
+                thread,
                 turnHistory,
                 messageIdsBeforeAfterTurn,
                 effectiveCancellationToken).ConfigureAwait(false);
@@ -3348,23 +3348,23 @@ public sealed class Agent
                     // Ignore errors - middleware state persistence is not critical to execution
                 }
             }
-            if (branch != null)
+            if (thread != null)
             {
                 try
                 {
-                    // Save branch-scoped state (plan progress, history cache) to Branch
-                    state.MiddlewareState.SaveToBranch(branch, _stateFactories);
+                    // Save thread-scoped state (plan progress, history cache) to Thread
+                    state.MiddlewareState.SaveToThread(thread, _stateFactories);
 
-                    var branchEventStore = Config?.SessionStore;
-                    if (branchEventStore != null && branch.MiddlewareState.Count > 0)
+                    var threadEventStore = Config?.SessionStore;
+                    if (threadEventStore != null && thread.MiddlewareState.Count > 0)
                     {
-                        await branchEventStore.AppendBranchEventAsync(
-                            branch.SessionId,
-                            branch.Id,
-                            BranchEventFactory.BranchMiddlewareStateCommitted(
-                                branch.SessionId,
-                                branch.Id,
-                                branch.MiddlewareState),
+                        await threadEventStore.AppendThreadEventAsync(
+                            thread.SessionId,
+                            thread.Id,
+                            ThreadEventFactory.ThreadMiddlewareStateCommitted(
+                                thread.SessionId,
+                                thread.Id,
+                                thread.MiddlewareState),
                             cancellationToken: effectiveCancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -3376,7 +3376,7 @@ public sealed class Agent
                 // Clear ExecutionState on successful completion
                 // ExecutionState is only for crash recovery - once we complete successfully,
                 // it should be null so subsequent runs start fresh (not as a "resume")
-                branch.ExecutionState = null;
+                thread.ExecutionState = null;
             }
 
             historyCompletionSource.TrySetResult(turnHistory);
@@ -3429,7 +3429,7 @@ public sealed class Agent
     /// </summary>
     private static List<AIContent> CoalesceTextContents(List<AIContent> contents)
     {
-        return BranchMessageEventConverter.CoalesceTextContents(contents);
+        return ThreadMessageEventConverter.CoalesceTextContents(contents);
     }
 
     private static List<ChatMessage> ProjectMessagesForModelHistory(
@@ -3555,10 +3555,10 @@ public sealed class Agent
     {
         var effectiveOptions = options ?? DefaultOptions;
 
-        // Prepare turn (stateless - no branch)
+        // Prepare turn (stateless - no thread)
         var inputMessages = messages.ToList();
         var turn = await _messageProcessor.PrepareTurnAsync(
-            branch: null,
+            thread: null,
             inputMessages,
             effectiveOptions,
             Name,
@@ -3586,16 +3586,16 @@ public sealed class Agent
 
 
     /// <summary>
-    /// Creates a new conversation session and branch.
+    /// Creates a new conversation session and thread.
     /// </summary>
     /// <param name="sessionId">Optional session ID. If null, a GUID is generated.</param>
-    /// <param name="branchId">Optional branch ID. If null, a GUID is generated.</param>
-    /// <returns>A tuple of (Session, Branch) for the new conversation</returns>
-    internal (Session Session, Branch Branch) CreateSession(string? sessionId = null, string? branchId = null)
+    /// <param name="threadId">Optional thread ID. If null, a GUID is generated.</param>
+    /// <returns>A tuple of (Session, Thread) for the new conversation</returns>
+    internal (Session Session, Thread Thread) CreateSession(string? sessionId = null, string? threadId = null)
     {
         var session = sessionId is null ? new Session() : new Session(sessionId);
-        var branch = session.CreateBranch(branchId);
-        return (session, branch);
+        var thread = session.CreateThread(threadId);
+        return (session, thread);
     }
 
 
@@ -3625,9 +3625,9 @@ public sealed class Agent
     /// // Simple stateless call
     /// await agent.RunTurnStreamAsync("Hello");
     ///
-    /// // With session + branch
-    /// var (session, branch) = agent.CreateSession();
-    /// await agent.RunTurnStreamAsync("Hello", session, branch);
+    /// // With session + thread
+    /// var (session, thread) = agent.CreateSession();
+    /// await agent.RunTurnStreamAsync("Hello", session, thread);
     ///
     /// // With options
     /// var options = new AgentRunConfig
@@ -3643,62 +3643,62 @@ public sealed class Agent
     internal IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         string userMessage,
         Session? session = null,
-        Branch? branch = null,
+        Thread? thread = null,
         AgentRunConfig? options = null,
         CancellationToken cancellationToken = default)
     {
         return RunTurnStreamAsync(
             [new ChatMessage(ChatRole.User, userMessage)],
             session,
-            branch,
+            thread,
             options,
             cancellationToken);
     }
 
     /// <summary>
-    /// Runs the agent with a Branch (session is accessed via branch.Session).
+    /// Runs the agent with a Thread (session is accessed via thread.Session).
     /// </summary>
     /// <param name="userMessage">The user's message text</param>
-    /// <param name="branch">Branch to run on (must have Session set via Session.CreateBranch() or LoadSessionAndBranchAsync)</param>
+    /// <param name="thread">Thread to run on (must have Session set via Session.CreateThread() or LoadSessionAndThreadAsync)</param>
     /// <param name="options">Optional per-invocation run options</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Stream of agent events</returns>
-    /// <exception cref="InvalidOperationException">Thrown if branch.Session is null</exception>
+    /// <exception cref="InvalidOperationException">Thrown if thread.Session is null</exception>
     internal IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         string userMessage,
-        Branch branch,
+        Thread thread,
         AgentRunConfig? options = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(branch);
-        if (branch.Session is null)
+        ArgumentNullException.ThrowIfNull(thread);
+        if (thread.Session is null)
             throw new InvalidOperationException(
-                "Branch.Session is null. Branches must be created via Session.CreateBranch() or loaded via LoadSessionAndBranchAsync().");
+                "Thread.Session is null. Threads must be created via Session.CreateThread() or loaded via LoadSessionAndThreadAsync().");
 
-        return RunTurnStreamAsync(userMessage, branch.Session, branch, options, cancellationToken);
+        return RunTurnStreamAsync(userMessage, thread.Session, thread, options, cancellationToken);
     }
 
     /// <summary>
-    /// Runs the agent with messages and a Branch (session is accessed via branch.Session).
+    /// Runs the agent with messages and a Thread (session is accessed via thread.Session).
     /// </summary>
     /// <param name="messages">Messages to process</param>
-    /// <param name="branch">Branch to run on (must have Session set)</param>
+    /// <param name="thread">Thread to run on (must have Session set)</param>
     /// <param name="options">Optional per-invocation run options</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Stream of agent events</returns>
-    /// <exception cref="InvalidOperationException">Thrown if branch.Session is null</exception>
+    /// <exception cref="InvalidOperationException">Thrown if thread.Session is null</exception>
     internal IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         IEnumerable<ChatMessage> messages,
-        Branch branch,
+        Thread thread,
         AgentRunConfig? options = null,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(branch);
-        if (branch.Session is null)
+        ArgumentNullException.ThrowIfNull(thread);
+        if (thread.Session is null)
             throw new InvalidOperationException(
-                "Branch.Session is null. Branches must be created via Session.CreateBranch() or loaded via LoadSessionAndBranchAsync().");
+                "Thread.Session is null. Threads must be created via Session.CreateThread() or loaded via LoadSessionAndThreadAsync().");
 
-        return RunTurnStreamAsync(messages, branch.Session, branch, options, cancellationToken);
+        return RunTurnStreamAsync(messages, thread.Session, thread, options, cancellationToken);
     }
 
     /// <summary>
@@ -3756,7 +3756,7 @@ public sealed class Agent
     internal IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         AgentRunConfig options,
         Session? session = null,
-        Branch? branch = null,
+        Thread? thread = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -3777,7 +3777,7 @@ public sealed class Agent
         }
 
         var message = new ChatMessage(ChatRole.User, contents);
-        return RunTurnStreamAsync([message], session, branch, options, cancellationToken);
+        return RunTurnStreamAsync([message], session, thread, options, cancellationToken);
     }
 
     /// <summary>
@@ -3808,14 +3808,14 @@ public sealed class Agent
     internal async IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         IEnumerable<ChatMessage> messages,
         Session? session = null,
-        Branch? branch = null,
+        Thread? thread = null,
         AgentRunConfig? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await foreach (var evt in RunTurnStreamAsync(
             messages,
             session,
-            branch,
+            thread,
             options,
             _eventCoordinator,
             cancellationToken).ConfigureAwait(false))
@@ -3827,16 +3827,16 @@ public sealed class Agent
     private async IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         IEnumerable<ChatMessage> messages,
         Session? session,
-        Branch? branch,
+        Thread? thread,
         AgentRunConfig? options,
         HPD.Events.IEventCoordinator eventCoordinator,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         // Validation
-        if (branch != null)
+        if (thread != null)
         {
             var hasMessages = messages?.Any() ?? false;
-            var hasHistory = branch.Messages.Count > 0;
+            var hasHistory = thread.Messages.Count > 0;
 
             // Check for uncommitted turn
             var hasUncommittedTurn = false;
@@ -3850,15 +3850,15 @@ public sealed class Agent
                 }
                 catch { /* best-effort */ }
             }
-            var hasCheckpoint = branch.ExecutionState != null || hasUncommittedTurn;
+            var hasCheckpoint = thread.ExecutionState != null || hasUncommittedTurn;
 
             if (!hasCheckpoint && !hasMessages && !hasHistory)
             {
                 throw new InvalidOperationException(
-                    "Cannot run agent with empty branch and no messages.");
+                    "Cannot run agent with empty thread and no messages.");
             }
 
-            if (branch.ExecutionState != null && hasMessages)
+            if (thread.ExecutionState != null && hasMessages)
             {
                 throw new InvalidOperationException(
                     "Cannot add new messages when resuming mid-execution.");
@@ -3879,7 +3879,7 @@ public sealed class Agent
         // Prepare turn
         var inputMessages = messages?.ToList() ?? new List<ChatMessage>();
         var turn = await _messageProcessor.PrepareTurnAsync(
-            branch,
+            thread,
             inputMessages,
             chatOptions,
             Name,
@@ -3897,7 +3897,7 @@ public sealed class Agent
             turnHistory,
             historyCompletionSource,
             session: session,
-            branch: branch,
+            thread: thread,
             initialContextProperties: initialProperties,
             runConfig: options,
             eventCoordinator: eventCoordinator,
@@ -3907,7 +3907,7 @@ public sealed class Agent
         string? messageTurnId = null;
         string? conversationId = session?.Id;
         var currentIteration = 0;
-        var isResume = inputMessages.Count == 0 && branch?.ExecutionState != null;
+        var isResume = inputMessages.Count == 0 && thread?.ExecutionState != null;
         var turnFinished = false;
 
         while (true)
@@ -3924,9 +3924,9 @@ public sealed class Agent
             {
                 if (!turnFinished)
                 {
-                    await AppendBranchFailureRuntimeEventAsync(
+                    await AppendThreadFailureRuntimeEventAsync(
                         session,
-                        branch,
+                        thread,
                         messageTurnId,
                         conversationId,
                         ex).ConfigureAwait(false);
@@ -3953,9 +3953,9 @@ public sealed class Agent
                 turnFinished = true;
             }
 
-            await AppendPersistableAgentBranchEventAsync(
+            await AppendPersistableAgentThreadEventAsync(
                 session,
-                branch,
+                thread,
                 evt,
                 messageTurnId,
                 conversationId,
@@ -3982,9 +3982,9 @@ public sealed class Agent
                 }
                 catch (Exception ex) when (!turnFinished && !cancellationToken.IsCancellationRequested)
                 {
-                    await AppendBranchFailureRuntimeEventAsync(
+                    await AppendThreadFailureRuntimeEventAsync(
                         session,
-                        branch,
+                        thread,
                         messageTurnId,
                         conversationId,
                         ex).ConfigureAwait(false);
@@ -4023,7 +4023,7 @@ public sealed class Agent
     internal async IAsyncEnumerable<AgentEvent> RunStructuredStreamAsync<T>(
         IEnumerable<ChatMessage> messages,
         Session? session = null,
-        Branch? branch = null,
+        Thread? thread = null,
         AgentRunConfig? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
     {
@@ -4082,7 +4082,7 @@ public sealed class Agent
             OutputTypeName: schemaName,
             OutputMode: outputMode);
 
-        await foreach (var evt in RunTurnStreamAsync(messages, session, branch, options, cancellationToken))
+        await foreach (var evt in RunTurnStreamAsync(messages, session, thread, options, cancellationToken))
         {
             // ═══════════════════════════════════════════════════════════════
             // PASS-THROUGH: All request events (built-in + custom)
@@ -4255,12 +4255,12 @@ public sealed class Agent
     internal IAsyncEnumerable<AgentEvent> RunStructuredStreamAsync<T>(
         string userMessage,
         Session? session = null,
-        Branch? branch = null,
+        Thread? thread = null,
         AgentRunConfig? options = null,
         CancellationToken cancellationToken = default) where T : class
         => RunStructuredStreamAsync<T>(
             new[] { new ChatMessage(ChatRole.User, userMessage) },
-            session, branch, options, cancellationToken);
+            session, thread, options, cancellationToken);
 
     /// <summary>
     /// Runs structured output from a text input and dispatches results through Agent subscribers.
@@ -4268,7 +4268,7 @@ public sealed class Agent
     public Task RunStructuredAsync<T>(
         string userMessage,
         string? sessionId = null,
-        string? branchId = "main",
+        string? threadId = "main",
         AgentRunConfig? runConfig = null,
         CancellationToken cancellationToken = default) where T : class
     {
@@ -4277,7 +4277,7 @@ public sealed class Agent
         return RunStructuredAsync<T>(new UserTextInputEvent(userMessage)
         {
             SessionId = sessionId,
-            BranchId = branchId,
+            ThreadId = threadId,
             RunConfig = runConfig
         }, cancellationToken);
     }
@@ -4291,13 +4291,13 @@ public sealed class Agent
     {
         ArgumentNullException.ThrowIfNull(input);
 
-        var (messages, session, branch, options) = await ResolveStructuredInputAsync(input, cancellationToken)
+        var (messages, session, thread, options) = await ResolveStructuredInputAsync(input, cancellationToken)
             .ConfigureAwait(false);
 
         await foreach (var evt in RunStructuredStreamAsync<T>(
             messages,
             session,
-            branch,
+            thread,
             options,
             cancellationToken).ConfigureAwait(false))
         {
@@ -4306,13 +4306,13 @@ public sealed class Agent
         }
     }
 
-    private async Task<(IEnumerable<ChatMessage> Messages, Session? Session, Branch? Branch, AgentRunConfig Options)> ResolveStructuredInputAsync(
+    private async Task<(IEnumerable<ChatMessage> Messages, Session? Session, Thread? Thread, AgentRunConfig Options)> ResolveStructuredInputAsync(
         AgentInputEvent input,
         CancellationToken cancellationToken)
     {
         IReadOnlyList<ChatMessage> messages;
         Session? session = null;
-        Branch? branch = null;
+        Thread? thread = null;
         AgentRunConfig? options;
 
         switch (input)
@@ -4321,24 +4321,24 @@ public sealed class Agent
                 messages = [new ChatMessage(ChatRole.User, text.Text)];
                 options = text.RunConfig;
                 if (!string.IsNullOrWhiteSpace(text.SessionId))
-                    (session, branch) = await LoadSessionAndBranchAsync(text.SessionId, text.BranchId, cancellationToken)
+                    (session, thread) = await LoadSessionAndThreadAsync(text.SessionId, text.ThreadId, cancellationToken)
                         .ConfigureAwait(false);
                 break;
 
             case UserMessagesInputEvent messageInput:
                 messages = messageInput.Messages;
                 options = messageInput.RunConfig;
-                if (messageInput.Session != null || messageInput.Branch != null)
+                if (messageInput.Session != null || messageInput.Thread != null)
                 {
-                    if (messageInput.Session is null || messageInput.Branch is null)
-                        throw new InvalidOperationException("UserMessagesInputEvent must provide both Session and Branch for process-local scoped runs.");
+                    if (messageInput.Session is null || messageInput.Thread is null)
+                        throw new InvalidOperationException("UserMessagesInputEvent must provide both Session and Thread for process-local scoped runs.");
 
                     session = messageInput.Session;
-                    branch = messageInput.Branch;
+                    thread = messageInput.Thread;
                 }
                 else if (!string.IsNullOrWhiteSpace(messageInput.SessionId))
                 {
-                    (session, branch) = await LoadSessionAndBranchAsync(messageInput.SessionId, messageInput.BranchId, cancellationToken)
+                    (session, thread) = await LoadSessionAndThreadAsync(messageInput.SessionId, messageInput.ThreadId, cancellationToken)
                         .ConfigureAwait(false);
                 }
                 break;
@@ -4351,7 +4351,7 @@ public sealed class Agent
         options ??= new AgentRunConfig();
         options.StructuredOutput ??= new StructuredOutputOptions();
 
-        return (messages, session, branch, options);
+        return (messages, session, thread, options);
     }
 
     private static bool IsStructuredOutputEvent<T>(AgentEvent evt) where T : class
@@ -5107,14 +5107,14 @@ public sealed class Agent
     /// </remarks>
     /// <param name="messages">Messages to process</param>
     /// <param name="session">Session metadata and store reference</param>
-    /// <param name="branch">Branch containing conversation messages</param>
+    /// <param name="thread">Thread containing conversation messages</param>
     /// <param name="options">Optional per-invocation run options</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Stream of internal agent events</returns>
     internal async IAsyncEnumerable<AgentEvent> RunWithAutoPollAsync(
         IEnumerable<ChatMessage> messages,
         Session? session = null,
-        Branch? branch = null,
+        Thread? thread = null,
         AgentRunConfig? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -5124,7 +5124,7 @@ public sealed class Agent
         if (!autoPoll)
         {
             // Auto-poll not enabled, just run normally
-            await foreach (var evt in RunTurnStreamAsync(messages, session, branch, options, cancellationToken))
+            await foreach (var evt in RunTurnStreamAsync(messages, session, thread, options, cancellationToken))
             {
                 yield return evt;
             }
@@ -5183,7 +5183,7 @@ public sealed class Agent
             var messagesForRun = isFirstRun ? messages : Enumerable.Empty<ChatMessage>();
             lastToken = null;
 
-            await foreach (var evt in RunTurnStreamAsync(messagesForRun, session, branch, options, cancellationToken))
+            await foreach (var evt in RunTurnStreamAsync(messagesForRun, session, thread, options, cancellationToken))
             {
                 yield return evt;
 
@@ -5217,14 +5217,14 @@ public sealed class Agent
     internal IAsyncEnumerable<AgentEvent> RunWithAutoPollAsync(
         string userMessage,
         Session? session = null,
-        Branch? branch = null,
+        Thread? thread = null,
         AgentRunConfig? options = null,
         CancellationToken cancellationToken = default)
     {
         return RunWithAutoPollAsync(
             [new ChatMessage(ChatRole.User, userMessage)],
             session,
-            branch,
+            thread,
             options,
             cancellationToken);
     }
@@ -5242,7 +5242,7 @@ public sealed class Agent
         AgentRunConfig? options = null,
         CancellationToken cancellationToken = default)
     {
-        return RunTurnStreamAsync(messages, session: null, branch: null, options, cancellationToken);
+        return RunTurnStreamAsync(messages, session: null, thread: null, options, cancellationToken);
     }
 
     /// <summary>
@@ -5251,13 +5251,13 @@ public sealed class Agent
     /// </summary>
     /// <param name="userMessage">The user's message text</param>
     /// <param name="sessionId">Session identifier — must already exist in the store</param>
-    /// <param name="branchId">Branch identifier. Defaults to "main" if the session has only one branch.</param>
+    /// <param name="threadId">Thread identifier. Defaults to "main" if the session has only one thread.</param>
     /// <param name="options">Optional per-invocation run options</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Stream of agent events</returns>
     /// <exception cref="InvalidOperationException">Thrown if no session store is configured</exception>
-    /// <exception cref="SessionNotFoundException">Thrown if the session or branch does not exist in the store</exception>
-    /// <exception cref="AmbiguousBranchException">Thrown if branchId is omitted and the session has multiple branches</exception>
+    /// <exception cref="SessionNotFoundException">Thrown if the session or thread does not exist in the store</exception>
+    /// <exception cref="AmbiguousThreadException">Thrown if threadId is omitted and the session has multiple threads</exception>
     /// <remarks>
     /// <para>
     /// <b>Example:</b>
@@ -5272,13 +5272,13 @@ public sealed class Agent
     internal async IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         string userMessage,
         string sessionId,
-        string? branchId = null,
+        string? threadId = null,
         AgentRunConfig? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var (session, branch) = await LoadSessionAndBranchAsync(sessionId, branchId, cancellationToken);
+        var (session, thread) = await LoadSessionAndThreadAsync(sessionId, threadId, cancellationToken);
 
-        await foreach (var evt in RunTurnStreamAsync(userMessage, session, branch, options, cancellationToken))
+        await foreach (var evt in RunTurnStreamAsync(userMessage, session, thread, options, cancellationToken))
         {
             yield return evt;
         }
@@ -5286,7 +5286,7 @@ public sealed class Agent
         // Auto-save if configured
         if (Config.SessionStoreOptions?.PersistAfterTurn == true)
         {
-            await SaveSessionAndBranchAsync(session, branch, cancellationToken);
+            await SaveSessionAndThreadAsync(session, thread, cancellationToken);
         }
     }
 
@@ -5297,11 +5297,11 @@ public sealed class Agent
     /// </summary>
     /// <param name="message">Single chat message to send</param>
     /// <param name="sessionId">Session identifier — must already exist in the store</param>
-    /// <param name="branchId">Branch identifier. Defaults to "main" if the session has only one branch.</param>
+    /// <param name="threadId">Thread identifier. Defaults to "main" if the session has only one thread.</param>
     /// <param name="options">Optional run options</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Stream of agent events</returns>
-    /// <exception cref="SessionNotFoundException">Thrown if the session or branch does not exist in the store</exception>
+    /// <exception cref="SessionNotFoundException">Thrown if the session or thread does not exist in the store</exception>
     /// <remarks>
     /// <para>
     /// <b>Example - Send image to vision model:</b>
@@ -5316,13 +5316,13 @@ public sealed class Agent
     internal async IAsyncEnumerable<AgentEvent> RunTurnStreamAsync(
         ChatMessage message,
         string sessionId,
-        string? branchId = null,
+        string? threadId = null,
         AgentRunConfig? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var (session, branch) = await LoadSessionAndBranchAsync(sessionId, branchId, cancellationToken);
+        var (session, thread) = await LoadSessionAndThreadAsync(sessionId, threadId, cancellationToken);
 
-        await foreach (var evt in RunTurnStreamAsync(new[] { message }, session, branch, options, cancellationToken))
+        await foreach (var evt in RunTurnStreamAsync(new[] { message }, session, thread, options, cancellationToken))
         {
             yield return evt;
         }
@@ -5330,25 +5330,25 @@ public sealed class Agent
         // Auto-save if configured
         if (Config.SessionStoreOptions?.PersistAfterTurn == true)
         {
-            await SaveSessionAndBranchAsync(session, branch, cancellationToken);
+            await SaveSessionAndThreadAsync(session, thread, cancellationToken);
         }
     }
 
     /// <summary>
-    /// Loads a session and branch by ID from the configured store.
-    /// Throws <see cref="SessionNotFoundException"/> if the session or branch does not exist.
+    /// Loads a session and thread by ID from the configured store.
+    /// Throws <see cref="SessionNotFoundException"/> if the session or thread does not exist.
     /// Use <see cref="CreateSessionAsync"/> to create a session before calling this or RunAsync.
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
-    /// <param name="branchId">Branch identifier. Defaults to "main" if the session has only one branch.</param>
+    /// <param name="threadId">Thread identifier. Defaults to "main" if the session has only one thread.</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>The loaded session and branch</returns>
+    /// <returns>The loaded session and thread</returns>
     /// <exception cref="InvalidOperationException">Thrown if no session store is configured</exception>
-    /// <exception cref="SessionNotFoundException">Thrown if the session or branch does not exist in the store</exception>
-    /// <exception cref="AmbiguousBranchException">Thrown if branchId is omitted and the session has multiple branches</exception>
-    internal async Task<(Session session, Branch branch)> LoadSessionAndBranchAsync(
+    /// <exception cref="SessionNotFoundException">Thrown if the session or thread does not exist in the store</exception>
+    /// <exception cref="AmbiguousThreadException">Thrown if threadId is omitted and the session has multiple threads</exception>
+    internal async Task<(Session session, Thread thread)> LoadSessionAndThreadAsync(
         string sessionId,
-        string? branchId = null,
+        string? threadId = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
@@ -5357,40 +5357,40 @@ public sealed class Agent
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
-        // If branchId was not specified, check for ambiguity
-        if (branchId is null)
+        // If threadId was not specified, check for ambiguity
+        if (threadId is null)
         {
-            var branchIds = await store.ListBranchIdsAsync(sessionId, cancellationToken);
-            if (branchIds.Count > 1)
+            var threadIds = await store.ListThreadIdsAsync(sessionId, cancellationToken);
+            if (threadIds.Count > 1)
             {
-                throw new AmbiguousBranchException(sessionId, branchIds);
+                throw new AmbiguousThreadException(sessionId, threadIds);
             }
-            branchId = "main";
+            threadId = "main";
         }
 
         var session = await store.LoadSessionAsync(sessionId, cancellationToken)
             ?? throw new SessionNotFoundException(sessionId);
         session.Store = store;
 
-        var branch = await store.LoadBranchAsync(sessionId, branchId, cancellationToken)
-            ?? throw new SessionNotFoundException(sessionId, branchId);
+        var thread = await store.LoadThreadAsync(sessionId, threadId, cancellationToken)
+            ?? throw new SessionNotFoundException(sessionId, threadId);
 
-        // Ensure back-reference is set on loaded branches
-        branch.Session = session;
+        // Ensure back-reference is set on loaded threads
+        thread.Session = session;
 
-        return (session, branch);
+        return (session, thread);
     }
 
     /// <summary>
-    /// Saves session metadata and branch to the configured store.
+    /// Saves session metadata and thread to the configured store.
     /// </summary>
-    internal async Task SaveSessionAndBranchAsync(
+    internal async Task SaveSessionAndThreadAsync(
         Session session,
-        Branch branch,
+        Thread thread,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
-        ArgumentNullException.ThrowIfNull(branch);
+        ArgumentNullException.ThrowIfNull(thread);
 
         var store = Config.SessionStore
             ?? throw new InvalidOperationException(
@@ -5398,16 +5398,16 @@ public sealed class Agent
 
         await store.SaveSessionAsync(session, cancellationToken);
 
-        var existingDocument = await store.LoadBranchDocumentAsync(session.Id, branch.Id, cancellationToken)
+        var existingDocument = await store.LoadThreadDocumentAsync(session.Id, thread.Id, cancellationToken)
             .ConfigureAwait(false);
         if (existingDocument == null)
         {
-            await store.SaveInitialBranchAsync(session.Id, branch, cancellationToken).ConfigureAwait(false);
+            await store.SaveInitialThreadAsync(session.Id, thread, cancellationToken).ConfigureAwait(false);
         }
     }
 
     /// <summary>
-    /// Creates a new session and its default "main" branch in the configured store.
+    /// Creates a new session and its default "main" thread in the configured store.
     /// Must be called before <c>RunTurnStreamAsync(userMessage, sessionId)</c> when a store is configured.
     /// </summary>
     /// <param name="sessionId">Session identifier. If null, a new GUID is generated.</param>
@@ -5432,7 +5432,7 @@ public sealed class Agent
                 $"Session '{id}' already exists. Session IDs must be unique — use a different ID or load the existing session.");
 
         var session = new Session(id);
-        var branch = session.CreateBranch("main");
+        var thread = session.CreateThread("main");
         session.Store = store;
 
         if (metadata != null)
@@ -5442,22 +5442,22 @@ public sealed class Agent
         }
 
         await store.SaveSessionAsync(session, cancellationToken);
-        await store.SaveInitialBranchAsync(id, branch, cancellationToken);
+        await store.SaveInitialThreadAsync(id, thread, cancellationToken);
 
         return id;
     }
 
     /// <summary>
-    /// Creates an empty branch in an existing session.
+    /// Creates an empty thread in an existing session.
     /// </summary>
     /// <param name="sessionId">Session identifier.</param>
-    /// <param name="branchId">Branch identifier. If null, a new GUID is generated.</param>
-    /// <param name="name">Optional display name for the branch.</param>
+    /// <param name="threadId">Thread identifier. If null, a new GUID is generated.</param>
+    /// <param name="name">Optional display name for the thread.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The created branch ID.</returns>
-    public async Task<string> CreateBranchAsync(
+    /// <returns>The created thread ID.</returns>
+    public async Task<string> CreateThreadAsync(
         string sessionId,
-        string? branchId = null,
+        string? threadId = null,
         string? name = null,
         CancellationToken cancellationToken = default)
     {
@@ -5471,21 +5471,21 @@ public sealed class Agent
             ?? throw new InvalidOperationException($"Session '{sessionId}' not found.");
         session.Store = store;
 
-        var id = string.IsNullOrWhiteSpace(branchId) ? Guid.NewGuid().ToString() : branchId;
-        if (await store.LoadBranchAsync(sessionId, id, cancellationToken).ConfigureAwait(false) is not null)
+        var id = string.IsNullOrWhiteSpace(threadId) ? Guid.NewGuid().ToString() : threadId;
+        if (await store.LoadThreadAsync(sessionId, id, cancellationToken).ConfigureAwait(false) is not null)
         {
             throw new InvalidOperationException(
-                $"Branch '{id}' already exists in session '{sessionId}'.");
+                $"Thread '{id}' already exists in session '{sessionId}'.");
         }
 
-        var branch = session.CreateBranch(id);
+        var thread = session.CreateThread(id);
         if (!string.IsNullOrWhiteSpace(name))
         {
-            branch.Name = name;
+            thread.Name = name;
         }
 
         session.LastActivity = DateTime.UtcNow;
-        await store.SaveInitialBranchAsync(sessionId, branch, cancellationToken)
+        await store.SaveInitialThreadAsync(sessionId, thread, cancellationToken)
             .ConfigureAwait(false);
         await store.SaveSessionAsync(session, cancellationToken)
             .ConfigureAwait(false);
@@ -5494,38 +5494,38 @@ public sealed class Agent
     }
 
     //
-    // V3 BRANCH MANAGEMENT (Session + Branch Architecture)
+    // V3 THREAD MANAGEMENT (Session + Thread Architecture)
     //
 
     /// <summary>
-    /// Load branch from session store (V3 API).
+    /// Load thread from session store (V3 API).
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
-    /// <param name="branchId">Branch identifier</param>
+    /// <param name="threadId">Thread identifier</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Branch if found, null otherwise</returns>
-    internal async Task<Branch?> LoadBranchAsync(
+    /// <returns>Thread if found, null otherwise</returns>
+    internal async Task<Thread?> LoadThreadAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
         var store = Config?.SessionStore;
         if (store == null)
             return null;
 
-        return await store.LoadBranchAsync(sessionId, branchId, cancellationToken);
+        return await store.LoadThreadAsync(sessionId, threadId, cancellationToken);
     }
 
     /// <summary>
-    /// List all branch IDs in a session (V3 API).
+    /// List all thread IDs in a session (V3 API).
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>List of branch IDs</returns>
-    internal async Task<List<string>> ListBranchesAsync(
+    /// <returns>List of thread IDs</returns>
+    internal async Task<List<string>> ListThreadsAsync(
         string sessionId,
         CancellationToken cancellationToken = default)
     {
@@ -5535,70 +5535,70 @@ public sealed class Agent
         if (store == null)
             return [];
 
-        return await store.ListBranchIdsAsync(sessionId, cancellationToken);
+        return await store.ListThreadIdsAsync(sessionId, cancellationToken);
     }
 
     /// <summary>
-    /// Delete a branch from a session. SessionId is derived from branch.SessionId.
+    /// Delete a thread from a session. SessionId is derived from thread.SessionId.
     /// </summary>
-    /// <param name="branch">Branch to delete</param>
+    /// <param name="thread">Thread to delete</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    internal async Task DeleteBranchAsync(
-        Branch branch,
+    internal async Task DeleteThreadAsync(
+        Thread thread,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(branch);
+        ArgumentNullException.ThrowIfNull(thread);
 
         var store = Config?.SessionStore;
         if (store != null)
         {
-            await store.DeleteBranchAsync(branch.SessionId, branch.Id, cancellationToken);
+            await store.DeleteThreadAsync(thread.SessionId, thread.Id, cancellationToken);
         }
     }
 
     /// <summary>
-    /// Fork a branch at a specific message id.
-    /// Creates a new branch with messages up to the fork point, plus branch-scoped middleware state.
-    /// The new branch inherits the source branch's Session reference.
+    /// Fork a thread at a specific message id.
+    /// Creates a new thread with messages up to the fork point, plus thread-scoped middleware state.
+    /// The new thread inherits the source thread's Session reference.
     /// </summary>
-    /// <param name="sourceBranch">Source branch to fork from</param>
-    /// <param name="newBranchId">New branch ID</param>
+    /// <param name="sourceThread">Source thread to fork from</param>
+    /// <param name="newThreadId">New thread ID</param>
     /// <param name="fromMessageId">Message id to fork at (inclusive)</param>
-    /// <param name="metadata">Optional metadata to attach to the new branch.</param>
+    /// <param name="metadata">Optional metadata to attach to the new thread.</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Newly created branch with Session back-reference set</returns>
+    /// <returns>Newly created thread with Session back-reference set</returns>
     /// <remarks>
     /// <para><b>Behavior:</b></para>
     /// <list type="bullet">
     /// <item>Messages: Copied up to and including fromMessageId</item>
-    /// <item>Branch-scoped middleware state: COPIED from source (then diverges)</item>
+    /// <item>Thread-scoped middleware state: COPIED from source (then diverges)</item>
     /// <item>Session-scoped middleware state: SHARED (not copied, same Session object)</item>
-    /// <item>Session back-reference: Copied from source branch</item>
+    /// <item>Session back-reference: Copied from source thread</item>
     /// </list>
     /// </remarks>
-    internal Task<Branch> ForkBranchAsync(
-        Branch sourceBranch,
-        string newBranchId,
+    internal Task<Thread> ForkThreadAsync(
+        Thread sourceThread,
+        string newThreadId,
         string fromMessageId,
         Dictionary<string, object>? metadata = null,
         CancellationToken cancellationToken = default)
-        => ForkBranchAsync(
-            sourceBranch,
-            newBranchId,
+        => ForkThreadAsync(
+            sourceThread,
+            newThreadId,
             fromMessageId,
-            BranchForkOptions.FromMetadata(metadata),
+            ThreadForkOptions.FromMetadata(metadata),
             cancellationToken);
 
-    internal async Task<Branch> ForkBranchAsync(
-        Branch sourceBranch,
-        string newBranchId,
+    internal async Task<Thread> ForkThreadAsync(
+        Thread sourceThread,
+        string newThreadId,
         string fromMessageId,
-        BranchForkOptions forkOptions,
+        ThreadForkOptions forkOptions,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(sourceBranch);
+        ArgumentNullException.ThrowIfNull(sourceThread);
         ArgumentNullException.ThrowIfNull(forkOptions);
-        ArgumentException.ThrowIfNullOrWhiteSpace(newBranchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newThreadId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fromMessageId);
 
         var store = Config.SessionStore
@@ -5606,7 +5606,7 @@ public sealed class Agent
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
         var fromMessageIndex = await ResolveForkMessageIndexAsync(
-            sourceBranch,
+            sourceThread,
             fromMessageId,
             store,
             cancellationToken).ConfigureAwait(false);
@@ -5614,101 +5614,101 @@ public sealed class Agent
         //  Get all existing siblings at this fork point.
         // Siblings share the same ForkedFrom + ForkedAtMessageId (same preceding context).
         var existingForkSiblings = await GetSiblingsAsync(
-            sourceBranch.SessionId,
-            sourceBranch.Id,  // ForkedFrom = source branch ID
+            sourceThread.SessionId,
+            sourceThread.Id,  // ForkedFrom = source thread ID
             fromMessageId,    // ForkedAtMessageId = last shared message id
             cancellationToken);
 
-        // Sort by the persisted sibling position. Branches are projected from events, so
-        // CreatedAt is not a safe ordering source for forked branches during replay.
+        // Sort by the persisted sibling position. Threads are projected from events, so
+        // CreatedAt is not a safe ordering source for forked threads during replay.
         var sortedForkSiblings = existingForkSiblings
             .OrderBy(b => b.SiblingIndex)
             .ThenBy(b => b.Id, StringComparer.Ordinal)
             .ToList();
 
-        //  The source branch is ALWAYS sibling #0 ("original branch = 0" per design intent).
+        //  The source thread is ALWAYS sibling #0 ("original thread = 0" per design intent).
         // Insert it at the front if this is the first fork at this point (i.e. it hasn't been
         // assigned sibling navigation fields yet for this fork group).
         bool isFirstFork = sortedForkSiblings.Count == 0;
-        var sortedSiblings = new List<Branch>();
-        sortedSiblings.Add(sourceBranch); // slot 0: always the source
+        var sortedSiblings = new List<Thread>();
+        sortedSiblings.Add(sourceThread); // slot 0: always the source
         sortedSiblings.AddRange(sortedForkSiblings);
 
-        // Create new branch with copied messages and branch-scoped state
+        // Create new thread with copied messages and thread-scoped state
         var now = DateTime.UtcNow;
-        var newBranch = new Branch(sourceBranch.SessionId, newBranchId)
+        var newThread = new Thread(sourceThread.SessionId, newThreadId)
         {
-            ForkedFrom = sourceBranch.Id,
+            ForkedFrom = sourceThread.Id,
             ForkedAtMessageId = fromMessageId,
             ForkedAtMessageIndex = fromMessageIndex,
-            Session = sourceBranch.Session, // Inherit Session back-reference
+            Session = sourceThread.Session, // Inherit Session back-reference
             CreatedAt = now,
             LastActivity = now,
 
             //  Sibling metadata
-            // sortedSiblings already includes sourceBranch at slot 0, so Count = correct next index
+            // sortedSiblings already includes sourceThread at slot 0, so Count = correct next index
             SiblingIndex = sortedSiblings.Count,      // Next available index (after source + existing forks)
-            TotalSiblings = sortedSiblings.Count + 1, // source + existing forks + this new branch
+            TotalSiblings = sortedSiblings.Count + 1, // source + existing forks + this new thread
             IsOriginal = false,
-            OriginalBranchId = sourceBranch.Id,       // Source branch is always the original
-            ChildBranches = new List<string>()
+            OriginalThreadId = sourceThread.Id,       // Source thread is always the original
+            ChildThreads = new List<string>()
         };
 
         // Build ancestor chain: copy parent's ancestors and add parent
         var ancestors = new Dictionary<string, string>();
-        if (sourceBranch.Ancestors != null)
+        if (sourceThread.Ancestors != null)
         {
-            foreach (var kvp in sourceBranch.Ancestors)
+            foreach (var kvp in sourceThread.Ancestors)
             {
                 ancestors[kvp.Key] = kvp.Value;
             }
         }
-        // Add the source branch as an ancestor
+        // Add the source thread as an ancestor
         var depth = ancestors.Count;
-        ancestors[depth.ToString()] = sourceBranch.Id;
-        newBranch.Ancestors = ancestors;
+        ancestors[depth.ToString()] = sourceThread.Id;
+        newThread.Ancestors = ancestors;
 
         // Copy messages up to and including fork point
-        newBranch.Messages.AddRange(sourceBranch.Messages.Take(fromMessageIndex + 1).Select(CloneMessageForBranch));
+        newThread.Messages.AddRange(sourceThread.Messages.Take(fromMessageIndex + 1).Select(CloneMessageForThread));
 
-        // Copy branch-scoped middleware state (session-scoped state is shared via Session object)
-        foreach (var kvp in sourceBranch.MiddlewareState)
+        // Copy thread-scoped middleware state (session-scoped state is shared via Session object)
+        foreach (var kvp in sourceThread.MiddlewareState)
         {
-            newBranch.MiddlewareState[kvp.Key] = kvp.Value;
+            newThread.MiddlewareState[kvp.Key] = kvp.Value;
         }
 
         if (forkOptions.Metadata != null)
         {
             var extensionMetadata = new Dictionary<string, object>(forkOptions.Metadata, StringComparer.Ordinal);
-            newBranch.ApplyRuntimeMetadata(extensionMetadata);
+            newThread.ApplyRuntimeMetadata(extensionMetadata);
             foreach (var kvp in extensionMetadata)
             {
-                newBranch.Metadata[kvp.Key] = kvp.Value;
+                newThread.Metadata[kvp.Key] = kvp.Value;
             }
         }
 
-        // Wire newBranch's PreviousSiblingId to the last existing sibling before hooks run.
-        newBranch.PreviousSiblingId = sortedSiblings.Last().Id;
+        // Wire newThread's PreviousSiblingId to the last existing sibling before hooks run.
+        newThread.PreviousSiblingId = sortedSiblings.Last().Id;
 
         if (!_middlewarePipeline.IsEmpty)
         {
-            var sessionState = MiddlewareState.LoadFromSession(sourceBranch.Session, _stateFactories);
-            var branchState = MiddlewareState.LoadFromBranch(newBranch, _stateFactories);
-            var persistentState = sessionState.Merge(branchState);
+            var sessionState = MiddlewareState.LoadFromSession(sourceThread.Session, _stateFactories);
+            var threadState = MiddlewareState.LoadFromThread(newThread, _stateFactories);
+            var persistentState = sessionState.Merge(threadState);
             var forkState = AgentLoopState.Initial(
-                newBranch.Messages,
+                newThread.Messages,
                 runId: Guid.NewGuid().ToString("N"),
-                conversationId: sourceBranch.SessionId,
+                conversationId: sourceThread.SessionId,
                 agentName: _name,
                 persistentState: persistentState);
 
             var forkContext = new Middleware.AgentContext(
                 agentName: _name,
-                conversationId: sourceBranch.SessionId,
+                conversationId: sourceThread.SessionId,
                 initialState: forkState,
                 eventCoordinator: GetActiveEventCoordinator(),
-                session: sourceBranch.Session,
-                branch: newBranch,
+                session: sourceThread.Session,
+                thread: newThread,
                 cancellationToken: cancellationToken,
                 parentChatClient: _baseClient,
                 services: _serviceProvider,
@@ -5721,83 +5721,83 @@ public sealed class Agent
                 contentStore: _contentStore,
                 structEvents: GetActiveStructEvents());
 
-            var beforeForkCommitContext = forkContext.AsBeforeBranchForkCommit(
-                sourceBranch,
-                newBranch,
+            var beforeForkCommitContext = forkContext.AsBeforeThreadForkCommit(
+                sourceThread,
+                newThread,
                 fromMessageIndex,
                 fromMessageId,
                 forkOptions);
 
-            await _middlewarePipeline.ExecuteBeforeBranchForkCommitAsync(
+            await _middlewarePipeline.ExecuteBeforeThreadForkCommitAsync(
                 beforeForkCommitContext,
                 cancellationToken).ConfigureAwait(false);
 
-            forkContext.State.MiddlewareState.SaveToBranch(newBranch, _stateFactories);
-            if (sourceBranch.Session != null)
+            forkContext.State.MiddlewareState.SaveToThread(newThread, _stateFactories);
+            if (sourceThread.Session != null)
             {
-                forkContext.State.MiddlewareState.SaveToSession(sourceBranch.Session, _stateFactories);
+                forkContext.State.MiddlewareState.SaveToSession(sourceThread.Session, _stateFactories);
             }
         }
 
-        await store.SaveInitialBranchAsync(sourceBranch.SessionId, newBranch, cancellationToken);
+        await store.SaveInitialThreadAsync(sourceThread.SessionId, newThread, cancellationToken);
 
         //  Update ALL existing siblings atomically.
-        // sourceBranch at slot 0 is the "original" for this new group.
+        // sourceThread at slot 0 is the "original" for this new group.
         //
-        // Special case: if sourceBranch itself has a parent (ForkedFrom != null), it is ALSO
+        // Special case: if sourceThread itself has a parent (ForkedFrom != null), it is ALSO
         // a member of its parent's sibling group, and that group owns its SiblingIndex/TotalSiblings/
         // nav-pointer fields. Overwriting those fields here would corrupt its position in the parent
-        // group. In that case we only update LastActivity on sourceBranch; all other metadata is
+        // group. In that case we only update LastActivity on sourceThread; all other metadata is
         // preserved. The frontend reconstructs sibling groups by scanning ForkedFrom+ForkedAtMessageId
-        // so it does not rely on these pointer fields for the source branch.
+        // so it does not rely on these pointer fields for the source thread.
         //
-        // If sourceBranch has no parent (ForkedFrom == null, e.g. "main"), it has no other group to
+        // If sourceThread has no parent (ForkedFrom == null, e.g. "main"), it has no other group to
         // belong to, so it is safe (and correct) to fully update its sibling fields here.
-        bool sourceBranchHasParent = sourceBranch.ForkedFrom != null;
-        int totalAfterAdd = sortedSiblings.Count + 1; // +1 for newBranch
+        bool sourceThreadHasParent = sourceThread.ForkedFrom != null;
+        int totalAfterAdd = sortedSiblings.Count + 1; // +1 for newThread
         for (int i = 0; i < sortedSiblings.Count; i++)
         {
             var sibling = sortedSiblings[i];
-            if (i == 0 && sourceBranchHasParent)
+            if (i == 0 && sourceThreadHasParent)
             {
-                // sourceBranch already belongs to its parent's sibling group — preserve its fields.
+                // sourceThread already belongs to its parent's sibling group — preserve its fields.
                 sibling.LastActivity = now;
                 continue;
             }
             sibling.SiblingIndex = i;
             sibling.TotalSiblings = totalAfterAdd;
             sibling.PreviousSiblingId = i > 0 ? sortedSiblings[i - 1].Id : null;
-            sibling.NextSiblingId = i < sortedSiblings.Count - 1 ? sortedSiblings[i + 1].Id : newBranch.Id;
+            sibling.NextSiblingId = i < sortedSiblings.Count - 1 ? sortedSiblings[i + 1].Id : newThread.Id;
             sibling.LastActivity = now;
-            await store.AppendBranchTreeUpdatedAsync(sibling, cancellationToken);
+            await store.AppendThreadTreeUpdatedAsync(sibling, cancellationToken);
         }
 
-        //  Update source branch's ChildBranches list
-        if (!sourceBranch.ChildBranches.Contains(newBranch.Id))
+        //  Update source thread's ChildThreads list
+        if (!sourceThread.ChildThreads.Contains(newThread.Id))
         {
-            sourceBranch.ChildBranches.Add(newBranch.Id);
-            sourceBranch.LastActivity = now;
-            await store.AppendBranchTreeUpdatedAsync(sourceBranch, cancellationToken);
+            sourceThread.ChildThreads.Add(newThread.Id);
+            sourceThread.LastActivity = now;
+            await store.AppendThreadTreeUpdatedAsync(sourceThread, cancellationToken);
         }
 
         //  Update session's LastActivity
-        if (sourceBranch.Session != null)
+        if (sourceThread.Session != null)
         {
-            sourceBranch.Session.LastActivity = now;
-            await store.SaveSessionAsync(sourceBranch.Session, cancellationToken);
+            sourceThread.Session.LastActivity = now;
+            await store.SaveSessionAsync(sourceThread.Session, cancellationToken);
         }
 
-        return newBranch;
+        return newThread;
     }
 
     /// <summary>
-    /// Helper: Get all existing fork branches at a given fork point.
-    /// Returns branches with ForkedFrom == forkedFromBranchId AND ForkedAtMessageId == fromMessageId.
-    /// Does NOT include the source branch itself — caller inserts it at slot 0.
+    /// Helper: Get all existing fork threads at a given fork point.
+    /// Returns threads with ForkedFrom == forkedFromThreadId AND ForkedAtMessageId == fromMessageId.
+    /// Does NOT include the source thread itself — caller inserts it at slot 0.
     /// </summary>
-    private async Task<List<Branch>> GetSiblingsAsync(
+    private async Task<List<Thread>> GetSiblingsAsync(
         string sessionId,
-        string forkedFromBranchId,
+        string forkedFromThreadId,
         string fromMessageId,
         CancellationToken ct)
     {
@@ -5805,18 +5805,18 @@ public sealed class Agent
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
-        var branchIds = await store.ListBranchIdsAsync(sessionId, ct);
-        var siblings = new List<Branch>();
+        var threadIds = await store.ListThreadIdsAsync(sessionId, ct);
+        var siblings = new List<Thread>();
 
-        foreach (var branchId in branchIds)
+        foreach (var threadId in threadIds)
         {
-            var branch = await store.LoadBranchAsync(sessionId, branchId, ct);
-            if (branch == null) continue;
+            var thread = await store.LoadThreadAsync(sessionId, threadId, ct);
+            if (thread == null) continue;
 
-            if (branch.ForkedFrom == forkedFromBranchId &&
-                branch.ForkedAtMessageId == fromMessageId)
+            if (thread.ForkedFrom == forkedFromThreadId &&
+                thread.ForkedAtMessageId == fromMessageId)
             {
-                siblings.Add(branch);
+                siblings.Add(thread);
             }
         }
 
@@ -5824,175 +5824,175 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Fork a branch from its latest message (string-based API).
-    /// Creates a new branch with the full current source branch history, plus branch-scoped middleware state.
-    /// Returns the new branch ID.
+    /// Fork a thread from its latest message (string-based API).
+    /// Creates a new thread with the full current source thread history, plus thread-scoped middleware state.
+    /// Returns the new thread ID.
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
-    /// <param name="sourceBranchId">Source branch to fork from</param>
-    /// <param name="newBranchId">New branch identifier</param>
-    /// <param name="metadata">Optional metadata to attach to the new branch.</param>
+    /// <param name="sourceThreadId">Source thread to fork from</param>
+    /// <param name="newThreadId">New thread identifier</param>
+    /// <param name="metadata">Optional metadata to attach to the new thread.</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>The new branch ID (same as newBranchId parameter)</returns>
-    public async Task<string> ForkBranchAsync(
+    /// <returns>The new thread ID (same as newThreadId parameter)</returns>
+    public async Task<string> ForkThreadAsync(
         string sessionId,
-        string sourceBranchId,
-        string newBranchId,
+        string sourceThreadId,
+        string newThreadId,
         Dictionary<string, object>? metadata = null,
         CancellationToken cancellationToken = default)
-        => await ForkBranchAsync(
+        => await ForkThreadAsync(
             sessionId,
-            sourceBranchId,
-            newBranchId,
-            BranchForkOptions.FromMetadata(metadata),
+            sourceThreadId,
+            newThreadId,
+            ThreadForkOptions.FromMetadata(metadata),
             cancellationToken).ConfigureAwait(false);
 
     /// <summary>
-    /// Fork a branch from its latest message (string-based API).
-    /// Creates a new branch with the full current source branch history, plus branch-scoped middleware state.
-    /// Returns the new branch ID.
+    /// Fork a thread from its latest message (string-based API).
+    /// Creates a new thread with the full current source thread history, plus thread-scoped middleware state.
+    /// Returns the new thread ID.
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
-    /// <param name="sourceBranchId">Source branch to fork from</param>
-    /// <param name="newBranchId">New branch identifier</param>
+    /// <param name="sourceThreadId">Source thread to fork from</param>
+    /// <param name="newThreadId">New thread identifier</param>
     /// <param name="forkOptions">Options for the fork operation.</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>The new branch ID (same as newBranchId parameter)</returns>
-    public async Task<string> ForkBranchAsync(
+    /// <returns>The new thread ID (same as newThreadId parameter)</returns>
+    public async Task<string> ForkThreadAsync(
         string sessionId,
-        string sourceBranchId,
-        string newBranchId,
-        BranchForkOptions forkOptions,
+        string sourceThreadId,
+        string newThreadId,
+        ThreadForkOptions forkOptions,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(forkOptions);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(sourceBranchId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(newBranchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceThreadId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newThreadId);
 
         var store = Config.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
-        var sourceBranch = await store.LoadBranchAsync(sessionId, sourceBranchId, cancellationToken)
-            ?? throw new InvalidOperationException($"Branch '{sourceBranchId}' not found in session '{sessionId}'.");
+        var sourceThread = await store.LoadThreadAsync(sessionId, sourceThreadId, cancellationToken)
+            ?? throw new InvalidOperationException($"Thread '{sourceThreadId}' not found in session '{sessionId}'.");
 
-        var latestMessageId = sourceBranch.Messages.LastOrDefault()?.MessageId;
+        var latestMessageId = sourceThread.Messages.LastOrDefault()?.MessageId;
         if (string.IsNullOrWhiteSpace(latestMessageId))
         {
             throw new InvalidOperationException(
-                $"Branch '{sourceBranchId}' in session '{sessionId}' has no messages to fork from.");
+                $"Thread '{sourceThreadId}' in session '{sessionId}' has no messages to fork from.");
         }
 
-        return await ForkBranchAsync(
+        return await ForkThreadAsync(
             sessionId,
-            sourceBranchId,
-            newBranchId,
+            sourceThreadId,
+            newThreadId,
             latestMessageId,
             forkOptions,
             cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Fork a branch at a specific message id (string-based API).
-    /// Creates a new branch with messages up to the fork point, plus branch-scoped middleware state.
-    /// Returns the new branch ID.
+    /// Fork a thread at a specific message id (string-based API).
+    /// Creates a new thread with messages up to the fork point, plus thread-scoped middleware state.
+    /// Returns the new thread ID.
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
-    /// <param name="sourceBranchId">Source branch to fork from</param>
-    /// <param name="newBranchId">New branch identifier</param>
+    /// <param name="sourceThreadId">Source thread to fork from</param>
+    /// <param name="newThreadId">New thread identifier</param>
     /// <param name="fromMessageId">Message id to fork at (inclusive)</param>
-    /// <param name="metadata">Optional metadata to attach to the new branch.</param>
+    /// <param name="metadata">Optional metadata to attach to the new thread.</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>The new branch ID (same as newBranchId parameter)</returns>
-    public async Task<string> ForkBranchAsync(
+    /// <returns>The new thread ID (same as newThreadId parameter)</returns>
+    public async Task<string> ForkThreadAsync(
         string sessionId,
-        string sourceBranchId,
-        string newBranchId,
+        string sourceThreadId,
+        string newThreadId,
         string fromMessageId,
         Dictionary<string, object>? metadata = null,
         CancellationToken cancellationToken = default)
-        => await ForkBranchAsync(
+        => await ForkThreadAsync(
             sessionId,
-            sourceBranchId,
-            newBranchId,
+            sourceThreadId,
+            newThreadId,
             fromMessageId,
-            BranchForkOptions.FromMetadata(metadata),
+            ThreadForkOptions.FromMetadata(metadata),
             cancellationToken).ConfigureAwait(false);
 
-    public async Task<string> ForkBranchAsync(
+    public async Task<string> ForkThreadAsync(
         string sessionId,
-        string sourceBranchId,
-        string newBranchId,
+        string sourceThreadId,
+        string newThreadId,
         string fromMessageId,
-        BranchForkOptions forkOptions,
+        ThreadForkOptions forkOptions,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(forkOptions);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(sourceBranchId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(newBranchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceThreadId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newThreadId);
         ArgumentException.ThrowIfNullOrWhiteSpace(fromMessageId);
 
         var store = Config.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
-        // Load session and source branch
+        // Load session and source thread
         var session = await store.LoadSessionAsync(sessionId, cancellationToken)
             ?? throw new InvalidOperationException($"Session '{sessionId}' not found.");
         session.Store = store;
 
-        var sourceBranch = await store.LoadBranchAsync(sessionId, sourceBranchId, cancellationToken)
-            ?? throw new InvalidOperationException($"Branch '{sourceBranchId}' not found in session '{sessionId}'.");
-        sourceBranch.Session = session;
+        var sourceThread = await store.LoadThreadAsync(sessionId, sourceThreadId, cancellationToken)
+            ?? throw new InvalidOperationException($"Thread '{sourceThreadId}' not found in session '{sessionId}'.");
+        sourceThread.Session = session;
 
         // Fork using the object-based method
-        var newBranch = await ForkBranchAsync(sourceBranch, newBranchId, fromMessageId, forkOptions, cancellationToken);
+        var newThread = await ForkThreadAsync(sourceThread, newThreadId, fromMessageId, forkOptions, cancellationToken);
 
-        return newBranch.Id;
+        return newThread.Id;
     }
 
     private static async Task<int> ResolveForkMessageIndexAsync(
-        Branch sourceBranch,
+        Thread sourceThread,
         string fromMessageId,
         ISessionStore store,
         CancellationToken cancellationToken)
     {
-        var index = sourceBranch.Messages.FindIndex(message =>
+        var index = sourceThread.Messages.FindIndex(message =>
             string.Equals(message.MessageId, fromMessageId, StringComparison.Ordinal));
 
         if (index >= 0)
             return index;
 
         var replacementMessageIds = await FindReplacementMessageIdsAsync(
-            sourceBranch.SessionId,
-            sourceBranch.Id,
+            sourceThread.SessionId,
+            sourceThread.Id,
             fromMessageId,
             store,
             cancellationToken).ConfigureAwait(false);
 
-        throw new MessageNotPresentOnBranchException(
-            sourceBranch.SessionId,
-            sourceBranch.Id,
+        throw new MessageNotPresentOnThreadException(
+            sourceThread.SessionId,
+            sourceThread.Id,
             fromMessageId,
             replacementMessageIds);
     }
 
     private static async Task<IReadOnlyList<string>> FindReplacementMessageIdsAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         string messageId,
         ISessionStore store,
         CancellationToken cancellationToken)
     {
-        var document = await store.LoadBranchDocumentAsync(sessionId, branchId, cancellationToken)
+        var document = await store.LoadThreadDocumentAsync(sessionId, threadId, cancellationToken)
             .ConfigureAwait(false);
         if (document == null)
             return [];
 
         return document.Events
-            .OfType<BranchHistoryCompactedEvent>()
+            .OfType<ThreadHistoryCompactedEvent>()
             .Where(evt => evt.DurableCompactedMessageIds.Contains(messageId, StringComparer.Ordinal))
             .SelectMany(evt => evt.ReplacementMessages)
             .Select(message => message.MessageId)
@@ -6002,7 +6002,7 @@ public sealed class Agent
             .ToList();
     }
 
-    private static ChatMessage CloneMessageForBranch(ChatMessage message)
+    private static ChatMessage CloneMessageForThread(ChatMessage message)
     {
         var clone = new ChatMessage(message.Role, message.Contents.ToArray())
         {
@@ -6159,78 +6159,78 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Delete a specific branch (string-based API).
+    /// Delete a specific thread (string-based API).
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
-    /// <param name="branchId">Branch identifier to delete</param>
+    /// <param name="threadId">Thread identifier to delete</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task DeleteBranchAsync(
+    public async Task DeleteThreadAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
         var store = Config.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
-        //  Protect "main" branch from deletion
-        if (branchId == "main")
+        //  Protect "main" thread from deletion
+        if (threadId == "main")
         {
-            throw new InvalidOperationException("Cannot delete the 'main' branch.");
+            throw new InvalidOperationException("Cannot delete the 'main' thread.");
         }
 
-        // Load the branch to delete
-        var branch = await store.LoadBranchAsync(sessionId, branchId, cancellationToken);
-        if (branch == null)
+        // Load the thread to delete
+        var thread = await store.LoadThreadAsync(sessionId, threadId, cancellationToken);
+        if (thread == null)
         {
-            throw new InvalidOperationException($"Branch '{branchId}' not found in session '{sessionId}'.");
+            throw new InvalidOperationException($"Thread '{threadId}' not found in session '{sessionId}'.");
         }
 
-        //  Prevent deletion if branch has children (referential integrity)
-        if (branch.ChildBranches.Count > 0)
+        //  Prevent deletion if thread has children (referential integrity)
+        if (thread.ChildThreads.Count > 0)
         {
             throw new InvalidOperationException(
-                $"Cannot delete branch with {branch.ChildBranches.Count} child branches. " +
-                $"Delete children first: {string.Join(", ", branch.ChildBranches)}");
+                $"Cannot delete thread with {thread.ChildThreads.Count} child threads. " +
+                $"Delete children first: {string.Join(", ", thread.ChildThreads)}");
         }
 
         //  Perform deletion with sibling reindexing
-        // Note: No session locking at Agent level - locking should be done by the caller (e.g., BranchEndpoints)
+        // Note: No session locking at Agent level - locking should be done by the caller (e.g., ThreadEndpoints)
 
-        // Remove from parent's ChildBranches list
-        if (branch.ForkedFrom != null)
+        // Remove from parent's ChildThreads list
+        if (thread.ForkedFrom != null)
         {
-            var parent = await store.LoadBranchAsync(sessionId, branch.ForkedFrom, cancellationToken);
-            if (parent != null && parent.ChildBranches.Contains(branchId))
+            var parent = await store.LoadThreadAsync(sessionId, thread.ForkedFrom, cancellationToken);
+            if (parent != null && parent.ChildThreads.Contains(threadId))
             {
-                parent.ChildBranches.Remove(branchId);
+                parent.ChildThreads.Remove(threadId);
                 parent.LastActivity = DateTime.UtcNow;
-                await store.AppendBranchTreeUpdatedAsync(parent, cancellationToken);
+                await store.AppendThreadTreeUpdatedAsync(parent, cancellationToken);
             }
         }
 
-        // Get all remaining siblings (same fork group, excluding branch being deleted).
-        // The fork group is: source branch (ForkedFrom) + all branches with ForkedFrom==branch.ForkedFrom
-        // and ForkedAtMessageId==branch.ForkedAtMessageId.
-        var branchIds = await store.ListBranchIdsAsync(sessionId, cancellationToken);
-        var remainingSiblings = new List<Branch>();
+        // Get all remaining siblings (same fork group, excluding thread being deleted).
+        // The fork group is: source thread (ForkedFrom) + all threads with ForkedFrom==thread.ForkedFrom
+        // and ForkedAtMessageId==thread.ForkedAtMessageId.
+        var threadIds = await store.ListThreadIdsAsync(sessionId, cancellationToken);
+        var remainingSiblings = new List<Thread>();
 
-        foreach (var bid in branchIds)
+        foreach (var bid in threadIds)
         {
-            if (bid == branchId) continue; // Skip branch being deleted
+            if (bid == threadId) continue; // Skip thread being deleted
 
-            var sibling = await store.LoadBranchAsync(sessionId, bid, cancellationToken);
+            var sibling = await store.LoadThreadAsync(sessionId, bid, cancellationToken);
             if (sibling == null) continue;
 
             // Sibling = same ForkedFrom + ForkedAtMessageId (peer forks)
-            bool isSameGroup = sibling.ForkedFrom == branch.ForkedFrom &&
-                               sibling.ForkedAtMessageId == branch.ForkedAtMessageId;
+            bool isSameGroup = sibling.ForkedFrom == thread.ForkedFrom &&
+                               sibling.ForkedAtMessageId == thread.ForkedAtMessageId;
 
-            // Source branch = the branch we forked FROM (slot 0 in this fork group)
-            bool isSource = branch.ForkedFrom != null && bid == branch.ForkedFrom;
+            // Source thread = the thread we forked FROM (slot 0 in this fork group)
+            bool isSource = thread.ForkedFrom != null && bid == thread.ForkedFrom;
 
             if (isSameGroup || isSource)
             {
@@ -6262,11 +6262,11 @@ public sealed class Agent
                 ? remainingSiblings[i + 1].Id
                 : null;
 
-            await store.AppendBranchTreeUpdatedAsync(sibling, cancellationToken);
+            await store.AppendThreadTreeUpdatedAsync(sibling, cancellationToken);
         }
 
-        // Delete the branch (after all updates complete)
-        await store.DeleteBranchAsync(sessionId, branchId, cancellationToken);
+        // Delete the thread (after all updates complete)
+        await store.DeleteThreadAsync(sessionId, threadId, cancellationToken);
     }
 
     /// <summary>
@@ -6288,7 +6288,7 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Delete entire session (all branches + content).
+    /// Delete entire session (all threads + content).
     /// </summary>
     /// <param name="sessionId">Session identifier</param>
     /// <param name="cancellationToken">Cancellation token</param>
@@ -6401,7 +6401,7 @@ public sealed class Agent
         IReadOnlyDictionary<string, MiddlewareStateFactory> stateFactories,
         MiddlewareState state,
         string? sessionId,
-        string? branchId,
+        string? threadId,
         int iteration,
         string phase,
         string? batchId,
@@ -6412,7 +6412,7 @@ public sealed class Agent
         return new MiddlewareStateSnapshotEvent(
             AgentName: agentName,
             SessionId: sessionId,
-            BranchId: branchId,
+            ThreadId: threadId,
             Iteration: iteration,
             Phase: phase,
             BatchId: batchId,
@@ -6423,7 +6423,7 @@ public sealed class Agent
             Timestamp: DateTimeOffset.UtcNow)
         {
             SessionId = sessionId,
-            BranchId = branchId
+            ThreadId = threadId
         };
     }
 
@@ -6445,7 +6445,7 @@ public sealed class Agent
         context.Emit(new MiddlewareStateChangedEvent(
             AgentName: agentName,
             SessionId: context.Session?.Id,
-            BranchId: context.Branch?.Id,
+            ThreadId: context.Thread?.Id,
             Iteration: context.State.Iteration,
             Phase: phase,
             BatchId: batchId,
@@ -6456,7 +6456,7 @@ public sealed class Agent
             Timestamp: DateTimeOffset.UtcNow)
         {
             SessionId = context.Session?.Id,
-            BranchId = context.Branch?.Id
+            ThreadId = context.Thread?.Id
         });
     }
 
@@ -6552,7 +6552,7 @@ public sealed class Agent
                 Key: key,
                 Type: factory?.StateType.FullName ?? value?.GetType().FullName ?? "unknown",
                 PropertyName: factory?.PropertyName ?? key,
-                Scope: factory?.Scope ?? StateScope.Branch,
+                Scope: factory?.Scope ?? StateScope.Thread,
                 Persistent: factory?.Persistent ?? false,
                 Version: factory?.Version ?? 0,
                 Json: json,
@@ -7755,7 +7755,7 @@ internal class FunctionCallProcessor
             stateFactories: _stateFactories,
             state: beforeParallelBatchHookState,
             sessionId: agentContext.Session?.Id,
-            branchId: agentContext.Branch?.Id,
+            threadId: agentContext.Thread?.Id,
             iteration: agentContext.State.Iteration,
             phase: "before_parallel_batch",
             batchId: batchId,
@@ -7878,7 +7878,7 @@ internal class FunctionCallProcessor
             stateFactories: _stateFactories,
             state: afterParallelExecutionState,
             sessionId: agentContext.Session?.Id,
-            branchId: agentContext.Branch?.Id,
+            threadId: agentContext.Thread?.Id,
             iteration: agentContext.State.Iteration,
             phase: "after_parallel_batch",
             batchId: batchId,
@@ -8050,14 +8050,14 @@ internal class MessageProcessor
     /// Prepares a complete turn for execution.
     /// Loads session history, merges options, adds system instructions, applies compaction (with caching), and Middlewares messages.
     /// </summary>
-    /// <param name="branch">Branch containing conversation history (null for stateless execution).</param>
+    /// <param name="thread">Thread containing conversation history (null for stateless execution).</param>
     /// <param name="inputMessages">NEW messages from the caller (to be added to history).</param>
     /// <param name="options">Chat options to merge with defaults.</param>
     /// <param name="agentName">Agent name for logging/Middlewareing.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>PreparedTurn with all state needed for execution.</returns>
     public async Task<PreparedTurn> PrepareTurnAsync(
-        Branch? branch,
+        Thread? thread,
         IEnumerable<ChatMessage> inputMessages,
         ChatOptions? options,
         string agentName,
@@ -8066,10 +8066,10 @@ internal class MessageProcessor
         var inputMessagesList = inputMessages.ToList();
         var messagesForLLM = new List<ChatMessage>();
 
-        // STEP 1: Load branch history
-        if (branch != null)
+        // STEP 1: Load thread history
+        if (thread != null)
         {
-            messagesForLLM.AddRange(branch.Messages);
+            messagesForLLM.AddRange(thread.Messages);
         }
 
         // STEP 2: Add new input messages

@@ -8,10 +8,10 @@
 /**
  * Discriminated union for layout tree nodes.
  * Enables type-safe tree traversal with exhaustive pattern matching.
- * Both LeafNode and BranchNode are treated uniformly in rendering/traversal
+ * Both LeafNode and ThreadNode are treated uniformly in rendering/traversal
  * to support arbitrary nesting depth without type-specific logic.
  */
-export type LayoutNode = LeafNode | BranchNode;
+export type LayoutNode = LeafNode | ThreadNode;
 
 /**
  * Leaf node representing a single panel in the layout.
@@ -80,16 +80,16 @@ export interface LeafNode {
 }
 
 /**
- * Branch node representing a container that splits space among children.
- * Children can be either leaf nodes or other branch nodes (arbitrary nesting).
+ * Thread node representing a container that splits space among children.
+ * Children can be either leaf nodes or other thread nodes (arbitrary nesting).
  */
-export interface BranchNode {
-	type: 'branch';
+export interface ThreadNode {
+	type: 'thread';
 
 	/** Layout axis: 'row' for horizontal split, 'column' for vertical split */
 	axis: 'row' | 'column';
 
-	/** Child nodes (can be leaves or other branches) */
+	/** Child nodes (can be leaves or other threads) */
 	children: LayoutNode[];
 
 	/**
@@ -116,17 +116,17 @@ export interface BranchNode {
 }
 
 /**
- * Design Note: Branch Identity
+ * Design Note: Thread Identity
  *
- * Branches do NOT have stable IDs (only leaves do). This is an intentional simplification:
+ * Threads do NOT have stable IDs (only leaves do). This is an intentional simplification:
  *
- *  Why: Branches are ephemeral—created/destroyed during tree restructuring (add, remove, split).
+ *  Why: Threads are ephemeral—created/destroyed during tree restructuring (add, remove, split).
  *    Giving them IDs would complicate serialization and identity tracking with no clear benefit.
  *
- *  Trade-off: Simpler mental model—only leaves are addressable units. Branches are
+ *  Trade-off: Simpler mental model—only leaves are addressable units. Threads are
  *    organizational structure, not user-facing panels.
  *
- * ⚠️ Future consideration: If you later need branch-level operations (targeted logging,
- *    branch-scoped persistence, branch-level instrumentation), add `id?: string` to
- *    BranchNode and update serialization. This is a non-breaking change.
+ * ⚠️ Future consideration: If you later need thread-level operations (targeted logging,
+ *    thread-scoped persistence, thread-level instrumentation), add `id?: string` to
+ *    ThreadNode and update serialization. This is a non-breaking change.
  */

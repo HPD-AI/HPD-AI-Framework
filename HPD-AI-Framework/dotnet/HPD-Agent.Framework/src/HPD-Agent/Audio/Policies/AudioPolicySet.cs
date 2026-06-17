@@ -8,5 +8,5 @@ public sealed record AudioPolicySet
 
     public PrivacyPolicy Privacy { get; init; } = new();
 
-    public BranchProjectionPolicy BranchProjection { get; init; } = new();
+    public ThreadProjectionPolicy ThreadProjection { get; init; } = new();
 }

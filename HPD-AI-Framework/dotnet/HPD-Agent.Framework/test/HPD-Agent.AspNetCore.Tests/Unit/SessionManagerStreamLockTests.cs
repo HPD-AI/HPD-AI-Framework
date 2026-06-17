@@ -5,15 +5,15 @@ using HPD.Agent;
 namespace HPD.Agent.AspNetCore.Tests.Unit;
 
 /// <summary>
-/// Unit tests for SessionManager branch-operation-lock and session-lock behaviour.
-/// Covers RemoveBranchOperationLock, RemoveSession cleanup, and WithSessionLockAsync overloads.
+/// Unit tests for SessionManager thread-operation-lock and session-lock behaviour.
+/// Covers RemoveThreadOperationLock, RemoveSession cleanup, and WithSessionLockAsync overloads.
 /// </summary>
-public class SessionManagerBranchOperationLockTests : IDisposable
+public class SessionManagerThreadOperationLockTests : IDisposable
 {
     private readonly InMemorySessionStore _store;
     private readonly TestSessionManagerImpl _manager;
 
-    public SessionManagerBranchOperationLockTests()
+    public SessionManagerThreadOperationLockTests()
     {
         _store = new InMemorySessionStore();
         _manager = new TestSessionManagerImpl(_store);
@@ -22,68 +22,68 @@ public class SessionManagerBranchOperationLockTests : IDisposable
     public void Dispose() => _manager.Dispose();
 
     // ──────────────────────────────────────────────────────────────────────────
-    // RemoveBranchOperationLock
+    // RemoveThreadOperationLock
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void TryAcquireBranchOperationLock_ReturnsFalse_WhenAlreadyAcquired()
+    public void TryAcquireThreadOperationLock_ReturnsFalse_WhenAlreadyAcquired()
     {
-        _manager.TryAcquireBranchOperationLock("session-1", "branch-a").Should().BeTrue();
-        _manager.TryAcquireBranchOperationLock("session-1", "branch-a").Should().BeFalse();
+        _manager.TryAcquireThreadOperationLock("session-1", "thread-a").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock("session-1", "thread-a").Should().BeFalse();
     }
 
     [Fact]
-    public void RemoveBranchOperationLock_AllowsReacquisition_AfterRelease()
+    public void RemoveThreadOperationLock_AllowsReacquisition_AfterRelease()
     {
-        _manager.TryAcquireBranchOperationLock("session-1", "branch-a");
-        _manager.ReleaseBranchOperationLock("session-1", "branch-a");
-        _manager.RemoveBranchOperationLock("session-1", "branch-a");
+        _manager.TryAcquireThreadOperationLock("session-1", "thread-a");
+        _manager.ReleaseThreadOperationLock("session-1", "thread-a");
+        _manager.RemoveThreadOperationLock("session-1", "thread-a");
 
-        _manager.TryAcquireBranchOperationLock("session-1", "branch-a").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock("session-1", "thread-a").Should().BeTrue();
     }
 
     [Fact]
-    public void RemoveBranchOperationLock_IsIdempotent_WhenKeyNotPresent()
+    public void RemoveThreadOperationLock_IsIdempotent_WhenKeyNotPresent()
     {
-        var act = () => _manager.RemoveBranchOperationLock("session-x", "branch-x");
+        var act = () => _manager.RemoveThreadOperationLock("session-x", "thread-x");
         act.Should().NotThrow();
     }
 
     [Fact]
-    public void RemoveSession_CleansUpAllBranchOperationLocks_ForSession()
+    public void RemoveSession_CleansUpAllThreadOperationLocks_ForSession()
     {
-        _manager.TryAcquireBranchOperationLock("session-a", "branch-1");
-        _manager.TryAcquireBranchOperationLock("session-a", "branch-2");
-        _manager.TryAcquireBranchOperationLock("session-a", "branch-3");
-        _manager.TryAcquireBranchOperationLock("session-b", "branch-1");
+        _manager.TryAcquireThreadOperationLock("session-a", "thread-1");
+        _manager.TryAcquireThreadOperationLock("session-a", "thread-2");
+        _manager.TryAcquireThreadOperationLock("session-a", "thread-3");
+        _manager.TryAcquireThreadOperationLock("session-b", "thread-1");
 
-        _manager.ReleaseBranchOperationLock("session-a", "branch-1");
-        _manager.ReleaseBranchOperationLock("session-a", "branch-2");
-        _manager.ReleaseBranchOperationLock("session-a", "branch-3");
-        _manager.ReleaseBranchOperationLock("session-b", "branch-1");
+        _manager.ReleaseThreadOperationLock("session-a", "thread-1");
+        _manager.ReleaseThreadOperationLock("session-a", "thread-2");
+        _manager.ReleaseThreadOperationLock("session-a", "thread-3");
+        _manager.ReleaseThreadOperationLock("session-b", "thread-1");
 
         _manager.RemoveSession("session-a");
 
         // session-a locks are gone — fresh semaphores created on acquire
-        _manager.TryAcquireBranchOperationLock("session-a", "branch-1").Should().BeTrue();
-        _manager.TryAcquireBranchOperationLock("session-a", "branch-2").Should().BeTrue();
-        _manager.TryAcquireBranchOperationLock("session-a", "branch-3").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock("session-a", "thread-1").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock("session-a", "thread-2").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock("session-a", "thread-3").Should().BeTrue();
 
         // session-b lock was released above so reacquire is fine
-        _manager.TryAcquireBranchOperationLock("session-b", "branch-1").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock("session-b", "thread-1").Should().BeTrue();
     }
 
     [Fact]
-    public void RemoveSession_DoesNotCleanupOtherSessions_BranchOperationLocks()
+    public void RemoveSession_DoesNotCleanupOtherSessions_ThreadOperationLocks()
     {
         // Hold a lock on session-b
-        _manager.TryAcquireBranchOperationLock("session-b", "branch-z");
+        _manager.TryAcquireThreadOperationLock("session-b", "thread-z");
 
         // Remove a different session
         _manager.RemoveSession("session-a");
 
         // session-b lock must still be held
-        _manager.TryAcquireBranchOperationLock("session-b", "branch-z").Should().BeFalse();
+        _manager.TryAcquireThreadOperationLock("session-b", "thread-z").Should().BeFalse();
     }
 
     // ──────────────────────────────────────────────────────────────────────────

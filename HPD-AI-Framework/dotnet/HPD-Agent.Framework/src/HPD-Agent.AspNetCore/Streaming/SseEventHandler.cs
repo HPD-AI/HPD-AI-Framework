@@ -17,13 +17,13 @@ internal static class SseEventHandler
         HttpContext context,
         Agent agent,
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
         context.Response.ContentType = "text/event-stream";
         context.Response.Headers.CacheControl = "no-cache";
@@ -36,7 +36,7 @@ internal static class SseEventHandler
         {
             using var subscription = agent.SubscribeAny((Func<AgentEvent, Task>)(async evt =>
             {
-                if (!await IsInRouteScopeAsync(agent, evt, sessionId, branchId, cancellationToken).ConfigureAwait(false))
+                if (!await IsInRouteScopeAsync(agent, evt, sessionId, threadId, cancellationToken).ConfigureAwait(false))
                     return;
 
                 var json = AgentEventSerializer.ToJson(evt);
@@ -85,57 +85,57 @@ internal static class SseEventHandler
         Agent agent,
         AgentEvent evt,
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken)
     {
-        if (IsDirectRouteScope(evt, sessionId, branchId))
+        if (IsDirectRouteScope(evt, sessionId, threadId))
             return true;
 
-        // Root runtime events often stream before durable SessionId/BranchId scope is attached.
-        // The SSE subscription is already bound to one branch-owned runtime instance, so
+        // Root runtime events often stream before durable SessionId/ThreadId scope is attached.
+        // The SSE subscription is already bound to one thread-owned runtime instance, so
         // scope-less events from that runtime should still flow to the connected client.
-        if (string.IsNullOrWhiteSpace(evt.SessionId) && string.IsNullOrWhiteSpace(evt.BranchId))
+        if (string.IsNullOrWhiteSpace(evt.SessionId) && string.IsNullOrWhiteSpace(evt.ThreadId))
             return true;
 
-        if (string.IsNullOrWhiteSpace(evt.SessionId) || string.IsNullOrWhiteSpace(evt.BranchId))
+        if (string.IsNullOrWhiteSpace(evt.SessionId) || string.IsNullOrWhiteSpace(evt.ThreadId))
             return false;
 
         return await IsSubAgentChildOfRouteAsync(
             agent,
             evt.SessionId!,
-            evt.BranchId!,
+            evt.ThreadId!,
             sessionId,
-            branchId,
+            threadId,
             cancellationToken).ConfigureAwait(false);
     }
 
-    private static bool IsDirectRouteScope(AgentEvent evt, string sessionId, string branchId)
+    private static bool IsDirectRouteScope(AgentEvent evt, string sessionId, string threadId)
     {
         if (!string.IsNullOrWhiteSpace(evt.SessionId) && evt.SessionId != sessionId)
             return false;
 
-        return string.IsNullOrWhiteSpace(evt.BranchId) || evt.BranchId == branchId;
+        return string.IsNullOrWhiteSpace(evt.ThreadId) || evt.ThreadId == threadId;
     }
 
     private static async Task<bool> IsSubAgentChildOfRouteAsync(
         Agent agent,
         string eventSessionId,
-        string eventBranchId,
+        string eventThreadId,
         string routeSessionId,
-        string routeBranchId,
+        string routeThreadId,
         CancellationToken cancellationToken)
     {
         var store = agent.Config?.SessionStore;
         if (store == null)
             return false;
 
-        var branch = await store.LoadBranchAsync(eventSessionId, eventBranchId, cancellationToken)
+        var thread = await store.LoadThreadAsync(eventSessionId, eventThreadId, cancellationToken)
             .ConfigureAwait(false);
-        if (branch == null)
+        if (thread == null)
             return false;
 
-        return branch.Kind == BranchKind.SubAgent &&
-            string.Equals(branch.ParentSessionId, routeSessionId, StringComparison.Ordinal) &&
-            string.Equals(branch.ParentBranchId, routeBranchId, StringComparison.Ordinal);
+        return thread.Kind == ThreadKind.SubAgent &&
+            string.Equals(thread.ParentSessionId, routeSessionId, StringComparison.Ordinal) &&
+            string.Equals(thread.ParentThreadId, routeThreadId, StringComparison.Ordinal);
     }
 }

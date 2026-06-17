@@ -14,7 +14,7 @@
 		Artifact,
 		PermissionDialog,
 		SessionList,
-		BranchSwitcher,
+		ThreadSwitcher,
 		ChatInput,
 	} from '$lib/index.js';
 	import type { ContentReference } from '$lib/index.js';
@@ -68,13 +68,13 @@
 
 	// ── FileAttachment ───────────────────────────────────────────────────────
 	const activeSessionId = $derived(workspace.activeSessionId);
-	const activeBranchId = $derived(workspace.activeBranchId);
+	const activeThreadId = $derived(workspace.activeThreadId);
 	const isStreaming     = $derived(workspace.state?.streaming ?? false);
 
 	const attachments = new FileAttachmentState({
 		uploadFn:  boxWith(() => mockUpload),
 		sessionId: boxWith(() => activeSessionId),
-		branchId: boxWith(() => activeBranchId),
+		threadId: boxWith(() => activeThreadId),
 		disabled:  boxWith(() => isStreaming),
 	});
 
@@ -93,7 +93,7 @@
 	// ── Derived ──────────────────────────────────────────────────────────────
 	const messages   = $derived(workspace.state?.messages ?? []);
 	const canSend    = $derived(!isStreaming && attachments.canSubmit);
-	const activeBranch = $derived(workspace.activeBranch);
+	const activeThread = $derived(workspace.activeThread);
 
 	// ── Send ─────────────────────────────────────────────────────────────────
 	function handleSend(value: string) {
@@ -314,7 +314,7 @@
 									{workspace}
 									messageIndex={i}
 									role={message.role}
-									branch={activeBranch}
+									thread={activeThread}
 								>
 									{#snippet children(act)}
 										<div class="msg-actions" data-role={message.role}>
@@ -358,7 +358,7 @@
 													{/snippet}
 												</MessageActions.CopyButton>
 
-												<!-- Branch nav — user only, when siblings exist -->
+												<!-- Thread nav — user only, when siblings exist -->
 												{#if message.role === 'user' && act.hasSiblings}
 													<span class="action-sep"></span>
 													<MessageActions.Prev>

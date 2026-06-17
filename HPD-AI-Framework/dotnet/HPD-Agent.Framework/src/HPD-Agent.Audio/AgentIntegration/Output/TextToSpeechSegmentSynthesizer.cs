@@ -771,7 +771,7 @@ internal sealed record TextToSpeechSynthesisContext
 {
     public required AudioSessionId SessionId { get; init; }
 
-    public required BranchRef Branch { get; init; }
+    public required ThreadRef Thread { get; init; }
 
     public required AudioCorrelation Correlation { get; init; }
 

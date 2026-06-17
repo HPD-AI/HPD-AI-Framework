@@ -66,7 +66,7 @@ public abstract class HookContext
 
     /// <summary>
     /// The session metadata container.
-    /// Does NOT contain messages - messages are in <see cref="Branch"/>.
+    /// Does NOT contain messages - messages are in <see cref="Thread"/>.
     /// </summary>
     /// <remarks>
     /// <para><b>Example - Content Upload:</b></para>
@@ -77,7 +77,7 @@ public abstract class HookContext
     ///     if (contentStore != null)
     ///     {
     ///         var info = await contentStore.WriteBytesAsync(
-    ///             ContentStoreScopes.ForBranch(context.SessionId!, context.BranchId!), bytes,
+    ///             ContentStoreScopes.ForThread(context.SessionId!, context.ThreadId!), bytes,
     ///             new ContentMetadata { ContentType = "image/jpeg" });
     ///     }
     /// }
@@ -86,20 +86,20 @@ public abstract class HookContext
     public Session? Session => Base.Session;
 
     /// <summary>
-    /// The current branch being executed.
-    /// Contains conversation messages and branch-scoped middleware state.
+    /// The current thread being executed.
+    /// Contains conversation messages and thread-scoped middleware state.
     /// </summary>
     /// <remarks>
     /// <para><b>Example - Access Messages:</b></para>
     /// <code>
     /// public async Task BeforeMessageTurnAsync(BeforeMessageTurnContext context, ...)
     /// {
-    ///     var messages = context.Branch?.Messages;
-    ///     var branchId = context.BranchId;
+    ///     var messages = context.Thread?.Messages;
+    ///     var threadId = context.ThreadId;
     /// }
     /// </code>
     /// </remarks>
-    public Branch? Branch => Base.Branch;
+    public Thread? Thread => Base.Thread;
 
     /// <summary>
     /// Convenience property for getting the session ID.
@@ -107,9 +107,9 @@ public abstract class HookContext
     public string? SessionId => Session?.Id;
 
     /// <summary>
-    /// Convenience property for getting the branch ID.
+    /// Convenience property for getting the thread ID.
     /// </summary>
-    public string? BranchId => Branch?.Id;
+    public string? ThreadId => Thread?.Id;
 
     /// <summary>
     /// Service provider for dependency injection (may be null if not configured).

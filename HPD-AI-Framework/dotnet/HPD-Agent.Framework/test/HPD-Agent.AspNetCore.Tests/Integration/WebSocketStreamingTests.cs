@@ -13,7 +13,7 @@ namespace HPD.Agent.AspNetCore.Tests.Integration;
 
 /// <summary>
 /// Integration tests for WebSocket streaming endpoint.
-/// Tests: GET /agents/{agentId}/sessions/{sid}/branches/{bid}/ws
+/// Tests: GET /agents/{agentId}/sessions/{sid}/threads/{bid}/ws
 /// </summary>
 public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 {
@@ -97,7 +97,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
             ?? throw new InvalidOperationException("CreateAgent returned null DTO.");
     }
 
-    #region GET /agents/{agentId}/sessions/{sid}/branches/{bid}/ws
+    #region GET /agents/{agentId}/sessions/{sid}/threads/{bid}/ws
 
     [Fact]
     public async Task StreamWs_EstablishesWebSocketConnection()
@@ -108,7 +108,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         // Act
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/threads/main/ws"),
             CancellationToken.None);
 
         // Assert
@@ -124,7 +124,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/threads/main/ws"),
             CancellationToken.None);
 
         // Send an agent input event envelope
@@ -149,7 +149,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/threads/main/ws"),
             CancellationToken.None);
 
         // Act - Send message
@@ -170,7 +170,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/threads/main/ws"),
             CancellationToken.None);
 
         var bytes = Encoding.UTF8.GetBytes("{\"type\":\"NOT_AN_AGENT_INPUT\",\"text\":\"Hello\"}");
@@ -196,7 +196,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/threads/main/ws"),
             CancellationToken.None);
 
         // Act
@@ -225,7 +225,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/threads/main/ws"),
             CancellationToken.None);
 
         // Act
@@ -255,7 +255,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/agents/{customAgent.Id}/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/{customAgent.Id}/sessions/{sessionId}/threads/main/ws"),
             CancellationToken.None);
 
         // Act
@@ -269,7 +269,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task StreamWs_AllowsMultipleObserversOnSameBranch()
+    public async Task StreamWs_AllowsMultipleObserversOnSameThread()
     {
         // Arrange
         var sessionId = await CreateTestSession();
@@ -278,11 +278,11 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         // Connect first WebSocket
         var ws1 = await wsClient1.ConnectAsync(
-            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/threads/main/ws"),
             CancellationToken.None);
 
         var ws2 = await wsClient2.ConnectAsync(
-            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/threads/main/ws"),
             CancellationToken.None);
 
         ws1.State.Should().Be(WebSocketState.Open);
@@ -299,7 +299,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/threads/main/ws"),
             CancellationToken.None);
 
         // Act - Close the WebSocket
@@ -320,7 +320,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         // Act - Connect and then cancel
         var connectTask = wsClient.ConnectAsync(
-            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/threads/main/ws"),
             cts.Token);
 
         await Task.Delay(50);
@@ -336,7 +336,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
         var wsClient = _factory.Server.CreateWebSocketClient();
         var ws = await wsClient.ConnectAsync(
-            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/threads/main/ws"),
             CancellationToken.None);
 
         // Act
@@ -354,7 +354,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var wsClient1 = _factory.Server.CreateWebSocketClient();
 
         var ws1 = await wsClient1.ConnectAsync(
-            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/threads/main/ws"),
             CancellationToken.None);
 
         await ws1.CloseAsync(WebSocketCloseStatus.NormalClosure, "Done", CancellationToken.None);
@@ -362,7 +362,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         // Act - Try to connect again.
         var wsClient2 = _factory.Server.CreateWebSocketClient();
         var ws2 = await wsClient2.ConnectAsync(
-            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/main/ws"),
+            new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/threads/main/ws"),
             CancellationToken.None);
 
         // Assert
@@ -381,7 +381,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var exception = await Record.ExceptionAsync(async () =>
         {
             await wsClient.ConnectAsync(
-                new Uri("ws://localhost/agents/test-agent/sessions/nonexistent/branches/main/ws"),
+                new Uri("ws://localhost/agents/test-agent/sessions/nonexistent/threads/main/ws"),
                 CancellationToken.None);
         });
 
@@ -389,7 +389,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task StreamWs_Returns404_WhenBranchNotFound()
+    public async Task StreamWs_Returns404_WhenThreadNotFound()
     {
         // Arrange
         var sessionId = await CreateTestSession();
@@ -399,7 +399,7 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
         var exception = await Record.ExceptionAsync(async () =>
         {
             await wsClient.ConnectAsync(
-                new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/branches/nonexistent/ws"),
+                new Uri($"ws://localhost/agents/test-agent/sessions/{sessionId}/threads/nonexistent/ws"),
                 CancellationToken.None);
         });
 

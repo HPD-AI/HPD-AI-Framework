@@ -4,12 +4,12 @@ namespace HPD.Agent;
 
 public static class ContentStoreScopes
 {
-    public static string ForBranch(string sessionId, string branchId)
+    public static string ForThread(string sessionId, string threadId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        return $"branch:{Encode(sessionId)}:{Encode(branchId)}";
+        return $"thread:{Encode(sessionId)}:{Encode(threadId)}";
     }
 
     private static string Encode(string value)

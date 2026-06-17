@@ -24,14 +24,14 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
     public async Task Resume_WithPreVersioningCheckpoint_ThrowsInvalidOperationException()
     {
         var preVersioningState = CreatePreVersioningCheckpoint();
-        var (session, branch) = await CreateSessionWithCheckpoint(preVersioningState);
+        var (session, thread) = await CreateSessionWithCheckpoint(preVersioningState);
         var agent = CreateTestAgentWithLogging(_sessionStore!);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
             {
                 Session = session,
-                Branch = branch
+                Thread = thread
             }, TestCancellationToken));
 
         Assert.Contains("without middleware schema metadata", exception.Message);
@@ -42,7 +42,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
     public async Task Resume_WithRemovedMiddleware_ThrowsInvalidOperationException()
     {
         var checkpointWithOldMiddleware = CreateCheckpointWithRemovedMiddleware();
-        var (session, branch) = await CreateSessionWithCheckpoint(checkpointWithOldMiddleware);
+        var (session, thread) = await CreateSessionWithCheckpoint(checkpointWithOldMiddleware);
 
         var agent = CreateTestAgentWithLogging(_sessionStore!);
 
@@ -50,7 +50,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
             agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
             {
                 Session = session,
-                Branch = branch
+                Thread = thread
             }, TestCancellationToken));
 
         Assert.Contains("different middleware schema", exception.Message);
@@ -62,7 +62,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
     public async Task Resume_WithAddedMiddleware_ThrowsInvalidOperationException()
     {
         var checkpointBeforeNewMiddleware = CreateCheckpointWithFewerMiddleware();
-        var (session, branch) = await CreateSessionWithCheckpoint(checkpointBeforeNewMiddleware);
+        var (session, thread) = await CreateSessionWithCheckpoint(checkpointBeforeNewMiddleware);
 
         var agent = CreateTestAgentWithLogging(_sessionStore!);
 
@@ -70,7 +70,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
             agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
             {
                 Session = session,
-                Branch = branch
+                Thread = thread
             }, TestCancellationToken));
 
         Assert.Contains("different middleware schema", exception.Message);
@@ -88,7 +88,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
             SchemaVersion = currentCheckpoint.SchemaVersion,
             StateVersions = null
         };
-        var (session, branch) = await CreateSessionWithCheckpoint(checkpoint);
+        var (session, thread) = await CreateSessionWithCheckpoint(checkpoint);
 
         var agent = CreateTestAgentWithLogging(_sessionStore!);
 
@@ -96,7 +96,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
             agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
             {
                 Session = session,
-                Branch = branch
+                Thread = thread
             }, TestCancellationToken));
 
         Assert.Contains("without middleware state version metadata", exception.Message);
@@ -115,7 +115,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
             SchemaVersion = currentCheckpoint.SchemaVersion,
             StateVersions = currentVersions.SetItem(firstKey, currentVersions[firstKey] + 1)
         };
-        var (session, branch) = await CreateSessionWithCheckpoint(checkpoint);
+        var (session, thread) = await CreateSessionWithCheckpoint(checkpoint);
 
         var agent = CreateTestAgentWithLogging(_sessionStore!);
 
@@ -123,7 +123,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
             agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
             {
                 Session = session,
-                Branch = branch
+                Thread = thread
             }, TestCancellationToken));
 
         Assert.Contains("version", exception.Message);
@@ -135,7 +135,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
     {
         // Arrange: Checkpoint with current schema
         var currentCheckpoint = CreateCheckpointWithCurrentSchema();
-        var (session, branch) = await CreateSessionWithCheckpoint(currentCheckpoint);
+        var (session, thread) = await CreateSessionWithCheckpoint(currentCheckpoint);
 
         var agent = CreateTestAgentWithLogging(_sessionStore!);
 
@@ -143,7 +143,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
         await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
         {
             Session = session,
-            Branch = branch
+            Thread = thread
         }, TestCancellationToken);
 
         // Assert: No schema-related logs
@@ -194,11 +194,11 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
         return agent;
     }
 
-    private async Task<(global::HPD.Agent.Session session, global::HPD.Agent.Branch branch)> CreateSessionWithCheckpoint(MiddlewareState middlewareState)
+    private async Task<(global::HPD.Agent.Session session, global::HPD.Agent.Thread thread)> CreateSessionWithCheckpoint(MiddlewareState middlewareState)
     {
         var sessionId = "test-session";
         var session = new global::HPD.Agent.Session(sessionId);
-        var branch = new global::HPD.Agent.Branch(sessionId);
+        var thread = new global::HPD.Agent.Thread(sessionId);
 
         // V3 resume path: save an UncommittedTurn to an InMemorySessionStore.
         // The agent loads this from the store during RunAsync when no new messages are provided.
@@ -207,7 +207,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
         var uncommittedTurn = new UncommittedTurn
         {
             SessionId = sessionId,
-            BranchId = UncommittedTurn.DefaultBranch,
+            ThreadId = UncommittedTurn.DefaultThread,
             TurnId = "schema-checkpoint-turn",
             Iteration = 1,
             CompletedFunctions = ImmutableHashSet<string>.Empty,
@@ -219,7 +219,7 @@ public class SchemaDetectionIntegrationTests : AgentTestBase
 
         await _sessionStore.SaveUncommittedTurnAsync(uncommittedTurn);
 
-        return (session, branch);
+        return (session, thread);
     }
 
     private MiddlewareState CreatePreVersioningCheckpoint()

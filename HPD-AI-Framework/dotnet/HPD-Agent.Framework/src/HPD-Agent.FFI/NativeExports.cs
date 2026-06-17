@@ -11,20 +11,20 @@ using HPD.Agent.Serialization;
 namespace HPD.Agent.FFI;
 
 /// <summary>
-/// Wrapper holding V3 Session + Branch pair for FFI thread handles.
+/// Wrapper holding V3 Session + Thread pair for FFI thread handles.
 /// FFI consumers see a single "thread" handle; internally we maintain the V3 split.
-/// Note: FFI has InternalsVisibleTo access and can use internal Session/Branch constructors.
+/// Note: FFI has InternalsVisibleTo access and can use internal Session/Thread constructors.
 /// This is framework code, not user-facing, so internal API usage is appropriate.
 /// </summary>
 internal sealed class FFIConversationThread
 {
     public Session Session { get; }
-    public Branch Branch { get; }
+    public Thread Thread { get; }
 
     public FFIConversationThread()
     {
         Session = new Session();
-        Branch = Session.CreateBranch();
+        Thread = Session.CreateThread();
     }
 }
 
@@ -415,7 +415,7 @@ public static partial class NativeExports
             var thread = ObjectManager.Get<FFIConversationThread>(threadHandle);
             if (thread == null) return -1;
 
-            return thread.Branch.MessageCount;
+            return thread.Thread.MessageCount;
         }
         catch (Exception ex)
         {
@@ -437,7 +437,7 @@ public static partial class NativeExports
             var thread = ObjectManager.Get<FFIConversationThread>(threadHandle);
             if (thread == null) return IntPtr.Zero;
 
-            var json = JsonSerializer.Serialize(thread.Branch.Messages, HPDFFIJsonContext.Default.IEnumerableChatMessage);
+            var json = JsonSerializer.Serialize(thread.Thread.Messages, HPDFFIJsonContext.Default.IEnumerableChatMessage);
             return MarshalString(json);
         }
         catch (Exception ex)
@@ -467,7 +467,7 @@ public static partial class NativeExports
             var message = JsonSerializer.Deserialize(messageJson, HPDFFIJsonContext.Default.ChatMessage);
             if (message == null) return 0;
 
-            thread.Branch.AddMessage(message);
+            thread.Thread.AddMessage(message);
             return 1;
         }
         catch (Exception ex)
@@ -490,7 +490,7 @@ public static partial class NativeExports
             var thread = ObjectManager.Get<FFIConversationThread>(threadHandle);
             if (thread == null) return 0;
 
-            thread.Branch.Clear();
+            thread.Thread.Clear();
             return 1;
         }
         catch (Exception ex)
@@ -553,7 +553,7 @@ public static partial class NativeExports
                 await agent.RunAsync(new UserMessagesInputEvent(messages)
                 {
                     Session = thread?.Session,
-                    Branch = thread?.Branch
+                    Thread = thread?.Thread
                 });
             });
 
@@ -642,7 +642,7 @@ public static partial class NativeExports
                 await agent.RunAsync(new UserMessagesInputEvent(messages)
                 {
                     Session = thread?.Session,
-                    Branch = thread?.Branch
+                    Thread = thread?.Thread
                 });
 
                 // Signal end of stream with null pointer

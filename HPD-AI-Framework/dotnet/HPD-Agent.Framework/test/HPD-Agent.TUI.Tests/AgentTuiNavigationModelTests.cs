@@ -48,7 +48,7 @@ public sealed class AgentTuiNavigationModelTests
     {
         var navigation = new AgentTuiNavigationModel();
         navigation.GoToPage("sessions");
-        navigation.GoToPage("branches");
+        navigation.GoToPage("threads");
 
         navigation.Back().Should().BeTrue();
         navigation.ActivePageId.Should().Be("sessions");
@@ -63,7 +63,7 @@ public sealed class AgentTuiNavigationModelTests
     {
         var navigation = new AgentTuiNavigationModel();
         navigation.GoToPage("sessions");
-        navigation.GoToPage("branches");
+        navigation.GoToPage("threads");
 
         navigation.Clear();
 
@@ -78,7 +78,7 @@ public sealed class AgentTuiNavigationModelTests
     {
         var navigation = new AgentTuiNavigationModel();
         navigation.GoToPage("sessions");
-        navigation.GoToPage("branches");
+        navigation.GoToPage("threads");
 
         navigation.GoToTranscript();
 

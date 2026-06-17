@@ -15,7 +15,7 @@ public sealed record FunctionInvocationSnapshot
 
     public string? SessionId { get; init; }
 
-    public string? BranchId { get; init; }
+    public string? ThreadId { get; init; }
 
     public string? TraceId { get; init; }
 

@@ -1,15 +1,15 @@
 <script lang="ts">
 	/**
-	 * BranchSwitcher Test Component
+	 * ThreadSwitcher Test Component
 	 *
-	 * Test toolharness for the BranchSwitcher compound component.
+	 * Test toolharness for the ThreadSwitcher compound component.
 	 * Renders Root + Prev + Position + Next with data-testid attributes.
 	 */
-	import * as BranchSwitcher from '../exports.js';
-	import type { Branch } from '@hpd-research/hpd-agent-client';
+	import * as ThreadSwitcher from '../exports.js';
+	import type { Thread } from '@hpd-research/hpd-agent-client';
 
 	interface Props {
-		branch?: Branch | null;
+		thread?: Thread | null;
 		onPrev?: () => void;
 		onNext?: () => void;
 		prevLabel?: string;
@@ -17,15 +17,15 @@
 	}
 
 	let {
-		branch = null,
+		thread = null,
 		onPrev,
 		onNext,
-		prevLabel = 'Previous branch',
-		nextLabel = 'Next branch',
+		prevLabel = 'Previous thread',
+		nextLabel = 'Next thread',
 	}: Props = $props();
 </script>
 
-<BranchSwitcher.Root {branch} data-testid="root">
+<ThreadSwitcher.Root {thread} data-testid="root">
 	{#snippet children({ hasSiblings, canGoPrevious, canGoNext, position, label, isOriginal })}
 		<div data-testid="has-siblings">{hasSiblings}</div>
 		<div data-testid="can-go-previous">{canGoPrevious}</div>
@@ -34,18 +34,18 @@
 		<div data-testid="label">{label}</div>
 		<div data-testid="is-original">{isOriginal}</div>
 
-		<BranchSwitcher.Prev
+		<ThreadSwitcher.Prev
 			aria-label={prevLabel}
 			onclick={onPrev}
 			data-testid="prev"
 		/>
 
-		<BranchSwitcher.Position data-testid="position-el" />
+		<ThreadSwitcher.Position data-testid="position-el" />
 
-		<BranchSwitcher.Next
+		<ThreadSwitcher.Next
 			aria-label={nextLabel}
 			onclick={onNext}
 			data-testid="next"
 		/>
 	{/snippet}
-</BranchSwitcher.Root>
+</ThreadSwitcher.Root>

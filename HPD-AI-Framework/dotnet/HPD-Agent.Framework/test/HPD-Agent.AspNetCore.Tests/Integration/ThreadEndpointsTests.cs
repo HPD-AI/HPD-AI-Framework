@@ -1,0 +1,696 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using FluentAssertions;
+using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
+using HPD.Agent.Hosting.Data;
+
+namespace HPD.Agent.AspNetCore.Tests.Integration;
+
+/// <summary>
+/// Integration tests for Thread CRUD endpoints.
+/// Tests: GET /sessions/{sid}/threads, POST /sessions/{sid}/threads, GET /sessions/{sid}/threads/{bid},
+/// POST /sessions/{sid}/threads/{bid}/fork, DELETE /sessions/{sid}/threads/{bid}, etc.
+/// </summary>
+public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
+{
+    private readonly HttpClient _client;
+
+    public ThreadEndpointsTests(TestWebApplicationFactory factory)
+    {
+        _client = factory.CreateClient();
+    }
+
+    private async Task<string> CreateTestSession()
+    {
+        var response = await _client.PostAsync("/sessions", null);
+        var session = await response.Content.ReadFromJsonAsync<SessionDto>();
+        return session!.Id;
+    }
+
+    private async Task<string> EnsureForkMessageAsync(string sessionId, string threadId = "main")
+    {
+        var existing = await TryGetFirstUserMessageIdAsync(sessionId, threadId);
+        if (!string.IsNullOrWhiteSpace(existing))
+            return existing!;
+
+        var inputResponse = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads/{threadId}/inputs",
+            new StreamTextRequest("Seed fork message"));
+        inputResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        for (var i = 0; i < 50; i++)
+        {
+            var messageId = await TryGetFirstUserMessageIdAsync(sessionId, threadId);
+            if (!string.IsNullOrWhiteSpace(messageId))
+                return messageId!;
+
+            await Task.Delay(50);
+        }
+
+        throw new TimeoutException("Timed out waiting for a persisted fork message.");
+    }
+
+    private async Task<string?> TryGetFirstUserMessageIdAsync(string sessionId, string threadId)
+    {
+        var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/threads/{threadId}/events");
+        eventsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var document = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
+        foreach (var evt in document.RootElement.EnumerateArray())
+        {
+            if (evt.GetProperty("type").GetString() != ThreadEventTypes.MessageStarted)
+                continue;
+
+            if (evt.TryGetProperty("role", out var role) &&
+                string.Equals(role.GetString(), "user", StringComparison.OrdinalIgnoreCase) &&
+                evt.TryGetProperty("messageId", out var messageId))
+            {
+                return messageId.GetString();
+            }
+        }
+
+        return null;
+    }
+
+    #region GET /sessions/{sid}/threads
+
+    [Fact]
+    public async Task ListThreads_ReturnsAllThreads_ForSession()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+
+        // Act
+        var response = await _client.GetAsync($"/sessions/{sessionId}/threads");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var threads = await response.Content.ReadFromJsonAsync<List<ThreadDto>>();
+        threads.Should().NotBeNull();
+        threads!.Should().ContainSingle(); // Only "main" thread initially
+        threads[0].Id.Should().Be("main");
+    }
+
+    [Fact]
+    public async Task ListThreads_Returns404_WhenSessionNotFound()
+    {
+        // Act
+        var response = await _client.GetAsync("/sessions/nonexistent/threads");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task ListThreads_ReturnsEmptyArray_WhenNoThreads()
+    {
+        // This test verifies behavior if somehow a session has no threads
+        // In practice, sessions always have at least "main"
+        var sessionId = await CreateTestSession();
+
+        // Act
+        var response = await _client.GetAsync($"/sessions/{sessionId}/threads");
+
+        // Assert
+        var threads = await response.Content.ReadFromJsonAsync<List<ThreadDto>>();
+        threads.Should().NotBeNull();
+        threads!.Should().NotBeEmpty(); // Always has "main"
+    }
+
+    #endregion
+
+    #region GET /sessions/{sid}/threads/{bid}
+
+    [Fact]
+    public async Task GetThread_Returns200_WithThreadDto()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+
+        // Act
+        var response = await _client.GetAsync($"/sessions/{sessionId}/threads/main");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        thread.Should().NotBeNull();
+        thread!.Id.Should().Be("main");
+        thread.SessionId.Should().Be(sessionId);
+    }
+
+    [Fact]
+    public async Task GetThread_Returns404_WhenThreadNotFound()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+
+        // Act
+        var response = await _client.GetAsync($"/sessions/{sessionId}/threads/nonexistent");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GetThread_Returns404_WhenSessionNotFound()
+    {
+        // Act
+        var response = await _client.GetAsync("/sessions/nonexistent/threads/main");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    #endregion
+
+    #region POST /sessions/{sid}/threads
+
+    [Fact]
+    public async Task CreateThread_Returns201_WithThreadDto()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var request = new CreateThreadRequest(
+            "feature-thread",
+            "Feature Thread",
+            "Testing new feature",
+            null);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads",
+            request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        thread.Should().NotBeNull();
+        thread!.Id.Should().Be("feature-thread");
+        thread.Name.Should().Be("Feature Thread");
+        thread.Description.Should().Be("Testing new feature");
+    }
+
+    [Fact]
+    public async Task CreateThread_AcceptsCustomThreadId()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var request = new CreateThreadRequest("custom-id", "Custom", null, null);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads",
+            request);
+
+        // Assert
+        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        thread!.Id.Should().Be("custom-id");
+    }
+
+    [Fact]
+    public async Task CreateThread_GeneratesThreadId_WhenNotProvided()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var request = new CreateThreadRequest(null, "Auto Thread", null, null);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads",
+            request);
+
+        // Assert
+        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        thread!.Id.Should().NotBeNullOrEmpty();
+        thread.Id.Should().NotBe("main");
+    }
+
+    [Fact]
+    public async Task CreateThread_AcceptsNameAndDescription()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var request = new CreateThreadRequest(
+            "test",
+            "Test Thread",
+            "This is a test thread",
+            null);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads",
+            request);
+
+        // Assert
+        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        thread!.Name.Should().Be("Test Thread");
+        thread.Description.Should().Be("This is a test thread");
+    }
+
+    [Fact]
+    public async Task CreateThread_Returns404_WhenSessionNotFound()
+    {
+        // Arrange
+        var request = new CreateThreadRequest("test", "Test", null, null);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            "/agents/test-agent/sessions/nonexistent/threads",
+            request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task CreateThread_Returns409_WhenThreadIdExists()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+
+        // Act - Try to create a thread with ID "main" (already exists)
+        var request = new CreateThreadRequest("main", "Duplicate", null, null);
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads",
+            request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    #endregion
+
+    #region POST /sessions/{sid}/threads/{bid}/fork
+
+    [Fact]
+    public async Task ForkThread_Returns201_WithForkedThread()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var forkMessageId = await EnsureForkMessageAsync(sessionId);
+        var request = new ForkThreadRequest(
+            "forked",
+            forkMessageId,
+            "Forked Thread",
+            "Forked from main",
+            null);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
+            request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        thread.Should().NotBeNull();
+        thread!.Id.Should().Be("forked");
+        thread.ForkedFrom.Should().Be("main");
+        thread.ForkedAtMessageId.Should().Be(forkMessageId);
+        thread.ForkedAtMessageIndex.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ForkThread_CopiesMessagesThroughMessageId()
+    {
+        var sessionId = await CreateTestSession();
+        var forkMessageId = await EnsureForkMessageAsync(sessionId);
+        var request = new ForkThreadRequest("fork1", forkMessageId, "Fork", null, null);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
+            request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+    }
+
+    [Fact]
+    public async Task ForkThread_SetsForkedFromAndIndex()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var forkMessageId = await EnsureForkMessageAsync(sessionId);
+        var request = new ForkThreadRequest("fork2", forkMessageId, null, null, null);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
+            request);
+
+        // Assert
+        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        thread!.ForkedFrom.Should().Be("main");
+        thread.ForkedAtMessageId.Should().Be(forkMessageId);
+        thread.ForkedAtMessageIndex.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ForkThread_SetsAncestors_Correctly()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var forkMessageId = await EnsureForkMessageAsync(sessionId);
+        var request = new ForkThreadRequest("fork3", forkMessageId, null, null, null);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
+            request);
+
+        // Assert
+        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        thread!.Ancestors.Should().NotBeNull();
+        thread.Ancestors!.Should().ContainKey("0");
+    }
+
+    [Fact]
+    public async Task ForkThread_Returns404_WhenSourceThreadNotFound()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var request = new ForkThreadRequest("fork", "missing-message", null, null, null);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads/nonexistent/fork",
+            request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task ForkThread_Returns400_WhenMessageIsNotPresent()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var request = new ForkThreadRequest("fork", "missing-message", null, null, null);
+
+        // Act
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
+            request);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    #endregion
+
+    #region DELETE /sessions/{sid}/threads/{bid}
+
+    [Fact]
+    public async Task DeleteThread_Returns204_OnSuccess()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var createRequest = new CreateThreadRequest("to-delete", "Delete Me", null, null);
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads", createRequest);
+
+        // Act
+        var response = await _client.DeleteAsync($"/sessions/{sessionId}/threads/to-delete");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task DeleteThread_Returns404_WhenThreadNotFound()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+
+        // Act
+        var response = await _client.DeleteAsync($"/sessions/{sessionId}/threads/nonexistent");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task DeleteThread_Returns400_WhenDeletingMainThread()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+
+        // Act
+        var response = await _client.DeleteAsync($"/sessions/{sessionId}/threads/main");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    #endregion
+
+    #region GET /sessions/{sid}/threads/{bid}/events
+
+    [Fact]
+    public async Task GetThreadEvents_ReturnsNormalizedThreadEvents()
+    {
+        var sessionId = await CreateTestSession();
+
+        var response = await _client.GetAsync($"/sessions/{sessionId}/threads/main/events");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        document.RootElement.EnumerateArray()
+            .Should()
+            .Contain(e => e.GetProperty("type").GetString() == ThreadEventTypes.ThreadCreated);
+    }
+
+    [Fact]
+    public async Task GetThreadEvents_Returns404_WhenThreadNotFound()
+    {
+        var sessionId = await CreateTestSession();
+
+        var response = await _client.GetAsync($"/sessions/{sessionId}/threads/nonexistent/events");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GetThreadEvents_ReturnsForkEvent_ForForkedThread()
+    {
+        var sessionId = await CreateTestSession();
+        var forkMessageId = await EnsureForkMessageAsync(sessionId);
+        var forkRequest = new ForkThreadRequest("fork-1", forkMessageId, "Fork 1", null, null);
+
+        var forkResponse = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
+            forkRequest);
+        forkResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var response = await _client.GetAsync($"/sessions/{sessionId}/threads/fork-1/events");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var events = document.RootElement.EnumerateArray().ToList();
+        events.Should().Contain(e => e.GetProperty("type").GetString() == ThreadEventTypes.ThreadForked);
+
+        var forked = events.Single(e => e.GetProperty("type").GetString() == ThreadEventTypes.ThreadForked);
+        forked.GetProperty("sourceThreadId").GetString().Should().Be("main");
+        forked.GetProperty("fromMessageId").GetString().Should().Be(forkMessageId);
+        forked.GetProperty("resolvedMessageIndex").GetInt32().Should().Be(0);
+    }
+
+    #endregion
+
+    #region GET /sessions/{sid}/threads/{bid}/siblings
+
+    [Fact]
+    public async Task GetSiblings_ReturnsForkedThreads()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var forkMessageId = await EnsureForkMessageAsync(sessionId);
+
+        // Create sibling threads
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
+            new ForkThreadRequest("sibling1", forkMessageId, null, null, null));
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
+            new ForkThreadRequest("sibling2", forkMessageId, null, null, null));
+
+        // Act
+        var response = await _client.GetAsync($"/sessions/{sessionId}/threads/sibling1/siblings");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var siblings = await response.Content.ReadFromJsonAsync<List<SiblingThreadDto>>();
+        siblings.Should().NotBeNull();
+        siblings!.Should().Contain(s => s.Id == "sibling2");
+    }
+
+    [Fact]
+    public async Task GetSiblings_ReturnsSelf_WhenNoForks()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+
+        // Act
+        var response = await _client.GetAsync($"/sessions/{sessionId}/threads/main/siblings");
+
+        // Assert
+        var siblings = await response.Content.ReadFromJsonAsync<List<SiblingThreadDto>>();
+        siblings.Should().NotBeNull();
+        siblings!.Should().HaveCount(1);
+        siblings![0].Id.Should().Be("main");
+        siblings![0].IsOriginal.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GetSiblings_Returns404_WhenThreadNotFound()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+
+        // Act
+        var response = await _client.GetAsync($"/sessions/{sessionId}/threads/nonexistent/siblings");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    #endregion
+
+    #region PATCH /sessions/{sid}/threads/{bid} — Fix 4: update thread metadata
+
+    [Fact]
+    public async Task UpdateThread_Returns200_WithUpdatedDto()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var createReq = new CreateThreadRequest("upd-test", "Original Name", "Original Desc", null);
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads", createReq);
+
+        // Act
+        var patchReq = new UpdateThreadRequest("Renamed Thread", null, null);
+        var response = await _client.PatchAsJsonAsync($"/sessions/{sessionId}/threads/upd-test", patchReq);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        thread.Should().NotBeNull();
+        thread!.Name.Should().Be("Renamed Thread");
+    }
+
+    [Fact]
+    public async Task UpdateThread_OnlyUpdatesProvidedFields_LeavesOthersUnchanged()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var createReq = new CreateThreadRequest("partial-upd", "Original Name", "Keep This Desc", null);
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads", createReq);
+
+        // Act — only update name, leave description null (omitted)
+        var patchReq = new UpdateThreadRequest("New Name", null, null);
+        var response = await _client.PatchAsJsonAsync($"/sessions/{sessionId}/threads/partial-upd", patchReq);
+
+        // Assert
+        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        thread!.Name.Should().Be("New Name");
+        thread.Description.Should().Be("Keep This Desc");
+    }
+
+    [Fact]
+    public async Task UpdateThread_Returns404_WhenThreadNotFound()
+    {
+        var sessionId = await CreateTestSession();
+
+        var patchReq = new UpdateThreadRequest("X", null, null);
+        var response = await _client.PatchAsJsonAsync($"/sessions/{sessionId}/threads/nonexistent", patchReq);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task UpdateThread_UpdatesTags()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads",
+            new CreateThreadRequest("tag-test", "T", null, null));
+
+        // Act
+        var patchReq = new UpdateThreadRequest(null, null, ["alpha", "beta"]);
+        await _client.PatchAsJsonAsync($"/sessions/{sessionId}/threads/tag-test", patchReq);
+
+        // Assert — reload the thread and check tags
+        var getResp = await _client.GetAsync($"/sessions/{sessionId}/threads/tag-test");
+        var thread = await getResp.Content.ReadFromJsonAsync<ThreadDto>();
+        thread!.Tags.Should().NotBeNull();
+        thread.Tags!.Should().BeEquivalentTo(["alpha", "beta"]);
+    }
+
+    [Fact]
+    public async Task UpdateThread_MergesAndRemovesMetadata()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads",
+            new CreateThreadRequest("metadata-test", "T", null, null, new Dictionary<string, object>
+            {
+                ["purpose"] = "draft",
+                ["pinned"] = true
+            }));
+
+        // Act
+        var patchReq = new UpdateThreadRequest(null, null, null, new Dictionary<string, object?>
+        {
+            ["purpose"] = "final",
+            ["pinned"] = null,
+            ["variant"] = "concise"
+        });
+        var response = await _client.PatchAsJsonAsync($"/sessions/{sessionId}/threads/metadata-test", patchReq);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        thread!.Metadata.Should().NotBeNull();
+        thread.Metadata!.Keys.Should().BeEquivalentTo(["purpose", "variant"]);
+        thread.Metadata["purpose"].ToString().Should().Be("final");
+        thread.Metadata["variant"].ToString().Should().Be("concise");
+    }
+
+    [Fact]
+    public async Task UpdateThread_UpdatesLastActivity()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads",
+            new CreateThreadRequest("ts-test", "T", null, null));
+
+        var before = DateTime.UtcNow.AddSeconds(-1);
+
+        // Act
+        var patchReq = new UpdateThreadRequest("Renamed", null, null);
+        var response = await _client.PatchAsJsonAsync($"/sessions/{sessionId}/threads/ts-test", patchReq);
+
+        // Assert
+        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        thread!.LastActivity.Should().BeAfter(before);
+    }
+
+    [Fact]
+    public async Task UpdateThread_PersistedAcrossGetThread()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads",
+            new CreateThreadRequest("persist-test", "Before", null, null));
+
+        // Act
+        await _client.PatchAsJsonAsync($"/sessions/{sessionId}/threads/persist-test",
+            new UpdateThreadRequest("After", "New desc", null));
+
+        // Assert — reload via GET, not from PATCH response
+        var getResp = await _client.GetAsync($"/sessions/{sessionId}/threads/persist-test");
+        var thread = await getResp.Content.ReadFromJsonAsync<ThreadDto>();
+        thread!.Name.Should().Be("After");
+        thread.Description.Should().Be("New desc");
+    }
+
+    #endregion
+}

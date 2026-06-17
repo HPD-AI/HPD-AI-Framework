@@ -24,13 +24,13 @@ public class SubAgentCapabilityGenerationTests
     };
 
     [Fact]
-    public void GeneratedCode_ResolvesBranchNativeRoute()
+    public void GeneratedCode_ResolvesThreadNativeRoute()
     {
         var code = MakeCapability().GenerateRegistrationCode(MakeToolHarness());
 
         code.Should().Contain("SubAgentRuntime.ResolveRouteAsync");
         code.Should().Contain("SessionId = route.SessionId");
-        code.Should().Contain("BranchId = route.BranchId");
+        code.Should().Contain("ThreadId = route.ThreadId");
         code.Should().Contain("SubAgentRuntime.MarkCompleted");
         code.Should().Contain("SubAgentRuntime.MarkFailed");
     }
@@ -72,12 +72,12 @@ public class SubAgentCapabilityGenerationTests
     }
 
     [Fact]
-    public void AdditionalProperties_AdvertiseBranchNativeExecution()
+    public void AdditionalProperties_AdvertiseThreadNativeExecution()
     {
         var props = MakeCapability().GetAdditionalProperties();
 
         props["IsSubAgent"].Should().Be(true);
-        props["ExecutionModel"].Should().Be("BranchNative");
+        props["ExecutionModel"].Should().Be("ThreadNative");
         props.Should().NotContainKey("SessionMode");
     }
 }

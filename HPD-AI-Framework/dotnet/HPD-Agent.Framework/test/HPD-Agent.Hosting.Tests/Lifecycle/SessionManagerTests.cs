@@ -6,7 +6,7 @@ namespace HPD.Agent.Hosting.Tests.Lifecycle;
 
 /// <summary>
 /// Tests for the SessionManager abstract base class.
-/// Covers session lifecycle, branch operation locks, session locks, and RemoveSession behaviour.
+/// Covers session lifecycle, thread operation locks, session locks, and RemoveSession behaviour.
 /// </summary>
 public class SessionManagerTests : IDisposable
 {
@@ -28,10 +28,10 @@ public class SessionManagerTests : IDisposable
     [Fact]
     public async Task CreateSessionAsync_CreatesSession_WithGeneratedId()
     {
-        var (sessionId, branchId) = await _manager.CreateSessionAsync();
+        var (sessionId, threadId) = await _manager.CreateSessionAsync();
 
         sessionId.Should().NotBeNullOrWhiteSpace();
-        branchId.Should().Be("main");
+        threadId.Should().Be("main");
     }
 
     [Fact]
@@ -43,12 +43,12 @@ public class SessionManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task CreateSessionAsync_CreatesMainBranch()
+    public async Task CreateSessionAsync_CreatesMainThread()
     {
         var (sessionId, _) = await _manager.CreateSessionAsync();
 
-        var branch = await _store.LoadBranchAsync(sessionId, "main");
-        branch.Should().NotBeNull();
+        var thread = await _store.LoadThreadAsync(sessionId, "main");
+        thread.Should().NotBeNull();
     }
 
     [Fact]
@@ -67,20 +67,20 @@ public class SessionManagerTests : IDisposable
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task RemoveSession_CleansBranchOperationLocks_ForSession()
+    public async Task RemoveSession_CleansThreadOperationLocks_ForSession()
     {
         var (sid, _) = await _manager.CreateSessionAsync();
 
-        _manager.TryAcquireBranchOperationLock(sid, "branch-a");
-        _manager.TryAcquireBranchOperationLock(sid, "branch-b");
-        _manager.ReleaseBranchOperationLock(sid, "branch-a");
-        _manager.ReleaseBranchOperationLock(sid, "branch-b");
+        _manager.TryAcquireThreadOperationLock(sid, "thread-a");
+        _manager.TryAcquireThreadOperationLock(sid, "thread-b");
+        _manager.ReleaseThreadOperationLock(sid, "thread-a");
+        _manager.ReleaseThreadOperationLock(sid, "thread-b");
 
         _manager.RemoveSession(sid);
 
         // After removal fresh semaphores should be created — acquisition succeeds
-        _manager.TryAcquireBranchOperationLock(sid, "branch-a").Should().BeTrue();
-        _manager.TryAcquireBranchOperationLock(sid, "branch-b").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock(sid, "thread-a").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock(sid, "thread-b").Should().BeTrue();
     }
 
     [Fact]
@@ -90,13 +90,13 @@ public class SessionManagerTests : IDisposable
         var (sidB, _) = await _manager.CreateSessionAsync();
 
         // Hold a lock on session B
-        _manager.TryAcquireBranchOperationLock(sidB, "branch-z");
+        _manager.TryAcquireThreadOperationLock(sidB, "thread-z");
 
         // Remove session A
         _manager.RemoveSession(sidA);
 
         // Session B lock should still be held
-        _manager.TryAcquireBranchOperationLock(sidB, "branch-z").Should().BeFalse();
+        _manager.TryAcquireThreadOperationLock(sidB, "thread-z").Should().BeFalse();
     }
 
     [Fact]
@@ -111,122 +111,122 @@ public class SessionManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task RemoveSession_ClearsActiveBranchRuns_ForSession()
+    public async Task RemoveSession_ClearsActiveThreadRuns_ForSession()
     {
         var (sidA, _) = await _manager.CreateSessionAsync();
         var (sidB, _) = await _manager.CreateSessionAsync();
 
-        _manager.TryStartBranchRun("agent", sidA, "main", out _).Should().BeTrue();
-        _manager.TryStartBranchRun("agent", sidB, "main", out _).Should().BeTrue();
+        _manager.TryStartThreadRun("agent", sidA, "main", out _).Should().BeTrue();
+        _manager.TryStartThreadRun("agent", sidB, "main", out _).Should().BeTrue();
 
         _manager.RemoveSession(sidA);
 
-        _manager.GetActiveBranchRun(sidA, "main").Should().BeNull();
-        _manager.GetActiveBranchRun(sidB, "main").Should().NotBeNull();
+        _manager.GetActiveThreadRun(sidA, "main").Should().BeNull();
+        _manager.GetActiveThreadRun(sidB, "main").Should().NotBeNull();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Branch operation locks
+    // Thread operation locks
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void TryAcquireBranchOperationLock_ReturnsTrue_FirstAcquisition()
+    public void TryAcquireThreadOperationLock_ReturnsTrue_FirstAcquisition()
     {
-        _manager.TryAcquireBranchOperationLock("session-1", "branch-1").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock("session-1", "thread-1").Should().BeTrue();
     }
 
     [Fact]
-    public void TryAcquireBranchOperationLock_ReturnsFalse_WhenAlreadyHeld()
+    public void TryAcquireThreadOperationLock_ReturnsFalse_WhenAlreadyHeld()
     {
-        _manager.TryAcquireBranchOperationLock("session-1", "branch-1");
-        _manager.TryAcquireBranchOperationLock("session-1", "branch-1").Should().BeFalse();
+        _manager.TryAcquireThreadOperationLock("session-1", "thread-1");
+        _manager.TryAcquireThreadOperationLock("session-1", "thread-1").Should().BeFalse();
     }
 
     [Fact]
-    public void TryAcquireBranchOperationLock_AllowsConcurrentLocks_DifferentBranches()
+    public void TryAcquireThreadOperationLock_AllowsConcurrentLocks_DifferentThreads()
     {
-        var l1 = _manager.TryAcquireBranchOperationLock("session-1", "branch-1");
-        var l2 = _manager.TryAcquireBranchOperationLock("session-1", "branch-2");
+        var l1 = _manager.TryAcquireThreadOperationLock("session-1", "thread-1");
+        var l2 = _manager.TryAcquireThreadOperationLock("session-1", "thread-2");
 
         l1.Should().BeTrue();
         l2.Should().BeTrue();
     }
 
     [Fact]
-    public void TryAcquireBranchOperationLock_AllowsConcurrentLocks_DifferentSessions()
+    public void TryAcquireThreadOperationLock_AllowsConcurrentLocks_DifferentSessions()
     {
-        var l1 = _manager.TryAcquireBranchOperationLock("session-1", "branch-1");
-        var l2 = _manager.TryAcquireBranchOperationLock("session-2", "branch-1");
+        var l1 = _manager.TryAcquireThreadOperationLock("session-1", "thread-1");
+        var l2 = _manager.TryAcquireThreadOperationLock("session-2", "thread-1");
 
         l1.Should().BeTrue();
         l2.Should().BeTrue();
     }
 
     [Fact]
-    public void ReleaseBranchOperationLock_AllowsReacquisition()
+    public void ReleaseThreadOperationLock_AllowsReacquisition()
     {
-        _manager.TryAcquireBranchOperationLock("session-1", "branch-1");
-        _manager.ReleaseBranchOperationLock("session-1", "branch-1");
+        _manager.TryAcquireThreadOperationLock("session-1", "thread-1");
+        _manager.ReleaseThreadOperationLock("session-1", "thread-1");
 
-        _manager.TryAcquireBranchOperationLock("session-1", "branch-1").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock("session-1", "thread-1").Should().BeTrue();
     }
 
     [Fact]
-    public void ReleaseBranchOperationLock_IsIdempotent_WhenNotHeld()
+    public void ReleaseThreadOperationLock_IsIdempotent_WhenNotHeld()
     {
-        var act = () => _manager.ReleaseBranchOperationLock("session-1", "branch-1");
+        var act = () => _manager.ReleaseThreadOperationLock("session-1", "thread-1");
         act.Should().NotThrow();
     }
 
     [Fact]
-    public void RemoveBranchOperationLock_AllowsReacquisition_AfterRelease()
+    public void RemoveThreadOperationLock_AllowsReacquisition_AfterRelease()
     {
-        _manager.TryAcquireBranchOperationLock("session-1", "branch-a");
-        _manager.ReleaseBranchOperationLock("session-1", "branch-a");
-        _manager.RemoveBranchOperationLock("session-1", "branch-a");
+        _manager.TryAcquireThreadOperationLock("session-1", "thread-a");
+        _manager.ReleaseThreadOperationLock("session-1", "thread-a");
+        _manager.RemoveThreadOperationLock("session-1", "thread-a");
 
-        _manager.TryAcquireBranchOperationLock("session-1", "branch-a").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock("session-1", "thread-a").Should().BeTrue();
     }
 
     [Fact]
-    public void RemoveBranchOperationLock_IsIdempotent_WhenKeyNotPresent()
+    public void RemoveThreadOperationLock_IsIdempotent_WhenKeyNotPresent()
     {
-        var act = () => _manager.RemoveBranchOperationLock("session-x", "branch-x");
+        var act = () => _manager.RemoveThreadOperationLock("session-x", "thread-x");
         act.Should().NotThrow();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Active branch runs
+    // Active thread runs
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void TryStartBranchRun_ReturnsFalse_WhenBranchAlreadyHasActiveRun()
+    public void TryStartThreadRun_ReturnsFalse_WhenThreadAlreadyHasActiveRun()
     {
-        _manager.TryStartBranchRun("agent", "session-1", "branch-1", out var first).Should().BeTrue();
-        _manager.TryStartBranchRun("agent", "session-1", "branch-1", out var second).Should().BeFalse();
+        _manager.TryStartThreadRun("agent", "session-1", "thread-1", out var first).Should().BeTrue();
+        _manager.TryStartThreadRun("agent", "session-1", "thread-1", out var second).Should().BeFalse();
 
         second.Should().Be(first);
     }
 
     [Fact]
-    public void TryStartBranchRun_AllowsDifferentBranchesAndSessions()
+    public void TryStartThreadRun_AllowsDifferentThreadsAndSessions()
     {
-        _manager.TryStartBranchRun("agent", "session-1", "branch-1", out _).Should().BeTrue();
+        _manager.TryStartThreadRun("agent", "session-1", "thread-1", out _).Should().BeTrue();
 
-        _manager.TryStartBranchRun("agent", "session-1", "branch-2", out _).Should().BeTrue();
-        _manager.TryStartBranchRun("agent", "session-2", "branch-1", out _).Should().BeTrue();
+        _manager.TryStartThreadRun("agent", "session-1", "thread-2", out _).Should().BeTrue();
+        _manager.TryStartThreadRun("agent", "session-2", "thread-1", out _).Should().BeTrue();
     }
 
     [Fact]
-    public void CompleteBranchRun_OnlyCompletesMatchingRuntimeRun()
+    public void CompleteThreadRun_OnlyCompletesMatchingRuntimeRun()
     {
-        _manager.TryStartBranchRun("agent", "session-1", "branch-1", out var run).Should().BeTrue();
+        _manager.TryStartThreadRun("agent", "session-1", "thread-1", out var run).Should().BeTrue();
 
-        _manager.CompleteBranchRun("session-1", "branch-1", "other-run").Should().BeFalse();
-        _manager.GetActiveBranchRun("session-1", "branch-1").Should().Be(run);
+        _manager.CompleteThreadRun("session-1", "thread-1", "other-run").Should().BeFalse();
+        _manager.GetActiveThreadRun("session-1", "thread-1").Should().Be(run);
 
-        _manager.CompleteBranchRun("session-1", "branch-1", run.RuntimeRunId).Should().BeTrue();
-        _manager.GetActiveBranchRun("session-1", "branch-1").Should().BeNull();
+        _manager.CompleteThreadRun("session-1", "thread-1", run.RuntimeRunId).Should().BeTrue();
+        _manager.GetActiveThreadRun("session-1", "thread-1").Should().BeNull();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -318,13 +318,13 @@ public class SessionManagerTests : IDisposable
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // AllowRecursiveBranchDelete
+    // AllowRecursiveThreadDelete
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void AllowRecursiveBranchDelete_DefaultsToFalse()
+    public void AllowRecursiveThreadDelete_DefaultsToFalse()
     {
-        _manager.AllowRecursiveBranchDelete.Should().BeFalse();
+        _manager.AllowRecursiveThreadDelete.Should().BeFalse();
     }
 
     // ──────────────────────────────────────────────────────────────────────────

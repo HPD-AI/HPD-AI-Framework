@@ -379,7 +379,7 @@ export class AgentState {
 				this.onMessageTurnError(known.message);
 				break;
 			// All other event types (permissions, continuations, etc.) are handled
-			// by callers that need them (e.g. createAgent). BranchManager ignores them.
+			// by callers that need them (e.g. createAgent). ThreadManager ignores them.
 	}
 	}
 
@@ -396,7 +396,7 @@ export class AgentState {
 
 	/**
 	 * Directly load a history of fully-formed messages.
-	 * Used when restoring a branch from the backend — bypasses streaming state.
+	 * Used when restoring a thread from the backend — bypasses streaming state.
 	 * Does NOT affect #streaming, #reasoning, or #activeTools.
 	 */
 	loadHistory(messages: Message[]): void {

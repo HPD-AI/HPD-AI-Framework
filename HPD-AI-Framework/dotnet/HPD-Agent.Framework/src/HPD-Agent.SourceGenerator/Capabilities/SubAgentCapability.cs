@@ -116,7 +116,7 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("            : string.Empty;");
         sb.AppendLine();
 
-        sb.AppendLine("        // Use the parent session store when available so subagent branches remain inspectable");
+        sb.AppendLine("        // Use the parent session store when available so subagent threads remain inspectable");
         sb.AppendLine("        var parentStore = functionContext?.GetParentSessionStore();");
         sb.AppendLine("        if (parentStore != null)");
         sb.AppendLine("        {");
@@ -167,12 +167,12 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("            await agent.RunAsync(new HPD.Agent.UserTextInputEvent(query)");
         sb.AppendLine("            {");
         sb.AppendLine("                SessionId = route.SessionId,");
-        sb.AppendLine("                BranchId = route.BranchId");
+        sb.AppendLine("                ThreadId = route.ThreadId");
         sb.AppendLine("            }, cancellationToken);");
         sb.AppendLine("            SubAgentRuntime.MarkCompleted(functionContext, route);");
         sb.AppendLine("            if (textResult.Length > 0) return textResult.ToString();");
-        sb.AppendLine("            var fallbackBranch = await agent.Config.SessionStore!.LoadBranchAsync(route.SessionId, route.BranchId, cancellationToken);");
-        sb.AppendLine("            return fallbackBranch?.Messages.LastOrDefault(m => m.Role == ChatRole.Assistant)?.Text ?? string.Empty;");
+        sb.AppendLine("            var fallbackThread = await agent.Config.SessionStore!.LoadThreadAsync(route.SessionId, route.ThreadId, cancellationToken);");
+        sb.AppendLine("            return fallbackThread?.Messages.LastOrDefault(m => m.Role == ChatRole.Assistant)?.Text ?? string.Empty;");
         sb.AppendLine("        }");
         sb.AppendLine("        catch (System.Exception ex)");
         sb.AppendLine("        {");
@@ -200,7 +200,7 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("        AdditionalProperties = new System.Collections.Generic.Dictionary<string, object>");
         sb.AppendLine("        {");
         sb.AppendLine("            [\"IsSubAgent\"] = true,");
-        sb.AppendLine("            [\"ExecutionModel\"] = \"BranchNative\",");
+        sb.AppendLine("            [\"ExecutionModel\"] = \"ThreadNative\",");
         sb.AppendLine($"            [\"ParentToolHarness\"] = \"{ToolHarness.ClassName}\"");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
@@ -220,7 +220,7 @@ internal class SubAgentCapability : BaseCapability
 
     /// <summary>
     /// Gets additional metadata properties for this sub-agent.
-    /// Gets metadata that lets runtime scoping treat sub-agents as branch-native wrappers.
+    /// Gets metadata that lets runtime scoping treat sub-agents as thread-native wrappers.
     /// </summary>
     public override Dictionary<string, object> GetAdditionalProperties()
     {
@@ -230,7 +230,7 @@ internal class SubAgentCapability : BaseCapability
         // SubAgents are wrappers that delegate to another agent, not containers
         props["IsContainer"] = false;
         props["IsSubAgent"] = true;
-        props["ExecutionModel"] = "BranchNative";
+        props["ExecutionModel"] = "ThreadNative";
         props["ParentToolHarness"] = ParentToolHarnessName;
         props["RequiresPermission"] = RequiresPermission;
 

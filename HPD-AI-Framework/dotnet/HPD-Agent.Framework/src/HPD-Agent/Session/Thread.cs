@@ -1,0 +1,652 @@
+using Microsoft.Extensions.AI;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace HPD.Agent;
+
+public enum ThreadKind
+{
+    MainAgent,
+    SubAgent
+}
+
+public enum ThreadVisibility
+{
+    Visible,
+    Hidden
+}
+
+/// <summary>
+/// Thread represents a conversation path within a session.
+/// Contains messages and thread-specific state.
+/// Multiple threads can exist in one session (for exploring alternatives).
+/// </summary>
+/// <remarks>
+/// <para><b>Mental Model:</b></para>
+/// <para>
+/// Think of threads like ChatGPT's message editing feature:
+/// - User edits a message → creates a new thread from that point
+/// - Each thread is an independent conversation path
+/// - All threads share the same session (metadata and session-scoped state)
+/// </para>
+///
+/// <para><b>Relationship to Session:</b></para>
+/// <para>
+/// Thread belongs to a Session (via SessionId).
+/// Multiple threads can exist in one session, all sharing:
+/// - Session metadata
+/// - Session-scoped middleware state (permissions, preferences)
+/// </para>
+///
+/// <para><b>Thread-Scoped vs Session-Scoped:</b></para>
+/// <list type="bullet">
+/// <item><b>Thread-scoped:</b> Messages, plan progress, history cache (diverges per thread)</item>
+/// <item><b>Session-scoped:</b> Permissions and user preferences (shared across threads)</item>
+/// </list>
+/// </remarks>
+public class Thread
+{
+    /// <summary>Unique identifier for this thread</summary>
+    public string Id { get; init; }
+
+    /// <summary>Parent session ID</summary>
+    public string SessionId { get; init; }
+
+    /// <summary>
+    /// Back-reference to the parent Session.
+    /// Set by Session.CreateThread() and by the framework when loading from store.
+    /// Not serialized — reconstructed at load time.
+    /// </summary>
+    [JsonIgnore]
+    public Session? Session { get; internal set; }
+
+    /// <summary>Conversation messages in this thread</summary>
+    public List<ChatMessage> Messages { get; init; }
+
+    /// <summary>Source thread ID if this was forked (null for original threads)</summary>
+    public string? ForkedFrom { get; internal set; }
+
+    /// <summary>
+    /// Message id of the last shared message before this thread diverges from its siblings (null for original threads).
+    /// Siblings are grouped by ForkedFrom + ForkedAtMessageId.
+    /// </summary>
+    public string? ForkedAtMessageId { get; internal set; }
+
+    /// <summary>
+    /// Resolved index of the last shared message when the fork was created (null for original threads).
+    /// This is diagnostic metadata only; fork identity is ForkedAtMessageId.
+    /// </summary>
+    public int? ForkedAtMessageIndex { get; internal set; }
+
+    /// <summary>When this thread was created</summary>
+    public DateTime CreatedAt { get; init; }
+
+    /// <summary>Last time this thread was updated</summary>
+    public DateTime LastActivity { get; set; }
+
+    /// <summary>
+    /// Optional display name for this thread.
+    /// Used as the primary label in UI (e.g., "Feature Thread", "Experiment 1").
+    /// If not set, GetDisplayName() will fall back to Description or generate a name from first message.
+    /// </summary>
+    public string? Name { get; set; }
+
+    /// <summary>
+    /// Optional user-friendly description of this thread.
+    /// Useful for explaining the purpose or approach of this conversation variant.
+    /// </summary>
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Optional tags for categorizing or filtering threads.
+    /// Examples: ["draft", "formal-tone"], ["v1", "experiment"]
+    /// </summary>
+    public List<string>? Tags { get; set; }
+
+    /// <summary>
+    /// Arbitrary thread-level application metadata.
+    /// Use this for UI/app state that belongs to one conversation path rather than the whole session.
+    /// </summary>
+    public Dictionary<string, object> Metadata { get; init; }
+
+    /// <summary>
+    /// Runtime classification for this thread. Infrastructure uses this instead of magic metadata keys.
+    /// </summary>
+    public ThreadKind Kind { get; set; } = ThreadKind.MainAgent;
+
+    /// <summary>
+    /// Whether this thread should be shown in ordinary thread lists.
+    /// Subagent threads default to hidden.
+    /// </summary>
+    public ThreadVisibility Visibility { get; set; } = ThreadVisibility.Visible;
+
+    /// <summary>Parent session for runtime child threads such as subagents.</summary>
+    public string? ParentSessionId { get; set; }
+
+    /// <summary>Parent thread for runtime child threads such as subagents.</summary>
+    public string? ParentThreadId { get; set; }
+
+    /// <summary>Name of the subagent that owns this thread, when Kind is SubAgent.</summary>
+    public string? SubAgentName { get; set; }
+
+    /// <summary>Run id of the subagent invocation that created this thread.</summary>
+    public string? SubAgentRunId { get; set; }
+
+    /// <summary>Source kind for the subagent definition, when Kind is SubAgent.</summary>
+    public string? SubAgentSourceKind { get; set; }
+
+    /// <summary>Parent tool call id that created this child thread.</summary>
+    public string? ParentToolCallId { get; set; }
+
+    /// <summary>Subagent session policy captured for inspection and routing.</summary>
+    public string? SessionPolicy { get; set; }
+
+    /// <summary>Subagent thread policy captured for inspection and routing.</summary>
+    public string? ThreadPolicy { get; set; }
+
+    /// <summary>
+    /// Full ancestry chain for multi-level fork tracking.
+    /// Key: depth (0 = root), Value: thread ID at that depth.
+    /// Example: { "0": "main", "1": "experimental", "2": "formal" }
+    /// Enables UI to show "main → experimental → formal" lineage.
+    /// </summary>
+    public Dictionary<string, string>? Ancestors { get; set; }
+
+    // ============================================
+    // NEW: Tree Structure Navigation (V3)
+    // ============================================
+
+    /// <summary>
+    /// Position among siblings at this fork point (0-based).
+    /// Siblings are threads that forked from the same parent at the same message id.
+    /// Stable ordering: original thread = 0, subsequent forks ordered chronologically.
+    /// </summary>
+    public int SiblingIndex { get; set; }
+
+    /// <summary>
+    /// Total number of sibling threads at this fork point (including this thread).
+    /// Updated atomically when siblings are added or removed.
+    /// </summary>
+    public int TotalSiblings { get; set; }
+
+    /// <summary>
+    /// True if this is the original thread (not forked from another).
+    /// Equivalent to: ForkedFrom == null
+    /// Denormalized for query convenience.
+    /// </summary>
+    public bool IsOriginal { get; set; }
+
+    /// <summary>
+    /// ID of the original thread in this sibling group.
+    /// For original threads: null
+    /// For forked threads: ID of the thread they forked from
+    /// </summary>
+    public string? OriginalThreadId { get; set; }
+
+    // ============================================
+    // NEW: Navigation Pointers
+    // ============================================
+
+    /// <summary>
+    /// ID of the previous sibling (sibling at index - 1).
+    /// Null if this is the first sibling (SiblingIndex == 0).
+    /// Enables O(1) previous sibling navigation without scanning.
+    /// </summary>
+    public string? PreviousSiblingId { get; set; }
+
+    /// <summary>
+    /// ID of the next sibling (sibling at index + 1).
+    /// Null if this is the last sibling (SiblingIndex == TotalSiblings - 1).
+    /// Enables O(1) next sibling navigation without scanning.
+    /// </summary>
+    public string? NextSiblingId { get; set; }
+
+    // ============================================
+    // NEW: Child Tracking
+    // ============================================
+
+    /// <summary>
+    /// IDs of threads that forked directly from this thread.
+    /// Updated when:
+    /// - A thread forks from this one (add to list)
+    /// - A child thread is deleted (remove from list)
+    /// Enables O(1) "show forks" without scanning all threads.
+    /// </summary>
+    public List<string> ChildThreads { get; set; } = new();
+
+    /// <summary>
+    /// Count of direct child threads (forks from this thread).
+    /// Computed property: ChildThreads.Count
+    /// Denormalized for API convenience.
+    /// </summary>
+    public int TotalForks => ChildThreads.Count;
+
+    /// <summary>
+    /// Thread-scoped middleware persistent state.
+    /// Stores state tied to this specific conversation path (e.g., plan progress, summarization cache).
+    /// Only middleware marked with [MiddlewareState(Persistent = true, Scope = StateScope.Thread)]
+    /// (or just [MiddlewareState(Persistent = true)] since Thread is the default) is persisted here.
+    /// Session-scoped state (e.g., permissions) lives in Session.MiddlewareState instead.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Examples of thread-scoped persistent state:</b></para>
+    /// <list type="bullet">
+    /// <item>PlanModePersistentState: Current plan steps and progress</item>
+    /// <item>CompactionState: Conversation summarization cache</item>
+    /// </list>
+    ///
+    /// <para>
+    /// State is serialized as JSON and saved per thread because different threads
+    /// have different conversation contexts (different messages → different caches/progress).
+    /// </para>
+    ///
+    /// <para><b>On fork:</b> Thread middleware state is COPIED from the source thread.</para>
+    /// <para><b>After fork:</b> Each thread maintains its own copy and can diverge independently.</para>
+    /// </remarks>
+    public Dictionary<string, string> MiddlewareState { get; init; }
+
+    /// <summary>Current execution state (for crash recovery, null when idle)</summary>
+    [JsonIgnore]
+    public AgentLoopState? ExecutionState { get; set; }
+
+    /// <summary>
+    /// Parameterless constructor for JSON deserialization.
+    /// Properties are populated via init setters.
+    /// </summary>
+    internal Thread()
+    {
+        Id = Guid.NewGuid().ToString();
+        SessionId = string.Empty;
+        Messages = [];
+        MiddlewareState = [];
+        Metadata = [];
+        CreatedAt = DateTime.UtcNow;
+        LastActivity = DateTime.UtcNow;
+
+        //  Initialize tree navigation properties with safe defaults
+        SiblingIndex = 0;
+        TotalSiblings = 1;
+        IsOriginal = true;
+        ChildThreads = [];
+    }
+
+    /// <summary>
+    /// Creates a new thread with a generated ID.
+    /// Internal - only the framework creates threads via Session.CreateThread() or Agent methods.
+    /// </summary>
+    internal Thread(string sessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        Id = Guid.NewGuid().ToString();
+        SessionId = sessionId;
+        Messages = [];
+        MiddlewareState = [];
+        Metadata = [];
+        CreatedAt = DateTime.UtcNow;
+        LastActivity = DateTime.UtcNow;
+
+        //  Initialize tree navigation properties with safe defaults
+        SiblingIndex = 0;
+        TotalSiblings = 1;
+        IsOriginal = true;
+        ChildThreads = [];
+    }
+
+    /// <summary>
+    /// Creates a new thread with a specific ID.
+    /// Internal - only the framework creates threads via Session.CreateThread() or Agent methods.
+    /// </summary>
+    internal Thread(string sessionId, string threadId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
+        Id = threadId;
+        SessionId = sessionId;
+        Messages = [];
+        MiddlewareState = [];
+        Metadata = [];
+        CreatedAt = DateTime.UtcNow;
+        LastActivity = DateTime.UtcNow;
+
+        //  Initialize tree navigation properties with safe defaults
+        SiblingIndex = 0;
+        TotalSiblings = 1;
+        IsOriginal = true;
+        ChildThreads = [];
+    }
+
+    /// <summary>
+    /// Creates a thread with specific values (for deserialization).
+    /// </summary>
+    [JsonConstructor]
+    internal Thread(
+        string id,
+        string sessionId,
+        List<ChatMessage> messages,
+        string? forkedFrom,
+        string? forkedAtMessageId,
+        int? forkedAtMessageIndex,
+        DateTime createdAt,
+        DateTime lastActivity,
+        string? name,
+        string? description,
+        List<string>? tags,
+        Dictionary<string, string>? ancestors,
+        Dictionary<string, string> middlewareState,
+        Dictionary<string, object>? metadata,
+        //  Tree navigation properties
+        int siblingIndex,
+        int totalSiblings,
+        bool isOriginal,
+        List<string>? childThreads,
+        string? originalThreadId = null,
+        string? previousSiblingId = null,
+        string? nextSiblingId = null,
+        ThreadKind kind = ThreadKind.MainAgent,
+        ThreadVisibility visibility = ThreadVisibility.Visible,
+        string? parentSessionId = null,
+        string? parentThreadId = null,
+        string? subAgentName = null,
+        string? subAgentRunId = null,
+        string? subAgentSourceKind = null,
+        string? parentToolCallId = null,
+        string? sessionPolicy = null,
+        string? threadPolicy = null)
+    {
+        Id = id;
+        SessionId = sessionId;
+        Messages = messages;
+        ForkedFrom = forkedFrom;
+        ForkedAtMessageId = forkedAtMessageId;
+        ForkedAtMessageIndex = forkedAtMessageIndex;
+        CreatedAt = createdAt;
+        LastActivity = lastActivity;
+        Name = name;
+        Description = description;
+        Tags = tags;
+        Metadata = metadata ?? [];
+        Kind = kind;
+        Visibility = visibility;
+        ParentSessionId = parentSessionId;
+        ParentThreadId = parentThreadId;
+        SubAgentName = subAgentName;
+        SubAgentRunId = subAgentRunId;
+        SubAgentSourceKind = subAgentSourceKind;
+        ParentToolCallId = parentToolCallId;
+        SessionPolicy = sessionPolicy;
+        ThreadPolicy = threadPolicy;
+        Ancestors = ancestors;
+        MiddlewareState = middlewareState;
+
+        //  Tree navigation properties
+        if (totalSiblings <= 0)
+            throw new JsonException("Thread JSON is missing or has invalid required tree property 'totalSiblings'.");
+        if (siblingIndex < 0 || siblingIndex >= totalSiblings)
+            throw new JsonException("Thread JSON is missing or has invalid required tree property 'siblingIndex'.");
+
+        SiblingIndex = siblingIndex;
+        TotalSiblings = totalSiblings;
+        IsOriginal = isOriginal;
+        OriginalThreadId = originalThreadId;
+        PreviousSiblingId = previousSiblingId;
+        NextSiblingId = nextSiblingId;
+        ChildThreads = childThreads ?? throw new JsonException("Thread JSON is missing required tree property 'childThreads'.");
+    }
+
+    /// <summary>
+    /// Gets the number of messages in this thread.
+    /// </summary>
+    public int MessageCount => Messages.Count;
+
+    /// <summary>
+    /// Adds a message to the thread.
+    /// </summary>
+    public void AddMessage(ChatMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        message.MessageId ??= Guid.NewGuid().ToString();
+        message.CreatedAt ??= DateTimeOffset.UtcNow;
+        Messages.Add(message);
+        LastActivity = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Adds multiple messages to the thread.
+    /// </summary>
+    public void AddMessages(IEnumerable<ChatMessage> messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        var now = DateTimeOffset.UtcNow;
+        foreach (var message in messages)
+        {
+            message.MessageId ??= Guid.NewGuid().ToString();
+            message.CreatedAt ??= now;
+            Messages.Add(message);
+        }
+        LastActivity = DateTime.UtcNow;
+    }
+
+    internal void ApplyRuntimeMetadata(Dictionary<string, object>? metadata)
+    {
+        if (metadata == null)
+            return;
+
+        if (TryRemoveString(metadata, "kind", out var kind) &&
+            string.Equals(kind, "subagent", StringComparison.OrdinalIgnoreCase))
+        {
+            Kind = ThreadKind.SubAgent;
+        }
+
+        if (TryRemoveString(metadata, "visibility", out var visibility))
+        {
+            Visibility = string.Equals(visibility, "hidden", StringComparison.OrdinalIgnoreCase)
+                ? ThreadVisibility.Hidden
+                : ThreadVisibility.Visible;
+        }
+
+        if (TryRemoveString(metadata, "parentSessionId", out var parentSessionId))
+            ParentSessionId = parentSessionId;
+        if (TryRemoveString(metadata, "parentThreadId", out var parentThreadId))
+            ParentThreadId = parentThreadId;
+        if (TryRemoveString(metadata, "subAgentName", out var subAgentName))
+            SubAgentName = subAgentName;
+        if (TryRemoveString(metadata, "subAgentRunId", out var subAgentRunId))
+            SubAgentRunId = subAgentRunId;
+        if (TryRemoveString(metadata, "subAgentSourceKind", out var subAgentSourceKind))
+            SubAgentSourceKind = subAgentSourceKind;
+        if (TryRemoveString(metadata, "parentToolCallId", out var parentToolCallId))
+            ParentToolCallId = parentToolCallId;
+        if (TryRemoveString(metadata, "sessionPolicy", out var sessionPolicy))
+            SessionPolicy = sessionPolicy;
+        if (TryRemoveString(metadata, "threadPolicy", out var threadPolicy))
+            ThreadPolicy = threadPolicy;
+
+        metadata.Remove("createdBy");
+    }
+
+    private static bool TryRemoveString(Dictionary<string, object> metadata, string key, out string? value)
+    {
+        if (metadata.TryGetValue(key, out var raw))
+        {
+            metadata.Remove(key);
+            value = Convert.ToString(raw);
+            return !string.IsNullOrWhiteSpace(value);
+        }
+
+        value = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Sets thread-scoped middleware persistent state for a given key.
+    /// </summary>
+    internal void SetMiddlewareState(string key, string jsonValue)
+    {
+        MiddlewareState[key] = jsonValue;
+        LastActivity = DateTime.UtcNow;
+    }
+
+    internal void SetForkMetadata(
+        string? forkedFrom,
+        string? forkedAtMessageId,
+        int? forkedAtMessageIndex,
+        Dictionary<string, string>? ancestors)
+    {
+        ForkedFrom = forkedFrom;
+        ForkedAtMessageId = forkedAtMessageId;
+        ForkedAtMessageIndex = forkedAtMessageIndex;
+        Ancestors = ancestors;
+        IsOriginal = forkedFrom is null;
+        OriginalThreadId = forkedFrom;
+        LastActivity = DateTime.UtcNow;
+    }
+
+    internal void SetTreeMetadata(
+        string? forkedFrom,
+        string? forkedAtMessageId,
+        int? forkedAtMessageIndex,
+        int siblingIndex,
+        int totalSiblings,
+        bool isOriginal,
+        string? originalThreadId,
+        string? previousSiblingId,
+        string? nextSiblingId,
+        List<string> childThreads)
+    {
+        ForkedFrom = forkedFrom;
+        ForkedAtMessageId = forkedAtMessageId;
+        ForkedAtMessageIndex = forkedAtMessageIndex;
+        SiblingIndex = siblingIndex;
+        TotalSiblings = totalSiblings;
+        IsOriginal = isOriginal;
+        OriginalThreadId = originalThreadId;
+        PreviousSiblingId = previousSiblingId;
+        NextSiblingId = nextSiblingId;
+        ChildThreads = childThreads;
+        LastActivity = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Gets thread-scoped middleware persistent state for a given key.
+    /// </summary>
+    internal string? GetMiddlewareState(string key)
+    {
+        return MiddlewareState.TryGetValue(key, out var value) ? value : null;
+    }
+
+    /// <summary>
+    /// Clear all messages from this thread.
+    /// </summary>
+    public void Clear()
+    {
+        Messages.Clear();
+        LastActivity = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Get a display name for this thread based on Name, Description, or first user message.
+    /// Useful for UI display in thread lists.
+    /// </summary>
+    public string GetDisplayName(int maxLength = 30)
+    {
+        // Check for explicit name first
+        if (!string.IsNullOrEmpty(Name))
+        {
+            return Name.Length <= maxLength
+                ? Name
+                : Name.Substring(0, maxLength - 3) + "...";
+        }
+
+        // Fall back to description
+        if (!string.IsNullOrEmpty(Description))
+        {
+            return Description.Length <= maxLength
+                ? Description
+                : Description.Substring(0, maxLength - 3) + "...";
+        }
+
+        // Fall back to first user message
+        var firstUserMessage = Messages.FirstOrDefault(m => m.Role == ChatRole.User);
+        if (firstUserMessage == null)
+            return Id; // Use thread ID as last resort
+
+        var text = firstUserMessage.Text ?? string.Empty;
+        if (text.Length <= maxLength)
+            return text;
+
+        return text.Substring(0, maxLength - 3) + "...";
+    }
+
+    /// <summary>
+    ///  Check if this thread is a leaf (has no children).
+    /// </summary>
+    public bool IsLeaf => ChildThreads.Count == 0;
+
+    /// <summary>
+    ///  Check if this thread is the root (no parent).
+    /// </summary>
+    public bool IsRoot => ForkedFrom == null;
+
+    /// <summary>
+    ///  Validate thread tree invariants.
+    /// Throws InvalidOperationException if any invariant is violated.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown when tree invariants are violated</exception>
+    public void ValidateTreeInvariants()
+    {
+        // Invariant 1: Original threads
+        if ((ForkedFrom == null) != IsOriginal)
+        {
+            throw new InvalidOperationException(
+                $"Thread {Id}: IsOriginal={IsOriginal} but ForkedFrom={ForkedFrom ?? "null"}");
+        }
+
+        // Invariant 2: Sibling index range
+        if (SiblingIndex < 0 || SiblingIndex >= TotalSiblings)
+        {
+            throw new InvalidOperationException(
+                $"Thread {Id}: SiblingIndex={SiblingIndex} out of range [0, {TotalSiblings})");
+        }
+
+        // Invariant 3: Total siblings must be positive
+        if (TotalSiblings <= 0)
+        {
+            throw new InvalidOperationException(
+                $"Thread {Id}: TotalSiblings={TotalSiblings} must be positive");
+        }
+
+        // Invariant 4: First sibling
+        if (SiblingIndex == 0 && PreviousSiblingId != null)
+        {
+            throw new InvalidOperationException(
+                $"Thread {Id}: First sibling (index=0) has PreviousSiblingId={PreviousSiblingId}");
+        }
+
+        // Invariant 5: Last sibling
+        if (SiblingIndex == TotalSiblings - 1 && NextSiblingId != null)
+        {
+            throw new InvalidOperationException(
+                $"Thread {Id}: Last sibling (index={TotalSiblings - 1}) has NextSiblingId={NextSiblingId}");
+        }
+
+        // Invariant 6: Middle siblings must have both pointers
+        if (SiblingIndex > 0 && PreviousSiblingId == null)
+        {
+            throw new InvalidOperationException(
+                $"Thread {Id}: Middle sibling (index={SiblingIndex}) has null PreviousSiblingId");
+        }
+
+        if (SiblingIndex < TotalSiblings - 1 && NextSiblingId == null)
+        {
+            throw new InvalidOperationException(
+                $"Thread {Id}: Middle sibling (index={SiblingIndex}) has null NextSiblingId");
+        }
+
+        // Invariant 7: Original thread ID consistency
+        if (IsOriginal && OriginalThreadId != null)
+        {
+            throw new InvalidOperationException(
+                $"Thread {Id}: Original thread should have OriginalThreadId=null, but has {OriginalThreadId}");
+        }
+    }
+}

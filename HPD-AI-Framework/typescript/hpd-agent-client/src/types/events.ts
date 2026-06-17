@@ -9,16 +9,16 @@ export const EventTypes = {
   USER_TEXT_INPUT: 'USER_TEXT_INPUT',
   USER_MESSAGES_INPUT: 'USER_MESSAGES_INPUT',
 
-  // Durable Branch Events
-  BRANCH_CREATED: 'BRANCH_CREATED',
-  BRANCH_FORKED: 'BRANCH_FORKED',
-  BRANCH_METADATA_UPDATED: 'BRANCH_METADATA_UPDATED',
-  BRANCH_TREE_UPDATED: 'BRANCH_TREE_UPDATED',
+  // Durable Thread Events
+  THREAD_CREATED: 'THREAD_CREATED',
+  THREAD_FORKED: 'THREAD_FORKED',
+  THREAD_METADATA_UPDATED: 'THREAD_METADATA_UPDATED',
+  THREAD_TREE_UPDATED: 'THREAD_TREE_UPDATED',
   MESSAGE_STARTED: 'MESSAGE_STARTED',
   MESSAGE_COMPLETED: 'MESSAGE_COMPLETED',
   CONTENT_ADDED: 'CONTENT_ADDED',
-  BRANCH_MIDDLEWARE_STATE_COMMITTED: 'BRANCH_MIDDLEWARE_STATE_COMMITTED',
-  BRANCH_HISTORY_COMPACTED: 'BRANCH_HISTORY_COMPACTED',
+  THREAD_MIDDLEWARE_STATE_COMMITTED: 'THREAD_MIDDLEWARE_STATE_COMMITTED',
+  THREAD_HISTORY_COMPACTED: 'THREAD_HISTORY_COMPACTED',
 
   // Message Turn Lifecycle
   MESSAGE_TURN_STARTED: 'MESSAGE_TURN_STARTED',
@@ -29,8 +29,8 @@ export const EventTypes = {
   AGENT_TURN_STARTED: 'AGENT_TURN_STARTED',
   AGENT_TURN_FINISHED: 'AGENT_TURN_FINISHED',
   STATE_SNAPSHOT: 'STATE_SNAPSHOT',
-  BRANCH_RUN_STARTED: 'BRANCH_RUN_STARTED',
-  BRANCH_RUN_COMPLETED: 'BRANCH_RUN_COMPLETED',
+  THREAD_RUN_STARTED: 'THREAD_RUN_STARTED',
+  THREAD_RUN_COMPLETED: 'THREAD_RUN_COMPLETED',
 
   // Content Streaming
   TEXT_MESSAGE_START: 'TEXT_MESSAGE_START',
@@ -134,7 +134,7 @@ export interface BaseEvent {
   metadata?: AgentMetadata;
   eventId?: string;
   sessionId?: string;
-  branchId?: string;
+  threadId?: string;
   sequenceNumber?: number;
   timestamp?: string;
   eventFlowId?: string;
@@ -189,7 +189,7 @@ export interface UnknownAgentEvent extends BaseEvent {
 
 export interface AgentInputEvent extends BaseEvent {
   sessionId?: string;
-  branchId?: string;
+  threadId?: string;
   agentId?: string;
   runConfig?: import('./run-config.js').RunConfig;
 }
@@ -205,45 +205,45 @@ export interface UserMessagesInputEvent extends AgentInputEvent {
 }
 
 // ============================================
-// Durable Branch Events
+// Durable Thread Events
 // ============================================
 
-export interface BranchCreatedEvent extends BaseEvent {
-  type: typeof EventTypes.BRANCH_CREATED;
+export interface ThreadCreatedEvent extends BaseEvent {
+  type: typeof EventTypes.THREAD_CREATED;
   name?: string | null;
   description?: string | null;
   tags?: string[] | null;
-  branchMetadata?: Record<string, unknown> | null;
+  threadMetadata?: Record<string, unknown> | null;
   createdAt: string;
 }
 
-export interface BranchForkedEvent extends BaseEvent {
-  type: typeof EventTypes.BRANCH_FORKED;
-  sourceBranchId: string;
+export interface ThreadForkedEvent extends BaseEvent {
+  type: typeof EventTypes.THREAD_FORKED;
+  sourceThreadId: string;
   fromMessageId: string;
   resolvedMessageIndex: number;
   ancestors?: Record<string, string> | null;
 }
 
-export interface BranchMetadataUpdatedEvent extends BaseEvent {
-  type: typeof EventTypes.BRANCH_METADATA_UPDATED;
+export interface ThreadMetadataUpdatedEvent extends BaseEvent {
+  type: typeof EventTypes.THREAD_METADATA_UPDATED;
   name?: string | null;
   description?: string | null;
   tags?: string[] | null;
-  branchMetadata?: Record<string, unknown> | null;
+  threadMetadata?: Record<string, unknown> | null;
 }
 
-export interface BranchTreeUpdatedEvent extends BaseEvent {
-  type: typeof EventTypes.BRANCH_TREE_UPDATED;
+export interface ThreadTreeUpdatedEvent extends BaseEvent {
+  type: typeof EventTypes.THREAD_TREE_UPDATED;
   forkedFrom?: string | null;
   forkedAtMessageIndex?: number | null;
   siblingIndex: number;
   totalSiblings: number;
   isOriginal: boolean;
-  originalBranchId?: string | null;
+  originalThreadId?: string | null;
   previousSiblingId?: string | null;
   nextSiblingId?: string | null;
-  childBranches: string[];
+  childThreads: string[];
 }
 
 export interface MessageStartedEvent extends BaseEvent {
@@ -265,13 +265,13 @@ export interface ContentAddedEvent extends BaseEvent {
   content: unknown;
 }
 
-export interface BranchMiddlewareStateCommittedEvent extends BaseEvent {
-  type: typeof EventTypes.BRANCH_MIDDLEWARE_STATE_COMMITTED;
+export interface ThreadMiddlewareStateCommittedEvent extends BaseEvent {
+  type: typeof EventTypes.THREAD_MIDDLEWARE_STATE_COMMITTED;
   state: Record<string, string>;
 }
 
-export interface BranchHistoryCompactedEvent extends BaseEvent {
-  type: typeof EventTypes.BRANCH_HISTORY_COMPACTED;
+export interface ThreadHistoryCompactedEvent extends BaseEvent {
+  type: typeof EventTypes.THREAD_HISTORY_COMPACTED;
   compactionId: string;
   modelReducedMessageIds: string[];
   durableRemovedMessageIds: string[];
@@ -335,15 +335,15 @@ export interface StateSnapshotEvent extends BaseEvent {
   timestamp: string;
 }
 
-export interface BranchRunStartedEvent extends BaseEvent {
-  type: typeof EventTypes.BRANCH_RUN_STARTED;
+export interface ThreadRunStartedEvent extends BaseEvent {
+  type: typeof EventTypes.THREAD_RUN_STARTED;
   runtimeRunId: string;
   agentId: string;
   startedAt: string;
 }
 
-export interface BranchRunCompletedEvent extends BaseEvent {
-  type: typeof EventTypes.BRANCH_RUN_COMPLETED;
+export interface ThreadRunCompletedEvent extends BaseEvent {
+  type: typeof EventTypes.THREAD_RUN_COMPLETED;
   runtimeRunId: string;
   agentId: string;
   cancelled: boolean;
@@ -378,7 +378,7 @@ export interface IterationContextSnapshotEvent extends BaseEvent {
   timestamp: string;
 }
 
-export type StateScope = 'Session' | 'Branch';
+export type StateScope = 'Session' | 'Thread';
 
 export interface MiddlewareStateEntrySnapshot {
   key: string;
@@ -396,7 +396,7 @@ export interface MiddlewareStateSnapshotEvent extends BaseEvent {
   type: typeof EventTypes.MIDDLEWARE_STATE_SNAPSHOT;
   agentName: string;
   sessionId?: string;
-  branchId?: string;
+  threadId?: string;
   iteration: number;
   phase: string;
   batchId?: string;
@@ -425,7 +425,7 @@ export interface MiddlewareStateChangedEvent extends BaseEvent {
   type: typeof EventTypes.MIDDLEWARE_STATE_CHANGED;
   agentName: string;
   sessionId?: string;
-  branchId?: string;
+  threadId?: string;
   iteration: number;
   phase: string;
   batchId?: string;
@@ -735,16 +735,16 @@ export type KnownAgentEvent =
   // Input Events
   | UserTextInputEvent
   | UserMessagesInputEvent
-  // Durable Branch Events
-  | BranchCreatedEvent
-  | BranchForkedEvent
-  | BranchMetadataUpdatedEvent
-  | BranchTreeUpdatedEvent
+  // Durable Thread Events
+  | ThreadCreatedEvent
+  | ThreadForkedEvent
+  | ThreadMetadataUpdatedEvent
+  | ThreadTreeUpdatedEvent
   | MessageStartedEvent
   | MessageCompletedEvent
   | ContentAddedEvent
-  | BranchMiddlewareStateCommittedEvent
-  | BranchHistoryCompactedEvent
+  | ThreadMiddlewareStateCommittedEvent
+  | ThreadHistoryCompactedEvent
   // Message Turn Events
   | MessageTurnStartedEvent
   | MessageTurnFinishedEvent
@@ -753,8 +753,8 @@ export type KnownAgentEvent =
   | AgentTurnStartedEvent
   | AgentTurnFinishedEvent
   | StateSnapshotEvent
-  | BranchRunStartedEvent
-  | BranchRunCompletedEvent
+  | ThreadRunStartedEvent
+  | ThreadRunCompletedEvent
   | IterationContextSnapshotEvent
   | MiddlewareStateSnapshotEvent
   | MiddlewareStateChangedEvent

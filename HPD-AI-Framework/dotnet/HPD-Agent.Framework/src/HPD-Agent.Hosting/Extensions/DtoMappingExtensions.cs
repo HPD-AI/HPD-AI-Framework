@@ -23,40 +23,40 @@ public static class DtoMappingExtensions
     }
 
     /// <summary>
-    /// Convert a Branch to a BranchDto.
+    /// Convert a Thread to a ThreadDto.
     /// </summary>
-    public static BranchDto ToDto(this Branch branch, string sessionId)
+    public static ThreadDto ToDto(this Thread thread, string sessionId)
     {
-        ArgumentNullException.ThrowIfNull(branch);
+        ArgumentNullException.ThrowIfNull(thread);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
 
-        return new BranchDto(
-            branch.Id,
+        return new ThreadDto(
+            thread.Id,
             sessionId,
-            branch.GetDisplayName(),
-            branch.Description,
-            branch.ForkedFrom,
-            branch.ForkedAtMessageId,
-            branch.ForkedAtMessageIndex,
-            branch.CreatedAt,
-            branch.LastActivity,
-            branch.MessageCount,
-            branch.Tags,
-            branch.Ancestors,
-            branch.SiblingIndex,
-            branch.TotalSiblings,
-            branch.IsOriginal,
-            branch.OriginalBranchId,
-            branch.PreviousSiblingId,
-            branch.NextSiblingId,
-            branch.TotalForks,
-            branch.Metadata.Count > 0 ? branch.Metadata : null,
-            branch.Kind,
-            branch.Visibility,
-            branch.ParentSessionId,
-            branch.ParentBranchId,
-            branch.SubAgentName,
-            branch.SubAgentRunId);
+            thread.GetDisplayName(),
+            thread.Description,
+            thread.ForkedFrom,
+            thread.ForkedAtMessageId,
+            thread.ForkedAtMessageIndex,
+            thread.CreatedAt,
+            thread.LastActivity,
+            thread.MessageCount,
+            thread.Tags,
+            thread.Ancestors,
+            thread.SiblingIndex,
+            thread.TotalSiblings,
+            thread.IsOriginal,
+            thread.OriginalThreadId,
+            thread.PreviousSiblingId,
+            thread.NextSiblingId,
+            thread.TotalForks,
+            thread.Metadata.Count > 0 ? thread.Metadata : null,
+            thread.Kind,
+            thread.Visibility,
+            thread.ParentSessionId,
+            thread.ParentThreadId,
+            thread.SubAgentName,
+            thread.SubAgentRunId);
     }
 
     /// <summary>

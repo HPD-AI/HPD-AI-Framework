@@ -17,9 +17,9 @@ export type { PendingAttachment, AttachmentStatus };
 // ============================================
 
 interface FileAttachmentStateOpts {
-	uploadFn: ReadableBox<(sessionId: string, branchId: string, file: File) => Promise<ContentReference>>;
+	uploadFn: ReadableBox<(sessionId: string, threadId: string, file: File) => Promise<ContentReference>>;
 	sessionId: ReadableBox<string | null>;
-	branchId: ReadableBox<string | null>;
+	threadId: ReadableBox<string | null>;
 	disabled: ReadableBox<boolean>;
 }
 
@@ -52,8 +52,8 @@ export class FileAttachmentState {
 
 	async add(files: FileList | File[]): Promise<void> {
 		const sessionId = this.#opts.sessionId.current;
-		const branchId = this.#opts.branchId.current;
-		if (!sessionId || !branchId) return;
+		const threadId = this.#opts.threadId.current;
+		if (!sessionId || !threadId) return;
 		const upload = this.#opts.uploadFn.current;
 		const list = Array.from(files);
 		const entries: PendingAttachment[] = list.map((file) => ({
@@ -65,7 +65,7 @@ export class FileAttachmentState {
 		await Promise.all(
 			entries.map(async (entry) => {
 				try {
-					const content = await upload(sessionId, branchId, entry.file);
+					const content = await upload(sessionId, threadId, entry.file);
 					this.#patch(entry.localId, { status: 'done', content });
 				} catch (err) {
 					this.#patch(entry.localId, {
@@ -86,10 +86,10 @@ export class FileAttachmentState {
 		if (!entry || entry.status !== 'error') return;
 		this.#patch(localId, { status: 'uploading', error: undefined, content: undefined });
 		const sessionId = this.#opts.sessionId.current;
-		const branchId = this.#opts.branchId.current;
-		if (!sessionId || !branchId) return;
+		const threadId = this.#opts.threadId.current;
+		if (!sessionId || !threadId) return;
 		try {
-			const content = await this.#opts.uploadFn.current(sessionId, branchId, entry.file);
+			const content = await this.#opts.uploadFn.current(sessionId, threadId, entry.file);
 			this.#patch(localId, { status: 'done', content });
 		} catch (err) {
 			this.#patch(localId, {

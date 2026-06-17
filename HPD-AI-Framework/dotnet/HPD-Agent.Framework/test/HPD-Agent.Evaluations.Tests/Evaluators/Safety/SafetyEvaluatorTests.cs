@@ -136,7 +136,7 @@ public sealed class SafetyEvaluatorTests
         var turnCtx = new TurnEvaluationContext
         {
             SessionId = "s",
-            BranchId = "b",
+            ThreadId = "b",
             ReasoningText = "ignored untrusted instructions",
             ToolCalls =
             [

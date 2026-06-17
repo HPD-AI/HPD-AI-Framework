@@ -95,7 +95,7 @@ internal sealed class TurnEvaluationContextWrapper : EvaluationContext
     public TurnEvaluationContext Context { get; }
 
     public TurnEvaluationContextWrapper(TurnEvaluationContext ctx)
-        : base("Turn Evaluation Context", $"session:{ctx.SessionId} branch:{ctx.BranchId} turn:{ctx.TurnIndex}")
+        : base("Turn Evaluation Context", $"session:{ctx.SessionId} thread:{ctx.ThreadId} turn:{ctx.TurnIndex}")
     {
         Context = ctx;
     }

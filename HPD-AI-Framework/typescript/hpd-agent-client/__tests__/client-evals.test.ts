@@ -2,7 +2,7 @@
  * Unit tests for AgentClient eval query methods.
  *
  * What these tests cover:
- *   getScores, getScoresByBranch, writeScore, getEvaluatorSummary,
+ *   getScores, getScoresByThread, writeScore, getEvaluatorSummary,
  *   getRiskAutonomyDistribution — one-line passthroughs to the underlying
  *   AgentHttpApi. The tests verify:
  *     1. The correct HTTP method and URL (including query params) are called.
@@ -43,7 +43,7 @@ const SCORE_RECORD: ScoreRecord = {
   evaluatorVersion: '1.0.0',
   source: 'Live',
   sessionId: 'session-1',
-  branchId: 'main',
+  threadId: 'main',
   turnIndex: 0,
   agentName: 'coder',
   turnDuration: 'PT1S',
@@ -69,7 +69,7 @@ const EVALUATOR_SUMMARY: EvaluatorSummary = {
 
 const RISK_AUTONOMY_POINT: RiskAutonomyDataPoint = {
   sessionId: 'session-1',
-  branchId: 'main',
+  threadId: 'main',
   turnIndex: 0,
   agentName: 'coder',
   riskScore: 3.0,
@@ -138,35 +138,35 @@ describe('AgentClient — eval query methods', () => {
     );
   });
 
-  // ── getScoresByBranch ──────────────────────────────────────────────────────
+  // ── getScoresByThread ──────────────────────────────────────────────────────
 
-  it('getScoresByBranch: GET /evals/scores/by-branch?sessionId=…, returns ScoreRecord[]', async () => {
+  it('getScoresByThread: GET /evals/scores/by-thread?sessionId=…, returns ScoreRecord[]', async () => {
     mockFetchJson([SCORE_RECORD]);
 
-    const result = await client.getScoresByBranch('session-1');
+    const result = await client.getScoresByThread('session-1');
 
     const [url, init] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0] as [string, RequestInit];
-    expect(url).toBe(`${BASE}/evals/scores/by-branch?sessionId=session-1`);
+    expect(url).toBe(`${BASE}/evals/scores/by-thread?sessionId=session-1`);
     expect(init.method).toBe('GET');
     expect(result).toEqual([SCORE_RECORD]);
   });
 
-  it('getScoresByBranch: appends branchId when provided', async () => {
+  it('getScoresByThread: appends threadId when provided', async () => {
     mockFetchJson([]);
 
-    await client.getScoresByBranch('session-1', 'main');
+    await client.getScoresByThread('session-1', 'main');
 
     const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0] as [string, RequestInit];
-    expect(url).toContain('branchId=main');
+    expect(url).toContain('threadId=main');
   });
 
-  it('getScoresByBranch: omits branchId when not provided', async () => {
+  it('getScoresByThread: omits threadId when not provided', async () => {
     mockFetchJson([]);
 
-    await client.getScoresByBranch('session-1');
+    await client.getScoresByThread('session-1');
 
     const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0] as [string, RequestInit];
-    expect(url).not.toContain('branchId=');
+    expect(url).not.toContain('threadId=');
   });
 
   // ── writeScore ─────────────────────────────────────────────────────────────

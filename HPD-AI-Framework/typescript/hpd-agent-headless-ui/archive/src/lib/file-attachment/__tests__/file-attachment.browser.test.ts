@@ -29,7 +29,7 @@ const DEFAULT_CONTENT: ContentReference = {
 function setup(props: {
 	mode?: 'external' | 'internal';
 	sessionId?: string | null;
-	branchId?: string | null;
+	threadId?: string | null;
 	disabled?: boolean;
 	uploadFn?: (sid: string, bid: string, file: File) => Promise<ContentReference>;
 } = {}) {

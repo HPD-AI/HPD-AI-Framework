@@ -34,11 +34,11 @@ public sealed class RouterAdapterTests
         var pipeline = await MragPipeline.Create()
             .WithName("router-test")
             .AddRouter<StubRouter>("route", ports: 2)
-            .AddHandler("branch-a", MragHandlerNames.ChunkByHeader)
-            .AddHandler("branch-b", MragHandlerNames.ChunkByToken)
+            .AddHandler("thread-a", MragHandlerNames.ChunkByHeader)
+            .AddHandler("thread-b", MragHandlerNames.ChunkByToken)
             .From("START").To("route").Done()
-            .From("route").Port(0).To("branch-a").To("END").Done()
-            .From("route").Port(1).To("branch-b").To("END").Done()
+            .From("route").Port(0).To("thread-a").To("END").Done()
+            .From("route").Port(1).To("thread-b").To("END").Done()
             .BuildIngestionAsync();
 
         Assert.NotNull(pipeline);

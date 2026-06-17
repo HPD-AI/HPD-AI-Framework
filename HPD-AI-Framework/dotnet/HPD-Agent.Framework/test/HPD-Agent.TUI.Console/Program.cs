@@ -34,6 +34,6 @@ static void PrintUsage()
     global::System.Console.WriteLine("Usage:");
     global::System.Console.WriteLine("  dotnet run --project test/HPD-Agent.TUI.Console -- demo");
     global::System.Console.WriteLine("  dotnet run --project test/HPD-Agent.TUI.Console -- direct");
-    global::System.Console.WriteLine("  dotnet run --project test/HPD-Agent.TUI.Console -- server [--url http://127.0.0.1:5057] [--agent tui-console-agent] [--session local-session] [--branch main]");
+    global::System.Console.WriteLine("  dotnet run --project test/HPD-Agent.TUI.Console -- server [--url http://127.0.0.1:5057] [--agent tui-console-agent] [--session local-session] [--thread main]");
     global::System.Console.WriteLine("  dotnet run --project test/HPD-Agent.TUI.Console -- coding [--workspace /path/to/project] [--list-tools]");
 }

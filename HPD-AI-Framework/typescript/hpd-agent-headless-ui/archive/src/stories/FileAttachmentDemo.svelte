@@ -15,7 +15,7 @@
 		disabled = false,
 		uploadMode = 'success' as UploadMode,
 		sessionId = 'demo-session',
-		branchId = 'main',
+		threadId = 'main',
 		...restProps
 	} = $props();
 
@@ -44,7 +44,7 @@
 	const attachments = new FileAttachmentState({
 		uploadFn: boxWith(() => makeUploadFn(uploadMode)),
 		sessionId: boxWith(() => sessionId),
-		branchId: boxWith(() => branchId),
+		threadId: boxWith(() => threadId),
 		disabled: boxWith(() => disabled),
 	});
 

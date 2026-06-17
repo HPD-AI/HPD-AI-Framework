@@ -255,7 +255,7 @@ public class AgentRunConfig
     public ClientTools.AgentClientInput? ClientToolInput { get; set; }
 
     /// <summary>
-    /// Conversation ID override (for multi-tenant scenarios or branching).
+    /// Conversation ID override (for multi-tenant scenarios or threading).
     /// Null = use thread's conversation ID.
     /// </summary>
     public string? ConversationIdOverride { get; set; }

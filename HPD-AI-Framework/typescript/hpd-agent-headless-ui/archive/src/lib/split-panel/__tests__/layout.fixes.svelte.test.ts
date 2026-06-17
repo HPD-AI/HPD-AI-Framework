@@ -2,7 +2,7 @@
  * Regression tests for three architectural fixes:
  *
  * Gap 4 — Tree rebuild clobbers user-resized sizes
- *   Every mount/unmount cycle called #buildBranchFromSplit which always used
+ *   Every mount/unmount cycle called #buildThreadFromSplit which always used
  *   initialSize config, discarding any sizes the user had dragged.
  *   Fix: look up existing leaf before constructing, preserve size/cachedSize/
  *        cachedFlex/flex from the live tree.
@@ -10,7 +10,7 @@
  * Gap 5 — Float32Array index mutations invisible to Svelte 5 proxy
  *   Float32Array index writes (flexes[i] = x) are invisible to Svelte's Proxy.
  *   This caused isCollapsed/size derived values to not update after toggle/resize.
- *   Fix: change BranchNode.flexes from Float32Array to number[].
+ *   Fix: change ThreadNode.flexes from Float32Array to number[].
  *        Remove layoutVersion counter entirely.
  *
  * Gap 3 — onPaneResize callback missing
@@ -22,7 +22,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { SplitPanelState } from '../state/split-panel-state.svelte.js';
-import type { BranchNode, LeafNode } from '../types/types.js';
+import type { ThreadNode, LeafNode } from '../types/types.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -32,20 +32,20 @@ function waitForRaf(): Promise<void> {
 	return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
-function getRootBranch(state: SplitPanelState): BranchNode {
+function getRootThread(state: SplitPanelState): ThreadNode {
 	const root = state.root;
-	if (root.type !== 'branch') throw new Error('Root is not a branch');
+	if (root.type !== 'thread') throw new Error('Root is not a thread');
 	return root;
 }
 
 function getLeafAt(state: SplitPanelState, index: number): LeafNode {
-	const child = getRootBranch(state).children[index];
+	const child = getRootThread(state).children[index];
 	if (child.type !== 'leaf') throw new Error(`Child at ${index} is not a leaf`);
 	return child;
 }
 
 function getLeafFlex(state: SplitPanelState, index: number): number {
-	return getRootBranch(state).flexes[index];
+	return getRootThread(state).flexes[index];
 }
 
 // ---------------------------------------------------------------------------
@@ -161,8 +161,8 @@ describe('Gap 5 — flex array is plain number[] and reactive', () => {
 		state.addPanel('y', [], { size: 300, minSize: 50 });
 	});
 
-	it('BranchNode.flexes is a plain number[] (not Float32Array)', () => {
-		const root = getRootBranch(state);
+	it('ThreadNode.flexes is a plain number[] (not Float32Array)', () => {
+		const root = getRootThread(state);
 		expect(Array.isArray(root.flexes)).toBe(true);
 		// Must NOT be a typed array
 		expect(root.flexes instanceof Float32Array).toBe(false);
@@ -222,7 +222,7 @@ describe('Gap 5 — flex array is plain number[] and reactive', () => {
 		state.resizeDivider([], 0, 50);
 		await waitForRaf();
 
-		const root = getRootBranch(state);
+		const root = getRootThread(state);
 		const activeFlex = root.flexes.filter((f) => f > 1e-6);
 		const sum = activeFlex.reduce((a, b) => a + b, 0);
 		const count = activeFlex.length;
@@ -235,7 +235,7 @@ describe('Gap 5 — flex array is plain number[] and reactive', () => {
 		state.togglePanel('x');
 		flushSync();
 
-		const root = getRootBranch(state);
+		const root = getRootThread(state);
 		const activeFlex = root.flexes.filter((f) => f > 1e-6);
 		expect(activeFlex.length).toBe(1);
 

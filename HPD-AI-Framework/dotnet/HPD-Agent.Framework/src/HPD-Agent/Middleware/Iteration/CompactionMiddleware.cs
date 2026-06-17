@@ -14,9 +14,9 @@ public class CompactionMiddleware : IAgentMiddleware
 
     public string? SystemInstructions { get; init; }
 
-    public IBranchCompactionPlanner BranchCompactionPlanner { get; init; } = new BranchCompactionPlanner();
+    public IThreadCompactionPlanner ThreadCompactionPlanner { get; init; } = new ThreadCompactionPlanner();
 
-    public IBranchHistoryCompactor BranchHistoryCompactor { get; init; } = new BranchHistoryCompactor();
+    public IThreadHistoryCompactor ThreadHistoryCompactor { get; init; } = new ThreadHistoryCompactor();
 
     public async Task BeforeMessageTurnAsync(
         BeforeMessageTurnContext context,
@@ -31,7 +31,7 @@ public class CompactionMiddleware : IAgentMiddleware
             return;
         }
 
-        if (context.BranchHistory == null || context.BranchHistory.Count == 0)
+        if (context.ThreadHistory == null || context.ThreadHistory.Count == 0)
         {
             EmitCompactionEvent(context, CompactionStatus.Skipped,
                 reason: "No messages present", startTime: startTime);
@@ -52,28 +52,28 @@ public class CompactionMiddleware : IAgentMiddleware
             EmitCompactionEvent(context, CompactionStatus.Skipped,
                 reason: decision.Description ?? "Compaction threshold not met",
                 startTime: startTime,
-                originalMessageCount: context.BranchHistory.Count);
+                originalMessageCount: context.ThreadHistory.Count);
             return;
         }
 
-        var systemMessages = context.BranchHistory.Where(m => m.Role == ChatRole.System).ToList();
-        var conversationMessages = context.BranchHistory.Where(m => m.Role != ChatRole.System).ToList();
+        var systemMessages = context.ThreadHistory.Where(m => m.Role == ChatRole.System).ToList();
+        var conversationMessages = context.ThreadHistory.Where(m => m.Role != ChatRole.System).ToList();
 
         var result = await Strategy.ReduceAsync(conversationMessages, cancellationToken).ConfigureAwait(false);
 
-        context.BranchHistory.Clear();
+        context.ThreadHistory.Clear();
         foreach (var message in systemMessages.Concat(result.ModelVisibleMessages))
-            context.BranchHistory.Add(message);
+            context.ThreadHistory.Add(message);
 
         var snapshot = CompactionSnapshot.FromResult(result);
         context.UpdateMiddlewareState<CompactionStateData>(state =>
             state.WithCompaction(snapshot));
 
-        if (context.Branch is not null)
+        if (context.Thread is not null)
         {
-            var plan = BranchCompactionPlanner.Plan(context.Branch, result, Config.Retention);
+            var plan = ThreadCompactionPlanner.Plan(context.Thread, result, Config.Retention);
             if (plan is not null)
-                await BranchHistoryCompactor.CompactAsync(context.Branch, plan, cancellationToken).ConfigureAwait(false);
+                await ThreadHistoryCompactor.CompactAsync(context.Thread, plan, cancellationToken).ConfigureAwait(false);
         }
 
         EmitCompactionEvent(context, CompactionStatus.Performed,
@@ -99,8 +99,8 @@ public class CompactionMiddleware : IAgentMiddleware
         return Task.CompletedTask;
     }
 
-    public async Task BeforeBranchForkCommitAsync(
-        BeforeBranchForkCommitContext context,
+    public async Task BeforeThreadForkCommitAsync(
+        BeforeThreadForkCommitContext context,
         CancellationToken cancellationToken)
     {
         var startTime = DateTimeOffset.UtcNow;
@@ -108,7 +108,7 @@ public class CompactionMiddleware : IAgentMiddleware
         if (!ShouldCompactFork(context))
             return;
 
-        if (context.TargetBranch.Messages.Count == 0)
+        if (context.TargetThread.Messages.Count == 0)
         {
             EmitCompactionEvent(context, CompactionStatus.Skipped,
                 reason: "No messages present on fork target", startTime: startTime);
@@ -122,10 +122,10 @@ public class CompactionMiddleware : IAgentMiddleware
             return;
         }
 
-        var systemMessages = context.TargetBranch.Messages
+        var systemMessages = context.TargetThread.Messages
             .Where(message => message.Role == ChatRole.System)
             .ToList();
-        var conversationMessages = context.TargetBranch.Messages
+        var conversationMessages = context.TargetThread.Messages
             .Where(message => message.Role != ChatRole.System)
             .ToList();
 
@@ -136,7 +136,7 @@ public class CompactionMiddleware : IAgentMiddleware
             return;
         }
 
-        if (context.ForkOptions.CompactionIntent == BranchForkCompactionIntent.PreferCache &&
+        if (context.ForkOptions.CompactionIntent == ThreadForkCompactionIntent.PreferCache &&
             TryApplyCachedForkCompaction(context, conversationMessages, systemMessages, startTime))
         {
             return;
@@ -144,9 +144,9 @@ public class CompactionMiddleware : IAgentMiddleware
 
         var result = await Strategy.ReduceAsync(conversationMessages, cancellationToken).ConfigureAwait(false);
 
-        context.TargetBranch.Messages.Clear();
+        context.TargetThread.Messages.Clear();
         foreach (var message in systemMessages.Concat(result.ModelVisibleMessages))
-            context.TargetBranch.Messages.Add(message);
+            context.TargetThread.Messages.Add(message);
 
         var snapshot = CompactionSnapshot.FromResult(result);
         context.UpdateMiddlewareState<CompactionStateData>(state =>
@@ -158,20 +158,20 @@ public class CompactionMiddleware : IAgentMiddleware
             compactedMessageCount: result.ModelVisibleMessages.Count,
             messagesRemoved: result.ModelCompactedMessages.Count,
             summaryContent: result.SummaryContent,
-            reason: "Compacted fork target before branch commit");
+            reason: "Compacted fork target before thread commit");
     }
 
-    private bool ShouldCompactFork(BeforeBranchForkCommitContext context) =>
+    private bool ShouldCompactFork(BeforeThreadForkCommitContext context) =>
         context.ForkOptions.CompactionIntent switch
         {
-            BranchForkCompactionIntent.Enabled => true,
-            BranchForkCompactionIntent.PreferCache => true,
-            BranchForkCompactionIntent.Disabled => false,
+            ThreadForkCompactionIntent.Enabled => true,
+            ThreadForkCompactionIntent.PreferCache => true,
+            ThreadForkCompactionIntent.Disabled => false,
             _ => Config.CompactOnFork
         };
 
     private bool TryApplyCachedForkCompaction(
-        BeforeBranchForkCommitContext context,
+        BeforeThreadForkCommitContext context,
         IReadOnlyList<ChatMessage> conversationMessages,
         IReadOnlyList<ChatMessage> systemMessages,
         DateTimeOffset startTime)
@@ -197,9 +197,9 @@ public class CompactionMiddleware : IAgentMiddleware
             modelVisibleMessages.Add(message);
         }
 
-        context.TargetBranch.Messages.Clear();
+        context.TargetThread.Messages.Clear();
         foreach (var message in systemMessages.Concat(modelVisibleMessages))
-            context.TargetBranch.Messages.Add(message);
+            context.TargetThread.Messages.Add(message);
 
         context.UpdateMiddlewareState<CompactionStateData>(state =>
             state.WithCompactionApplied(DateTimeOffset.UtcNow));
@@ -263,7 +263,7 @@ public class CompactionMiddleware : IAgentMiddleware
         var currentCount = trigger.CountingUnit switch
         {
             HistoryCountingUnit.MessageTurns => state?.MessageTurnCount ?? 0,
-            HistoryCountingUnit.Messages => context.BranchHistory?.Count ?? 0,
+            HistoryCountingUnit.Messages => context.ThreadHistory?.Count ?? 0,
             _ => state?.MessageTurnCount ?? 0
         };
 

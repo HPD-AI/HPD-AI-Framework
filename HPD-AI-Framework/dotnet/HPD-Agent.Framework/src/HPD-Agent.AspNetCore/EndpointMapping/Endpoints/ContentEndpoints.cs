@@ -9,7 +9,7 @@ namespace HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 
 /// <summary>
 /// Content management endpoints for the HPD-Agent API.
-/// Content items are scoped to a session branch.
+/// Content items are scoped to a session thread.
 /// </summary>
 internal static class ContentEndpoints
 {
@@ -18,27 +18,27 @@ internal static class ContentEndpoints
     /// </summary>
     internal static void Map(IEndpointRouteBuilder endpoints, IAgentContentService content)
     {
-        // POST /sessions/{sid}/branches/{bid}/content - Upload content (multipart/form-data)
-        endpoints.MapPost("/sessions/{sid}/branches/{bid}/content", (string sid, string bid, HttpRequest request, CancellationToken ct) =>
+        // POST /sessions/{sid}/threads/{bid}/content - Upload content (multipart/form-data)
+        endpoints.MapPost("/sessions/{sid}/threads/{bid}/content", (string sid, string bid, HttpRequest request, CancellationToken ct) =>
                 UploadContent(sid, bid, request, content, ct))
             .WithName("UploadContent")
             .WithSummary("Upload content (multipart/form-data)")
             .DisableAntiforgery(); // Allow multipart uploads
 
-        // GET /sessions/{sid}/branches/{bid}/content - List content for branch
-        endpoints.MapGet("/sessions/{sid}/branches/{bid}/content", (string sid, string bid, CancellationToken ct) =>
+        // GET /sessions/{sid}/threads/{bid}/content - List content for thread
+        endpoints.MapGet("/sessions/{sid}/threads/{bid}/content", (string sid, string bid, CancellationToken ct) =>
                 ListContent(sid, bid, content, ct))
             .WithName("ListContent")
-            .WithSummary("List all content in a branch");
+            .WithSummary("List all content in a thread");
 
-        // GET /sessions/{sid}/branches/{bid}/content/{contentId} - Download content (returns binary)
-        endpoints.MapGet("/sessions/{sid}/branches/{bid}/content/{contentId}", (string sid, string bid, string contentId, CancellationToken ct) =>
+        // GET /sessions/{sid}/threads/{bid}/content/{contentId} - Download content (returns binary)
+        endpoints.MapGet("/sessions/{sid}/threads/{bid}/content/{contentId}", (string sid, string bid, string contentId, CancellationToken ct) =>
                 DownloadContent(sid, bid, contentId, content, ct))
             .WithName("DownloadContent")
             .WithSummary("Download content (returns binary content)");
 
-        // DELETE /sessions/{sid}/branches/{bid}/content/{contentId} - Delete content
-        endpoints.MapDelete("/sessions/{sid}/branches/{bid}/content/{contentId}", (string sid, string bid, string contentId, CancellationToken ct) =>
+        // DELETE /sessions/{sid}/threads/{bid}/content/{contentId} - Delete content
+        endpoints.MapDelete("/sessions/{sid}/threads/{bid}/content/{contentId}", (string sid, string bid, string contentId, CancellationToken ct) =>
                 DeleteContent(sid, bid, contentId, content, ct))
             .WithName("DeleteContent")
             .WithSummary("Delete content");
@@ -77,7 +77,7 @@ internal static class ContentEndpoints
             return result.Status switch
             {
                 AgentServiceStatus.Success => TypedResults.Created(
-                    $"/sessions/{sid}/branches/{bid}/content/{result.Value!.ContentId}",
+                    $"/sessions/{sid}/threads/{bid}/content/{result.Value!.ContentId}",
                     result.Value),
                 AgentServiceStatus.NotFound => TypedResults.NotFound(),
                 _ => TypedResults.ValidationProblem(ToValidation(result))

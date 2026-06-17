@@ -41,7 +41,7 @@ public class TestIntegrationSubAgents
                     ModelName = "google/gemini-2.0-flash-exp:free"
                 } }
             },
-            SubAgentExecutionPolicies.SharedSessionFreshBranch("math-expert"));
+            SubAgentExecutionPolicies.SharedSessionFreshThread("math-expert"));
     }
 
     [SubAgent]

@@ -4,14 +4,14 @@ using HPD.Events;
 
 namespace HPD.Agent.TUI.Runtime;
 
-public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessionBranchRuntime, IAgentTuiAgentRuntime, IAsyncDisposable
+public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessionThreadRuntime, IAgentTuiAgentRuntime, IAsyncDisposable
 {
     private readonly Agent _agent;
     private readonly AgentTuiRuntimeScope _defaultScope;
     private readonly Channel<AgentEvent> _events = Channel.CreateUnbounded<AgentEvent>();
     private readonly IDisposable _subscription;
     private readonly object _gate = new();
-    private AgentTuiBranchRun? _activeRun;
+    private AgentTuiThreadRun? _activeRun;
 
     public InMemoryAgentTuiRuntime(
         Agent agent,
@@ -243,7 +243,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         await _agent.DeleteSessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<IReadOnlyList<AgentTuiBranchInfo>> ListBranchesAsync(
+    public async Task<IReadOnlyList<AgentTuiThreadInfo>> ListThreadsAsync(
         string sessionId,
         CancellationToken cancellationToken = default)
     {
@@ -253,87 +253,87 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             return [];
         }
 
-        var branchIds = await store.ListBranchIdsAsync(sessionId, cancellationToken).ConfigureAwait(false);
-        var branches = new List<AgentTuiBranchInfo>(branchIds.Count);
-        foreach (var branchId in branchIds)
+        var threadIds = await store.ListThreadIdsAsync(sessionId, cancellationToken).ConfigureAwait(false);
+        var threads = new List<AgentTuiThreadInfo>(threadIds.Count);
+        foreach (var threadId in threadIds)
         {
-            var branch = await store.LoadBranchAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false);
-            if (branch is not null)
+            var thread = await store.LoadThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false);
+            if (thread is not null)
             {
-                branches.Add(ToBranchInfo(branch, sessionId));
+                threads.Add(ToThreadInfo(thread, sessionId));
             }
         }
 
-        return branches
-            .OrderBy(static branch => branch.IsOriginal ? 0 : 1)
-            .ThenByDescending(static branch => branch.LastActivity)
+        return threads
+            .OrderBy(static thread => thread.IsOriginal ? 0 : 1)
+            .ThenByDescending(static thread => thread.LastActivity)
             .ToArray();
     }
 
-    public async Task<AgentTuiBranchInfo?> GetBranchAsync(
+    public async Task<AgentTuiThreadInfo?> GetThreadAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default)
     {
-        var branch = _agent.Config?.SessionStore is { } store
-            ? await store.LoadBranchAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false)
+        var thread = _agent.Config?.SessionStore is { } store
+            ? await store.LoadThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false)
             : null;
-        return branch is null ? null : ToBranchInfo(branch, sessionId);
+        return thread is null ? null : ToThreadInfo(thread, sessionId);
     }
 
-    public async Task<AgentTuiBranchInfo> CreateBranchAsync(
+    public async Task<AgentTuiThreadInfo> CreateThreadAsync(
         string agentId,
         string sessionId,
-        string? branchId = null,
+        string? threadId = null,
         string? name = null,
         CancellationToken cancellationToken = default)
-        => await CreateBranchAsync(
+        => await CreateThreadAsync(
                 agentId,
                 sessionId,
-                new AgentTuiCreateBranchRequest(branchId, name),
+                new AgentTuiCreateThreadRequest(threadId, name),
                 cancellationToken)
             .ConfigureAwait(false);
 
-    public async Task<AgentTuiBranchInfo> CreateBranchAsync(
+    public async Task<AgentTuiThreadInfo> CreateThreadAsync(
         string agentId,
         string sessionId,
-        AgentTuiCreateBranchRequest request,
+        AgentTuiCreateThreadRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var id = await _agent.CreateBranchAsync(sessionId, request.BranchId, request.Name, cancellationToken)
+        var id = await _agent.CreateThreadAsync(sessionId, request.ThreadId, request.Name, cancellationToken)
             .ConfigureAwait(false);
         var store = _agent.Config?.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
-        var branch = await store.LoadBranchAsync(sessionId, id, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Branch '{id}' was not found after creation.");
+        var thread = await store.LoadThreadAsync(sessionId, id, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Thread '{id}' was not found after creation.");
 
-        ApplyBranchUpdate(branch, new AgentTuiBranchUpdate(
+        ApplyThreadUpdate(thread, new AgentTuiThreadUpdate(
             request.Name,
             request.Description,
             request.Tags,
             request.Metadata));
-        await store.AppendBranchMetadataUpdatedAsync(branch, cancellationToken).ConfigureAwait(false);
-        return ToBranchInfo(branch, sessionId);
+        await store.AppendThreadMetadataUpdatedAsync(thread, cancellationToken).ConfigureAwait(false);
+        return ToThreadInfo(thread, sessionId);
     }
 
-    public async Task<AgentTuiBranchInfo> ForkBranchAsync(
+    public async Task<AgentTuiThreadInfo> ForkThreadAsync(
         string agentId,
         string sessionId,
-        string sourceBranchId,
-        AgentTuiForkBranchRequest request,
+        string sourceThreadId,
+        AgentTuiForkThreadRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var id = string.IsNullOrWhiteSpace(request.NewBranchId)
+        var id = string.IsNullOrWhiteSpace(request.NewThreadId)
             ? Guid.NewGuid().ToString("N")[..12]
-            : request.NewBranchId;
+            : request.NewThreadId;
         var metadata = ToObjectDictionary(request.Metadata);
-        var newBranchId = await _agent.ForkBranchAsync(
+        var newThreadId = await _agent.ForkThreadAsync(
                 sessionId,
-                sourceBranchId,
+                sourceThreadId,
                 id,
                 request.FromMessageId,
                 metadata,
@@ -341,77 +341,77 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             .ConfigureAwait(false);
         var store = _agent.Config?.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
-        var branch = await store.LoadBranchAsync(sessionId, newBranchId, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Branch '{newBranchId}' was not found after fork.");
+        var thread = await store.LoadThreadAsync(sessionId, newThreadId, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Thread '{newThreadId}' was not found after fork.");
 
-        ApplyBranchUpdate(branch, new AgentTuiBranchUpdate(
+        ApplyThreadUpdate(thread, new AgentTuiThreadUpdate(
             request.Name,
             request.Description,
             request.Tags,
             request.Metadata));
-        await store.AppendBranchMetadataUpdatedAsync(branch, cancellationToken).ConfigureAwait(false);
-        return ToBranchInfo(branch, sessionId);
+        await store.AppendThreadMetadataUpdatedAsync(thread, cancellationToken).ConfigureAwait(false);
+        return ToThreadInfo(thread, sessionId);
     }
 
-    public async Task<AgentTuiBranchInfo> UpdateBranchAsync(
+    public async Task<AgentTuiThreadInfo> UpdateThreadAsync(
         string sessionId,
-        string branchId,
-        AgentTuiBranchUpdate update,
+        string threadId,
+        AgentTuiThreadUpdate update,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(update);
 
         var store = _agent.Config?.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
-        var branch = await store.LoadBranchAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Branch '{branchId}' was not found.");
-        ApplyBranchUpdate(branch, update);
-        await store.AppendBranchMetadataUpdatedAsync(branch, cancellationToken).ConfigureAwait(false);
-        return ToBranchInfo(branch, sessionId);
+        var thread = await store.LoadThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Thread '{threadId}' was not found.");
+        ApplyThreadUpdate(thread, update);
+        await store.AppendThreadMetadataUpdatedAsync(thread, cancellationToken).ConfigureAwait(false);
+        return ToThreadInfo(thread, sessionId);
     }
 
-    public async Task<IReadOnlyList<AgentTuiBranchInfo>> GetSiblingBranchesAsync(
+    public async Task<IReadOnlyList<AgentTuiThreadInfo>> GetSiblingThreadsAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default)
     {
         var store = _agent.Config?.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
-        var target = await store.LoadBranchAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false);
+        var target = await store.LoadThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false);
         if (target is null)
         {
             return [];
         }
 
-        var branchIds = await store.ListBranchIdsAsync(sessionId, cancellationToken).ConfigureAwait(false);
-        var siblings = new List<AgentTuiBranchInfo>();
-        foreach (var id in branchIds)
+        var threadIds = await store.ListThreadIdsAsync(sessionId, cancellationToken).ConfigureAwait(false);
+        var siblings = new List<AgentTuiThreadInfo>();
+        foreach (var id in threadIds)
         {
-            var branch = await store.LoadBranchAsync(sessionId, id, cancellationToken).ConfigureAwait(false);
-            if (branch is not null && IsSiblingOf(branch, target))
+            var thread = await store.LoadThreadAsync(sessionId, id, cancellationToken).ConfigureAwait(false);
+            if (thread is not null && IsSiblingOf(thread, target))
             {
-                siblings.Add(ToBranchInfo(branch, sessionId));
+                siblings.Add(ToThreadInfo(thread, sessionId));
             }
         }
 
         return siblings
-            .OrderBy(static branch => branch.SiblingIndex)
-            .ThenBy(static branch => branch.CreatedAt)
+            .OrderBy(static thread => thread.SiblingIndex)
+            .ThenBy(static thread => thread.CreatedAt)
             .ToArray();
     }
 
-    public async Task DeleteBranchAsync(
+    public async Task DeleteThreadAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         bool recursive = false,
         CancellationToken cancellationToken = default)
     {
         if (recursive)
         {
-            throw new NotSupportedException("Recursive branch deletion is not supported by the in-memory TUI runtime.");
+            throw new NotSupportedException("Recursive thread deletion is not supported by the in-memory TUI runtime.");
         }
 
-        await _agent.DeleteBranchAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false);
+        await _agent.DeleteThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false);
     }
 
     private static AgentTuiSessionInfo ToSessionInfo(Session session)
@@ -437,31 +437,31 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
                 StringComparer.Ordinal),
             agent.Config);
 
-    private static AgentTuiBranchInfo ToBranchInfo(Branch branch, string sessionId)
+    private static AgentTuiThreadInfo ToThreadInfo(Thread thread, string sessionId)
         => new(
-            branch.Id,
+            thread.Id,
             sessionId,
-            branch.GetDisplayName(),
-            branch.Description,
-            branch.CreatedAt,
-            branch.LastActivity,
-            branch.MessageCount,
-            branch.IsOriginal,
-            branch.ForkedFrom,
-            branch.ForkedAtMessageId,
-            branch.ForkedAtMessageIndex,
-            branch.TotalForks,
-            branch.Tags?.ToArray(),
-            branch.Ancestors?.ToDictionary(
+            thread.GetDisplayName(),
+            thread.Description,
+            thread.CreatedAt,
+            thread.LastActivity,
+            thread.MessageCount,
+            thread.IsOriginal,
+            thread.ForkedFrom,
+            thread.ForkedAtMessageId,
+            thread.ForkedAtMessageIndex,
+            thread.TotalForks,
+            thread.Tags?.ToArray(),
+            thread.Ancestors?.ToDictionary(
                 static pair => pair.Key,
                 static pair => pair.Value,
                 StringComparer.Ordinal),
-            branch.SiblingIndex,
-            branch.TotalSiblings,
-            branch.OriginalBranchId,
-            branch.PreviousSiblingId,
-            branch.NextSiblingId,
-            branch.Metadata.ToDictionary(
+            thread.SiblingIndex,
+            thread.TotalSiblings,
+            thread.OriginalThreadId,
+            thread.PreviousSiblingId,
+            thread.NextSiblingId,
+            thread.Metadata.ToDictionary(
                 static pair => pair.Key,
                 static pair => (object?)pair.Value,
                 StringComparer.Ordinal));
@@ -504,27 +504,27 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         }
     }
 
-    private static void ApplyBranchUpdate(
-        Branch branch,
-        AgentTuiBranchUpdate update)
+    private static void ApplyThreadUpdate(
+        Thread thread,
+        AgentTuiThreadUpdate update)
     {
         if (update.Name is not null)
         {
-            branch.Name = update.Name;
+            thread.Name = update.Name;
         }
 
         if (update.Description is not null)
         {
-            branch.Description = update.Description;
+            thread.Description = update.Description;
         }
 
         if (update.Tags is not null)
         {
-            branch.Tags = update.Tags.ToList();
+            thread.Tags = update.Tags.ToList();
         }
 
-        ApplyMetadata(branch.Metadata, update.Metadata);
-        branch.LastActivity = DateTime.UtcNow;
+        ApplyMetadata(thread.Metadata, update.Metadata);
+        thread.LastActivity = DateTime.UtcNow;
     }
 
     private static bool MatchesMetadata(
@@ -548,15 +548,15 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         return true;
     }
 
-    private static bool IsSiblingOf(Branch branch, Branch target)
+    private static bool IsSiblingOf(Thread thread, Thread target)
     {
-        if (branch.Id == target.Id)
+        if (thread.Id == target.Id)
         {
             return true;
         }
 
-        return string.Equals(branch.ForkedFrom, target.ForkedFrom, StringComparison.Ordinal) &&
-               string.Equals(branch.ForkedAtMessageId, target.ForkedAtMessageId, StringComparison.Ordinal);
+        return string.Equals(thread.ForkedFrom, target.ForkedFrom, StringComparison.Ordinal) &&
+               string.Equals(thread.ForkedAtMessageId, target.ForkedAtMessageId, StringComparison.Ordinal);
     }
 
     public async IAsyncEnumerable<AgentEvent> ObserveAsync(
@@ -586,39 +586,39 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         {
             AgentId = scope.AgentId,
             SessionId = scope.SessionId,
-            BranchId = scope.BranchId,
+            ThreadId = scope.ThreadId,
             RuntimeRunId = runId
         };
 
-        SetActiveRun(new AgentTuiBranchRun(runId, scope.AgentId, scope.SessionId, scope.BranchId, "running", startedAt));
-        await PublishRuntimeEventAsync(new BranchRunStartedEvent(runId, scope.AgentId, startedAt)
+        SetActiveRun(new AgentTuiThreadRun(runId, scope.AgentId, scope.SessionId, scope.ThreadId, "running", startedAt));
+        await PublishRuntimeEventAsync(new ThreadRunStartedEvent(runId, scope.AgentId, startedAt)
         {
             SessionId = scope.SessionId,
-            BranchId = scope.BranchId
+            ThreadId = scope.ThreadId
         }, cancellationToken).ConfigureAwait(false);
 
         try
         {
             await _agent.RunAsync(scopedInput, cancellationToken).ConfigureAwait(false);
 
-            await PublishRuntimeEventAsync(new BranchRunCompletedEvent(runId, scope.AgentId, Cancelled: false)
+            await PublishRuntimeEventAsync(new ThreadRunCompletedEvent(runId, scope.AgentId, Cancelled: false)
             {
                 SessionId = scope.SessionId,
-                BranchId = scope.BranchId
+                ThreadId = scope.ThreadId
             }, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            await PublishRuntimeEventAsync(new BranchRunCompletedEvent(runId, scope.AgentId, Cancelled: true)
+            await PublishRuntimeEventAsync(new ThreadRunCompletedEvent(runId, scope.AgentId, Cancelled: true)
             {
                 SessionId = scope.SessionId,
-                BranchId = scope.BranchId
+                ThreadId = scope.ThreadId
             }, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
         catch (Exception ex)
         {
-            await PublishRuntimeEventAsync(new BranchRunCompletedEvent(
+            await PublishRuntimeEventAsync(new ThreadRunCompletedEvent(
                 runId,
                 scope.AgentId,
                 Cancelled: false,
@@ -626,7 +626,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
                 ex.Message)
             {
                 SessionId = scope.SessionId,
-                BranchId = scope.BranchId
+                ThreadId = scope.ThreadId
             }, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
@@ -652,7 +652,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             .ConfigureAwait(false);
     }
 
-    public async Task<IReadOnlyList<AgentEvent>> GetBranchEventsAsync(
+    public async Task<IReadOnlyList<AgentEvent>> GetThreadEventsAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default)
     {
@@ -665,7 +665,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         }
 
         var events = new List<AgentEvent>();
-        await foreach (var evt in store.ReadBranchEventsAsync(scope.SessionId, scope.BranchId, ReplayReadOptions.All, cancellationToken)
+        await foreach (var evt in store.ReadThreadEventsAsync(scope.SessionId, scope.ThreadId, ReplayReadOptions.All, cancellationToken)
             .ConfigureAwait(false))
         {
             events.Add(evt);
@@ -674,7 +674,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         return events;
     }
 
-    public Task<AgentTuiBranchRun?> GetActiveRunAsync(
+    public Task<AgentTuiThreadRun?> GetActiveRunAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default)
     {
@@ -692,7 +692,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         return ValueTask.CompletedTask;
     }
 
-    private void SetActiveRun(AgentTuiBranchRun? activeRun)
+    private void SetActiveRun(AgentTuiThreadRun? activeRun)
     {
         lock (_gate)
         {
@@ -712,7 +712,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         AgentTuiRuntimeScope scope)
     {
         var sessionMatches = evt.SessionId is null || string.Equals(evt.SessionId, scope.SessionId, StringComparison.Ordinal);
-        var branchMatches = evt.BranchId is null || string.Equals(evt.BranchId, scope.BranchId, StringComparison.Ordinal);
-        return sessionMatches && branchMatches;
+        var threadMatches = evt.ThreadId is null || string.Equals(evt.ThreadId, scope.ThreadId, StringComparison.Ordinal);
+        return sessionMatches && threadMatches;
     }
 }

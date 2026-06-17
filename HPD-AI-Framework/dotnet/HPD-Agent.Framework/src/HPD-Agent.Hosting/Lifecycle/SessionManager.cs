@@ -4,14 +4,14 @@ using HPD.Agent;
 namespace HPD.Agent.Hosting.Lifecycle;
 
 /// <summary>
-/// Abstract base class for managing session and branch lifecycle,
-/// branch operation locks, and session-level locks.
+/// Abstract base class for managing session and thread lifecycle,
+/// thread operation locks, and session-level locks.
 /// </summary>
 /// <remarks>
 /// Responsibilities:
 /// <list type="bullet">
-///   <item>Session and initial branch creation (delegated to <see cref="ISessionStore"/>)</item>
-///   <item>Per-branch operation lock (protects branch mutations that must not overlap)</item>
+///   <item>Session and initial thread creation (delegated to <see cref="ISessionStore"/>)</item>
+///   <item>Per-thread operation lock (protects thread mutations that must not overlap)</item>
 ///   <item>Per-session exclusive lock (safe metadata updates)</item>
 /// </list>
 ///
@@ -22,8 +22,8 @@ namespace HPD.Agent.Hosting.Lifecycle;
 public abstract class SessionManager : IDisposable
 {
     private readonly ISessionStore _store;
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _branchOperationLocks = new();
-    private readonly ConcurrentDictionary<string, BranchRunState> _activeBranchRuns = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _threadOperationLocks = new();
+    private readonly ConcurrentDictionary<string, ThreadRunState> _activeThreadRuns = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new();
     private bool _disposed;
 
@@ -38,18 +38,18 @@ public abstract class SessionManager : IDisposable
     // ─── Session lifecycle ───────────────────────────────────────────────
 
     /// <summary>
-    /// Create a new session and its default "main" branch directly in the store.
+    /// Create a new session and its default "main" thread directly in the store.
     /// No agent or provider is required — sessions are provider-agnostic containers.
     /// </summary>
-    public async Task<(string sessionId, string branchId)> CreateSessionAsync(
+    public async Task<(string sessionId, string threadId)> CreateSessionAsync(
         string? sessionId = null,
         Dictionary<string, object>? metadata = null,
         CancellationToken ct = default)
     {
         var id = string.IsNullOrWhiteSpace(sessionId) ? Guid.NewGuid().ToString() : sessionId;
         var session = new Session(id);
-        var branch = session.CreateBranch("main");
-        branch.Name = "main";
+        var thread = session.CreateThread("main");
+        thread.Name = "main";
         session.Store = _store;
 
         if (metadata != null)
@@ -59,13 +59,13 @@ public abstract class SessionManager : IDisposable
         }
 
         await _store.SaveSessionAsync(session, ct);
-        await _store.SaveInitialBranchAsync(id, branch, ct);
+        await _store.SaveInitialThreadAsync(id, thread, ct);
 
         return (id, "main");
     }
 
     /// <summary>
-    /// Clean up in-memory branch operation and session locks for a session.
+    /// Clean up in-memory thread operation and session locks for a session.
     /// Does NOT delete store data and does NOT evict any agent from <see cref="AgentManager"/>.
     /// </summary>
     public void RemoveSession(string sessionId)
@@ -75,119 +75,119 @@ public abstract class SessionManager : IDisposable
         _sessionLocks.TryRemove(sessionId, out _);
 
         var prefix = $"{sessionId}:";
-        var keysToRemove = _branchOperationLocks.Keys.Where(k => k.StartsWith(prefix)).ToList();
+        var keysToRemove = _threadOperationLocks.Keys.Where(k => k.StartsWith(prefix)).ToList();
         foreach (var key in keysToRemove)
-            if (_branchOperationLocks.TryRemove(key, out var sem))
+            if (_threadOperationLocks.TryRemove(key, out var sem))
                 sem.Dispose();
 
-        foreach (var key in _activeBranchRuns.Keys.Where(k => k.StartsWith(prefix)).ToList())
-            _activeBranchRuns.TryRemove(key, out _);
+        foreach (var key in _activeThreadRuns.Keys.Where(k => k.StartsWith(prefix)).ToList())
+            _activeThreadRuns.TryRemove(key, out _);
     }
 
-    // ─── Branch run ownership ───────────────────────────────────────────
+    // ─── Thread run ownership ───────────────────────────────────────────
 
-    public bool TryStartBranchRun(
+    public bool TryStartThreadRun(
         string agentId,
         string sessionId,
-        string branchId,
-        out BranchRunState run)
+        string threadId,
+        out ThreadRunState run)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        var candidate = new BranchRunState(
+        var candidate = new ThreadRunState(
             Guid.NewGuid().ToString("N"),
             agentId,
             sessionId,
-            branchId,
+            threadId,
             DateTimeOffset.UtcNow);
 
-        var key = BranchRunKey(sessionId, branchId);
-        if (_activeBranchRuns.TryAdd(key, candidate))
+        var key = ThreadRunKey(sessionId, threadId);
+        if (_activeThreadRuns.TryAdd(key, candidate))
         {
             run = candidate;
             return true;
         }
 
-        run = _activeBranchRuns.TryGetValue(key, out var active)
+        run = _activeThreadRuns.TryGetValue(key, out var active)
             ? active
             : candidate;
         return false;
     }
 
-    public BranchRunState? GetActiveBranchRun(string sessionId, string branchId)
+    public ThreadRunState? GetActiveThreadRun(string sessionId, string threadId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        return _activeBranchRuns.TryGetValue(BranchRunKey(sessionId, branchId), out var run)
+        return _activeThreadRuns.TryGetValue(ThreadRunKey(sessionId, threadId), out var run)
             ? run
             : null;
     }
 
-    public bool CompleteBranchRun(string sessionId, string branchId, string runtimeRunId)
+    public bool CompleteThreadRun(string sessionId, string threadId, string runtimeRunId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
         ArgumentException.ThrowIfNullOrWhiteSpace(runtimeRunId);
 
-        var key = BranchRunKey(sessionId, branchId);
-        return _activeBranchRuns.TryGetValue(key, out var current) &&
+        var key = ThreadRunKey(sessionId, threadId);
+        return _activeThreadRuns.TryGetValue(key, out var current) &&
             current.RuntimeRunId == runtimeRunId &&
-            _activeBranchRuns.TryRemove(key, out _);
+            _activeThreadRuns.TryRemove(key, out _);
     }
 
-    public bool CompleteActiveBranchRun(string sessionId, string branchId)
+    public bool CompleteActiveThreadRun(string sessionId, string threadId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        return _activeBranchRuns.TryRemove(BranchRunKey(sessionId, branchId), out _);
+        return _activeThreadRuns.TryRemove(ThreadRunKey(sessionId, threadId), out _);
     }
 
-    private static string BranchRunKey(string sessionId, string branchId) => $"{sessionId}:{branchId}";
+    private static string ThreadRunKey(string sessionId, string threadId) => $"{sessionId}:{threadId}";
 
-    // ─── Branch operation locks ──────────────────────────────────────────
+    // ─── Thread operation locks ──────────────────────────────────────────
 
     /// <summary>
-    /// Try to acquire the branch operation lock for a branch.
-    /// Returns false if another exclusive branch operation is already in progress.
+    /// Try to acquire the thread operation lock for a thread.
+    /// Returns false if another exclusive thread operation is already in progress.
     /// </summary>
-    public bool TryAcquireBranchOperationLock(string sessionId, string branchId)
+    public bool TryAcquireThreadOperationLock(string sessionId, string threadId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        var key = $"{sessionId}:{branchId}";
-        var semaphore = _branchOperationLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+        var key = $"{sessionId}:{threadId}";
+        var semaphore = _threadOperationLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         return semaphore.Wait(0);
     }
 
-    /// <summary>Release the branch operation lock for a branch.</summary>
-    public void ReleaseBranchOperationLock(string sessionId, string branchId)
+    /// <summary>Release the thread operation lock for a thread.</summary>
+    public void ReleaseThreadOperationLock(string sessionId, string threadId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        var key = $"{sessionId}:{branchId}";
-        if (_branchOperationLocks.TryGetValue(key, out var semaphore))
+        var key = $"{sessionId}:{threadId}";
+        if (_threadOperationLocks.TryGetValue(key, out var semaphore))
         {
             try { semaphore.Release(); } catch (SemaphoreFullException) { }
         }
     }
 
     /// <summary>
-    /// Remove and dispose the branch operation lock for a single branch.
-    /// Call AFTER <see cref="ReleaseBranchOperationLock"/>, never before.
+    /// Remove and dispose the thread operation lock for a single thread.
+    /// Call AFTER <see cref="ReleaseThreadOperationLock"/>, never before.
     /// </summary>
-    public void RemoveBranchOperationLock(string sessionId, string branchId)
+    public void RemoveThreadOperationLock(string sessionId, string threadId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        var key = $"{sessionId}:{branchId}";
-        if (_branchOperationLocks.TryRemove(key, out var sem))
+        var key = $"{sessionId}:{threadId}";
+        if (_threadOperationLocks.TryRemove(key, out var sem))
             sem.Dispose();
     }
 
@@ -238,26 +238,26 @@ public abstract class SessionManager : IDisposable
     // ─── Abstract ────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Whether recursive branch deletion is permitted.
+    /// Whether recursive thread deletion is permitted.
     /// Platform implementations read from their options.
     /// </summary>
-    public virtual bool AllowRecursiveBranchDelete => false;
+    public virtual bool AllowRecursiveThreadDelete => false;
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-        foreach (var kvp in _branchOperationLocks)
+        foreach (var kvp in _threadOperationLocks)
             kvp.Value.Dispose();
         foreach (var kvp in _sessionLocks)
             kvp.Value.Dispose();
-        _activeBranchRuns.Clear();
+        _activeThreadRuns.Clear();
     }
 }
 
-public sealed record BranchRunState(
+public sealed record ThreadRunState(
     string RuntimeRunId,
     string AgentId,
     string SessionId,
-    string BranchId,
+    string ThreadId,
     DateTimeOffset StartedAt);

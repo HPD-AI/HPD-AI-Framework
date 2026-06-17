@@ -7,7 +7,7 @@ namespace HPD.VCS.Core;
 
 /// <summary>
 /// Represents the state of a repository at a specific point in time.
-/// This includes workspace commit mappings, head commits, and named branches.
+/// This includes workspace commit mappings, head commits, and named threads.
 /// Based on jj's View but simplified for initial implementation.
 /// </summary>
 public readonly record struct ViewData : IContentHashable
@@ -21,9 +21,9 @@ public readonly record struct ViewData : IContentHashable
     /// List of commit IDs that are considered "heads" (latest commits in various lines of development)
     /// </summary>
     public IReadOnlyList<CommitId> HeadCommitIds { get; init; }    /// <summary>
-    /// Maps branch names to their current commit IDs (mutable pointers to commits)
+    /// Maps thread names to their current commit IDs (mutable pointers to commits)
     /// </summary>
-    public IReadOnlyDictionary<string, CommitId> Branches { get; init; }
+    public IReadOnlyDictionary<string, CommitId> Threads { get; init; }
 
     /// <summary>
     /// The current working copy commit ID for live working copy mode.
@@ -32,16 +32,16 @@ public readonly record struct ViewData : IContentHashable
     public CommitId? WorkingCopyId { get; init; }
 
     /// <summary>
-    /// Creates a new ViewData with the specified workspace commits, head commits, and branches
+    /// Creates a new ViewData with the specified workspace commits, head commits, and threads
     /// </summary>
     public ViewData(
         IReadOnlyDictionary<string, CommitId> workspaceCommitIds,
         IReadOnlyList<CommitId> headCommitIds,
-        IReadOnlyDictionary<string, CommitId>? branches = null,
+        IReadOnlyDictionary<string, CommitId>? threads = null,
         CommitId? workingCopyId = null)    {
         WorkspaceCommitIds = workspaceCommitIds ?? throw new ArgumentNullException(nameof(workspaceCommitIds));
         HeadCommitIds = headCommitIds ?? throw new ArgumentNullException(nameof(headCommitIds));
-        Branches = branches ?? new Dictionary<string, CommitId>();
+        Threads = threads ?? new Dictionary<string, CommitId>();
         WorkingCopyId = workingCopyId;
         
         // Validate workspace names
@@ -53,18 +53,18 @@ public readonly record struct ViewData : IContentHashable
             }
         }
 
-        // Validate branch names
-        foreach (var branchName in Branches.Keys)
+        // Validate thread names
+        foreach (var threadName in Threads.Keys)
         {
-            if (string.IsNullOrWhiteSpace(branchName))
+            if (string.IsNullOrWhiteSpace(threadName))
             {
-                throw new ArgumentException("Branch name cannot be null or whitespace", nameof(branches));
+                throw new ArgumentException("Thread name cannot be null or whitespace", nameof(threads));
             }
         }
     }
     
     /// <summary>
-    /// Creates an empty ViewData with no workspaces, heads, or branches
+    /// Creates an empty ViewData with no workspaces, heads, or threads
     /// </summary>
     public static ViewData Empty => new ViewData(
         new Dictionary<string, CommitId>(),
@@ -78,8 +78,8 @@ public readonly record struct ViewData : IContentHashable
     /// head_count\n
     /// head1_commit_hex\n
     /// ...
-    /// branch_count\n
-    /// branch1_name_length\nbranch1_name\nbranch1_commit_hex\n
+    /// thread_count\n
+    /// thread1_name_length\nthread1_name\nthread1_commit_hex\n
     /// ...
     /// </summary>
     public byte[] GetBytesForHashing()
@@ -113,17 +113,17 @@ public readonly record struct ViewData : IContentHashable
             builder.AppendLine(commitId.ToHexString());
         }
 
-        // Sort branches by branch name for deterministic output
-        var sortedBranches = Branches
+        // Sort threads by thread name for deterministic output
+        var sortedThreads = Threads
             .OrderBy(kvp => kvp.Key, StringComparer.Ordinal)
             .ToList();
         
-        builder.AppendLine(sortedBranches.Count.ToString());
-          foreach (var (branchName, commitId) in sortedBranches)
+        builder.AppendLine(sortedThreads.Count.ToString());
+          foreach (var (threadName, commitId) in sortedThreads)
         {
-            var nameBytes = Encoding.UTF8.GetBytes(branchName);
+            var nameBytes = Encoding.UTF8.GetBytes(threadName);
             builder.AppendLine(nameBytes.Length.ToString());
-            builder.AppendLine(branchName);
+            builder.AppendLine(threadName);
             builder.AppendLine(commitId.ToHexString());
         }
         
@@ -191,27 +191,27 @@ public readonly record struct ViewData : IContentHashable
                 headCommits.Add(commitId);
             }
 
-            // Parse branches (if present - for backward compatibility)
-            var branches = new Dictionary<string, CommitId>();
+            // Parse threads (if present - for backward compatibility)
+            var threads = new Dictionary<string, CommitId>();
             if (lineIndex < lines.Length)
             {
-                var branchCount = int.Parse(lines[lineIndex++]);
+                var threadCount = int.Parse(lines[lineIndex++]);
                 
-                for (int i = 0; i < branchCount; i++)
+                for (int i = 0; i < threadCount; i++)
                 {
                     var nameLength = int.Parse(lines[lineIndex++]);
-                    var branchName = lines[lineIndex++];
+                    var threadName = lines[lineIndex++];
                     
-                    // Validate the branch name length
-                    var actualNameBytes = Encoding.UTF8.GetBytes(branchName);
+                    // Validate the thread name length
+                    var actualNameBytes = Encoding.UTF8.GetBytes(threadName);
                     if (actualNameBytes.Length != nameLength)
                     {
-                        throw new ArgumentException($"Branch name length mismatch: expected {nameLength}, got {actualNameBytes.Length}");
+                        throw new ArgumentException($"Thread name length mismatch: expected {nameLength}, got {actualNameBytes.Length}");
                     }
                     
                     var commitHex = lines[lineIndex++];
                     var commitId = ObjectIdBase.FromHexString<CommitId>(commitHex);
-                      branches[branchName] = commitId;
+                      threads[threadName] = commitId;
                 }
             }
             
@@ -227,7 +227,7 @@ public readonly record struct ViewData : IContentHashable
                 }
             }
             
-            return new ViewData(workspaceCommits, headCommits, branches, workingCopyId);
+            return new ViewData(workspaceCommits, headCommits, threads, workingCopyId);
         }
         catch (Exception ex) when (ex is FormatException or IndexOutOfRangeException or ArgumentOutOfRangeException)
         {
@@ -244,7 +244,7 @@ public readonly record struct ViewData : IContentHashable
             [workspaceName] = commitId
         };
         
-        return new ViewData(newWorkspaceCommits, HeadCommitIds, Branches);
+        return new ViewData(newWorkspaceCommits, HeadCommitIds, Threads);
     }
     
     /// <summary>
@@ -258,39 +258,39 @@ public readonly record struct ViewData : IContentHashable
         }
         
         var newHeadCommits = new List<CommitId>(HeadCommitIds) { commitId };
-        return new ViewData(WorkspaceCommitIds, newHeadCommits, Branches);
+        return new ViewData(WorkspaceCommitIds, newHeadCommits, Threads);
     }
 
     /// <summary>
-    /// Returns a new ViewData with the specified branch updated
+    /// Returns a new ViewData with the specified thread updated
     /// </summary>
-    public ViewData WithBranch(string branchName, CommitId commitId)
+    public ViewData WithThread(string threadName, CommitId commitId)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadName);
         
-        var newBranches = new Dictionary<string, CommitId>(Branches)
+        var newThreads = new Dictionary<string, CommitId>(Threads)
         {
-            [branchName] = commitId
+            [threadName] = commitId
         };
         
-        return new ViewData(WorkspaceCommitIds, HeadCommitIds, newBranches);
+        return new ViewData(WorkspaceCommitIds, HeadCommitIds, newThreads);
     }
 
     /// <summary>
-    /// Returns a new ViewData with the specified branch removed
+    /// Returns a new ViewData with the specified thread removed
     /// </summary>
-    public ViewData WithoutBranch(string branchName)
+    public ViewData WithoutThread(string threadName)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadName);
         
-        if (!Branches.ContainsKey(branchName))
+        if (!Threads.ContainsKey(threadName))
         {
-            return this; // Branch doesn't exist
+            return this; // Thread doesn't exist
         }
         
-        var newBranches = new Dictionary<string, CommitId>(Branches);
-        newBranches.Remove(branchName);
+        var newThreads = new Dictionary<string, CommitId>(Threads);
+        newThreads.Remove(threadName);
         
-        return new ViewData(WorkspaceCommitIds, HeadCommitIds, newBranches);
+        return new ViewData(WorkspaceCommitIds, HeadCommitIds, newThreads);
     }
 }

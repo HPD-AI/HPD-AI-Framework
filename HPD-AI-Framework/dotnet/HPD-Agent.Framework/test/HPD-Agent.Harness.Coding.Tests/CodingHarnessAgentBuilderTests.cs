@@ -146,7 +146,7 @@ public class CodingToolHarnessAgentBuilderTests
     {
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
         var session = new Session("session-1");
-        var branch = new Branch("session-1") { Id = "branch-1" };
+        var thread = new Thread("session-1") { Id = "thread-1" };
         var eventCoordinator = new EventCoordinator();
         var agentContext = new AgentContext(
             "AgentA",
@@ -154,7 +154,7 @@ public class CodingToolHarnessAgentBuilderTests
             state,
             eventCoordinator,
             session,
-            branch,
+            thread,
             CancellationToken.None);
         var cwd = Directory.GetCurrentDirectory();
         var runConfig = new AgentRunConfig

@@ -21,7 +21,7 @@ internal static class SessionEndpoints
         endpoints.MapPost("/sessions", (CreateSessionRequest? request, CancellationToken ct) =>
                 CreateSession(sessions, request, ct))
             .WithName("CreateSession")
-            .WithSummary("Create a new session with a default 'main' branch");
+            .WithSummary("Create a new session with a default 'main' thread");
 
         // GET /sessions - List all sessions
         endpoints.MapGet("/sessions", (CancellationToken ct) =>
@@ -47,11 +47,11 @@ internal static class SessionEndpoints
             .WithName("UpdateSession")
             .WithSummary("Update session metadata with merge semantics");
 
-        // DELETE /sessions/{sessionId} - Delete session + all branches
+        // DELETE /sessions/{sessionId} - Delete session + all threads
         endpoints.MapDelete("/sessions/{sessionId}", (string sessionId, CancellationToken ct) =>
                 DeleteSession(sessionId, sessions, ct))
             .WithName("DeleteSession")
-            .WithSummary("Delete a session and all its branches");
+            .WithSummary("Delete a session and all its threads");
     }
 
     private static async Task<Results<Created<SessionDto>, ValidationProblem>> CreateSession(

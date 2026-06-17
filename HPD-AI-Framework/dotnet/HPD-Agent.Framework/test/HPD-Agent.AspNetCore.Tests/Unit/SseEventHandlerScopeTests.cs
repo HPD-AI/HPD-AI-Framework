@@ -8,13 +8,13 @@ namespace HPD.Agent.AspNetCore.Tests.Unit;
 public sealed class SseEventHandlerScopeTests
 {
     [Fact]
-    public async Task IsInRouteScopeAsync_AllowsSubAgentChildBranchEventsLinkedToObservedParentBranch()
+    public async Task IsInRouteScopeAsync_AllowsSubAgentChildThreadEventsLinkedToObservedParentThread()
     {
         var store = new InMemorySessionStore();
         var agent = await CreateAgentAsync(store);
         await agent.CreateSessionAsync("session-1");
         var forkMessageId = await SeedForkMessageAsync(agent, store, "session-1", "main");
-        await agent.ForkBranchAsync(
+        await agent.ForkThreadAsync(
             "session-1",
             "main",
             "subagent/reviewer/run-1",
@@ -23,13 +23,13 @@ public sealed class SseEventHandlerScopeTests
             {
                 ["kind"] = "subagent",
                 ["parentSessionId"] = "session-1",
-                ["parentBranchId"] = "main"
+                ["parentThreadId"] = "main"
             });
 
         var evt = new TextDeltaEvent("child output", "msg-1")
         {
             SessionId = "session-1",
-            BranchId = "subagent/reviewer/run-1"
+            ThreadId = "subagent/reviewer/run-1"
         };
 
         var inScope = await SseEventHandler.IsInRouteScopeAsync(
@@ -43,13 +43,13 @@ public sealed class SseEventHandlerScopeTests
     }
 
     [Fact]
-    public async Task IsInRouteScopeAsync_RejectsUnrelatedBranchEvents()
+    public async Task IsInRouteScopeAsync_RejectsUnrelatedThreadEvents()
     {
         var store = new InMemorySessionStore();
         var agent = await CreateAgentAsync(store);
         await agent.CreateSessionAsync("session-1");
         var forkMessageId = await SeedForkMessageAsync(agent, store, "session-1", "main");
-        await agent.ForkBranchAsync(
+        await agent.ForkThreadAsync(
             "session-1",
             "main",
             "alternate",
@@ -59,7 +59,7 @@ public sealed class SseEventHandlerScopeTests
         var evt = new TextDeltaEvent("other output", "msg-1")
         {
             SessionId = "session-1",
-            BranchId = "alternate"
+            ThreadId = "alternate"
         };
 
         var inScope = await SseEventHandler.IsInRouteScopeAsync(
@@ -92,12 +92,12 @@ public sealed class SseEventHandlerScopeTests
         Agent agent,
         ISessionStore store,
         string sessionId,
-        string branchId)
+        string threadId)
     {
-        await agent.RunAsync("seed fork message", sessionId, branchId);
+        await agent.RunAsync("seed fork message", sessionId, threadId);
 
-        var branch = await store.LoadBranchAsync(sessionId, branchId);
-        var messageId = branch?.Messages.FirstOrDefault()?.MessageId;
+        var thread = await store.LoadThreadAsync(sessionId, threadId);
+        var messageId = thread?.Messages.FirstOrDefault()?.MessageId;
         messageId.Should().NotBeNullOrWhiteSpace();
 
         return messageId!;

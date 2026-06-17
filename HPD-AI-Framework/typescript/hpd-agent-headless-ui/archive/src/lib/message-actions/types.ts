@@ -2,12 +2,12 @@
  * MessageActions Types
  *
  * Type definitions for the MessageActions compound component.
- * Provides headless Edit, Retry, and branch navigation (Prev/Next/Position)
+ * Provides headless Edit, Retry, and thread navigation (Prev/Next/Position)
  * for AI chat messages.
  */
 
 import type { Snippet } from 'svelte';
-import type { Branch } from '@hpd-research/hpd-agent-client';
+import type { Thread } from '@hpd-research/hpd-agent-client';
 import type { MessageRole } from '../agent/types.ts';
 
 // ============================================
@@ -33,11 +33,11 @@ export interface MessageActionsRootHTMLProps {
 export interface MessageActionsRootSnippetProps {
 	/** Role of the message this toolbar is attached to */
 	role: MessageRole;
-	/** Index of the message in the branch */
+	/** Index of the message in the thread */
 	messageIndex: number;
 	/** Whether any action is currently pending */
 	pending: boolean;
-	/** Whether this message is a fork point with sibling branches */
+	/** Whether this message is a fork point with sibling threads */
 	hasSiblings: boolean;
 	/** Current sibling position string e.g. "2 / 3" */
 	position: string;
@@ -46,15 +46,15 @@ export interface MessageActionsRootSnippetProps {
 export interface MessageActionsRootProps {
 	/** Workspace instance */
 	workspace: import('../workspace/types.ts').Workspace;
-	/** Index of the message in the branch message list */
+	/** Index of the message in the thread message list */
 	messageIndex: number;
 	/** Role of the message (user / assistant / system) */
 	role: MessageRole;
 	/**
-	 * The currently active branch. Used to derive sibling navigation state.
-	 * Pass workspace.activeBranch here.
+	 * The currently active thread. Used to derive sibling navigation state.
+	 * Pass workspace.activeThread here.
 	 */
-	branch?: Branch | null;
+	thread?: Thread | null;
 	child?: Snippet<[MessageActionsRootSnippetProps & { props: MessageActionsRootHTMLProps }]>;
 	children?: Snippet<[MessageActionsRootSnippetProps]>;
 	[key: string]: unknown;
@@ -166,7 +166,7 @@ export interface MessageActionsCopyButtonProps {
 }
 
 // ============================================
-// Branch Navigation Types (Prev / Next / Position)
+// Thread Navigation Types (Prev / Next / Position)
 // ============================================
 
 export interface MessageActionsPrevHTMLProps {
@@ -181,7 +181,7 @@ export interface MessageActionsPrevHTMLProps {
 }
 
 export interface MessageActionsPrevSnippetProps {
-	/** Call this to navigate to the previous sibling branch */
+	/** Call this to navigate to the previous sibling thread */
 	goPrevious: () => Promise<void>;
 }
 
@@ -204,7 +204,7 @@ export interface MessageActionsNextHTMLProps {
 }
 
 export interface MessageActionsNextSnippetProps {
-	/** Call this to navigate to the next sibling branch */
+	/** Call this to navigate to the next sibling thread */
 	goNext: () => Promise<void>;
 }
 

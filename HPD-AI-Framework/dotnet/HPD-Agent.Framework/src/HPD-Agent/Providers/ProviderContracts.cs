@@ -141,7 +141,7 @@ public enum ProviderFamilyLifetime
 public sealed record ProviderComponentLifetimeContext(
     string? AgentId = null,
     string? SessionId = null,
-    string? BranchId = null,
+    string? ThreadId = null,
     string? RuntimeRunId = null,
     string? AudioSessionId = null,
     ProviderFamilyLifetime Lifetime = ProviderFamilyLifetime.ReusableClient);

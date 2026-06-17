@@ -22,7 +22,7 @@ public class AgentEventContentPersistenceTests
         {
             EventId = "event-1",
             SessionId = "session-1",
-            BranchId = "branch-1",
+            ThreadId = "thread-1",
             TraceId = "trace-1",
             SpanId = "span-1",
             Metadata = new AgentMetadata
@@ -45,7 +45,7 @@ public class AgentEventContentPersistenceTests
         Assert.Equal("PERSISTABLE_CONTENT_TEST", info.Tags?["event.type"]);
         Assert.Equal("event-1", info.Tags?["event.id"]);
         Assert.Equal("session-1", info.Tags?["session"]);
-        Assert.Equal("branch-1", info.Tags?["branch"]);
+        Assert.Equal("thread-1", info.Tags?["thread"]);
         Assert.Equal("trace-1", info.Tags?["trace"]);
         Assert.Equal("span-1", info.Tags?["span"]);
         Assert.Equal("TestAgent", info.Tags?["agent.name"]);

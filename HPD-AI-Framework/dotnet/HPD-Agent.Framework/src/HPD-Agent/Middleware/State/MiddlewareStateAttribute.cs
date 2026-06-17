@@ -134,34 +134,34 @@ public sealed class MiddlewareStateAttribute : Attribute
 
     /// <summary>
     /// The scope of this middleware state.
-    /// Determines whether state is shared across all branches (Session) or per-branch (Branch).
-    /// Defaults to Branch (per-conversation path).
+    /// Determines whether state is shared across all threads (Session) or per-thread (Thread).
+    /// Defaults to Thread (per-conversation path).
     /// </summary>
     /// <remarks>
-    /// <para><b>Session-Scoped (Shared Across Branches):</b></para>
+    /// <para><b>Session-Scoped (Shared Across Threads):</b></para>
     /// <para>
     /// Use Scope = StateScope.Session for state about the *user/environment*:
     /// </para>
     /// <list type="bullet">
-    /// <item>Permissions: "Always Allow Bash" applies everywhere, not just one branch</item>
+    /// <item>Permissions: "Always Allow Bash" applies everywhere, not just one thread</item>
     /// <item>User preferences: Theme, language, display settings</item>
     /// <item>Environment state: Working directory, env vars</item>
     /// </list>
     ///
-    /// <para><b>Branch-Scoped (Default - Per-Conversation):</b></para>
+    /// <para><b>Thread-Scoped (Default - Per-Conversation):</b></para>
     /// <para>
-    /// Most states are branch-scoped (tied to specific conversation path):
+    /// Most states are thread-scoped (tied to specific conversation path):
     /// </para>
     /// <list type="bullet">
-    /// <item>Plan progress: Different branches explore different plans</item>
-    /// <item>History cache: Each branch has different messages → different cache</item>
+    /// <item>Plan progress: Different threads explore different plans</item>
+    /// <item>History cache: Each thread has different messages → different cache</item>
     /// <item>Conversation context: Any state derived from message sequence</item>
     /// </list>
     ///
     /// <para><b>On Fork Behavior:</b></para>
     /// <list type="bullet">
-    /// <item><b>Session-scoped:</b> SHARED (all branches read from same Session.MiddlewareState)</item>
-    /// <item><b>Branch-scoped:</b> COPIED (new branch gets copy, then diverges)</item>
+    /// <item><b>Session-scoped:</b> SHARED (all threads read from same Session.MiddlewareState)</item>
+    /// <item><b>Thread-scoped:</b> COPIED (new thread gets copy, then diverges)</item>
     /// </list>
     ///
     /// <para><b>Example Usage:</b></para>
@@ -170,14 +170,14 @@ public sealed class MiddlewareStateAttribute : Attribute
     /// [MiddlewareState(Persistent = true, Scope = StateScope.Session)]
     /// public sealed record PermissionPersistentStateData { }
     ///
-    /// // Branch-scoped (default): Plan progress is per-conversation
-    /// [MiddlewareState(Persistent = true)]  // Scope = StateScope.Branch is the default
+    /// // Thread-scoped (default): Plan progress is per-conversation
+    /// [MiddlewareState(Persistent = true)]  // Scope = StateScope.Thread is the default
     /// public sealed record PlanModePersistentStateData { }
     ///
-    /// // Transient branch-scoped (most common)
-    /// [MiddlewareState]  // Persistent = false, Scope = Branch (both defaults)
+    /// // Transient thread-scoped (most common)
+    /// [MiddlewareState]  // Persistent = false, Scope = Thread (both defaults)
     /// public sealed record ErrorTrackingStateData { }
     /// </code>
     /// </remarks>
-    public StateScope Scope { get; set; } = StateScope.Branch;
+    public StateScope Scope { get; set; } = StateScope.Thread;
 }

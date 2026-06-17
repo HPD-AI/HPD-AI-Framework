@@ -135,7 +135,7 @@ public class MultiAgent
     }
 
     /// <summary>
-    /// Configure how workflow node agents write transcripts into HPD sessions and branches.
+    /// Configure how workflow node agents write transcripts into HPD sessions and threads.
     /// </summary>
     public MultiAgent WithConversation(MultiAgentConversationConfig conversation)
     {

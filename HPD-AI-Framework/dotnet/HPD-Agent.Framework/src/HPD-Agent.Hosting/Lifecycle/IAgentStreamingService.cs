@@ -4,23 +4,23 @@ namespace HPD.Agent.Hosting.Lifecycle;
 
 public interface IAgentStreamingService
 {
-    Task<AgentServiceResult<AgentStreamLease>> GetAgentForBranchAsync(
+    Task<AgentServiceResult<AgentStreamLease>> GetAgentForThreadAsync(
         string agentId,
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default);
 
     Task<AgentServiceResult> SubmitInputAsync(
         string agentId,
         string sessionId,
-        string branchId,
+        string threadId,
         AgentInputEvent input,
         CancellationToken cancellationToken = default);
 
     Task<AgentServiceResult> InterruptAsync(
         string agentId,
         string sessionId,
-        string branchId,
+        string threadId,
         InterruptionRequestEvent interruption,
         CancellationToken cancellationToken = default);
 
@@ -28,7 +28,7 @@ public interface IAgentStreamingService
         AgentInputEvent input,
         string agentId,
         string sessionId,
-        string branchId,
+        string threadId,
         string? runtimeRunId = null);
 }
 

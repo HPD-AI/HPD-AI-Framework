@@ -242,10 +242,10 @@ public sealed class ToolLifecycleHandler : IAgentTuiEventHandler
         string State);
 }
 
-public sealed class BranchRunStatusHandler : IAgentTuiEventHandler
+public sealed class ThreadRunStatusHandler : IAgentTuiEventHandler
 {
     public bool CanHandle(AgentEvent evt)
-        => evt is BranchRunStartedEvent or BranchRunCompletedEvent;
+        => evt is ThreadRunStartedEvent or ThreadRunCompletedEvent;
 
     public ValueTask HandleAsync(
         AgentEvent evt,
@@ -254,21 +254,21 @@ public sealed class BranchRunStatusHandler : IAgentTuiEventHandler
     {
         switch (evt)
         {
-            case BranchRunStartedEvent started:
-                ApplyBranchRunStarted(context, started);
+            case ThreadRunStartedEvent started:
+                ApplyThreadRunStarted(context, started);
                 break;
 
-            case BranchRunCompletedEvent completed:
-                ApplyBranchRunCompleted(context, completed);
+            case ThreadRunCompletedEvent completed:
+                ApplyThreadRunCompleted(context, completed);
                 break;
         }
 
         return ValueTask.CompletedTask;
     }
 
-    private static void ApplyBranchRunStarted(
+    private static void ApplyThreadRunStarted(
         AgentTuiEventContext context,
-        BranchRunStartedEvent started)
+        ThreadRunStartedEvent started)
     {
         context.Shell.Activities.Add(new ActivityModel($"run {ShortId(started.RuntimeRunId)}")
         {
@@ -279,9 +279,9 @@ public sealed class BranchRunStatusHandler : IAgentTuiEventHandler
         context.Shell.FooterText = $"state: running | run: {ShortId(started.RuntimeRunId)}";
     }
 
-    private static void ApplyBranchRunCompleted(
+    private static void ApplyThreadRunCompleted(
         AgentTuiEventContext context,
-        BranchRunCompletedEvent completed)
+        ThreadRunCompletedEvent completed)
     {
         foreach (var activity in context.Shell.Activities.Activities.Where(activity => activity.State == ActivityState.Running))
         {

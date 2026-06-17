@@ -804,7 +804,7 @@ public sealed class ExecuteCommandTests : IDisposable
 
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
         var session = new Session(sessionId) { Store = sessionStore };
-        var branch = new Branch(sessionId) { Id = "branch-1" };
+        var thread = new Thread(sessionId) { Id = "thread-1" };
         var eventCoordinator = new EventCoordinator();
         var agentContext = new AgentContext(
             "AgentA",
@@ -812,7 +812,7 @@ public sealed class ExecuteCommandTests : IDisposable
             state,
             eventCoordinator,
             session,
-            branch,
+            thread,
             CancellationToken.None,
             contentStore: contentStore);
         if (runner is not null)
@@ -1094,8 +1094,8 @@ public sealed class ExecuteCommandTests : IDisposable
         public Task SaveSessionAsync(Session session, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
         public Task DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<Branch?> LoadBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => Task.FromResult<Branch?>(null);        public Task<List<string>> ListBranchIdsAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
-        public Task DeleteBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<Thread?> LoadThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => Task.FromResult<Thread?>(null);        public Task<List<string>> ListThreadIdsAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
+        public Task DeleteThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<UncommittedTurn?> LoadUncommittedTurnAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<UncommittedTurn?>(null);
         public Task SaveUncommittedTurnAsync(UncommittedTurn turn, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task DeleteUncommittedTurnAsync(string sessionId, CancellationToken cancellationToken = default) => Task.CompletedTask;

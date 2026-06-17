@@ -15,20 +15,20 @@ public sealed class AgentContentService : IAgentContentService
 
     public async Task<AgentServiceResult<ContentDto>> UploadContentAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         Stream content,
         string fileName,
         string? contentType,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
         ArgumentNullException.ThrowIfNull(content);
 
-        if (await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken) == null)
+        if (await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken) == null)
             return AgentServiceResult<ContentDto>.NotFound;
 
-        var scope = ContentStoreScopes.ForBranch(sessionId, branchId);
+        var scope = ContentStoreScopes.ForThread(sessionId, threadId);
         var stored = await _contentStore.WriteAsync(
             scope: scope,
             data: content,
@@ -57,17 +57,17 @@ public sealed class AgentContentService : IAgentContentService
 
     public async Task<AgentServiceResult<IReadOnlyList<ContentDto>>> ListContentAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        if (await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken) == null)
+        if (await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken) == null)
             return AgentServiceResult<IReadOnlyList<ContentDto>>.NotFound;
 
         var content = await _contentStore.QueryAsync(
-            scope: ContentStoreScopes.ForBranch(sessionId, branchId),
+            scope: ContentStoreScopes.ForThread(sessionId, threadId),
             query: new ContentQuery { Tags = new Dictionary<string, string> { ["kind"] = "upload" } },
             cancellationToken: cancellationToken);
 
@@ -83,18 +83,18 @@ public sealed class AgentContentService : IAgentContentService
 
     public async Task<AgentServiceResult<AgentContentDownload>> DownloadContentAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         string contentId,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
         ArgumentException.ThrowIfNullOrWhiteSpace(contentId);
 
-        if (await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken) == null)
+        if (await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken) == null)
             return AgentServiceResult<AgentContentDownload>.NotFound;
 
-        var scope = ContentStoreScopes.ForBranch(sessionId, branchId);
+        var scope = ContentStoreScopes.ForThread(sessionId, threadId);
         var info = await _contentStore.StatAsync(scope, contentId, cancellationToken);
 
         if (info == null)
@@ -110,18 +110,18 @@ public sealed class AgentContentService : IAgentContentService
 
     public async Task<AgentServiceResult> DeleteContentAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         string contentId,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
         ArgumentException.ThrowIfNullOrWhiteSpace(contentId);
 
-        if (await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken) == null)
+        if (await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken) == null)
             return AgentServiceResult.NotFound;
 
-        var scope = ContentStoreScopes.ForBranch(sessionId, branchId);
+        var scope = ContentStoreScopes.ForThread(sessionId, threadId);
         var content = await _contentStore.StatAsync(scope, contentId, cancellationToken);
 
         if (content == null)

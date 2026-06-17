@@ -251,11 +251,11 @@ public sealed partial class MiddlewareState
     }
 
     //
-    // PERSISTENCE API (Session + Branch Synchronization)
+    // PERSISTENCE API (Session + Thread Synchronization)
     //
     // V3 Architecture: State is split by scope
     // - Session-scoped: LoadFromSession/SaveToSession (filters Scope == Session)
-    // - Branch-scoped: LoadFromBranch/SaveToBranch (filters Scope == Branch)
+    // - Thread-scoped: LoadFromThread/SaveToThread (filters Scope == Thread)
 
     /// <summary>
     /// Load session-scoped persistent middleware state from session.
@@ -268,8 +268,8 @@ public sealed partial class MiddlewareState
     /// <remarks>
     /// <para><b>V3 Change:</b> Now filters by Scope == StateScope.Session.</para>
     /// <para>
-    /// Session-scoped states (permissions, preferences) are shared across all branches.
-    /// Branch-scoped states (plan progress, history cache) use LoadFromBranch instead.
+    /// Session-scoped states (permissions, preferences) are shared across all threads.
+    /// Thread-scoped states (plan progress, history cache) use LoadFromThread instead.
     /// </para>
     /// </remarks>
     public static MiddlewareState LoadFromSession(
@@ -316,35 +316,35 @@ public sealed partial class MiddlewareState
     }
 
     /// <summary>
-    /// Load branch-scoped persistent middleware state from branch.
-    /// Only loads states marked with Scope = StateScope.Branch (the default).
+    /// Load thread-scoped persistent middleware state from thread.
+    /// Only loads states marked with Scope = StateScope.Thread (the default).
     /// Uses the agent's registered factories to deserialize correctly.
     /// </summary>
-    /// <param name="branch">Branch to load state from (null returns empty state).</param>
+    /// <param name="thread">Thread to load state from (null returns empty state).</param>
     /// <param name="factories">Middleware state factories from the agent's registry.</param>
-    /// <returns>MiddlewareState with restored branch-scoped persistent states.</returns>
+    /// <returns>MiddlewareState with restored thread-scoped persistent states.</returns>
     /// <remarks>
-    /// <para><b>V3 Addition:</b> Branch-scoped state loading.</para>
+    /// <para><b>V3 Addition:</b> Thread-scoped state loading.</para>
     /// <para>
-    /// Branch-scoped states (plan progress, history cache) are per-conversation path.
+    /// Thread-scoped states (plan progress, history cache) are per-conversation path.
     /// Session-scoped states (permissions, preferences) use LoadFromSession instead.
     /// </para>
     /// </remarks>
-    public static MiddlewareState LoadFromBranch(
-        Branch? branch,
+    public static MiddlewareState LoadFromThread(
+        Thread? thread,
         IReadOnlyDictionary<string, MiddlewareStateFactory> factories)
     {
-        if (branch == null)
+        if (thread == null)
             return new MiddlewareState();
 
         var state = new MiddlewareState();
 
-        // Load all registered branch-scoped persistent states
+        // Load all registered thread-scoped persistent states
         foreach (var (key, factory) in factories)
         {
-            if (factory.Persistent && factory.Scope == StateScope.Branch)
+            if (factory.Persistent && factory.Scope == StateScope.Thread)
             {
-                var json = branch.GetMiddlewareState(key);
+                var json = thread.GetMiddlewareState(key);
                 if (json != null)
                 {
                     try
@@ -384,8 +384,8 @@ public sealed partial class MiddlewareState
     /// <remarks>
     /// <para><b>V3 Change:</b> Now filters by Scope == StateScope.Session.</para>
     /// <para>
-    /// Session-scoped states (permissions, preferences) are shared across all branches.
-    /// Branch-scoped states (plan progress, history cache) use SaveToBranch instead.
+    /// Session-scoped states (permissions, preferences) are shared across all threads.
+    /// Thread-scoped states (plan progress, history cache) use SaveToThread instead.
     /// </para>
     /// </remarks>
     public void SaveToSession(
@@ -416,37 +416,37 @@ public sealed partial class MiddlewareState
     }
 
     /// <summary>
-    /// Save branch-scoped persistent middleware state to branch.
-    /// Only saves states marked with Scope = StateScope.Branch (the default).
+    /// Save thread-scoped persistent middleware state to thread.
+    /// Only saves states marked with Scope = StateScope.Thread (the default).
     /// Uses the agent's registered factories to determine which states are persistent.
     /// </summary>
-    /// <param name="branch">Branch to save state to.</param>
+    /// <param name="thread">Thread to save state to.</param>
     /// <param name="factories">Middleware state factories from the agent's registry.</param>
-    /// <exception cref="ArgumentNullException">Thrown if branch is null.</exception>
+    /// <exception cref="ArgumentNullException">Thrown if thread is null.</exception>
     /// <remarks>
-    /// <para><b>V3 Addition:</b> Branch-scoped state saving.</para>
+    /// <para><b>V3 Addition:</b> Thread-scoped state saving.</para>
     /// <para>
-    /// Branch-scoped states (plan progress, history cache) are per-conversation path.
+    /// Thread-scoped states (plan progress, history cache) are per-conversation path.
     /// Session-scoped states (permissions, preferences) use SaveToSession instead.
     /// </para>
     /// </remarks>
-    public void SaveToBranch(
-        Branch branch,
+    public void SaveToThread(
+        Thread thread,
         IReadOnlyDictionary<string, MiddlewareStateFactory> factories)
     {
-        if (branch == null)
-            throw new ArgumentNullException(nameof(branch));
+        if (thread == null)
+            throw new ArgumentNullException(nameof(thread));
 
-        // Save all registered branch-scoped persistent states
+        // Save all registered thread-scoped persistent states
         foreach (var (key, factory) in factories)
         {
-            if (factory.Persistent && factory.Scope == StateScope.Branch &&
+            if (factory.Persistent && factory.Scope == StateScope.Thread &&
                 States.TryGetValue(key, out var value) && value != null)
             {
                 try
                 {
                     var json = factory.Serialize(value);
-                    branch.SetMiddlewareState(key, json);
+                    thread.SetMiddlewareState(key, json);
                 }
                 catch
                 {
@@ -460,7 +460,7 @@ public sealed partial class MiddlewareState
     /// <summary>
     /// Merges another MiddlewareState into this one.
     /// States from the other container override states in this container for the same key.
-    /// Used to combine session-scoped and branch-scoped states at load time.
+    /// Used to combine session-scoped and thread-scoped states at load time.
     /// </summary>
     /// <param name="other">The other middleware state to merge in.</param>
     /// <returns>New MiddlewareState containing states from both containers.</returns>

@@ -9,7 +9,7 @@ namespace HPD.Agent.Middleware;
 
 /// <summary>
 /// Context for BeforeMessageTurn hook.
-/// Available properties: UserMessage, BranchHistory, RunConfig
+/// Available properties: UserMessage, ThreadHistory, RunConfig
 /// </summary>
 public sealed class BeforeMessageTurnContext : HookContext
 {
@@ -25,15 +25,15 @@ public sealed class BeforeMessageTurnContext : HookContext
     public ChatMessage? UserMessage { get; set; }
 
     /// <summary>
-    /// The active branch's model-visible message history for this turn.
+    /// The active thread's model-visible message history for this turn.
     /// </summary>
     /// <remarks>
     /// This is a shared mutable list. Middleware can add, insert, remove, or reorder messages to shape
     /// what the model sees for the turn. Changes are visible to subsequent middleware and to the agent
-    /// loop immediately. Use this for context injection, compaction, planning state, and other branch
+    /// loop immediately. Use this for context injection, compaction, planning state, and other thread
     /// history transformations. Use <see cref="UserMessage"/> when transforming only the current input.
     /// </remarks>
-    public List<ChatMessage> BranchHistory { get; }
+    public List<ChatMessage> ThreadHistory { get; }
 
     /// <summary>
     /// Agent run options for this turn.
@@ -50,7 +50,7 @@ public sealed class BeforeMessageTurnContext : HookContext
         : base(baseContext)
     {
         UserMessage = userMessage; // Can be null in continuation scenarios
-        BranchHistory = conversationHistory ?? throw new ArgumentNullException(nameof(conversationHistory));
+        ThreadHistory = conversationHistory ?? throw new ArgumentNullException(nameof(conversationHistory));
         RunConfig = runConfig ?? throw new ArgumentNullException(nameof(runConfig));
     }
 }
@@ -580,24 +580,24 @@ public sealed class AfterFunctionContext : HookContext
 }
 
 //
-// BRANCH LIFECYCLE CONTEXTS
+// THREAD LIFECYCLE CONTEXTS
 //
 
 /// <summary>
-/// Context for the BeforeBranchForkCommit hook.
-/// Available properties: SourceBranch, TargetBranch, ForkedAtMessageIndex, ForkedAtMessageId, ForkOptions.
+/// Context for the BeforeThreadForkCommit hook.
+/// Available properties: SourceThread, TargetThread, ForkedAtMessageIndex, ForkedAtMessageId, ForkOptions.
 /// </summary>
-public sealed class BeforeBranchForkCommitContext : HookContext
+public sealed class BeforeThreadForkCommitContext : HookContext
 {
     /// <summary>
-    /// Branch being forked from.
+    /// Thread being forked from.
     /// </summary>
-    public Branch SourceBranch { get; }
+    public Thread SourceThread { get; }
 
     /// <summary>
-    /// New branch being created. This branch has not been persisted yet.
+    /// New thread being created. This thread has not been persisted yet.
     /// </summary>
-    public Branch TargetBranch { get; }
+    public Thread TargetThread { get; }
 
     /// <summary>
     /// Resolved source message index where the fork occurs. The fork includes this message.
@@ -612,22 +612,22 @@ public sealed class BeforeBranchForkCommitContext : HookContext
     /// <summary>
     /// Typed options used to create the fork.
     /// </summary>
-    public BranchForkOptions ForkOptions { get; }
+    public ThreadForkOptions ForkOptions { get; }
 
-    internal BeforeBranchForkCommitContext(
+    internal BeforeThreadForkCommitContext(
         AgentContext baseContext,
-        Branch sourceBranch,
-        Branch targetBranch,
+        Thread sourceThread,
+        Thread targetThread,
         int forkedAtMessageIndex,
         string? forkedAtMessageId,
-        BranchForkOptions? forkOptions = null)
+        ThreadForkOptions? forkOptions = null)
         : base(baseContext)
     {
-        SourceBranch = sourceBranch ?? throw new ArgumentNullException(nameof(sourceBranch));
-        TargetBranch = targetBranch ?? throw new ArgumentNullException(nameof(targetBranch));
+        SourceThread = sourceThread ?? throw new ArgumentNullException(nameof(sourceThread));
+        TargetThread = targetThread ?? throw new ArgumentNullException(nameof(targetThread));
         ForkedAtMessageIndex = forkedAtMessageIndex;
         ForkedAtMessageId = forkedAtMessageId;
-        ForkOptions = forkOptions ?? BranchForkOptions.Default;
+        ForkOptions = forkOptions ?? ThreadForkOptions.Default;
     }
 }
 

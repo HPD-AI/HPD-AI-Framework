@@ -5,7 +5,7 @@
  *   - activeSiblings grouping and sort order
  *   - currentSiblingPosition 1-based display
  *   - canGoNext / canGoPrevious navigation flags
- *   - session/branch state isolation (compound cache key)
+ *   - session/thread state isolation (compound cache key)
  *   - AgentState.loadHistory() is used (not fake streaming)
  */
 
@@ -25,10 +25,10 @@ async function tick(ms = 200): Promise<void> {
 // ============================================
 
 describe('workspace — activeSiblings', () => {
-	it('contains the active branch itself when no siblings', () => {
+	it('contains the active thread itself when no siblings', () => {
 		const ws = createMockWorkspace();
 		// main has forkedFrom: null — it is its own sibling group
-		const main = ws.branches.get('main')!;
+		const main = ws.threads.get('main')!;
 		const siblings = ws.activeSiblings;
 		expect(siblings.some((s) => s.id === main.id)).toBe(true);
 	});
@@ -41,10 +41,10 @@ describe('workspace — activeSiblings', () => {
 		// Create two forks from index 0
 		await ws.editMessage(0, 'fork-a');
 		await tick(300);
-		const forkAId = ws.activeBranchId!;
+		const forkAId = ws.activeThreadId!;
 
 		// Switch back to main, fork again
-		await ws.switchBranch('main');
+		await ws.switchThread('main');
 		await ws.editMessage(0, 'fork-b');
 		await tick(300);
 
@@ -56,7 +56,7 @@ describe('workspace — activeSiblings', () => {
 		const forkedAt = forks[0]?.forkedAtMessageIndex;
 		expect(forks.every((s) => s.forkedFrom === forkedFrom)).toBe(true);
 		expect(forks.every((s) => s.forkedAtMessageIndex === forkedAt)).toBe(true);
-		// Source branch is present as slot 0
+		// Source thread is present as slot 0
 		const source = siblings.find((s) => s.isOriginal);
 		expect(source).toBeDefined();
 		expect(source!.siblingIndex).toBe(0);
@@ -70,7 +70,7 @@ describe('workspace — activeSiblings', () => {
 
 		await ws.editMessage(0, 'first fork');
 		await tick(300);
-		await ws.switchBranch('main');
+		await ws.switchThread('main');
 		await ws.editMessage(0, 'second fork');
 		await tick(300);
 
@@ -86,18 +86,18 @@ describe('workspace — activeSiblings', () => {
 // ============================================
 
 describe('workspace — currentSiblingPosition', () => {
-	it('is { current: 1, total: 1 } for a lone branch', () => {
+	it('is { current: 1, total: 1 } for a lone thread', () => {
 		const ws = createMockWorkspace();
 		expect(ws.currentSiblingPosition).toEqual({ current: 1, total: 1 });
 	});
 
 	it('current is 1-based (siblingIndex + 1)', () => {
 		const ws = createMockWorkspace();
-		const main = ws.branches.get('main')!;
+		const main = ws.threads.get('main')!;
 		expect(ws.currentSiblingPosition.current).toBe(main.siblingIndex + 1);
 	});
 
-	it('is { 0, 0 } when no active branch', async () => {
+	it('is { 0, 0 } when no active thread', async () => {
 		const ws = createMockWorkspace();
 		await ws.deleteSession('mock-session-1');
 		await ws.deleteSession('mock-session-2');
@@ -110,13 +110,13 @@ describe('workspace — currentSiblingPosition', () => {
 // ============================================
 
 describe('workspace — canGoNext / canGoPrevious', () => {
-	it('both false for a branch with no siblings', () => {
+	it('both false for a thread with no siblings', () => {
 		const ws = createMockWorkspace();
 		expect(ws.canGoNext).toBe(false);
 		expect(ws.canGoPrevious).toBe(false);
 	});
 
-	it('both false when no active branch', async () => {
+	it('both false when no active thread', async () => {
 		const ws = createMockWorkspace();
 		await ws.deleteSession('mock-session-1');
 		await ws.deleteSession('mock-session-2');
@@ -148,11 +148,11 @@ describe('workspace — session isolation', () => {
 		expect(ws.state?.messages.length).toBe(s1Messages);
 	});
 
-	it('creating branches in session-1 does not appear in session-2', async () => {
+	it('creating threads in session-1 does not appear in session-2', async () => {
 		const ws = createMockWorkspace();
-		await ws.createBranch({ branchId: 'session-1-feature' });
+		await ws.createThread({ threadId: 'session-1-feature' });
 		await ws.selectSession('mock-session-2');
-		expect(ws.branches.has('session-1-feature')).toBe(false);
+		expect(ws.threads.has('session-1-feature')).toBe(false);
 	});
 });
 
@@ -160,19 +160,19 @@ describe('workspace — session isolation', () => {
 // loadHistory vs fake streaming
 // ============================================
 
-describe('workspace — loadHistory is used for branch switches', () => {
-	it('switching to a branch does not leave streaming === true', async () => {
+describe('workspace — loadHistory is used for thread switches', () => {
+	it('switching to a thread does not leave streaming === true', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 
 		// Send a message (streaming completes)
 		await ws.send('hello');
 		await tick(300);
 
-		// Create another branch and switch to it
-		await ws.createBranch({ branchId: 'other' });
-		await ws.switchBranch('other');
+		// Create another thread and switch to it
+		await ws.createThread({ threadId: 'other' });
+		await ws.switchThread('other');
 
-		// The other branch's state should not have streaming = true
+		// The other thread's state should not have streaming = true
 		expect(ws.state?.streaming).toBe(false);
 	});
 
@@ -181,9 +181,9 @@ describe('workspace — loadHistory is used for branch switches', () => {
 		await ws.send('hello');
 		await tick(300);
 
-		await ws.createBranch({ branchId: 'other' });
-		await ws.switchBranch('other');
-		await ws.switchBranch('main');
+		await ws.createThread({ threadId: 'other' });
+		await ws.switchThread('other');
+		await ws.switchThread('main');
 
 		const messages = ws.state?.messages ?? [];
 		expect(messages.every((m) => m.streaming === false)).toBe(true);
@@ -191,33 +191,33 @@ describe('workspace — loadHistory is used for branch switches', () => {
 });
 
 // ============================================
-// branches map reactivity
+// threads map reactivity
 // ============================================
 
-describe('workspace — branches map', () => {
-	it('branches map reflects active session only', async () => {
+describe('workspace — threads map', () => {
+	it('threads map reflects active session only', async () => {
 		const ws = createMockWorkspace();
-		await ws.createBranch({ branchId: 'session-1-only' });
-		const session1BranchCount = ws.branches.size;
+		await ws.createThread({ threadId: 'session-1-only' });
+		const session1ThreadCount = ws.threads.size;
 
 		await ws.selectSession('mock-session-2');
-		expect(ws.branches.size).toBeLessThan(session1BranchCount);
-		expect(ws.branches.has('session-1-only')).toBe(false);
+		expect(ws.threads.size).toBeLessThan(session1ThreadCount);
+		expect(ws.threads.has('session-1-only')).toBe(false);
 	});
 
-	it('branches map updates after createBranch', async () => {
+	it('threads map updates after createThread', async () => {
 		const ws = createMockWorkspace();
-		const before = ws.branches.size;
-		await ws.createBranch({ branchId: 'extra' });
-		expect(ws.branches.size).toBe(before + 1);
+		const before = ws.threads.size;
+		await ws.createThread({ threadId: 'extra' });
+		expect(ws.threads.size).toBe(before + 1);
 	});
 
-	it('branches map updates after deleteBranch', async () => {
+	it('threads map updates after deleteThread', async () => {
 		const ws = createMockWorkspace();
-		await ws.createBranch({ branchId: 'extra' });
-		const before = ws.branches.size;
-		await ws.deleteBranch('extra');
-		expect(ws.branches.size).toBe(before - 1);
+		await ws.createThread({ threadId: 'extra' });
+		const before = ws.threads.size;
+		await ws.deleteThread('extra');
+		expect(ws.threads.size).toBe(before - 1);
 	});
 });
 
@@ -226,7 +226,7 @@ describe('workspace — branches map', () => {
 // ============================================
 
 describe('workspace — canGoNext / canGoPrevious with siblings', () => {
-	it('canGoNext is true when activeBranch.nextSiblingId is set', async () => {
+	it('canGoNext is true when activeThread.nextSiblingId is set', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('msg');
 		await tick(300);
@@ -236,14 +236,14 @@ describe('workspace — canGoNext / canGoPrevious with siblings', () => {
 		await tick(300);
 
 		// Switch back to main — main now has a next sibling (the fork)
-		await ws.switchBranch('main');
+		await ws.switchThread('main');
 		// The fork has previousSiblingId pointing to main, main has nextSiblingId
-		// In the mock, canGoNext reflects activeBranch.nextSiblingId != null
+		// In the mock, canGoNext reflects activeThread.nextSiblingId != null
 		// main's nextSiblingId is set after fork
-		expect(ws.canGoNext).toBe(ws.activeBranch?.nextSiblingId != null);
+		expect(ws.canGoNext).toBe(ws.activeThread?.nextSiblingId != null);
 	});
 
-	it('canGoPrevious is true when activeBranch.previousSiblingId is set', async () => {
+	it('canGoPrevious is true when activeThread.previousSiblingId is set', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('msg');
 		await tick(300);
@@ -252,7 +252,7 @@ describe('workspace — canGoNext / canGoPrevious with siblings', () => {
 		await tick(300);
 
 		// The fork is currently active — check its previousSiblingId
-		expect(ws.canGoPrevious).toBe(ws.activeBranch?.previousSiblingId != null);
+		expect(ws.canGoPrevious).toBe(ws.activeThread?.previousSiblingId != null);
 	});
 });
 
@@ -261,57 +261,57 @@ describe('workspace — canGoNext / canGoPrevious with siblings', () => {
 // ============================================
 
 describe('workspace — loadHistory produces settled messages', () => {
-	it('all messages have streaming: false after branch switch', async () => {
+	it('all messages have streaming: false after thread switch', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('hello');
 		await tick(300);
 
 		// Switch away and back — history reloaded via loadHistory
-		await ws.createBranch({ branchId: 'side' });
-		await ws.switchBranch('side');
-		await ws.switchBranch('main');
+		await ws.createThread({ threadId: 'side' });
+		await ws.switchThread('side');
+		await ws.switchThread('main');
 
 		for (const msg of ws.state!.messages) {
 			expect(msg.streaming).toBe(false);
 		}
 	});
 
-	it('all messages have thinking: false after branch switch', async () => {
+	it('all messages have thinking: false after thread switch', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('hello');
 		await tick(300);
 
-		await ws.createBranch({ branchId: 'side' });
-		await ws.switchBranch('side');
-		await ws.switchBranch('main');
+		await ws.createThread({ threadId: 'side' });
+		await ws.switchThread('side');
+		await ws.switchThread('main');
 
 		for (const msg of ws.state!.messages) {
 			expect(msg.thinking).toBe(false);
 		}
 	});
 
-	it('all messages have toolCalls: [] after branch switch', async () => {
+	it('all messages have toolCalls: [] after thread switch', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('hello');
 		await tick(300);
 
-		await ws.createBranch({ branchId: 'side' });
-		await ws.switchBranch('side');
-		await ws.switchBranch('main');
+		await ws.createThread({ threadId: 'side' });
+		await ws.switchThread('side');
+		await ws.switchThread('main');
 
 		for (const msg of ws.state!.messages) {
 			expect(msg.toolCalls).toEqual([]);
 		}
 	});
 
-	it('all messages have a valid timestamp Date after branch switch', async () => {
+	it('all messages have a valid timestamp Date after thread switch', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('hello');
 		await tick(300);
 
-		await ws.createBranch({ branchId: 'side' });
-		await ws.switchBranch('side');
-		await ws.switchBranch('main');
+		await ws.createThread({ threadId: 'side' });
+		await ws.switchThread('side');
+		await ws.switchThread('main');
 
 		for (const msg of ws.state!.messages) {
 			expect(msg.timestamp).toBeInstanceOf(Date);
@@ -338,20 +338,20 @@ describe('workspace — state $derived updates on switch', () => {
 		expect(ws.state).toBeNull();
 	});
 
-	it('state points to a different AgentState after switchBranch', async () => {
+	it('state points to a different AgentState after switchThread', async () => {
 		const ws = createMockWorkspace();
 		const before = ws.state;
-		await ws.createBranch({ branchId: 'other' });
-		await ws.switchBranch('other');
+		await ws.createThread({ threadId: 'other' });
+		await ws.switchThread('other');
 		expect(ws.state).not.toBe(before);
 	});
 
-	it('state returns to the same object when switching back to a cached branch', async () => {
+	it('state returns to the same object when switching back to a cached thread', async () => {
 		const ws = createMockWorkspace();
 		const mainState = ws.state;
-		await ws.createBranch({ branchId: 'other' });
-		await ws.switchBranch('other');
-		await ws.switchBranch('main');
+		await ws.createThread({ threadId: 'other' });
+		await ws.switchThread('other');
+		await ws.switchThread('main');
 		// Should be the exact same AgentState instance (cache hit)
 		expect(ws.state).toBe(mainState);
 	});
@@ -367,7 +367,7 @@ describe('workspace — sibling redesign: source is slot 0 (W1-W7)', () => {
 	}
 
 	// W1: activeSiblings includes source (main) at slot 0 after a fork
-	it('W1: activeSiblings includes source branch as slot 0 after editMessage', async () => {
+	it('W1: activeSiblings includes source thread as slot 0 after editMessage', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('hello');
 		await tick();
@@ -379,14 +379,14 @@ describe('workspace — sibling redesign: source is slot 0 (W1-W7)', () => {
 		const siblings = ws.activeSiblings;
 		expect(siblings.length).toBeGreaterThanOrEqual(2);
 
-		// source branch (main) should be slot 0
+		// source thread (main) should be slot 0
 		const source = siblings.find((s) => s.id === 'main');
 		expect(source).toBeDefined();
 		expect(source!.siblingIndex).toBe(0);
 	});
 
 	// W2: currentSiblingPosition is { current: 2, total: 2 } when on fork (slot 1)
-	it('W2: currentSiblingPosition is { 2, 2 } when on fork branch', async () => {
+	it('W2: currentSiblingPosition is { 2, 2 } when on fork thread', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('hello');
 		await tick();
@@ -394,8 +394,8 @@ describe('workspace — sibling redesign: source is slot 0 (W1-W7)', () => {
 		await ws.editMessage(0, 'fork');
 		await tick();
 
-		// Active branch is the fork (slot 1 out of 2)
-		expect(ws.activeBranch?.siblingIndex).toBe(1);
+		// Active thread is the fork (slot 1 out of 2)
+		expect(ws.activeThread?.siblingIndex).toBe(1);
 		expect(ws.currentSiblingPosition.current).toBe(2); // 1-based
 		expect(ws.currentSiblingPosition.total).toBe(2);
 	});
@@ -408,16 +408,16 @@ describe('workspace — sibling redesign: source is slot 0 (W1-W7)', () => {
 
 		await ws.editMessage(0, 'fork');
 		await tick();
-		await ws.switchBranch('main');
+		await ws.switchThread('main');
 
-		expect(ws.activeBranch?.id).toBe('main');
-		expect(ws.activeBranch?.siblingIndex).toBe(0);
+		expect(ws.activeThread?.id).toBe('main');
+		expect(ws.activeThread?.siblingIndex).toBe(0);
 		expect(ws.currentSiblingPosition.current).toBe(1);
 		expect(ws.currentSiblingPosition.total).toBe(2);
 	});
 
 	// W4: canGoPrevious is true when on fork (source is prev)
-	it('W4: canGoPrevious is true when on fork branch (source is previousSiblingId)', async () => {
+	it('W4: canGoPrevious is true when on fork thread (source is previousSiblingId)', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('hello');
 		await tick();
@@ -426,7 +426,7 @@ describe('workspace — sibling redesign: source is slot 0 (W1-W7)', () => {
 		await tick();
 
 		// Active is the fork — it has previousSiblingId=main
-		expect(ws.activeBranch?.previousSiblingId).toBe('main');
+		expect(ws.activeThread?.previousSiblingId).toBe('main');
 		expect(ws.canGoPrevious).toBe(true);
 	});
 
@@ -438,10 +438,10 @@ describe('workspace — sibling redesign: source is slot 0 (W1-W7)', () => {
 
 		await ws.editMessage(0, 'fork');
 		await tick();
-		await ws.switchBranch('main');
+		await ws.switchThread('main');
 
 		// main now has nextSiblingId pointing to the fork
-		expect(ws.activeBranch?.nextSiblingId).toBeTruthy();
+		expect(ws.activeThread?.nextSiblingId).toBeTruthy();
 		expect(ws.canGoNext).toBe(true);
 	});
 
@@ -455,13 +455,13 @@ describe('workspace — sibling redesign: source is slot 0 (W1-W7)', () => {
 		await tick();
 
 		// Confirm we are on the fork
-		const forkId = ws.activeBranchId;
+		const forkId = ws.activeThreadId;
 		expect(forkId).not.toBe('main');
 
 		// Navigate back to source
 		await ws.goToPreviousSibling();
 
-		expect(ws.activeBranch?.id).toBe('main');
+		expect(ws.activeThread?.id).toBe('main');
 	});
 
 	// W7: goToNextSibling from main lands on fork
@@ -472,12 +472,12 @@ describe('workspace — sibling redesign: source is slot 0 (W1-W7)', () => {
 
 		await ws.editMessage(0, 'fork');
 		await tick();
-		const forkId = ws.activeBranchId!;
+		const forkId = ws.activeThreadId!;
 		expect(forkId).not.toBe('main');
 
-		await ws.switchBranch('main');
+		await ws.switchThread('main');
 		await ws.goToNextSibling();
 
-		expect(ws.activeBranch?.id).toBe(forkId);
+		expect(ws.activeThread?.id).toBe(forkId);
 	});
 });

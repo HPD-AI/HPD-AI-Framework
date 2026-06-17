@@ -7,16 +7,16 @@ using Microsoft.Extensions.Options;
 namespace HPD.Agent.AspNetCore.Tests.Unit;
 
 /// <summary>
-/// Unit tests for AgentSessionManager branch-operation-lock and session-lock behaviour.
-/// Covers Fix 3 (RemoveBranchOperationLock + RemoveSession cleanup)
+/// Unit tests for AgentSessionManager thread-operation-lock and session-lock behaviour.
+/// Covers Fix 3 (RemoveThreadOperationLock + RemoveSession cleanup)
 /// and MAUI Fix B (non-generic WithSessionLockAsync overload).
 /// </summary>
-public class AgentSessionManagerBranchOperationLockTests : IDisposable
+public class AgentSessionManagerThreadOperationLockTests : IDisposable
 {
     private readonly InMemorySessionStore _store;
     private readonly AspNetCoreSessionManagerTestable _manager;
 
-    public AgentSessionManagerBranchOperationLockTests()
+    public AgentSessionManagerThreadOperationLockTests()
     {
         _store = new InMemorySessionStore();
         var optionsMonitor = new OptionsMonitorWrapper();
@@ -26,78 +26,78 @@ public class AgentSessionManagerBranchOperationLockTests : IDisposable
     public void Dispose() => _manager.Dispose();
 
     // ──────────────────────────────────────────────────────────────────
-    // Fix 3 — RemoveBranchOperationLock
+    // Fix 3 — RemoveThreadOperationLock
     // ──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void TryAcquireBranchOperationLock_ReturnsFalse_WhenAlreadyAcquired()
+    public void TryAcquireThreadOperationLock_ReturnsFalse_WhenAlreadyAcquired()
     {
-        var acquired = _manager.TryAcquireBranchOperationLock("session-1", "branch-a");
+        var acquired = _manager.TryAcquireThreadOperationLock("session-1", "thread-a");
         acquired.Should().BeTrue();
 
-        var second = _manager.TryAcquireBranchOperationLock("session-1", "branch-a");
+        var second = _manager.TryAcquireThreadOperationLock("session-1", "thread-a");
         second.Should().BeFalse();
     }
 
     [Fact]
-    public void RemoveBranchOperationLock_AllowsReacquisition_AfterRelease()
+    public void RemoveThreadOperationLock_AllowsReacquisition_AfterRelease()
     {
         // Acquire, release, then remove the semaphore
-        _manager.TryAcquireBranchOperationLock("session-1", "branch-a");
-        _manager.ReleaseBranchOperationLock("session-1", "branch-a");
-        _manager.RemoveBranchOperationLock("session-1", "branch-a");
+        _manager.TryAcquireThreadOperationLock("session-1", "thread-a");
+        _manager.ReleaseThreadOperationLock("session-1", "thread-a");
+        _manager.RemoveThreadOperationLock("session-1", "thread-a");
 
         // A fresh acquisition should succeed (new semaphore created lazily)
-        var acquired = _manager.TryAcquireBranchOperationLock("session-1", "branch-a");
+        var acquired = _manager.TryAcquireThreadOperationLock("session-1", "thread-a");
         acquired.Should().BeTrue();
     }
 
     [Fact]
-    public void RemoveBranchOperationLock_IsIdempotent_WhenKeyNotPresent()
+    public void RemoveThreadOperationLock_IsIdempotent_WhenKeyNotPresent()
     {
         // Should not throw on a key that was never acquired
-        var act = () => _manager.RemoveBranchOperationLock("session-x", "branch-x");
+        var act = () => _manager.RemoveThreadOperationLock("session-x", "thread-x");
         act.Should().NotThrow();
     }
 
     [Fact]
-    public void RemoveAgent_CleansUpAllBranchOperationLocks_ForSession()
+    public void RemoveAgent_CleansUpAllThreadOperationLocks_ForSession()
     {
-        // Acquire locks for 3 branches on session-A and 1 on session-B
-        _manager.TryAcquireBranchOperationLock("session-a", "branch-1");
-        _manager.TryAcquireBranchOperationLock("session-a", "branch-2");
-        _manager.TryAcquireBranchOperationLock("session-a", "branch-3");
-        _manager.TryAcquireBranchOperationLock("session-b", "branch-1");
+        // Acquire locks for 3 threads on session-A and 1 on session-B
+        _manager.TryAcquireThreadOperationLock("session-a", "thread-1");
+        _manager.TryAcquireThreadOperationLock("session-a", "thread-2");
+        _manager.TryAcquireThreadOperationLock("session-a", "thread-3");
+        _manager.TryAcquireThreadOperationLock("session-b", "thread-1");
 
         // Release before removing (must release before dispose)
-        _manager.ReleaseBranchOperationLock("session-a", "branch-1");
-        _manager.ReleaseBranchOperationLock("session-a", "branch-2");
-        _manager.ReleaseBranchOperationLock("session-a", "branch-3");
-        _manager.ReleaseBranchOperationLock("session-b", "branch-1");
+        _manager.ReleaseThreadOperationLock("session-a", "thread-1");
+        _manager.ReleaseThreadOperationLock("session-a", "thread-2");
+        _manager.ReleaseThreadOperationLock("session-a", "thread-3");
+        _manager.ReleaseThreadOperationLock("session-b", "thread-1");
 
         _manager.RemoveSession("session-a");
 
         // Session-A locks are gone — acquiring returns a fresh semaphore (true)
-        _manager.TryAcquireBranchOperationLock("session-a", "branch-1").Should().BeTrue();
-        _manager.TryAcquireBranchOperationLock("session-a", "branch-2").Should().BeTrue();
-        _manager.TryAcquireBranchOperationLock("session-a", "branch-3").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock("session-a", "thread-1").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock("session-a", "thread-2").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock("session-a", "thread-3").Should().BeTrue();
 
         // Session-B lock was not cleaned up — it was already released above so reacquire is fine,
         // but confirm it still exists as a fresh (uncontested) semaphore
-        _manager.TryAcquireBranchOperationLock("session-b", "branch-1").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock("session-b", "thread-1").Should().BeTrue();
     }
 
     [Fact]
-    public void RemoveAgent_DoesNotCleanupOtherSessions_BranchOperationLocks()
+    public void RemoveAgent_DoesNotCleanupOtherSessions_ThreadOperationLocks()
     {
         // Acquire and hold a lock for session-b
-        _manager.TryAcquireBranchOperationLock("session-b", "branch-z");
+        _manager.TryAcquireThreadOperationLock("session-b", "thread-z");
 
         // Remove a different session
         _manager.RemoveSession("session-a");
 
         // Session-B lock should still be held — reacquisition fails
-        _manager.TryAcquireBranchOperationLock("session-b", "branch-z").Should().BeFalse();
+        _manager.TryAcquireThreadOperationLock("session-b", "thread-z").Should().BeFalse();
     }
 
     // ──────────────────────────────────────────────────────────────────

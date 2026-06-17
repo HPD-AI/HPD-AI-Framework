@@ -46,9 +46,9 @@ describe('WebSocketTransport runtime', () => {
 
   it('connects to the scoped websocket runtime URL', async () => {
     const transport = new WebSocketTransport('http://localhost:5135');
-    await transport.connect({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
+    await transport.connect({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
     expect(((transport as unknown as { ws: MockWebSocket }).ws).url)
-      .toBe('ws://localhost:5135/agents/a1/sessions/s1/branches/main/ws');
+      .toBe('ws://localhost:5135/agents/a1/sessions/s1/threads/main/ws');
   });
 
   it('receives parsed events', async () => {
@@ -56,7 +56,7 @@ describe('WebSocketTransport runtime', () => {
     const transport = new WebSocketTransport('http://localhost:5135');
     transport.onEvent((event) => events.push(event));
 
-    await transport.connect({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
+    await transport.connect({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
     ((transport as unknown as { ws: MockWebSocket }).ws).simulateMessage(
       JSON.stringify({ type: EventTypes.TEXT_DELTA, text: 'Hello', messageId: 'm1' }),
     );
@@ -64,9 +64,9 @@ describe('WebSocketTransport runtime', () => {
     expect(events).toEqual([{ type: EventTypes.TEXT_DELTA, text: 'Hello', messageId: 'm1' }]);
   });
 
-  it('sends inputs with scoped session, branch, and agent IDs', async () => {
+  it('sends inputs with scoped session, thread, and agent IDs', async () => {
     const transport = new WebSocketTransport('http://localhost:5135');
-    await transport.connect({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
+    await transport.connect({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
     await transport.submitInput({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'p1',
@@ -82,7 +82,7 @@ describe('WebSocketTransport runtime', () => {
         approved: true,
         agentId: 'a1',
         sessionId: 's1',
-        branchId: 'main',
+        threadId: 'main',
       },
     ]);
   });
@@ -99,7 +99,7 @@ describe('WebSocketTransport runtime', () => {
 
   it('disconnects and reports connection state', async () => {
     const transport = new WebSocketTransport('http://localhost:5135');
-    await transport.connect({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
+    await transport.connect({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
     expect(transport.connected).toBe(true);
     transport.disconnect();
     expect(transport.connected).toBe(false);

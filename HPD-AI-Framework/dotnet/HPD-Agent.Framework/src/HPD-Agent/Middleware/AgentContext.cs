@@ -43,7 +43,7 @@ public sealed class AgentContext
     private readonly AgentClientSet? _clientSet;
     private readonly IContentStore? _contentStore;
     private readonly Session? _session;
-    private readonly Branch? _branch;
+    private readonly Thread? _thread;
     private readonly IServiceProvider? _services;
     private readonly IRuntimeCapabilityRegistry _runtimeCapabilities;
 
@@ -117,7 +117,7 @@ public sealed class AgentContext
     /// <remarks>
     /// <para>
     /// Session contains metadata and session-scoped middleware state (permissions, preferences).
-    /// Messages live in <see cref="Branch"/> instead.
+    /// Messages live in <see cref="Thread"/> instead.
     /// Middleware should use <see cref="ContentStore"/> for uploads, artifacts, and other content.
     /// </para>
     /// <para><b>Example:</b></para>
@@ -127,7 +127,7 @@ public sealed class AgentContext
     ///     var contentStore = context.ContentStore;
     ///     if (contentStore != null)
     ///     {
-    ///         // Upload/retrieve branch-scoped content, etc.
+    ///         // Upload/retrieve thread-scoped content, etc.
     ///     }
     /// }
     /// </code>
@@ -135,25 +135,25 @@ public sealed class AgentContext
     public Session? Session => _session;
 
     /// <summary>
-    /// The current branch being executed.
-    /// Contains conversation messages and branch-scoped middleware state.
+    /// The current thread being executed.
+    /// Contains conversation messages and thread-scoped middleware state.
     /// May be null if no session was provided.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Branch contains the conversation messages for this specific conversation path.
-    /// Multiple branches can exist in one session (for exploring alternatives).
+    /// Thread contains the conversation messages for this specific conversation path.
+    /// Multiple threads can exist in one session (for exploring alternatives).
     /// </para>
     /// <para><b>Example:</b></para>
     /// <code>
     /// public async Task BeforeMessageTurnAsync(BeforeMessageTurnContext context, ...)
     /// {
-    ///     var messages = context.Branch?.Messages;
-    ///     var branchId = context.Branch?.Id;
+    ///     var messages = context.Thread?.Messages;
+    ///     var threadId = context.Thread?.Id;
     /// }
     /// </code>
     /// </remarks>
-    public Branch? Branch => _branch;
+    public Thread? Thread => _thread;
 
     /// <summary>
     /// Service provider for dependency injection (may be null if not configured).
@@ -417,7 +417,7 @@ public sealed class AgentContext
     /// <param name="initialState">Initial agent loop state</param>
     /// <param name="eventCoordinator">Event coordinator for event emission</param>
     /// <param name="session">Session metadata (may be null)</param>
-    /// <param name="branch">Current branch (may be null)</param>
+    /// <param name="thread">Current thread (may be null)</param>
     /// <param name="cancellationToken">Cancellation token for the operation</param>
     /// <param name="parentChatClient">Parent agent's chat client (for SubAgent inheritance)</param>
     /// <param name="services">Service provider for dependency injection (may be null)</param>
@@ -428,7 +428,7 @@ public sealed class AgentContext
         AgentLoopState initialState,
         IEventCoordinator eventCoordinator,
         Session? session,
-        Branch? branch,
+        Thread? thread,
         CancellationToken cancellationToken,
         IChatClient? parentChatClient = null,
         IServiceProvider? services = null,
@@ -452,7 +452,7 @@ public sealed class AgentContext
         _events = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
         _structEvents = structEvents ?? new StructEventHub();
         _session = session;
-        _branch = branch;
+        _thread = thread;
         _cancellationToken = cancellationToken;
         _parentChatClient = parentChatClient;
         _parentAgentMetadata = parentAgentMetadata ?? CreateRootAgentMetadata(agentName, agentId);
@@ -563,15 +563,15 @@ public sealed class AgentContext
         => new(this, function, callId, result, exception, runConfig, toolharnessName, skillName, invocation, resultMetadata);
 
     /// <summary>
-    /// Creates a typed context for BeforeBranchForkCommit hook.
+    /// Creates a typed context for BeforeThreadForkCommit hook.
     /// </summary>
-    internal BeforeBranchForkCommitContext AsBeforeBranchForkCommit(
-        Branch sourceBranch,
-        Branch targetBranch,
+    internal BeforeThreadForkCommitContext AsBeforeThreadForkCommit(
+        Thread sourceThread,
+        Thread targetThread,
         int forkedAtMessageIndex,
         string? forkedAtMessageId,
-        BranchForkOptions? forkOptions = null)
-        => new(this, sourceBranch, targetBranch, forkedAtMessageIndex, forkedAtMessageId, forkOptions);
+        ThreadForkOptions? forkOptions = null)
+        => new(this, sourceThread, targetThread, forkedAtMessageIndex, forkedAtMessageId, forkOptions);
 
     /// <summary>
     /// Creates a typed context for OnError hook.

@@ -17,7 +17,7 @@ export type {
 	ClientToolInvokeRequest
 } from './agent/types.js';
 
-// Workspace (V3 - Unified session/branch/streaming factory)
+// Workspace (V3 - Unified session/thread/streaming factory)
 export { createWorkspace } from './workspace/index.js';
 export type { Workspace, CreateWorkspaceOptions, SendOptions } from './workspace/index.js';
 
@@ -32,13 +32,13 @@ export { FileAttachmentState } from './file-attachment/index.js';
 // Re-exports from hpd-agent-client — users only need to import from this package
 export type {
 	Session,
-	Branch,
-	BranchMessage,
+	Thread,
+	ThreadMessage,
 	ContentReference,
 	ChatRunConfig,
 	CreateSessionRequest,
-	CreateBranchRequest,
-	ForkBranchRequest,
+	CreateThreadRequest,
+	ForkThreadRequest,
 	ClientToolHarnessDefinition,
 	AgentClientInput,
 	ClientToolDefinition,
@@ -64,7 +64,7 @@ export type {
 	PassRateResult,
 	FailureRateResult,
 	AgentComparisonResult,
-	BranchComparisonResult,
+	ThreadComparisonResult,
 	ToolUsageSummary,
 	CostBreakdown,
 } from '@hpd-research/hpd-agent-client';
@@ -74,15 +74,15 @@ export {
 	createExpandedToolHarness,
 } from '@hpd-research/hpd-agent-client';
 
-// BranchSwitcher component (V3 - Sibling navigation UI)
-export * as BranchSwitcher from './branch-switcher/index.js';
+// ThreadSwitcher component (V3 - Sibling navigation UI)
+export * as ThreadSwitcher from './thread-switcher/index.js';
 export {
-	BranchSwitcherRootState,
-	BranchSwitcherPrevState,
-	BranchSwitcherNextState,
-	BranchSwitcherPositionState,
-	branchSwitcherAttrs,
-} from './branch-switcher/index.js';
+	ThreadSwitcherRootState,
+	ThreadSwitcherPrevState,
+	ThreadSwitcherNextState,
+	ThreadSwitcherPositionState,
+	threadSwitcherAttrs,
+} from './thread-switcher/index.js';
 
 // SessionList component (V3 - Session management UI)
 export * as SessionList from './session-list/index.js';

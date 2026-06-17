@@ -37,7 +37,7 @@ public class AgentContextEmitTests
             initialState: initialState,
             eventCoordinator: coordinator,
             session: null,
-            branch: null,
+            thread: null,
             cancellationToken: CancellationToken.None,
             traceId: traceId);
         return (context, coordinator);

@@ -319,9 +319,9 @@ public class ContentUploadMiddleware : IAgentMiddleware
 
     private static string CreateScope(HookContext context)
     {
-        if (context.SessionId is null || context.BranchId is null)
-            throw new InvalidOperationException("Content upload requires an active session and branch.");
+        if (context.SessionId is null || context.ThreadId is null)
+            throw new InvalidOperationException("Content upload requires an active session and thread.");
 
-        return ContentStoreScopes.ForBranch(context.SessionId, context.BranchId);
+        return ContentStoreScopes.ForThread(context.SessionId, context.ThreadId);
     }
 }

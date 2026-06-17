@@ -14,7 +14,7 @@ public class SubAgentExecutionPolicyTests
     };
 
     [Fact]
-    public void FromConfig_DefaultsToParentSessionForkedBranch()
+    public void FromConfig_DefaultsToParentSessionForkedThread()
     {
         var subAgent = SubAgent.FromConfig("Test", "desc", MinimalConfig());
 
@@ -22,8 +22,8 @@ public class SubAgentExecutionPolicyTests
         subAgent.AgentConfig.Should().NotBeNull();
         subAgent.AgentId.Should().BeNull();
         subAgent.ExecutionPolicy.SessionPolicy.Should().Be(SubAgentSessionPolicy.ParentSession);
-        subAgent.ExecutionPolicy.BranchPolicy.Should().Be(SubAgentBranchPolicy.ForkFromParentBranch);
-        subAgent.ExecutionPolicy.BranchCompaction.Should().Be(SubAgentBranchCompaction.Inherit);
+        subAgent.ExecutionPolicy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.ForkFromParentThread);
+        subAgent.ExecutionPolicy.ThreadCompaction.Should().Be(SubAgentThreadCompaction.Inherit);
     }
 
     [Fact]
@@ -38,62 +38,62 @@ public class SubAgentExecutionPolicyTests
     }
 
     [Fact]
-    public void ParentBranchPolicy_IsExplicitOldWriteTarget()
+    public void ParentThreadPolicy_IsExplicitOldWriteTarget()
     {
         var subAgent = SubAgent.FromConfig(
             "CoAuthor",
-            "Writes directly in the caller branch.",
+            "Writes directly in the caller thread.",
             MinimalConfig(),
-            SubAgentExecutionPolicies.ParentBranch());
+            SubAgentExecutionPolicies.ParentThread());
 
         subAgent.ExecutionPolicy.SessionPolicy.Should().Be(SubAgentSessionPolicy.ParentSession);
-        subAgent.ExecutionPolicy.BranchPolicy.Should().Be(SubAgentBranchPolicy.ParentBranch);
+        subAgent.ExecutionPolicy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.ParentThread);
         subAgent.ExecutionPolicy.SharedSessionId.Should().BeNull();
-        subAgent.ExecutionPolicy.ExistingBranchId.Should().BeNull();
-        subAgent.ExecutionPolicy.BranchCompaction.Should().Be(SubAgentBranchCompaction.Inherit);
+        subAgent.ExecutionPolicy.ExistingThreadId.Should().BeNull();
+        subAgent.ExecutionPolicy.ThreadCompaction.Should().Be(SubAgentThreadCompaction.Inherit);
     }
 
     [Theory]
-    [InlineData(SubAgentBranchCompaction.Enabled)]
-    [InlineData(SubAgentBranchCompaction.Disabled)]
-    [InlineData(SubAgentBranchCompaction.PreferCache)]
-    public void ParentSessionForkedBranch_CanSetBranchCompaction(SubAgentBranchCompaction branchCompaction)
+    [InlineData(SubAgentThreadCompaction.Enabled)]
+    [InlineData(SubAgentThreadCompaction.Disabled)]
+    [InlineData(SubAgentThreadCompaction.PreferCache)]
+    public void ParentSessionForkedThread_CanSetThreadCompaction(SubAgentThreadCompaction threadCompaction)
     {
-        var policy = SubAgentExecutionPolicies.ParentSessionForkedBranch(branchCompaction);
+        var policy = SubAgentExecutionPolicies.ParentSessionForkedThread(threadCompaction);
 
         policy.SessionPolicy.Should().Be(SubAgentSessionPolicy.ParentSession);
-        policy.BranchPolicy.Should().Be(SubAgentBranchPolicy.ForkFromParentBranch);
-        policy.BranchCompaction.Should().Be(branchCompaction);
+        policy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.ForkFromParentThread);
+        policy.ThreadCompaction.Should().Be(threadCompaction);
     }
 
     [Fact]
-    public void SharedSessionFreshBranch_UsesFreshBranchPerCall()
+    public void SharedSessionFreshThread_UsesFreshThreadPerCall()
     {
         var subAgent = SubAgent.FromConfig(
             "Architect",
             "Shared specialist.",
             MinimalConfig(),
-            SubAgentExecutionPolicies.SharedSessionFreshBranch("architect-memory"));
+            SubAgentExecutionPolicies.SharedSessionFreshThread("architect-memory"));
 
         subAgent.ExecutionPolicy.SessionPolicy.Should().Be(SubAgentSessionPolicy.SharedSession);
-        subAgent.ExecutionPolicy.BranchPolicy.Should().Be(SubAgentBranchPolicy.FreshBranch);
+        subAgent.ExecutionPolicy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.FreshThread);
         subAgent.ExecutionPolicy.SharedSessionId.Should().Be("architect-memory");
-        subAgent.ExecutionPolicy.ExistingBranchId.Should().BeNull();
+        subAgent.ExecutionPolicy.ExistingThreadId.Should().BeNull();
     }
 
     [Fact]
-    public void SharedSessionExistingBranch_UsesExistingBranch()
+    public void SharedSessionExistingThread_UsesExistingThread()
     {
         var subAgent = SubAgent.FromConfig(
             "Architect",
             "Shared specialist.",
             MinimalConfig(),
-            SubAgentExecutionPolicies.SharedSessionExistingBranch("architect-memory", "main"));
+            SubAgentExecutionPolicies.SharedSessionExistingThread("architect-memory", "main"));
 
         subAgent.ExecutionPolicy.SessionPolicy.Should().Be(SubAgentSessionPolicy.SharedSession);
-        subAgent.ExecutionPolicy.BranchPolicy.Should().Be(SubAgentBranchPolicy.ExistingBranch);
+        subAgent.ExecutionPolicy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.ExistingThread);
         subAgent.ExecutionPolicy.SharedSessionId.Should().Be("architect-memory");
-        subAgent.ExecutionPolicy.ExistingBranchId.Should().Be("main");
+        subAgent.ExecutionPolicy.ExistingThreadId.Should().Be("main");
     }
 
     [Fact]
@@ -101,7 +101,7 @@ public class SubAgentExecutionPolicyTests
     {
         var policy = new SubAgentExecutionPolicy(
             SubAgentSessionPolicy.SharedSession,
-            SubAgentBranchPolicy.FreshBranch);
+            SubAgentThreadPolicy.FreshThread);
 
         var act = () => SubAgent.FromConfig("Bad", "desc", MinimalConfig(), policy);
 
@@ -110,60 +110,60 @@ public class SubAgentExecutionPolicyTests
     }
 
     [Fact]
-    public void ExistingBranchPolicy_RequiresExistingBranchId()
+    public void ExistingThreadPolicy_RequiresExistingThreadId()
     {
         var policy = new SubAgentExecutionPolicy(
             SubAgentSessionPolicy.ParentSession,
-            SubAgentBranchPolicy.ExistingBranch);
+            SubAgentThreadPolicy.ExistingThread);
 
         var act = () => SubAgent.FromConfig("Bad", "desc", MinimalConfig(), policy);
 
         act.Should().Throw<ArgumentException>()
-            .WithMessage("*ExistingBranchId*");
+            .WithMessage("*ExistingThreadId*");
     }
 
     [Fact]
-    public void ForkFromParentBranch_RequiresParentSession()
+    public void ForkFromParentThread_RequiresParentSession()
     {
         var policy = new SubAgentExecutionPolicy(
             SubAgentSessionPolicy.NewSession,
-            SubAgentBranchPolicy.ForkFromParentBranch);
+            SubAgentThreadPolicy.ForkFromParentThread);
 
         var act = () => SubAgent.FromConfig("Bad", "desc", MinimalConfig(), policy);
 
         act.Should().Throw<ArgumentException>()
-            .WithMessage("*ForkFromParentBranch*ParentSession*");
+            .WithMessage("*ForkFromParentThread*ParentSession*");
     }
 
     [Fact]
-    public void ParentBranch_RequiresParentSession()
+    public void ParentThread_RequiresParentSession()
     {
         var policy = new SubAgentExecutionPolicy(
             SubAgentSessionPolicy.SharedSession,
-            SubAgentBranchPolicy.ParentBranch,
+            SubAgentThreadPolicy.ParentThread,
             SharedSessionId: "shared");
 
         var act = () => SubAgent.FromConfig("Bad", "desc", MinimalConfig(), policy);
 
         act.Should().Throw<ArgumentException>()
-            .WithMessage("*ParentBranch*ParentSession*");
+            .WithMessage("*ParentThread*ParentSession*");
     }
 
     [Theory]
-    [InlineData(SubAgentBranchPolicy.FreshBranch)]
-    [InlineData(SubAgentBranchPolicy.ExistingBranch)]
-    [InlineData(SubAgentBranchPolicy.ParentBranch)]
-    public void BranchCompaction_RequiresForkFromParentBranch(SubAgentBranchPolicy branchPolicy)
+    [InlineData(SubAgentThreadPolicy.FreshThread)]
+    [InlineData(SubAgentThreadPolicy.ExistingThread)]
+    [InlineData(SubAgentThreadPolicy.ParentThread)]
+    public void ThreadCompaction_RequiresForkFromParentThread(SubAgentThreadPolicy threadPolicy)
     {
         var policy = new SubAgentExecutionPolicy(
             SubAgentSessionPolicy.ParentSession,
-            branchPolicy,
-            ExistingBranchId: branchPolicy == SubAgentBranchPolicy.ExistingBranch ? "existing" : null,
-            BranchCompaction: SubAgentBranchCompaction.Enabled);
+            threadPolicy,
+            ExistingThreadId: threadPolicy == SubAgentThreadPolicy.ExistingThread ? "existing" : null,
+            ThreadCompaction: SubAgentThreadCompaction.Enabled);
 
         var act = () => SubAgent.FromConfig("Bad", "desc", MinimalConfig(), policy);
 
         act.Should().Throw<ArgumentException>()
-            .WithMessage("*BranchCompaction*ForkFromParentBranch*");
+            .WithMessage("*ThreadCompaction*ForkFromParentThread*");
     }
 }

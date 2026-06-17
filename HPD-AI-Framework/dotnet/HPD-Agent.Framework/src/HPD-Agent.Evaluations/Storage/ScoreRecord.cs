@@ -30,7 +30,7 @@ public sealed class ScoreRecord
     // ── Provenance ────────────────────────────────────────────────────────────
 
     public string SessionId { get; init; } = string.Empty;
-    public string BranchId { get; init; } = string.Empty;
+    public string ThreadId { get; init; } = string.Empty;
     public int TurnIndex { get; init; }
     public string AgentName { get; init; } = string.Empty;
     public string? ProviderKey { get; init; }
@@ -87,7 +87,7 @@ public sealed class ScoreRecord
 
     /// <summary>
     /// Detailed judge-model calls made by this evaluator while producing Result.
-    /// These are eval traces, not user-facing branch messages.
+    /// These are eval traces, not user-facing thread messages.
     /// </summary>
     public IReadOnlyList<JudgeCallRecord> JudgeCalls { get; init; } = [];
 

@@ -231,7 +231,7 @@ public sealed class IngestionEventTests
     // GraphExecutionException). The failure event path cannot be exercised
     // from a unit test without either modifying production source or using
     // the Isolate/SkipDependents policy alongside a handler that returns
-    // Failure — but even those branches do not emit NodeExecutionCompletedEvent.
+    // Failure — but even those threads do not emit NodeExecutionCompletedEvent.
     // Covered by M6 IntegrationTests where full error-propagation scenarios run.
     [Fact(Skip = "HandleFailureAsync never emits NodeExecutionCompletedEvent before halting; DocumentFailedEvent path unreachable in unit tests — covered by M6 IntegrationTests")]
     public Task RunStreamingAsync_EmitsDocumentFailedEvent_OnHandlerError()

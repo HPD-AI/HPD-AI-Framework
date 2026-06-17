@@ -10,7 +10,7 @@ namespace HPD.Agent.Bots.Streaming;
 /// <summary>Describes one platform adapter stream into an HPD agent.</summary>
 /// <param name="AgentId">Agent definition ID to run.</param>
 /// <param name="SessionId">Session scope for the user input.</param>
-/// <param name="BranchId">Branch scope for the user input.</param>
+/// <param name="ThreadId">Thread scope for the user input.</param>
 /// <param name="Text">Plain user input text sent to the agent.</param>
 /// <param name="Context">Platform-specific state used by callbacks.</param>
 /// <param name="Strategy">How streamed agent output is delivered to the platform.</param>
@@ -20,7 +20,7 @@ namespace HPD.Agent.Bots.Streaming;
 public sealed record BotStreamingRequest<TContext>(
     string AgentId,
     string SessionId,
-    string BranchId,
+    string ThreadId,
     string Text,
     TContext Context,
     StreamingStrategy Strategy,
@@ -34,7 +34,7 @@ public sealed record BotStreamingRequest<TContext>(
 /// </summary>
 public sealed class BotStreamingCallbacks<TContext>
 {
-    /// <summary>Runs after the branch operation lock is acquired and before the agent starts.</summary>
+    /// <summary>Runs after the thread operation lock is acquired and before the agent starts.</summary>
     public Func<TContext, CancellationToken, Task>? InitializeAsync { get; init; }
 
     /// <summary>Applies a debounced text update to the platform message.</summary>
@@ -59,8 +59,8 @@ public sealed class BotStreamingRunner(
     AgentManager agentManager)
 {
     /// <summary>
-    /// Runs the agent stream and returns <c>false</c> when another exclusive branch
-    /// operation already holds the same session/branch lock.
+    /// Runs the agent stream and returns <c>false</c> when another exclusive thread
+    /// operation already holds the same session/thread lock.
     /// </summary>
     public async Task<bool> RunAsync<TContext>(
         BotStreamingRequest<TContext> request,
@@ -70,7 +70,7 @@ public sealed class BotStreamingRunner(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(callbacks);
 
-        if (!sessionManager.TryAcquireBranchOperationLock(request.SessionId, request.BranchId))
+        if (!sessionManager.TryAcquireThreadOperationLock(request.SessionId, request.ThreadId))
             return false;
 
         try
@@ -126,7 +126,7 @@ public sealed class BotStreamingRunner(
         }
         finally
         {
-            sessionManager.ReleaseBranchOperationLock(request.SessionId, request.BranchId);
+            sessionManager.ReleaseThreadOperationLock(request.SessionId, request.ThreadId);
         }
     }
 
@@ -150,7 +150,7 @@ public sealed class BotStreamingRunner(
             {
                 AgentId = request.AgentId,
                 SessionId = request.SessionId,
-                BranchId = request.BranchId,
+                ThreadId = request.ThreadId,
                 RunConfig = runConfig,
             }, ct).ConfigureAwait(false);
         }
@@ -160,7 +160,7 @@ public sealed class BotStreamingRunner(
             {
                 AgentId = request.AgentId,
                 SessionId = request.SessionId,
-                BranchId = request.BranchId,
+                ThreadId = request.ThreadId,
                 RunConfig = request.RunConfig,
             }, ct).ConfigureAwait(false);
         }

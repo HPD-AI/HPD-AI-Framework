@@ -25,12 +25,12 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         var agent = CreateAgent(config, fakeClient);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var branch = new global::HPD.Agent.Branch("test-session-id");
-        branch.AddMessage(UserMessage("Hi"));
+        var thread = new global::HPD.Agent.Thread("test-session-id");
+        thread.AddMessage(UserMessage("Hi"));
 
         // Act
-        var messages = branch.Messages;
-        var events = await RunAndCollectAsync(agent, messages, session, branch);
+        var messages = thread.Messages;
+        var events = await RunAndCollectAsync(agent, messages, session, thread);
 
         // Assert: Should not contain any background events
         Assert.DoesNotContain(events, e => e is BackgroundOperationStartedEvent);
@@ -49,13 +49,13 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         var agent = CreateAgent(config, fakeClient);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var branch = new global::HPD.Agent.Branch("test-session-id");
-        branch.AddMessage(UserMessage("Test"));
+        var thread = new global::HPD.Agent.Thread("test-session-id");
+        thread.AddMessage(UserMessage("Test"));
 
         // Act: Override at run level to disable
         var options = new AgentRunConfig { AllowBackgroundResponses = false };
-        var messages = branch.Messages;
-        var events = await RunAndCollectAsync(agent, messages, session, branch, options);
+        var messages = thread.Messages;
+        var events = await RunAndCollectAsync(agent, messages, session, thread, options);
 
         // Assert: Background events should not be emitted when disabled at run level
         Assert.DoesNotContain(events, e => e is BackgroundOperationStartedEvent);
@@ -123,23 +123,23 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         var config = DefaultConfig();
         var agent = CreateAgent(config, fakeClient);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var branch = new global::HPD.Agent.Branch("test-session-id");
-        branch.AddMessage(UserMessage("Test"));
+        var thread = new global::HPD.Agent.Thread("test-session-id");
+        thread.AddMessage(UserMessage("Test"));
 
         // Act
-        var messages = branch.Messages;
+        var messages = thread.Messages;
         await agent.RunAsync(new UserMessagesInputEvent(messages)
         {
             Session = session,
-            Branch = branch
+            Thread = thread
         }, TestCancellationToken);
 
         // Assert: ExecutionState should not have active background operation after completion
         // (This is set during streaming when continuation token becomes null)
         // Note: ExecutionState is only set during actual background operations
         // With FakeChatClient not returning continuation tokens, there won't be one
-        Assert.True(branch.ExecutionState == null ||
-                    branch.ExecutionState.ActiveBackgroundOperation == null);
+        Assert.True(thread.ExecutionState == null ||
+                    thread.ExecutionState.ActiveBackgroundOperation == null);
     }
 
     [Fact]
@@ -234,12 +234,12 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         var agent = CreateAgent(config, fakeClient);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var branch = new global::HPD.Agent.Branch("test-session-id");
-        branch.AddMessage(UserMessage("Hi"));
+        var thread = new global::HPD.Agent.Thread("test-session-id");
+        thread.AddMessage(UserMessage("Hi"));
 
         // Act
-        var messages = branch.Messages;
-        var events = await RunAndCollectAsync(agent, messages, session, branch);
+        var messages = thread.Messages;
+        var events = await RunAndCollectAsync(agent, messages, session, thread);
 
         // Assert: Should have text delta events
         var textEvents = events.OfType<TextDeltaEvent>().ToList();
@@ -258,12 +258,12 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         var agent = CreateAgent(config, fakeClient);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var branch = new global::HPD.Agent.Branch("test-session-id");
-        branch.AddMessage(UserMessage("Complete my task"));
+        var thread = new global::HPD.Agent.Thread("test-session-id");
+        thread.AddMessage(UserMessage("Complete my task"));
 
         // Act
-        var messages = branch.Messages;
-        var events = await RunAndCollectAsync(agent, messages, session, branch);
+        var messages = thread.Messages;
+        var events = await RunAndCollectAsync(agent, messages, session, thread);
 
         // Assert: Should have turn finished event
         Assert.Contains(events, e => e is MessageTurnFinishedEvent);
@@ -285,8 +285,8 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         var agent = CreateAgent(config, fakeClient);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var branch = new global::HPD.Agent.Branch("test-session-id");
-        branch.AddMessage(UserMessage("Poll for result"));
+        var thread = new global::HPD.Agent.Thread("test-session-id");
+        thread.AddMessage(UserMessage("Poll for result"));
 
         // Create a mock continuation token
         #pragma warning disable MEAI001 // Experimental API
@@ -301,8 +301,8 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         // Act: This tests that the token is accepted and passed through
         // The actual behavior depends on provider support
-        var messages = branch.Messages;
-        var events = await RunAndCollectAsync(agent, messages, session, branch, options);
+        var messages = thread.Messages;
+        var events = await RunAndCollectAsync(agent, messages, session, thread, options);
 
         // Assert: Agent should complete without error
         Assert.Contains(events, e => e is MessageTurnFinishedEvent);
@@ -365,20 +365,20 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         // Run 1: With background enabled (via config)
         var session1 = new global::HPD.Agent.Session("test-session-1");
-        var branch1 = new global::HPD.Agent.Branch("test-session-1");
-        branch1.AddMessage(UserMessage("Request 1"));
+        var thread1 = new global::HPD.Agent.Thread("test-session-1");
+        thread1.AddMessage(UserMessage("Request 1"));
         var events1 = new List<AgentEvent>();
-        var messages1 = branch1.Messages;
-        events1.AddRange(await RunAndCollectAsync(agent, messages1, session1, branch1));
+        var messages1 = thread1.Messages;
+        events1.AddRange(await RunAndCollectAsync(agent, messages1, session1, thread1));
 
         // Run 2: With background disabled (via options override)
         var session2 = new global::HPD.Agent.Session("test-session-2");
-        var branch2 = new global::HPD.Agent.Branch("test-session-2");
-        branch2.AddMessage(UserMessage("Request 2"));
+        var thread2 = new global::HPD.Agent.Thread("test-session-2");
+        thread2.AddMessage(UserMessage("Request 2"));
         var options2 = new AgentRunConfig { AllowBackgroundResponses = false };
         var events2 = new List<AgentEvent>();
-        var messages2 = branch2.Messages;
-        events2.AddRange(await RunAndCollectAsync(agent, messages2, session2, branch2, options2));
+        var messages2 = thread2.Messages;
+        events2.AddRange(await RunAndCollectAsync(agent, messages2, session2, thread2, options2));
 
         // Assert: Both runs should complete successfully
         Assert.Contains(events1, e => e is MessageTurnFinishedEvent);
@@ -391,7 +391,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         Agent agent,
         IReadOnlyList<ChatMessage> messages,
         global::HPD.Agent.Session session,
-        Branch branch,
+        Thread thread,
         AgentRunConfig? options = null)
     {
         var events = new List<AgentEvent>();
@@ -404,7 +404,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         await agent.RunAsync(new UserMessagesInputEvent(messages)
         {
             Session = session,
-            Branch = branch,
+            Thread = thread,
             RunConfig = options
         }, TestCancellationToken);
 

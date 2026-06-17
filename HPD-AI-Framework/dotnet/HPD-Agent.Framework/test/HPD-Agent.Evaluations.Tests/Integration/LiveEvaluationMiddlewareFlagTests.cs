@@ -26,7 +26,7 @@ namespace HPD.Agent.Evaluations.Tests.Integration;
 /// Note: The happy-path "evaluator IS called" flow is implicitly covered by the
 /// RetroactiveScorerTests which call evaluators through the full scoring pipeline.
 /// The fire-and-forget path (AfterMessageTurnAsync → Task.Run) requires a fully
-/// wired production agent with session/branch/context building — not tested here.
+/// wired production agent with session/thread/context building — not tested here.
 /// </summary>
 public sealed class LiveEvaluationMiddlewareFlagTests
 {

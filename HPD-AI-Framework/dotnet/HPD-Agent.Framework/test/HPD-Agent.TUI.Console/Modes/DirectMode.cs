@@ -9,7 +9,7 @@ internal static class DirectMode
         var options = ModeOptions.Parse(args);
         var agentId = options.Get("agent", "tui-direct-agent");
         var sessionId = options.Get("session", "local-session");
-        var branchId = options.Get("branch", "main");
+        var threadId = options.Get("thread", "main");
         var model = options.Get("model", "deepseek/deepseek-v4-flash");
         var providers = ConsoleProviderContext.Create();
 
@@ -19,7 +19,7 @@ internal static class DirectMode
             .WithProvider("openrouter", model)
             .BuildAsync();
 
-        var scope = new AgentTuiRuntimeScope(agentId, sessionId, branchId);
+        var scope = new AgentTuiRuntimeScope(agentId, sessionId, threadId);
         await using var runtime = new InMemoryAgentTuiRuntime(agent, scope);
         await using var app = HpdAgentTuiApp.Create(
             runtime,

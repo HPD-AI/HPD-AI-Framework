@@ -21,7 +21,7 @@ public enum NodeType
     Handler,
 
     /// <summary>
-    /// Router node for conditional branching.
+    /// Router node for conditional threading.
     /// </summary>
     Router,
 

@@ -55,7 +55,7 @@ namespace HPD.Agent.AspNetCore.Serialization;
 [JsonSerializable(typeof(List<ScoreBucket>))]
 [JsonSerializable(typeof(ScoreAggregate))]
 [JsonSerializable(typeof(Dictionary<string, ScoreAggregate>))]
-[JsonSerializable(typeof(BranchComparisonResult))]
+[JsonSerializable(typeof(ThreadComparisonResult))]
 [JsonSerializable(typeof(Dictionary<string, ToolUsageSummary>))]
 [JsonSerializable(typeof(ToolUsageSummary))]
 [JsonSerializable(typeof(List<RiskAutonomyDataPoint>))]

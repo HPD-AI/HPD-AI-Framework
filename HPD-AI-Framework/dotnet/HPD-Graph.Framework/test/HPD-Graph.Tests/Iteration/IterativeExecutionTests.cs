@@ -226,7 +226,7 @@ public class IterativeExecutionTests
     }
 
     [Fact]
-    public async Task DiamondWithBackEdge_ReExecutesAllBranchNodes()
+    public async Task DiamondWithBackEdge_ReExecutesAllThreadNodes()
     {
         // Arrange: Full diamond pattern with back-edge
         //     → B →
@@ -587,28 +587,28 @@ public class IterativeExecutionTests
     }
 
     [Fact]
-    public async Task ParallelBranchesWithSeparateBackEdges_IndependentIteration()
+    public async Task ParallelThreadsWithSeparateBackEdges_IndependentIteration()
     {
-        // Arrange: Two parallel branches, each with its own back-edge
+        // Arrange: Two parallel threads, each with its own back-edge
         //     → B → C → (back to B)
         // A →                      → END
         //     → D → E → (back to D)
-        // Each branch should iterate independently based on its own condition
-        var branchBHandler = new BranchIterationHandler("branchB", iterationsBeforeStop: 1);
-        var branchDHandler = new BranchIterationHandler("branchD", iterationsBeforeStop: 2);
+        // Each thread should iterate independently based on its own condition
+        var threadBHandler = new ThreadIterationHandler("threadB", iterationsBeforeStop: 1);
+        var threadDHandler = new ThreadIterationHandler("threadD", iterationsBeforeStop: 2);
         var services = TestServiceProvider.Create(s =>
         {
-            s.AddSingleton<IGraphNodeHandler<GraphContext>>(branchBHandler);
-            s.AddSingleton<IGraphNodeHandler<GraphContext>>(branchDHandler);
+            s.AddSingleton<IGraphNodeHandler<GraphContext>>(threadBHandler);
+            s.AddSingleton<IGraphNodeHandler<GraphContext>>(threadDHandler);
         });
 
         var graph = new TestGraphBuilder()
             .AddStartNode()
             .AddHandlerNode("A", "SuccessHandler")
             .AddHandlerNode("B", "SuccessHandler")
-            .AddHandlerNode("C", "BranchBHandler")
+            .AddHandlerNode("C", "ThreadBHandler")
             .AddHandlerNode("D", "SuccessHandler")
-            .AddHandlerNode("E", "BranchDHandler")
+            .AddHandlerNode("E", "ThreadDHandler")
             .AddEndNode()
             .AddEdge("start", "A")
             .AddEdge("A", "B")
@@ -641,7 +641,7 @@ public class IterativeExecutionTests
             })
             .Build();
 
-        var context = new GraphContext("parallel-branches-test", graph, services);
+        var context = new GraphContext("parallel-threads-test", graph, services);
         var orchestrator = new GraphOrchestrator<GraphContext>(services);
 
         // Act
@@ -649,10 +649,10 @@ public class IterativeExecutionTests
 
         // Assert
         context.GetNodeExecutionCount("A").Should().Be(1, "A executes once at the start");
-        // Branch B: 1 iteration before stop = 2 executions
+        // Thread B: 1 iteration before stop = 2 executions
         context.GetNodeExecutionCount("B").Should().Be(2, "B iterates once");
         context.GetNodeExecutionCount("C").Should().Be(2, "C iterates once");
-        // Branch D: 2 iterations before stop = 3 executions
+        // Thread D: 2 iterations before stop = 3 executions
         context.GetNodeExecutionCount("D").Should().Be(3, "D iterates twice");
         context.GetNodeExecutionCount("E").Should().Be(3, "E iterates twice");
     }
@@ -701,7 +701,7 @@ public class IterativeExecutionTests
     }
 
     [Fact]
-    public async Task WideParallelWithBackEdge_AllBranchesReExecute()
+    public async Task WideParallelWithBackEdge_AllThreadsReExecute()
     {
         // Arrange: Wide fan-out then fan-in with back-edge
         //     → B1 →
@@ -722,7 +722,7 @@ public class IterativeExecutionTests
             .AddHandlerNode("D", "IterationControlHandler")
             .AddEndNode();
 
-        // Add 5 parallel branches
+        // Add 5 parallel threads
         for (int i = 1; i <= 5; i++)
         {
             builder.AddHandlerNode($"B{i}", "SuccessHandler");
@@ -753,7 +753,7 @@ public class IterativeExecutionTests
         // Act
         await orchestrator.ExecuteAsync(context);
 
-        // Assert - All branches should execute twice (1 iteration)
+        // Assert - All threads should execute twice (1 iteration)
         context.GetNodeExecutionCount("A").Should().Be(2);
         for (int i = 1; i <= 5; i++)
         {
@@ -1035,23 +1035,23 @@ public class MultiBackEdgeHandler : IGraphNodeHandler<GraphContext>
 }
 
 /// <summary>
-/// Handler for parallel branch iteration tests with named branches.
+/// Handler for parallel thread iteration tests with named threads.
 /// </summary>
-public class BranchIterationHandler : IGraphNodeHandler<GraphContext>
+public class ThreadIterationHandler : IGraphNodeHandler<GraphContext>
 {
-    private readonly string _branchName;
+    private readonly string _threadName;
     private readonly int _iterationsBeforeStop;
     private int _executions = 0;
 
     public string HandlerName { get; }
 
-    public BranchIterationHandler(string branchName, int iterationsBeforeStop = 2)
+    public ThreadIterationHandler(string threadName, int iterationsBeforeStop = 2)
     {
-        _branchName = branchName;
+        _threadName = threadName;
         _iterationsBeforeStop = iterationsBeforeStop;
-        // Handler name matches the node's handler reference (e.g., "BranchBHandler" for branchB)
-        // Convert "branchB" -> "BranchBHandler"
-        HandlerName = $"{char.ToUpper(branchName[0])}{branchName.Substring(1)}Handler";
+        // Handler name matches the node's handler reference (e.g., "ThreadBHandler" for threadB)
+        // Convert "threadB" -> "ThreadBHandler"
+        HandlerName = $"{char.ToUpper(threadName[0])}{threadName.Substring(1)}Handler";
     }
 
     public Task<NodeExecutionResult> ExecuteAsync(
@@ -1066,7 +1066,7 @@ public class BranchIterationHandler : IGraphNodeHandler<GraphContext>
             output: new Dictionary<string, object>
             {
                 ["iterate"] = shouldIterate,
-                ["branch"] = _branchName,
+                ["thread"] = _threadName,
                 ["executions"] = _executions
             },
             duration: TimeSpan.FromMilliseconds(1),

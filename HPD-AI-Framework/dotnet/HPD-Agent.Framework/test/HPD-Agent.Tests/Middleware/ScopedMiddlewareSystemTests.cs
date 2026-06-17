@@ -404,7 +404,7 @@ public class CollapsedMiddlewareSystemTests
             state,
             new HPD.Events.Core.EventCoordinator(),
             new global::HPD.Agent.Session("test-session"),
-            new global::HPD.Agent.Branch("test-session"),
+            new global::HPD.Agent.Thread("test-session"),
             CancellationToken.None);
 
         return agentContext.AsBeforeFunction(
@@ -430,7 +430,7 @@ public class CollapsedMiddlewareSystemTests
             agentState,
             new HPD.Events.Core.EventCoordinator(),
             new global::HPD.Agent.Session("test-session"),
-            new global::HPD.Agent.Branch("test-session"),
+            new global::HPD.Agent.Thread("test-session"),
             CancellationToken.None);
     }
 

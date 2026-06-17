@@ -14,14 +14,14 @@ Key instruction: read the proposal first, then the client/backend contract, then
 - `../hpd-agent-client/src/transports/websocket.ts`
 - `../hpd-agent-client/src/api.ts`
 - `../hpd-agent-client/src/types/session.ts`
-- `../hpd-agent-client/src/types/branch-run.ts`
+- `../hpd-agent-client/src/types/thread-run.ts`
 
-## Backend Truth For Branch/Event Semantics
+## Backend Truth For Thread/Event Semantics
 
-- `../../dotnet/HPD-Agent.Framework/src/HPD-Agent/Session/Branch.cs`
+- `../../dotnet/HPD-Agent.Framework/src/HPD-Agent/Session/Thread.cs`
 - `../../dotnet/HPD-Agent.Framework/src/HPD-Agent/Session/Session.cs`
-- `../../dotnet/HPD-Agent.Framework/src/HPD-Agent/Session/BranchEvents.cs`
-- `../../dotnet/HPD-Agent.Framework/src/HPD-Agent/Session/BranchProjector.cs`
+- `../../dotnet/HPD-Agent.Framework/src/HPD-Agent/Session/ThreadEvents.cs`
+- `../../dotnet/HPD-Agent.Framework/src/HPD-Agent/Session/ThreadProjector.cs`
 - `../../dotnet/HPD-Agent.Framework/src/HPD-Agent/Session/ISessionStore.cs`
 - `../../dotnet/HPD-Agent.Framework/src/HPD-Agent/Agent/AgentEvents.cs`
 - `../../dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/EndpointMapping/Endpoints/StreamingEndpoints.cs`
@@ -43,7 +43,7 @@ Key instruction: read the proposal first, then the client/backend contract, then
 - `archive/src/lib/permission-dialog/permission-dialog.svelte.ts`
 - `archive/src/lib/tool-execution/tool-execution.svelte.ts`
 - `archive/src/lib/run-config/run-config.svelte.ts`
-- `archive/src/lib/branch-switcher/branch-switcher.svelte.ts`
+- `archive/src/lib/thread-switcher/thread-switcher.svelte.ts`
 - `archive/src/lib/session-list/session-list.svelte.ts`
 - `archive/src/lib/file-attachment/file-attachment.svelte.ts`
 - `archive/src/lib/artifact/artifact.svelte.ts`
@@ -66,9 +66,9 @@ Key instruction: read the proposal first, then the client/backend contract, then
 
 - The core package is framework-neutral TypeScript.
 - Framework-specific components belong in future adapter packages.
-- Branch is the durable event stream identity.
+- Thread is the durable event stream identity.
 - Rehydration and live projection are separate concerns.
-- Live streams must be scoped to `{ agentId, sessionId, branchId }`.
-- Do not route events into whatever branch happens to be active.
+- Live streams must be scoped to `{ agentId, sessionId, threadId }`.
+- Do not route events into whatever thread happens to be active.
 - Do not restore the old `WorkspaceImpl` as the main architecture.
 

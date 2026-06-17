@@ -35,11 +35,11 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
 
     private Task<HttpResponseMessage> PostInputAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         string json,
         CancellationToken cancellationToken = default) =>
         _client.PostAsync(
-            $"/agents/test-agent/sessions/{sessionId}/branches/{branchId}/inputs",
+            $"/agents/test-agent/sessions/{sessionId}/threads/{threadId}/inputs",
             new StringContent(json, Encoding.UTF8, "application/json"),
             cancellationToken);
 
@@ -84,7 +84,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task SubmitInput_AppendsMessagesToBranch()
+    public async Task SubmitInput_AppendsMessagesToThread()
     {
         var sessionId = await CreateTestSession();
 
@@ -93,7 +93,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         await WaitUntilAsync(async () =>
         {
-            var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/branches/main/events");
+            var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/threads/main/events");
             using var events = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
             return events.RootElement.EnumerateArray()
                 .Any(e => e.GetProperty("type").GetString() == "TEXT_DELTA");
@@ -101,12 +101,12 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Interrupt_ReturnsConflict_WhenBranchHasNoActiveRun()
+    public async Task Interrupt_ReturnsConflict_WhenThreadHasNoActiveRun()
     {
         var sessionId = await CreateTestSession();
 
         var response = await _client.PostAsJsonAsync(
-            $"/agents/test-agent/sessions/{sessionId}/branches/main/interrupt",
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/interrupt",
             new { reason = "stop from test" });
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -118,7 +118,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         var sessionId = await CreateTestSession();
 
         var response = await _client.PostAsync(
-            $"/agents/test-agent/sessions/{sessionId}/branches/main/inputs",
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/inputs",
             new StringContent("{\"type\":\"NOT_AN_AGENT_INPUT\",\"text\":\"Hello\"}", Encoding.UTF8, "application/json"));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -128,14 +128,14 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     public async Task SubmitInput_Returns404_WhenSessionNotFound()
     {
         var response = await _client.PostAsync(
-            "/agents/test-agent/sessions/nonexistent/branches/main/inputs",
+            "/agents/test-agent/sessions/nonexistent/threads/main/inputs",
             new StringContent(CreateInputJson("Test"), Encoding.UTF8, "application/json"));
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task SubmitInput_Returns404_WhenBranchNotFound()
+    public async Task SubmitInput_Returns404_WhenThreadNotFound()
     {
         var sessionId = await CreateTestSession();
 

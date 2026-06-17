@@ -9,7 +9,7 @@ namespace HPD.Agent;
 [EditorBrowsable(EditorBrowsableState.Never)]
 public static class SubAgentRuntime
 {
-    public sealed record Route(string SessionId, string BranchId, string RunId);
+    public sealed record Route(string SessionId, string ThreadId, string RunId);
 
     public static async Task<Route> ResolveRouteAsync(
         Agent agent,
@@ -26,16 +26,16 @@ public static class SubAgentRuntime
         var runId = Guid.NewGuid().ToString("N");
         var sessionId = await ResolveSessionAsync(agent, subAgent, functionContext, runId, cancellationToken)
             .ConfigureAwait(false);
-        var branchId = await ResolveBranchAsync(agent, subAgent, functionContext, sessionId, runId, cancellationToken)
+        var threadId = await ResolveThreadAsync(agent, subAgent, functionContext, sessionId, runId, cancellationToken)
             .ConfigureAwait(false);
 
         functionContext?.ResultMetadata.Set("subAgentStatus", "started");
         functionContext?.ResultMetadata.Set("subAgentSessionId", sessionId);
-        functionContext?.ResultMetadata.Set("subAgentBranchId", branchId);
+        functionContext?.ResultMetadata.Set("subAgentThreadId", threadId);
         functionContext?.ResultMetadata.Set("subAgentName", subAgent.Name);
         functionContext?.ResultMetadata.Set("subAgentRunId", runId);
 
-        return new Route(sessionId, branchId, runId);
+        return new Route(sessionId, threadId, runId);
     }
 
     public static void MarkCompleted(
@@ -44,7 +44,7 @@ public static class SubAgentRuntime
     {
         functionContext?.ResultMetadata.Set("subAgentStatus", "completed");
         functionContext?.ResultMetadata.Set("subAgentSessionId", route.SessionId);
-        functionContext?.ResultMetadata.Set("subAgentBranchId", route.BranchId);
+        functionContext?.ResultMetadata.Set("subAgentThreadId", route.ThreadId);
         functionContext?.ResultMetadata.Set("subAgentRunId", route.RunId);
     }
 
@@ -57,21 +57,21 @@ public static class SubAgentRuntime
 
         functionContext?.ResultMetadata.Set("subAgentStatus", "failed");
         functionContext?.ResultMetadata.Set("subAgentSessionId", route.SessionId);
-        functionContext?.ResultMetadata.Set("subAgentBranchId", route.BranchId);
+        functionContext?.ResultMetadata.Set("subAgentThreadId", route.ThreadId);
         functionContext?.ResultMetadata.Set("subAgentRunId", route.RunId);
         functionContext?.ResultMetadata.Set("subAgentErrorType", exception.GetType().Name);
     }
 
-    internal static async Task<string> CreateEmptyBranchAsync(
+    internal static async Task<string> CreateEmptyThreadAsync(
         Agent agent,
         string sessionId,
-        string branchId,
+        string threadId,
         Dictionary<string, object>? metadata,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
         var store = agent.Config?.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
@@ -80,22 +80,22 @@ public static class SubAgentRuntime
             ?? throw new SessionNotFoundException(sessionId);
         session.Store = store;
 
-        if (await store.LoadBranchAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false) != null)
-            throw new InvalidOperationException($"Branch '{branchId}' already exists in session '{sessionId}'.");
+        if (await store.LoadThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false) != null)
+            throw new InvalidOperationException($"Thread '{threadId}' already exists in session '{sessionId}'.");
 
-        var branch = new Branch(sessionId, branchId) { Session = session };
+        var thread = new Thread(sessionId, threadId) { Session = session };
         if (metadata != null)
         {
             var extensionMetadata = new Dictionary<string, object>(metadata, StringComparer.Ordinal);
-            branch.ApplyRuntimeMetadata(extensionMetadata);
+            thread.ApplyRuntimeMetadata(extensionMetadata);
             foreach (var kvp in extensionMetadata)
-                branch.Metadata[kvp.Key] = kvp.Value;
+                thread.Metadata[kvp.Key] = kvp.Value;
         }
 
-        session.LastActivity = branch.LastActivity;
+        session.LastActivity = thread.LastActivity;
         await store.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
-        await store.SaveInitialBranchAsync(sessionId, branch, cancellationToken).ConfigureAwait(false);
-        return branch.Id;
+        await store.SaveInitialThreadAsync(sessionId, thread, cancellationToken).ConfigureAwait(false);
+        return thread.Id;
     }
 
     private static async Task<string> ResolveSessionAsync(
@@ -143,7 +143,7 @@ public static class SubAgentRuntime
         }
     }
 
-    private static async Task<string> ResolveBranchAsync(
+    private static async Task<string> ResolveThreadAsync(
         Agent agent,
         SubAgent subAgent,
         FunctionExecutionContext? functionContext,
@@ -154,75 +154,75 @@ public static class SubAgentRuntime
         var policy = subAgent.ExecutionPolicy;
         var metadata = BuildMetadata(subAgent, functionContext, runId);
 
-        switch (policy.BranchPolicy)
+        switch (policy.ThreadPolicy)
         {
-            case SubAgentBranchPolicy.ParentBranch:
-                return functionContext?.BranchId
-                    ?? throw new InvalidOperationException("ParentBranch subagents require a parent BranchId.");
+            case SubAgentThreadPolicy.ParentThread:
+                return functionContext?.ThreadId
+                    ?? throw new InvalidOperationException("ParentThread subagents require a parent ThreadId.");
 
-            case SubAgentBranchPolicy.ExistingBranch:
+            case SubAgentThreadPolicy.ExistingThread:
             {
-                var branchId = policy.ExistingBranchId
-                    ?? throw new InvalidOperationException("ExistingBranchId is required.");
+                var threadId = policy.ExistingThreadId
+                    ?? throw new InvalidOperationException("ExistingThreadId is required.");
                 var store = agent.Config?.SessionStore
                     ?? throw new InvalidOperationException("No session store configured.");
-                _ = await store.LoadBranchAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false)
-                    ?? throw new InvalidOperationException($"Existing branch '{branchId}' not found in session '{sessionId}'.");
-                return branchId;
+                _ = await store.LoadThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException($"Existing thread '{threadId}' not found in session '{sessionId}'.");
+                return threadId;
             }
 
-            case SubAgentBranchPolicy.FreshBranch:
+            case SubAgentThreadPolicy.FreshThread:
             {
-                var branchId = BuildBranchId(subAgent, runId);
-                await CreateEmptyBranchAsync(agent, sessionId, branchId, metadata, cancellationToken).ConfigureAwait(false);
-                return branchId;
+                var threadId = BuildThreadId(subAgent, runId);
+                await CreateEmptyThreadAsync(agent, sessionId, threadId, metadata, cancellationToken).ConfigureAwait(false);
+                return threadId;
             }
 
-            case SubAgentBranchPolicy.ForkFromParentBranch:
+            case SubAgentThreadPolicy.ForkFromParentThread:
             {
                 var parentSessionId = functionContext?.SessionId
-                    ?? throw new InvalidOperationException("ForkFromParentBranch subagents require a parent SessionId.");
-                var parentBranchId = functionContext.BranchId
-                    ?? throw new InvalidOperationException("ForkFromParentBranch subagents require a parent BranchId.");
+                    ?? throw new InvalidOperationException("ForkFromParentThread subagents require a parent SessionId.");
+                var parentThreadId = functionContext.ThreadId
+                    ?? throw new InvalidOperationException("ForkFromParentThread subagents require a parent ThreadId.");
                 var store = agent.Config?.SessionStore
                     ?? throw new InvalidOperationException("No session store configured.");
-                var parentBranch = await store.LoadBranchAsync(parentSessionId, parentBranchId, cancellationToken)
+                var parentThread = await store.LoadThreadAsync(parentSessionId, parentThreadId, cancellationToken)
                     .ConfigureAwait(false)
-                    ?? throw new InvalidOperationException($"Parent branch '{parentBranchId}' not found in session '{parentSessionId}'.");
-                var forkPoint = parentBranch.Messages.LastOrDefault()?.MessageId
-                    ?? throw new InvalidOperationException("Cannot fork subagent branch from an empty parent branch.");
-                var branchId = BuildBranchId(subAgent, runId);
-                var forkOptions = new BranchForkOptions
+                    ?? throw new InvalidOperationException($"Parent thread '{parentThreadId}' not found in session '{parentSessionId}'.");
+                var forkPoint = parentThread.Messages.LastOrDefault()?.MessageId
+                    ?? throw new InvalidOperationException("Cannot fork subagent thread from an empty parent thread.");
+                var threadId = BuildThreadId(subAgent, runId);
+                var forkOptions = new ThreadForkOptions
                 {
                     Metadata = metadata,
-                    CompactionIntent = subAgent.ExecutionPolicy.BranchCompaction switch
+                    CompactionIntent = subAgent.ExecutionPolicy.ThreadCompaction switch
                     {
-                        SubAgentBranchCompaction.Enabled => BranchForkCompactionIntent.Enabled,
-                        SubAgentBranchCompaction.Disabled => BranchForkCompactionIntent.Disabled,
-                        SubAgentBranchCompaction.PreferCache => BranchForkCompactionIntent.PreferCache,
-                        _ => BranchForkCompactionIntent.Inherit
+                        SubAgentThreadCompaction.Enabled => ThreadForkCompactionIntent.Enabled,
+                        SubAgentThreadCompaction.Disabled => ThreadForkCompactionIntent.Disabled,
+                        SubAgentThreadCompaction.PreferCache => ThreadForkCompactionIntent.PreferCache,
+                        _ => ThreadForkCompactionIntent.Inherit
                     }
                 };
-                await agent.ForkBranchAsync(
+                await agent.ForkThreadAsync(
                     parentSessionId,
-                    parentBranchId,
-                    branchId,
+                    parentThreadId,
+                    threadId,
                     forkPoint,
                     forkOptions,
                     cancellationToken).ConfigureAwait(false);
-                return branchId;
+                return threadId;
             }
 
             default:
-                throw new ArgumentOutOfRangeException(nameof(policy.BranchPolicy));
+                throw new ArgumentOutOfRangeException(nameof(policy.ThreadPolicy));
         }
     }
 
-    private static string BuildBranchId(SubAgent subAgent, string runId)
+    private static string BuildThreadId(SubAgent subAgent, string runId)
     {
-        var prefix = string.IsNullOrWhiteSpace(subAgent.ExecutionPolicy.BranchNamePrefix)
+        var prefix = string.IsNullOrWhiteSpace(subAgent.ExecutionPolicy.ThreadNamePrefix)
             ? $"subagent/{Normalize(subAgent.Name)}"
-            : subAgent.ExecutionPolicy.BranchNamePrefix!.Trim('/');
+            : subAgent.ExecutionPolicy.ThreadNamePrefix!.Trim('/');
         return $"{prefix}/{runId[..Math.Min(12, runId.Length)]}";
     }
 
@@ -237,11 +237,11 @@ public static class SubAgentRuntime
             ["subAgentName"] = subAgent.Name,
             ["subAgentSourceKind"] = subAgent.SourceKind.ToString(),
             ["parentSessionId"] = functionContext?.SessionId ?? string.Empty,
-            ["parentBranchId"] = functionContext?.BranchId ?? string.Empty,
+            ["parentThreadId"] = functionContext?.ThreadId ?? string.Empty,
             ["parentToolCallId"] = functionContext?.FunctionCallId ?? string.Empty,
             ["subAgentRunId"] = runId,
             ["sessionPolicy"] = subAgent.ExecutionPolicy.SessionPolicy.ToString(),
-            ["branchPolicy"] = subAgent.ExecutionPolicy.BranchPolicy.ToString(),
+            ["threadPolicy"] = subAgent.ExecutionPolicy.ThreadPolicy.ToString(),
             ["visibility"] = "hidden",
             ["createdBy"] = "subagent"
         };

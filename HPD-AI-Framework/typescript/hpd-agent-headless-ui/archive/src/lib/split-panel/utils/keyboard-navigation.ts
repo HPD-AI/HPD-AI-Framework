@@ -251,7 +251,7 @@ export function collectPanelIds(node: any): string[] {
 	function traverse(n: any) {
 		if (n.type === 'leaf') {
 			ids.push(n.id);
-		} else if (n.type === 'branch') {
+		} else if (n.type === 'thread') {
 			for (const child of n.children) {
 				traverse(child);
 			}

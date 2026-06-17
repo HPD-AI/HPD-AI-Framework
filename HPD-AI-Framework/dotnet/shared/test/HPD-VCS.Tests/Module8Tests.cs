@@ -773,16 +773,16 @@ public class Module8Tests
         var mockFileSystem = CreateFreshMockFileSystem();
         var repository = await Repository.InitializeAsync(_repoPath, _userSettings, mockFileSystem);
 
-        // Create a simple branching scenario
+        // Create a simple threading scenario
         // Note: This test depends on having merge capabilities in the repository
         // For now, we'll test with linear history and verify the renderer handles it
           mockFileSystem.AddFile("/test/repo/file.txt", "Base");
         await repository.CommitAsync("Base commit", _userSettings, new SnapshotOptions());
         
         var modifiedTime12 = DateTime.UtcNow;
-        mockFileSystem.GetFile("/test/repo/file.txt").TextContents = "Branch content";
+        mockFileSystem.GetFile("/test/repo/file.txt").TextContents = "Thread content";
         mockFileSystem.GetFile("/test/repo/file.txt").LastWriteTime = modifiedTime12;
-        await repository.CommitAsync("Branch commit", _userSettings, new SnapshotOptions());
+        await repository.CommitAsync("Thread commit", _userSettings, new SnapshotOptions());
 
         var graphLog = await repository.GetGraphLogAsync();
 

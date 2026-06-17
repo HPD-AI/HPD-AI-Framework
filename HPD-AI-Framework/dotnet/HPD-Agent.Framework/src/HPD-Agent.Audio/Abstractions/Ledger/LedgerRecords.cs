@@ -151,15 +151,15 @@ public sealed record OutputPlaybackLedgerRecord : RealtimeLedgerRecord
     public AudioErrorInfo? Error { get; init; }
 }
 
-public sealed record BranchProjectionLedgerRecord : RealtimeLedgerRecord
+public sealed record ThreadProjectionLedgerRecord : RealtimeLedgerRecord
 {
-    public required BranchProjectionId ProjectionId { get; init; }
+    public required ThreadProjectionId ProjectionId { get; init; }
 
-    public required BranchRef Branch { get; init; }
+    public required ThreadRef Thread { get; init; }
 
-    public required BranchProjectionRecord Projection { get; init; }
+    public required ThreadProjectionRecord Projection { get; init; }
 
-    public BranchProjectedEventRef? ProjectedEvent { get; init; }
+    public ThreadProjectedEventRef? ProjectedEvent { get; init; }
 }
 
 public sealed record InterruptionRepairLedgerRecord : RealtimeLedgerRecord
@@ -210,15 +210,15 @@ public enum OutputPlaybackDisposition
     QueuedUnplayed = 6
 }
 
-public sealed record BranchProjectionRecord
+public sealed record ThreadProjectionRecord
 {
     public required AudioTurnId TurnId { get; init; }
 
     public required string Text { get; init; }
 
-    public BranchProjectionKind Kind { get; init; } = BranchProjectionKind.UserTurn;
+    public ThreadProjectionKind Kind { get; init; } = ThreadProjectionKind.UserTurn;
 
-    public BranchProjectionRole Role { get; init; } = BranchProjectionRole.User;
+    public ThreadProjectionRole Role { get; init; } = ThreadProjectionRole.User;
 
     public InputContentId? InputContentId { get; init; }
 
@@ -227,22 +227,22 @@ public sealed record BranchProjectionRecord
     public ResponseId? ResponseId { get; init; }
 }
 
-public enum BranchProjectionKind
+public enum ThreadProjectionKind
 {
     UserTurn = 0,
     AssistantOutput = 1
 }
 
-public enum BranchProjectionRole
+public enum ThreadProjectionRole
 {
     User = 0,
     Assistant = 1
 }
 
-public interface IBranchProjectionSink
+public interface IThreadProjectionSink
 {
-    ValueTask<BranchProjectedEventRef> ProjectAsync(
-        BranchRef branch,
-        BranchProjectionRecord record,
+    ValueTask<ThreadProjectedEventRef> ProjectAsync(
+        ThreadRef thread,
+        ThreadProjectionRecord record,
         CancellationToken cancellationToken = default);
 }

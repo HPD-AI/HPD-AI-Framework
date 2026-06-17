@@ -2,7 +2,7 @@ using HPD.Agent;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 using SessionModel = global::HPD.Agent.Session;
-using BranchModel = global::HPD.Agent.Branch;
+using ThreadModel = global::HPD.Agent.Thread;
 
 namespace HPD.Agent.Tests.Middleware.V2;
 
@@ -27,7 +27,7 @@ public static class MiddlewareTestHelpers
         AgentLoopState? state = null,
         HPD.Events.IEventCoordinator? eventCoordinator = null,
         SessionModel? session = null,
-        BranchModel? branch = null,
+        ThreadModel? thread = null,
         CancellationToken cancellationToken = default)
     {
         state ??= AgentLoopState.InitialSafe(
@@ -39,7 +39,7 @@ public static class MiddlewareTestHelpers
         eventCoordinator ??= new HPD.Events.Core.EventCoordinator();
         var sessionId = conversationId ?? "test-session";
         session ??= new SessionModel(sessionId);
-        branch ??= new BranchModel(sessionId);
+        thread ??= new ThreadModel(sessionId);
 
         return new AgentContext(
             agentName,
@@ -47,7 +47,7 @@ public static class MiddlewareTestHelpers
             state,
             eventCoordinator,
             session,
-            branch,
+            thread,
             cancellationToken);
     }
 

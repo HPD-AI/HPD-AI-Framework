@@ -15,7 +15,7 @@ namespace HPD.Agent.Hosting.Lifecycle;
 /// </list>
 ///
 /// Unscoped agent instances are cached by <c>agentId</c>. Hosted runtime instances are cached
-/// by <c>agentId/sessionId/branchId</c>, giving every branch its own runtime queue.
+/// by <c>agentId/sessionId/threadId</c>, giving every thread its own runtime queue.
 /// Eviction is purely last-access based; <c>IsStreaming</c> is no longer tracked here.
 /// </remarks>
 public abstract class AgentManager : IDisposable
@@ -131,20 +131,20 @@ public abstract class AgentManager : IDisposable
         => await GetOrBuildAgentCoreAsync(agentId, agentId, ct).ConfigureAwait(false);
 
     /// <summary>
-    /// Get or build a branch-owned runtime instance for the given agent definition.
+    /// Get or build a thread-owned runtime instance for the given agent definition.
     /// </summary>
     public virtual async Task<Agent> GetOrBuildAgentRuntimeAsync(
         string agentId,
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
         return await GetOrBuildAgentCoreAsync(
             agentId,
-            RuntimeCacheKey(agentId, sessionId, branchId),
+            RuntimeCacheKey(agentId, sessionId, threadId),
             ct).ConfigureAwait(false);
     }
 
@@ -185,8 +185,8 @@ public abstract class AgentManager : IDisposable
         }
     }
 
-    private static string RuntimeCacheKey(string agentId, string sessionId, string branchId) =>
-        $"{agentId}::{sessionId}::{branchId}";
+    private static string RuntimeCacheKey(string agentId, string sessionId, string threadId) =>
+        $"{agentId}::{sessionId}::{threadId}";
 
     /// <summary>
     /// Return the cached <see cref="Agent"/> instance for an agent ID without building.
@@ -199,17 +199,17 @@ public abstract class AgentManager : IDisposable
     }
 
     /// <summary>
-    /// Return the cached branch-owned runtime <see cref="Agent"/> instance without building.
+    /// Return the cached thread-owned runtime <see cref="Agent"/> instance without building.
     /// Hosted interactive responses must target this runtime cache because request waiters
-    /// live on the branch runtime that emitted the request.
+    /// live on the thread runtime that emitted the request.
     /// </summary>
-    public Agent? GetRuntimeAgent(string agentId, string sessionId, string branchId)
+    public Agent? GetRuntimeAgent(string agentId, string sessionId, string threadId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        var cacheKey = RuntimeCacheKey(agentId, sessionId, branchId);
+        var cacheKey = RuntimeCacheKey(agentId, sessionId, threadId);
         return _agents.TryGetValue(cacheKey, out var entry) ? entry.Agent : null;
     }
 

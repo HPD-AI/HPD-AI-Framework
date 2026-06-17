@@ -178,8 +178,8 @@ public partial class WhatsAppBot
 
         if (_sessionMapper is not null && _sessionManager is not null && _agentManager is not null)
         {
-            var (sessionId, branchId) = await _sessionMapper.ResolveAsync(threadId, ctx.CancellationToken);
-            _ = StreamToWhatsAppAsync(sessionId, branchId, parsed, CancellationToken.None);
+            var (sessionId, threadId) = await _sessionMapper.ResolveAsync(threadId, ctx.CancellationToken);
+            _ = StreamToWhatsAppAsync(sessionId, threadId, parsed, CancellationToken.None);
         }
     }
 
@@ -503,7 +503,7 @@ public partial class WhatsAppBot
 
     private async Task StreamToWhatsAppAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         WhatsAppParsedMessage message,
         CancellationToken ct)
     {
@@ -518,7 +518,7 @@ public partial class WhatsAppBot
                 new BotStreamingRequest<WhatsAppStreamContext>(
                     AgentId: _config.ResolveAgentId(),
                     SessionId: sessionId,
-                    BranchId: branchId,
+                    ThreadId: threadId,
                     Text: message.Text,
                     Context: context,
                     Strategy: StreamingStrategy.BufferAndPost,

@@ -282,7 +282,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
             state,
             coordinator,
             session: CreateSession("session-output"),
-            branch: null,
+            thread: null,
             CancellationToken.None,
             traceId: "00000000000000000000000000000002",
             contentStore: contentStore);

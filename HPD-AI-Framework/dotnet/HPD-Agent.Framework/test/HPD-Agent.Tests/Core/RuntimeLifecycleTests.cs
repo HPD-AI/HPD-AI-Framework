@@ -894,7 +894,7 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
-    public void RuntimeHooks_DoNotExposeSessionOrBranch()
+    public void RuntimeHooks_DoNotExposeSessionOrThread()
     {
         var publicProperties = typeof(RuntimeHookContext)
             .GetProperties()
@@ -902,9 +902,9 @@ public class RuntimeLifecycleTests : AgentTestBase
             .ToHashSet();
 
         Assert.DoesNotContain("Session", publicProperties);
-        Assert.DoesNotContain("Branch", publicProperties);
+        Assert.DoesNotContain("Thread", publicProperties);
         Assert.DoesNotContain("SessionId", publicProperties);
-        Assert.DoesNotContain("BranchId", publicProperties);
+        Assert.DoesNotContain("ThreadId", publicProperties);
     }
 
     [Fact]
@@ -2298,7 +2298,7 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
-    public async Task StartedAgent_QueuesSameBranchInputsInOrder()
+    public async Task StartedAgent_QueuesSameThreadInputsInOrder()
     {
         var fakeClient = new FakeChatClient();
         fakeClient.EnqueueTextResponse("response one");
@@ -2306,30 +2306,30 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         var agent = CreateAgent(client: fakeClient);
         var session = new global::HPD.Agent.Session("session-1");
-        var branch = new Branch("session-1");
+        var thread = new Thread("session-1");
 
         await agent.StartAsync(cancellationToken: TestCancellationToken);
 
         await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "question one")])
         {
             Session = session,
-            Branch = branch
+            Thread = thread
         }, TestCancellationToken);
 
         await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "question two")])
         {
             Session = session,
-            Branch = branch
+            Thread = thread
         }, TestCancellationToken);
 
         await agent.StopAsync(TestCancellationToken);
 
-        Assert.Contains(branch.Messages, m => m.Text == "question one");
-        Assert.Contains(branch.Messages, m => m.Text == "response one");
-        Assert.Contains(branch.Messages, m => m.Text == "question two");
-        Assert.Contains(branch.Messages, m => m.Text == "response two");
+        Assert.Contains(thread.Messages, m => m.Text == "question one");
+        Assert.Contains(thread.Messages, m => m.Text == "response one");
+        Assert.Contains(thread.Messages, m => m.Text == "question two");
+        Assert.Contains(thread.Messages, m => m.Text == "response two");
 
-        var texts = branch.Messages.Select(m => m.Text).ToList();
+        var texts = thread.Messages.Select(m => m.Text).ToList();
         Assert.True(texts.IndexOf("question one") < texts.IndexOf("response one"));
         Assert.True(texts.IndexOf("response one") < texts.IndexOf("question two"));
         Assert.True(texts.IndexOf("question two") < texts.IndexOf("response two"));
@@ -3012,7 +3012,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             FunctionName = "TestFunction",
             ConversationId = "conversation-1",
             SessionId = "session-1",
-            BranchId = "branch-1",
+            ThreadId = "thread-1",
             TraceId = "trace-1",
             Invocation = new ToolInvocationInfo("batch-1", functionCallId, "TestFunction", toolCallIndex)
         };

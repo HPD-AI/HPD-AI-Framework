@@ -9,7 +9,7 @@
  * Serialized node format for persistence.
  * Plain JSON structure without proxies or circular references.
  */
-export type SerializedNode = SerializedLeafNode | SerializedBranchNode;
+export type SerializedNode = SerializedLeafNode | SerializedThreadNode;
 
 export interface SerializedLeafNode {
 	type: 'leaf';
@@ -26,8 +26,8 @@ export interface SerializedLeafNode {
 	panelType?: string;
 }
 
-export interface SerializedBranchNode {
-	type: 'branch';
+export interface SerializedThreadNode {
+	type: 'thread';
 	axis: 'row' | 'column';
 	children: SerializedNode[];
 	flexes: number[]; // Converted from Float32Array for JSON

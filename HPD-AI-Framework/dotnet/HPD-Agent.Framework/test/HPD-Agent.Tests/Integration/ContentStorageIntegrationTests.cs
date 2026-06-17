@@ -39,11 +39,11 @@ public class ContentStorageIntegrationTests
                 .WithContentStore(contentStore)
                 .BuildAsync();
 
-            // Load session and branch (sets session.Store automatically)
+            // Load session and thread (sets session.Store automatically)
             var session = await store.LoadSessionAsync("test-session") ?? new SessionModel("test-session");
             session.Store = store;
-            var branch = await store.LoadBranchAsync("test-session", "main") ?? session.CreateBranch("main");
-            branch.Session = session;
+            var thread = await store.LoadThreadAsync("test-session", "main") ?? session.CreateThread("main");
+            thread.Session = session;
             Assert.NotNull(session.Store);
             Assert.Same(store, session.Store);
 
@@ -72,7 +72,7 @@ public class ContentStorageIntegrationTests
                 await agent.RunAsync(new UserMessagesInputEvent([userMessage])
                 {
                     Session = session,
-                    Branch = branch
+                    Thread = thread
                 });
             }
 
@@ -83,7 +83,7 @@ public class ContentStorageIntegrationTests
             Assert.Equal(imageBytes.Length, uploadEvent.SizeBytes);
 
             // Assert: Verify message was transformed (DataContent → UriContent)
-            var messages = branch.Messages;
+            var messages = thread.Messages;
             var transformedMessage = messages.First(m => m.Role == ChatRole.User);
 
             // Should have 2 contents: TextContent + UriContent
@@ -100,7 +100,7 @@ public class ContentStorageIntegrationTests
 
             // Assert: Verify content was stored and is retrievable
             var contentId = uriContent.Uri.Host;
-            var contentScope = ContentStoreScopes.ForBranch(session.Id, branch.Id);
+            var contentScope = ContentStoreScopes.ForThread(session.Id, thread.Id);
             var retrievedContent = await contentStore.ReadBytesAsync(contentScope, contentId, CancellationToken.None);
             var retrievedInfo = await contentStore.StatAsync(contentScope, contentId, CancellationToken.None);
             Assert.NotNull(retrievedContent);
@@ -111,23 +111,23 @@ public class ContentStorageIntegrationTests
 
             // Assert: Verify content file exists on disk (exclude .meta companion files)
             // LocalFileContentStore stores at {basePath}/{scope}/{contentId}.ext
-            // basePath = {tempDir}/content, scope = branch-scoped content scope
+            // basePath = {tempDir}/content, scope = thread-scoped content scope
             var contentFiles = Directory.GetFiles(Path.Combine(tempDir, "content", contentScope), $"{contentId}.*")
                 .Where(f => !f.EndsWith(".meta") && !f.EndsWith(".nameindex"))
                 .ToArray();
             Assert.Single(contentFiles);
             Assert.EndsWith(".png", contentFiles[0]);
 
-            // Save session and branch ( messages live in Branch, not Session)
+            // Save session and thread ( messages live in Thread, not Session)
             await session.SaveAsync();
-            await store.SaveInitialBranchAsync(session.Id, branch);
+            await store.SaveInitialThreadAsync(session.Id, thread);
 
-            // Assert: Verify branch stream was saved with URI reference (not bytes)
-            var branchEventsFile = Path.Combine(tempDir, session.Id, "branches", branch.Id, "branch.events.jsonl");
-            Assert.True(File.Exists(branchEventsFile));
-            var branchEventsJson = await File.ReadAllTextAsync(branchEventsFile);
-            Assert.Contains($"hpd-content://{contentId}", branchEventsJson);
-            Assert.DoesNotContain("\"Data\":", branchEventsJson); // Binary data NOT in branch event stream
+            // Assert: Verify thread stream was saved with URI reference (not bytes)
+            var threadEventsFile = Path.Combine(tempDir, session.Id, "threads", thread.Id, "thread.events.jsonl");
+            Assert.True(File.Exists(threadEventsFile));
+            var threadEventsJson = await File.ReadAllTextAsync(threadEventsFile);
+            Assert.Contains($"hpd-content://{contentId}", threadEventsJson);
+            Assert.DoesNotContain("\"Data\":", threadEventsJson); // Binary data NOT in thread event stream
         }
         finally
         {
@@ -161,8 +161,8 @@ public class ContentStorageIntegrationTests
 
             var session = await store.LoadSessionAsync("multi-content-session") ?? new SessionModel("multi-content-session");
             session.Store = store;
-            var branch = await store.LoadBranchAsync("multi-content-session", "main") ?? session.CreateBranch("main");
-            branch.Session = session;
+            var thread = await store.LoadThreadAsync("multi-content-session", "main") ?? session.CreateThread("main");
+            thread.Session = session;
 
             // Create different content types
             var pngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 }; // PNG
@@ -191,7 +191,7 @@ public class ContentStorageIntegrationTests
                 await agent.RunAsync(new UserMessagesInputEvent([message])
                 {
                     Session = session,
-                    Branch = branch
+                    Thread = thread
                 });
             }
 
@@ -203,14 +203,14 @@ public class ContentStorageIntegrationTests
             Assert.Contains(uploadEvents, e => e.MediaType == "application/pdf");
 
             // Assert: Message transformed correctly
-            var transformedMessage = branch.Messages.First(m => m.Role == ChatRole.User);
+            var transformedMessage = thread.Messages.First(m => m.Role == ChatRole.User);
             Assert.Equal(6, transformedMessage.Contents.Count); // 3 text + 3 URI
 
             var uriContents = transformedMessage.Contents.OfType<UriContent>().ToList();
             Assert.Equal(3, uriContents.Count);
 
             // Assert: All content items retrievable
-            var contentScope = ContentStoreScopes.ForBranch(session.Id, branch.Id);
+            var contentScope = ContentStoreScopes.ForThread(session.Id, thread.Id);
             foreach (var uriContent in uriContents)
             {
                 var contentId = uriContent.Uri.Host;
@@ -220,7 +220,7 @@ public class ContentStorageIntegrationTests
 
             // Assert: Correct file extensions on disk
             // LocalFileContentStore stores at {basePath}/{scope}/{contentId}.ext
-            // basePath = {tempDir}/content, scope = branch-scoped content scope
+            // basePath = {tempDir}/content, scope = thread-scoped content scope
             var contentDir = Path.Combine(tempDir, "content", contentScope);
             Assert.True(Directory.GetFiles(contentDir, "*.png").Length >= 1);
             Assert.True(Directory.GetFiles(contentDir, "*.jpg").Length >= 1);
@@ -250,8 +250,8 @@ public class ContentStorageIntegrationTests
 
         var session = await store.LoadSessionAsync("no-content-store-session") ?? new SessionModel("no-content-store-session");
         session.Store = store;
-        var branch = await store.LoadBranchAsync("no-content-store-session", "main") ?? session.CreateBranch("main");
-        branch.Session = session;
+        var thread = await store.LoadThreadAsync("no-content-store-session", "main") ?? session.CreateThread("main");
+        thread.Session = session;
 
         var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
         var message = new ChatMessage(ChatRole.User,
@@ -271,7 +271,7 @@ public class ContentStorageIntegrationTests
             await agent.RunAsync(new UserMessagesInputEvent([message])
             {
                 Session = session,
-                Branch = branch
+                Thread = thread
             });
         }
 
@@ -280,7 +280,7 @@ public class ContentStorageIntegrationTests
         Assert.Single(uploadEvents);
 
         // Assert: DataContent was replaced with a content reference for history.
-        var userMessage = branch.Messages.First(m => m.Role == ChatRole.User);
+        var userMessage = thread.Messages.First(m => m.Role == ChatRole.User);
         var uriContent = userMessage.Contents.OfType<UriContent>().FirstOrDefault();
         Assert.NotNull(uriContent);
         Assert.Equal("hpd-content", uriContent.Uri.Scheme);
@@ -311,8 +311,8 @@ public class ContentStorageIntegrationTests
             // First run: Upload content
             var session1 = await store.LoadSessionAsync("roundtrip-session") ?? new SessionModel("roundtrip-session");
             session1.Store = store;
-            var branch1 = await store.LoadBranchAsync("roundtrip-session", "main") ?? session1.CreateBranch("main");
-            branch1.Session = session1;
+            var thread1 = await store.LoadThreadAsync("roundtrip-session", "main") ?? session1.CreateThread("main");
+            thread1.Session = session1;
             var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x01, 0x02, 0x03 };
 
             var userMessage = new ChatMessage(ChatRole.User,
@@ -324,30 +324,30 @@ public class ContentStorageIntegrationTests
             await agent.RunAsync(new UserMessagesInputEvent([userMessage])
             {
                 Session = session1,
-                Branch = branch1
+                Thread = thread1
             });
             await session1.SaveAsync();
-            await store.SaveInitialBranchAsync(session1.Id, branch1);
+            await store.SaveInitialThreadAsync(session1.Id, thread1);
 
-            // Get content ID from first branch
-            var msg1 = branch1.Messages.First(m => m.Role == ChatRole.User);
+            // Get content ID from first thread
+            var msg1 = thread1.Messages.First(m => m.Role == ChatRole.User);
             var uri1 = msg1.Contents.OfType<UriContent>().First();
             var contentId = uri1.Uri.Host;
 
-            // Second run: Load session and branch, verify content still accessible
+            // Second run: Load session and thread, verify content still accessible
             var session2 = await store.LoadSessionAsync("roundtrip-session") ?? new SessionModel("roundtrip-session");
             session2.Store = store;
-            var branch2 = await store.LoadBranchAsync("roundtrip-session", "main") ?? session2.CreateBranch("main");
-            branch2.Session = session2;
+            var thread2 = await store.LoadThreadAsync("roundtrip-session", "main") ?? session2.CreateThread("main");
+            thread2.Session = session2;
             Assert.NotNull(session2);
 
-            var msg2 = branch2.Messages.First(m => m.Role == ChatRole.User);
+            var msg2 = thread2.Messages.First(m => m.Role == ChatRole.User);
             var uri2 = msg2.Contents.OfType<UriContent>().FirstOrDefault();
             Assert.NotNull(uri2);
             Assert.Equal(contentId, uri2.Uri.Host);
 
             // Assert: Content still retrievable after roundtrip
-            var contentScope = ContentStoreScopes.ForBranch(session2.Id, branch2.Id);
+            var contentScope = ContentStoreScopes.ForThread(session2.Id, thread2.Id);
             var retrievedContent = await contentStore.ReadBytesAsync(contentScope, contentId, CancellationToken.None);
             var retrievedInfo = await contentStore.StatAsync(contentScope, contentId, CancellationToken.None);
             Assert.NotNull(retrievedContent);
@@ -374,10 +374,10 @@ public class ContentStorageIntegrationTests
             var store = new JsonSessionStore(tempDir);
             var session = await store.LoadSessionAsync("convenience-session") ?? new SessionModel("convenience-session");
             session.Store = store;
-            var branch = await store.LoadBranchAsync("convenience-session", "main") ?? session.CreateBranch("main");
-            branch.Session = session;
+            var thread = await store.LoadThreadAsync("convenience-session", "main") ?? session.CreateThread("main");
+            thread.Session = session;
 
-            branch.AddMessage(new ChatMessage(ChatRole.User, "Test message"));
+            thread.AddMessage(new ChatMessage(ChatRole.User, "Test message"));
 
             // Act: Use convenience method
             await session.SaveAsync();
@@ -429,7 +429,7 @@ public class ContentStorageIntegrationTests
             .BuildAsync();
 
         var session = new SessionModel("hosted-session");
-        var branch = session.CreateBranch("main");
+        var thread = session.CreateThread("main");
         var data = new DataContent(new byte[] { 1, 2, 3, 4 }, "application/pdf") { Name = "report.pdf" };
         var message = new ChatMessage(ChatRole.User, [new TextContent("Read this"), data]);
         var events = new List<AgentEvent>();
@@ -443,20 +443,20 @@ public class ContentStorageIntegrationTests
             await agent.RunAsync(new UserMessagesInputEvent([message])
             {
                 Session = session,
-                Branch = branch
+                Thread = thread
             });
         }
 
         Assert.NotNull(wrappedHostedClient);
         Assert.Equal(1, wrappedHostedClient.UploadCount);
         Assert.Single(hostedClient.Uploads);
-        Assert.Empty(await contentStore.QueryAsync(ContentStoreScopes.ForBranch(session.Id, branch.Id)));
+        Assert.Empty(await contentStore.QueryAsync(ContentStoreScopes.ForThread(session.Id, thread.Id)));
 
         var uploadEvent = events.OfType<HostedFileUploadedEvent>().Single();
         Assert.Equal("file-1", uploadEvent.FileId);
         Assert.DoesNotContain(events, evt => evt is ContentUploadedEvent);
 
-        var persistedUserMessage = branch.Messages.First(m => m.Role == ChatRole.User);
+        var persistedUserMessage = thread.Messages.First(m => m.Role == ChatRole.User);
         var hostedContent = persistedUserMessage.Contents.OfType<HostedFileContent>().Single();
         Assert.Equal("file-1", hostedContent.FileId);
         Assert.Equal("application/pdf", hostedContent.MediaType);
@@ -506,24 +506,24 @@ public class ContentStorageIntegrationTests
             return Task.CompletedTask;
         }
 
-        public Task<Branch?> LoadBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default)
-            => Task.FromResult<Branch?>(null);
+        public Task<Thread?> LoadThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default)
+            => Task.FromResult<Thread?>(null);
 
-        public Task<BranchEventDocument?> LoadBranchDocumentAsync(string sessionId, string branchId, CancellationToken cancellationToken = default)
-            => Task.FromResult<BranchEventDocument?>(null);
+        public Task<ThreadEventDocument?> LoadThreadDocumentAsync(string sessionId, string threadId, CancellationToken cancellationToken = default)
+            => Task.FromResult<ThreadEventDocument?>(null);
 
-        public Task AppendBranchEventAsync(
+        public Task AppendThreadEventAsync(
             string sessionId,
-            string branchId,
+            string threadId,
             AgentEvent evt,
             long? expectedSequenceNumber = null,
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
-        public Task<List<string>> ListBranchIdsAsync(string sessionId, CancellationToken cancellationToken = default)
+        public Task<List<string>> ListThreadIdsAsync(string sessionId, CancellationToken cancellationToken = default)
             => Task.FromResult(new List<string>());
 
-        public Task DeleteBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default)
+        public Task DeleteThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
         public Task<UncommittedTurn?> LoadUncommittedTurnAsync(string sessionId, CancellationToken cancellationToken = default)

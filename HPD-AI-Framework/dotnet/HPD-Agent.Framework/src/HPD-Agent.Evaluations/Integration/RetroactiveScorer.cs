@@ -21,23 +21,23 @@ public sealed class RetroactiveScorerOptions
 }
 
 /// <summary>
-/// Scores saved branches without re-running the agent. Reconstructs TurnEvaluationContext
-/// from Branch.Messages (typed, lossless — no OTel reconstruction required) and runs
+/// Scores saved threads without re-running the agent. Reconstructs TurnEvaluationContext
+/// from Thread.Messages (typed, lossless — no OTel reconstruction required) and runs
 /// evaluators against the persisted conversation history.
 ///
-/// Token usage will be null in retroactive contexts (not persisted to Branch).
+/// Token usage will be null in retroactive contexts (not persisted to Thread).
 /// This is documented behavior — retroactive scoring is for content/quality evaluation.
 /// </summary>
 public static class RetroactiveScorer
 {
     /// <summary>
-    /// Score every turn in a single branch. Returns an EvaluationReport with one
+    /// Score every turn in a single thread. Returns an EvaluationReport with one
     /// ReportCase per turn.
     /// </summary>
-    public static async Task<EvaluationReport> ScoreBranchAsync(
+    public static async Task<EvaluationReport> ScoreThreadAsync(
         ISessionStore sessionStore,
         string sessionId,
-        string branchId,
+        string threadId,
         IReadOnlyList<IEvaluator> evaluators,
         ChatConfiguration? chatConfiguration = null,
         EvalJudgeConfig? judgeConfig = null,
@@ -50,24 +50,24 @@ public static class RetroactiveScorer
             ? EvaluationExecutionHelpers.WithTracing(chatConfiguration)
             : EvaluationExecutionHelpers.BuildChatConfiguration(judgeConfig);
 
-        var branch = await sessionStore.LoadBranchAsync(sessionId, branchId, ct).ConfigureAwait(false)
-            ?? throw new ArgumentException($"Branch '{branchId}' in session '{sessionId}' not found.", nameof(branchId));
+        var thread = await sessionStore.LoadThreadAsync(sessionId, threadId, ct).ConfigureAwait(false)
+            ?? throw new ArgumentException($"Thread '{threadId}' in session '{sessionId}' not found.", nameof(threadId));
 
-        var cases = await ScoreBranchInternalAsync(
-            sessionId, branch, evaluators, chatConfiguration, options, scoreStore, ct)
+        var cases = await ScoreThreadInternalAsync(
+            sessionId, thread, evaluators, chatConfiguration, options, scoreStore, ct)
             .ConfigureAwait(false);
 
-        return new EvaluationReport($"retroactive:{sessionId}/{branchId}", cases);
+        return new EvaluationReport($"retroactive:{sessionId}/{threadId}", cases);
     }
 
     /// <summary>
-    /// Score two branches and return a comparison report.
+    /// Score two threads and return a comparison report.
     /// </summary>
-    public static async Task<BranchComparisonReport> CompareBranchesAsync(
+    public static async Task<ThreadComparisonReport> CompareThreadsAsync(
         ISessionStore sessionStore,
         string sessionId,
-        string branchId1,
-        string branchId2,
+        string threadId1,
+        string threadId2,
         IReadOnlyList<IEvaluator> evaluators,
         ChatConfiguration? chatConfiguration = null,
         RetroactiveScorerOptions? options = null,
@@ -76,50 +76,50 @@ public static class RetroactiveScorer
         options ??= new();
         chatConfiguration = EvaluationExecutionHelpers.WithTracing(chatConfiguration);
 
-        var branch1Task = sessionStore.LoadBranchAsync(sessionId, branchId1, ct);
-        var branch2Task = sessionStore.LoadBranchAsync(sessionId, branchId2, ct);
+        var thread1Task = sessionStore.LoadThreadAsync(sessionId, threadId1, ct);
+        var thread2Task = sessionStore.LoadThreadAsync(sessionId, threadId2, ct);
 
-        var branch1 = await branch1Task.ConfigureAwait(false)
-            ?? throw new ArgumentException($"Branch '{branchId1}' not found.");
-        var branch2 = await branch2Task.ConfigureAwait(false)
-            ?? throw new ArgumentException($"Branch '{branchId2}' not found.");
+        var thread1 = await thread1Task.ConfigureAwait(false)
+            ?? throw new ArgumentException($"Thread '{threadId1}' not found.");
+        var thread2 = await thread2Task.ConfigureAwait(false)
+            ?? throw new ArgumentException($"Thread '{threadId2}' not found.");
 
         var reports = await Task.WhenAll(
-            ScoreBranchInternalAsync(sessionId, branch1, evaluators, chatConfiguration, options, null, ct),
-            ScoreBranchInternalAsync(sessionId, branch2, evaluators, chatConfiguration, options, null, ct)
+            ScoreThreadInternalAsync(sessionId, thread1, evaluators, chatConfiguration, options, null, ct),
+            ScoreThreadInternalAsync(sessionId, thread2, evaluators, chatConfiguration, options, null, ct)
         ).ConfigureAwait(false);
 
-        return new BranchComparisonReport(
-            new EvaluationReport($"branch:{branchId1}", reports[0]),
-            new EvaluationReport($"branch:{branchId2}", reports[1]));
+        return new ThreadComparisonReport(
+            new EvaluationReport($"thread:{threadId1}", reports[0]),
+            new EvaluationReport($"thread:{threadId2}", reports[1]));
     }
 
     /// <summary>
-    /// Tournament: rank N branches by a single evaluator's score.
-    /// Returns branches sorted descending by average score.
+    /// Tournament: rank N threads by a single evaluator's score.
+    /// Returns threads sorted descending by average score.
     /// </summary>
     public static async Task<TournamentResult> TournamentAsync(
         ISessionStore sessionStore,
         string sessionId,
-        IReadOnlyList<string> branchIds,
+        IReadOnlyList<string> threadIds,
         IEvaluator evaluator,
         ChatConfiguration? chatConfiguration = null,
         CancellationToken ct = default)
     {
         chatConfiguration = EvaluationExecutionHelpers.WithTracing(chatConfiguration);
         var options = new RetroactiveScorerOptions();
-        var scoreTasks = branchIds.Select(async branchId =>
+        var scoreTasks = threadIds.Select(async threadId =>
         {
-            var branch = await sessionStore.LoadBranchAsync(sessionId, branchId, ct).ConfigureAwait(false);
-            if (branch is null) return (branchId, 0.0, 0);
+            var thread = await sessionStore.LoadThreadAsync(sessionId, threadId, ct).ConfigureAwait(false);
+            if (thread is null) return (threadId, 0.0, 0);
 
-            var cases = await ScoreBranchInternalAsync(
-                sessionId, branch, [evaluator], chatConfiguration, options, null, ct)
+            var cases = await ScoreThreadInternalAsync(
+                sessionId, thread, [evaluator], chatConfiguration, options, null, ct)
                 .ConfigureAwait(false);
 
-            var report = new EvaluationReport($"branch:{branchId}", cases);
+            var report = new EvaluationReport($"thread:{threadId}", cases);
             var metricName = evaluator.EvaluationMetricNames.FirstOrDefault() ?? string.Empty;
-            return (branchId, report.AverageScore(metricName), cases.Count);
+            return (threadId, report.AverageScore(metricName), cases.Count);
         });
 
         var results = await Task.WhenAll(scoreTasks).ConfigureAwait(false);
@@ -131,20 +131,20 @@ public static class RetroactiveScorer
 
     // ── Private ───────────────────────────────────────────────────────────────
 
-    private static async Task<List<ReportCase>> ScoreBranchInternalAsync(
+    private static async Task<List<ReportCase>> ScoreThreadInternalAsync(
         string sessionId,
-        Branch branch,
+        Thread thread,
         IReadOnlyList<IEvaluator> evaluators,
         ChatConfiguration? chatConfiguration,
         RetroactiveScorerOptions options,
         IScoreStore? scoreStore,
         CancellationToken ct)
     {
-        var agentName = branch.Session?.Metadata.TryGetValue("agentName", out var n) == true
+        var agentName = thread.Session?.Metadata.TryGetValue("agentName", out var n) == true
             ? n?.ToString() ?? string.Empty
             : string.Empty;
 
-        var turnContexts = TurnEvaluationContextBuilder.FromBranch(branch, agentName);
+        var turnContexts = TurnEvaluationContextBuilder.FromThread(thread, agentName);
         var cases = new List<ReportCase>();
 
         foreach (var turnCtx in turnContexts)
@@ -168,7 +168,7 @@ public static class RetroactiveScorer
 
                 // Deduplication: skip turns already scored by the same evaluator+version
                 // unless ForceRescore is set. Checks IScoreStore for an existing record
-                // with matching (evaluatorName, evaluatorVersion, sessionId, branchId, turnIndex).
+                // with matching (evaluatorName, evaluatorVersion, sessionId, threadId, turnIndex).
                 if (!options.ForceRescore && scoreStore is not null)
                 {
                     bool alreadyScored = false;
@@ -176,7 +176,7 @@ public static class RetroactiveScorer
                         evaluatorName, version, ct).ConfigureAwait(false))
                     {
                         if (existing.SessionId == turnCtx.SessionId &&
-                            existing.BranchId == turnCtx.BranchId &&
+                            existing.ThreadId == turnCtx.ThreadId &&
                             existing.TurnIndex == turnCtx.TurnIndex)
                         {
                             alreadyScored = true;
@@ -208,7 +208,7 @@ public static class RetroactiveScorer
                             Result = evalResult,
                             Source = EvaluationSource.Retroactive,
                             SessionId = turnCtx.SessionId,
-                            BranchId = turnCtx.BranchId,
+                            ThreadId = turnCtx.ThreadId,
                             TurnIndex = turnCtx.TurnIndex,
                             AgentName = turnCtx.AgentName,
                             ProviderKey = turnCtx.ProviderKey,
@@ -255,16 +255,16 @@ public static class RetroactiveScorer
     }
 }
 
-/// <summary>Comparison of two branch evaluation reports.</summary>
-public sealed record BranchComparisonReport(
-    EvaluationReport Branch1Report,
-    EvaluationReport Branch2Report);
+/// <summary>Comparison of two thread evaluation reports.</summary>
+public sealed record ThreadComparisonReport(
+    EvaluationReport Thread1Report,
+    EvaluationReport Thread2Report);
 
 /// <summary>Ranked results from a tournament evaluation.</summary>
 public sealed record TournamentResult(IReadOnlyList<TournamentEntry> Rankings);
 
 public sealed record TournamentEntry(
-    string BranchId,
+    string ThreadId,
     int Rank,
     double AverageScore,
     int TurnCount);

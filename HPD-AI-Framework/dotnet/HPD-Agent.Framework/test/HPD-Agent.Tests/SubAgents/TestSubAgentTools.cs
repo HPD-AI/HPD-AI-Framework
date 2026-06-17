@@ -54,14 +54,14 @@ public class TestSubAgentTools
     }
 
     [SubAgent]
-    public SubAgent DefaultBranchNativeSubAgent()
+    public SubAgent DefaultThreadNativeSubAgent()
     {
         return SubAgent.FromConfig(
-            "DefaultBranchNativeSubAgent",
-            "Default branch-native sub-agent",
+            "DefaultThreadNativeSubAgent",
+            "Default thread-native sub-agent",
             new AgentConfig
             {
-                Name = "DefaultBranchNative",
+                Name = "DefaultThreadNative",
                 SystemInstructions = "Test",
                 Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
             });
@@ -79,22 +79,22 @@ public class TestSubAgentTools
                 SystemInstructions = "Test",
                 Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
             },
-            SubAgentExecutionPolicies.SharedSessionFreshBranch("shared-session-subagent"));
+            SubAgentExecutionPolicies.SharedSessionFreshThread("shared-session-subagent"));
     }
 
     [SubAgent]
-    public SubAgent ParentBranchSubAgent()
+    public SubAgent ParentThreadSubAgent()
     {
         return SubAgent.FromConfig(
-            "ParentBranchSubAgent",
-            "Sub-agent that writes directly into the parent branch",
+            "ParentThreadSubAgent",
+            "Sub-agent that writes directly into the parent thread",
             new AgentConfig
             {
-                Name = "ParentBranch",
+                Name = "ParentThread",
                 SystemInstructions = "Test",
                 Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
             },
-            SubAgentExecutionPolicies.ParentBranch());
+            SubAgentExecutionPolicies.ParentThread());
     }
 
     [SubAgent]
@@ -162,18 +162,18 @@ public class TestSubAgentTools
     }
 
     [SubAgent]
-    public SubAgent SharedSessionExistingBranchSubAgent()
+    public SubAgent SharedSessionExistingThreadSubAgent()
     {
         return SubAgent.FromConfig(
-            "SharedSessionExistingBranchSubAgent",
-            "Sub-agent pinned to a shared session branch",
+            "SharedSessionExistingThreadSubAgent",
+            "Sub-agent pinned to a shared session thread",
             new AgentConfig
             {
-                Name = "SharedSessionExistingBranch",
+                Name = "SharedSessionExistingThread",
                 SystemInstructions = "Test",
                 Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
             },
-            SubAgentExecutionPolicies.SharedSessionExistingBranch("shared-session-with-branch", "review-thread"));
+            SubAgentExecutionPolicies.SharedSessionExistingThread("shared-session-with-thread", "review-thread"));
     }
 
     [SubAgent]

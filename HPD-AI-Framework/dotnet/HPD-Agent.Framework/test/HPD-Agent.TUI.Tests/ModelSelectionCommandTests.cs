@@ -176,14 +176,14 @@ public sealed class ModelSelectionCommandTests
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
-        public Task<IReadOnlyList<AgentEvent>> GetBranchEventsAsync(
+        public Task<IReadOnlyList<AgentEvent>> GetThreadEventsAsync(
             AgentTuiRuntimeScope scope,
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<AgentEvent>>([]);
 
-        public Task<AgentTuiBranchRun?> GetActiveRunAsync(
+        public Task<AgentTuiThreadRun?> GetActiveRunAsync(
             AgentTuiRuntimeScope scope,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<AgentTuiBranchRun?>(null);
+            => Task.FromResult<AgentTuiThreadRun?>(null);
     }
 }

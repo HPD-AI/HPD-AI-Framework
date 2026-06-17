@@ -4,7 +4,7 @@ using HPD.Agent;
 using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using HPD.Agent.Audio;
-using HPD.Agent.Audio.AgentIntegration.Branch;
+using HPD.Agent.Audio.AgentIntegration.Thread;
 using HPD.Agent.Audio.AgentIntegration.Middleware;
 using HPD.Agent.Audio.AgentIntegration.Output;
 using HPD.Agent.Audio.Interaction;
@@ -128,9 +128,9 @@ var sessionId = FirstNonWhiteSpace(
     options.SessionId,
     GetConfigString(appsettings, "AudioCli", "SessionId"))
     ?? $"audio-cli-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
-var branchId = FirstNonWhiteSpace(
-    options.BranchId,
-    GetConfigString(appsettings, "AudioCli", "BranchId"))
+var threadId = FirstNonWhiteSpace(
+    options.ThreadId,
+    GetConfigString(appsettings, "AudioCli", "ThreadId"))
     ?? "main";
 var text = FirstNonWhiteSpace(
     options.Text,
@@ -476,7 +476,7 @@ if (useManualPlaybackSink)
 
 var audioOptions = new AudioRuntimeAttachmentOptions
 {
-    BranchProjectionSink = new SessionBranchProjectionSink(sessionStore),
+    ThreadProjectionSink = new SessionThreadProjectionSink(sessionStore),
     RunAudioInteractionRuntime = true,
     EnableAssistantOutputPlayback = useManualPlaybackSink,
     AssistantAudioOutputSink = assistantOutputSink,
@@ -622,7 +622,7 @@ else
 }
 
 var totalTurns = audioPaths.Count + textOnlyTurns.Count;
-Console.WriteLine($"[audio-cli] session={sessionId} branch={branchId} audioCount={audioPaths.Count} textTurnCount={textOnlyTurns.Count}");
+Console.WriteLine($"[audio-cli] session={sessionId} thread={threadId} audioCount={audioPaths.Count} textTurnCount={textOnlyTurns.Count}");
 
 for (var turnIndex = 0; turnIndex < audioPaths.Count; turnIndex++)
 {
@@ -670,7 +670,7 @@ for (var turnIndex = 0; turnIndex < audioPaths.Count; turnIndex++)
         ])
         {
             SessionId = sessionId,
-            BranchId = branchId,
+            ThreadId = threadId,
             RunConfig = new AgentRunConfig
             {
                 ModelTransport = realtimeRequested
@@ -747,7 +747,7 @@ for (var textTurnIndex = 0; textTurnIndex < textOnlyTurns.Count; textTurnIndex++
         ])
         {
             SessionId = sessionId,
-            BranchId = branchId,
+            ThreadId = threadId,
             RunConfig = new AgentRunConfig
             {
                 ModelTransport = realtimeRequested
@@ -791,7 +791,7 @@ for (var textTurnIndex = 0; textTurnIndex < textOnlyTurns.Count; textTurnIndex++
     await benchmark.WriteAsync(audioAttachment, benchmarkOutputPath);
 }
 
-await PrintBranchAsync(sessionStore, sessionId, branchId);
+await PrintThreadAsync(sessionStore, sessionId, threadId);
 return 0;
 
 static async Task EnsureSessionAsync(Agent agent, string sessionId)
@@ -822,9 +822,9 @@ static async Task RunCliTurnAsync(
         throw new InvalidOperationException("RuntimeRunId is required when waiting for a started runtime run.");
     }
 
-    var completion = new TaskCompletionSource<BranchRunCompletedEvent>(
+    var completion = new TaskCompletionSource<ThreadRunCompletedEvent>(
         TaskCreationOptions.RunContinuationsAsynchronously);
-    using var completionSubscription = agent.Subscribe<BranchRunCompletedEvent>(evt =>
+    using var completionSubscription = agent.Subscribe<ThreadRunCompletedEvent>(evt =>
     {
         if (string.Equals(evt.RuntimeRunId, input.RuntimeRunId, StringComparison.Ordinal))
         {
@@ -870,7 +870,7 @@ static async Task PrintAudioInteractionRuntimeAsync(AudioRuntimeAttachment audio
             {
                 TranscriptLedgerRecord => ConsoleColor.Green,
                 UserTurnLedgerRecord => ConsoleColor.Green,
-                BranchProjectionLedgerRecord => ConsoleColor.Cyan,
+                ThreadProjectionLedgerRecord => ConsoleColor.Cyan,
                 _ => ConsoleColor.DarkGray
             };
 
@@ -882,7 +882,7 @@ static async Task PrintAudioInteractionRuntimeAsync(AudioRuntimeAttachment audio
                     $"  - {record.Family}: \"{transcriptRecord.Text}\"",
                 UserTurnLedgerRecord turn =>
                     $"  - {record.Family}: \"{turn.Text}\" reason={turn.CommitReason}",
-                BranchProjectionLedgerRecord projection =>
+                ThreadProjectionLedgerRecord projection =>
                     $"  - {record.Family}: \"{projection.Projection.Text}\" event={projection.ProjectedEvent?.EventId ?? "-"}",
                 _ => $"  - {record.Family}: {record.GetType().Name}"
             });
@@ -991,20 +991,20 @@ static IReadOnlyDictionary<(string OutputFlowId, int SegmentIndex), AssistantAud
     return results;
 }
 
-static async Task PrintBranchAsync(InMemorySessionStore sessionStore, string sessionId, string branchId)
+static async Task PrintThreadAsync(InMemorySessionStore sessionStore, string sessionId, string threadId)
 {
-    var branch = await sessionStore.LoadBranchAsync(sessionId, branchId);
+    var thread = await sessionStore.LoadThreadAsync(sessionId, threadId);
     Console.WriteLine();
-    if (branch is null)
+    if (thread is null)
     {
-        Console.WriteLine("[branch] messages=0");
+        Console.WriteLine("[thread] messages=0");
         return;
     }
 
-    Console.WriteLine($"[branch] messages={branch.Messages.Count}");
-    for (var i = 0; i < branch.Messages.Count; i++)
+    Console.WriteLine($"[thread] messages={thread.Messages.Count}");
+    for (var i = 0; i < thread.Messages.Count; i++)
     {
-        var message = branch.Messages[i];
+        var message = thread.Messages[i];
         Console.WriteLine($"[{i:00}] {message.Role}: {Preview(ExtractText(message))}");
     }
 }
@@ -1290,7 +1290,7 @@ static void PrintUsage()
       --realtime-math-tools   Diagnostic: register Add/Multiply/Subtract and run realtime through started HPD runtime.
       --media-type <mime>     Override detected media type.
       --session <id>          Session id. Default: generated.
-      --branch <id>           Branch id. Default: main.
+      --thread <id>           Thread id. Default: main.
       --tts                   Opt in to assistant TTS.
       --tts-progressive       Synthesize assistant output progressively from streamed text.
       --tts-route <mode>      Progressive TTS route: auto, segment, push-text. Default: auto.
@@ -1346,7 +1346,7 @@ file sealed record AudioCliOptions(
     bool RealtimeMathTools,
     string? MediaType,
     string? SessionId,
-    string? BranchId,
+    string? ThreadId,
     bool? TtsEnabled,
     bool TtsProgressive,
     ProgressiveTextToSpeechRouteMode? TtsRouteMode,
@@ -1402,7 +1402,7 @@ file sealed record AudioCliOptions(
         var realtimeMathTools = false;
         string? mediaType = null;
         string? sessionId = null;
-        string? branchId = null;
+        string? threadId = null;
         bool? ttsEnabled = null;
         var ttsProgressive = false;
         ProgressiveTextToSpeechRouteMode? ttsRouteMode = null;
@@ -1539,8 +1539,8 @@ file sealed record AudioCliOptions(
                 case "--session":
                     sessionId = RequireValue(args, ref i, arg);
                     break;
-                case "--branch":
-                    branchId = RequireValue(args, ref i, arg);
+                case "--thread":
+                    threadId = RequireValue(args, ref i, arg);
                     break;
                 case "--tts":
                     ttsEnabled = true;
@@ -1661,7 +1661,7 @@ file sealed record AudioCliOptions(
             realtimeMathTools,
             mediaType,
             sessionId,
-            branchId,
+            threadId,
             ttsEnabled,
             ttsProgressive,
             ttsRouteMode,

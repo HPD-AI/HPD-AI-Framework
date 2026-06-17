@@ -62,13 +62,13 @@ describe('AgentClient.uploadContent() — AgentHttpApi', () => {
     vi.restoreAllMocks();
   });
 
-  it('calls POST /sessions/{sid}/branches/{bid}/content', async () => {
+  it('calls POST /sessions/{sid}/threads/{bid}/content', async () => {
     const spy = mockFetchJson(CONTENT_REFERENCE, 200);
     await client.uploadContent('sess-1', 'main', makeFile());
 
     expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
     const [url, init] = vi.mocked(fetch).mock.calls[0];
-    expect(String(url)).toBe(`${BASE}/sessions/sess-1/branches/main/content`);
+    expect(String(url)).toBe(`${BASE}/sessions/sess-1/threads/main/content`);
     expect(init?.method).toBe('POST');
   });
 
@@ -163,7 +163,7 @@ describe('AgentClient.submitInput() — runConfig threading', () => {
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'sess-1',
       agentId: 'agent-1',
-      branchId: 'main',
+      threadId: 'main',
       text: 'hi',
       runConfig,
     }, { signal }).catch(() => {});
@@ -188,7 +188,7 @@ describe('AgentClient.submitInput() — runConfig threading', () => {
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'sess-1',
       agentId: 'agent-1',
-      branchId: 'main',
+      threadId: 'main',
       text: 'hi',
     }, { signal }).catch(() => {});
 
@@ -226,7 +226,7 @@ describe('SseTransport — submitInput runConfig in POST body', () => {
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'sess-1',
       agentId: 'agent-1',
-      branchId: 'main',
+      threadId: 'main',
       text: 'hi',
       runConfig,
     }).catch(() => {});
@@ -256,7 +256,7 @@ describe('SseTransport — submitInput runConfig in POST body', () => {
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 'sess-1',
       agentId: 'agent-1',
-      branchId: 'main',
+      threadId: 'main',
       text: 'hi',
     }).catch(() => {});
 

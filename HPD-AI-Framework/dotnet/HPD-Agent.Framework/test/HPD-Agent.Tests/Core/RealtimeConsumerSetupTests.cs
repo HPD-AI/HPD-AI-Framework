@@ -47,7 +47,7 @@ public sealed class RealtimeConsumerSetupTests
                 new UserMessagesInputEvent([userMessage])
                 {
                     SessionId = "consumer-realtime-session",
-                    BranchId = "main",
+                    ThreadId = "main",
                     RunConfig = new AgentRunConfig
                     {
                         ModelTransport = AgentModelTransportMode.Realtime,
@@ -81,10 +81,10 @@ public sealed class RealtimeConsumerSetupTests
                 Assert.Empty(item.Contents.OfType<AudioContent>());
             });
 
-        var branch = await store.LoadBranchAsync("consumer-realtime-session", "main");
-        Assert.NotNull(branch);
-        Assert.Equal("Answer this audio.", branch.Messages[0].Text);
-        Assert.Equal("Realtime answer.", branch.Messages[^1].Text);
+        var thread = await store.LoadThreadAsync("consumer-realtime-session", "main");
+        Assert.NotNull(thread);
+        Assert.Equal("Answer this audio.", thread.Messages[0].Text);
+        Assert.Equal("Realtime answer.", thread.Messages[^1].Text);
     }
 
     private sealed class ConsumerRealtimeClient(ConsumerRealtimeSession session) : IRealtimeClient

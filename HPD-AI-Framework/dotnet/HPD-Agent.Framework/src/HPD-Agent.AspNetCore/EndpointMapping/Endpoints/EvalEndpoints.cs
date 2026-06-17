@@ -31,10 +31,10 @@ internal static class EvalEndpoints
             .WithName("GetScores")
             .WithSummary("Get scores by evaluator name");
 
-        group.MapGet("/scores/by-branch", (string sessionId, string? branchId, CancellationToken ct)
-            => GetScoresByBranch(sessionId, branchId, scoreStore, ct))
-            .WithName("GetScoresByBranch")
-            .WithSummary("Get scores filtered by session and branch");
+        group.MapGet("/scores/by-thread", (string sessionId, string? threadId, CancellationToken ct)
+            => GetScoresByThread(sessionId, threadId, scoreStore, ct))
+            .WithName("GetScoresByThread")
+            .WithSummary("Get scores filtered by session and thread");
 
         group.MapGet("/scores/by-version", (string evaluatorName, string version, CancellationToken ct)
             => GetScoresByVersion(evaluatorName, version, scoreStore, ct))
@@ -82,11 +82,11 @@ internal static class EvalEndpoints
             .WithName("GetAgentComparison")
             .WithSummary("Compare performance across agents");
 
-        analytics.MapGet("/branch-comparison", (string sessionId, string branchId1, string branchId2,
+        analytics.MapGet("/thread-comparison", (string sessionId, string threadId1, string threadId2,
             string evaluatorNames, CancellationToken ct)
-            => GetBranchComparison(sessionId, branchId1, branchId2, evaluatorNames, scoreStore, ct))
-            .WithName("GetBranchComparison")
-            .WithSummary("Compare performance across branches");
+            => GetThreadComparison(sessionId, threadId1, threadId2, evaluatorNames, scoreStore, ct))
+            .WithName("GetThreadComparison")
+            .WithSummary("Compare performance across threads");
 
         analytics.MapGet("/tool-usage", (DateTimeOffset? from, DateTimeOffset? to, CancellationToken ct)
             => GetToolUsage(from, to, scoreStore, ct))
@@ -239,9 +239,9 @@ internal static class EvalEndpoints
         }
     }
 
-    private static async Task<Results<Ok<List<ScoreRecord>>, ContentHttpResult, ValidationProblem>> GetScoresByBranch(
+    private static async Task<Results<Ok<List<ScoreRecord>>, ContentHttpResult, ValidationProblem>> GetScoresByThread(
         string sessionId,
-        string? branchId,
+        string? threadId,
         IScoreStore? scoreStore,
         CancellationToken ct)
     {
@@ -249,7 +249,7 @@ internal static class EvalEndpoints
         try
         {
             var records = new List<ScoreRecord>();
-            await foreach (var r in scoreStore.GetScoresAsync(sessionId, branchId, ct))
+            await foreach (var r in scoreStore.GetScoresAsync(sessionId, threadId, ct))
                 records.Add(r);
             return TypedResults.Ok(records);
         }
@@ -257,7 +257,7 @@ internal static class EvalEndpoints
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["GetScoresByBranchError"] = [ex.Message]
+                ["GetScoresByThreadError"] = [ex.Message]
             });
         }
     }
@@ -305,7 +305,7 @@ internal static class EvalEndpoints
                 Result = request.Result ?? new Microsoft.Extensions.AI.Evaluation.EvaluationResult([]),
                 Source = source,
                 SessionId = request.SessionId ?? string.Empty,
-                BranchId = request.BranchId ?? string.Empty,
+                ThreadId = request.ThreadId ?? string.Empty,
                 TurnIndex = request.TurnIndex,
                 AgentName = request.AgentName ?? string.Empty,
                 TurnDuration = turnDuration,
@@ -445,10 +445,10 @@ internal static class EvalEndpoints
         }
     }
 
-    private static async Task<Results<Ok<BranchComparisonResult>, ContentHttpResult, ValidationProblem>> GetBranchComparison(
+    private static async Task<Results<Ok<ThreadComparisonResult>, ContentHttpResult, ValidationProblem>> GetThreadComparison(
         string sessionId,
-        string branchId1,
-        string branchId2,
+        string threadId1,
+        string threadId2,
         string evaluatorNames,
         IScoreStore? scoreStore,
         CancellationToken ct)
@@ -457,14 +457,14 @@ internal static class EvalEndpoints
         try
         {
             var names = evaluatorNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            var result = await scoreStore.GetBranchComparisonAsync(sessionId, branchId1, branchId2, names, ct);
+            var result = await scoreStore.GetThreadComparisonAsync(sessionId, threadId1, threadId2, names, ct);
             return TypedResults.Ok(result);
         }
         catch (Exception ex)
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["GetBranchComparisonError"] = [ex.Message]
+                ["GetThreadComparisonError"] = [ex.Message]
             });
         }
     }
@@ -1222,7 +1222,7 @@ internal sealed class WriteScoreRequest
     public Microsoft.Extensions.AI.Evaluation.EvaluationResult? Result { get; init; }
     public string? Source { get; init; }
     public string? SessionId { get; init; }
-    public string? BranchId { get; init; }
+    public string? ThreadId { get; init; }
     public int TurnIndex { get; init; }
     public string? AgentName { get; init; }
     public string? TurnDuration { get; init; }

@@ -1,7 +1,7 @@
 {
   "name": "@hpd-research/hpd-agent-headless-ui",
   "version": "0.1.0",
-  "description": "Framework-neutral branch state primitives for HPD-Agent UI",
+  "description": "Framework-neutral thread state primitives for HPD-Agent UI",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

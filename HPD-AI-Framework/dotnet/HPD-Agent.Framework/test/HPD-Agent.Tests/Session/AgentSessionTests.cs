@@ -6,7 +6,7 @@ using HPD.Agent.Tests.Infrastructure;
 namespace HPD.Agent.Tests.Session;
 
 /// <summary>
-/// Tests for V3 Session and Branch types.
+/// Tests for V3 Session and Thread types.
 /// Covers construction, message operations, metadata, display name, execution state, and store property.
 /// </summary>
 public class AgentSessionTests : AgentTestBase
@@ -60,55 +60,55 @@ public class AgentSessionTests : AgentTestBase
     }
 
     //──────────────────────────────────────────────────────────────────
-    // BRANCH - CONSTRUCTION
+    // THREAD - CONSTRUCTION
     //──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Branch_Constructor_GeneratesId()
+    public void Thread_Constructor_GeneratesId()
     {
         var session = new HPD.Agent.Session("session-1");
-        var branch = session.CreateBranch();
-        Assert.NotNull(branch.Id);
-        Assert.NotEmpty(branch.Id);
-        Assert.Equal("session-1", branch.SessionId);
+        var thread = session.CreateThread();
+        Assert.NotNull(thread.Id);
+        Assert.NotEmpty(thread.Id);
+        Assert.Equal("session-1", thread.SessionId);
     }
 
     [Fact]
-    public void Branch_WithId_UsesProvidedId()
+    public void Thread_WithId_UsesProvidedId()
     {
         var session = new HPD.Agent.Session("session-1");
-        var branch = session.CreateBranch("branch-1");
-        Assert.Equal("branch-1", branch.Id);
-        Assert.Equal("session-1", branch.SessionId);
+        var thread = session.CreateThread("thread-1");
+        Assert.Equal("thread-1", thread.Id);
+        Assert.Equal("session-1", thread.SessionId);
     }
 
     //──────────────────────────────────────────────────────────────────
-    // BRANCH - MESSAGE OPERATIONS
+    // THREAD - MESSAGE OPERATIONS
     //──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Branch_AddMessage_AddsToCollection()
+    public void Thread_AddMessage_AddsToCollection()
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var branch = session.CreateBranch();
+        var thread = session.CreateThread();
 
         // Act
-        branch.AddMessage(UserMessage("Hello"));
-        branch.AddMessage(AssistantMessage("Hi!"));
+        thread.AddMessage(UserMessage("Hello"));
+        thread.AddMessage(AssistantMessage("Hi!"));
 
         // Assert
-        Assert.Equal(2, branch.MessageCount);
-        Assert.Equal("Hello", branch.Messages[0].Text);
-        Assert.Equal("Hi!", branch.Messages[1].Text);
+        Assert.Equal(2, thread.MessageCount);
+        Assert.Equal("Hello", thread.Messages[0].Text);
+        Assert.Equal("Hi!", thread.Messages[1].Text);
     }
 
     [Fact]
-    public void Branch_AddMessages_AddsMultiple()
+    public void Thread_AddMessages_AddsMultiple()
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var branch = session.CreateBranch();
+        var thread = session.CreateThread();
         var messages = new List<ChatMessage>
         {
             UserMessage("One"),
@@ -117,41 +117,41 @@ public class AgentSessionTests : AgentTestBase
         };
 
         // Act
-        branch.AddMessages(messages);
+        thread.AddMessages(messages);
 
         // Assert
-        Assert.Equal(3, branch.MessageCount);
+        Assert.Equal(3, thread.MessageCount);
     }
 
     [Fact]
-    public void Branch_Clear_RemovesAllMessages()
+    public void Thread_Clear_RemovesAllMessages()
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var branch = session.CreateBranch();
-        branch.AddMessage(UserMessage("Hello"));
+        var thread = session.CreateThread();
+        thread.AddMessage(UserMessage("Hello"));
 
         // Act
-        branch.Clear();
+        thread.Clear();
 
         // Assert
-        Assert.Empty(branch.Messages);
+        Assert.Empty(thread.Messages);
     }
 
     [Fact]
-    public void Branch_AddMessage_UpdatesLastActivity()
+    public void Thread_AddMessage_UpdatesLastActivity()
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var branch = session.CreateBranch();
-        var initialActivity = branch.LastActivity;
+        var thread = session.CreateThread();
+        var initialActivity = thread.LastActivity;
         System.Threading.Thread.Sleep(10);
 
         // Act
-        branch.AddMessage(UserMessage("Hello"));
+        thread.AddMessage(UserMessage("Hello"));
 
         // Assert
-        Assert.True(branch.LastActivity > initialActivity);
+        Assert.True(thread.LastActivity > initialActivity);
     }
 
     //──────────────────────────────────────────────────────────────────
@@ -172,73 +172,73 @@ public class AgentSessionTests : AgentTestBase
     }
 
     //──────────────────────────────────────────────────────────────────
-    // BRANCH - DISPLAY NAME
+    // THREAD - DISPLAY NAME
     //──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Branch_GetDisplayName_FromFirstUserMessage()
+    public void Thread_GetDisplayName_FromFirstUserMessage()
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var branch = session.CreateBranch();
-        branch.AddMessage(UserMessage("Hello, how are you today?"));
+        var thread = session.CreateThread();
+        thread.AddMessage(UserMessage("Hello, how are you today?"));
 
         // Act
-        var displayName = branch.GetDisplayName(maxLength: 15);
+        var displayName = thread.GetDisplayName(maxLength: 15);
 
         // Assert
         Assert.Equal("Hello, how a...", displayName);
     }
 
     [Fact]
-    public void Branch_GetDisplayName_FallsBackToId()
+    public void Thread_GetDisplayName_FallsBackToId()
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var branch = session.CreateBranch();
+        var thread = session.CreateThread();
 
         // Act
-        var displayName = branch.GetDisplayName();
+        var displayName = thread.GetDisplayName();
 
-        // Assert — falls back to branch ID when no messages
-        Assert.Equal(branch.Id, displayName);
+        // Assert — falls back to thread ID when no messages
+        Assert.Equal(thread.Id, displayName);
     }
 
     [Fact]
-    public void Branch_GetDisplayName_PreferDescription()
+    public void Thread_GetDisplayName_PreferDescription()
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var branch = session.CreateBranch();
-        branch.AddMessage(UserMessage("Some user message"));
-        branch.Description = "Custom Name";
+        var thread = session.CreateThread();
+        thread.AddMessage(UserMessage("Some user message"));
+        thread.Description = "Custom Name";
 
         // Act
-        var displayName = branch.GetDisplayName();
+        var displayName = thread.GetDisplayName();
 
         // Assert
         Assert.Equal("Custom Name", displayName);
     }
 
     //──────────────────────────────────────────────────────────────────
-    // BRANCH - EXECUTION STATE
+    // THREAD - EXECUTION STATE
     //──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Branch_ExecutionState_GetSet()
+    public void Thread_ExecutionState_GetSet()
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var branch = session.CreateBranch();
+        var thread = session.CreateThread();
         var state = AgentLoopState.InitialSafe(
             new List<ChatMessage>(), "run-123", "conv-456", "TestAgent");
 
         // Act
-        branch.ExecutionState = state;
+        thread.ExecutionState = state;
 
         // Assert
-        Assert.NotNull(branch.ExecutionState);
-        Assert.Equal("run-123", branch.ExecutionState.RunId);
+        Assert.NotNull(thread.ExecutionState);
+        Assert.Equal("run-123", thread.ExecutionState.RunId);
     }
 
     //──────────────────────────────────────────────────────────────────

@@ -16,19 +16,19 @@ public sealed class AgentMiddlewareResponseService : IAgentMiddlewareResponseSer
     public async Task<AgentServiceResult<RespondResult>> RespondAsync(
         string agentId,
         string sessionId,
-        string branchId,
+        string threadId,
         IResponseEvent response,
         CancellationToken cancellationToken = default)
     {
-        if (!await RouteScopeExistsAsync(sessionId, branchId, cancellationToken))
+        if (!await RouteScopeExistsAsync(sessionId, threadId, cancellationToken))
             return AgentServiceResult<RespondResult>.NotFound;
 
-        var agent = _agentManager.GetRuntimeAgent(agentId, sessionId, branchId);
+        var agent = _agentManager.GetRuntimeAgent(agentId, sessionId, threadId);
         if (agent == null)
         {
             return AgentServiceResult<RespondResult>.ConflictWith(
-                "BranchRuntimeNotActive",
-                $"Branch '{branchId}' in session '{sessionId}' does not have an active runtime for agent '{agentId}'.");
+                "ThreadRuntimeNotActive",
+                $"Thread '{threadId}' in session '{sessionId}' does not have an active runtime for agent '{agentId}'.");
         }
 
         var result = await agent.RespondIfPendingAsync(response, cancellationToken)
@@ -44,14 +44,14 @@ public sealed class AgentMiddlewareResponseService : IAgentMiddlewareResponseSer
 
     private async Task<bool> RouteScopeExistsAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken)
     {
         var session = await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken);
         if (session == null)
             return false;
 
-        var branch = await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken);
-        return branch != null;
+        var thread = await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken);
+        return thread != null;
     }
 }

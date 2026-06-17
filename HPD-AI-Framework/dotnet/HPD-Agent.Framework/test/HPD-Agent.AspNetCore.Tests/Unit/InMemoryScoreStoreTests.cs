@@ -22,7 +22,7 @@ public class InMemoryScoreStoreTests
         string evaluatorName = "TestEval",
         string evaluatorVersion = "1.0",
         string sessionId = "s1",
-        string branchId = "main",
+        string threadId = "main",
         int turnIndex = 0,
         string agentName = "agent",
         bool passing = true,
@@ -38,7 +38,7 @@ public class InMemoryScoreStoreTests
             Result = result,
             Source = EvaluationSource.Test,
             SessionId = sessionId,
-            BranchId = branchId,
+            ThreadId = threadId,
             TurnIndex = turnIndex,
             AgentName = agentName,
             TurnDuration = TimeSpan.FromSeconds(1),
@@ -51,7 +51,7 @@ public class InMemoryScoreStoreTests
     private static ScoreRecord MakeNumeric(
         string evaluatorName = "TestEval",
         string sessionId = "s1",
-        string branchId = "main",
+        string threadId = "main",
         int turnIndex = 0,
         string agentName = "agent",
         double score = 5.0,
@@ -67,7 +67,7 @@ public class InMemoryScoreStoreTests
             Result = result,
             Source = EvaluationSource.Test,
             SessionId = sessionId,
-            BranchId = branchId,
+            ThreadId = threadId,
             TurnIndex = turnIndex,
             AgentName = agentName,
             TurnDuration = TimeSpan.FromSeconds(1),
@@ -89,8 +89,8 @@ public class InMemoryScoreStoreTests
     private Task<List<ScoreRecord>> ByEvaluator(string name, DateTimeOffset? from = null, DateTimeOffset? to = null)
         => ToListAsync(_store.GetScoresAsync(evaluatorName: name, from: from, to: to));
 
-    private Task<List<ScoreRecord>> BySession(string sessionId, string? branchId = null)
-        => ToListAsync(_store.GetScoresAsync(sessionId: sessionId, branchId: branchId));
+    private Task<List<ScoreRecord>> BySession(string sessionId, string? threadId = null)
+        => ToListAsync(_store.GetScoresAsync(sessionId: sessionId, threadId: threadId));
 
     // =========================================================================
     // Category A — WriteScoreAsync / GetScoresAsync (by evaluator)
@@ -163,16 +163,16 @@ public class InMemoryScoreStoreTests
     }
 
     // =========================================================================
-    // Category B — GetScoresAsync (by session/branch)
+    // Category B — GetScoresAsync (by session/thread)
     // =========================================================================
 
     [Fact]
-    public async Task GetScoresBySession_Returns_AllBranchesForSession()
+    public async Task GetScoresBySession_Returns_AllThreadsForSession()
     {
         const string sid = "sess-multi";
-        await _store.WriteScoreAsync(MakeBool(sessionId: sid, branchId: "main"));
-        await _store.WriteScoreAsync(MakeBool(sessionId: sid, branchId: "fork-1"));
-        await _store.WriteScoreAsync(MakeBool(sessionId: "OTHER-sess-multi", branchId: "main"));
+        await _store.WriteScoreAsync(MakeBool(sessionId: sid, threadId: "main"));
+        await _store.WriteScoreAsync(MakeBool(sessionId: sid, threadId: "fork-1"));
+        await _store.WriteScoreAsync(MakeBool(sessionId: "OTHER-sess-multi", threadId: "main"));
 
         var results = await BySession(sid);
 
@@ -181,16 +181,16 @@ public class InMemoryScoreStoreTests
     }
 
     [Fact]
-    public async Task GetScoresBySession_FiltersToSpecificBranch()
+    public async Task GetScoresBySession_FiltersToSpecificThread()
     {
         const string sid = "sess-specific";
-        await _store.WriteScoreAsync(MakeBool(sessionId: sid, branchId: "main"));
-        await _store.WriteScoreAsync(MakeBool(sessionId: sid, branchId: "fork-1"));
+        await _store.WriteScoreAsync(MakeBool(sessionId: sid, threadId: "main"));
+        await _store.WriteScoreAsync(MakeBool(sessionId: sid, threadId: "fork-1"));
 
-        var results = await BySession(sid, branchId: "main");
+        var results = await BySession(sid, threadId: "main");
 
         results.Should().HaveCountGreaterThanOrEqualTo(1);
-        results.Should().OnlyContain(r => r.BranchId == "main");
+        results.Should().OnlyContain(r => r.ThreadId == "main");
     }
 
     [Fact]
@@ -383,25 +383,25 @@ public class InMemoryScoreStoreTests
     }
 
     // =========================================================================
-    // Category H — GetBranchComparisonAsync
+    // Category H — GetThreadComparisonAsync
     // =========================================================================
 
     [Fact]
-    public async Task GetBranchComparison_FillsBothBranchScores()
+    public async Task GetThreadComparison_FillsBothThreadScores()
     {
         const string sid = "bc-session";
-        await _store.WriteScoreAsync(MakeBool("BranchCompEval", sessionId: sid, branchId: "b1", passing: true));
-        await _store.WriteScoreAsync(MakeBool("BranchCompEval", sessionId: sid, branchId: "b2", passing: false));
+        await _store.WriteScoreAsync(MakeBool("ThreadCompEval", sessionId: sid, threadId: "b1", passing: true));
+        await _store.WriteScoreAsync(MakeBool("ThreadCompEval", sessionId: sid, threadId: "b2", passing: false));
 
-        var result = await _store.GetBranchComparisonAsync(sid, "b1", "b2", ["BranchCompEval"]);
+        var result = await _store.GetThreadComparisonAsync(sid, "b1", "b2", ["ThreadCompEval"]);
 
         result.SessionId.Should().Be(sid);
-        result.BranchId1.Should().Be("b1");
-        result.BranchId2.Should().Be("b2");
-        result.Branch1Scores.Should().ContainKey("BranchCompEval");
-        result.Branch2Scores.Should().ContainKey("BranchCompEval");
-        result.Branch1Scores["BranchCompEval"].Count.Should().Be(1);
-        result.Branch2Scores["BranchCompEval"].Count.Should().Be(1);
+        result.ThreadId1.Should().Be("b1");
+        result.ThreadId2.Should().Be("b2");
+        result.Thread1Scores.Should().ContainKey("ThreadCompEval");
+        result.Thread2Scores.Should().ContainKey("ThreadCompEval");
+        result.Thread1Scores["ThreadCompEval"].Count.Should().Be(1);
+        result.Thread2Scores["ThreadCompEval"].Count.Should().Be(1);
     }
 
     // =========================================================================
@@ -436,8 +436,8 @@ public class InMemoryScoreStoreTests
     {
         const string sid = "ra-paired";
         const string bid = "main";
-        await _store.WriteScoreAsync(MakeNumeric("TurnRiskEvaluator", sessionId: sid, branchId: bid, turnIndex: 1, score: 7.0));
-        await _store.WriteScoreAsync(MakeNumeric("TurnAutonomyEvaluator", sessionId: sid, branchId: bid, turnIndex: 1, score: 8.0));
+        await _store.WriteScoreAsync(MakeNumeric("TurnRiskEvaluator", sessionId: sid, threadId: bid, turnIndex: 1, score: 7.0));
+        await _store.WriteScoreAsync(MakeNumeric("TurnAutonomyEvaluator", sessionId: sid, threadId: bid, turnIndex: 1, score: 8.0));
 
         var result = await _store.GetRiskAutonomyDistributionAsync();
 

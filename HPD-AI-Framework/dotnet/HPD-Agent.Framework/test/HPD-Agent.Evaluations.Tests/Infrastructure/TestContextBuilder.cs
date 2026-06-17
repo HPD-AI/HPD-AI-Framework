@@ -17,7 +17,7 @@ internal sealed class TestContextBuilder
 {
     private string _agentName = "TestAgent";
     private string _sessionId = "sess-test";
-    private string _branchId = "branch-test";
+    private string _threadId = "thread-test";
     private string _conversationId = "conv-test";
     private int _turnIndex = 0;
     private string _userInput = "What is the capital of France?";
@@ -34,7 +34,7 @@ internal sealed class TestContextBuilder
 
     public TestContextBuilder WithAgentName(string name) { _agentName = name; return this; }
     public TestContextBuilder WithSessionId(string id) { _sessionId = id; return this; }
-    public TestContextBuilder WithBranchId(string id) { _branchId = id; return this; }
+    public TestContextBuilder WithThreadId(string id) { _threadId = id; return this; }
     public TestContextBuilder WithTurnIndex(int index) { _turnIndex = index; return this; }
     public TestContextBuilder WithUserInput(string input) { _userInput = input; return this; }
     public TestContextBuilder WithOutputText(string text) { _outputText = text; return this; }
@@ -80,7 +80,7 @@ internal sealed class TestContextBuilder
         {
             AgentName = _agentName,
             SessionId = _sessionId,
-            BranchId = _branchId,
+            ThreadId = _threadId,
             ConversationId = _conversationId,
             TurnIndex = _turnIndex,
             UserInput = _userInput,

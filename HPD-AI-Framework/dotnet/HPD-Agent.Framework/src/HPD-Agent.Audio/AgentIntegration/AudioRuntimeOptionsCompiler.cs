@@ -34,7 +34,7 @@ public static class AudioRuntimeOptionsCompiler
             ProviderCandidates = source.ProviderCandidates,
             InteractionSessionFactory = source.InteractionSessionFactory,
             InteractionSessionFactoryResolver = source.InteractionSessionFactoryResolver,
-            BranchProjectionSink = source.BranchProjectionSink,
+            ThreadProjectionSink = source.ThreadProjectionSink,
             AssistantOutputSynthesisMode = source.AssistantOutputSynthesisMode,
             AssistantOutputPacingOptions = source.AssistantOutputPacingOptions,
             AssistantOutputProgressiveRouteMode = source.AssistantOutputProgressiveRouteMode,

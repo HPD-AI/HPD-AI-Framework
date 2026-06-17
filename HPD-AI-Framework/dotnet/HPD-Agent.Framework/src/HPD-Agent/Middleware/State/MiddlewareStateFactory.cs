@@ -49,17 +49,17 @@ public record MiddlewareStateFactory(
 
     /// <summary>
     /// The scope of this middleware state.
-    /// Determines whether state is shared across all branches (Session) or per-branch (Branch).
+    /// Determines whether state is shared across all threads (Session) or per-thread (Thread).
     /// From [MiddlewareState(Scope = StateScope.Session)] attribute.
-    /// Defaults to StateScope.Branch (per-conversation path).
+    /// Defaults to StateScope.Thread (per-conversation path).
     /// </summary>
     /// <remarks>
     /// <para><b>Usage by Framework:</b></para>
     /// <list type="bullet">
     /// <item>LoadFromSession() filters for Scope == StateScope.Session</item>
-    /// <item>LoadFromBranch() filters for Scope == StateScope.Branch</item>
+    /// <item>LoadFromThread() filters for Scope == StateScope.Thread</item>
     /// <item>SaveToSession() persists only Session-scoped states</item>
-    /// <item>SaveToBranch() persists only Branch-scoped states</item>
+    /// <item>SaveToThread() persists only Thread-scoped states</item>
     /// </list>
     /// </remarks>
     StateScope Scope,

@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { box } from 'svelte-toolbelt';
-import type { Branch } from '@hpd-research/hpd-agent-client';
+import type { Thread } from '@hpd-research/hpd-agent-client';
 import type { Workspace } from '../../workspace/types.ts';
 import type { Message } from '../../agent/types.ts';
 import {
@@ -25,7 +25,7 @@ import {
 // Helpers
 // ============================================
 
-const createBranch = (overrides: Partial<Branch> = {}): Branch => ({
+const createThread = (overrides: Partial<Thread> = {}): Thread => ({
 	id: 'fork-1',
 	sessionId: 'session-1',
 	name: 'Fork',
@@ -37,7 +37,7 @@ const createBranch = (overrides: Partial<Branch> = {}): Branch => ({
 	isOriginal: false,
 	forkedFrom: 'main',
 	forkedAtMessageIndex: 2,
-	childBranches: [],
+	childThreads: [],
 	totalForks: 0,
 	previousSiblingId: 'main',
 	nextSiblingId: 'fork-2',
@@ -61,9 +61,9 @@ function makeWorkspace(messages: Message[] = []): Workspace {
 		activeSessionId: 'session-1',
 		loading: false,
 		error: null,
-		branches: new Map(),
-		activeBranchId: 'main',
-		activeBranch: null,
+		threads: new Map(),
+		activeThreadId: 'main',
+		activeThread: null,
 		activeSiblings: [],
 		canGoNext: false,
 		canGoPrevious: false,
@@ -89,13 +89,13 @@ function makeWorkspace(messages: Message[] = []): Workspace {
 			createSession: vi.fn(),
 			updateSession: vi.fn(),
 			deleteSession: vi.fn(),
-			listBranches: vi.fn(),
-			getBranch: vi.fn(),
-			createBranch: vi.fn(),
-			forkBranch: vi.fn(),
-			deleteBranch: vi.fn(),
-			getBranchMessages: vi.fn(),
-			getBranchSiblings: vi.fn(),
+			listThreads: vi.fn(),
+			getThread: vi.fn(),
+			createThread: vi.fn(),
+			forkThread: vi.fn(),
+			deleteThread: vi.fn(),
+			getThreadMessages: vi.fn(),
+			getThreadSiblings: vi.fn(),
 			getNextSibling: vi.fn(),
 			getPreviousSibling: vi.fn(),
 			listAgents: vi.fn(),
@@ -107,15 +107,15 @@ function makeWorkspace(messages: Message[] = []): Workspace {
 		} as any,		selectSession: vi.fn(),
 		createSession: vi.fn(),
 		deleteSession: vi.fn(),
-		switchBranch: vi.fn(),
+		switchThread: vi.fn(),
 		goToNextSibling: vi.fn(),
 		goToPreviousSibling: vi.fn(),
 		goToSiblingByIndex: vi.fn(),
 		editMessage: vi.fn().mockResolvedValue(undefined),
-		deleteBranch: vi.fn(),
-		createBranch: vi.fn(),
-		refreshBranch: vi.fn(),
-		invalidateBranch: vi.fn(),
+		deleteThread: vi.fn(),
+		createThread: vi.fn(),
+		refreshThread: vi.fn(),
+		invalidateThread: vi.fn(),
 		send: vi.fn(),
 		run: vi.fn(),
 		abort: vi.fn(),
@@ -129,7 +129,7 @@ function makeWorkspace(messages: Message[] = []): Workspace {
 function makeRoot(opts: {
 	role?: Message['role'];
 	messageIndex?: number;
-	branch?: Branch | null;
+	thread?: Thread | null;
 	workspace?: Workspace;
 } = {}): MessageActionsRootState {
 	const ws = opts.workspace ?? makeWorkspace();
@@ -137,7 +137,7 @@ function makeRoot(opts: {
 		workspace: box(ws),
 		messageIndex: box(opts.messageIndex ?? 0),
 		role: box(opts.role ?? 'user'),
-		branch: opts.branch !== undefined ? box(opts.branch) : undefined,
+		thread: opts.thread !== undefined ? box(opts.thread) : undefined,
 	});
 }
 
@@ -194,20 +194,20 @@ describe('MessageActionsRootState — pending', () => {
 // ============================================
 
 describe('MessageActionsRootState — hasSiblings', () => {
-	it('is false when no branch provided', () => {
+	it('is false when no thread provided', () => {
 		const root = makeRoot({ messageIndex: 2 });
 		expect(root.hasSiblings).toBe(false);
 	});
 
-	it('is false when branch is null', () => {
-		const root = makeRoot({ messageIndex: 2, branch: null });
+	it('is false when thread is null', () => {
+		const root = makeRoot({ messageIndex: 2, thread: null });
 		expect(root.hasSiblings).toBe(false);
 	});
 
-	it('is false when branch is original (isOriginal=true)', () => {
+	it('is false when thread is original (isOriginal=true)', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ isOriginal: true, forkedFrom: undefined, forkedAtMessageIndex: undefined }),
+			thread: createThread({ isOriginal: true, forkedFrom: undefined, forkedAtMessageIndex: undefined }),
 		});
 		expect(root.hasSiblings).toBe(false);
 	});
@@ -215,7 +215,7 @@ describe('MessageActionsRootState — hasSiblings', () => {
 	it('is false when forkedAtMessageIndex does not match messageIndex', () => {
 		const root = makeRoot({
 			messageIndex: 0,
-			branch: createBranch({ forkedAtMessageIndex: 3 }),
+			thread: createThread({ forkedAtMessageIndex: 3 }),
 		});
 		expect(root.hasSiblings).toBe(false);
 	});
@@ -223,7 +223,7 @@ describe('MessageActionsRootState — hasSiblings', () => {
 	it('is false when forked here but only one sibling', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, totalSiblings: 1 }),
+			thread: createThread({ forkedAtMessageIndex: 2, totalSiblings: 1 }),
 		});
 		expect(root.hasSiblings).toBe(false);
 	});
@@ -231,7 +231,7 @@ describe('MessageActionsRootState — hasSiblings', () => {
 	it('is true when forked at this index with multiple siblings', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, totalSiblings: 3 }),
+			thread: createThread({ forkedAtMessageIndex: 2, totalSiblings: 3 }),
 		});
 		expect(root.hasSiblings).toBe(true);
 	});
@@ -243,14 +243,14 @@ describe('MessageActionsRootState — hasSiblings', () => {
 
 describe('MessageActionsRootState — navigation availability', () => {
 	it('canGoPrevious is false when not forked here', () => {
-		const root = makeRoot({ messageIndex: 0, branch: createBranch({ forkedAtMessageIndex: 3 }) });
+		const root = makeRoot({ messageIndex: 0, thread: createThread({ forkedAtMessageIndex: 3 }) });
 		expect(root.canGoPrevious).toBe(false);
 	});
 
 	it('canGoPrevious is false when forked here but no previousSiblingId', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, previousSiblingId: undefined }),
+			thread: createThread({ forkedAtMessageIndex: 2, previousSiblingId: undefined }),
 		});
 		expect(root.canGoPrevious).toBe(false);
 	});
@@ -258,20 +258,20 @@ describe('MessageActionsRootState — navigation availability', () => {
 	it('canGoPrevious is true when forked here and previousSiblingId exists', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, previousSiblingId: 'main' }),
+			thread: createThread({ forkedAtMessageIndex: 2, previousSiblingId: 'main' }),
 		});
 		expect(root.canGoPrevious).toBe(true);
 	});
 
 	it('canGoNext is false when not forked here', () => {
-		const root = makeRoot({ messageIndex: 0, branch: createBranch({ forkedAtMessageIndex: 3 }) });
+		const root = makeRoot({ messageIndex: 0, thread: createThread({ forkedAtMessageIndex: 3 }) });
 		expect(root.canGoNext).toBe(false);
 	});
 
 	it('canGoNext is false when forked here but no nextSiblingId', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, nextSiblingId: undefined }),
+			thread: createThread({ forkedAtMessageIndex: 2, nextSiblingId: undefined }),
 		});
 		expect(root.canGoNext).toBe(false);
 	});
@@ -279,7 +279,7 @@ describe('MessageActionsRootState — navigation availability', () => {
 	it('canGoNext is true when forked here and nextSiblingId exists', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, nextSiblingId: 'fork-2' }),
+			thread: createThread({ forkedAtMessageIndex: 2, nextSiblingId: 'fork-2' }),
 		});
 		expect(root.canGoNext).toBe(true);
 	});
@@ -291,11 +291,11 @@ describe('MessageActionsRootState — navigation availability', () => {
 
 describe('MessageActionsRootState — position strings', () => {
 	it('position is empty when not forked here', () => {
-		const root = makeRoot({ messageIndex: 0, branch: createBranch({ forkedAtMessageIndex: 3 }) });
+		const root = makeRoot({ messageIndex: 0, thread: createThread({ forkedAtMessageIndex: 3 }) });
 		expect(root.position).toBe('');
 	});
 
-	it('position is empty when no branch', () => {
+	it('position is empty when no thread', () => {
 		const root = makeRoot({ messageIndex: 2 });
 		expect(root.position).toBe('');
 	});
@@ -303,7 +303,7 @@ describe('MessageActionsRootState — position strings', () => {
 	it('position is "2 / 4" for siblingIndex=1, totalSiblings=4', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, siblingIndex: 1, totalSiblings: 4 }),
+			thread: createThread({ forkedAtMessageIndex: 2, siblingIndex: 1, totalSiblings: 4 }),
 		});
 		expect(root.position).toBe('2 / 4');
 	});
@@ -311,28 +311,28 @@ describe('MessageActionsRootState — position strings', () => {
 	it('position is "1 / 2" for siblingIndex=0, totalSiblings=2', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, siblingIndex: 0, totalSiblings: 2 }),
+			thread: createThread({ forkedAtMessageIndex: 2, siblingIndex: 0, totalSiblings: 2 }),
 		});
 		expect(root.position).toBe('1 / 2');
 	});
 
 	it('positionLabel is empty when not forked here', () => {
-		const root = makeRoot({ messageIndex: 0, branch: createBranch({ forkedAtMessageIndex: 3 }) });
+		const root = makeRoot({ messageIndex: 0, thread: createThread({ forkedAtMessageIndex: 3 }) });
 		expect(root.positionLabel).toBe('');
 	});
 
 	it('positionLabel is empty when totalSiblings is 1', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, totalSiblings: 1 }),
+			thread: createThread({ forkedAtMessageIndex: 2, totalSiblings: 1 }),
 		});
 		expect(root.positionLabel).toBe('');
 	});
 
-	it('positionLabel is "Original (1 / 3)" for original branch with 3 siblings', () => {
+	it('positionLabel is "Original (1 / 3)" for original thread with 3 siblings', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({
+			thread: createThread({
 				forkedAtMessageIndex: 2,
 				isOriginal: true,
 				siblingIndex: 0,
@@ -340,14 +340,14 @@ describe('MessageActionsRootState — position strings', () => {
 			}),
 		});
 		// isOriginal=true means isForkedHere check fails — position label stays empty
-		// (original branches can't be a fork result)
+		// (original threads can't be a fork result)
 		expect(root.positionLabel).toBe('');
 	});
 
 	it('positionLabel is "Fork 2 / 3" for fork at siblingIndex=1', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({
+			thread: createThread({
 				forkedAtMessageIndex: 2,
 				isOriginal: false,
 				siblingIndex: 1,
@@ -360,7 +360,7 @@ describe('MessageActionsRootState — position strings', () => {
 	it('positionLabel is "Fork 4 / 4" for last fork', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({
+			thread: createThread({
 				forkedAtMessageIndex: 2,
 				isOriginal: false,
 				siblingIndex: 3,
@@ -373,7 +373,7 @@ describe('MessageActionsRootState — position strings', () => {
 	it('position is "4 / 4" for last-of-four fork', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({
+			thread: createThread({
 				forkedAtMessageIndex: 2,
 				siblingIndex: 3,
 				totalSiblings: 4,
@@ -385,7 +385,7 @@ describe('MessageActionsRootState — position strings', () => {
 	it('position is "1 / 3" for first fork of three', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({
+			thread: createThread({
 				forkedAtMessageIndex: 2,
 				siblingIndex: 0,
 				totalSiblings: 3,
@@ -397,12 +397,12 @@ describe('MessageActionsRootState — position strings', () => {
 
 // ============================================
 // RootState — snippetProps integration
-// (Ported from BranchSwitcher — full field coverage)
+// (Ported from ThreadSwitcher — full field coverage)
 // ============================================
 
 describe('MessageActionsRootState — snippetProps integration', () => {
 	it('all fields correct for a mid-sibling fork at this index', () => {
-		const branch = createBranch({
+		const thread = createThread({
 			forkedAtMessageIndex: 2,
 			siblingIndex: 1,
 			totalSiblings: 3,
@@ -410,7 +410,7 @@ describe('MessageActionsRootState — snippetProps integration', () => {
 			previousSiblingId: 'main',
 			nextSiblingId: 'fork-2',
 		});
-		const root = makeRoot({ messageIndex: 2, branch });
+		const root = makeRoot({ messageIndex: 2, thread });
 		const sp = root.snippetProps;
 		expect(sp.hasSiblings).toBe(true);
 		expect(sp.pending).toBe(false);
@@ -420,7 +420,7 @@ describe('MessageActionsRootState — snippetProps integration', () => {
 		expect(root.positionLabel).toBe('Fork 2 / 3');
 	});
 
-	it('all fields false/empty when no branch', () => {
+	it('all fields false/empty when no thread', () => {
 		const root = makeRoot({ messageIndex: 2 });
 		const sp = root.snippetProps;
 		expect(sp.hasSiblings).toBe(false);
@@ -430,15 +430,15 @@ describe('MessageActionsRootState — snippetProps integration', () => {
 		expect(root.positionLabel).toBe('');
 	});
 
-	it('all fields false/empty when branch is forked at a different index', () => {
-		const branch = createBranch({
+	it('all fields false/empty when thread is forked at a different index', () => {
+		const thread = createThread({
 			forkedAtMessageIndex: 5,
 			siblingIndex: 1,
 			totalSiblings: 3,
 			previousSiblingId: 'main',
 			nextSiblingId: 'fork-2',
 		});
-		const root = makeRoot({ messageIndex: 0, branch });
+		const root = makeRoot({ messageIndex: 0, thread });
 		expect(root.hasSiblings).toBe(false);
 		expect(root.position).toBe('');
 		expect(root.canGoPrevious).toBe(false);
@@ -474,7 +474,7 @@ describe('MessageActionsRootState — props', () => {
 	it('data-has-siblings is present when hasSiblings is true', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, totalSiblings: 3 }),
+			thread: createThread({ forkedAtMessageIndex: 2, totalSiblings: 3 }),
 		});
 		expect(root.props['data-has-siblings']).toBe('');
 	});
@@ -858,19 +858,19 @@ describe('MessageActionsPrevState — props', () => {
 	}
 
 	it('has data-message-actions-prev', () => {
-		const root = makeRoot({ messageIndex: 2, branch: createBranch({ forkedAtMessageIndex: 2 }) });
+		const root = makeRoot({ messageIndex: 2, thread: createThread({ forkedAtMessageIndex: 2 }) });
 		expect(makePrev(root).props['data-message-actions-prev']).toBe('');
 	});
 
 	it('has type=button', () => {
-		const root = makeRoot({ messageIndex: 2, branch: createBranch({ forkedAtMessageIndex: 2 }) });
+		const root = makeRoot({ messageIndex: 2, thread: createThread({ forkedAtMessageIndex: 2 }) });
 		expect(makePrev(root).props.type).toBe('button');
 	});
 
 	it('disabled is true when canGoPrevious is false', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, previousSiblingId: undefined }),
+			thread: createThread({ forkedAtMessageIndex: 2, previousSiblingId: undefined }),
 		});
 		expect(makePrev(root).props.disabled).toBe(true);
 	});
@@ -878,20 +878,20 @@ describe('MessageActionsPrevState — props', () => {
 	it('disabled is false when canGoPrevious is true', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, previousSiblingId: 'main' }),
+			thread: createThread({ forkedAtMessageIndex: 2, previousSiblingId: 'main' }),
 		});
 		expect(makePrev(root).props.disabled).toBe(false);
 	});
 
 	it('aria-label uses the provided value', () => {
-		const root = makeRoot({ messageIndex: 2, branch: createBranch({ forkedAtMessageIndex: 2 }) });
+		const root = makeRoot({ messageIndex: 2, thread: createThread({ forkedAtMessageIndex: 2 }) });
 		expect(makePrev(root, 'Go back').props['aria-label']).toBe('Go back');
 	});
 
 	it('data-disabled present when disabled', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, previousSiblingId: undefined }),
+			thread: createThread({ forkedAtMessageIndex: 2, previousSiblingId: undefined }),
 		});
 		expect(makePrev(root).props['data-disabled']).toBe('');
 	});
@@ -899,7 +899,7 @@ describe('MessageActionsPrevState — props', () => {
 	it('data-disabled absent when enabled', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, previousSiblingId: 'main' }),
+			thread: createThread({ forkedAtMessageIndex: 2, previousSiblingId: 'main' }),
 		});
 		expect(makePrev(root).props['data-disabled']).toBeUndefined();
 	});
@@ -911,14 +911,14 @@ describe('MessageActionsNextState — props', () => {
 	}
 
 	it('has data-message-actions-next', () => {
-		const root = makeRoot({ messageIndex: 2, branch: createBranch({ forkedAtMessageIndex: 2 }) });
+		const root = makeRoot({ messageIndex: 2, thread: createThread({ forkedAtMessageIndex: 2 }) });
 		expect(makeNext(root).props['data-message-actions-next']).toBe('');
 	});
 
 	it('disabled is true when canGoNext is false', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, nextSiblingId: undefined }),
+			thread: createThread({ forkedAtMessageIndex: 2, nextSiblingId: undefined }),
 		});
 		expect(makeNext(root).props.disabled).toBe(true);
 	});
@@ -926,7 +926,7 @@ describe('MessageActionsNextState — props', () => {
 	it('disabled is false when canGoNext is true', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, nextSiblingId: 'fork-2' }),
+			thread: createThread({ forkedAtMessageIndex: 2, nextSiblingId: 'fork-2' }),
 		});
 		expect(makeNext(root).props.disabled).toBe(false);
 	});
@@ -938,7 +938,7 @@ describe('MessageActionsNextState — props', () => {
 
 describe('MessageActionsPositionState — props and snippetProps', () => {
 	it('has data-message-actions-position', () => {
-		const root = makeRoot({ messageIndex: 2, branch: createBranch({ forkedAtMessageIndex: 2 }) });
+		const root = makeRoot({ messageIndex: 2, thread: createThread({ forkedAtMessageIndex: 2 }) });
 		const pos = new MessageActionsPositionState(root);
 		expect(pos.props['data-message-actions-position']).toBe('');
 	});
@@ -958,7 +958,7 @@ describe('MessageActionsPositionState — props and snippetProps', () => {
 	it('snippetProps.position mirrors root.position', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({ forkedAtMessageIndex: 2, siblingIndex: 1, totalSiblings: 4 }),
+			thread: createThread({ forkedAtMessageIndex: 2, siblingIndex: 1, totalSiblings: 4 }),
 		});
 		const pos = new MessageActionsPositionState(root);
 		expect(pos.snippetProps.position).toBe('2 / 4');
@@ -967,7 +967,7 @@ describe('MessageActionsPositionState — props and snippetProps', () => {
 	it('snippetProps.label mirrors root.positionLabel', () => {
 		const root = makeRoot({
 			messageIndex: 2,
-			branch: createBranch({
+			thread: createThread({
 				forkedAtMessageIndex: 2,
 				isOriginal: false,
 				siblingIndex: 1,
@@ -979,21 +979,21 @@ describe('MessageActionsPositionState — props and snippetProps', () => {
 	});
 
 	it('snippetProps.position is empty when not forked here', () => {
-		const root = makeRoot({ messageIndex: 0, branch: createBranch({ forkedAtMessageIndex: 5 }) });
+		const root = makeRoot({ messageIndex: 0, thread: createThread({ forkedAtMessageIndex: 5 }) });
 		const pos = new MessageActionsPositionState(root);
 		expect(pos.snippetProps.position).toBe('');
 	});
 });
 
 // ============================================
-// RootState — hasSiblings for ORIGINAL branch (U1-U5)
-// The #isForkedHere path for isOriginal=true branches uses
-// workspace.branches.get(branch.nextSiblingId) to find the fork point.
+// RootState — hasSiblings for ORIGINAL thread (U1-U5)
+// The #isForkedHere path for isOriginal=true threads uses
+// workspace.threads.get(thread.nextSiblingId) to find the fork point.
 // ============================================
 
-describe('MessageActionsRootState — hasSiblings (original branch path)', () => {
+describe('MessageActionsRootState — hasSiblings (original thread path)', () => {
 	function makeWorkspaceWithFork(forkId: string, forkIndex: number): Workspace {
-		const forkBranch = createBranch({
+		const forkThread = createThread({
 			id: forkId,
 			isOriginal: false,
 			forkedFrom: 'main',
@@ -1002,14 +1002,14 @@ describe('MessageActionsRootState — hasSiblings (original branch path)', () =>
 			nextSiblingId: undefined,
 		});
 		const ws = makeWorkspace();
-		(ws.branches as Map<string, Branch>).set(forkId, forkBranch);
+		(ws.threads as Map<string, Thread>).set(forkId, forkThread);
 		return ws;
 	}
 
-	// U1: hasSiblings true for original branch at the fork-point row
-	it('U1: is true for original branch when nextSiblingId fork is at this messageIndex', () => {
+	// U1: hasSiblings true for original thread at the fork-point row
+	it('U1: is true for original thread when nextSiblingId fork is at this messageIndex', () => {
 		const ws = makeWorkspaceWithFork('fork-1', 2);
-		const branch = createBranch({
+		const thread = createThread({
 			id: 'main',
 			isOriginal: true,
 			forkedFrom: undefined,
@@ -1019,14 +1019,14 @@ describe('MessageActionsRootState — hasSiblings (original branch path)', () =>
 			siblingIndex: 0,
 			totalSiblings: 2,
 		});
-		const root = makeRoot({ messageIndex: 2, branch, workspace: ws });
+		const root = makeRoot({ messageIndex: 2, thread, workspace: ws });
 		expect(root.hasSiblings).toBe(true);
 	});
 
-	// U2: hasSiblings false for original branch at a DIFFERENT row
-	it('U2: is false for original branch when messageIndex does not match fork point', () => {
+	// U2: hasSiblings false for original thread at a DIFFERENT row
+	it('U2: is false for original thread when messageIndex does not match fork point', () => {
 		const ws = makeWorkspaceWithFork('fork-1', 2);
-		const branch = createBranch({
+		const thread = createThread({
 			id: 'main',
 			isOriginal: true,
 			forkedFrom: undefined,
@@ -1036,31 +1036,31 @@ describe('MessageActionsRootState — hasSiblings (original branch path)', () =>
 			siblingIndex: 0,
 			totalSiblings: 2,
 		});
-		const root = makeRoot({ messageIndex: 5, branch, workspace: ws });
+		const root = makeRoot({ messageIndex: 5, thread, workspace: ws });
 		expect(root.hasSiblings).toBe(false);
 	});
 
-	// U3: hasSiblings false when nextSiblingId is not in workspace.branches
-	it('U3: is false for original branch when nextSiblingId not in workspace.branches', () => {
-		const ws = makeWorkspace(); // empty branches map
-		const branch = createBranch({
+	// U3: hasSiblings false when nextSiblingId is not in workspace.threads
+	it('U3: is false for original thread when nextSiblingId not in workspace.threads', () => {
+		const ws = makeWorkspace(); // empty threads map
+		const thread = createThread({
 			id: 'main',
 			isOriginal: true,
 			forkedFrom: undefined,
 			forkedAtMessageIndex: undefined,
 			previousSiblingId: undefined,
-			nextSiblingId: 'fork-1', // points to a branch not loaded
+			nextSiblingId: 'fork-1', // points to a thread not loaded
 			siblingIndex: 0,
 			totalSiblings: 2,
 		});
-		const root = makeRoot({ messageIndex: 2, branch, workspace: ws });
+		const root = makeRoot({ messageIndex: 2, thread, workspace: ws });
 		expect(root.hasSiblings).toBe(false);
 	});
 
-	// U4: canGoPrevious false for original branch (it is slot 0, no previousSiblingId)
-	it('U4: canGoPrevious is false for original branch (slot 0)', () => {
+	// U4: canGoPrevious false for original thread (it is slot 0, no previousSiblingId)
+	it('U4: canGoPrevious is false for original thread (slot 0)', () => {
 		const ws = makeWorkspaceWithFork('fork-1', 2);
-		const branch = createBranch({
+		const thread = createThread({
 			id: 'main',
 			isOriginal: true,
 			forkedFrom: undefined,
@@ -1070,14 +1070,14 @@ describe('MessageActionsRootState — hasSiblings (original branch path)', () =>
 			siblingIndex: 0,
 			totalSiblings: 2,
 		});
-		const root = makeRoot({ messageIndex: 2, branch, workspace: ws });
+		const root = makeRoot({ messageIndex: 2, thread, workspace: ws });
 		expect(root.canGoPrevious).toBe(false);
 	});
 
-	// U5: canGoNext true for original branch when nextSiblingId is set and forked here
-	it('U5: canGoNext is true for original branch when nextSiblingId is set at fork point', () => {
+	// U5: canGoNext true for original thread when nextSiblingId is set and forked here
+	it('U5: canGoNext is true for original thread when nextSiblingId is set at fork point', () => {
 		const ws = makeWorkspaceWithFork('fork-1', 2);
-		const branch = createBranch({
+		const thread = createThread({
 			id: 'main',
 			isOriginal: true,
 			forkedFrom: undefined,
@@ -1087,14 +1087,14 @@ describe('MessageActionsRootState — hasSiblings (original branch path)', () =>
 			siblingIndex: 0,
 			totalSiblings: 2,
 		});
-		const root = makeRoot({ messageIndex: 2, branch, workspace: ws });
+		const root = makeRoot({ messageIndex: 2, thread, workspace: ws });
 		expect(root.canGoNext).toBe(true);
 	});
 
-	// U6: position shows "1 / 2" for original branch at fork point (siblingIndex=0)
-	it('U6: position is "1 / 2" for original branch at fork point', () => {
+	// U6: position shows "1 / 2" for original thread at fork point (siblingIndex=0)
+	it('U6: position is "1 / 2" for original thread at fork point', () => {
 		const ws = makeWorkspaceWithFork('fork-1', 2);
-		const branch = createBranch({
+		const thread = createThread({
 			id: 'main',
 			isOriginal: true,
 			forkedFrom: undefined,
@@ -1104,14 +1104,14 @@ describe('MessageActionsRootState — hasSiblings (original branch path)', () =>
 			siblingIndex: 0,
 			totalSiblings: 2,
 		});
-		const root = makeRoot({ messageIndex: 2, branch, workspace: ws });
+		const root = makeRoot({ messageIndex: 2, thread, workspace: ws });
 		expect(root.position).toBe('1 / 2');
 	});
 
-	// U7: positionLabel shows "Original (1 / 2)" for original branch at fork point
-	it('U7: positionLabel is "Original (1 / 2)" for original branch at fork point', () => {
+	// U7: positionLabel shows "Original (1 / 2)" for original thread at fork point
+	it('U7: positionLabel is "Original (1 / 2)" for original thread at fork point', () => {
 		const ws = makeWorkspaceWithFork('fork-1', 2);
-		const branch = createBranch({
+		const thread = createThread({
 			id: 'main',
 			isOriginal: true,
 			forkedFrom: undefined,
@@ -1121,7 +1121,7 @@ describe('MessageActionsRootState — hasSiblings (original branch path)', () =>
 			siblingIndex: 0,
 			totalSiblings: 2,
 		});
-		const root = makeRoot({ messageIndex: 2, branch, workspace: ws });
+		const root = makeRoot({ messageIndex: 2, thread, workspace: ws });
 		expect(root.positionLabel).toBe('Original (1 / 2)');
 	});
 });
@@ -1131,10 +1131,10 @@ describe('MessageActionsRootState — hasSiblings (original branch path)', () =>
 // ============================================
 
 describe('MessageActionsRootState — navigation actions', () => {
-	// U8: goPrevious calls switchBranch with previousSiblingId
-	it('U8: goPrevious calls workspace.switchBranch with previousSiblingId', async () => {
+	// U8: goPrevious calls switchThread with previousSiblingId
+	it('U8: goPrevious calls workspace.switchThread with previousSiblingId', async () => {
 		const ws = makeWorkspace();
-		const branch = createBranch({
+		const thread = createThread({
 			forkedAtMessageIndex: 2,
 			previousSiblingId: 'main',
 			nextSiblingId: undefined,
@@ -1142,14 +1142,14 @@ describe('MessageActionsRootState — navigation actions', () => {
 			totalSiblings: 2,
 			isOriginal: false,
 		});
-		const root = makeRoot({ messageIndex: 2, branch, workspace: ws });
+		const root = makeRoot({ messageIndex: 2, thread, workspace: ws });
 		await root.goPrevious();
-		expect(ws.switchBranch).toHaveBeenCalledWith('main');
+		expect(ws.switchThread).toHaveBeenCalledWith('main');
 	});
 
-	// U9: goNext calls switchBranch with nextSiblingId (original branch path)
-	it('U9: goNext calls workspace.switchBranch with nextSiblingId for original branch', async () => {
-		const forkBranch = createBranch({
+	// U9: goNext calls switchThread with nextSiblingId (original thread path)
+	it('U9: goNext calls workspace.switchThread with nextSiblingId for original thread', async () => {
+		const forkThread = createThread({
 			id: 'fork-1',
 			isOriginal: false,
 			forkedFrom: 'main',
@@ -1158,8 +1158,8 @@ describe('MessageActionsRootState — navigation actions', () => {
 			nextSiblingId: undefined,
 		});
 		const ws = makeWorkspace();
-		(ws.branches as Map<string, Branch>).set('fork-1', forkBranch);
-		const branch = createBranch({
+		(ws.threads as Map<string, Thread>).set('fork-1', forkThread);
+		const thread = createThread({
 			id: 'main',
 			isOriginal: true,
 			forkedFrom: undefined,
@@ -1169,20 +1169,20 @@ describe('MessageActionsRootState — navigation actions', () => {
 			siblingIndex: 0,
 			totalSiblings: 2,
 		});
-		const root = makeRoot({ messageIndex: 2, branch, workspace: ws });
+		const root = makeRoot({ messageIndex: 2, thread, workspace: ws });
 		await root.goNext();
-		expect(ws.switchBranch).toHaveBeenCalledWith('fork-1');
+		expect(ws.switchThread).toHaveBeenCalledWith('fork-1');
 	});
 
 	// U10: goPrevious does nothing when previousSiblingId is null
 	it('U10: goPrevious does nothing when previousSiblingId is null', async () => {
 		const ws = makeWorkspace();
-		const branch = createBranch({
+		const thread = createThread({
 			forkedAtMessageIndex: 2,
 			previousSiblingId: undefined,
 		});
-		const root = makeRoot({ messageIndex: 2, branch, workspace: ws });
+		const root = makeRoot({ messageIndex: 2, thread, workspace: ws });
 		await root.goPrevious();
-		expect(ws.switchBranch).not.toHaveBeenCalled();
+		expect(ws.switchThread).not.toHaveBeenCalled();
 	});
 });

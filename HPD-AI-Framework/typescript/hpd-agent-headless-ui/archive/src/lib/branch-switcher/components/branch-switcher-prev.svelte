@@ -1,19 +1,19 @@
 <script lang="ts">
 	import { mergeProps, boxWith } from 'svelte-toolbelt';
-	import type { BranchSwitcherPrevProps, BranchSwitcherPrevHTMLProps } from '../types.js';
-	import { BranchSwitcherPrevState } from '../branch-switcher.svelte.js';
+	import type { ThreadSwitcherPrevProps, ThreadSwitcherPrevHTMLProps } from '../types.js';
+	import { ThreadSwitcherPrevState } from '../thread-switcher.svelte.js';
 
 	let {
-		'aria-label': ariaLabel = 'Previous branch',
+		'aria-label': ariaLabel = 'Previous thread',
 		class: className,
 		child,
 		children,
 		...restProps
-	}: BranchSwitcherPrevProps = $props();
+	}: ThreadSwitcherPrevProps = $props();
 
-	const prevState = BranchSwitcherPrevState.create(boxWith(() => ariaLabel));
+	const prevState = ThreadSwitcherPrevState.create(boxWith(() => ariaLabel));
 
-	const mergedProps = $derived(mergeProps(restProps, prevState.props, className ? { class: className } : {}) as BranchSwitcherPrevHTMLProps);
+	const mergedProps = $derived(mergeProps(restProps, prevState.props, className ? { class: className } : {}) as ThreadSwitcherPrevHTMLProps);
 </script>
 
 {#if child}

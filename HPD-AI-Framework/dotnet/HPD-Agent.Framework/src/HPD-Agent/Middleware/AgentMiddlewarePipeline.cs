@@ -394,11 +394,11 @@ public class AgentMiddlewarePipeline
     }
 
     //
-    // BRANCH LIFECYCLE
+    // THREAD LIFECYCLE
     //
 
-    public async Task ExecuteBeforeBranchForkCommitAsync(
-        BeforeBranchForkCommitContext context,
+    public async Task ExecuteBeforeThreadForkCommitAsync(
+        BeforeThreadForkCommitContext context,
         CancellationToken cancellationToken)
     {
         context.Base.SetMiddlewareExecuting(true);
@@ -407,7 +407,7 @@ public class AgentMiddlewarePipeline
             foreach (var middleware in _middlewares)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await middleware.BeforeBranchForkCommitAsync(context, cancellationToken).ConfigureAwait(false);
+                await middleware.BeforeThreadForkCommitAsync(context, cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -556,13 +556,13 @@ public class AgentMiddlewarePipeline
             throw new AggregateException("One or more AfterFunction hooks failed", exceptions);
     }
 
-    internal async Task DispatchBeforeBranchForkCommitAsync(
-        BeforeBranchForkCommitContext context, CancellationToken ct)
+    internal async Task DispatchBeforeThreadForkCommitAsync(
+        BeforeThreadForkCommitContext context, CancellationToken ct)
     {
         foreach (var m in _middlewares)
         {
             ct.ThrowIfCancellationRequested();
-            await m.BeforeBranchForkCommitAsync(context, ct).ConfigureAwait(false);
+            await m.BeforeThreadForkCommitAsync(context, ct).ConfigureAwait(false);
         }
     }
 

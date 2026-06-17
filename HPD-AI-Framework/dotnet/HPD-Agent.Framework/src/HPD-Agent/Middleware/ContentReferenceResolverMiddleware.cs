@@ -8,7 +8,7 @@ namespace HPD.Agent.Middleware;
 /// </summary>
 /// <remarks>
 /// <para>
-/// `hpd-content://{contentId}` is an internal durable reference for session and branch history.
+/// `hpd-content://{contentId}` is an internal durable reference for session and thread history.
 /// Providers should see a normal `UriContent`, `HostedFileContent`, or `DataContent`, not the
 /// internal HPD reference.
 /// </para>
@@ -248,9 +248,9 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
 
     private static string CreateScope(HookContext context)
     {
-        if (context.SessionId is null || context.BranchId is null)
-            throw new InvalidOperationException("Content reference resolution requires an active session and branch.");
+        if (context.SessionId is null || context.ThreadId is null)
+            throw new InvalidOperationException("Content reference resolution requires an active session and thread.");
 
-        return ContentStoreScopes.ForBranch(context.SessionId, context.BranchId);
+        return ContentStoreScopes.ForThread(context.SessionId, context.ThreadId);
     }
 }

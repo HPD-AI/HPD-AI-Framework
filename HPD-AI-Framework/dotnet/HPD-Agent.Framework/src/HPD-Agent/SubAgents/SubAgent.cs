@@ -33,7 +33,7 @@ public class SubAgent
     public string? AgentId { get; init; }
 
     /// <summary>
-    /// Session and branch routing policy for sub-agent execution.
+    /// Session and thread routing policy for sub-agent execution.
     /// </summary>
     public SubAgentExecutionPolicy ExecutionPolicy { get; init; } = SubAgentExecutionPolicy.Default;
 
@@ -43,7 +43,7 @@ public class SubAgent
     public Type[] ToolHarnessTypes { get; init; } = Array.Empty<Type>();
 
     /// <summary>
-    /// Optional branch metadata defaults applied to subagent-created branches.
+    /// Optional thread metadata defaults applied to subagent-created threads.
     /// </summary>
     public Dictionary<string, object>? Metadata { get; init; }
 
@@ -138,15 +138,15 @@ public enum SubAgentSessionPolicy
     SharedSession
 }
 
-public enum SubAgentBranchPolicy
+public enum SubAgentThreadPolicy
 {
-    ForkFromParentBranch,
-    FreshBranch,
-    ExistingBranch,
-    ParentBranch
+    ForkFromParentThread,
+    FreshThread,
+    ExistingThread,
+    ParentThread
 }
 
-public enum SubAgentBranchCompaction
+public enum SubAgentThreadCompaction
 {
     Inherit,
     Enabled,
@@ -156,58 +156,58 @@ public enum SubAgentBranchCompaction
 
 public sealed record SubAgentExecutionPolicy(
     SubAgentSessionPolicy SessionPolicy,
-    SubAgentBranchPolicy BranchPolicy,
+    SubAgentThreadPolicy ThreadPolicy,
     string? SharedSessionId = null,
-    string? ExistingBranchId = null,
-    string? BranchNamePrefix = null,
-    SubAgentBranchCompaction BranchCompaction = SubAgentBranchCompaction.Inherit)
+    string? ExistingThreadId = null,
+    string? ThreadNamePrefix = null,
+    SubAgentThreadCompaction ThreadCompaction = SubAgentThreadCompaction.Inherit)
 {
     public static SubAgentExecutionPolicy Default { get; } =
-        new(SubAgentSessionPolicy.ParentSession, SubAgentBranchPolicy.ForkFromParentBranch);
+        new(SubAgentSessionPolicy.ParentSession, SubAgentThreadPolicy.ForkFromParentThread);
 }
 
 public static class SubAgentExecutionPolicies
 {
-    public static SubAgentExecutionPolicy ParentSessionForkedBranch(
-        SubAgentBranchCompaction branchCompaction = SubAgentBranchCompaction.Inherit) =>
+    public static SubAgentExecutionPolicy ParentSessionForkedThread(
+        SubAgentThreadCompaction threadCompaction = SubAgentThreadCompaction.Inherit) =>
         new(
             SubAgentSessionPolicy.ParentSession,
-            SubAgentBranchPolicy.ForkFromParentBranch,
-            BranchCompaction: branchCompaction);
+            SubAgentThreadPolicy.ForkFromParentThread,
+            ThreadCompaction: threadCompaction);
 
-    public static SubAgentExecutionPolicy ParentSessionFreshBranch() =>
-        new(SubAgentSessionPolicy.ParentSession, SubAgentBranchPolicy.FreshBranch);
+    public static SubAgentExecutionPolicy ParentSessionFreshThread() =>
+        new(SubAgentSessionPolicy.ParentSession, SubAgentThreadPolicy.FreshThread);
 
-    public static SubAgentExecutionPolicy ParentBranch() =>
-        new(SubAgentSessionPolicy.ParentSession, SubAgentBranchPolicy.ParentBranch);
+    public static SubAgentExecutionPolicy ParentThread() =>
+        new(SubAgentSessionPolicy.ParentSession, SubAgentThreadPolicy.ParentThread);
 
     public static SubAgentExecutionPolicy NewSession() =>
-        new(SubAgentSessionPolicy.NewSession, SubAgentBranchPolicy.FreshBranch);
+        new(SubAgentSessionPolicy.NewSession, SubAgentThreadPolicy.FreshThread);
 
-    public static SubAgentExecutionPolicy SharedSessionFreshBranch(string sessionId)
+    public static SubAgentExecutionPolicy SharedSessionFreshThread(string sessionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         return new(
             SubAgentSessionPolicy.SharedSession,
-            SubAgentBranchPolicy.FreshBranch,
+            SubAgentThreadPolicy.FreshThread,
             SharedSessionId: sessionId);
     }
 
-    public static SubAgentExecutionPolicy SharedSessionExistingBranch(string sessionId, string branchId)
+    public static SubAgentExecutionPolicy SharedSessionExistingThread(string sessionId, string threadId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
         return new(
             SubAgentSessionPolicy.SharedSession,
-            SubAgentBranchPolicy.ExistingBranch,
+            SubAgentThreadPolicy.ExistingThread,
             SharedSessionId: sessionId,
-            ExistingBranchId: branchId);
+            ExistingThreadId: threadId);
     }
 
-    public static SubAgentExecutionPolicy ExistingBranch(string branchId)
+    public static SubAgentExecutionPolicy ExistingThread(string threadId)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
-        return new(SubAgentSessionPolicy.ParentSession, SubAgentBranchPolicy.ExistingBranch, ExistingBranchId: branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
+        return new(SubAgentSessionPolicy.ParentSession, SubAgentThreadPolicy.ExistingThread, ExistingThreadId: threadId);
     }
 }
 
@@ -225,32 +225,32 @@ internal static class SubAgentExecutionPolicyExtensions
             throw new ArgumentException("SharedSessionId is only valid when SessionPolicy is SharedSession.");
         }
 
-        if (policy.BranchPolicy == SubAgentBranchPolicy.ExistingBranch)
+        if (policy.ThreadPolicy == SubAgentThreadPolicy.ExistingThread)
         {
-            if (string.IsNullOrWhiteSpace(policy.ExistingBranchId))
-                throw new ArgumentException("ExistingBranchId is required when BranchPolicy is ExistingBranch.");
+            if (string.IsNullOrWhiteSpace(policy.ExistingThreadId))
+                throw new ArgumentException("ExistingThreadId is required when ThreadPolicy is ExistingThread.");
         }
-        else if (!string.IsNullOrWhiteSpace(policy.ExistingBranchId))
+        else if (!string.IsNullOrWhiteSpace(policy.ExistingThreadId))
         {
-            throw new ArgumentException("ExistingBranchId is only valid when BranchPolicy is ExistingBranch.");
+            throw new ArgumentException("ExistingThreadId is only valid when ThreadPolicy is ExistingThread.");
         }
 
-        if (policy.BranchPolicy == SubAgentBranchPolicy.ForkFromParentBranch &&
+        if (policy.ThreadPolicy == SubAgentThreadPolicy.ForkFromParentThread &&
             policy.SessionPolicy != SubAgentSessionPolicy.ParentSession)
         {
-            throw new ArgumentException("ForkFromParentBranch requires SessionPolicy to be ParentSession.");
+            throw new ArgumentException("ForkFromParentThread requires SessionPolicy to be ParentSession.");
         }
 
-        if (policy.BranchPolicy == SubAgentBranchPolicy.ParentBranch &&
+        if (policy.ThreadPolicy == SubAgentThreadPolicy.ParentThread &&
             policy.SessionPolicy != SubAgentSessionPolicy.ParentSession)
         {
-            throw new ArgumentException("ParentBranch requires SessionPolicy to be ParentSession.");
+            throw new ArgumentException("ParentThread requires SessionPolicy to be ParentSession.");
         }
 
-        if (policy.BranchCompaction != SubAgentBranchCompaction.Inherit &&
-            policy.BranchPolicy != SubAgentBranchPolicy.ForkFromParentBranch)
+        if (policy.ThreadCompaction != SubAgentThreadCompaction.Inherit &&
+            policy.ThreadPolicy != SubAgentThreadPolicy.ForkFromParentThread)
         {
-            throw new ArgumentException("BranchCompaction can only be set when BranchPolicy is ForkFromParentBranch.");
+            throw new ArgumentException("ThreadCompaction can only be set when ThreadPolicy is ForkFromParentThread.");
         }
     }
 

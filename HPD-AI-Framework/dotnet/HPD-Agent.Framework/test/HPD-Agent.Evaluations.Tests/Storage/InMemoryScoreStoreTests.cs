@@ -23,7 +23,7 @@ public sealed class InMemoryScoreStoreTests
         string evaluatorName,
         bool passed,
         string sessionId = "sess-1",
-        string branchId = "branch-1",
+        string threadId = "thread-1",
         int turnIndex = 0,
         string agentName = "TestAgent",
         DateTimeOffset? createdAt = null,
@@ -38,7 +38,7 @@ public sealed class InMemoryScoreStoreTests
             Result = new EvaluationResult(new BooleanMetric("Test") { Value = passed }),
             Source = EvaluationSource.Test,
             SessionId = sessionId,
-            BranchId = branchId,
+            ThreadId = threadId,
             TurnIndex = turnIndex,
             AgentName = agentName,
             Policy = policy,
@@ -51,7 +51,7 @@ public sealed class InMemoryScoreStoreTests
         string evaluatorName,
         double score,
         string sessionId = "sess-1",
-        string branchId = "branch-1",
+        string threadId = "thread-1",
         int turnIndex = 0,
         string agentName = "TestAgent",
         DateTimeOffset? createdAt = null,
@@ -64,7 +64,7 @@ public sealed class InMemoryScoreStoreTests
             Result = new EvaluationResult(new NumericMetric("Score") { Value = score }),
             Source = EvaluationSource.Test,
             SessionId = sessionId,
-            BranchId = branchId,
+            ThreadId = threadId,
             TurnIndex = turnIndex,
             AgentName = agentName,
             Policy = EvalPolicy.TrackTrend,
@@ -90,7 +90,7 @@ public sealed class InMemoryScoreStoreTests
             Source = EvaluationSource.Test,
             AgentName = "TestAgent",
             SessionId = executionName,
-            BranchId = scenarioName,
+            ThreadId = scenarioName,
             TurnIndex = 0,
         };
 
@@ -110,7 +110,7 @@ public sealed class InMemoryScoreStoreTests
             Result = new EvaluationResult(new BooleanMetric("Prompt Injection Safe") { Value = !attackSucceeded }),
             Source = EvaluationSource.Test,
             SessionId = "sess-1",
-            BranchId = "branch-1",
+            ThreadId = "thread-1",
             TurnIndex = 0,
             AgentName = "TestAgent",
             Policy = EvalPolicy.MustAlwaysPass,
@@ -151,7 +151,7 @@ public sealed class InMemoryScoreStoreTests
             Result = new EvaluationResult(new BooleanMetric("Test") { Value = true }),
             Source = EvaluationSource.Test,
             SessionId = "sess-abc",
-            BranchId = "case-1",
+            ThreadId = "case-1",
             TurnIndex = 0,
             AgentName = "TestAgent",
             DatasetId = "support-bench",
@@ -202,7 +202,7 @@ public sealed class InMemoryScoreStoreTests
             Result = new EvaluationResult(new BooleanMetric("Test") { Value = true }),
             Source = EvaluationSource.Test,
             SessionId = "sess-1",
-            BranchId = $"case-v{version}",
+            ThreadId = $"case-v{version}",
             TurnIndex = 0,
             AgentName = "TestAgent",
             DatasetId = "support-bench",
@@ -228,14 +228,14 @@ public sealed class InMemoryScoreStoreTests
     }
 
     [Fact]
-    public async Task GetBySession_FiltersByBranchId()
+    public async Task GetBySession_FiltersByThreadId()
     {
         var store = new InMemoryScoreStore();
-        await store.WriteScoreAsync(MakeBoolRecord("E", true, sessionId: "s1", branchId: "b1"));
-        await store.WriteScoreAsync(MakeBoolRecord("E", false, sessionId: "s1", branchId: "b2"));
+        await store.WriteScoreAsync(MakeBoolRecord("E", true, sessionId: "s1", threadId: "b1"));
+        await store.WriteScoreAsync(MakeBoolRecord("E", false, sessionId: "s1", threadId: "b2"));
 
-        var results = await store.GetScoresAsync("s1", branchId: "b1").ToListAsync();
-        results.Should().ContainSingle().Which.BranchId.Should().Be("b1");
+        var results = await store.GetScoresAsync("s1", threadId: "b1").ToListAsync();
+        results.Should().ContainSingle().Which.ThreadId.Should().Be("b1");
     }
 
     [Fact]
@@ -368,21 +368,21 @@ public sealed class InMemoryScoreStoreTests
         comparison["AgentB"].Average.Should().BeApproximately(0.5, 0.01);
     }
 
-    // ── GetBranchComparisonAsync ──────────────────────────────────────────────
+    // ── GetThreadComparisonAsync ──────────────────────────────────────────────
 
     [Fact]
-    public async Task GetBranchComparison_TwoBranches_ReturnsPerBranchScores()
+    public async Task GetThreadComparison_TwoThreads_ReturnsPerThreadScores()
     {
         var store = new InMemoryScoreStore();
-        await store.WriteScoreAsync(MakeNumericRecord("Quality", 0.9, sessionId: "s1", branchId: "b1"));
-        await store.WriteScoreAsync(MakeNumericRecord("Quality", 0.6, sessionId: "s1", branchId: "b2"));
+        await store.WriteScoreAsync(MakeNumericRecord("Quality", 0.9, sessionId: "s1", threadId: "b1"));
+        await store.WriteScoreAsync(MakeNumericRecord("Quality", 0.6, sessionId: "s1", threadId: "b2"));
 
-        var comparison = await store.GetBranchComparisonAsync(
+        var comparison = await store.GetThreadComparisonAsync(
             "s1", "b1", "b2", ["Quality"]);
 
         comparison.SessionId.Should().Be("s1");
-        comparison.Branch1Scores["Quality"].Average.Should().BeApproximately(0.9, 0.01);
-        comparison.Branch2Scores["Quality"].Average.Should().BeApproximately(0.6, 0.01);
+        comparison.Thread1Scores["Quality"].Average.Should().BeApproximately(0.9, 0.01);
+        comparison.Thread2Scores["Quality"].Average.Should().BeApproximately(0.6, 0.01);
     }
 
     // ── GetEvaluatorSummaryAsync ──────────────────────────────────────────────
@@ -439,7 +439,7 @@ public sealed class InMemoryScoreStoreTests
             Result = new EvaluationResult(new NumericMetric("Turn Risk") { Value = 7.0 }),
             Source = EvaluationSource.Live,
             SessionId = "sess-1",
-            BranchId = "branch-1",
+            ThreadId = "thread-1",
             TurnIndex = 0,
             AgentName = "TestAgent",
             Policy = EvalPolicy.TrackTrend,
@@ -455,7 +455,7 @@ public sealed class InMemoryScoreStoreTests
             Result = new EvaluationResult(new NumericMetric("Turn Autonomy") { Value = 8.0 }),
             Source = EvaluationSource.Live,
             SessionId = "sess-1",
-            BranchId = "branch-1",
+            ThreadId = "thread-1",
             TurnIndex = 0,
             AgentName = "TestAgent",
             Policy = EvalPolicy.TrackTrend,

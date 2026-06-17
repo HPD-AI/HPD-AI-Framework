@@ -197,7 +197,7 @@ public class VarTests
     [Fact]
     public void Grad_FanOut_XTimesX()
     {
-        // f(x) = x*x = x², f'(3) = 6 (both branches accumulate)
+        // f(x) = x*x = x², f'(3) = 6 (both threads accumulate)
         var g = GradOf(x => x * x, R(3));
         Assert.Equal(R(6), g);
     }

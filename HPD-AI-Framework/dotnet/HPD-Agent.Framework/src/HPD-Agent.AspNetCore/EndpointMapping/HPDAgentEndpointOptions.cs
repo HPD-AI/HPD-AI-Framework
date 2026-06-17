@@ -7,7 +7,7 @@ public sealed class HPDAgentEndpointOptions
     public string RoutePrefix { get; set; } = "";
 
     public bool MapSessions { get; set; } = true;
-    public bool MapBranches { get; set; } = true;
+    public bool MapThreads { get; set; } = true;
     public bool MapContent { get; set; } = true;
     public bool MapStreaming { get; set; } = true;
     public bool MapMiddlewareResponses { get; set; } = true;

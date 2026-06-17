@@ -1,6 +1,6 @@
 using HPD.Agent.Audio.Ledger;
 using HPD.Agent.Audio.Media;
-using HPD.Agent.Audio.Runtime.Branch;
+using HPD.Agent.Audio.Runtime.Thread;
 using HPD.Agent.Audio.Runtime.Ledger;
 using HPD.Agent.Audio.Runtime.Trace;
 using HPD.Agent.Audio.Trace;
@@ -48,6 +48,6 @@ internal static class RuntimeResultTestExtensions
     public static IReadOnlyList<RealtimeAudioTraceRecord> ToArray(this IRealtimeAudioTraceStore trace)
         => Assert.IsType<InMemoryRealtimeAudioTraceStore>(trace).ToArray();
 
-    public static InMemoryBranchProjectionSink AsInMemoryBranch(this IBranchProjectionSink branch)
-        => Assert.IsType<InMemoryBranchProjectionSink>(branch);
+    public static InMemoryThreadProjectionSink AsInMemoryThread(this IThreadProjectionSink thread)
+        => Assert.IsType<InMemoryThreadProjectionSink>(thread);
 }

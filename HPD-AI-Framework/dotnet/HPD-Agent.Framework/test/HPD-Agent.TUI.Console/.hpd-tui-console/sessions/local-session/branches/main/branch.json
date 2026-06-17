@@ -1,14 +1,14 @@
 {
-  "schema": "hpd.agent.branch.events",
+  "schema": "hpd.agent.thread.events",
   "version": 2,
   "sessionId": "local-session",
-  "branchId": "main",
+  "threadId": "main",
   "createdAt": "2026-06-06T00:14:20.489467+00:00",
   "updatedAt": "2026-06-06T00:14:20.999312+00:00",
   "nextSequenceNumber": 35,
   "events": [
     {
-      "type": "BRANCH_CREATED",
+      "type": "THREAD_CREATED",
       "name": "main",
       "createdAt": "2026-06-06T00:14:20.489467Z",
       "eventId": "e09e6a7106a1443a9d4d5dcbb33a220b",
@@ -16,18 +16,18 @@
       "timestamp": "2026-06-06T00:14:20.999022+00:00"
     },
     {
-      "type": "BRANCH_METADATA_UPDATED",
+      "type": "THREAD_METADATA_UPDATED",
       "name": "main",
       "eventId": "63a8988cf3e14829a6f97438dc6ca1a5",
       "sequenceNumber": 2,
       "timestamp": "2026-06-06T00:14:20.999023+00:00"
     },
     {
-      "type": "BRANCH_TREE_UPDATED",
+      "type": "THREAD_TREE_UPDATED",
       "siblingIndex": 0,
       "totalSiblings": 1,
       "isOriginal": true,
-      "childBranches": [],
+      "childThreads": [],
       "eventId": "a0dba4d9c7ad4434815771429451b5c2",
       "sequenceNumber": 3,
       "timestamp": "2026-06-06T00:14:20.999025+00:00"
@@ -267,7 +267,7 @@
       "timestamp": "2026-06-06T00:14:20.999041+00:00"
     },
     {
-      "type": "BRANCH_RUN_COMPLETED",
+      "type": "THREAD_RUN_COMPLETED",
       "runtimeRunId": "17fa6a01847d4641875b5e60a6328b20",
       "agentId": "tui-console-agent",
       "cancelled": false,

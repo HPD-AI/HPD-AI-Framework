@@ -56,7 +56,7 @@ public sealed record MragErrorPropagation
     /// <summary>Stop the entire pipeline run immediately.</summary>
     public static MragErrorPropagation StopPipeline { get; } = new() { Mode = PropagationMode.Stop };
 
-    /// <summary>Skip all downstream nodes that depend on this node's output. Independent branches continue.</summary>
+    /// <summary>Skip all downstream nodes that depend on this node's output. Independent threads continue.</summary>
     public static MragErrorPropagation SkipDependents { get; } = new() { Mode = PropagationMode.Skip };
 
     /// <summary>Route to a named fallback node when this node fails.</summary>

@@ -62,41 +62,41 @@ public class DtoMappingExtensionsTests
 
     #endregion
 
-    #region Branch Mapping
+    #region Thread Mapping
 
     [Fact]
-    public void ToDto_MapsBranchCorrectly_WithAllProperties()
+    public void ToDto_MapsThreadCorrectly_WithAllProperties()
     {
         // Arrange
         var session = new HPD.Agent.Session("session-123");
-        var mainBranch = session.CreateBranch("main");
-        mainBranch.Description = "Main Branch - Primary conversation";
+        var mainThread = session.CreateThread("main");
+        mainThread.Description = "Main Thread - Primary conversation";
 
         // Add some messages to test message count
-        mainBranch.AddMessage(new ChatMessage(ChatRole.User, "Hello"));
-        mainBranch.AddMessage(new ChatMessage(ChatRole.Assistant, "Hi there!"));
+        mainThread.AddMessage(new ChatMessage(ChatRole.User, "Hello"));
+        mainThread.AddMessage(new ChatMessage(ChatRole.Assistant, "Hi there!"));
 
         // Act
-        var dto = mainBranch.ToDto("session-123");
+        var dto = mainThread.ToDto("session-123");
 
         // Assert
         dto.Id.Should().Be("main");
         dto.SessionId.Should().Be("session-123");
-        dto.Description.Should().Be("Main Branch - Primary conversation");
+        dto.Description.Should().Be("Main Thread - Primary conversation");
         dto.MessageCount.Should().Be(2);
-        dto.CreatedAt.Should().BeCloseTo(mainBranch.CreatedAt, TimeSpan.FromMilliseconds(100));
-        dto.LastActivity.Should().BeCloseTo(mainBranch.LastActivity, TimeSpan.FromMilliseconds(100));
+        dto.CreatedAt.Should().BeCloseTo(mainThread.CreatedAt, TimeSpan.FromMilliseconds(100));
+        dto.LastActivity.Should().BeCloseTo(mainThread.LastActivity, TimeSpan.FromMilliseconds(100));
     }
 
     [Fact]
-    public void ToDto_MapsBranchCorrectly_WithNullOptionalFields()
+    public void ToDto_MapsThreadCorrectly_WithNullOptionalFields()
     {
         // Arrange
         var session = new HPD.Agent.Session("session-123");
-        var branch = session.CreateBranch("branch-1");
+        var thread = session.CreateThread("thread-1");
 
         // Act
-        var dto = branch.ToDto("session-123");
+        var dto = thread.ToDto("session-123");
 
         // Assert
         dto.Description.Should().BeNull();
@@ -105,24 +105,24 @@ public class DtoMappingExtensionsTests
     }
 
     [Fact]
-    public void ToDto_IncludesSessionId_InBranchDto()
+    public void ToDto_IncludesSessionId_InThreadDto()
     {
         // Arrange
         var session = new HPD.Agent.Session("my-session");
-        var branch = session.CreateBranch("branch-1");
+        var thread = session.CreateThread("thread-1");
 
         // Act
-        var dto = branch.ToDto("my-session");
+        var dto = thread.ToDto("my-session");
 
         // Assert
         dto.SessionId.Should().Be("my-session");
     }
 
     [Fact]
-    public void ToDto_MapsForkedBranch_Correctly()
+    public void ToDto_MapsForkedThread_Correctly()
     {
-        // Arrange - Create a forked branch manually since Fork is on Agent, not Branch
-        var forkedBranch = new HPD.Agent.Branch(
+        // Arrange - Create a forked thread manually since Fork is on Agent, not Thread
+        var forkedThread = new HPD.Agent.Thread(
             id: "forked",
             sessionId: "session-123",
             messages: new List<ChatMessage>
@@ -135,7 +135,7 @@ public class DtoMappingExtensionsTests
             forkedAtMessageIndex: 1,
             createdAt: DateTime.UtcNow,
             lastActivity: DateTime.UtcNow,
-            name: "Forked Branch",
+            name: "Forked Thread",
             description: null,
             tags: null,
             ancestors: new Dictionary<string, string> { ["0"] = "root", ["1"] = "main" },
@@ -144,10 +144,10 @@ public class DtoMappingExtensionsTests
             siblingIndex: 1,
             totalSiblings: 2,
             isOriginal: false,
-            childBranches: []);
+            childThreads: []);
 
         // Act
-        var dto = forkedBranch.ToDto("session-123");
+        var dto = forkedThread.ToDto("session-123");
 
         // Assert
         dto.ForkedFrom.Should().Be("main");

@@ -16,7 +16,7 @@ internal static class ServerMode
         var url = options.Get("url", "http://127.0.0.1:5057");
         var agentId = options.Get("agent", "tui-console-agent");
         var sessionId = options.Get("session", "local-session");
-        var branchId = options.Get("branch", "main");
+        var threadId = options.Get("thread", "main");
         var model = options.Get("model", "deepseek/deepseek-v4-flash");
         var dataRoot = options.Get("data", Path.Combine(Directory.GetCurrentDirectory(), ".hpd-tui-console"));
         var providers = ConsoleProviderContext.Create();
@@ -57,7 +57,7 @@ internal static class ServerMode
 
         try
         {
-            var scope = new AgentTuiRuntimeScope(agentId, sessionId, branchId);
+            var scope = new AgentTuiRuntimeScope(agentId, sessionId, threadId);
             await using var runtime = new HostedAgentTuiRuntime(new HostedAgentTuiRuntimeOptions
             {
                 BaseAddress = new Uri($"{url.TrimEnd('/')}/hpd/"),

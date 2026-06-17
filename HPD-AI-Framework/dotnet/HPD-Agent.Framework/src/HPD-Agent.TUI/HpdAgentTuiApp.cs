@@ -70,7 +70,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         var scope = await _runtime.EnsureScopeAsync(_requestedScope, linked.Token)
             .ConfigureAwait(false);
         RebuildShell(scope, "Connected to agent runtime.");
-        await HydrateBranchAsync(scope, linked.Token).ConfigureAwait(false);
+        await HydrateThreadAsync(scope, linked.Token).ConfigureAwait(false);
         StartObserver(scope, linked.Token);
 
         await _application.RunAsync(GetRenderHeight, linked.Token).ConfigureAwait(false);
@@ -194,7 +194,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             {
                 AgentId = _scope.AgentId,
                 SessionId = _scope.SessionId,
-                BranchId = _scope.BranchId,
+                ThreadId = _scope.ThreadId,
                 RunConfig = runConfig
             });
     }
@@ -329,12 +329,12 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _handledInteractionIds.Clear();
         RebuildShell(
             ensured,
-            $"Switched to agent `{ensured.AgentId}`, session `{ensured.SessionId}`, branch `{ensured.BranchId}`.");
-        await HydrateBranchAsync(ensured, cancellationToken).ConfigureAwait(false);
+            $"Switched to agent `{ensured.AgentId}`, session `{ensured.SessionId}`, thread `{ensured.ThreadId}`.");
+        await HydrateThreadAsync(ensured, cancellationToken).ConfigureAwait(false);
         StartObserver(ensured, _runCancellationToken);
     }
 
-    private async Task HydrateBranchAsync(
+    private async Task HydrateThreadAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken)
     {
@@ -346,7 +346,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         IReadOnlyList<AgentEvent> events;
         try
         {
-            events = await _runtime.GetBranchEventsAsync(scope, cancellationToken)
+            events = await _runtime.GetThreadEventsAsync(scope, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -356,10 +356,10 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         catch (Exception ex)
         {
             _state.Shell.Transcript.Append(new TranscriptEntry(
-                Id: $"branch-hydration-error-{Guid.NewGuid():N}",
+                Id: $"thread-hydration-error-{Guid.NewGuid():N}",
                 EntryKey: null,
                 Cell: new NoticeCell(
-                    "Could not load branch history",
+                    "Could not load thread history",
                     new HPD.TUI.Components.Text(ex.Message),
                     TranscriptSeverity.Warning),
                 Metadata: new TranscriptEntryMetadata(
@@ -382,7 +382,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         string text,
         CancellationToken cancellationToken)
     {
-        if (_runtime is not IAgentTuiSessionBranchRuntime sessions ||
+        if (_runtime is not IAgentTuiSessionThreadRuntime sessions ||
             !_sessionTitleUpdates.Add(scope.SessionId))
         {
             return;

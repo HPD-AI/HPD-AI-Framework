@@ -288,9 +288,9 @@ public class PerformanceTests
     }
 
     [Fact]
-    public async Task ContextMerge_100ParallelBranches_PerformantMerging()
+    public async Task ContextMerge_100ParallelThreads_PerformantMerging()
     {
-        // Arrange - 100 parallel branches that all merge
+        // Arrange - 100 parallel threads that all merge
         var builder = new TestGraphBuilder()
             .AddStartNode()
             .AddHandlerNode("merge", "CounterHandler")
@@ -319,7 +319,7 @@ public class PerformanceTests
         // Assert - All contexts merged successfully
         context.ShouldHaveCompletedNode("merge");
 
-        _output.WriteLine($"100 branch context merge completed in {sw.ElapsedMilliseconds}ms");
+        _output.WriteLine($"100 thread context merge completed in {sw.ElapsedMilliseconds}ms");
 
         // Context merging should be efficient
         sw.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));

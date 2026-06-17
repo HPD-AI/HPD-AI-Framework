@@ -185,7 +185,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
             {
                 EvaluatorName = evaluatorName,
                 SessionId = turnCtx.SessionId,
-                BranchId = turnCtx.BranchId,
+                ThreadId = turnCtx.ThreadId,
                 TurnIndex = turnCtx.TurnIndex,
                 ErrorMessage = errorMessage,
                 TimedOut = true,
@@ -199,7 +199,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
             {
                 EvaluatorName = evaluatorName,
                 SessionId = turnCtx.SessionId,
-                BranchId = turnCtx.BranchId,
+                ThreadId = turnCtx.ThreadId,
                 TurnIndex = turnCtx.TurnIndex,
                 ErrorMessage = errorMessage,
                 TimedOut = false,
@@ -224,7 +224,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
                 Result = result,
                 Source = EvaluationSource.Live,
                 SessionId = turnCtx.SessionId,
-                BranchId = turnCtx.BranchId,
+                ThreadId = turnCtx.ThreadId,
                 TurnIndex = turnCtx.TurnIndex,
                 AgentName = turnCtx.AgentName,
                 ProviderKey = turnCtx.ProviderKey,
@@ -258,7 +258,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
             Result = result,
             Source = EvaluationSource.Live,
             SessionId = turnCtx.SessionId,
-            BranchId = turnCtx.BranchId,
+            ThreadId = turnCtx.ThreadId,
             TurnIndex = turnCtx.TurnIndex,
             EvaluatorDuration = evaluatorDuration,
         });
@@ -271,7 +271,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
             if (primaryScore.HasValue)
             {
                 var annotationId = AnnotationQueue.TryEnqueueFromScore(
-                    turnCtx.SessionId, turnCtx.BranchId, turnCtx.TurnIndex,
+                    turnCtx.SessionId, turnCtx.ThreadId, turnCtx.TurnIndex,
                     evaluatorName, primaryScore.Value);
 
                 if (annotationId is not null)
@@ -285,7 +285,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
                         {
                             AnnotationId = annotationId,
                             SessionId = turnCtx.SessionId,
-                            BranchId = turnCtx.BranchId,
+                            ThreadId = turnCtx.ThreadId,
                             TurnIndex = turnCtx.TurnIndex,
                             TriggerEvaluatorName = evaluatorName,
                             TriggerScore = primaryScore.Value,
@@ -310,7 +310,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
                         EvaluatorName = evaluatorName,
                         MetricName = metricName,
                         SessionId = turnCtx.SessionId,
-                        BranchId = turnCtx.BranchId,
+                        ThreadId = turnCtx.ThreadId,
                         TurnIndex = turnCtx.TurnIndex,
                         Result = result,
                     });
@@ -405,7 +405,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
             Result = result,
             Source = EvaluationSource.Human,
             SessionId = turnCtx.SessionId,
-            BranchId = turnCtx.BranchId,
+            ThreadId = turnCtx.ThreadId,
             TurnIndex = turnCtx.TurnIndex,
             AgentName = turnCtx.AgentName,
             ProviderKey = turnCtx.ProviderKey,

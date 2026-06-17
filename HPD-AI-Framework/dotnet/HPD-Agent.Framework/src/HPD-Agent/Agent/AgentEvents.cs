@@ -191,24 +191,24 @@ public readonly struct OperationStatus : IEquatable<OperationStatus>
 public abstract record AgentEvent : HPD.Events.Event
 {
     /// <summary>
-    /// Stable ID assigned when the event is persisted into a branch history.
+    /// Stable ID assigned when the event is persisted into a thread history.
     /// </summary>
     public string? EventId { get; init; }
 
     /// <summary>
-    /// Durable session scope when this event is persisted or replayed from a branch.
+    /// Durable session scope when this event is persisted or replayed from a thread.
     /// </summary>
     public string? SessionId { get; init; }
 
     /// <summary>
-    /// Durable branch scope when this event is persisted or replayed from a branch.
+    /// Durable thread scope when this event is persisted or replayed from a thread.
     /// </summary>
-    public string? BranchId { get; init; }
+    public string? ThreadId { get; init; }
 
     /// <summary>
     /// Live metadata about which agent emitted this event.
-    /// This is omitted from durable branch event JSON by default because branch ownership
-    /// and durable attribution live on branch metadata.
+    /// This is omitted from durable thread event JSON by default because thread ownership
+    /// and durable attribution live on thread metadata.
     /// </summary>
     public AgentMetadata? Metadata { get; init; }
 
@@ -232,10 +232,10 @@ public abstract record AgentEvent : HPD.Events.Event
     public string? ParentSpanId { get; init; }
 
     /// <summary>
-    /// Whether this event type should be recorded into durable branch history.
+    /// Whether this event type should be recorded into durable thread history.
     /// This is event type policy, not serialized event payload.
     /// </summary>
-    public virtual bool ShouldPersistToBranch() => false;
+    public virtual bool ShouldPersistToThread() => false;
 
     /// <summary>
     /// Optional content-store persistence policy for this event type.
@@ -252,8 +252,8 @@ public abstract record AgentInputEvent
     /// <summary>Session scope for the input event.</summary>
     public string? SessionId { get; init; }
 
-    /// <summary>Branch scope for the input event. Defaults to the agent's branch resolution behavior when null.</summary>
-    public string? BranchId { get; init; }
+    /// <summary>Thread scope for the input event. Defaults to the agent's thread resolution behavior when null.</summary>
+    public string? ThreadId { get; init; }
 
     /// <summary>Optional target agent identifier for hosted or multi-agent runtimes.</summary>
     public string? AgentId { get; init; }
@@ -266,22 +266,22 @@ public abstract record AgentInputEvent
 }
 
 /// <summary>
-/// Emitted when hosting accepts input into a runtime-owned branch run.
+/// Emitted when hosting accepts input into a runtime-owned thread run.
 /// </summary>
-public sealed record BranchRunStartedEvent(
+public sealed record ThreadRunStartedEvent(
     string RuntimeRunId,
     string AgentId,
     DateTimeOffset StartedAt) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
     public override EventChannel Channel { get; init; } = EventChannel.Control;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
 /// Emitted by the runtime when a submitted input has left the active execution slot.
 /// </summary>
-public sealed record BranchRunCompletedEvent(
+public sealed record ThreadRunCompletedEvent(
     string RuntimeRunId,
     string AgentId,
     bool Cancelled,
@@ -290,7 +290,7 @@ public sealed record BranchRunCompletedEvent(
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
     public override EventChannel Channel { get; init; } = EventChannel.Control;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -310,9 +310,9 @@ public sealed record UserMessagesInputEvent(
     [JsonIgnore]
     public Session? Session { get; init; }
 
-    /// <summary>Process-local branch scope for in-memory integrations.</summary>
+    /// <summary>Process-local thread scope for in-memory integrations.</summary>
     [JsonIgnore]
-    public Branch? Branch { get; init; }
+    public Thread? Thread { get; init; }
 }
 
 #region Message Turn Events (Entire User Interaction)
@@ -350,7 +350,7 @@ public record MessageTurnStartedEvent : AgentEvent
     public string AgentName { get; init; }
 
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 
     public int? InputMessageCount { get; init; }
     public bool? IsResume { get; init; }
@@ -397,7 +397,7 @@ public record MessageTurnFinishedEvent : AgentEvent
     public UsageDetails? Usage { get; init; }
 
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 
     public int? Iteration { get; init; }
     public string? TerminationReason { get; init; }
@@ -514,7 +514,7 @@ public record StateSnapshotEvent(
 public record TextMessageStartEvent(string MessageId, string Role) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -523,7 +523,7 @@ public record TextMessageStartEvent(string MessageId, string Role) : AgentEvent
 public record TextDeltaEvent(string Text, string MessageId) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -532,7 +532,7 @@ public record TextDeltaEvent(string Text, string MessageId) : AgentEvent
 public record TextMessageEndEvent(string MessageId) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -583,7 +583,7 @@ public sealed record UserAudioTranscriptFailedEvent(
 public record ReasoningMessageStartEvent(string MessageId, string Role) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -592,7 +592,7 @@ public record ReasoningMessageStartEvent(string MessageId, string Role) : AgentE
 public record ReasoningDeltaEvent(string Text, string MessageId, string? ProtectedData = null) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -601,7 +601,7 @@ public record ReasoningDeltaEvent(string Text, string MessageId, string? Protect
 public record ReasoningMessageEndEvent(string MessageId) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 #endregion
@@ -639,7 +639,7 @@ public record ToolCallStartEvent(
     ToolCallType? CallType = null) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -648,7 +648,7 @@ public record ToolCallStartEvent(
 public record ToolCallArgsEvent(string CallId, string ArgsJson) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -657,7 +657,7 @@ public record ToolCallArgsEvent(string CallId, string ArgsJson) : AgentEvent
 public record ToolCallEndEvent(string CallId) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -671,7 +671,7 @@ public record ToolCallResultEvent(
     string? Name = null) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 
     public string? MessageId { get; init; }
 }
@@ -792,7 +792,7 @@ public sealed record ToolResultPayload(
 public abstract record ToolCallBackgroundTaskEvent : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 
     public required string TaskId { get; init; }
 
@@ -861,7 +861,7 @@ public sealed record AgentRequestStartedEvent(
 {
     public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 public sealed record AgentRequestResolvedEvent(
@@ -875,7 +875,7 @@ public sealed record AgentRequestResolvedEvent(
 {
     public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 public sealed record AgentRequestExpiredEvent(
@@ -887,7 +887,7 @@ public sealed record AgentRequestExpiredEvent(
 {
     public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 public sealed record AgentRequestCancelledEvent(
@@ -899,7 +899,7 @@ public sealed record AgentRequestCancelledEvent(
 {
     public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 public sealed record AgentResponseRejectedEvent(
@@ -913,7 +913,7 @@ public sealed record AgentResponseRejectedEvent(
 {
     public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -1264,7 +1264,7 @@ public record BackgroundOperationStartedEvent(
 ) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToBranch() => true;
+    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -1277,7 +1277,7 @@ public record BackgroundOperationStatusEvent(
 ) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToBranch() =>
+    public override bool ShouldPersistToThread() =>
         Status.IsTerminal ||
         !string.IsNullOrWhiteSpace(StatusMessage) &&
         !StatusMessage.StartsWith("Polling attempt ", StringComparison.OrdinalIgnoreCase);
@@ -1716,7 +1716,7 @@ public sealed record MiddlewareStateEntrySnapshot(
 public record MiddlewareStateSnapshotEvent(
     string AgentName,
     string? SessionId,
-    string? BranchId,
+    string? ThreadId,
     int Iteration,
     string Phase,
     string? BatchId,
@@ -1753,7 +1753,7 @@ public sealed record MiddlewareStateChange(
 public record MiddlewareStateChangedEvent(
     string AgentName,
     string? SessionId,
-    string? BranchId,
+    string? ThreadId,
     int Iteration,
     string Phase,
     string? BatchId,

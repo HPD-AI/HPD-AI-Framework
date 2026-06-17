@@ -13,7 +13,7 @@ namespace HPD.Agent.AspNetCore.Tests.Integration;
 
 /// <summary>
 /// Integration tests for middleware response endpoints using event-based responses.
-/// Tests: POST /agents/{agentId}/sessions/{sid}/branches/{bid}/responses
+/// Tests: POST /agents/{agentId}/sessions/{sid}/threads/{bid}/responses
 /// </summary>
 public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplicationFactory>
 {
@@ -31,7 +31,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
         return session!.Id;
     }
 
-    #region POST /agents/{agentId}/sessions/{sid}/branches/{bid}/responses
+    #region POST /agents/{agentId}/sessions/{sid}/threads/{bid}/responses
 
     [Fact]
     public async Task Respond_AcceptsPermissionResponseEvent_ReturnsConflictWhenRuntimeInactive()
@@ -47,13 +47,13 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
 
         // Act
         var response = await PostEventAsync(
-            $"/agents/test-agent/sessions/{sessionId}/branches/main/responses",
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/responses",
             evt);
 
-        // Assert - the branch exists, but no live branch runtime is waiting for this response.
+        // Assert - the thread exists, but no live thread runtime is waiting for this response.
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        body.GetProperty("errors").TryGetProperty("BranchRuntimeNotActive", out _).Should().BeTrue();
+        body.GetProperty("errors").TryGetProperty("ThreadRuntimeNotActive", out _).Should().BeTrue();
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
 
         // Act
         var response = await PostEventAsync(
-             $"/agents/test-agent/sessions/{sessionId}/branches/main/responses",
+             $"/agents/test-agent/sessions/{sessionId}/threads/main/responses",
             evt);
 
         // Assert
@@ -88,7 +88,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
 
         // Act
         var response = await PostEventAsync(
-             $"/agents/test-agent/sessions/{sessionId}/branches/main/responses",
+             $"/agents/test-agent/sessions/{sessionId}/threads/main/responses",
             evt);
 
         // Assert
@@ -107,7 +107,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
 
         // Act
         var response = await PostEventAsync(
-             $"/agents/test-agent/sessions/{sessionId}/branches/main/responses",
+             $"/agents/test-agent/sessions/{sessionId}/threads/main/responses",
             evt);
 
         // Assert
@@ -125,7 +125,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
 
         // Act
         var response = await PostEventAsync(
-            "/agents/test-agent/sessions/missing-session/branches/main/responses",
+            "/agents/test-agent/sessions/missing-session/threads/main/responses",
             evt);
 
         // Assert
@@ -133,18 +133,18 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
     }
 
     [Fact]
-    public async Task Respond_Returns404_WhenBranchMissing()
+    public async Task Respond_Returns404_WhenThreadMissing()
     {
         // Arrange
         var sessionId = await CreateTestSession();
         var evt = new PermissionResponseEvent(
-            PermissionId: "perm-missing-branch",
+            PermissionId: "perm-missing-thread",
             SourceName: "TestSource",
             Approved: true);
 
         // Act
         var response = await PostEventAsync(
-            $"/agents/test-agent/sessions/{sessionId}/branches/missing-branch/responses",
+            $"/agents/test-agent/sessions/{sessionId}/threads/missing-thread/responses",
             evt);
 
         // Assert
@@ -160,7 +160,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
 
         // Act
         var response = await PostEventAsync(
-             $"/agents/test-agent/sessions/{sessionId}/branches/main/responses",
+             $"/agents/test-agent/sessions/{sessionId}/threads/main/responses",
             evt);
 
         // Assert
@@ -175,7 +175,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
 
         // Act
         var response = await _client.PostAsync(
-            $"/agents/test-agent/sessions/{sessionId}/branches/main/responses",
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/responses",
             new StringContent("{\"hello\":\"world\"}", Encoding.UTF8, "application/json"));
 
         // Assert

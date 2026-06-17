@@ -40,7 +40,7 @@ public sealed class AudioFunctionCallingValidationTests
             "audio-function-session",
             "main");
 
-        var document = await store.LoadBranchDocumentAsync("audio-function-session", "main");
+        var document = await store.LoadThreadDocumentAsync("audio-function-session", "main");
         Assert.NotNull(document);
 
         var starts = document.Events.OfType<ToolCallStartEvent>().ToArray();
@@ -98,9 +98,9 @@ public sealed class AudioFunctionCallingValidationTests
                 Assert.Contains("20", result.Result.Text ?? string.Empty);
             });
 
-        var branch = await store.LoadBranchAsync("audio-function-session", "main");
-        Assert.NotNull(branch);
-        var finalAssistantMessage = Assert.Single(branch.Messages, message =>
+        var thread = await store.LoadThreadAsync("audio-function-session", "main");
+        Assert.NotNull(thread);
+        var finalAssistantMessage = Assert.Single(thread.Messages, message =>
             message.Role == ChatRole.Assistant &&
             message.Text == "The answer is 20.");
         Assert.Equal("The answer is 20.", finalAssistantMessage.Text);

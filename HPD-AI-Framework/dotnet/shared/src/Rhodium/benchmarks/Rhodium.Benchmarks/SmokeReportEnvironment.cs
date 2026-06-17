@@ -11,7 +11,7 @@ internal sealed record SmokeReportEnvironment(
     string FrameworkDescription,
     string RuntimeVersion,
     int LogicalProcessorCount,
-    string? GitBranch,
+    string? GitThread,
     string? GitCommit,
     bool? GitTrackedChanges)
 {

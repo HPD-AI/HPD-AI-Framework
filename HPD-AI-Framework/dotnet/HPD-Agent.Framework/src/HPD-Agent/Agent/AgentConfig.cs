@@ -201,14 +201,14 @@ public class AgentConfig
     public AudioConfig? Audio { get; set; }
 
     /// <summary>
-    /// Whether reasoning content should be included when projecting branch history back into model input.
-    /// Default: false (reasoning is recorded in branch events and shown during streaming, but excluded
+    /// Whether reasoning content should be included when projecting thread history back into model input.
+    /// Default: false (reasoning is recorded in thread events and shown during streaming, but excluded
     /// from model history to save tokens).
     /// </summary>
     /// <remarks>
     /// <para>
     /// <b>Trade-offs:</b>
-    /// - false (default): Lower cost, smaller context - reasoning remains in branch events but not future prompts
+    /// - false (default): Lower cost, smaller context - reasoning remains in thread events but not future prompts
     /// - true: Higher cost, larger context - reasoning is sent back to the model in future prompts
     /// </para>
     /// <para>
@@ -246,7 +246,7 @@ public class AgentConfig
     /// </para>
     /// <para>
     /// <b>Output:</b> None, Summary, Full — whether reasoning content is returned in the response
-    /// and therefore visible during streaming, recorded in branch events, and optionally included in
+    /// and therefore visible during streaming, recorded in thread events, and optionally included in
     /// model history when <see cref="IncludeReasoningInModelHistory"/> is true.
     /// </para>
     /// <para>
@@ -338,7 +338,7 @@ public class AgentConfig
     [JsonIgnore]
     public SessionStoreOptions? SessionStoreOptions { get; set; }
 
-    // Branching config removed - branching is now an application-level concern
+    // Threading config removed - threading is now an application-level concern
 
     /// <summary>
     /// Tools that the agent can invoke but are NOT sent to the LLM in each request.
@@ -984,7 +984,7 @@ public class CompactionConfig
     public bool Enabled { get; set; } = true;
 
     /// <summary>
-    /// Whether newly forked branches should be compacted before their first persistence.
+    /// Whether newly forked threads should be compacted before their first persistence.
     /// Default is false so normal fork behavior remains a raw copy unless explicitly enabled.
     /// </summary>
     public bool CompactOnFork { get; set; } = false;
@@ -1000,9 +1000,9 @@ public class CompactionConfig
     public CompactionTriggerOptions Trigger { get; set; } = new CountCompactionTriggerOptions();
 
     /// <summary>
-    /// Retention policy for durable branch history. PreserveBranchHistoryOptions is soft compaction.
+    /// Retention policy for durable thread history. PreserveThreadHistoryOptions is soft compaction.
     /// </summary>
-    public CompactionRetentionOptions Retention { get; set; } = new PreserveBranchHistoryOptions();
+    public CompactionRetentionOptions Retention { get; set; } = new PreserveThreadHistoryOptions();
 
     /// <summary>
     /// Behavior when compaction is triggered.
@@ -1067,14 +1067,14 @@ public sealed record CompositeCompactionTriggerOptions : CompactionTriggerOption
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
-[JsonDerivedType(typeof(PreserveBranchHistoryOptions), "preserve")]
-[JsonDerivedType(typeof(CompactBranchHistoryOptions), "compact")]
+[JsonDerivedType(typeof(PreserveThreadHistoryOptions), "preserve")]
+[JsonDerivedType(typeof(CompactThreadHistoryOptions), "compact")]
 [JsonDerivedType(typeof(DeleteCompactedMessagesOptions), "delete")]
 public abstract record CompactionRetentionOptions;
 
-public sealed record PreserveBranchHistoryOptions : CompactionRetentionOptions;
+public sealed record PreserveThreadHistoryOptions : CompactionRetentionOptions;
 
-public sealed record CompactBranchHistoryOptions : CompactionRetentionOptions
+public sealed record CompactThreadHistoryOptions : CompactionRetentionOptions
 {
     public CompactionBoundaryOptions Boundary { get; init; } = new ExactCompactedMessagesBoundaryOptions();
 }

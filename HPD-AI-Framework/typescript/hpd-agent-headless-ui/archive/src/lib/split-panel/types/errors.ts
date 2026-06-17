@@ -13,7 +13,7 @@ export type LayoutError =
 	| { type: 'not-found'; id: string }
 	| { type: 'invalid-parent'; message: string }
 	| { type: 'invalid-path'; path: number[] }
-	| { type: 'not-a-branch'; path: number[] }
+	| { type: 'not-a-thread'; path: number[] }
 	| { type: 'invalid-divider'; index: number; validRange: string }
 	| { type: 'layout-in-progress'; message: string }
 	| { type: 'constraint-violation'; message: string }

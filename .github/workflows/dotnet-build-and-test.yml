@@ -138,14 +138,14 @@ jobs:
         fi
 
         LINE_COVERAGE=$(cat "$JSON_FILE" | grep -o '"linecoverage":[0-9.]*' | head -1 | cut -d':' -f2)
-        BRANCH_COVERAGE=$(cat "$JSON_FILE" | grep -o '"branchcoverage":[0-9.]*' | head -1 | cut -d':' -f2)
+        THREAD_COVERAGE=$(cat "$JSON_FILE" | grep -o '"threadcoverage":[0-9.]*' | head -1 | cut -d':' -f2)
 
         echo "=================================="
         echo "       Code Coverage Report       "
         echo "=================================="
         echo ""
         printf "Line Coverage:   %.1f%%\n" "$LINE_COVERAGE"
-        printf "Branch Coverage: %.1f%%\n" "$BRANCH_COVERAGE"
+        printf "Thread Coverage: %.1f%%\n" "$THREAD_COVERAGE"
         printf "Threshold:       %d%%\n" "${{ env.COVERAGE_THRESHOLD }}"
         echo ""
 

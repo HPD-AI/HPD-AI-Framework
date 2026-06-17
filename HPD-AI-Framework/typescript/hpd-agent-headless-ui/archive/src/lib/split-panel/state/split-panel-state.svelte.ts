@@ -18,7 +18,7 @@ import { Spring } from 'svelte/motion';
 import type {
 	LayoutNode,
 	LeafNode,
-	BranchNode,
+	ThreadNode,
 	Result,
 	SerializedNode,
 	SerializedLayout,
@@ -71,7 +71,7 @@ export class SplitPanelState {
 	 * Svelte 5 $state creates deep reactive proxies automatically.
 	 */
 	root = $state<LayoutNode>({
-		type: 'branch',
+		type: 'thread',
 		axis: 'row', // Default to horizontal layout (matches most UI patterns)
 		children: [],
 		flexes: []
@@ -146,8 +146,8 @@ export class SplitPanelState {
 	#containerSize = $state<{ width: number; height: number }>({ width: 0, height: 0 });
 
 	/**
-	 * Cache of all node dimensions (both leaf and branch) from the last recompute/render cycle.
-	 * Key: stable object reference (leaf or branch node)
+	 * Cache of all node dimensions (both leaf and thread) from the last recompute/render cycle.
+	 * Key: stable object reference (leaf or thread node)
 	 * Value: { width, height } in pixels (absolute coordinates, not relative)
 	 *
 	 * Populated during recomputeFromFlexes for every node in the tree.
@@ -164,11 +164,11 @@ export class SplitPanelState {
 	#nodeDimsCache = new WeakMap<LayoutNode, { width: number; height: number }>();
 
 	/**
-	 * Cache of branch node dimensions for constraint validation.
-	 * Subset of #nodeDimsCache: only branches, with handle-aware main axis.
+	 * Cache of thread node dimensions for constraint validation.
+	 * Subset of #nodeDimsCache: only threads, with handle-aware main axis.
 	 * Kept separate for clarity in BEAR 3 logic (applyResizeDelta).
 	 */
-	#branchDimsCache = new WeakMap<BranchNode, { main: number; cross: number }>();
+	#threadDimsCache = new WeakMap<ThreadNode, { main: number; cross: number }>();
 
 	/**
 	 * Panel content states to restore after deserialization.
@@ -281,7 +281,7 @@ export class SplitPanelState {
 	updateContainerSize(width: number, height: number): void {
 		this.#containerSize = { width, height };
 		// Immediately recompute all leaf sizes based on new container dimensions
-		// This also caches root dimensions via getBranchDims for BEAR 3 validation
+		// This also caches root dimensions via getThreadDims for BEAR 3 validation
 		this.recomputeFromFlexes(this.root, { width, height });
 	}
 
@@ -292,7 +292,7 @@ export class SplitPanelState {
 	 */
 	private traverseTree(node: LayoutNode, visitor: (node: LayoutNode) => void): void {
 		visitor(node);
-		if (node.type === 'branch') {
+		if (node.type === 'thread') {
 			for (const child of node.children) {
 				this.traverseTree(child, visitor);
 			}
@@ -348,7 +348,7 @@ export class SplitPanelState {
 			}
 
 			const parent = this.getNodeAt(path);
-			if (parent.type !== 'branch') {
+			if (parent.type !== 'thread') {
 				return Err({
 					type: 'invalid-parent',
 					message: 'Cannot add panel to leaf node'
@@ -434,7 +434,7 @@ export class SplitPanelState {
 
 			// Panel was found and removed. Set root to new tree (or empty if null).
 			this.root = result.node ?? {
-				type: 'branch',
+				type: 'thread',
 				axis: 'column',
 				children: [],
 				flexes: []
@@ -470,7 +470,7 @@ export class SplitPanelState {
 			return Err({ type: 'not-found', id: panelId });
 		}
 
-		const parent = this.getNodeAt(path.slice(0, -1)) as BranchNode;
+		const parent = this.getNodeAt(path.slice(0, -1)) as ThreadNode;
 		const index = path[path.length - 1];
 		const node = parent.children[index] as LeafNode;
 
@@ -524,7 +524,7 @@ export class SplitPanelState {
 	private getNodeAt(path: number[]): LayoutNode {
 		let current = this.root;
 		for (const index of path) {
-			if (current.type !== 'branch') {
+			if (current.type !== 'thread') {
 				throw new Error(`Invalid path: cannot traverse into leaf node`);
 			}
 			if (index < 0 || index >= current.children.length) {
@@ -558,10 +558,10 @@ export class SplitPanelState {
 		}
 	}
 
-	private getActiveChildIndices(branch: BranchNode): number[] {
+	private getActiveChildIndices(thread: ThreadNode): number[] {
 		const result: number[] = [];
-		for (let i = 0; i < branch.children.length; i++) {
-			if (branch.flexes[i] > SplitPanelState.FLEX_EPS) {
+		for (let i = 0; i < thread.children.length; i++) {
+			if (thread.flexes[i] > SplitPanelState.FLEX_EPS) {
 				result.push(i);
 			}
 		}
@@ -608,7 +608,7 @@ export class SplitPanelState {
 
 		return {
 			node: {
-				type: 'branch',
+				type: 'thread',
 				axis: node.axis,
 				children: newChildren,
 				flexes: newFlexes
@@ -640,7 +640,7 @@ export class SplitPanelState {
 
 		// Clear dimension caches
 		this.#nodeDimsCache = new WeakMap();
-		this.#branchDimsCache = new WeakMap();
+		this.#threadDimsCache = new WeakMap();
 	}
 
 	/**
@@ -650,11 +650,11 @@ export class SplitPanelState {
 	 * Special case: If ALL flexes are 0 (initial state), treat all children as active
 	 * and initialize them based on initialSize values if available, otherwise equal distribution.
 	 */
-	private normalizeFlexes(branch: BranchNode): void {
+	private normalizeFlexes(thread: ThreadNode): void {
 		// Check if ALL flexes are 0 (initial state before first normalization)
 		let allZero = true;
-		for (let i = 0; i < branch.children.length; i++) {
-			if (branch.flexes[i] > SplitPanelState.FLEX_EPS) {
+		for (let i = 0; i < thread.children.length; i++) {
+			if (thread.flexes[i] > SplitPanelState.FLEX_EPS) {
 				allZero = false;
 				break;
 			}
@@ -664,18 +664,18 @@ export class SplitPanelState {
 		if (allZero) {
 			// Collect active (non-collapsed) children indices
 			const activeIndices: number[] = [];
-			for (let i = 0; i < branch.children.length; i++) {
-				const child = branch.children[i];
-				// A child is active if it's a branch OR a leaf with size > 0
-				if (child.type === 'branch' || child.size > 0) {
+			for (let i = 0; i < thread.children.length; i++) {
+				const child = thread.children[i];
+				// A child is active if it's a thread OR a leaf with size > 0
+				if (child.type === 'thread' || child.size > 0) {
 					activeIndices.push(i);
 				}
 			}
 
 			if (activeIndices.length === 0) {
 				// No active children, set all to 1.0 as fallback
-				for (let i = 0; i < branch.children.length; i++) {
-					branch.flexes[i] = 1.0;
+				for (let i = 0; i < thread.children.length; i++) {
+					thread.flexes[i] = 1.0;
 				}
 				return;
 			}
@@ -685,7 +685,7 @@ export class SplitPanelState {
 			let totalPercent = 0;
 
 			for (const idx of activeIndices) {
-				const child = branch.children[idx];
+				const child = thread.children[idx];
 				if (child.type === 'leaf' && child.initialSize !== undefined && child.initialSizeUnit === 'percent') {
 					hasPercentageSizes = true;
 					totalPercent += child.initialSize;
@@ -699,7 +699,7 @@ export class SplitPanelState {
 				let allocatedPercent = 0;
 
 				for (const idx of activeIndices) {
-					const child = branch.children[idx];
+					const child = thread.children[idx];
 					if (child.type === 'leaf' && child.initialSize !== undefined && child.initialSizeUnit === 'percent') {
 						allocatedPercent += child.initialSize;
 					} else {
@@ -718,7 +718,7 @@ export class SplitPanelState {
 				const totalForNormalization = allocatedPercent + (perPanePercent * panesWithoutPercent.length);
 				
 				for (const idx of activeIndices) {
-					const child = branch.children[idx];
+					const child = thread.children[idx];
 					let percent: number;
 					
 					if (child.type === 'leaf' && child.initialSize !== undefined && child.initialSizeUnit === 'percent') {
@@ -726,24 +726,24 @@ export class SplitPanelState {
 					} else if (panesWithoutPercent.includes(idx)) {
 						percent = perPanePercent;
 					} else {
-						percent = 100 / activeIndices.length; // Fallback for branches
+						percent = 100 / activeIndices.length; // Fallback for threads
 					}
 					
 					// Convert percentage to flex (scaled so sum = activeIndices.length)
-					branch.flexes[idx] = (percent / totalForNormalization) * activeIndices.length;
+					thread.flexes[idx] = (percent / totalForNormalization) * activeIndices.length;
 				}
 
 				// Set collapsed panes to 0
-				for (let i = 0; i < branch.children.length; i++) {
+				for (let i = 0; i < thread.children.length; i++) {
 					if (!activeIndices.includes(i)) {
-						branch.flexes[i] = 0;
+						thread.flexes[i] = 0;
 					}
 				}
 			} else {
 				// Check if any active leaf has pixel-based initialSize
 				let hasPixelSizes = false;
 				for (const idx of activeIndices) {
-					const child = branch.children[idx];
+					const child = thread.children[idx];
 					if (child.type === 'leaf' && child.initialSize !== undefined && child.initialSizeUnit === 'pixels') {
 						hasPixelSizes = true;
 						break;
@@ -754,19 +754,19 @@ export class SplitPanelState {
 					// Pixel-sized panes: defer flex-to-pixel conversion to recomputeFromFlexes
 					// (container size is unknown here). Give equal flex as placeholder and mark
 					// initialFlexSet=false so recomputeFromFlexes can fix it on first layout pass.
-					for (let i = 0; i < branch.children.length; i++) {
-						branch.flexes[i] = activeIndices.includes(i) ? 1.0 : 0;
+					for (let i = 0; i < thread.children.length; i++) {
+						thread.flexes[i] = activeIndices.includes(i) ? 1.0 : 0;
 					}
 					for (const idx of activeIndices) {
-						const child = branch.children[idx];
+						const child = thread.children[idx];
 						if (child.type === 'leaf' && child.initialSize !== undefined && child.initialSizeUnit === 'pixels') {
 							child.initialFlexSet = false;
 						}
 					}
 				} else {
 					// No percentage or pixel sizes, use equal distribution for active children
-					for (let i = 0; i < branch.children.length; i++) {
-						branch.flexes[i] = activeIndices.includes(i) ? 1.0 : 0;
+					for (let i = 0; i < thread.children.length; i++) {
+						thread.flexes[i] = activeIndices.includes(i) ? 1.0 : 0;
 					}
 				}
 			}
@@ -774,19 +774,19 @@ export class SplitPanelState {
 		}
 
 		// Normal case: get active children (flex > FLEX_EPS)
-		const active = this.getActiveChildIndices(branch);
+		const active = this.getActiveChildIndices(thread);
 		if (active.length === 0) return;
 
 		// Sum current active flexes
 		let sum = 0;
 		for (const idx of active) {
-			sum += branch.flexes[idx];
+			sum += thread.flexes[idx];
 		}
 
 		if (sum === 0) {
 			// All active flexes are 0, distribute evenly
 			for (const idx of active) {
-				branch.flexes[idx] = 1.0;
+				thread.flexes[idx] = 1.0;
 			}
 			sum = active.length;
 		}
@@ -794,12 +794,12 @@ export class SplitPanelState {
 		// Normalize: scale so sum equals active count
 		const scale = active.length / sum;
 		for (let i = 0; i < active.length - 1; i++) {
-			branch.flexes[active[i]] *= scale;
+			thread.flexes[active[i]] *= scale;
 		}
 
 		// Last child gets remainder to ensure exact sum
-		const sumExceptLast = active.slice(0, -1).reduce((acc, idx) => acc + branch.flexes[idx], 0);
-		branch.flexes[active[active.length - 1]] = active.length - sumExceptLast;
+		const sumExceptLast = active.slice(0, -1).reduce((acc, idx) => acc + thread.flexes[idx], 0);
+		thread.flexes[active[active.length - 1]] = active.length - sumExceptLast;
 	}
 
 	/**
@@ -815,7 +815,7 @@ export class SplitPanelState {
 			return node.minSize ?? 0;
 		}
 
-		// Branch: sum minimums of children along axis
+		// Thread: sum minimums of children along axis
 		if (node.axis === axis) {
 			// Same axis: sum minimums + handles
 			const active = this.getActiveChildIndices(node);
@@ -857,7 +857,7 @@ export class SplitPanelState {
 			return node.size;
 		}
 
-		// Branch: use cache if available (computing requires traversing children)
+		// Thread: use cache if available (computing requires traversing children)
 		const cached = this.#nodeDimsCache.get(node);
 		if (cached) {
 			return axis === 'row' ? cached.width : cached.height;
@@ -884,10 +884,10 @@ export class SplitPanelState {
 	}
 
 	/**
-	 * Get cached branch dimensions.
+	 * Get cached thread dimensions.
 	 */
-	private getBranchDims(branch: BranchNode): { main: number; cross: number } | undefined {
-		return this.#branchDimsCache.get(branch);
+	private getThreadDims(thread: ThreadNode): { main: number; cross: number } | undefined {
+		return this.#threadDimsCache.get(thread);
 	}
 
 	/**
@@ -906,7 +906,7 @@ export class SplitPanelState {
 			return;
 		}
 
-		// Branch: distribute space to children
+		// Thread: distribute space to children
 		const active = this.getActiveChildIndices(node);
 		if (active.length === 0) return;
 
@@ -914,8 +914,8 @@ export class SplitPanelState {
 		const mainSize = mainAxis === 'row' ? dims.width : dims.height;
 		const crossSize = mainAxis === 'row' ? dims.height : dims.width;
 
-		// Cache branch dims for BEAR 3
-		this.#branchDimsCache.set(node, { main: mainSize, cross: crossSize });
+		// Cache thread dims for BEAR 3
+		this.#threadDimsCache.set(node, { main: mainSize, cross: crossSize });
 
 		// Calculate available space (subtract handles between active children only)
 		const handleCount = Math.max(0, active.length - 1);
@@ -1023,7 +1023,7 @@ export class SplitPanelState {
 				// Leaf: size is the single source of truth - no cache needed
 				child.size = Math.max(0, allocation);
 			} else {
-				// Branch: recursively recompute and cache dimensions
+				// Thread: recursively recompute and cache dimensions
 				const childDims =
 					mainAxis === 'row'
 						? { width: allocation, height: crossSize }
@@ -1054,16 +1054,16 @@ export class SplitPanelState {
 	/**
 	 * Update flexes after a size change.
 	 */
-	private updateFlexes(branch: BranchNode): void {
-		const active = this.getActiveChildIndices(branch);
+	private updateFlexes(thread: ThreadNode): void {
+		const active = this.getActiveChildIndices(thread);
 		if (active.length === 0) return;
 
 		// Recalculate flexes proportionally based on current sizes
 		let totalSize = 0;
 		for (const idx of active) {
-			const child = branch.children[idx];
+			const child = thread.children[idx];
 			const size =
-				child.type === 'leaf' ? child.size : this.sizeAlongAxis(child, branch.axis, branch.axis);
+				child.type === 'leaf' ? child.size : this.sizeAlongAxis(child, thread.axis, thread.axis);
 			totalSize += size;
 		}
 
@@ -1071,13 +1071,13 @@ export class SplitPanelState {
 
 		// Update flexes proportionally
 		for (const idx of active) {
-			const child = branch.children[idx];
+			const child = thread.children[idx];
 			const size =
-				child.type === 'leaf' ? child.size : this.sizeAlongAxis(child, branch.axis, branch.axis);
-			branch.flexes[idx] = (size / totalSize) * active.length;
+				child.type === 'leaf' ? child.size : this.sizeAlongAxis(child, thread.axis, thread.axis);
+			thread.flexes[idx] = (size / totalSize) * active.length;
 		}
 
-		this.normalizeFlexes(branch);
+		this.normalizeFlexes(thread);
 	}
 
 	// ===== Resize Operations =====
@@ -1095,7 +1095,7 @@ export class SplitPanelState {
 	 * - If busy for >100ms, set #forceFlushAfterBusy flag instead of forcing mid-critical-section
 	 * - When busy operation completes, flush immediately if flag is set
 	 *
-	 * @param parentPath - Path to parent branch node
+	 * @param parentPath - Path to parent thread node
 	 * @param dividerIndex - Index of divider between active children (0-based)
 	 * @param delta - Pixels to move in positive direction (right/down)
 	 */
@@ -1227,8 +1227,8 @@ export class SplitPanelState {
 			return affectedPanels; // Path invalid, skip
 		}
 
-		if (parent.type !== 'branch') {
-			return affectedPanels; // Parent must be branch
+		if (parent.type !== 'thread') {
+			return affectedPanels; // Parent must be thread
 		}
 
 		// dividerIndex is the PHYSICAL divider index:
@@ -1350,26 +1350,26 @@ export class SplitPanelState {
 			}
 		}
 
-		// Validate that branch-children can fit their nested constraints
+		// Validate that thread-children can fit their nested constraints
 		// This prevents creating impossible states where a subtree's minimum exceeds allocation
-		if (leftChild.type === 'branch') {
+		if (leftChild.type === 'thread') {
 			const leftChildMin = this.minAlongAxis(leftChild, parentAxis);
 			if (newLeftSize < leftChildMin) {
-				// Left branch's nested minimums don't fit in allocated space; reject
+				// Left thread's nested minimums don't fit in allocated space; reject
 				return affectedPanels;
 			}
 		}
-		if (rightChild.type === 'branch') {
+		if (rightChild.type === 'thread') {
 			const rightChildMin = this.minAlongAxis(rightChild, parentAxis);
 			if (newRightSize < rightChildMin) {
-				// Right branch's nested minimums don't fit in allocated space; reject
+				// Right thread's nested minimums don't fit in allocated space; reject
 				return affectedPanels;
 			}
 		}
 
 		// BEAR 3 hard constraint: Ensure combined allocation never exceeds parent availableMain
 		// This is not a warning—if it happens, we clamp to fit (preferring the non-drag side)
-		const parentDims = this.getBranchDims(parent);
+		const parentDims = this.getThreadDims(parent);
 		if (parentDims) {
 			const allocatedSpace = newLeftSize + newRightSize + SplitPanelState.HANDLE_SIZE_PX;
 			const maxAllowed = parentDims.main;
@@ -1436,9 +1436,9 @@ export class SplitPanelState {
 			newLeftSize = leftSize + rightSize; // Reclaim space
 		}
 
-		// Update children allocations (works for both leaf and branch nodes)
+		// Update children allocations (works for both leaf and thread nodes)
 		// For leaves: directly set size and track in affectedPanels
-		// For branches: update flex value to match desired allocation
+		// For threads: update flex value to match desired allocation
 		if (leftChild.type === 'leaf') {
 			this.setLeafSize(leftChild, parent, leftIdx, newLeftSize);
 			affectedPanels.set(leftChild.id, newLeftSize);
@@ -1460,7 +1460,7 @@ export class SplitPanelState {
 	 * Set a leaf's size and enforce collapse invariant (size=0 ⟹ flex=0).
 	 * Also triggers Spring animation and updates the dimension cache.
 	 */
-	private setLeafSize(leaf: LeafNode, parent: BranchNode, index: number, newSize: number): void {
+	private setLeafSize(leaf: LeafNode, parent: ThreadNode, index: number, newSize: number): void {
 		// Leaf.size is the single source of truth - no cache needed for leaves
 		leaf.size = Math.max(0, newSize); // Never negative
 
@@ -1491,13 +1491,13 @@ export class SplitPanelState {
 	}
 
 	/**
-	 * Set allocation for a child node (leaf or branch).
+	 * Set allocation for a child node (leaf or thread).
 	 * For leaves: directly set size and trigger flex update.
-	 * For branches: convert desired px allocation to flex value and recompute subtree.
-	 * This enables divider resize to work with nested branches (not just leaves).
+	 * For threads: convert desired px allocation to flex value and recompute subtree.
+	 * This enables divider resize to work with nested threads (not just leaves).
 	 */
 	private setChildAllocation(
-		parent: BranchNode,
+		parent: ThreadNode,
 		index: number,
 		newMainSize: number,
 		containerDims: { width: number; height: number }
@@ -1513,7 +1513,7 @@ export class SplitPanelState {
 			return;
 		}
 
-		// Branch: convert desired allocation (px) to flex value
+		// Thread: convert desired allocation (px) to flex value
 		// Get current allocations of all active children along parent axis
 		const active = this.getActiveChildIndices(parent);
 		const activeCount = active.length;
@@ -1537,12 +1537,12 @@ export class SplitPanelState {
 		parent.flexes[index] = newFlex;
 		this.normalizeFlexes(parent);
 
-		// Recompute the branch subtree with CORRECT dimensions for this child
+		// Recompute the thread subtree with CORRECT dimensions for this child
 		// BUG FIX: We must pass the actual dimensions allocated to this child,
 		// NOT the root container dimensions!
 		// - Main axis size = newMainSize (what we just allocated)
 		// - Cross axis size = parent's cross axis (inherited from parent)
-		const parentDims = this.getBranchDims(parent);
+		const parentDims = this.getThreadDims(parent);
 		const crossSize = parentDims?.cross ?? (parent.axis === 'row' ? containerDims.height : containerDims.width);
 		
 		const childDims = parent.axis === 'row'
@@ -1575,7 +1575,7 @@ export class SplitPanelState {
 		const parentPath = finalPath.slice(0, -1);
 		const childIndex = finalPath[finalPath.length - 1];
 
-		const parent = this.getNodeAt(parentPath) as BranchNode;
+		const parent = this.getNodeAt(parentPath) as ThreadNode;
 		const active = this.getActiveChildIndices(parent);
 		const activeIdx = active.indexOf(childIndex);
 
@@ -1677,7 +1677,7 @@ export class SplitPanelState {
 		}
 
 		return {
-			type: 'branch',
+			type: 'thread',
 			axis: node.axis,
 			children: node.children.map((c) => this.serializeNode(c)),
 			flexes: Array.from(node.flexes)
@@ -1741,7 +1741,7 @@ export class SplitPanelState {
 
 		// Recursively validate flex integrity before deserialization
 		const validateFlexes = (node: SerializedNode): void => {
-			if (node.type === 'branch' && node.flexes.length > 0) {
+			if (node.type === 'thread' && node.flexes.length > 0) {
 				// Apply epsilon floor: any flex <= FLEX_EPS becomes 0
 				// Prevents zombie panels from float rounding in serialized data
 				for (let i = 0; i < node.flexes.length; i++) {
@@ -1794,7 +1794,7 @@ export class SplitPanelState {
 		instance.#containerSize = { width: data.containerWidth, height: data.containerHeight };
 
 		// Restore panel content states if present in snapshot
-		// Uses isLayoutSnapshot type guard for type-safe branching
+		// Uses isLayoutSnapshot type guard for type-safe threading
 		if (isLayoutSnapshot(data)) {
 			instance.#panelStatesToRestore = new Map(Object.entries(data.panelStates));
 		}
@@ -1828,7 +1828,7 @@ export class SplitPanelState {
 		}
 
 		return {
-			type: 'branch',
+			type: 'thread',
 			axis: data.axis,
 			children: data.children.map((c: SerializedNode) => this.deserializeNode(c)),
 			flexes: [...data.flexes]

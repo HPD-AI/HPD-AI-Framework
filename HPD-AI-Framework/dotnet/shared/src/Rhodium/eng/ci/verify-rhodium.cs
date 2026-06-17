@@ -841,7 +841,7 @@ static void ValidateEnvironment(JsonElement environment, string reportName, bool
     Require(!string.IsNullOrWhiteSpace(environment.GetProperty("FrameworkDescription").GetString()), $"{reportName} missing FrameworkDescription.");
     Require(!string.IsNullOrWhiteSpace(environment.GetProperty("RuntimeVersion").GetString()), $"{reportName} missing RuntimeVersion.");
     Require(environment.GetProperty("LogicalProcessorCount").GetInt32() > 0, $"{reportName} LogicalProcessorCount must be positive.");
-    Require(environment.TryGetProperty("GitBranch", out _), $"{reportName} missing GitBranch.");
+    Require(environment.TryGetProperty("GitThread", out _), $"{reportName} missing GitThread.");
     Require(environment.TryGetProperty("GitCommit", out _), $"{reportName} missing GitCommit.");
     Require(environment.TryGetProperty("GitTrackedChanges", out var gitTrackedChanges), $"{reportName} missing GitTrackedChanges.");
     if (requireCleanGit)

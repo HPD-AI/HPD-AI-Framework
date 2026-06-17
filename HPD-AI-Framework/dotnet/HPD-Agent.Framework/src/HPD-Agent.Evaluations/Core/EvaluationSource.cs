@@ -14,7 +14,7 @@ public enum EvaluationSource
     /// <summary>Scored offline by RunEvals during a CI batch evaluation.</summary>
     Test,
 
-    /// <summary>Scored after-the-fact by RetroactiveScorer against stored branch messages.</summary>
+    /// <summary>Scored after-the-fact by RetroactiveScorer against stored thread messages.</summary>
     Retroactive,
 
     /// <summary>Submitted by a human annotator via AnnotationQueue.</summary>

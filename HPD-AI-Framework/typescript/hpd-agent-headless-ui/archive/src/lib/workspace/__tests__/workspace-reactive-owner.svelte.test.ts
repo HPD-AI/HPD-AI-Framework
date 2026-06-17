@@ -24,15 +24,15 @@ import { describe, it, expect, vi } from 'vitest';
 import { createWorkspace } from '../workspace.svelte.ts';
 import type { AgentClientLike, CreateWorkspaceOptions } from '../types.ts';
 import type {
-	Branch,
-	BranchMessage,
+	Thread,
+	ThreadMessage,
 	Session,
-	SiblingBranch,
+	SiblingThread,
 	CreateSessionRequest,
 	UpdateSessionRequest,
 	ListSessionsOptions,
-	CreateBranchRequest,
-	ForkBranchRequest,
+	CreateThreadRequest,
+	ForkThreadRequest,
 	AgentSummaryDto,
 	StoredAgentDto,
 	CreateAgentRequest,
@@ -52,7 +52,7 @@ function makeSession(id: string): Session {
 	return { id, createdAt: new Date().toISOString(), lastActivity: new Date().toISOString(), metadata: {} };
 }
 
-function makeBranch(id: string, sessionId: string, overrides: Partial<Branch> = {}): Branch {
+function makeThread(id: string, sessionId: string, overrides: Partial<Thread> = {}): Thread {
 	return {
 		id,
 		sessionId,
@@ -68,30 +68,30 @@ function makeBranch(id: string, sessionId: string, overrides: Partial<Branch> = 
 		siblingIndex: 0,
 		totalSiblings: 1,
 		isOriginal: true,
-		originalBranchId: undefined,
+		originalThreadId: undefined,
 		previousSiblingId: undefined,
 		nextSiblingId: undefined,
-		childBranches: [],
+		childThreads: [],
 		totalForks: 0,
 		...overrides,
 	};
 }
 
-function makeBranchMessage(id: string, role: 'user' | 'assistant', text: string): BranchMessage {
+function makeThreadMessage(id: string, role: 'user' | 'assistant', text: string): ThreadMessage {
 	return {
 		id,
 		role,
 		contents: [{ $type: 'text', text }],
 		timestamp: new Date().toISOString(),
-	} as BranchMessage;
+	} as ThreadMessage;
 }
 
 const DUMMY_CONTENT: ContentReference = { contentId: 'a', version: 'rev:1', contentType: 'image/png', name: 'a.png' };
 
 function makeFakeClient(
 	sessions: Session[],
-	branches: Map<string, Branch[]>,
-	messages: Map<string, BranchMessage[]> = new Map(),
+	threads: Map<string, Thread[]>,
+	messages: Map<string, ThreadMessage[]> = new Map(),
 ): AgentClientLike {
 	return {
 		run: vi.fn(async () => {}),
@@ -104,15 +104,15 @@ function makeFakeClient(
 		createSession: vi.fn(async (opts?: CreateSessionRequest) => makeSession(opts?.sessionId ?? 'new')),
 		updateSession: vi.fn(async (id: string, _req: UpdateSessionRequest) => sessions.find((s) => s.id === id)!),
 		deleteSession: vi.fn(async () => {}),
-		listBranches: vi.fn(async (sid: string) => branches.get(sid) ?? []),
-		getBranch: vi.fn(async (sid: string, bid: string) => (branches.get(sid) ?? []).find((b) => b.id === bid) ?? null),
-		createBranch: vi.fn(async (sid: string, opts?: CreateBranchRequest) => makeBranch(opts?.branchId ?? 'new', sid)),
-		forkBranch: vi.fn(async (sid: string, _bid: string, opts: ForkBranchRequest) => makeBranch(opts.newBranchId ?? 'fork', sid, { isOriginal: false })),
-		deleteBranch: vi.fn(async () => {}),
-		getBranchMessages: vi.fn(async (sid: string, bid: string): Promise<BranchMessage[]> => messages.get(`${sid}:${bid}`) ?? []),
-		getBranchSiblings: vi.fn(async (): Promise<SiblingBranch[]> => []),
-		getNextSibling: vi.fn(async (): Promise<Branch | null> => null),
-		getPreviousSibling: vi.fn(async (): Promise<Branch | null> => null),
+		listThreads: vi.fn(async (sid: string) => threads.get(sid) ?? []),
+		getThread: vi.fn(async (sid: string, bid: string) => (threads.get(sid) ?? []).find((b) => b.id === bid) ?? null),
+		createThread: vi.fn(async (sid: string, opts?: CreateThreadRequest) => makeThread(opts?.threadId ?? 'new', sid)),
+		forkThread: vi.fn(async (sid: string, _bid: string, opts: ForkThreadRequest) => makeThread(opts.newThreadId ?? 'fork', sid, { isOriginal: false })),
+		deleteThread: vi.fn(async () => {}),
+		getThreadMessages: vi.fn(async (sid: string, bid: string): Promise<ThreadMessage[]> => messages.get(`${sid}:${bid}`) ?? []),
+		getThreadSiblings: vi.fn(async (): Promise<SiblingThread[]> => []),
+		getNextSibling: vi.fn(async (): Promise<Thread | null> => null),
+		getPreviousSibling: vi.fn(async (): Promise<Thread | null> => null),
 		listAgents: vi.fn(async (): Promise<AgentSummaryDto[]> => []),
 		getAgent: vi.fn(async (): Promise<StoredAgentDto | null> => null),
 		createAgent: vi.fn(async (_req: CreateAgentRequest): Promise<StoredAgentDto> => { throw new Error('not implemented'); }),
@@ -134,8 +134,8 @@ describe('createWorkspace — reactive owner safety (module-level usage)', () =>
 	 */
 	it('state becomes non-null after init when called outside a component', async () => {
 		const session = makeSession('s1');
-		const branch = makeBranch('main', 's1');
-		const client = makeFakeClient([session], new Map([['s1', [branch]]]));
+		const thread = makeThread('main', 's1');
+		const client = makeFakeClient([session], new Map([['s1', [thread]]]));
 
 		// Simulate module-level call — no component context at all
 		const ws = createWorkspace({ baseUrl: 'http://fake', _client: client });
@@ -146,26 +146,26 @@ describe('createWorkspace — reactive owner safety (module-level usage)', () =>
 
 	it('activeSessionId is set after init', async () => {
 		const session = makeSession('s1');
-		const branch = makeBranch('main', 's1');
-		const client = makeFakeClient([session], new Map([['s1', [branch]]]));
+		const thread = makeThread('main', 's1');
+		const client = makeFakeClient([session], new Map([['s1', [thread]]]));
 
 		const ws = createWorkspace({ baseUrl: 'http://fake', _client: client });
 		await tick();
 
 		expect(ws.activeSessionId).toBe('s1');
-		expect(ws.activeBranchId).toBe('main');
+		expect(ws.activeThreadId).toBe('main');
 	});
 
 	it('loads history messages into state.messages', async () => {
 		const session = makeSession('s1');
-		const branch = makeBranch('main', 's1');
+		const thread = makeThread('main', 's1');
 		const rawMessages = [
-			makeBranchMessage('m1', 'user', 'Hello'),
-			makeBranchMessage('m2', 'assistant', 'Hi there'),
+			makeThreadMessage('m1', 'user', 'Hello'),
+			makeThreadMessage('m2', 'assistant', 'Hi there'),
 		];
 		const client = makeFakeClient(
 			[session],
-			new Map([['s1', [branch]]]),
+			new Map([['s1', [thread]]]),
 			new Map([['s1:main', rawMessages]])
 		);
 
@@ -181,9 +181,9 @@ describe('createWorkspace — reactive owner safety (module-level usage)', () =>
 	it('state updates reactively when selectSession is called', async () => {
 		const s1 = makeSession('s1');
 		const s2 = makeSession('s2');
-		const b1 = makeBranch('main', 's1');
-		const b2 = makeBranch('main', 's2');
-		const rawMessages = [makeBranchMessage('m1', 'user', 'From session 2')];
+		const b1 = makeThread('main', 's1');
+		const b2 = makeThread('main', 's2');
+		const rawMessages = [makeThreadMessage('m1', 'user', 'From session 2')];
 		const client = makeFakeClient(
 			[s1, s2],
 			new Map([['s1', [b1]], ['s2', [b2]]]),
@@ -207,7 +207,7 @@ describe('createWorkspace — reactive owner safety (module-level usage)', () =>
 
 	it('state.sessions list is populated after init', async () => {
 		const sessions = [makeSession('s1'), makeSession('s2'), makeSession('s3')];
-		const client = makeFakeClient(sessions, new Map([['s1', [makeBranch('main', 's1')]]]));
+		const client = makeFakeClient(sessions, new Map([['s1', [makeThread('main', 's1')]]]));
 
 		const ws = createWorkspace({ baseUrl: 'http://fake', _client: client });
 		await tick();
@@ -220,8 +220,8 @@ describe('createWorkspace — reactive owner safety (module-level usage)', () =>
 		const blocked = new Promise<void>((r) => { resolveInit = r; });
 
 		const session = makeSession('s1');
-		const branch = makeBranch('main', 's1');
-		const client = makeFakeClient([session], new Map([['s1', [branch]]]));
+		const thread = makeThread('main', 's1');
+		const client = makeFakeClient([session], new Map([['s1', [thread]]]));
 		// Make listSessions block until we release it
 		(client.listSessions as ReturnType<typeof vi.fn>).mockImplementation(async () => {
 			await blocked;

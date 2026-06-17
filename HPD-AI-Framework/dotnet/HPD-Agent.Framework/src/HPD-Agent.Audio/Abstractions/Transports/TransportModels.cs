@@ -39,7 +39,7 @@ public sealed record TransportBinding
 
     public InputContentRef? Content { get; init; }
 
-    public BranchRef? Branch { get; init; }
+    public ThreadRef? Thread { get; init; }
 
     public AudioCorrelation Correlation { get; init; } = AudioCorrelation.Empty;
 
@@ -59,7 +59,7 @@ public sealed record AudioTransportContext
 {
     public required AudioSessionId SessionId { get; init; }
 
-    public BranchRef? Branch { get; init; }
+    public ThreadRef? Thread { get; init; }
 
     public required AudioPolicySet PolicySet { get; init; }
 

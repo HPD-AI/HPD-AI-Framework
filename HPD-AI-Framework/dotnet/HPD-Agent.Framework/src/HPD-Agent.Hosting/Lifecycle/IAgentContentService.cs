@@ -6,7 +6,7 @@ public interface IAgentContentService
 {
     Task<AgentServiceResult<ContentDto>> UploadContentAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         Stream content,
         string fileName,
         string? contentType,
@@ -14,18 +14,18 @@ public interface IAgentContentService
 
     Task<AgentServiceResult<IReadOnlyList<ContentDto>>> ListContentAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default);
 
     Task<AgentServiceResult<AgentContentDownload>> DownloadContentAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         string contentId,
         CancellationToken cancellationToken = default);
 
     Task<AgentServiceResult> DeleteContentAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         string contentId,
         CancellationToken cancellationToken = default);
 }

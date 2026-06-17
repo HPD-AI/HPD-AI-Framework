@@ -7,7 +7,7 @@ using HPD.Agent.Audio.AgentIntegration.Middleware;
 using HPD.Agent.Audio.AgentIntegration.Output;
 using HPD.Agent.Audio.Ledger;
 using HPD.Agent.Audio.Policies;
-using HPD.Agent.Audio.Runtime.Branch;
+using HPD.Agent.Audio.Runtime.Thread;
 using HPD.Agent.Audio.Trace;
 using HPD.Agent.Middleware;
 using HPD.Events.Core;
@@ -346,8 +346,8 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         Assert.Equal("response-progressive-1", playedLedger.ResponseId.Value);
         Assert.True(playedLedger.PlayedTextLength > 0);
         Assert.Equal(playbackLedger.Length, playbackTrace.Length);
-        Assert.Empty(attachment.LastOutputLedger.OfType<BranchProjectionLedgerRecord>());
-        Assert.Empty(attachment.LastOutputTrace.OfType<AudioBranchProjectionTraceRecord>());
+        Assert.Empty(attachment.LastOutputLedger.OfType<ThreadProjectionLedgerRecord>());
+        Assert.Empty(attachment.LastOutputTrace.OfType<AudioThreadProjectionTraceRecord>());
 
         Assert.True(queueDepthInbox.TryRead(out var queueDepthSample));
         Assert.Equal("session-progressive", queueDepthSample.SessionId);
@@ -498,14 +498,14 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         Assert.Contains(sampleTrace, record =>
             record.StructEventType == nameof(AudioOutputPlayoutSample) &&
             record.SequenceNumber == playoutSample.SequenceNumber);
-        Assert.Empty(attachment.LastOutputLedger.OfType<BranchProjectionLedgerRecord>());
+        Assert.Empty(attachment.LastOutputLedger.OfType<ThreadProjectionLedgerRecord>());
     }
 
     [Fact]
     public async Task WrapModelTurnStreamingAsync_PlayedComplete_ProjectsCommittedAssistantOutputWhenPolicyAllows()
     {
         var contentStore = new InMemoryContentStore();
-        var branch = new InMemoryBranchProjectionSink();
+        var thread = new InMemoryThreadProjectionSink();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
@@ -513,7 +513,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "fake-tts",
             AssistantAudioOutputSink = new CompletingAudioOutputSink(),
             EnableAssistantOutputPlayback = true,
-            BranchProjectionSink = branch
+            ThreadProjectionSink = thread
         });
 
         var stream = attachment.WrapModelTurnStreamingAsync(
@@ -524,18 +524,18 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         {
         }
 
-        var projectedTurn = Assert.Single(branch.ProjectedTurns);
-        Assert.Equal(BranchProjectionKind.AssistantOutput, projectedTurn.Record.Kind);
-        Assert.Equal(BranchProjectionRole.Assistant, projectedTurn.Record.Role);
+        var projectedTurn = Assert.Single(thread.ProjectedTurns);
+        Assert.Equal(ThreadProjectionKind.AssistantOutput, projectedTurn.Record.Kind);
+        Assert.Equal(ThreadProjectionRole.Assistant, projectedTurn.Record.Role);
         Assert.Equal("Hello there. Second sentence.", projectedTurn.Record.Text);
         Assert.NotNull(projectedTurn.Record.OutputFlowId);
         Assert.NotNull(projectedTurn.Record.ResponseId);
 
-        var projectionLedger = Assert.Single(attachment.LastOutputLedger.OfType<BranchProjectionLedgerRecord>());
+        var projectionLedger = Assert.Single(attachment.LastOutputLedger.OfType<ThreadProjectionLedgerRecord>());
         Assert.Equal(projectedTurn.ProjectedEvent, projectionLedger.ProjectedEvent);
         Assert.Contains(attachment.LastOutputLedger.OfType<AssistantOutputLedgerRecord>(), record =>
             record.Disposition == OutputDisposition.PlayedComplete);
-        Assert.Contains(attachment.LastOutputTrace.OfType<AudioBranchProjectionTraceRecord>(), record =>
+        Assert.Contains(attachment.LastOutputTrace.OfType<AudioThreadProjectionTraceRecord>(), record =>
             record.ProjectedEvent == projectedTurn.ProjectedEvent);
     }
 
@@ -543,7 +543,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     public async Task WrapModelTurnStreamingAsync_PlayedComplete_DoesNotProjectWhenPolicyDisablesAssistantOutputProjection()
     {
         var contentStore = new InMemoryContentStore();
-        var branch = new InMemoryBranchProjectionSink();
+        var thread = new InMemoryThreadProjectionSink();
         var attachment = new AudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
             AssistantOutputSynthesisMode = AssistantOutputSynthesisMode.Progressive,
@@ -551,10 +551,10 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "fake-tts",
             AssistantAudioOutputSink = new CompletingAudioOutputSink(),
             EnableAssistantOutputPlayback = true,
-            BranchProjectionSink = branch,
+            ThreadProjectionSink = thread,
             PolicySet = new AudioPolicySet
             {
-                BranchProjection = new BranchProjectionPolicy
+                ThreadProjection = new ThreadProjectionPolicy
                 {
                     ProjectCommittedAssistantOutputs = false
                 }
@@ -569,9 +569,9 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         {
         }
 
-        Assert.Empty(branch.ProjectedTurns);
-        Assert.Empty(attachment.LastOutputLedger.OfType<BranchProjectionLedgerRecord>());
-        Assert.Empty(attachment.LastOutputTrace.OfType<AudioBranchProjectionTraceRecord>());
+        Assert.Empty(thread.ProjectedTurns);
+        Assert.Empty(attachment.LastOutputLedger.OfType<ThreadProjectionLedgerRecord>());
+        Assert.Empty(attachment.LastOutputTrace.OfType<AudioThreadProjectionTraceRecord>());
     }
 
     [Fact]
@@ -649,7 +649,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         Assert.Contains(playbackLedger, record => record.Disposition == OutputPlaybackDisposition.PlaybackFailed);
         Assert.Contains(attachment.LastOutputTrace.OfType<AudioOutputPlaybackTraceRecord>(), record =>
             record.Disposition == OutputPlaybackDisposition.PlaybackFailed);
-        Assert.Empty(attachment.LastOutputLedger.OfType<BranchProjectionLedgerRecord>());
+        Assert.Empty(attachment.LastOutputLedger.OfType<ThreadProjectionLedgerRecord>());
     }
 
     [Fact]
@@ -657,7 +657,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     {
         var contentStore = new InMemoryContentStore();
         var tts = new FakeTextToSpeechClient();
-        var branch = new InMemoryBranchProjectionSink();
+        var thread = new InMemoryThreadProjectionSink();
         var sink = new ScriptedAudioOutputSink(request =>
         {
             if (!request.IsFinalSegment)
@@ -701,7 +701,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "fake-tts",
             AssistantAudioOutputSink = sink,
             EnableAssistantOutputPlayback = true,
-            BranchProjectionSink = branch
+            ThreadProjectionSink = thread
         });
         var coordinator = new EventCoordinator();
         var interruptedEvents = new List<AssistantAudioPlaybackInterruptedEvent>();
@@ -731,19 +731,19 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         Assert.Equal(interrupted.PlayedTextLength, interruptedLedger.PlayedTextLength);
         Assert.Contains(attachment.LastOutputTrace.OfType<AudioOutputPlaybackTraceRecord>(), record =>
             record.Disposition == OutputPlaybackDisposition.Interrupted);
-        var projectedTurn = Assert.Single(branch.ProjectedTurns);
+        var projectedTurn = Assert.Single(thread.ProjectedTurns);
         Assert.Equal(interrupted.PlayedTextLength, projectedTurn.Record.Text.Length);
         Assert.Equal(projectedTurn.Record.Text, "Hello there. Second sentence."[..interrupted.PlayedTextLength]);
-        Assert.Single(attachment.LastOutputLedger.OfType<BranchProjectionLedgerRecord>());
-        Assert.Single(attachment.LastOutputTrace.OfType<AudioBranchProjectionTraceRecord>());
+        Assert.Single(attachment.LastOutputLedger.OfType<ThreadProjectionLedgerRecord>());
+        Assert.Single(attachment.LastOutputTrace.OfType<AudioThreadProjectionTraceRecord>());
     }
 
     [Fact]
-    public async Task WrapModelTurnStreamingAsync_PlaybackCleared_CommitsQueuedUnplayedWithoutBranchProjection()
+    public async Task WrapModelTurnStreamingAsync_PlaybackCleared_CommitsQueuedUnplayedWithoutThreadProjection()
     {
         var contentStore = new InMemoryContentStore();
         var tts = new FakeTextToSpeechClient();
-        var branch = new InMemoryBranchProjectionSink();
+        var thread = new InMemoryThreadProjectionSink();
         var sink = new ScriptedAudioOutputSink(request =>
         {
             if (!request.IsFinalSegment)
@@ -787,7 +787,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             AssistantOutputProviderKey = "fake-tts",
             AssistantAudioOutputSink = sink,
             EnableAssistantOutputPlayback = true,
-            BranchProjectionSink = branch
+            ThreadProjectionSink = thread
         });
 
         var stream = attachment.WrapModelTurnStreamingAsync(
@@ -805,9 +805,9 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         Assert.Equal(TimeSpan.Zero, queuedUnplayed.PlayedDuration);
         Assert.Contains(attachment.LastOutputTrace.OfType<AudioOutputPlaybackTraceRecord>(), record =>
             record.Disposition == OutputPlaybackDisposition.QueuedUnplayed);
-        Assert.Empty(branch.ProjectedTurns);
-        Assert.Empty(attachment.LastOutputLedger.OfType<BranchProjectionLedgerRecord>());
-        Assert.Empty(attachment.LastOutputTrace.OfType<AudioBranchProjectionTraceRecord>());
+        Assert.Empty(thread.ProjectedTurns);
+        Assert.Empty(attachment.LastOutputLedger.OfType<ThreadProjectionLedgerRecord>());
+        Assert.Empty(attachment.LastOutputTrace.OfType<AudioThreadProjectionTraceRecord>());
     }
 
     [Fact]
@@ -1357,7 +1357,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             state,
             new EventCoordinator(),
             session: CreateSession("session-progressive"),
-            branch: null,
+            thread: null,
             CancellationToken.None,
             traceId: "00000000000000000000000000000003",
             contentStore: contentStore);

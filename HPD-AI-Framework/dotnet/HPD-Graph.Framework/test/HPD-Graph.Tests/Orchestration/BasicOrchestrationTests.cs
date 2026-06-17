@@ -77,19 +77,19 @@ public class BasicOrchestrationTests
     }
 
     [Fact]
-    public async Task Execute_ParallelBranches_ShouldExecuteBothPaths()
+    public async Task Execute_ParallelThreads_ShouldExecuteBothPaths()
     {
         // Arrange
         var graph = new TestGraphBuilder()
             .AddStartNode()
-            .AddHandlerNode("branch1", "SuccessHandler")
-            .AddHandlerNode("branch2", "SuccessHandler")
+            .AddHandlerNode("thread1", "SuccessHandler")
+            .AddHandlerNode("thread2", "SuccessHandler")
             .AddHandlerNode("merge", "SuccessHandler")
             .AddEndNode()
-            .AddEdge("start", "branch1")
-            .AddEdge("start", "branch2")
-            .AddEdge("branch1", "merge")
-            .AddEdge("branch2", "merge")
+            .AddEdge("start", "thread1")
+            .AddEdge("start", "thread2")
+            .AddEdge("thread1", "merge")
+            .AddEdge("thread2", "merge")
             .AddEdge("merge", "end")
             .Build();
 
@@ -106,8 +106,8 @@ public class BasicOrchestrationTests
         await orchestrator.ExecuteAsync(context);
 
         // Assert
-        context.ShouldHaveCompletedNode("branch1");
-        context.ShouldHaveCompletedNode("branch2");
+        context.ShouldHaveCompletedNode("thread1");
+        context.ShouldHaveCompletedNode("thread2");
         context.ShouldHaveCompletedNode("merge");
     }
 

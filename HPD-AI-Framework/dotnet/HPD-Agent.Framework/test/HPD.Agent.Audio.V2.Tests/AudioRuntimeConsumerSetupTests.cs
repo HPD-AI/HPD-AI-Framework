@@ -79,7 +79,7 @@ public sealed class AudioRuntimeConsumerSetupTests
             [new ChatMessage(ChatRole.User, [audio])])
         {
             SessionId = "consumer-stt-session",
-            BranchId = "main"
+            ThreadId = "main"
         });
 
         Assert.Equal("assistant saw transcript", result.Text);

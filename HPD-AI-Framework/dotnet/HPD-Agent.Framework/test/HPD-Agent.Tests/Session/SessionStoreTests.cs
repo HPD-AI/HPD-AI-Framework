@@ -9,7 +9,7 @@ namespace HPD.Agent.Tests.Session;
 
 /// <summary>
 /// Tests for ISessionStore implementations (InMemorySessionStore).
-/// Covers V3 Session/Branch CRUD operations and cleanup.
+/// Covers V3 Session/Thread CRUD operations and cleanup.
 /// </summary>
 public class SessionStoreTests : AgentTestBase
 {
@@ -106,112 +106,112 @@ public class SessionStoreTests : AgentTestBase
     }
 
     //──────────────────────────────────────────────────────────────────
-    // INMEMORY SESSION STORE - BRANCH CRUD
+    // INMEMORY SESSION STORE - THREAD CRUD
     //──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task InMemoryStore_SaveAndLoadBranch_RoundTrip()
+    public async Task InMemoryStore_SaveAndLoadThread_RoundTrip()
     {
         // Arrange
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("session-1");
-        var branch = session.CreateBranch("branch-1");
-        branch.AddMessage(UserMessage("Hello"));
-        branch.AddMessage(AssistantMessage("Hi there!"));
+        var thread = session.CreateThread("thread-1");
+        thread.AddMessage(UserMessage("Hello"));
+        thread.AddMessage(AssistantMessage("Hi there!"));
 
         // Act
-        await store.SaveInitialBranchAsync("session-1", branch);
-        var loaded = await store.LoadBranchAsync("session-1", "branch-1");
+        await store.SaveInitialThreadAsync("session-1", thread);
+        var loaded = await store.LoadThreadAsync("session-1", "thread-1");
 
         // Assert
         Assert.NotNull(loaded);
-        Assert.Equal("branch-1", loaded.Id);
+        Assert.Equal("thread-1", loaded.Id);
         Assert.Equal("session-1", loaded.SessionId);
         Assert.Equal(2, loaded.MessageCount);
     }
 
     [Fact]
-    public async Task InMemoryStore_LoadNonExistentBranch_ReturnsNull()
+    public async Task InMemoryStore_LoadNonExistentThread_ReturnsNull()
     {
         // Arrange
         var store = new InMemorySessionStore();
 
         // Act
-        var result = await store.LoadBranchAsync("session-1", "non-existent");
+        var result = await store.LoadThreadAsync("session-1", "non-existent");
 
         // Assert
         Assert.Null(result);
     }
 
     [Fact]
-    public async Task InMemoryStore_DeleteBranch_RemovesBranch()
+    public async Task InMemoryStore_DeleteThread_RemovesThread()
     {
         // Arrange
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("session-1");
-        var branch = session.CreateBranch("branch-to-delete");
-        branch.AddMessage(UserMessage("Test"));
-        await store.SaveInitialBranchAsync("session-1", branch);
+        var thread = session.CreateThread("thread-to-delete");
+        thread.AddMessage(UserMessage("Test"));
+        await store.SaveInitialThreadAsync("session-1", thread);
 
         // Act
-        await store.DeleteBranchAsync("session-1", "branch-to-delete");
-        var loaded = await store.LoadBranchAsync("session-1", "branch-to-delete");
+        await store.DeleteThreadAsync("session-1", "thread-to-delete");
+        var loaded = await store.LoadThreadAsync("session-1", "thread-to-delete");
 
         // Assert
         Assert.Null(loaded);
     }
 
     [Fact]
-    public async Task InMemoryStore_ListBranchIds_ReturnsAllBranches()
+    public async Task InMemoryStore_ListThreadIds_ReturnsAllThreads()
     {
         // Arrange
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("session-1");
-        await store.SaveInitialBranchAsync("session-1", session.CreateBranch("branch-1"));
-        await store.SaveInitialBranchAsync("session-1", session.CreateBranch("branch-2"));
-        await store.SaveInitialBranchAsync("session-1", session.CreateBranch("branch-3"));
+        await store.SaveInitialThreadAsync("session-1", session.CreateThread("thread-1"));
+        await store.SaveInitialThreadAsync("session-1", session.CreateThread("thread-2"));
+        await store.SaveInitialThreadAsync("session-1", session.CreateThread("thread-3"));
 
         // Act
-        var ids = await store.ListBranchIdsAsync("session-1");
+        var ids = await store.ListThreadIdsAsync("session-1");
 
         // Assert
         Assert.Equal(3, ids.Count);
-        Assert.Contains("branch-1", ids);
-        Assert.Contains("branch-2", ids);
-        Assert.Contains("branch-3", ids);
+        Assert.Contains("thread-1", ids);
+        Assert.Contains("thread-2", ids);
+        Assert.Contains("thread-3", ids);
     }
 
     [Fact]
-    public async Task InMemoryStore_ListBranchIds_EmptyForNonExistentSession()
+    public async Task InMemoryStore_ListThreadIds_EmptyForNonExistentSession()
     {
         // Arrange
         var store = new InMemorySessionStore();
 
         // Act
-        var ids = await store.ListBranchIdsAsync("non-existent-session");
+        var ids = await store.ListThreadIdsAsync("non-existent-session");
 
         // Assert
         Assert.Empty(ids);
     }
 
     [Fact]
-    public async Task InMemoryStore_DeleteSession_AlsoDeletesBranches()
+    public async Task InMemoryStore_DeleteSession_AlsoDeletesThreads()
     {
         // Arrange
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("session-1");
         await store.SaveSessionAsync(session);
 
-        var branch = session.CreateBranch("branch-1");
-        branch.AddMessage(UserMessage("Hello"));
-        await store.SaveInitialBranchAsync("session-1", branch);
+        var thread = session.CreateThread("thread-1");
+        thread.AddMessage(UserMessage("Hello"));
+        await store.SaveInitialThreadAsync("session-1", thread);
 
         // Act
         await store.DeleteSessionAsync("session-1");
 
         // Assert
         Assert.Null(await store.LoadSessionAsync("session-1"));
-        Assert.Null(await store.LoadBranchAsync("session-1", "branch-1"));
+        Assert.Null(await store.LoadThreadAsync("session-1", "thread-1"));
     }
 
     //──────────────────────────────────────────────────────────────────

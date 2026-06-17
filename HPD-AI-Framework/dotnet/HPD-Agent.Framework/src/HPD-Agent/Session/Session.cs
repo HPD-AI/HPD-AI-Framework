@@ -6,27 +6,27 @@ namespace HPD.Agent;
 /// <summary>
 /// Session represents a chat conversation container.
 /// Contains metadata, session-scoped middleware state, and provides access to the session store.
-/// Does NOT contain messages - messages are in Branch objects.
+/// Does NOT contain messages - messages are in Thread objects.
 /// </summary>
 /// <remarks>
 /// <para><b>Architecture:</b></para>
 /// <para>
 /// Session is the top-level container that holds:
 /// - Metadata (user info, project context, etc.)
-/// - Session-scoped middleware state (permissions, user preferences - shared across all branches)
-/// - Reference to session store (for session and branch persistence)
+/// - Session-scoped middleware state (permissions, user preferences - shared across all threads)
+/// - Reference to session store (for session and thread persistence)
 /// </para>
 ///
-/// <para><b>Relationship to Branch:</b></para>
+/// <para><b>Relationship to Thread:</b></para>
 /// <para>
-/// One Session can have multiple Branches (conversation paths).
-/// Each Branch references the same Session via SessionId.
+/// One Session can have multiple Threads (conversation paths).
+/// Each Thread references the same Session via SessionId.
 /// </para>
 ///
 /// <para><b>V3 Architecture:</b></para>
 /// <para>
-/// Session holds metadata; Branch holds messages.
-/// This split enables multiple conversation paths (branches) within one session.
+/// Session holds metadata; Thread holds messages.
+/// This split enables multiple conversation paths (threads) within one session.
 /// </para>
 /// </remarks>
 public class Session
@@ -37,34 +37,34 @@ public class Session
     /// <summary>When this session was created</summary>
     public DateTime CreatedAt { get; init; }
 
-    /// <summary>Last time any branch in this session was updated</summary>
+    /// <summary>Last time any thread in this session was updated</summary>
     public DateTime LastActivity { get; set; }
 
-    /// <summary>Session-level metadata (not branch-specific)</summary>
+    /// <summary>Session-level metadata (not thread-specific)</summary>
     public Dictionary<string, object> Metadata { get; init; }
 
     /// <summary>
     /// Session-scoped middleware persistent state.
-    /// Stores state that applies across all branches (e.g., permission choices, user preferences).
+    /// Stores state that applies across all threads (e.g., permission choices, user preferences).
     /// Only middleware marked with [MiddlewareState(Persistent = true, Scope = StateScope.Session)]
-    /// is persisted here. Branch-scoped state lives in Branch.MiddlewareState instead.
+    /// is persisted here. Thread-scoped state lives in Thread.MiddlewareState instead.
     /// </summary>
     /// <remarks>
     /// <para><b>Examples of session-scoped persistent state:</b></para>
     /// <list type="bullet">
-    /// <item>PermissionPersistentState: "Always Allow Bash" applies to all branches</item>
+    /// <item>PermissionPersistentState: "Always Allow Bash" applies to all threads</item>
     /// <item>User preferences: Theme, language, etc.</item>
     /// </list>
     /// </remarks>
     public Dictionary<string, string> MiddlewareState { get; init; }
 
-    /// <summary>Reference to session store (for session and branch persistence)</summary>
+    /// <summary>Reference to session store (for session and thread persistence)</summary>
     [JsonIgnore]
     public ISessionStore? Store { get; set; }
 
     /// <summary>
     /// Creates a new session with a generated ID.
-    /// Internal - only the framework creates sessions via Agent.LoadSessionAndBranchAsync().
+    /// Internal - only the framework creates sessions via Agent.LoadSessionAndThreadAsync().
     /// </summary>
     internal Session()
     {
@@ -77,7 +77,7 @@ public class Session
 
     /// <summary>
     /// Creates a new session with a specific ID.
-    /// Internal - only the framework creates sessions via Agent.LoadSessionAndBranchAsync().
+    /// Internal - only the framework creates sessions via Agent.LoadSessionAndThreadAsync().
     /// </summary>
     /// <param name="sessionId">The session identifier</param>
     internal Session(string sessionId)
@@ -154,15 +154,15 @@ public class Session
     }
 
     /// <summary>
-    /// Creates a new branch owned by this session.
-    /// Internal - only the framework creates branches via Agent.LoadSessionAndBranchAsync() or Agent.ForkBranchAsync().
+    /// Creates a new thread owned by this session.
+    /// Internal - only the framework creates threads via Agent.LoadSessionAndThreadAsync() or Agent.ForkThreadAsync().
     /// </summary>
-    /// <param name="branchId">Branch ID (defaults to generated GUID)</param>
-    /// <returns>A new Branch linked to this Session</returns>
-    internal Branch CreateBranch(string? branchId = null)
+    /// <param name="threadId">Thread ID (defaults to generated GUID)</param>
+    /// <returns>A new Thread linked to this Session</returns>
+    internal Thread CreateThread(string? threadId = null)
     {
-        var id = branchId ?? Guid.NewGuid().ToString();
-        return new Branch(Id, id) { Session = this };
+        var id = threadId ?? Guid.NewGuid().ToString();
+        return new Thread(Id, id) { Session = this };
     }
 }
 

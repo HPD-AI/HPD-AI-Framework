@@ -15,19 +15,19 @@ namespace HPD.Agent;
 public sealed record UncommittedTurn
 {
     /// <summary>
-    /// Default branch ID used before multi-branch support exists.
+    /// Default thread ID used before multi-thread support exists.
     /// </summary>
-    public const string DefaultBranch = "main";
+    public const string DefaultThread = "main";
 
     /// <summary>Session this turn belongs to.</summary>
     public required string SessionId { get; init; }
 
     /// <summary>
-    /// Which branch this turn was executing on.
-    /// Used on recovery to know which branch to load and append to.
-    /// For now, always <see cref="DefaultBranch"/> until branching is implemented.
+    /// Which thread this turn was executing on.
+    /// Used on recovery to know which thread to load and append to.
+    /// For now, always <see cref="DefaultThread"/> until threading is implemented.
     /// </summary>
-    public required string BranchId { get; init; }
+    public required string ThreadId { get; init; }
 
     /// <summary>
     /// Identifier of the in-flight turn.

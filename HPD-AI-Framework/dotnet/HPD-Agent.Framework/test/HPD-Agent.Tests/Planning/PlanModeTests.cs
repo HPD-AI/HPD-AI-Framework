@@ -215,7 +215,7 @@ public class PlanModeTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         // No plan in state → nothing injected
-        Assert.DoesNotContain(context.BranchHistory,
+        Assert.DoesNotContain(context.ThreadHistory,
             m => m.Text?.Contains("[CURRENT_PLAN]") == true);
     }
 
@@ -229,7 +229,7 @@ public class PlanModeTests
 
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
-        Assert.Contains(context.BranchHistory,
+        Assert.Contains(context.ThreadHistory,
             m => m.Role == ChatRole.System && m.Text?.Contains("[CURRENT_PLAN]") == true);
     }
 

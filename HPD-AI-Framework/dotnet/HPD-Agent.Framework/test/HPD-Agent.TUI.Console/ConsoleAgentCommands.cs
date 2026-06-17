@@ -95,7 +95,7 @@ internal static class ConsoleAgentCommands
             ConsoleCommandSurface.Show(
                 context,
                 "Agent commands",
-                "`/agents switch <agentId> [sessionId] [branchId]`",
+                "`/agents switch <agentId> [sessionId] [threadId]`",
                 TranscriptSeverity.Warning);
             return;
         }
@@ -122,7 +122,7 @@ internal static class ConsoleAgentCommands
                 {
                     AgentId = agentId,
                     SessionId = args.Count >= 3 ? args[2] : context.Scope.SessionId,
-                    BranchId = args.Count >= 4 ? args[3] : context.Scope.BranchId
+                    ThreadId = args.Count >= 4 ? args[3] : context.Scope.ThreadId
                 },
                 CancellationToken.None)
             .ConfigureAwait(false);
@@ -325,7 +325,7 @@ internal static class ConsoleAgentCommands
         Usage:
 
         - `/agents`
-        - `/agents switch <agentId> [sessionId] [branchId]`
+        - `/agents switch <agentId> [sessionId] [threadId]`
         - `/agents delete <agentId>`
         """;
 

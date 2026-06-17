@@ -12,14 +12,14 @@ fi
 
 # Extract line coverage from JSON summary
 LINE_COVERAGE=$(cat "$JSON_REPORT" | grep -o '"linecoverage":[0-9.]*' | head -1 | cut -d':' -f2)
-BRANCH_COVERAGE=$(cat "$JSON_REPORT" | grep -o '"branchcoverage":[0-9.]*' | head -1 | cut -d':' -f2)
+THREAD_COVERAGE=$(cat "$JSON_REPORT" | grep -o '"threadcoverage":[0-9.]*' | head -1 | cut -d':' -f2)
 
 echo "=================================="
 echo "       Code Coverage Report       "
 echo "=================================="
 echo ""
 printf "Line Coverage:   %.1f%%\n" "$LINE_COVERAGE"
-printf "Branch Coverage: %.1f%%\n" "$BRANCH_COVERAGE"
+printf "Thread Coverage: %.1f%%\n" "$THREAD_COVERAGE"
 printf "Threshold:       %.1f%%\n" "$THRESHOLD"
 echo ""
 
@@ -33,11 +33,11 @@ else
     echo "✓ Line coverage meets threshold"
 fi
 
-if (( $(echo "$BRANCH_COVERAGE < $THRESHOLD" | bc -l) )); then
-    echo "Branch coverage ($BRANCH_COVERAGE%) is below threshold ($THRESHOLD%)"
+if (( $(echo "$THREAD_COVERAGE < $THRESHOLD" | bc -l) )); then
+    echo "Thread coverage ($THREAD_COVERAGE%) is below threshold ($THRESHOLD%)"
     PASSED=false
 else
-    echo "✓ Branch coverage meets threshold"
+    echo "✓ Thread coverage meets threshold"
 fi
 
 echo ""

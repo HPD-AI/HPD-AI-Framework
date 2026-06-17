@@ -105,24 +105,24 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task ConcurrentInputs_OnDifferentBranches_BothAccepted()
+    public async Task ConcurrentInputs_OnDifferentThreads_BothAccepted()
     {
         // Arrange
         var createResponse = await _client.PostAsync("/sessions", null);
         var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
 
-        // Create second branch
-        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{session!.Id}/branches",
-            new CreateBranchRequest("branch2", "Branch 2", null, null));
+        // Create second thread
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{session!.Id}/threads",
+            new CreateThreadRequest("thread2", "Thread 2", null, null));
 
         var request1 = CreateInputJson("Test 1");
         var request2 = CreateInputJson("Test 2");
 
-        // Act - Submit on both branches simultaneously
+        // Act - Submit on both threads simultaneously
         var stream1Task = PostInputAsync(
-             $"/agents/test-agent/sessions/{session.Id}/branches/main/inputs", request1);
+             $"/agents/test-agent/sessions/{session.Id}/threads/main/inputs", request1);
         var stream2Task = PostInputAsync(
-             $"/agents/test-agent/sessions/{session.Id}/branches/branch2/inputs", request2);
+             $"/agents/test-agent/sessions/{session.Id}/threads/thread2/inputs", request2);
 
         await Task.WhenAll(stream1Task, stream2Task);
 
@@ -132,7 +132,7 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task ConcurrentInputs_OnSameBranch_ReturnsConflictForSecondRun()
+    public async Task ConcurrentInputs_OnSameThread_ReturnsConflictForSecondRun()
     {
         // Arrange
         var createResponse = await _client.PostAsync("/sessions", null);
@@ -141,9 +141,9 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
         var request = CreateInputJson("Long task");
 
         var stream1Task = PostInputAsync(
-             $"/agents/test-agent/sessions/{session!.Id}/branches/main/inputs", request);
+             $"/agents/test-agent/sessions/{session!.Id}/threads/main/inputs", request);
         var stream2Task = PostInputAsync(
-             $"/agents/test-agent/sessions/{session.Id}/branches/main/inputs", request);
+             $"/agents/test-agent/sessions/{session.Id}/threads/main/inputs", request);
 
         await Task.WhenAll(stream1Task, stream2Task);
 
@@ -176,16 +176,16 @@ public class ConcurrencyTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task ConcurrentBranchCreation_OnSameSession_AllSucceed()
+    public async Task ConcurrentThreadCreation_OnSameSession_AllSucceed()
     {
         // Arrange
         var createResponse = await _client.PostAsync("/sessions", null);
         var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
 
-        // Act - Create 10 branches concurrently
+        // Act - Create 10 threads concurrently
         var tasks = Enumerable.Range(0, 10).Select(i =>
-            _client.PostAsJsonAsync($"/agents/test-agent/sessions/{session!.Id}/branches",
-                new CreateBranchRequest($"branch-{i}", $"Branch {i}", null, null))
+            _client.PostAsJsonAsync($"/agents/test-agent/sessions/{session!.Id}/threads",
+                new CreateThreadRequest($"thread-{i}", $"Thread {i}", null, null))
         ).ToArray();
 
         await Task.WhenAll(tasks);

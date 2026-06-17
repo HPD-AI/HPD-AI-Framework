@@ -10,8 +10,8 @@ namespace HPD.RAG.Pipeline;
 /// <code>
 /// pipeline
 ///     .From("START").To("read").To("chunk").To("write").To("END").Done()
-///     .From("router").Port(0).To("text-branch").Done()
-///     .From("router").Port(1).To("image-branch").Done();
+///     .From("router").Port(0).To("text-thread").Done()
+///     .From("router").Port(1).To("image-thread").Done();
 /// </code>
 /// </summary>
 public sealed class MragEdgeBuilder

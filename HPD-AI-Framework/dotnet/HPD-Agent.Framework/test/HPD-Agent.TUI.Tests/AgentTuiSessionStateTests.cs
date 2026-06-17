@@ -42,10 +42,10 @@ public sealed class AgentTuiSessionStateTests
     {
         var state = CreateState();
 
-        await state.ApplyEventAsync(new BranchRunStartedEvent("run-12345678", "agent", DateTimeOffset.UtcNow));
+        await state.ApplyEventAsync(new ThreadRunStartedEvent("run-12345678", "agent", DateTimeOffset.UtcNow));
         state.Shell.FooterText.Should().Contain("running");
 
-        await state.ApplyEventAsync(new BranchRunCompletedEvent("run-12345678", "agent", Cancelled: false));
+        await state.ApplyEventAsync(new ThreadRunCompletedEvent("run-12345678", "agent", Cancelled: false));
 
         state.Shell.FooterText.Should().Contain("idle");
         state.Shell.Activities.Activities.Should().Contain(activity => activity.State == HPD.TUI.Models.ActivityState.Completed);
@@ -202,7 +202,7 @@ public sealed class AgentTuiSessionStateTests
     private sealed class TestRunStatusHandler : IAgentTuiEventHandler
     {
         public bool CanHandle(AgentEvent evt)
-            => evt is BranchRunStartedEvent or BranchRunCompletedEvent;
+            => evt is ThreadRunStartedEvent or ThreadRunCompletedEvent;
 
         public ValueTask HandleAsync(
             AgentEvent evt,
@@ -211,7 +211,7 @@ public sealed class AgentTuiSessionStateTests
         {
             switch (evt)
             {
-                case BranchRunStartedEvent:
+                case ThreadRunStartedEvent:
                     context.Shell.Activities.Add(new ActivityModel("run")
                     {
                         State = ActivityState.Running,
@@ -220,7 +220,7 @@ public sealed class AgentTuiSessionStateTests
                     context.Shell.FooterText = "state: running";
                     break;
 
-                case BranchRunCompletedEvent:
+                case ThreadRunCompletedEvent:
                     foreach (var activity in context.Shell.Activities.Activities.Where(activity => activity.State == ActivityState.Running))
                     {
                         activity.State = ActivityState.Completed;

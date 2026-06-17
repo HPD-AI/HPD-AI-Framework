@@ -21,8 +21,8 @@ public class MinimalContentUploadTest
             var contentStore = new LocalFileContentStore(Path.Combine(tempDir, "content"));
             var session = await store.LoadSessionAsync("minimal-session") ?? new HPD.Agent.Session("minimal-session");
             session.Store = store;
-            var branch = await store.LoadBranchAsync("minimal-session", "main") ?? session.CreateBranch("main");
-            branch.Session = session;
+            var thread = await store.LoadThreadAsync("minimal-session", "main") ?? session.CreateThread("main");
+            thread.Session = session;
 
             // Verify session has store
             Assert.NotNull(session.Store);
@@ -61,7 +61,7 @@ public class MinimalContentUploadTest
                 await agent.RunAsync(new UserMessagesInputEvent([userMessage])
                 {
                     Session = session,
-                    Branch = branch
+                    Thread = thread
                 });
             }
 

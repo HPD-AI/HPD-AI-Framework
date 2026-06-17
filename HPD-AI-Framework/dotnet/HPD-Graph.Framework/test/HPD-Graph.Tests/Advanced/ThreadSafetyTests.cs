@@ -14,7 +14,7 @@ public class ThreadSafetyTests
     [Fact]
     public async Task Execute_ParallelNodes_ShouldHandleConcurrentContextAccess()
     {
-        // Arrange - Graph with parallel branches
+        // Arrange - Graph with parallel threads
         var graph = new TestGraphBuilder()
             .AddStartNode()
             .AddHandlerNode("parallel1", "SuccessHandler")
@@ -55,7 +55,7 @@ public class ThreadSafetyTests
             .AddHandlerNode("merge", "SuccessHandler")
             .AddEndNode();
 
-        // Add 10 parallel branches
+        // Add 10 parallel threads
         for (int i = 0; i < 10; i++)
         {
             var nodeId = $"parallel_{i}";

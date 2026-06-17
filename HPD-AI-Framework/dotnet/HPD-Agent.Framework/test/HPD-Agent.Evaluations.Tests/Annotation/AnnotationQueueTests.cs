@@ -15,7 +15,7 @@ public sealed class AnnotationQueueTests
         var queue = new AnnotationQueue();
         var annotationId = queue.TryEnqueueFromScore(
             "session",
-            "branch",
+            "thread",
             turnIndex: 2,
             evaluatorName: "Task Success",
             score: 0.2);
@@ -47,7 +47,7 @@ public sealed class AnnotationQueueTests
         {
             LockTimeout = TimeSpan.FromMilliseconds(1),
         });
-        var annotationId = queue.TryEnqueueFromScore("session", "branch", 0, "Safety", 0.1);
+        var annotationId = queue.TryEnqueueFromScore("session", "thread", 0, "Safety", 0.1);
         queue.Claim(annotationId!, "reviewer-1").Should().NotBeNull();
 
         Thread.Sleep(20);
@@ -62,7 +62,7 @@ public sealed class AnnotationQueueTests
     public void Complete_ClaimedItem_StoresScore()
     {
         var queue = new AnnotationQueue();
-        var annotationId = queue.TryEnqueueFromScore("session", "branch", 0, "Safety", 0.1);
+        var annotationId = queue.TryEnqueueFromScore("session", "thread", 0, "Safety", 0.1);
         queue.Claim(annotationId!, "reviewer-1").Should().NotBeNull();
 
         queue.Complete(annotationId!, "reviewer-1", "unsafe", score: 0.0)
@@ -76,7 +76,7 @@ public sealed class AnnotationQueueTests
     public void SubmitResponse_AlreadyCompleted_ReturnsFalse()
     {
         var queue = new AnnotationQueue();
-        var annotationId = queue.TryEnqueueFromScore("session", "branch", 0, "Safety", 0.1);
+        var annotationId = queue.TryEnqueueFromScore("session", "thread", 0, "Safety", 0.1);
         queue.SubmitResponse(annotationId!, "reviewer-1", "unsafe").Should().BeTrue();
 
         queue.SubmitResponse(annotationId!, "reviewer-2", "safe")
@@ -96,7 +96,7 @@ public sealed class AnnotationQueueTests
     public void Complete_WrongReviewer_ReturnsFalse()
     {
         var queue = new AnnotationQueue();
-        var annotationId = queue.TryEnqueueFromScore("session", "branch", 0, "Safety", 0.1);
+        var annotationId = queue.TryEnqueueFromScore("session", "thread", 0, "Safety", 0.1);
         queue.Claim(annotationId!, "reviewer-1").Should().NotBeNull();
 
         queue.Complete(annotationId!, "reviewer-2", "unsafe")

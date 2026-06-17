@@ -17,10 +17,10 @@ namespace HPD.Agent.AspNetCore.Tests.Integration;
 
 /// <summary>
 /// Integration tests for the /evals endpoint group.
-/// Covers: 503 guard, GET /evals/scores, GET /evals/scores/by-branch,
+/// Covers: 503 guard, GET /evals/scores, GET /evals/scores/by-thread,
 /// GET /evals/scores/by-version, POST /evals/scores, GET /evals/analytics/evaluators,
 /// GET /evals/analytics/trend/{name}, GET /evals/analytics/pass-rate/{name}, GET /evals/analytics/failure-rate/{name},
-/// GET /evals/analytics/agent-comparison/{name}, GET /evals/analytics/branch-comparison,
+/// GET /evals/analytics/agent-comparison/{name}, GET /evals/analytics/thread-comparison,
 /// GET /evals/analytics/tool-usage, GET /evals/analytics/risk-autonomy, GET /evals/analytics/cost.
 /// </summary>
 public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
@@ -121,9 +121,9 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     [Fact]
     public async Task GET_evals_scores_Returns_OnlyMatchingEvaluator()
     {
-        await SeedAsync(ScoreRecordFactory.Make("EvalFilter_A", sessionId: "sf-s1", branchId: "main"));
-        await SeedAsync(ScoreRecordFactory.Make("EvalFilter_A", sessionId: "sf-s2", branchId: "main"));
-        await SeedAsync(ScoreRecordFactory.Make("EvalFilter_B", sessionId: "sf-s3", branchId: "main"));
+        await SeedAsync(ScoreRecordFactory.Make("EvalFilter_A", sessionId: "sf-s1", threadId: "main"));
+        await SeedAsync(ScoreRecordFactory.Make("EvalFilter_A", sessionId: "sf-s2", threadId: "main"));
+        await SeedAsync(ScoreRecordFactory.Make("EvalFilter_B", sessionId: "sf-s3", threadId: "main"));
 
         var response = await _client.GetAsync("/evals/scores?evaluatorName=EvalFilter_A");
 
@@ -160,18 +160,18 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     // =========================================================================
-    // Category C — GET /evals/scores/by-branch
+    // Category C — GET /evals/scores/by-thread
     // =========================================================================
 
     [Fact]
-    public async Task GET_evals_scores_byBranch_Returns_AllBranchesForSession()
+    public async Task GET_evals_scores_byThread_Returns_AllThreadsForSession()
     {
-        const string sid = "byBranch-session-all";
-        await SeedAsync(ScoreRecordFactory.Make("EvalBB", sessionId: sid, branchId: "main"));
-        await SeedAsync(ScoreRecordFactory.Make("EvalBB", sessionId: sid, branchId: "fork-1"));
-        await SeedAsync(ScoreRecordFactory.Make("EvalBB", sessionId: "OTHER-SESSION", branchId: "main"));
+        const string sid = "byThread-session-all";
+        await SeedAsync(ScoreRecordFactory.Make("EvalBB", sessionId: sid, threadId: "main"));
+        await SeedAsync(ScoreRecordFactory.Make("EvalBB", sessionId: sid, threadId: "fork-1"));
+        await SeedAsync(ScoreRecordFactory.Make("EvalBB", sessionId: "OTHER-SESSION", threadId: "main"));
 
-        var response = await _client.GetAsync($"/evals/scores/by-branch?sessionId={sid}");
+        var response = await _client.GetAsync($"/evals/scores/by-thread?sessionId={sid}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var records = await response.Content.ReadFromJsonAsync<List<JsonElement>>();
@@ -181,24 +181,24 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task GET_evals_scores_byBranch_FiltersToSpecificBranch()
+    public async Task GET_evals_scores_byThread_FiltersToSpecificThread()
     {
-        const string sid = "byBranch-session-specific";
-        await SeedAsync(ScoreRecordFactory.Make("EvalBBF", sessionId: sid, branchId: "main"));
-        await SeedAsync(ScoreRecordFactory.Make("EvalBBF", sessionId: sid, branchId: "fork-1"));
+        const string sid = "byThread-session-specific";
+        await SeedAsync(ScoreRecordFactory.Make("EvalBBF", sessionId: sid, threadId: "main"));
+        await SeedAsync(ScoreRecordFactory.Make("EvalBBF", sessionId: sid, threadId: "fork-1"));
 
-        var response = await _client.GetAsync($"/evals/scores/by-branch?sessionId={sid}&branchId=main");
+        var response = await _client.GetAsync($"/evals/scores/by-thread?sessionId={sid}&threadId=main");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var records = await response.Content.ReadFromJsonAsync<List<JsonElement>>();
         records.Should().HaveCountGreaterThanOrEqualTo(1);
-        records!.Should().OnlyContain(r => r.GetProperty("branchId").GetString() == "main");
+        records!.Should().OnlyContain(r => r.GetProperty("threadId").GetString() == "main");
     }
 
     [Fact]
-    public async Task GET_evals_scores_byBranch_Returns200_WithEmpty_WhenSessionUnknown()
+    public async Task GET_evals_scores_byThread_Returns200_WithEmpty_WhenSessionUnknown()
     {
-        var response = await _client.GetAsync("/evals/scores/by-branch?sessionId=nonexistent-session-xyz");
+        var response = await _client.GetAsync("/evals/scores/by-thread?sessionId=nonexistent-session-xyz");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadAsStringAsync();
@@ -206,9 +206,9 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task GET_evals_scores_byBranch_Returns400_WhenSessionIdMissing()
+    public async Task GET_evals_scores_byThread_Returns400_WhenSessionIdMissing()
     {
-        var response = await _client.GetAsync("/evals/scores/by-branch");
+        var response = await _client.GetAsync("/evals/scores/by-thread");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -257,7 +257,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
             result = record.Result,
             source = record.Source.ToString(),
             sessionId = record.SessionId,
-            branchId = record.BranchId,
+            threadId = record.ThreadId,
             turnIndex = record.TurnIndex,
             agentName = record.AgentName,
             turnDuration = record.TurnDuration.ToString(),
@@ -286,7 +286,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
             result = record.Result,
             source = record.Source.ToString(),
             sessionId = record.SessionId,
-            branchId = record.BranchId,
+            threadId = record.ThreadId,
             turnIndex = record.TurnIndex,
             agentName = record.AgentName,
             turnDuration = record.TurnDuration.ToString(),
@@ -304,11 +304,11 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task POST_evals_scores_CanBeReadBack_Via_GetScoresByBranch()
+    public async Task POST_evals_scores_CanBeReadBack_Via_GetScoresByThread()
     {
         const string sid = "post-roundtrip-session";
-        const string bid = "post-roundtrip-branch";
-        var record = ScoreRecordFactory.Make("PostRoundtrip", sessionId: sid, branchId: bid);
+        const string bid = "post-roundtrip-thread";
+        var record = ScoreRecordFactory.Make("PostRoundtrip", sessionId: sid, threadId: bid);
         var body = new
         {
             evaluatorName = record.EvaluatorName,
@@ -316,7 +316,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
             result = record.Result,
             source = record.Source.ToString(),
             sessionId = sid,
-            branchId = bid,
+            threadId = bid,
             turnIndex = record.TurnIndex,
             agentName = record.AgentName,
             turnDuration = record.TurnDuration.ToString(),
@@ -328,7 +328,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         var postResponse = await _client.PostAsJsonAsync("/evals/scores", body);
         postResponse.StatusCode.Should().Be(HttpStatusCode.Created);
 
-        var getResponse = await _client.GetAsync($"/evals/scores/by-branch?sessionId={sid}&branchId={bid}");
+        var getResponse = await _client.GetAsync($"/evals/scores/by-thread?sessionId={sid}&threadId={bid}");
         getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var records = await getResponse.Content.ReadFromJsonAsync<List<JsonElement>>();
         records.Should().NotBeNull();
@@ -336,7 +336,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
         records.Should().Contain(r =>
             r.GetProperty("evaluatorName").GetString() == "PostRoundtrip" &&
             r.GetProperty("sessionId").GetString() == sid &&
-            r.GetProperty("branchId").GetString() == bid);
+            r.GetProperty("threadId").GetString() == bid);
     }
 
     [Fact]
@@ -350,7 +350,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
             result = record.Result,
             source = record.Source.ToString(),
             sessionId = record.SessionId,
-            branchId = record.BranchId,
+            threadId = record.ThreadId,
             turnIndex = record.TurnIndex,
             agentName = record.AgentName,
             turnDuration = record.TurnDuration.ToString(),
@@ -532,33 +532,33 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
     }
 
     // =========================================================================
-    // Category K — GET /evals/analytics/branch-comparison
+    // Category K — GET /evals/analytics/thread-comparison
     // =========================================================================
 
     [Fact]
-    public async Task GET_evals_branchComparison_Returns_BranchComparisonResult()
+    public async Task GET_evals_threadComparison_Returns_ThreadComparisonResult()
     {
         const string sid = "bc-session";
-        await SeedAsync(ScoreRecordFactory.Make("EvalBC", sessionId: sid, branchId: "bc-main", passing: true));
-        await SeedAsync(ScoreRecordFactory.Make("EvalBC", sessionId: sid, branchId: "bc-fork", passing: false));
+        await SeedAsync(ScoreRecordFactory.Make("EvalBC", sessionId: sid, threadId: "bc-main", passing: true));
+        await SeedAsync(ScoreRecordFactory.Make("EvalBC", sessionId: sid, threadId: "bc-fork", passing: false));
 
-        var url = $"/evals/analytics/branch-comparison?sessionId={sid}&branchId1=bc-main&branchId2=bc-fork&evaluatorNames=EvalBC";
+        var url = $"/evals/analytics/thread-comparison?sessionId={sid}&threadId1=bc-main&threadId2=bc-fork&evaluatorNames=EvalBC";
         var response = await _client.GetAsync(url);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
         doc.GetProperty("sessionId").GetString().Should().Be(sid);
-        doc.GetProperty("branchId1").GetString().Should().Be("bc-main");
-        doc.GetProperty("branchId2").GetString().Should().Be("bc-fork");
-        doc.TryGetProperty("branch1Scores", out _).Should().BeTrue();
-        doc.TryGetProperty("branch2Scores", out _).Should().BeTrue();
+        doc.GetProperty("threadId1").GetString().Should().Be("bc-main");
+        doc.GetProperty("threadId2").GetString().Should().Be("bc-fork");
+        doc.TryGetProperty("thread1Scores", out _).Should().BeTrue();
+        doc.TryGetProperty("thread2Scores", out _).Should().BeTrue();
     }
 
     [Fact]
-    public async Task GET_evals_branchComparison_Returns400_WhenRequiredParamMissing()
+    public async Task GET_evals_threadComparison_Returns400_WhenRequiredParamMissing()
     {
-        // branchId2 missing
-        var response = await _client.GetAsync("/evals/analytics/branch-comparison?sessionId=s1&branchId1=b1&evaluatorNames=E1");
+        // threadId2 missing
+        var response = await _client.GetAsync("/evals/analytics/thread-comparison?sessionId=s1&threadId1=b1&evaluatorNames=E1");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -1229,7 +1229,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
             Source = EvaluationSource.Test,
             AgentName = "test-agent",
             SessionId = executionName,
-            BranchId = scenarioName,
+            ThreadId = scenarioName,
             TurnIndex = 0,
             TaskDuration = TimeSpan.FromMilliseconds(10),
             EvaluatorDuration = TimeSpan.FromMilliseconds(5),
@@ -1278,7 +1278,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
             Result = new EvaluationResult([scoreMetric, passedMetric]),
             Source = EvaluationSource.Test,
             SessionId = $"safety-{Guid.NewGuid():N}",
-            BranchId = "main",
+            ThreadId = "main",
             TurnIndex = 0,
             AgentName = "safety-agent",
             TurnDuration = TimeSpan.FromMilliseconds(50),
@@ -1311,7 +1311,7 @@ public class EvalEndpointsTests : IClassFixture<EvalTestWebApplicationFactory>
             Result = new EvaluationResult([metric]),
             Source = EvaluationSource.Test,
             SessionId = $"redteam-{Guid.NewGuid():N}",
-            BranchId = "main",
+            ThreadId = "main",
             TurnIndex = 0,
             AgentName = "redteam-agent",
             TurnDuration = TimeSpan.FromMilliseconds(50),

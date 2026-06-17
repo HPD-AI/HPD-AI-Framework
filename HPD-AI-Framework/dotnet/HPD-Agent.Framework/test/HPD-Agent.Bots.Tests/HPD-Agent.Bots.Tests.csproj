@@ -39,7 +39,7 @@
     <ProjectReference Include="../../src/HPD-Agent.Bots/HPD-Agent.Bots.SourceGenerator/HPD-Agent.Bots.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="true" />
-    <!-- InMemorySessionStore, Session, Branch, ISessionStore -->
+    <!-- InMemorySessionStore, Session, Thread, ISessionStore -->
     <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
     <!-- SessionManager, AgentManager -->
     <ProjectReference Include="../../src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />

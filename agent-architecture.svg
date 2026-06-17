@@ -97,7 +97,7 @@
     <path d="M 470 450 L 470 465 L 310 465 L 310 495" class="flow-state" fill="none" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow-minimal)" />
     <path d="M 290 490 L 290 455 L 490 455 L 490 460" class="flow-state" fill="none" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow-minimal)" />
 
-    <!-- Agent <-> Session/Branch (dashed, right side of agent to session node) -->
+    <!-- Agent <-> Session/Thread (dashed, right side of agent to session node) -->
     <path d="M 680 340 L 700 340 L 700 530 L 740 530" class="flow-state" fill="none" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow-minimal)" />
     <path d="M 740 560 L 700 560 L 700 370 L 680 370" class="flow-state" fill="none" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#arrow-minimal)" />
 
@@ -214,7 +214,7 @@
 
         <rect x="15" y="75" width="170" height="28" rx="4" fill="#f7f7f5" stroke="#e5e7eb" stroke-width="1" />
         <text x="100" y="88" fill="#37352f" font-size="12" font-weight="500" text-anchor="middle">ISessionStore</text>
-        <text x="100" y="101" fill="#787774" font-size="10" text-anchor="middle">conversation history · branches</text>
+        <text x="100" y="101" fill="#787774" font-size="10" text-anchor="middle">conversation history · threads</text>
 
         <rect x="15" y="108" width="170" height="28" rx="4" fill="#f7f7f5" stroke="#e5e7eb" stroke-width="1" />
         <text x="100" y="121" fill="#37352f" font-size="12" font-weight="500" text-anchor="middle">IContentStore</text>
@@ -222,17 +222,17 @@
       </g>
     </g>
 
-    <!-- Session / Branch Node — below evaluation, right of agent -->
+    <!-- Session / Thread Node — below evaluation, right of agent -->
     <g transform="translate(740, 510)">
       <g class="animate-node delay-4 node-group">
         <rect class="interactive-rect" width="180" height="110" rx="6" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.5" />
-        <text x="90" y="30" fill="#37352f" font-size="14" font-weight="600" text-anchor="middle">Session / Branch</text>
+        <text x="90" y="30" fill="#37352f" font-size="14" font-weight="600" text-anchor="middle">Session / Thread</text>
 
         <rect x="15" y="45" width="150" height="25" rx="4" fill="#f7f7f5" stroke="#e5e7eb" stroke-width="1" />
         <text x="90" y="62" fill="#37352f" font-size="12" text-anchor="middle">Session (metadata, state)</text>
 
         <rect x="15" y="75" width="150" height="25" rx="4" fill="#f7f7f5" stroke="#e5e7eb" stroke-width="1" />
-        <text x="90" y="89" fill="#37352f" font-size="12" text-anchor="middle">Branch (messages, fork)</text>
+        <text x="90" y="89" fill="#37352f" font-size="12" text-anchor="middle">Thread (messages, fork)</text>
       </g>
     </g>
 

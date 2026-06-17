@@ -18,7 +18,7 @@ import { untrack } from 'svelte';
 import { SplitPanelState, type LayoutChangeDetail } from '../state/split-panel-state.svelte.js';
 import { LayoutHistory } from '../state/layout-history.svelte.js';
 import { LayoutPersistence, type StorageState } from '../state/layout-persistence.svelte.js';
-import type { LayoutNode, LeafNode, BranchNode } from '../types/index.js';
+import type { LayoutNode, LeafNode, ThreadNode } from '../types/index.js';
 import type { SplitPanelSplitState } from './split-panel-split-state.svelte.js';
 
 /**
@@ -308,8 +308,8 @@ export class SplitPanelRootState {
 		}
 
 		if (!rootSplit) {
-			// No root split yet, keep empty branch
-			if (this.opts.debug) console.log('[SyncTree] No root split found, keeping empty branch');
+			// No root split yet, keep empty thread
+			if (this.opts.debug) console.log('[SyncTree] No root split found, keeping empty thread');
 			return;
 		}
 
@@ -317,7 +317,7 @@ export class SplitPanelRootState {
 		rootSplit._setPath([]);
 
 		// Build tree structure recursively from root split using DOM ordering
-		const newTree = this.#buildBranchFromSplit(rootSplit, []);
+		const newTree = this.#buildThreadFromSplit(rootSplit, []);
 		if (this.opts.debug) console.log('[SyncTree] Built tree:', JSON.stringify(newTree, null, 2));
 
 		// Assign to layoutState
@@ -331,22 +331,22 @@ export class SplitPanelRootState {
 	}
 
 	/**
-	 * Build a branch node from a split at the given path.
+	 * Build a thread node from a split at the given path.
 	 * Uses DOM ordering to ensure children are in correct visual order.
 	 */
-	#buildBranchFromSplit(split: SplitPanelSplitState, path: number[]): BranchNode {
+	#buildThreadFromSplit(split: SplitPanelSplitState, path: number[]): ThreadNode {
 		const children: LayoutNode[] = [];
 		const flexes: number[] = [];
 
 		if (this.opts.debug) {
-			console.log('[BuildBranch] Building for split at path:', path, 'axis:', split.internalAxis);
+			console.log('[BuildThread] Building for split at path:', path, 'axis:', split.internalAxis);
 		}
 
 		// Get children in DOM order (panes and nested splits sorted by document position)
 		const orderedChildren = split.getChildrenInDOMOrder();
 
 		if (this.opts.debug) {
-			console.log('[BuildBranch] Children in DOM order:', orderedChildren.map(c => ({ id: c.id, type: c.type })));
+			console.log('[BuildThread] Children in DOM order:', orderedChildren.map(c => ({ id: c.id, type: c.type })));
 		}
 
 		// First pass: collect all leaf nodes and their configs to calculate flexes
@@ -439,7 +439,7 @@ export class SplitPanelRootState {
 				} else if (panesWithoutPercent.includes(idx)) {
 					percent = perPanePercent;
 				} else {
-					percent = 100 / activeIndices.length; // Fallback for branches
+					percent = 100 / activeIndices.length; // Fallback for threads
 				}
 
 				// Convert percentage to flex (scaled so sum = activeIndices.length)
@@ -449,7 +449,7 @@ export class SplitPanelRootState {
 			}
 
 			if (this.opts.debug) {
-				console.log('[BuildBranch] Using percentage-based flexes:', computedFlexes);
+				console.log('[BuildThread] Using percentage-based flexes:', computedFlexes);
 			}
 		} else {
 			// No percentage sizes, use equal distribution for active children
@@ -516,26 +516,26 @@ export class SplitPanelRootState {
 				flexes.push(flex);
 
 				if (this.opts.debug) {
-					console.log('[BuildBranch]   Pane:', info.id, 'at index:', i, 'collapsed:', info.isCollapsed, 'flex:', flex);
+					console.log('[BuildThread]   Pane:', info.id, 'at index:', i, 'collapsed:', info.isCollapsed, 'flex:', flex);
 				}
 			} else if (info.type === 'split' && info.splitState) {
-				// Recursively build branch for nested split
+				// Recursively build thread for nested split
 				const childPath = [...path, i];
 				// Update the split's path for tree sync
 				info.splitState._setPath(childPath);
 
-				const branchNode = this.#buildBranchFromSplit(info.splitState, childPath);
-				children.push(branchNode);
+				const threadNode = this.#buildThreadFromSplit(info.splitState, childPath);
+				children.push(threadNode);
 				flexes.push(computedFlexes[i]);
 
 				if (this.opts.debug) {
-					console.log('[BuildBranch]   Nested split at index:', i, 'path:', childPath, 'flex:', computedFlexes[i]);
+					console.log('[BuildThread]   Nested split at index:', i, 'path:', childPath, 'flex:', computedFlexes[i]);
 				}
 			}
 		}
 
 		return {
-			type: 'branch',
+			type: 'thread',
 			axis: split.internalAxis,
 			children,
 			flexes
@@ -615,7 +615,7 @@ export class SplitPanelRootState {
 		// TODO: Implement reset to initial/default layout
 		// For now, just clear the root
 		this.layoutState.root = {
-			type: 'branch',
+			type: 'thread',
 			axis: 'column',
 			children: [],
 			flexes: []
@@ -703,7 +703,7 @@ export class SplitPanelRootState {
 			this.expandPane(paneId);
 		}
 
-		// Find pane and its parent branch
+		// Find pane and its parent thread
 		const result = this.#findPaneWithParent(this.layoutState.root, paneId, null, -1);
 		if (!result) {
 			console.warn(`[setPaneSize] Pane not found: ${paneId}`);
@@ -711,8 +711,8 @@ export class SplitPanelRootState {
 		}
 
 		const { parent, index } = result;
-		if (!parent || parent.type !== 'branch') {
-			console.warn(`[setPaneSize] Pane has no parent branch: ${paneId}`);
+		if (!parent || parent.type !== 'thread') {
+			console.warn(`[setPaneSize] Pane has no parent thread: ${paneId}`);
 			return;
 		}
 
@@ -812,14 +812,14 @@ export class SplitPanelRootState {
 	}
 
 	/**
-	 * Find a pane and its parent branch in the tree.
+	 * Find a pane and its parent thread in the tree.
 	 */
 	#findPaneWithParent(
 		node: LayoutNode,
 		paneId: string,
-		parent: BranchNode | null,
+		parent: ThreadNode | null,
 		indexInParent: number
-	): { leaf: LeafNode; parent: BranchNode | null; index: number } | null {
+	): { leaf: LeafNode; parent: ThreadNode | null; index: number } | null {
 		if (node.type === 'leaf') {
 			if (node.id === paneId) {
 				return { leaf: node, parent, index: indexInParent };
@@ -827,7 +827,7 @@ export class SplitPanelRootState {
 			return null;
 		}
 
-		// Branch: search children
+		// Thread: search children
 		for (let i = 0; i < node.children.length; i++) {
 			const result = this.#findPaneWithParent(node.children[i], paneId, node, i);
 			if (result) return result;
@@ -870,7 +870,7 @@ export class SplitPanelRootState {
 	// =========================================================================
 
 	/**
-	 * Find the flex value of a leaf in its parent branch.
+	 * Find the flex value of a leaf in its parent thread.
 	 * Returns undefined if the pane is not in the tree.
 	 */
 	#getExistingFlex(node: LayoutNode, paneId: string): number | undefined {
@@ -894,7 +894,7 @@ export class SplitPanelRootState {
 			return node.id === paneId ? node : null;
 		}
 
-		// Branch: search children recursively
+		// Thread: search children recursively
 		for (const child of node.children) {
 			const found = this.#findLeafNode(child, paneId);
 			if (found) return found;

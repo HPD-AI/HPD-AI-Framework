@@ -229,7 +229,7 @@ public record ContentInfo
     /// <summary>
     /// Store-specific extended metadata.
     /// Examples:
-    /// - Local content uploads: {"kind": "upload"} with a branch content scope
+    /// - Local content uploads: {"kind": "upload"} with a thread content scope
     /// - Runtime artifacts: {"kind": "artifact", "artifact-kind": "execute_command_output"}
     /// - StaticMemoryStore: {"extractedTextLength": "15234"}
     /// - DynamicMemoryStore: {"title": "Meeting Notes"}

@@ -1,10 +1,10 @@
 /**
- * createWorkspace() - Unified Session/Branch/Streaming Factory
+ * createWorkspace() - Unified Session/Thread/Streaming Factory
  *
  * Single factory that owns all three levels of the HPD Agent hierarchy:
  *   Level 1: Session list (select, create, delete sessions)
- *   Level 2: Branch view (switch, fork, navigate siblings)
- *   Level 3: Branch streaming state (send, approve, clarify, abort)
+ *   Level 2: Thread view (switch, fork, navigate siblings)
+ *   Level 3: Thread streaming state (send, approve, clarify, abort)
  *
  * Always routes streaming through AgentClient (correct event queue,
  * bidirectional handling). Never exposes raw transport to callers.
@@ -18,8 +18,8 @@
  * workspace.selectSession(id)
  *
  * // Level 2
- * workspace.activeBranch   // reactive metadata
- * workspace.switchBranch(id)
+ * workspace.activeThread   // reactive metadata
+ * workspace.switchThread(id)
  * workspace.goToNextSibling()
  *
  * // Level 3
@@ -34,10 +34,10 @@ import {
 	EventTypes,
 	type AgentRunInputEvent,
 	type PermissionChoice,
-	type Branch,
-	type BranchMessage,
+	type Thread,
+	type ThreadMessage,
 	type ContentReference,
-	type CreateBranchRequest,
+	type CreateThreadRequest,
 	type CreateSessionRequest,
 	type Session,
 	type AgentSummaryDto,
@@ -51,11 +51,11 @@ import type { AgentClientLike, CreateWorkspaceOptions, SendOptions, Workspace } 
 // ============================================
 
 /**
- * Map raw BranchMessage[] to UI Message[].
+ * Map raw ThreadMessage[] to UI Message[].
  * Extracts text, reasoning, and tool calls from the full AIContent list.
  * All fields are set to their fully-settled defaults — no streaming side effects.
  */
-function mapToUIMessages(raw: BranchMessage[]): Message[] {
+function mapToUIMessages(raw: ThreadMessage[]): Message[] {
 	return raw
 		// 'tool' role messages are function result containers — internal plumbing, not user-visible
 		.filter((msg) => msg.role !== 'tool')
@@ -115,7 +115,7 @@ class WorkspaceImpl implements Workspace {
 
 	readonly #client: AgentClientLike;
 	readonly #options: CreateWorkspaceOptions;
-	readonly #maxCachedBranches: number;
+	readonly #maxCachedThreads: number;
 
 	get client(): AgentClientLike { return this.#client; }
 
@@ -136,20 +136,20 @@ class WorkspaceImpl implements Workspace {
 	#activeAgentId = $state<string | null>(null);
 
 	// ==========================================
-	// Level 2: Branch registry ($state)
+	// Level 2: Thread registry ($state)
 	// ==========================================
 
-	#branches = $state<Map<string, Branch>>(new Map());
-	#activeBranchId = $state<string | null>(null);
+	#threads = $state<Map<string, Thread>>(new Map());
+	#activeThreadId = $state<string | null>(null);
 
 	// ==========================================
-	// Level 2+3: Branch state cache (plain Maps, LRU managed manually)
-	// Key format: `${sessionId}:${branchId}`
-	// Two sessions can both have a branch named 'main' — compound key prevents collision.
+	// Level 2+3: Thread state cache (plain Maps, LRU managed manually)
+	// Key format: `${sessionId}:${threadId}`
+	// Two sessions can both have a thread named 'main' — compound key prevents collision.
 	// ==========================================
 
-	readonly #branchStates = new Map<string, AgentState>();
-	readonly #branchAccessTimestamps = new Map<string, number>();
+	readonly #threadStates = new Map<string, AgentState>();
+	readonly #threadAccessTimestamps = new Map<string, number>();
 
 	// ==========================================
 	// Level 3: Bidirectional resolvers
@@ -167,36 +167,36 @@ class WorkspaceImpl implements Workspace {
 
 	readonly state = $derived.by((): AgentState | null => {
 		const sid = this.#activeSessionId;
-		const bid = this.#activeBranchId;
+		const bid = this.#activeThreadId;
 		if (!sid || !bid) return null;
-		return this.#branchStates.get(`${sid}:${bid}`) ?? null;
+		return this.#threadStates.get(`${sid}:${bid}`) ?? null;
 	});
 
-	readonly activeBranch = $derived.by((): Branch | null => {
-		if (!this.#activeBranchId) return null;
-		return this.#branches.get(this.#activeBranchId) ?? null;
+	readonly activeThread = $derived.by((): Thread | null => {
+		if (!this.#activeThreadId) return null;
+		return this.#threads.get(this.#activeThreadId) ?? null;
 	});
 
-	readonly activeSiblings = $derived.by((): Branch[] => {
-		const branch = this.activeBranch;
-		if (!branch) return [];
-		return Array.from(this.#branches.values())
+	readonly activeSiblings = $derived.by((): Thread[] => {
+		const thread = this.activeThread;
+		if (!thread) return [];
+		return Array.from(this.#threads.values())
 			.filter(
 				(b) =>
-					b.forkedFrom === branch.forkedFrom &&
-					b.forkedAtMessageId === branch.forkedAtMessageId
+					b.forkedFrom === thread.forkedFrom &&
+					b.forkedAtMessageId === thread.forkedAtMessageId
 			)
 			.sort((a, b) => a.siblingIndex - b.siblingIndex);
 	});
 
-	readonly canGoNext = $derived.by(() => this.activeBranch?.nextSiblingId != null);
-	readonly canGoPrevious = $derived.by(() => this.activeBranch?.previousSiblingId != null);
+	readonly canGoNext = $derived.by(() => this.activeThread?.nextSiblingId != null);
+	readonly canGoPrevious = $derived.by(() => this.activeThread?.previousSiblingId != null);
 
 	readonly currentSiblingPosition = $derived.by(() => {
-		if (!this.activeBranch) return { current: 0, total: 0 };
+		if (!this.activeThread) return { current: 0, total: 0 };
 		return {
-			current: this.activeBranch.siblingIndex + 1,
-			total: this.activeBranch.totalSiblings
+			current: this.activeThread.siblingIndex + 1,
+			total: this.activeThread.totalSiblings
 		};
 	});
 
@@ -216,11 +216,11 @@ class WorkspaceImpl implements Workspace {
 	get error() {
 		return this.#error;
 	}
-	get branches() {
-		return this.#branches;
+	get threads() {
+		return this.#threads;
 	}
-	get activeBranchId() {
-		return this.#activeBranchId;
+	get activeThreadId() {
+		return this.#activeThreadId;
 	}
 	get agents() {
 		return this.#agents;
@@ -235,7 +235,7 @@ class WorkspaceImpl implements Workspace {
 
 	constructor(options: CreateWorkspaceOptions) {
 		this.#options = options;
-		this.#maxCachedBranches = options.maxCachedBranches ?? 10;
+		this.#maxCachedThreads = options.maxCachedThreads ?? 10;
 		this.#activeAgentId = options.agentId ?? null;
 
 		// Create AgentClient (or use injected one for tests)
@@ -275,7 +275,7 @@ class WorkspaceImpl implements Workspace {
 			// Activate initial session
 			const targetSessionId = this.#options.sessionId ?? sessions[0]?.id ?? null;
 			if (targetSessionId) {
-				await this.#loadSession(targetSessionId, this.#options.initialBranchId);
+				await this.#loadSession(targetSessionId, this.#options.initialThreadId);
 			}
 		} catch (err) {
 			this.#error = err instanceof Error ? err.message : 'Failed to initialize';
@@ -285,91 +285,91 @@ class WorkspaceImpl implements Workspace {
 	}
 
 	// ==========================================
-	// Internal: load session branches + switch to branch
+	// Internal: load session threads + switch to thread
 	// Does NOT set #loading (callers manage that).
 	// ==========================================
 
-	async #loadSession(sessionId: string, preferredBranchId?: string): Promise<void> {
-		// Clear branch view immediately while loading
-		this.#activeBranchId = null;
-		this.#branches = new Map();
+	async #loadSession(sessionId: string, preferredThreadId?: string): Promise<void> {
+		// Clear thread view immediately while loading
+		this.#activeThreadId = null;
+		this.#threads = new Map();
 
-		// Load all branches for this session
-		const branchList = await this.#client.listBranches(sessionId);
-		const branchMap = new Map<string, Branch>();
-		for (const branch of branchList) {
-			branchMap.set(branch.id, branch);
+		// Load all threads for this session
+		const threadList = await this.#client.listThreads(sessionId);
+		const threadMap = new Map<string, Thread>();
+		for (const thread of threadList) {
+			threadMap.set(thread.id, thread);
 		}
-		this.#branches = branchMap;
+		this.#threads = threadMap;
 		this.#activeSessionId = sessionId;
 
-		// Determine which branch to activate
-		const targetBranchId =
-			preferredBranchId ??
-			(branchMap.has('main') ? 'main' : branchList[0]?.id ?? null);
+		// Determine which thread to activate
+		const targetThreadId =
+			preferredThreadId ??
+			(threadMap.has('main') ? 'main' : threadList[0]?.id ?? null);
 
-		if (targetBranchId) {
-			await this.#loadBranch(sessionId, targetBranchId);
+		if (targetThreadId) {
+			await this.#loadThread(sessionId, targetThreadId);
 		}
 	}
 
 	// ==========================================
-	// Internal: load branch state into cache + activate
+	// Internal: load thread state into cache + activate
 	// ==========================================
 
-	async #loadBranch(sessionId: string, branchId: string): Promise<void> {
-		const cacheKey = `${sessionId}:${branchId}`;
-		const existing = this.#branchStates.get(cacheKey);
+	async #loadThread(sessionId: string, threadId: string): Promise<void> {
+		const cacheKey = `${sessionId}:${threadId}`;
+		const existing = this.#threadStates.get(cacheKey);
 		if (existing) {
-			this.#branchAccessTimestamps.set(cacheKey, Date.now());
-			this.#activeBranchId = branchId;
+			this.#threadAccessTimestamps.set(cacheKey, Date.now());
+			this.#activeThreadId = threadId;
 			return;
 		} else {
-			const rawMessages = await this.#client.getBranchMessages(sessionId, branchId);
+			const rawMessages = await this.#client.getThreadMessages(sessionId, threadId);
 			const mapped = mapToUIMessages(rawMessages);
 			const state = new AgentState();
 			state.loadHistory(mapped);
-			this.#branchStates.set(cacheKey, state);
-			this.#branchAccessTimestamps.set(cacheKey, Date.now());
+			this.#threadStates.set(cacheKey, state);
+			this.#threadAccessTimestamps.set(cacheKey, Date.now());
 		}
 
-		this.#activeBranchId = branchId;
-		this.#evictOldBranchStates();
+		this.#activeThreadId = threadId;
+		this.#evictOldThreadStates();
 	}
 
 	// ==========================================
 	// Internal: LRU eviction
 	// ==========================================
 
-	#evictOldBranchStates(): void {
-		if (this.#branchStates.size <= this.#maxCachedBranches) return;
+	#evictOldThreadStates(): void {
+		if (this.#threadStates.size <= this.#maxCachedThreads) return;
 
-		const sorted = Array.from(this.#branchAccessTimestamps.entries()).sort(
+		const sorted = Array.from(this.#threadAccessTimestamps.entries()).sort(
 			(a, b) => a[1] - b[1]
 		);
 
-		const activeCacheKey = this.#activeSessionId && this.#activeBranchId
-			? `${this.#activeSessionId}:${this.#activeBranchId}`
+		const activeCacheKey = this.#activeSessionId && this.#activeThreadId
+			? `${this.#activeSessionId}:${this.#activeThreadId}`
 			: null;
 
 		for (const [key] of sorted) {
-			if (this.#branchStates.size <= this.#maxCachedBranches) break;
+			if (this.#threadStates.size <= this.#maxCachedThreads) break;
 			if (key !== activeCacheKey) {
-				this.#branchStates.delete(key);
-				this.#branchAccessTimestamps.delete(key);
+				this.#threadStates.delete(key);
+				this.#threadAccessTimestamps.delete(key);
 			}
 		}
 	}
 
 	// ==========================================
-	// Internal: active branch state (for event handlers)
+	// Internal: active thread state (for event handlers)
 	// ==========================================
 
 	#activeState(): AgentState | null {
 		const sid = this.#activeSessionId;
-		const bid = this.#activeBranchId;
+		const bid = this.#activeThreadId;
 		if (!sid || !bid) return null;
-		return this.#branchStates.get(`${sid}:${bid}`) ?? null;
+		return this.#threadStates.get(`${sid}:${bid}`) ?? null;
 	}
 
 	// ==========================================
@@ -484,50 +484,50 @@ class WorkspaceImpl implements Workspace {
 			} else {
 				// No other session — reset to empty state
 				this.#activeSessionId = null;
-				this.#activeBranchId = null;
-				this.#branches = new Map();
+				this.#activeThreadId = null;
+				this.#threads = new Map();
 			}
 		}
 
 		await this.#client.deleteSession(sessionId);
 		this.#sessions = this.#sessions.filter((s) => s.id !== sessionId);
 
-		// Evict all cached branch states for this session
-		for (const key of this.#branchStates.keys()) {
+		// Evict all cached thread states for this session
+		for (const key of this.#threadStates.keys()) {
 			if (key.startsWith(`${sessionId}:`)) {
-				this.#branchStates.delete(key);
-				this.#branchAccessTimestamps.delete(key);
+				this.#threadStates.delete(key);
+				this.#threadAccessTimestamps.delete(key);
 			}
 		}
 	}
 
 	// ==========================================
-	// Level 2: Branch operations
+	// Level 2: Thread operations
 	// ==========================================
 
-	async switchBranch(branchId: string): Promise<void> {
-		if (branchId === this.#activeBranchId) return;
+	async switchThread(threadId: string): Promise<void> {
+		if (threadId === this.#activeThreadId) return;
 
 		const sessionId = this.#activeSessionId;
 		if (!sessionId) throw new Error('No active session');
 
-		if (!this.#branches.has(branchId)) {
-			throw new Error(`Branch ${branchId} not found in active session`);
+		if (!this.#threads.has(threadId)) {
+			throw new Error(`Thread ${threadId} not found in active session`);
 		}
 
 		this.#loading = true;
 		this.#error = null;
 		try {
-			await this.#loadBranch(sessionId, branchId);
-			// Refresh branch metadata so sibling navigation fields are current
-			const fresh = await this.#client.getBranch(sessionId, branchId);
+			await this.#loadThread(sessionId, threadId);
+			// Refresh thread metadata so sibling navigation fields are current
+			const fresh = await this.#client.getThread(sessionId, threadId);
 			if (fresh) {
-				const updated = new Map(this.#branches);
-				updated.set(branchId, fresh);
-				this.#branches = updated;
+				const updated = new Map(this.#threads);
+				updated.set(threadId, fresh);
+				this.#threads = updated;
 			}
 		} catch (err) {
-			this.#error = err instanceof Error ? err.message : 'Failed to switch branch';
+			this.#error = err instanceof Error ? err.message : 'Failed to switch thread';
 			throw err;
 		} finally {
 			this.#loading = false;
@@ -535,29 +535,29 @@ class WorkspaceImpl implements Workspace {
 	}
 
 	async goToNextSibling(): Promise<void> {
-		const next = this.activeBranch?.nextSiblingId;
+		const next = this.activeThread?.nextSiblingId;
 		if (!next) throw new Error('No next sibling');
-		await this.switchBranch(next);
+		await this.switchThread(next);
 	}
 
 	async goToPreviousSibling(): Promise<void> {
-		const prev = this.activeBranch?.previousSiblingId;
+		const prev = this.activeThread?.previousSiblingId;
 		if (!prev) throw new Error('No previous sibling');
-		await this.switchBranch(prev);
+		await this.switchThread(prev);
 	}
 
 	async goToSiblingByIndex(index: number): Promise<void> {
 		const sibling = this.activeSiblings[index];
 		if (!sibling) throw new Error(`No sibling at index ${index}`);
-		await this.switchBranch(sibling.id);
+		await this.switchThread(sibling.id);
 	}
 
 	async editMessage(messageIndex: number, newContent: string): Promise<void> {
 		const sessionId = this.#activeSessionId;
-		const branchId = this.#activeBranchId;
+		const threadId = this.#activeThreadId;
 		const activeState = this.#activeState();
 
-		if (!sessionId || !branchId || !activeState) throw new Error('No active branch');
+		if (!sessionId || !threadId || !activeState) throw new Error('No active thread');
 
 		const messages = activeState.messages;
 		if (messageIndex < 0 || messageIndex >= messages.length) {
@@ -575,157 +575,157 @@ class WorkspaceImpl implements Workspace {
 			throw new Error('Cannot fork because the fork point message has no id');
 		}
 
-		// Always fork from the branch that OWNS the shared context at forkAtIndex.
-		// If the current branch is itself a fork at this same message (forkedAtMessageId === fromMessageId),
+		// Always fork from the thread that OWNS the shared context at forkAtIndex.
+		// If the current thread is itself a fork at this same message (forkedAtMessageId === fromMessageId),
 		// then its parent already owns the shared context — fork from the parent instead.
-		// This ensures all edits of the same message become flat siblings of the original branch
+		// This ensures all edits of the same message become flat siblings of the original thread
 		// rather than a linear chain of forks-of-forks.
-		const activeBranch = this.#branches.get(branchId)!;
-		const sourceBranchId =
-			!activeBranch.isOriginal && activeBranch.forkedAtMessageId === fromMessageId
-				? activeBranch.forkedFrom!
-				: branchId;
+		const activeThread = this.#threads.get(threadId)!;
+		const sourceThreadId =
+			!activeThread.isOriginal && activeThread.forkedAtMessageId === fromMessageId
+				? activeThread.forkedFrom!
+				: threadId;
 
-		const fork = await this.#client.forkBranch(sessionId, sourceBranchId, {
-			newBranchId: crypto.randomUUID(),
+		const fork = await this.#client.forkThread(sessionId, sourceThreadId, {
+			newThreadId: crypto.randomUUID(),
 			fromMessageId,
 			name: `Edit: ${newContent.slice(0, 30)}${newContent.length > 30 ? '...' : ''}`,
 			agentId: this.#activeAgentId ?? undefined
 		});
-		// Register fork in branch map
-		const newBranches = new Map(this.#branches);
-		newBranches.set(fork.id, fork);
-		this.#branches = newBranches;
+		// Register fork in thread map
+		const newThreads = new Map(this.#threads);
+		newThreads.set(fork.id, fork);
+		this.#threads = newThreads;
 
-		// Refresh source branch metadata (it gained a new sibling group member)
-		const updatedSource = await this.#client.getBranch(sessionId, sourceBranchId);
+		// Refresh source thread metadata (it gained a new sibling group member)
+		const updatedSource = await this.#client.getThread(sessionId, sourceThreadId);
 		if (updatedSource) {
-			const refreshed = new Map(this.#branches);
-			refreshed.set(sourceBranchId, updatedSource);
-			this.#branches = refreshed;
+			const refreshed = new Map(this.#threads);
+			refreshed.set(sourceThreadId, updatedSource);
+			this.#threads = refreshed;
 		}
 
 		// Also refresh all existing siblings at this fork point so their totalSiblings is current
-		const allBranches = Array.from(this.#branches.values());
-		const siblingsToRefresh = allBranches.filter(
-			b => b.id !== fork.id && b.id !== sourceBranchId &&
-				b.forkedFrom === sourceBranchId && b.forkedAtMessageId === fromMessageId
+		const allThreads = Array.from(this.#threads.values());
+		const siblingsToRefresh = allThreads.filter(
+			b => b.id !== fork.id && b.id !== sourceThreadId &&
+				b.forkedFrom === sourceThreadId && b.forkedAtMessageId === fromMessageId
 		);
 		if (siblingsToRefresh.length > 0) {
-			const refreshed = new Map(this.#branches);
+			const refreshed = new Map(this.#threads);
 			await Promise.all(siblingsToRefresh.map(async sib => {
-				const fresh = await this.#client.getBranch(sessionId, sib.id);
+				const fresh = await this.#client.getThread(sessionId, sib.id);
 				if (fresh) refreshed.set(sib.id, fresh);
 			}));
-			this.#branches = refreshed;
+			this.#threads = refreshed;
 		}
 
 		// The fork has messages up to forkAtIndex (messageIndex - 1), not including the edited message.
 		// Switch to fork and send the edited content as a fresh message.
-		await this.switchBranch(fork.id);
+		await this.switchThread(fork.id);
 		await this.send(newContent);
 	}
 
-	async deleteBranch(branchId: string, options?: { recursive?: boolean }): Promise<void> {
+	async deleteThread(threadId: string, options?: { recursive?: boolean }): Promise<void> {
 		const sessionId = this.#activeSessionId;
 		if (!sessionId) throw new Error('No active session');
 
-		const branchToDelete = this.#branches.get(branchId);
-		if (!branchToDelete) throw new Error('Branch not found');
+		const threadToDelete = this.#threads.get(threadId);
+		if (!threadToDelete) throw new Error('Thread not found');
 
-		// Capture siblings BEFORE any navigation (activeSiblings is $derived — it changes after switchBranch)
-		const siblingsToRefresh = branchToDelete.forkedFrom
-			? Array.from(this.#branches.values()).filter(
+		// Capture siblings BEFORE any navigation (activeSiblings is $derived — it changes after switchThread)
+		const siblingsToRefresh = threadToDelete.forkedFrom
+			? Array.from(this.#threads.values()).filter(
 					(b) =>
-						b.id !== branchId &&
-						b.forkedFrom === branchToDelete.forkedFrom &&
-						b.forkedAtMessageId === branchToDelete.forkedAtMessageId
+						b.id !== threadId &&
+						b.forkedFrom === threadToDelete.forkedFrom &&
+						b.forkedAtMessageId === threadToDelete.forkedAtMessageId
 				)
 			: [];
 
-		// Navigate away if the active branch is the deleted branch OR is a descendant of it.
-		// Use the ancestors chain — every branch stores its full lineage.
+		// Navigate away if the active thread is the deleted thread OR is a descendant of it.
+		// Use the ancestors chain — every thread stores its full lineage.
 		const activeIsInsideSubtree =
-			this.#activeBranchId === branchId ||
-			(this.#activeBranchId !== null &&
-				this.activeBranch?.ancestors != null &&
-				Object.values(this.activeBranch.ancestors).includes(branchId));
+			this.#activeThreadId === threadId ||
+			(this.#activeThreadId !== null &&
+				this.activeThread?.ancestors != null &&
+				Object.values(this.activeThread.ancestors).includes(threadId));
 
 		if (activeIsInsideSubtree) {
 			let targetId: string | null = null;
 
-			if (branchToDelete.nextSiblingId) {
-				targetId = branchToDelete.nextSiblingId;
-			} else if (branchToDelete.previousSiblingId) {
-				targetId = branchToDelete.previousSiblingId;
-			} else if (branchToDelete.originalBranchId) {
-				targetId = branchToDelete.originalBranchId;
+			if (threadToDelete.nextSiblingId) {
+				targetId = threadToDelete.nextSiblingId;
+			} else if (threadToDelete.previousSiblingId) {
+				targetId = threadToDelete.previousSiblingId;
+			} else if (threadToDelete.originalThreadId) {
+				targetId = threadToDelete.originalThreadId;
 			} else {
-				targetId = Array.from(this.#branches.keys()).find((id) => id !== branchId) ?? null;
+				targetId = Array.from(this.#threads.keys()).find((id) => id !== threadId) ?? null;
 			}
 
-			if (!targetId) throw new Error('Cannot delete the only branch');
-			await this.switchBranch(targetId);
+			if (!targetId) throw new Error('Cannot delete the only thread');
+			await this.switchThread(targetId);
 		}
 
-		await this.#client.deleteBranch(sessionId, branchId, options);
+		await this.#client.deleteThread(sessionId, threadId, options);
 
-		// Remove the deleted branch and all its descendants from the local branch map and state cache
-		const deletedIds = this.#collectSubtreeIds(branchId);
-		const newBranches = new Map(this.#branches);
+		// Remove the deleted thread and all its descendants from the local thread map and state cache
+		const deletedIds = this.#collectSubtreeIds(threadId);
+		const newThreads = new Map(this.#threads);
 		for (const id of deletedIds) {
-			newBranches.delete(id);
-			this.#branchStates.delete(`${sessionId}:${id}`);
-			this.#branchAccessTimestamps.delete(`${sessionId}:${id}`);
+			newThreads.delete(id);
+			this.#threadStates.delete(`${sessionId}:${id}`);
+			this.#threadAccessTimestamps.delete(`${sessionId}:${id}`);
 		}
-		this.#branches = newBranches;
+		this.#threads = newThreads;
 
 		// Refresh sibling metadata (backend reindexed siblingIndex, totalSiblings, navigation pointers)
 		for (const sibling of siblingsToRefresh) {
-			await this.refreshBranch(sibling.id);
+			await this.refreshThread(sibling.id);
 		}
 	}
 
-	/** Collect the IDs of a branch and all its descendants from the local branch map. */
-	#collectSubtreeIds(branchId: string): string[] {
-		const result: string[] = [branchId];
-		const branch = this.#branches.get(branchId);
-		if (branch) {
-			for (const childId of branch.childBranches) {
+	/** Collect the IDs of a thread and all its descendants from the local thread map. */
+	#collectSubtreeIds(threadId: string): string[] {
+		const result: string[] = [threadId];
+		const thread = this.#threads.get(threadId);
+		if (thread) {
+			for (const childId of thread.childThreads) {
 				result.push(...this.#collectSubtreeIds(childId));
 			}
 		}
 		return result;
 	}
 
-	async createBranch(options?: CreateBranchRequest): Promise<Branch> {
+	async createThread(options?: CreateThreadRequest): Promise<Thread> {
 		const sessionId = this.#activeSessionId;
 		if (!sessionId) throw new Error('No active session');
 
-		const branch = await this.#client.createBranch(sessionId, options);
-		const newBranches = new Map(this.#branches);
-		newBranches.set(branch.id, branch);
-		this.#branches = newBranches;
-		return branch;
+		const thread = await this.#client.createThread(sessionId, options);
+		const newThreads = new Map(this.#threads);
+		newThreads.set(thread.id, thread);
+		this.#threads = newThreads;
+		return thread;
 	}
 
-	async refreshBranch(branchId: string): Promise<void> {
+	async refreshThread(threadId: string): Promise<void> {
 		const sessionId = this.#activeSessionId;
 		if (!sessionId) return;
 
-		const branch = await this.#client.getBranch(sessionId, branchId);
-		if (branch) {
-			const newBranches = new Map(this.#branches);
-			newBranches.set(branchId, branch);
-			this.#branches = newBranches;
+		const thread = await this.#client.getThread(sessionId, threadId);
+		if (thread) {
+			const newThreads = new Map(this.#threads);
+			newThreads.set(threadId, thread);
+			this.#threads = newThreads;
 		}
 	}
 
-	invalidateBranch(branchId: string): void {
+	invalidateThread(threadId: string): void {
 		const sessionId = this.#activeSessionId;
 		if (!sessionId) return;
-		this.#branchStates.delete(`${sessionId}:${branchId}`);
-		this.#branchAccessTimestamps.delete(`${sessionId}:${branchId}`);
+		this.#threadStates.delete(`${sessionId}:${threadId}`);
+		this.#threadAccessTimestamps.delete(`${sessionId}:${threadId}`);
 	}
 
 	// ==========================================
@@ -748,10 +748,10 @@ class WorkspaceImpl implements Workspace {
 
 	async send(content: string, options?: SendOptions): Promise<void> {
 		const sessionId = this.#activeSessionId;
-		const branchId = this.#activeBranchId;
+		const threadId = this.#activeThreadId;
 		const activeState = this.#activeState();
 
-		if (!sessionId || !branchId || !activeState) throw new Error('No active branch');
+		if (!sessionId || !threadId || !activeState) throw new Error('No active thread');
 
 		activeState.addUserMessage(content);
 
@@ -761,7 +761,7 @@ class WorkspaceImpl implements Workspace {
 			type: EventTypes.USER_TEXT_INPUT,
 			text: messages[0]?.content ?? content,
 			sessionId,
-			branchId,
+			threadId,
 			agentId: effectiveAgentId,
 			runConfig: options?.runConfig
 		});
@@ -776,7 +776,7 @@ class WorkspaceImpl implements Workspace {
 			return {
 				...input,
 				sessionId: input.sessionId ?? this.#activeSessionId ?? undefined,
-				branchId: input.branchId ?? this.#activeBranchId ?? undefined,
+				threadId: input.threadId ?? this.#activeThreadId ?? undefined,
 				agentId: input.agentId ?? this.#activeAgentId ?? undefined
 			};
 		}
@@ -854,7 +854,7 @@ class WorkspaceImpl implements Workspace {
 // ============================================
 
 /**
- * Create a workspace that owns session list, branch management, and streaming.
+ * Create a workspace that owns session list, thread management, and streaming.
  *
  * Internally uses AgentClient for all streaming (correct sequential event queue,
  * bidirectional permission/clarification handling). The transport is never exposed.

@@ -137,10 +137,10 @@ public partial class DiscordBot(
 
         if (sessionMapper is not null)
         {
-            var (sessionId, branchId) = await sessionMapper.ResolveAsync(threadId, ctx.CancellationToken);
+            var (sessionId, threadId) = await sessionMapper.ResolveAsync(threadId, ctx.CancellationToken);
             _ = StreamToDiscordAsync(
                 sessionId,
-                branchId,
+                threadId,
                 input,
                 threadId,
                 payload.Token,
@@ -214,12 +214,12 @@ public partial class DiscordBot(
 
         if (sessionMapper is not null)
         {
-            var (sessionId, branchId) = await sessionMapper.ResolveAsync(threadId, ctx.CancellationToken);
+            var (sessionId, threadId) = await sessionMapper.ResolveAsync(threadId, ctx.CancellationToken);
             var sourceMessageId = data.ChannelType is 11 or 12 ? null : data.Id;
 
             _ = StreamToDiscordAsync(
                 sessionId,
-                branchId,
+                threadId,
                 input,
                 threadId,
                 interactionToken: null,
@@ -324,7 +324,7 @@ public partial class DiscordBot(
 
     private async Task StreamToDiscordAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         AgentInput input,
         string threadId,
         string? interactionToken,
@@ -338,7 +338,7 @@ public partial class DiscordBot(
         {
             var context = new DiscordStreamContext(
                 SessionId: sessionId,
-                BranchId: branchId,
+                ThreadId: threadId,
                 Input: input,
                 ThreadId: threadId,
                 InteractionToken: interactionToken,
@@ -350,7 +350,7 @@ public partial class DiscordBot(
                 new BotStreamingRequest<DiscordStreamContext>(
                     AgentId: _config.ResolveAgentId(),
                     SessionId: sessionId,
-                    BranchId: branchId,
+                    ThreadId: threadId,
                     Text: input.Text,
                     Context: context,
                     Strategy: streaming.Strategy,
@@ -415,7 +415,7 @@ public partial class DiscordBot(
                 await sessionMapper.BindThreadAsync(
                     DiscordThreadId.Format(parsed.GuildId, parsed.ChannelId, newThreadId),
                     context.SessionId,
-                    context.BranchId,
+                    context.ThreadId,
                     ct);
             }
         }
@@ -610,7 +610,7 @@ public partial class DiscordBot(
 
     private sealed record DiscordStreamContext(
         string SessionId,
-        string BranchId,
+        string ThreadId,
         AgentInput Input,
         string ThreadId,
         string? InteractionToken,

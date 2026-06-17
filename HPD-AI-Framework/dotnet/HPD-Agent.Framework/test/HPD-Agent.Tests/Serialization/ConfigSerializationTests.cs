@@ -221,7 +221,7 @@ public class ConfigSerializationTests
                         AllowMetadataOnlyReplay = true,
                         AllowTranscriptReplay = false
                     },
-                    BranchProjection = new BranchProjectionPolicy
+                    ThreadProjection = new ThreadProjectionPolicy
                     {
                         ProjectCommittedUserTurns = true,
                         ProjectCommittedAssistantOutputs = true,

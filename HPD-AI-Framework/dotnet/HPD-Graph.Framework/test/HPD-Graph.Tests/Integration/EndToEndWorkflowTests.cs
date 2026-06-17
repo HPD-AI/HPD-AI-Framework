@@ -86,7 +86,7 @@ public class EndToEndWorkflowTests
     #region Parallel Workflow Tests
 
     [Fact]
-    public async Task ParallelWorkflow_ExecutesBranchesInParallel()
+    public async Task ParallelWorkflow_ExecutesThreadsInParallel()
     {
         // Arrange - START → A → (B, C) → D → END
         var graph = new TestGraphBuilder()
@@ -126,7 +126,7 @@ public class EndToEndWorkflowTests
     [Fact]
     public async Task ParallelWorkflow_MergeNodeReceivesAllInputs()
     {
-        // Arrange - Parallel branches merge at nodeD
+        // Arrange - Parallel threads merge at nodeD
         var graph = new TestGraphBuilder()
             .AddStartNode()
             .AddHandlerNode("nodeA", "CounterHandler")
@@ -308,9 +308,9 @@ public class EndToEndWorkflowTests
     }
 
     [Fact]
-    public async Task WideParallelExecution_ExecutesAllBranches()
+    public async Task WideParallelExecution_ExecutesAllThreads()
     {
-        // Arrange - 12 parallel branches
+        // Arrange - 12 parallel threads
         var builder = new TestGraphBuilder()
             .AddStartNode()
             .AddHandlerNode("merge", "SuccessHandler")
@@ -345,7 +345,7 @@ public class EndToEndWorkflowTests
     [Fact]
     public async Task MultiLevelParallelism_ExecutesCorrectly()
     {
-        // Arrange - Nested parallel branches
+        // Arrange - Nested parallel threads
         // START → A → (B1, B2) → (C1, C2, C3, C4) → D → END
         var graph = new TestGraphBuilder()
             .AddStartNode()

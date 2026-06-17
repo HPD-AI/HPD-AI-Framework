@@ -44,9 +44,9 @@ internal static class TurnEvaluationContextBuilder
         {
             AgentName = context.AgentName,
             SessionId = context.Session?.Id ?? string.Empty,
-            BranchId = context.Branch?.Id ?? string.Empty,
+            ThreadId = context.Thread?.Id ?? string.Empty,
             ConversationId = context.ConversationId ?? string.Empty,
-            TurnIndex = CountPriorUserMessages(context.Branch),
+            TurnIndex = CountPriorUserMessages(context.Thread),
             UserInput = userInput,
             ConversationHistory = conversationHistory,
             OutputText = context.FinalResponse.Text ?? string.Empty,
@@ -312,15 +312,15 @@ internal static class TurnEvaluationContextBuilder
         needles.Any(n => value.Contains(n, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
-    /// Reconstructs a list of TurnEvaluationContext objects from a saved Branch's message history.
+    /// Reconstructs a list of TurnEvaluationContext objects from a saved Thread's message history.
     /// Used by RetroactiveScorer to evaluate persisted conversations without re-running the agent.
-    /// Each user→assistant exchange in the branch becomes one TurnEvaluationContext.
+    /// Each user→assistant exchange in the thread becomes one TurnEvaluationContext.
     /// Token usage and trace data are unavailable in retroactive contexts (left null/empty).
     /// </summary>
-    internal static IReadOnlyList<TurnEvaluationContext> FromBranch(Branch branch, string agentName)
+    internal static IReadOnlyList<TurnEvaluationContext> FromThread(Thread thread, string agentName)
     {
         var results = new List<TurnEvaluationContext>();
-        var messages = branch.Messages;
+        var messages = thread.Messages;
 
         // Walk the message list, grouping each user message with the assistant reply that follows it
         int turnIndex = 0;
@@ -372,8 +372,8 @@ internal static class TurnEvaluationContextBuilder
             results.Add(new TurnEvaluationContext
             {
                 AgentName = agentName,
-                SessionId = branch.SessionId,
-                BranchId = branch.Id,
+                SessionId = thread.SessionId,
+                ThreadId = thread.Id,
                 ConversationId = string.Empty,
                 TurnIndex = turnIndex,
                 UserInput = userInput,
@@ -441,9 +441,9 @@ internal static class TurnEvaluationContextBuilder
         return records;
     }
 
-    private static int CountPriorUserMessages(Branch? branch)
+    private static int CountPriorUserMessages(Thread? thread)
     {
-        if (branch is null) return 0;
-        return branch.Messages.Count(m => m.Role == ChatRole.User);
+        if (thread is null) return 0;
+        return thread.Messages.Count(m => m.Role == ChatRole.User);
     }
 }

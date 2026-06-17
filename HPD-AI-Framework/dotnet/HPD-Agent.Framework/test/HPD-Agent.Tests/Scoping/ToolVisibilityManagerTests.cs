@@ -1426,7 +1426,7 @@ public class ToolVisibilityManagerTests
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["IsSubAgent"] = true,
-                    ["ExecutionModel"] = "BranchNative"
+                    ["ExecutionModel"] = "ThreadNative"
                     // No ParentToolHarness!
                 }
             });
@@ -1552,7 +1552,7 @@ public class ToolVisibilityManagerTests
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["IsSubAgent"] = true,
-                    ["ExecutionModel"] = "BranchNative",
+                    ["ExecutionModel"] = "ThreadNative",
                     ["ParentToolHarness"] = parentToolHarness  //  Correct key (not ToolHarnessName)
                 }
             });

@@ -160,24 +160,24 @@ public class AgentManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task GetOrBuildAgentRuntimeAsync_ReturnsSameInstance_ForSameBranchRuntime()
+    public async Task GetOrBuildAgentRuntimeAsync_ReturnsSameInstance_ForSameThreadRuntime()
     {
         var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
 
-        var a1 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-1");
-        var a2 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-1");
+        var a1 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-1");
+        var a2 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-1");
 
         a1.Should().BeSameAs(a2);
         _manager.BuildCallCount.Should().Be(1);
     }
 
     [Fact]
-    public async Task GetOrBuildAgentRuntimeAsync_CreatesDifferentInstances_ForDifferentBranches()
+    public async Task GetOrBuildAgentRuntimeAsync_CreatesDifferentInstances_ForDifferentThreads()
     {
         var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
 
-        var a1 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-1");
-        var a2 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-2");
+        var a1 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-1");
+        var a2 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-2");
 
         a1.Should().NotBeSameAs(a2);
         _manager.BuildCallCount.Should().Be(2);
@@ -188,22 +188,22 @@ public class AgentManagerTests : IDisposable
     {
         var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
 
-        var a1 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-1");
-        var a2 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-2", "branch-1");
+        var a1 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-1");
+        var a2 = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-2", "thread-1");
 
         a1.Should().NotBeSameAs(a2);
         _manager.BuildCallCount.Should().Be(2);
     }
 
     [Fact]
-    public async Task UpdateDefinitionAsync_EvictsBranchRuntimeInstances()
+    public async Task UpdateDefinitionAsync_EvictsThreadRuntimeInstances()
     {
         var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
-        var first = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-1");
+        var first = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-1");
 
         await _manager.UpdateDefinitionAsync(stored.Id, MakeConfig("X-updated"));
 
-        var second = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-1");
+        var second = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-1");
         second.Should().NotBeSameAs(first);
         _manager.BuildCallCount.Should().Be(2);
     }
@@ -279,16 +279,16 @@ public class AgentManagerTests : IDisposable
     {
         var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
 
-        _manager.GetRuntimeAgent(stored.Id, "session-1", "branch-1").Should().BeNull();
+        _manager.GetRuntimeAgent(stored.Id, "session-1", "thread-1").Should().BeNull();
     }
 
     [Fact]
-    public async Task GetRuntimeAgent_ReturnsBranchRuntime_AfterBuild()
+    public async Task GetRuntimeAgent_ReturnsThreadRuntime_AfterBuild()
     {
         var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
-        var built = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "branch-1");
+        var built = await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-1");
 
-        _manager.GetRuntimeAgent(stored.Id, "session-1", "branch-1").Should().BeSameAs(built);
+        _manager.GetRuntimeAgent(stored.Id, "session-1", "thread-1").Should().BeSameAs(built);
     }
 
     [Fact]
@@ -297,7 +297,7 @@ public class AgentManagerTests : IDisposable
         var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
         await _manager.GetOrBuildAgentAsync(stored.Id);
 
-        _manager.GetRuntimeAgent(stored.Id, "session-1", "branch-1").Should().BeNull();
+        _manager.GetRuntimeAgent(stored.Id, "session-1", "thread-1").Should().BeNull();
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -334,10 +334,10 @@ public class AgentManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task EvictIdleAgents_EvictsOldAgents_EvenIfBranchOperationLockHeld()
+    public async Task EvictIdleAgents_EvictsOldAgents_EvenIfThreadOperationLockHeld()
     {
         // KEY BEHAVIORAL CHANGE: IsStreaming is gone — time-based eviction only.
-        // The branch operation lock (held externally by SessionManager) does NOT protect the
+        // The thread operation lock (held externally by SessionManager) does NOT protect the
         // agent cache from eviction. After eviction the next agent request rebuilds.
         var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
         await _manager.GetOrBuildAgentAsync(stored.Id);

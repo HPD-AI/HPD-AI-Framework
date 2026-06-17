@@ -9,11 +9,11 @@ namespace HPD.MultiAgent.Tests;
 public class MultiAgentConversationRuntimeTests
 {
     [Fact]
-    public async Task SharedWorkflowBranch_RoutesAllNodesToSameBranch()
+    public async Task SharedWorkflowThread_RoutesAllNodesToSameThread()
     {
         var store = new InMemorySessionStore();
         var runtime = new MultiAgentConversationRuntime(
-            MultiAgentConversationPolicies.SharedWorkflowBranch("workflow-session"),
+            MultiAgentConversationPolicies.SharedWorkflowThread("workflow-session"),
             store,
             "TestWorkflow",
             "exec-1",
@@ -25,25 +25,25 @@ public class MultiAgentConversationRuntimeTests
 
         first.SessionId.Should().Be("workflow-session");
         second.SessionId.Should().Be("workflow-session");
-        first.BranchId.Should().Be("workflow");
-        second.BranchId.Should().Be("workflow");
+        first.ThreadId.Should().Be("workflow");
+        second.ThreadId.Should().Be("workflow");
 
-        var branch = await store.LoadBranchAsync("workflow-session", "workflow");
-        branch.Should().NotBeNull();
-        branch!.Metadata["conversationMode"].Should().Be(nameof(MultiAgentConversationMode.SharedWorkflowBranch));
+        var thread = await store.LoadThreadAsync("workflow-session", "workflow");
+        thread.Should().NotBeNull();
+        thread!.Metadata["conversationMode"].Should().Be(nameof(MultiAgentConversationMode.SharedWorkflowThread));
 
         var session = await store.LoadSessionAsync("workflow-session");
         session.Should().NotBeNull();
         session!.Metadata["workspaceKind"].Should().Be("multi-agent-workflow");
-        session.Metadata["conversationMode"].Should().Be(nameof(MultiAgentConversationMode.SharedWorkflowBranch));
+        session.Metadata["conversationMode"].Should().Be(nameof(MultiAgentConversationMode.SharedWorkflowThread));
     }
 
     [Fact]
-    public async Task BranchPerAgent_CreatesStableBranchForEachNode()
+    public async Task ThreadPerAgent_CreatesStableThreadForEachNode()
     {
         var store = new InMemorySessionStore();
         var runtime = new MultiAgentConversationRuntime(
-            MultiAgentConversationPolicies.BranchPerAgent("workflow-session", "node"),
+            MultiAgentConversationPolicies.ThreadPerAgent("workflow-session", "node"),
             store,
             "TestWorkflow",
             "exec-1",
@@ -55,21 +55,21 @@ public class MultiAgentConversationRuntimeTests
         var researcherAgain = await runtime.ResolveRouteAsync(CreateRouteContext(context, "researcher"), CancellationToken.None);
 
         researcher.SessionId.Should().Be("workflow-session");
-        researcher.BranchId.Should().Be("node-exec-1-researcher");
-        reviewer.BranchId.Should().Be("node-exec-1-reviewer");
-        researcherAgain.BranchId.Should().Be(researcher.BranchId);
+        researcher.ThreadId.Should().Be("node-exec-1-researcher");
+        reviewer.ThreadId.Should().Be("node-exec-1-reviewer");
+        researcherAgain.ThreadId.Should().Be(researcher.ThreadId);
 
-        var branch = await store.LoadBranchAsync("workflow-session", researcher.BranchId!);
-        branch.Should().NotBeNull();
-        branch!.Metadata["nodeId"].Should().Be("researcher");
+        var thread = await store.LoadThreadAsync("workflow-session", researcher.ThreadId!);
+        thread.Should().NotBeNull();
+        thread!.Metadata["nodeId"].Should().Be("researcher");
     }
 
     [Fact]
-    public async Task ForkBranchPerAgent_ForksEachNodeFromRootInputBranch()
+    public async Task ForkThreadPerAgent_ForksEachNodeFromRootInputThread()
     {
         var store = new InMemorySessionStore();
         var runtime = new MultiAgentConversationRuntime(
-            MultiAgentConversationPolicies.ForkBranchPerAgent("workflow-session", "root", "node"),
+            MultiAgentConversationPolicies.ForkThreadPerAgent("workflow-session", "root", "node"),
             store,
             "TestWorkflow",
             "exec-1",
@@ -79,25 +79,25 @@ public class MultiAgentConversationRuntimeTests
         var researcher = await runtime.ResolveRouteAsync(CreateRouteContext(context, "researcher"), CancellationToken.None);
         var reviewer = await runtime.ResolveRouteAsync(CreateRouteContext(context, "reviewer"), CancellationToken.None);
 
-        researcher.BranchId.Should().Be("node-exec-1-researcher");
-        reviewer.BranchId.Should().Be("node-exec-1-reviewer");
+        researcher.ThreadId.Should().Be("node-exec-1-researcher");
+        reviewer.ThreadId.Should().Be("node-exec-1-reviewer");
 
-        var root = await store.LoadBranchAsync("workflow-session", "root");
+        var root = await store.LoadThreadAsync("workflow-session", "root");
         root.Should().NotBeNull();
         root!.Messages.Should().ContainSingle(message => message.Text == "Solve this.");
 
-        var researcherBranch = await store.LoadBranchAsync("workflow-session", researcher.BranchId!);
-        researcherBranch.Should().NotBeNull();
-        researcherBranch!.ForkedFrom.Should().Be("root");
-        researcherBranch.Messages.Should().ContainSingle(message => message.Text == "Solve this.");
-        researcherBranch.Metadata["nodeId"].Should().Be("researcher");
+        var researcherThread = await store.LoadThreadAsync("workflow-session", researcher.ThreadId!);
+        researcherThread.Should().NotBeNull();
+        researcherThread!.ForkedFrom.Should().Be("root");
+        researcherThread.Messages.Should().ContainSingle(message => message.Text == "Solve this.");
+        researcherThread.Metadata["nodeId"].Should().Be("researcher");
     }
 
     [Fact]
     public async Task BuildAsync_ConversationPolicyRequiresWorkflowSessionStore()
     {
         var workflow = AgentWorkflow.Create()
-            .WithConversation(MultiAgentConversationPolicies.SharedWorkflowBranch())
+            .WithConversation(MultiAgentConversationPolicies.SharedWorkflowThread())
             .AddAgent("agent", MinimalConfig());
 
         var act = () => workflow.BuildAsync(CancellationToken.None);
@@ -120,7 +120,7 @@ public class MultiAgentConversationRuntimeTests
             CancellationToken.None);
 
         var runtime = new MultiAgentConversationRuntime(
-            MultiAgentConversationPolicies.BranchPerAgent("existing-workspace-session"),
+            MultiAgentConversationPolicies.ThreadPerAgent("existing-workspace-session"),
             store,
             "WorkspaceWorkflow",
             "exec-1",
@@ -134,7 +134,7 @@ public class MultiAgentConversationRuntimeTests
         session!.Metadata["owner"].Should().Be("user");
         session.Metadata["workspaceKind"].Should().Be("multi-agent-workflow");
         session.Metadata["workflowName"].Should().Be("WorkspaceWorkflow");
-        session.Metadata["conversationMode"].Should().Be(nameof(MultiAgentConversationMode.BranchPerAgent));
+        session.Metadata["conversationMode"].Should().Be(nameof(MultiAgentConversationMode.ThreadPerAgent));
     }
 
     private static async Task<AgentGraphContext> CreateContextAsync(ISessionStore store)

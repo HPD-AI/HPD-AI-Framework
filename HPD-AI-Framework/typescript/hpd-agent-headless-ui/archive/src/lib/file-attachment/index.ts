@@ -1,7 +1,7 @@
 /**
  * FileAttachment headless component
  *
- * Handles file selection, immediate upload to POST /sessions/{sid}/branches/{bid}/content,
+ * Handles file selection, immediate upload to POST /sessions/{sid}/threads/{bid}/content,
  * and accumulates ContentReference[] for passing to workspace.send().
  *
  * @example

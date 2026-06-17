@@ -17,7 +17,7 @@ export class SseTransport implements AgentTransport {
   private readonly baseUrl: string;
   private agentId?: string;
   private sessionId?: string;
-  private branchId?: string;
+  private threadId?: string;
   private abortController?: AbortController;
   private eventHandler?: (event: AgentEvent) => void;
   private errorHandler?: (error: Error) => void;
@@ -38,7 +38,7 @@ export class SseTransport implements AgentTransport {
     }
 
     this.sessionId = scope?.sessionId;
-    this.branchId = scope?.branchId || 'main';
+    this.threadId = scope?.threadId || 'main';
     this.agentId = scope?.agentId;
 
     if (!this.sessionId) {
@@ -55,7 +55,7 @@ export class SseTransport implements AgentTransport {
       : this.abortController.signal;
 
     const response = await this.fetch(
-      `${this.baseUrl}/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/events/live`,
+      `${this.baseUrl}/agents/${this.agentId}/sessions/${this.sessionId}/threads/${this.threadId}/events/live`,
       {
         method: 'GET',
         headers: { Accept: 'text/event-stream' },
@@ -78,11 +78,11 @@ export class SseTransport implements AgentTransport {
 
   async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<RespondResult | undefined> {
     const sessionId = 'sessionId' in input ? input.sessionId : undefined;
-    const branchId = 'branchId' in input ? input.branchId : undefined;
+    const threadId = 'threadId' in input ? input.threadId : undefined;
     const agentId = 'agentId' in input ? input.agentId : undefined;
 
     this.sessionId = sessionId ?? this.sessionId;
-    this.branchId = branchId ?? this.branchId ?? 'main';
+    this.threadId = threadId ?? this.threadId ?? 'main';
     this.agentId = agentId ?? this.agentId;
 
     if (this.isResponseInput(input)) {
@@ -98,8 +98,8 @@ export class SseTransport implements AgentTransport {
     }
 
     const endpoint = input.type === EventTypes.INTERRUPTION_REQUEST
-      ? `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/interrupt`
-      : `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/inputs`;
+      ? `/agents/${this.agentId}/sessions/${this.sessionId}/threads/${this.threadId}/interrupt`
+      : `/agents/${this.agentId}/sessions/${this.sessionId}/threads/${this.threadId}/inputs`;
 
     const response = await this.fetch(`${this.baseUrl}${endpoint}`, {
       method: 'POST',
@@ -184,7 +184,7 @@ export class SseTransport implements AgentTransport {
   }
 
   private async postResponse(input: AgentRunInputEvent): Promise<RespondResult> {
-    if (!this.agentId || !this.sessionId || !this.branchId) {
+    if (!this.agentId || !this.sessionId || !this.threadId) {
       throw new Error('Not connected');
     }
 
@@ -236,7 +236,7 @@ export class SseTransport implements AgentTransport {
       throw new Error(`Unknown response type: ${(input as { type: string }).type}`);
     }
 
-    return `/agents/${this.agentId}/sessions/${this.sessionId}/branches/${this.branchId}/responses`;
+    return `/agents/${this.agentId}/sessions/${this.sessionId}/threads/${this.threadId}/responses`;
   }
 
   private combineSignals(...signals: AbortSignal[]): AbortSignal {

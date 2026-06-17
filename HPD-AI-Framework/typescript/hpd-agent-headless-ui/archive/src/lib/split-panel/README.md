@@ -4,7 +4,7 @@ Production-ready split panel layout system for Svelte 5 with advanced features.
 
 ## Features
 
-- **Arbitrary nesting depth** - Recursive branch/leaf structure
+- **Arbitrary nesting depth** - Recursive thread/leaf structure
 - **RAF-batched resize** - 60fps performance even with 1000Hz mice
 - **Undo/redo** - Full state restoration with history
 - **Persistence** - ShellOS Storage integration
@@ -63,13 +63,13 @@ See [examples/LayoutTreeExample.svelte](./examples/LayoutTreeExample.svelte) for
 
 ### Layout Tree Structure
 
-The layout is a tree of `BranchNode` (containers) and `LeafNode` (panels):
+The layout is a tree of `ThreadNode` (containers) and `LeafNode` (panels):
 
 ```typescript
-type LayoutNode = BranchNode | LeafNode;
+type LayoutNode = ThreadNode | LeafNode;
 
-interface BranchNode {
-	type: 'branch';
+interface ThreadNode {
+	type: 'thread';
 	axis: 'row' | 'column';
 	children: LayoutNode[];
 	flexes: Float32Array; // Flex values for each child
@@ -136,7 +136,7 @@ addPanel(
 **Parameters:**
 
 - `panelId` - Unique panel ID (auto-generated if undefined)
-- `path` - Path to parent branch ([] for root)
+- `path` - Path to parent thread ([] for root)
 - `config` - Panel configuration (size, minSize, maxSize)
 
 **Example:**
@@ -175,7 +175,7 @@ resizeDivider(
 
 **Parameters:**
 
-- `parentPath` - Path to parent branch
+- `parentPath` - Path to parent thread
 - `dividerIndex` - Index of divider (0-based, between active children)
 - `delta` - Pixels to move (positive = right/down, negative = left/up)
 
@@ -302,7 +302,7 @@ The system uses data attributes for styling:
 ### Data Attributes
 
 - `[data-split-panel-root]` - Root container
-- `[data-split-panel-split]` - Branch node container
+- `[data-split-panel-split]` - Thread node container
 - `[data-split-panel-pane]` - Leaf panel
 - `[data-split-panel-handle]` - Resize handle
 - `[data-orientation="horizontal|vertical"]` - Orientation
@@ -386,7 +386,7 @@ import {
 Get active (non-collapsed) children with metadata.
 
 ```typescript
-getActiveChildren(node: BranchNode): ActiveChild[]
+getActiveChildren(node: ThreadNode): ActiveChild[]
 ```
 
 #### `computeGridTemplate(node, axis, layoutState)`
@@ -395,7 +395,7 @@ Generate CSS Grid template string.
 
 ```typescript
 computeGridTemplate(
-  node: BranchNode,
+  node: ThreadNode,
   axis: 'row' | 'column',
   layoutState: SplitPanelState
 ): string

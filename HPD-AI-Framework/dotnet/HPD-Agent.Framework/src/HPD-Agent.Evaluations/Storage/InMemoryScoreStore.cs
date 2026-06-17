@@ -43,13 +43,13 @@ public sealed class InMemoryScoreStore : IScoreStore
 
     public async IAsyncEnumerable<ScoreRecord> GetScoresAsync(
         string sessionId,
-        string? branchId = null,
+        string? threadId = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         foreach (var r in _records)
         {
             ct.ThrowIfCancellationRequested();
-            if (r.SessionId == sessionId && (branchId is null || r.BranchId == branchId))
+            if (r.SessionId == sessionId && (threadId is null || r.ThreadId == threadId))
                 yield return r;
         }
     }
@@ -266,21 +266,21 @@ public sealed class InMemoryScoreStore : IScoreStore
         return ValueTask.FromResult<IDictionary<string, ScoreAggregate>>(result);
     }
 
-    public ValueTask<BranchComparisonResult> GetBranchComparisonAsync(
-        string sessionId, string branchId1, string branchId2,
+    public ValueTask<ThreadComparisonResult> GetThreadComparisonAsync(
+        string sessionId, string threadId1, string threadId2,
         IEnumerable<string> evaluatorNames, CancellationToken ct = default)
     {
         var names = evaluatorNames.ToList();
-        var branch1Scores = new Dictionary<string, ScoreAggregate>();
-        var branch2Scores = new Dictionary<string, ScoreAggregate>();
+        var thread1Scores = new Dictionary<string, ScoreAggregate>();
+        var thread2Scores = new Dictionary<string, ScoreAggregate>();
 
         foreach (var name in names)
         {
-            branch1Scores[name] = ComputeAggregate(_records.Where(r => r.SessionId == sessionId && r.BranchId == branchId1 && r.EvaluatorName == name));
-            branch2Scores[name] = ComputeAggregate(_records.Where(r => r.SessionId == sessionId && r.BranchId == branchId2 && r.EvaluatorName == name));
+            thread1Scores[name] = ComputeAggregate(_records.Where(r => r.SessionId == sessionId && r.ThreadId == threadId1 && r.EvaluatorName == name));
+            thread2Scores[name] = ComputeAggregate(_records.Where(r => r.SessionId == sessionId && r.ThreadId == threadId2 && r.EvaluatorName == name));
         }
 
-        return ValueTask.FromResult(new BranchComparisonResult(sessionId, branchId1, branchId2, branch1Scores, branch2Scores));
+        return ValueTask.FromResult(new ThreadComparisonResult(sessionId, threadId1, threadId2, thread1Scores, thread2Scores));
     }
 
     public ValueTask<IReadOnlyList<EvaluatorSummary>> GetEvaluatorSummaryAsync(
@@ -392,7 +392,7 @@ public sealed class InMemoryScoreStore : IScoreStore
         DateTimeOffset? from = null, DateTimeOffset? to = null,
         CancellationToken ct = default)
     {
-        // Find (sessionId, branchId, turnIndex) triples that have BOTH a "Turn Risk"
+        // Find (sessionId, threadId, turnIndex) triples that have BOTH a "Turn Risk"
         // score and a "Turn Autonomy" score, then produce one data point per triple.
         var riskRecords = new Dictionary<(string, string, int), ScoreRecord>();
         var autonomyRecords = new Dictionary<(string, string, int), ScoreRecord>();
@@ -402,7 +402,7 @@ public sealed class InMemoryScoreStore : IScoreStore
             if (from.HasValue && record.CreatedAt < from.Value) continue;
             if (to.HasValue && record.CreatedAt > to.Value) continue;
 
-            var key = (record.SessionId, record.BranchId, record.TurnIndex);
+            var key = (record.SessionId, record.ThreadId, record.TurnIndex);
 
             if (record.EvaluatorName == "TurnRiskEvaluator" ||
                 record.Result.Metrics.ContainsKey("Turn Risk"))
@@ -425,7 +425,7 @@ public sealed class InMemoryScoreStore : IScoreStore
 
             points.Add(new RiskAutonomyDataPoint(
                 SessionId: key.Item1,
-                BranchId: key.Item2,
+                ThreadId: key.Item2,
                 TurnIndex: key.Item3,
                 AgentName: riskRecord.AgentName,
                 RiskScore: riskScore,
@@ -509,7 +509,7 @@ public sealed class InMemoryScoreStore : IScoreStore
                 AttackSucceeded: true,
                 EvaluatorName: r.EvaluatorName,
                 SessionId: r.SessionId,
-                BranchId: r.BranchId,
+                ThreadId: r.ThreadId,
                 TurnIndex: r.TurnIndex,
                 CreatedAt: r.CreatedAt))
             .ToList();

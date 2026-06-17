@@ -7,7 +7,7 @@ namespace HPD.Agent.AspNetCore.Lifecycle;
 
 /// <summary>
 /// ASP.NET Core-specific implementation of SessionManager.
-/// Handles session/branch lifecycle and stream/session locks.
+/// Handles session/thread lifecycle and stream/session locks.
 /// Agent building is handled separately by <see cref="AspNetCoreAgentManager"/>.
 /// </summary>
 internal class AspNetCoreSessionManager : SessionManager
@@ -25,6 +25,6 @@ internal class AspNetCoreSessionManager : SessionManager
         _name = name ?? throw new ArgumentNullException(nameof(name));
     }
 
-    public override bool AllowRecursiveBranchDelete =>
-        _optionsMonitor.Get(_name).AllowRecursiveBranchDelete;
+    public override bool AllowRecursiveThreadDelete =>
+        _optionsMonitor.Get(_name).AllowRecursiveThreadDelete;
 }

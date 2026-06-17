@@ -750,7 +750,7 @@ public sealed class RunEvalsTests
             .Which.Value.Should().BeTrue();
 
         var records = new List<ScoreRecord>();
-        await foreach (var record in store.GetScoresAsync(sessionId: "nightly", branchId: "case-1"))
+        await foreach (var record in store.GetScoresAsync(sessionId: "nightly", threadId: "case-1"))
             records.Add(record);
 
         records.Should().HaveCount(2);

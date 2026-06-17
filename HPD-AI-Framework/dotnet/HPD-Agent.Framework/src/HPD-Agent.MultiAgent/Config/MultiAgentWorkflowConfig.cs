@@ -284,7 +284,7 @@ public sealed record WorkflowSettingsConfig
     public IterationOptionsConfig? IterationOptions { get; init; }
 
     /// <summary>
-    /// Controls how workflow node agents write transcripts into HPD sessions and branches.
+    /// Controls how workflow node agents write transcripts into HPD sessions and threads.
     /// This is separate from the workflow store used for definitions and checkpoints.
     /// </summary>
     public MultiAgentConversationConfig Conversation { get; init; } = new();

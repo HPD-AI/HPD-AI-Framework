@@ -26,11 +26,11 @@ describe('SseTransport runtime', () => {
       text: async () => '',
     } as Response);
 
-    await transport.connect({ sessionId: 's1', agentId: 'a1', branchId: 'main' });
+    await transport.connect({ sessionId: 's1', agentId: 'a1', threadId: 'main' });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/a1/sessions/s1/branches/main/events/live',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events/live',
       expect.objectContaining({
         method: 'GET',
       }),
@@ -51,13 +51,13 @@ describe('SseTransport runtime', () => {
       type: EventTypes.USER_TEXT_INPUT,
       sessionId: 's1',
       agentId: 'a1',
-      branchId: 'main',
+      threadId: 'main',
       text: 'Hi',
       runConfig: { modelId: 'm' },
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/a1/sessions/s1/branches/main/inputs',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/inputs',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ text: 'Hi', runConfig: { modelId: 'm' } }),
@@ -79,7 +79,7 @@ describe('SseTransport runtime', () => {
         }),
       } as Response);
 
-    await transport.connect({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
+    await transport.connect({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
 
     const result = await transport.submitInput({
       type: EventTypes.PERMISSION_RESPONSE,
@@ -89,7 +89,7 @@ describe('SseTransport runtime', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/a1/sessions/s1/branches/main/responses',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/responses',
       expect.objectContaining({ method: 'POST' }),
     );
     expect(result).toEqual({
@@ -110,7 +110,7 @@ describe('SseTransport runtime', () => {
         json: async () => null,
       } as Response);
 
-    await transport.connect({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
+    await transport.connect({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
 
     await expect(transport.submitInput({
       type: EventTypes.PERMISSION_RESPONSE,
@@ -133,14 +133,14 @@ describe('SseTransport runtime', () => {
         ok: false,
         status: 409,
         json: async () => ({
-          title: 'Branch runtime is not active',
+          title: 'Thread runtime is not active',
           errors: {
-            BranchRuntimeNotActive: ['The branch exists, but no runtime is waiting for this response.'],
+            ThreadRuntimeNotActive: ['The thread exists, but no runtime is waiting for this response.'],
           },
         }),
       } as Response);
 
-    await transport.connect({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
+    await transport.connect({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
 
     await expect(transport.submitInput({
       type: EventTypes.PERMISSION_RESPONSE,
@@ -150,7 +150,7 @@ describe('SseTransport runtime', () => {
     })).resolves.toEqual({
       status: 'notFound',
       requestId: 'p1',
-      message: 'The branch exists, but no runtime is waiting for this response.',
+      message: 'The thread exists, but no runtime is waiting for this response.',
       accepted: false,
     });
   });
@@ -168,7 +168,7 @@ describe('SseTransport runtime', () => {
       text: async () => '',
     } as Response);
 
-    await transport.connect({ sessionId: 's1', agentId: 'a1', branchId: 'main' });
+    await transport.connect({ sessionId: 's1', agentId: 'a1', threadId: 'main' });
 
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(transport.connected).toBe(true);

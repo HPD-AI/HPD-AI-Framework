@@ -21,7 +21,7 @@ function makeRegistry() {
 }
 
 function makeSession(registry: SessionRegistry, id = 'hpd-1') {
-  return registry.create(id, 'branch-1', '/workspace');
+  return registry.create(id, 'thread-1', '/workspace');
 }
 
 // Register a fake pending permission and return { key, resolve, reject, promise }
@@ -69,7 +69,7 @@ describe('SessionRegistry', () => {
     const registry = makeRegistry();
     const state = makeSession(registry);
 
-    expect(state.hpdBranchId).toBe('branch-1');
+    expect(state.hpdThreadId).toBe('thread-1');
     expect(state.cwd).toBe('/workspace');
     expect(state.pendingPromptRequestId).toBeNull();
     expect(state.streamAbort).toBeNull();

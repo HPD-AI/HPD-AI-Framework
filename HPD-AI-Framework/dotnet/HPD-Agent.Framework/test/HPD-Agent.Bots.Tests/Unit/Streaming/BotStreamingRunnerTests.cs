@@ -28,7 +28,7 @@ public class BotStreamingRunnerTests
             new BotStreamingRequest<object>(
                 AgentId: "test-agent",
                 SessionId: "session-1",
-                BranchId: "main",
+                ThreadId: "main",
                 Text: "hello",
                 Context: new object(),
                 Strategy: StreamingStrategy.BufferAndPost,
@@ -71,7 +71,7 @@ public class BotStreamingRunnerTests
             new BotStreamingRequest<object>(
                 AgentId: "test-agent",
                 SessionId: "session-1",
-                BranchId: "main",
+                ThreadId: "main",
                 Text: "hello",
                 Context: new object(),
                 Strategy: StreamingStrategy.PostAndEdit,

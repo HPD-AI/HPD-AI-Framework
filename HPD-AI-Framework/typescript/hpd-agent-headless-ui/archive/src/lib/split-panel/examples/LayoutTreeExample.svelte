@@ -17,7 +17,7 @@
 		findPanelInDirection,
 		collectPanelIds
 	} from '../utils/index.js';
-	import type { LayoutNode, BranchNode } from '../types/index.js';
+	import type { LayoutNode, ThreadNode } from '../types/index.js';
 
 	// Create root state
 	let containerElement = $state<HTMLDivElement | null>(null);
@@ -38,7 +38,7 @@
 	$effect(() => {
 		// Create a simple three-pane layout: [sidebar | main | panel]
 		rootState.layoutState.root = {
-			type: 'branch',
+			type: 'thread',
 			axis: 'row',
 			children: [
 				{ type: 'leaf', id: 'sidebar', size: 250, priority: 'normal' as const, maximized: false },
@@ -50,7 +50,7 @@
 	});
 
 	/**
-	 * Polymorphic snippet that renders any LayoutNode (Branch or Leaf).
+	 * Polymorphic snippet that renders any LayoutNode (Thread or Leaf).
 	 * Recursively renders the tree structure using CSS Grid.
 	 */
 	function renderLayoutNode(
@@ -75,10 +75,10 @@
 				}
 			};
 		} else {
-			// Branch node: render nested grid
+			// Thread node: render nested grid
 			const active = getActiveChildren(node);
 			return {
-				type: 'branch',
+				type: 'thread',
 				axis: node.axis,
 				children: active,
 				gridTemplate:
@@ -224,9 +224,9 @@
 			</div>
 		</div>
 	{:else}
-		<!-- Branch node: render nested grid -->
+		<!-- Thread node: render nested grid -->
 		<div
-			class="branch"
+			class="thread"
 			style:display="grid"
 			style:grid-template-columns={node.axis === 'row'
 				? computeGridTemplate(node, 'row', rootState.layoutState)
@@ -337,7 +337,7 @@
 		overflow: hidden;
 	}
 
-	.branch {
+	.thread {
 		min-width: 0;
 		min-height: 0;
 	}

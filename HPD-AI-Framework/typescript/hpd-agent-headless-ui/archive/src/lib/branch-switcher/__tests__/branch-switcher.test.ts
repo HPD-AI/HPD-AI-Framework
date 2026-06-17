@@ -1,49 +1,49 @@
 /**
- * Unit tests for BranchSwitcherRootState
+ * Unit tests for ThreadSwitcherRootState
  */
 
 import { describe, it, expect } from 'vitest';
 import { box } from 'svelte-toolbelt';
-import { BranchSwitcherRootState } from '../branch-switcher.svelte.js';
-import type { Branch } from '@hpd-research/hpd-agent-client';
+import { ThreadSwitcherRootState } from '../thread-switcher.svelte.js';
+import type { Thread } from '@hpd-research/hpd-agent-client';
 
 // ============================================
 // Helpers
 // ============================================
 
-const createMockBranch = (overrides: Partial<Branch> = {}): Branch => ({
+const createMockThread = (overrides: Partial<Thread> = {}): Thread => ({
 	id: 'main',
 	sessionId: 'session-1',
-	name: 'Main Branch',
+	name: 'Main Thread',
 	createdAt: '2024-01-01T00:00:00Z',
 	lastActivity: '2024-01-01T00:10:00Z',
 	messageCount: 5,
 	siblingIndex: 0,
 	totalSiblings: 1,
 	isOriginal: true,
-	childBranches: [],
+	childThreads: [],
 	totalForks: 0,
 	...overrides,
 });
 
-function createRootState(branch: Branch | null) {
-	return new BranchSwitcherRootState({ branch: box<Branch | null>(branch) });
+function createRootState(thread: Thread | null) {
+	return new ThreadSwitcherRootState({ thread: box<Thread | null>(thread) });
 }
 
 // ============================================
-// branch
+// thread
 // ============================================
 
-describe('BranchSwitcherRootState — branch', () => {
-	it('returns null when no branch', () => {
+describe('ThreadSwitcherRootState — thread', () => {
+	it('returns null when no thread', () => {
 		const state = createRootState(null);
-		expect(state.branch).toBeNull();
+		expect(state.thread).toBeNull();
 	});
 
-	it('returns the branch when set', () => {
-		const branch = createMockBranch();
-		const state = createRootState(branch);
-		expect(state.branch).toBe(branch);
+	it('returns the thread when set', () => {
+		const thread = createMockThread();
+		const state = createRootState(thread);
+		expect(state.thread).toBe(thread);
 	});
 });
 
@@ -51,18 +51,18 @@ describe('BranchSwitcherRootState — branch', () => {
 // canGoPrevious
 // ============================================
 
-describe('BranchSwitcherRootState — canGoPrevious', () => {
-	it('returns false when branch is null', () => {
+describe('ThreadSwitcherRootState — canGoPrevious', () => {
+	it('returns false when thread is null', () => {
 		expect(createRootState(null).canGoPrevious).toBe(false);
 	});
 
 	it('returns false when no previousSiblingId', () => {
-		expect(createRootState(createMockBranch({ previousSiblingId: undefined })).canGoPrevious).toBe(false);
+		expect(createRootState(createMockThread({ previousSiblingId: undefined })).canGoPrevious).toBe(false);
 	});
 
 	it('returns true when previousSiblingId is set', () => {
-		const branch = createMockBranch({ siblingIndex: 1, totalSiblings: 2, previousSiblingId: 'main', isOriginal: false });
-		expect(createRootState(branch).canGoPrevious).toBe(true);
+		const thread = createMockThread({ siblingIndex: 1, totalSiblings: 2, previousSiblingId: 'main', isOriginal: false });
+		expect(createRootState(thread).canGoPrevious).toBe(true);
 	});
 });
 
@@ -70,18 +70,18 @@ describe('BranchSwitcherRootState — canGoPrevious', () => {
 // canGoNext
 // ============================================
 
-describe('BranchSwitcherRootState — canGoNext', () => {
-	it('returns false when branch is null', () => {
+describe('ThreadSwitcherRootState — canGoNext', () => {
+	it('returns false when thread is null', () => {
 		expect(createRootState(null).canGoNext).toBe(false);
 	});
 
 	it('returns false when no nextSiblingId', () => {
-		expect(createRootState(createMockBranch({ nextSiblingId: undefined })).canGoNext).toBe(false);
+		expect(createRootState(createMockThread({ nextSiblingId: undefined })).canGoNext).toBe(false);
 	});
 
 	it('returns true when nextSiblingId is set', () => {
-		const branch = createMockBranch({ siblingIndex: 0, totalSiblings: 2, nextSiblingId: 'fork-1' });
-		expect(createRootState(branch).canGoNext).toBe(true);
+		const thread = createMockThread({ siblingIndex: 0, totalSiblings: 2, nextSiblingId: 'fork-1' });
+		expect(createRootState(thread).canGoNext).toBe(true);
 	});
 });
 
@@ -89,17 +89,17 @@ describe('BranchSwitcherRootState — canGoNext', () => {
 // hasSiblings
 // ============================================
 
-describe('BranchSwitcherRootState — hasSiblings', () => {
-	it('returns false when branch is null', () => {
+describe('ThreadSwitcherRootState — hasSiblings', () => {
+	it('returns false when thread is null', () => {
 		expect(createRootState(null).hasSiblings).toBe(false);
 	});
 
 	it('returns false when totalSiblings is 1', () => {
-		expect(createRootState(createMockBranch({ totalSiblings: 1 })).hasSiblings).toBe(false);
+		expect(createRootState(createMockThread({ totalSiblings: 1 })).hasSiblings).toBe(false);
 	});
 
 	it('returns true when totalSiblings > 1', () => {
-		expect(createRootState(createMockBranch({ totalSiblings: 3 })).hasSiblings).toBe(true);
+		expect(createRootState(createMockThread({ totalSiblings: 3 })).hasSiblings).toBe(true);
 	});
 });
 
@@ -107,17 +107,17 @@ describe('BranchSwitcherRootState — hasSiblings', () => {
 // isOriginal
 // ============================================
 
-describe('BranchSwitcherRootState — isOriginal', () => {
-	it('returns false when branch is null', () => {
+describe('ThreadSwitcherRootState — isOriginal', () => {
+	it('returns false when thread is null', () => {
 		expect(createRootState(null).isOriginal).toBe(false);
 	});
 
-	it('returns true for original branch', () => {
-		expect(createRootState(createMockBranch({ isOriginal: true })).isOriginal).toBe(true);
+	it('returns true for original thread', () => {
+		expect(createRootState(createMockThread({ isOriginal: true })).isOriginal).toBe(true);
 	});
 
-	it('returns false for forked branch', () => {
-		expect(createRootState(createMockBranch({ isOriginal: false, forkedFrom: 'main' })).isOriginal).toBe(false);
+	it('returns false for forked thread', () => {
+		expect(createRootState(createMockThread({ isOriginal: false, forkedFrom: 'main' })).isOriginal).toBe(false);
 	});
 });
 
@@ -125,25 +125,25 @@ describe('BranchSwitcherRootState — isOriginal', () => {
 // position
 // ============================================
 
-describe('BranchSwitcherRootState — position', () => {
-	it('returns empty string when branch is null', () => {
+describe('ThreadSwitcherRootState — position', () => {
+	it('returns empty string when thread is null', () => {
 		expect(createRootState(null).position).toBe('');
 	});
 
-	it('returns "1 / 1" for a lone branch', () => {
-		expect(createRootState(createMockBranch({ siblingIndex: 0, totalSiblings: 1 })).position).toBe('1 / 1');
+	it('returns "1 / 1" for a lone thread', () => {
+		expect(createRootState(createMockThread({ siblingIndex: 0, totalSiblings: 1 })).position).toBe('1 / 1');
 	});
 
 	it('returns "1 / 3" for first of three', () => {
-		expect(createRootState(createMockBranch({ siblingIndex: 0, totalSiblings: 3 })).position).toBe('1 / 3');
+		expect(createRootState(createMockThread({ siblingIndex: 0, totalSiblings: 3 })).position).toBe('1 / 3');
 	});
 
 	it('returns "2 / 4" for second of four', () => {
-		expect(createRootState(createMockBranch({ siblingIndex: 1, totalSiblings: 4 })).position).toBe('2 / 4');
+		expect(createRootState(createMockThread({ siblingIndex: 1, totalSiblings: 4 })).position).toBe('2 / 4');
 	});
 
 	it('returns "4 / 4" for last of four', () => {
-		expect(createRootState(createMockBranch({ siblingIndex: 3, totalSiblings: 4 })).position).toBe('4 / 4');
+		expect(createRootState(createMockThread({ siblingIndex: 3, totalSiblings: 4 })).position).toBe('4 / 4');
 	});
 });
 
@@ -151,28 +151,28 @@ describe('BranchSwitcherRootState — position', () => {
 // label
 // ============================================
 
-describe('BranchSwitcherRootState — label', () => {
-	it('returns empty string when branch is null', () => {
+describe('ThreadSwitcherRootState — label', () => {
+	it('returns empty string when thread is null', () => {
 		expect(createRootState(null).label).toBe('');
 	});
 
 	it('returns empty string when totalSiblings is 1', () => {
-		expect(createRootState(createMockBranch({ totalSiblings: 1 })).label).toBe('');
+		expect(createRootState(createMockThread({ totalSiblings: 1 })).label).toBe('');
 	});
 
 	it('returns "Original (1 / 3)" for original with siblings', () => {
-		const branch = createMockBranch({ isOriginal: true, siblingIndex: 0, totalSiblings: 3 });
-		expect(createRootState(branch).label).toBe('Original (1 / 3)');
+		const thread = createMockThread({ isOriginal: true, siblingIndex: 0, totalSiblings: 3 });
+		expect(createRootState(thread).label).toBe('Original (1 / 3)');
 	});
 
 	it('returns "Fork 2 / 4" for second fork of four', () => {
-		const branch = createMockBranch({ isOriginal: false, siblingIndex: 1, totalSiblings: 4, forkedFrom: 'main' });
-		expect(createRootState(branch).label).toBe('Fork 2 / 4');
+		const thread = createMockThread({ isOriginal: false, siblingIndex: 1, totalSiblings: 4, forkedFrom: 'main' });
+		expect(createRootState(thread).label).toBe('Fork 2 / 4');
 	});
 
 	it('returns "Fork 4 / 4" for last fork', () => {
-		const branch = createMockBranch({ isOriginal: false, siblingIndex: 3, totalSiblings: 4, forkedFrom: 'main' });
-		expect(createRootState(branch).label).toBe('Fork 4 / 4');
+		const thread = createMockThread({ isOriginal: false, siblingIndex: 3, totalSiblings: 4, forkedFrom: 'main' });
+		expect(createRootState(thread).label).toBe('Fork 4 / 4');
 	});
 });
 
@@ -180,20 +180,20 @@ describe('BranchSwitcherRootState — label', () => {
 // props
 // ============================================
 
-describe('BranchSwitcherRootState — props', () => {
-	it('has data-branch-switcher-root', () => {
-		expect(createRootState(null).props['data-branch-switcher-root']).toBe('');
+describe('ThreadSwitcherRootState — props', () => {
+	it('has data-thread-switcher-root', () => {
+		expect(createRootState(null).props['data-thread-switcher-root']).toBe('');
 	});
 
 	it('does not have data-has-siblings when no siblings', () => {
-		expect(createRootState(createMockBranch({ totalSiblings: 1 })).props['data-has-siblings']).toBeUndefined();
+		expect(createRootState(createMockThread({ totalSiblings: 1 })).props['data-has-siblings']).toBeUndefined();
 	});
 
 	it('has data-has-siblings="" when siblings exist', () => {
-		expect(createRootState(createMockBranch({ totalSiblings: 3 })).props['data-has-siblings']).toBe('');
+		expect(createRootState(createMockThread({ totalSiblings: 3 })).props['data-has-siblings']).toBe('');
 	});
 
-	it('does not have data-has-siblings when branch is null', () => {
+	it('does not have data-has-siblings when thread is null', () => {
 		expect(createRootState(null).props['data-has-siblings']).toBeUndefined();
 	});
 });
@@ -202,10 +202,10 @@ describe('BranchSwitcherRootState — props', () => {
 // snippetProps
 // ============================================
 
-describe('BranchSwitcherRootState — snippetProps', () => {
-	it('exposes all expected fields when branch is null', () => {
+describe('ThreadSwitcherRootState — snippetProps', () => {
+	it('exposes all expected fields when thread is null', () => {
 		const sp = createRootState(null).snippetProps;
-		expect(sp.branch).toBeNull();
+		expect(sp.thread).toBeNull();
 		expect(sp.hasSiblings).toBe(false);
 		expect(sp.canGoPrevious).toBe(false);
 		expect(sp.canGoNext).toBe(false);
@@ -215,7 +215,7 @@ describe('BranchSwitcherRootState — snippetProps', () => {
 	});
 
 	it('exposes correct values for a mid-sibling fork', () => {
-		const branch = createMockBranch({
+		const thread = createMockThread({
 			siblingIndex: 1,
 			totalSiblings: 3,
 			isOriginal: false,
@@ -223,8 +223,8 @@ describe('BranchSwitcherRootState — snippetProps', () => {
 			nextSiblingId: 'fork-2',
 			forkedFrom: 'main',
 		});
-		const sp = createRootState(branch).snippetProps;
-		expect(sp.branch).toBe(branch);
+		const sp = createRootState(thread).snippetProps;
+		expect(sp.thread).toBe(thread);
 		expect(sp.hasSiblings).toBe(true);
 		expect(sp.canGoPrevious).toBe(true);
 		expect(sp.canGoNext).toBe(true);
@@ -234,8 +234,8 @@ describe('BranchSwitcherRootState — snippetProps', () => {
 	});
 
 	it('exposes correct values for first-and-only sibling', () => {
-		const branch = createMockBranch({ siblingIndex: 0, totalSiblings: 1, isOriginal: true });
-		const sp = createRootState(branch).snippetProps;
+		const thread = createMockThread({ siblingIndex: 0, totalSiblings: 1, isOriginal: true });
+		const sp = createRootState(thread).snippetProps;
 		expect(sp.hasSiblings).toBe(false);
 		expect(sp.canGoPrevious).toBe(false);
 		expect(sp.canGoNext).toBe(false);

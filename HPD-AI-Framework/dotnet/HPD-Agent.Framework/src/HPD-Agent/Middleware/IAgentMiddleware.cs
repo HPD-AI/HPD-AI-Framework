@@ -91,7 +91,7 @@ public interface IAgentMiddleware
     /// Called BEFORE processing a user message turn.
     /// Use for: RAG injection, memory retrieval, context augmentation.
     /// </summary>
-    /// <param name="context">Typed context with UserMessage, BranchHistory</param>
+    /// <param name="context">Typed context with UserMessage, ThreadHistory</param>
     /// <param name="cancellationToken">Cancellation token</param>
     Task BeforeMessageTurnAsync(
         BeforeMessageTurnContext context,
@@ -327,19 +327,19 @@ public interface IAgentMiddleware
         => Task.CompletedTask;
 
     //
-    // BRANCH LIFECYCLE
+    // THREAD LIFECYCLE
     //
 
     /// <summary>
-    /// Called after a target branch has been materialized in memory for a fork,
-    /// but before that target branch is persisted.
-    /// Use for: compacting copied history, stamping branch-local metadata, or
-    /// rewriting target branch middleware state before the branch becomes durable.
+    /// Called after a target thread has been materialized in memory for a fork,
+    /// but before that target thread is persisted.
+    /// Use for: compacting copied history, stamping thread-local metadata, or
+    /// rewriting target thread middleware state before the thread becomes durable.
     /// </summary>
-    /// <param name="context">Typed context with source branch, target branch, fork index, and fork message id.</param>
+    /// <param name="context">Typed context with source thread, target thread, fork index, and fork message id.</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    Task BeforeBranchForkCommitAsync(
-        BeforeBranchForkCommitContext context,
+    Task BeforeThreadForkCommitAsync(
+        BeforeThreadForkCommitContext context,
         CancellationToken cancellationToken)
         => Task.CompletedTask;
 

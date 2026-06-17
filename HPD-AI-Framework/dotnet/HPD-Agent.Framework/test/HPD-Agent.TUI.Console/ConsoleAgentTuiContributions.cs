@@ -13,7 +13,7 @@ internal static class ConsoleAgentTuiContributions
     {
         tui
             .AddConsoleCommandSurface()
-            .TryAddEventHandler("console.branch-run-status", new BranchRunStatusHandler())
+            .TryAddEventHandler("console.thread-run-status", new ThreadRunStatusHandler())
             .TryAddEventHandler("console.text-stream", new TextMessageStreamHandler());
 
         if (includeReasoning)
@@ -28,18 +28,18 @@ internal static class ConsoleAgentTuiContributions
 
         return tui
             .AddConsoleAgentCommands()
-            .AddConsoleSessionBranchCommands()
+            .AddConsoleSessionThreadCommands()
             .TryAddSlashCommand(new HpdAgentTuiCommandDescriptor("status", context =>
             {
                 ConsoleCommandSurface.Show(context, "Runtime scope", $"""
                     - agent: `{context.Scope.AgentId}`
                     - session: `{context.Scope.SessionId}`
-                    - branch: `{context.Scope.BranchId}`
+                    - thread: `{context.Scope.ThreadId}`
                     """);
             })
             {
                 Title = "/status",
-                Description = "Show the current agent/session/branch scope."
+                Description = "Show the current agent/session/thread scope."
             });
     }
 }

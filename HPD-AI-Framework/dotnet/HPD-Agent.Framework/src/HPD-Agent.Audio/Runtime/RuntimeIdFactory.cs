@@ -2,7 +2,7 @@ namespace HPD.Agent.Audio.Runtime;
 
 public sealed class RuntimeIdFactory
 {
-    private long _branchProjection;
+    private long _threadProjection;
     private long _interactionSession;
     private long _ledgerRecord;
     private long _providerRoute;
@@ -15,7 +15,7 @@ public sealed class RuntimeIdFactory
     private long _turnEvidence;
     private long _transportAdapter;
 
-    public BranchProjectionId NextBranchProjectionId() => new($"branch-projection-{Interlocked.Increment(ref _branchProjection):D4}");
+    public ThreadProjectionId NextThreadProjectionId() => new($"thread-projection-{Interlocked.Increment(ref _threadProjection):D4}");
 
     public InteractionSessionId NextInteractionSessionId() => new($"interaction-{Interlocked.Increment(ref _interactionSession):D4}");
 

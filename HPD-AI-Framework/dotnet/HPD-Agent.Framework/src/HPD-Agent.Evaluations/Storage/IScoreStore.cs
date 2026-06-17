@@ -25,7 +25,7 @@ public interface IScoreStore : IEvaluationResultStore
 
     IAsyncEnumerable<ScoreRecord> GetScoresAsync(
         string sessionId,
-        string? branchId = null,
+        string? threadId = null,
         CancellationToken ct = default);
 
     IAsyncEnumerable<ScoreRecord> GetScoresAsync(
@@ -81,10 +81,10 @@ public interface IScoreStore : IEvaluationResultStore
         DateTimeOffset? to = null,
         CancellationToken ct = default);
 
-    ValueTask<BranchComparisonResult> GetBranchComparisonAsync(
+    ValueTask<ThreadComparisonResult> GetThreadComparisonAsync(
         string sessionId,
-        string branchId1,
-        string branchId2,
+        string threadId1,
+        string threadId2,
         IEnumerable<string> evaluatorNames,
         CancellationToken ct = default);
 
@@ -129,7 +129,7 @@ public interface IScoreStore : IEvaluationResultStore
     /// Returns paired risk and autonomy scores per turn, enabling the risk/autonomy
     /// scatter plot described in Anthropic's "Measuring AI Agent Autonomy in Practice" (2026).
     /// Only returns data points where both a "Turn Risk" score and a "Turn Autonomy" score
-    /// exist for the same (sessionId, branchId, turnIndex) triple.
+    /// exist for the same (sessionId, threadId, turnIndex) triple.
     /// </summary>
     ValueTask<IReadOnlyList<RiskAutonomyDataPoint>> GetRiskAutonomyDistributionAsync(
         DateTimeOffset? from = null,
@@ -173,7 +173,7 @@ public interface IScoreStore : IEvaluationResultStore
 /// </summary>
 public sealed record RiskAutonomyDataPoint(
     string SessionId,
-    string BranchId,
+    string ThreadId,
     int TurnIndex,
     string AgentName,
     /// <summary>Score from TurnRiskEvaluator (1–10). Higher = more potential for harm.</summary>
@@ -193,7 +193,7 @@ public sealed record RedTeamFinding(
     bool AttackSucceeded,
     string EvaluatorName,
     string SessionId,
-    string BranchId,
+    string ThreadId,
     int TurnIndex,
     DateTimeOffset CreatedAt);
 
@@ -238,11 +238,11 @@ public sealed record EvaluatorSummary(
     int FailureCount);
 
 /// <summary>
-/// Comparison of two branches within the same session across named evaluators.
+/// Comparison of two threads within the same session across named evaluators.
 /// </summary>
-public sealed record BranchComparisonResult(
+public sealed record ThreadComparisonResult(
     string SessionId,
-    string BranchId1,
-    string BranchId2,
-    IReadOnlyDictionary<string, ScoreAggregate> Branch1Scores,
-    IReadOnlyDictionary<string, ScoreAggregate> Branch2Scores);
+    string ThreadId1,
+    string ThreadId2,
+    IReadOnlyDictionary<string, ScoreAggregate> Thread1Scores,
+    IReadOnlyDictionary<string, ScoreAggregate> Thread2Scores);

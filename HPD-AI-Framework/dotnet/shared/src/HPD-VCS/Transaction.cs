@@ -170,7 +170,7 @@ public class Transaction
     {
         _rewrittenCommits[oldCommitId] = newCommitId;
     }    /// <summary>
-    /// Updates all references (branches, workspace commit IDs, working copy ID) to point to rewritten commits.
+    /// Updates all references (threads, workspace commit IDs, working copy ID) to point to rewritten commits.
     /// </summary>
     private void UpdateAllReferences()
     {        // Update workspace commit IDs
@@ -192,14 +192,14 @@ public class Transaction
             newHeadCommitIds.Add(newHeadId);
         }
 
-        // Update branch references
-        var newBranches = new Dictionary<string, CommitId>(_mutableView.Branches);
-        foreach (var kvp in _mutableView.Branches)
+        // Update thread references
+        var newThreads = new Dictionary<string, CommitId>(_mutableView.Threads);
+        foreach (var kvp in _mutableView.Threads)
         {
             var newCommitId = ResolveCommit(kvp.Value);
             if (!newCommitId.Equals(kvp.Value))
             {
-                newBranches[kvp.Key] = newCommitId;
+                newThreads[kvp.Key] = newCommitId;
             }
         }
 
@@ -215,7 +215,7 @@ public class Transaction
         }
 
         // Create updated view data
-        _mutableView = new ViewData(newWorkspaceCommitIds, newHeadCommitIds, newBranches, newWorkingCopyId);
+        _mutableView = new ViewData(newWorkspaceCommitIds, newHeadCommitIds, newThreads, newWorkingCopyId);
     }/// <summary>
     /// Resolves a commit ID to its final rewritten version, following the chain of rewrites.
     /// </summary>

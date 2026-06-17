@@ -10,7 +10,7 @@ namespace HPD.Agent.Evaluations.Storage;
 /// <summary>
 /// HPD-native record for one evaluated case/turn/run.
 /// This preserves the full reporting payload that MS ScenarioRunResult carries,
-/// plus HPD provenance that matters for agents, branches, datasets, and policy.
+/// plus HPD provenance that matters for agents, threads, datasets, and policy.
 /// </summary>
 public sealed class EvaluationRunRecord
 {
@@ -49,7 +49,7 @@ public sealed class EvaluationRunRecord
     public EvaluationSource Source { get; init; }
     public string AgentName { get; init; } = string.Empty;
     public string SessionId { get; init; } = string.Empty;
-    public string BranchId { get; init; } = string.Empty;
+    public string ThreadId { get; init; } = string.Empty;
     public int TurnIndex { get; init; }
     public string? ProviderKey { get; init; }
     public string? ModelId { get; init; }
@@ -98,7 +98,7 @@ public sealed class EvaluationRunRecord
             Source = EvaluationSource.Test,
             AgentName = result.ExecutionName,
             SessionId = result.ExecutionName,
-            BranchId = result.ScenarioName,
+            ThreadId = result.ScenarioName,
             TurnIndex = 0,
         };
 }

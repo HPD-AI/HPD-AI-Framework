@@ -9,7 +9,7 @@ namespace HPD.Agent.Tests.SubAgents;
 /// 1. Detects [SubAgent] attribute
 /// 2. Generates AIFunction wrappers for sub-agents
 /// 3. Parses AgentConfig from method body
-/// 4. Handles branch-native execution policies
+/// 4. Handles thread-native execution policies
 /// 5. Validates method signatures
 /// </summary>
 public class SubAgentSourceGeneratorTests
@@ -45,20 +45,20 @@ public class SubAgentSourceGeneratorTests
     // ===== P0: SubAgent.FromConfig() Patterns =====
 
     [Fact]
-    public void SubAgent_FromConfig_GeneratesDefaultBranchNativeSubAgent()
+    public void SubAgent_FromConfig_GeneratesDefaultThreadNativeSubAgent()
     {
         // Arrange
         var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = ToolHarness.DefaultBranchNativeSubAgent();
+        var subAgent = ToolHarness.DefaultThreadNativeSubAgent();
 
         // Assert
         Assert.NotNull(subAgent);
-        Assert.Equal("DefaultBranchNativeSubAgent", subAgent.Name);
+        Assert.Equal("DefaultThreadNativeSubAgent", subAgent.Name);
         Assert.Equal(SubAgentSourceKind.InlineConfig, subAgent.SourceKind);
         Assert.Equal(SubAgentSessionPolicy.ParentSession, subAgent.ExecutionPolicy.SessionPolicy);
-        Assert.Equal(SubAgentBranchPolicy.ForkFromParentBranch, subAgent.ExecutionPolicy.BranchPolicy);
+        Assert.Equal(SubAgentThreadPolicy.ForkFromParentThread, subAgent.ExecutionPolicy.ThreadPolicy);
         Assert.Null(subAgent.ExecutionPolicy.SharedSessionId);
     }
 
@@ -75,24 +75,24 @@ public class SubAgentSourceGeneratorTests
         Assert.NotNull(subAgent);
         Assert.Equal("SharedSessionSubAgent", subAgent.Name);
         Assert.Equal(SubAgentSessionPolicy.SharedSession, subAgent.ExecutionPolicy.SessionPolicy);
-        Assert.Equal(SubAgentBranchPolicy.FreshBranch, subAgent.ExecutionPolicy.BranchPolicy);
+        Assert.Equal(SubAgentThreadPolicy.FreshThread, subAgent.ExecutionPolicy.ThreadPolicy);
         Assert.NotNull(subAgent.ExecutionPolicy.SharedSessionId);
     }
 
     [Fact]
-    public void SubAgent_ParentBranchPolicy_GeneratesParentBranchSubAgent()
+    public void SubAgent_ParentThreadPolicy_GeneratesParentThreadSubAgent()
     {
         // Arrange
         var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = ToolHarness.ParentBranchSubAgent();
+        var subAgent = ToolHarness.ParentThreadSubAgent();
 
         // Assert
         Assert.NotNull(subAgent);
-        Assert.Equal("ParentBranchSubAgent", subAgent.Name);
+        Assert.Equal("ParentThreadSubAgent", subAgent.Name);
         Assert.Equal(SubAgentSessionPolicy.ParentSession, subAgent.ExecutionPolicy.SessionPolicy);
-        Assert.Equal(SubAgentBranchPolicy.ParentBranch, subAgent.ExecutionPolicy.BranchPolicy);
+        Assert.Equal(SubAgentThreadPolicy.ParentThread, subAgent.ExecutionPolicy.ThreadPolicy);
     }
 
     // ===== P0: AgentConfig Extraction =====
@@ -178,20 +178,20 @@ public class SubAgentSourceGeneratorTests
     // ===== P0: Execution policy Validation =====
 
     [Fact]
-    public void SubAgent_DefaultExecutionPolicy_IsParentSessionForkedBranch()
+    public void SubAgent_DefaultExecutionPolicy_IsParentSessionForkedThread()
     {
         // Arrange
         var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = ToolHarness.DefaultBranchNativeSubAgent();
+        var subAgent = ToolHarness.DefaultThreadNativeSubAgent();
 
         // Assert
         Assert.Equal(SubAgentExecutionPolicy.Default, subAgent.ExecutionPolicy);
     }
 
     [Fact]
-    public void SubAgent_SharedSessionId_IsOnExecutionPolicyForSharedSessionFreshBranch()
+    public void SubAgent_SharedSessionId_IsOnExecutionPolicyForSharedSessionFreshThread()
     {
         // Arrange
         var ToolHarness = new TestSubAgentTools();

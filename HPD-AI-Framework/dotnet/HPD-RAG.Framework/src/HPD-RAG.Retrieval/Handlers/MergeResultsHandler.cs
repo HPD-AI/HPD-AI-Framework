@@ -7,7 +7,7 @@ using HPD.RAG.Core.Pipeline;
 namespace HPD.RAG.Retrieval.Handlers;
 
 /// <summary>
-/// Merges multiple result sets from parallel search branches into one deduplicated list.
+/// Merges multiple result sets from parallel search threads into one deduplicated list.
 /// Deduplication key: DocumentId. Score aggregation strategy: max score wins on collision.
 /// Output is sorted descending by score.
 /// Pure in-process merge — no external calls.
@@ -23,7 +23,7 @@ public sealed partial class MergeResultsHandler : IGraphNodeHandler<MragPipeline
 
     public Task<MergeResultsOutput> ExecuteAsync(
         MragPipelineContext context,
-        [InputSocket(Description = "Array of result sets to merge (e.g., from parallel search branches).")] MragSearchResultDto[][] ResultSets,
+        [InputSocket(Description = "Array of result sets to merge (e.g., from parallel search threads).")] MragSearchResultDto[][] ResultSets,
         CancellationToken cancellationToken = default)
     {
         // Deduplicate by DocumentId, keeping the highest score for each document.

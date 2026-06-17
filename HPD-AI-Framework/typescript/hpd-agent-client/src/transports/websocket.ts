@@ -38,15 +38,15 @@ export class WebSocketTransport implements AgentTransport {
       }
 
       this.scope = scope;
-      const branchId = scope.branchId || 'main';
+      const threadId = scope.threadId || 'main';
       const url = [
         this.baseUrl,
         'agents',
         encodeURIComponent(scope.agentId),
         'sessions',
         encodeURIComponent(scope.sessionId),
-        'branches',
-        encodeURIComponent(branchId),
+        'threads',
+        encodeURIComponent(threadId),
         'ws',
       ].join('/');
 
@@ -110,7 +110,7 @@ export class WebSocketTransport implements AgentTransport {
     this.ws.send(JSON.stringify({
       ...input,
       sessionId: 'sessionId' in input ? input.sessionId ?? this.scope?.sessionId : this.scope?.sessionId,
-      branchId: 'branchId' in input ? input.branchId ?? this.scope?.branchId ?? 'main' : this.scope?.branchId ?? 'main',
+      threadId: 'threadId' in input ? input.threadId ?? this.scope?.threadId ?? 'main' : this.scope?.threadId ?? 'main',
       agentId: 'agentId' in input ? input.agentId ?? this.scope?.agentId : this.scope?.agentId,
     }));
     return undefined;

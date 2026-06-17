@@ -28,33 +28,33 @@ public class AgentMiddlewareResponseServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RespondAsync_UsesBranchRuntime_NotUnscopedAgent()
+    public async Task RespondAsync_UsesThreadRuntime_NotUnscopedAgent()
     {
-        var (sessionId, branchId) = await _sessionManager.CreateSessionAsync("session-1");
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("session-1");
         var stored = await _agentManager.CreateDefinitionAsync(MakeConfig("agent-1"), "agent-1");
         await _agentManager.GetOrBuildAgentAsync(stored.Id);
 
         var result = await _service.RespondAsync(
             stored.Id,
             sessionId,
-            branchId,
+            threadId,
             new PermissionResponseEvent("permission-1", "test", Approved: true));
 
         result.Status.Should().Be(AgentServiceStatus.Conflict);
-        result.ErrorCode.Should().Be("BranchRuntimeNotActive");
+        result.ErrorCode.Should().Be("ThreadRuntimeNotActive");
     }
 
     [Fact]
-    public async Task RespondAsync_TargetsBranchRuntime_WhenBuilt()
+    public async Task RespondAsync_TargetsThreadRuntime_WhenBuilt()
     {
-        var (sessionId, branchId) = await _sessionManager.CreateSessionAsync("session-1");
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("session-1");
         var stored = await _agentManager.CreateDefinitionAsync(MakeConfig("agent-1"), "agent-1");
-        await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, branchId);
+        await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, threadId);
 
         var result = await _service.RespondAsync(
             stored.Id,
             sessionId,
-            branchId,
+            threadId,
             new PermissionResponseEvent("permission-1", "test", Approved: true));
 
         result.Status.Should().Be(AgentServiceStatus.Conflict);

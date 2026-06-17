@@ -266,7 +266,7 @@ public class RegistrationGeneratorTests
         names.Should().Contain("TeamsBotRegistration.g.cs");
     }
 
-    // ── Socket transport branch ───────────────────────────────────────
+    // ── Socket transport thread ───────────────────────────────────────
 
     /// <summary>
     /// Source for an adapter that has [HpdSocketTransport] with a valid service type.

@@ -185,7 +185,7 @@ public class ViewDataTests
         var workspaceCommits = new Dictionary<string, CommitId>
         {
             { "default", commit1 },
-            { "feature-branch", commit2 },
+            { "feature-thread", commit2 },
             { "experimental", commit3 }
         };
         var headCommits = new List<CommitId> { commit1, commit2 };
@@ -207,7 +207,7 @@ public class ViewDataTests
     }
 
     [Fact]
-    public void ParseFromCanonicalBytes_RoundTripConsistencyWithBranches()
+    public void ParseFromCanonicalBytes_RoundTripConsistencyWithThreads()
     {
         // Arrange
         var commit1 = ObjectIdFactory.CreateCommitId("test1"u8.ToArray());
@@ -217,17 +217,17 @@ public class ViewDataTests
         var workspaceCommits = new Dictionary<string, CommitId>
         {
             { "default", commit1 },
-            { "feature-branch", commit2 }
+            { "feature-thread", commit2 }
         };
         var headCommits = new List<CommitId> { commit1, commit2 };
-        var branches = new Dictionary<string, CommitId>
+        var threads = new Dictionary<string, CommitId>
         {
             { "main", commit1 },
             { "feature", commit2 },
             { "experimental", commit3 }
         };
 
-        var original = new ViewData(workspaceCommits, headCommits, branches);
+        var original = new ViewData(workspaceCommits, headCommits, threads);
 
         // Act
         var bytes = original.GetBytesForHashing();
@@ -242,10 +242,10 @@ public class ViewDataTests
         Assert.All(original.HeadCommitIds, headCommit => 
             Assert.Contains(headCommit, parsed.HeadCommitIds));
 
-        // Test branches
-        Assert.Equal(original.Branches.Count, parsed.Branches.Count);
-        Assert.All(original.Branches, kvp => 
-            Assert.Equal(kvp.Value, parsed.Branches[kvp.Key]));
+        // Test threads
+        Assert.Equal(original.Threads.Count, parsed.Threads.Count);
+        Assert.All(original.Threads, kvp => 
+            Assert.Equal(kvp.Value, parsed.Threads[kvp.Key]));
     }
 
     [Fact]

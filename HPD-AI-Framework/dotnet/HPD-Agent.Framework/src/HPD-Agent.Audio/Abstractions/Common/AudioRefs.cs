@@ -23,9 +23,9 @@ public sealed record AudioArtifactRef(
     long? SizeBytes,
     string? Sha256);
 
-public sealed record BranchRef(string SessionId, string BranchId);
+public sealed record ThreadRef(string SessionId, string ThreadId);
 
-public sealed record BranchProjectedEventRef(string EventId, long SequenceNumber);
+public sealed record ThreadProjectedEventRef(string EventId, long SequenceNumber);
 
 public sealed record ProviderStateRef(string ProviderKey, string StateKind, string? RefId);
 

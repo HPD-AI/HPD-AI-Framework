@@ -121,7 +121,7 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
                 Namespace: "",
                 Version: 1,
                 Persistent: false,
-                Scope: "Branch",
+                Scope: "Thread",
                 Diagnostics: diagnostics);
         }
 
@@ -144,7 +144,7 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
         // Extract version, persistent, and scope from [MiddlewareState(Version = X, Persistent = Y, Scope = Z)] attribute
         int version = 1; // Default
         bool persistent = false; // Default
-        string scope = "Branch"; // Default (StateScope.Branch = 0)
+        string scope = "Thread"; // Default (StateScope.Thread = 0)
         var attribute = context.Attributes.FirstOrDefault();
         if (attribute != null)
         {
@@ -160,8 +160,8 @@ public class MiddlewareStateGenerator : IIncrementalGenerator
                 }
                 else if (namedArg.Key == "Scope" && namedArg.Value.Value is int s)
                 {
-                    // StateScope enum: Branch = 0, Session = 1
-                    scope = s == 1 ? "Session" : "Branch";
+                    // StateScope enum: Thread = 0, Session = 1
+                    scope = s == 1 ? "Session" : "Thread";
                 }
             }
         }

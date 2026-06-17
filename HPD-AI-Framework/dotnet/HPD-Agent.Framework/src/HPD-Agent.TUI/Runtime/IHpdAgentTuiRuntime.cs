@@ -22,11 +22,11 @@ public interface IHpdAgentTuiRuntime
         AgentEvent response,
         CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<AgentEvent>> GetBranchEventsAsync(
+    Task<IReadOnlyList<AgentEvent>> GetThreadEventsAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default);
 
-    Task<AgentTuiBranchRun?> GetActiveRunAsync(
+    Task<AgentTuiThreadRun?> GetActiveRunAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default);
 }

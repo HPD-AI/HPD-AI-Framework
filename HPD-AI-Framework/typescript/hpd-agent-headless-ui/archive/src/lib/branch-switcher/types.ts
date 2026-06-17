@@ -1,25 +1,25 @@
 /**
- * BranchSwitcher Types
+ * ThreadSwitcher Types
  *
- * Type definitions for the BranchSwitcher compound component.
+ * Type definitions for the ThreadSwitcher compound component.
  */
 
 import type { Snippet } from 'svelte';
-import type { Branch } from '@hpd-research/hpd-agent-client';
+import type { Thread } from '@hpd-research/hpd-agent-client';
 
 // ============================================
 // Root Component Types
 // ============================================
 
-export interface BranchSwitcherRootHTMLProps {
-	'data-branch-switcher-root': '';
+export interface ThreadSwitcherRootHTMLProps {
+	'data-thread-switcher-root': '';
 	'data-has-siblings'?: '';
 	class?: string | undefined;
 	[key: string]: unknown;
 }
 
-export interface BranchSwitcherRootSnippetProps {
-	branch: Branch | null;
+export interface ThreadSwitcherRootSnippetProps {
+	thread: Thread | null;
 	hasSiblings: boolean;
 	canGoPrevious: boolean;
 	canGoNext: boolean;
@@ -28,11 +28,11 @@ export interface BranchSwitcherRootSnippetProps {
 	isOriginal: boolean;
 }
 
-export interface BranchSwitcherRootProps {
-	branch: Branch | null;
-	onNavigate?: (branchId: string) => void | Promise<void>;
-	child?: Snippet<[BranchSwitcherRootSnippetProps & { props: BranchSwitcherRootHTMLProps }]>;
-	children?: Snippet<[BranchSwitcherRootSnippetProps]>;
+export interface ThreadSwitcherRootProps {
+	thread: Thread | null;
+	onNavigate?: (threadId: string) => void | Promise<void>;
+	child?: Snippet<[ThreadSwitcherRootSnippetProps & { props: ThreadSwitcherRootHTMLProps }]>;
+	children?: Snippet<[ThreadSwitcherRootSnippetProps]>;
 	[key: string]: unknown;
 }
 
@@ -40,8 +40,8 @@ export interface BranchSwitcherRootProps {
 // Prev Component Types
 // ============================================
 
-export interface BranchSwitcherPrevHTMLProps {
-	'data-branch-switcher-prev': '';
+export interface ThreadSwitcherPrevHTMLProps {
+	'data-thread-switcher-prev': '';
 	'data-disabled'?: '';
 	type: 'button';
 	disabled: boolean;
@@ -50,9 +50,9 @@ export interface BranchSwitcherPrevHTMLProps {
 	[key: string]: unknown;
 }
 
-export interface BranchSwitcherPrevProps {
+export interface ThreadSwitcherPrevProps {
 	'aria-label'?: string;
-	child?: Snippet<[{ props: BranchSwitcherPrevHTMLProps }]>;
+	child?: Snippet<[{ props: ThreadSwitcherPrevHTMLProps }]>;
 	children?: Snippet;
 	[key: string]: unknown;
 }
@@ -61,8 +61,8 @@ export interface BranchSwitcherPrevProps {
 // Next Component Types
 // ============================================
 
-export interface BranchSwitcherNextHTMLProps {
-	'data-branch-switcher-next': '';
+export interface ThreadSwitcherNextHTMLProps {
+	'data-thread-switcher-next': '';
 	'data-disabled'?: '';
 	type: 'button';
 	disabled: boolean;
@@ -71,9 +71,9 @@ export interface BranchSwitcherNextHTMLProps {
 	[key: string]: unknown;
 }
 
-export interface BranchSwitcherNextProps {
+export interface ThreadSwitcherNextProps {
 	'aria-label'?: string;
-	child?: Snippet<[{ props: BranchSwitcherNextHTMLProps }]>;
+	child?: Snippet<[{ props: ThreadSwitcherNextHTMLProps }]>;
 	children?: Snippet;
 	[key: string]: unknown;
 }
@@ -82,21 +82,21 @@ export interface BranchSwitcherNextProps {
 // Position Component Types
 // ============================================
 
-export interface BranchSwitcherPositionHTMLProps {
-	'data-branch-switcher-position': '';
+export interface ThreadSwitcherPositionHTMLProps {
+	'data-thread-switcher-position': '';
 	'aria-live': 'polite';
 	'aria-atomic': 'true';
 	class?: string | undefined;
 	[key: string]: unknown;
 }
 
-export interface BranchSwitcherPositionSnippetProps {
+export interface ThreadSwitcherPositionSnippetProps {
 	position: string;
 	label: string;
 }
 
-export interface BranchSwitcherPositionProps {
-	child?: Snippet<[BranchSwitcherPositionSnippetProps & { props: BranchSwitcherPositionHTMLProps }]>;
-	children?: Snippet<[BranchSwitcherPositionSnippetProps]>;
+export interface ThreadSwitcherPositionProps {
+	child?: Snippet<[ThreadSwitcherPositionSnippetProps & { props: ThreadSwitcherPositionHTMLProps }]>;
+	children?: Snippet<[ThreadSwitcherPositionSnippetProps]>;
 	[key: string]: unknown;
 }

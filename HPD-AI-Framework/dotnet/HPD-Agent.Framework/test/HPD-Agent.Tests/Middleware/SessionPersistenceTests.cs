@@ -15,8 +15,8 @@ namespace HPD.Agent.Tests.Middleware;
 public class SessionPersistenceTests
 {
     // Create test factories for persistent states
-    // PermissionPersistentStateData is session-scoped (shared across branches)
-    // CompactionStateData is branch-scoped (per-conversation path, the default)
+    // PermissionPersistentStateData is session-scoped (shared across threads)
+    // CompactionStateData is thread-scoped (per-conversation path, the default)
     private static readonly IReadOnlyDictionary<string, MiddlewareStateFactory> TestFactories =
         new Dictionary<string, MiddlewareStateFactory>
         {
@@ -36,7 +36,7 @@ public class SessionPersistenceTests
                 PropertyName: "Compaction",
                 Version: 1,
                 Persistent: true,
-                Scope: StateScope.Branch,
+                Scope: StateScope.Thread,
                 Deserialize: json => JsonSerializer.Deserialize<CompactionStateData>(json, AIJsonUtilities.DefaultOptions),
                 Serialize: state => JsonSerializer.Serialize((CompactionStateData)state, AIJsonUtilities.DefaultOptions)
             )
@@ -82,10 +82,10 @@ public class SessionPersistenceTests
     }
 
     [Fact]
-    public void LoadFromBranch_RestoresCompaction()
+    public void LoadFromThread_RestoresCompaction()
     {
-        // Arrange: Create branch with compaction state (branch-scoped)
-        var branch = new global::HPD.Agent.Branch("test-session");
+        // Arrange: Create thread with compaction state (thread-scoped)
+        var thread = new global::HPD.Agent.Thread("test-session");
         // Create enough messages for the test
         var messages = new List<Microsoft.Extensions.AI.ChatMessage>();
         for (int i = 0; i < 100; i++)
@@ -106,10 +106,10 @@ public class SessionPersistenceTests
         var hrState = new CompactionStateData().WithCompaction(compaction);
         var middlewareState = new MiddlewareState().WithCompaction(hrState);
 
-        middlewareState.SaveToBranch(branch, TestFactories);
+        middlewareState.SaveToThread(thread, TestFactories);
 
-        // Act: Load from branch
-        var restored = MiddlewareState.LoadFromBranch(branch, TestFactories);
+        // Act: Load from thread
+        var restored = MiddlewareState.LoadFromThread(thread, TestFactories);
 
         // Assert: History compaction is restored
         restored.Compaction().Should().NotBeNull();
@@ -120,11 +120,11 @@ public class SessionPersistenceTests
     }
 
     [Fact]
-    public void SavePersistsMultipleStates_AcrossSessionAndBranch()
+    public void SavePersistsMultipleStates_AcrossSessionAndThread()
     {
         // Arrange: Create multiple persistent states with different scopes
         var session = new global::HPD.Agent.Session();
-        var branch = new global::HPD.Agent.Branch(session.Id);
+        var thread = new global::HPD.Agent.Thread(session.Id);
 
         var permState = new PermissionPersistentStateData()
             .WithPermission("Bash", PermissionChoice.AlwaysAllow);
@@ -148,22 +148,22 @@ public class SessionPersistenceTests
             .WithPermissionPersistent(permState)
             .WithCompaction(hrState);
 
-        // Act: Save session-scoped to session, branch-scoped to branch
+        // Act: Save session-scoped to session, thread-scoped to thread
         middlewareState.SaveToSession(session, TestFactories);
-        middlewareState.SaveToBranch(branch, TestFactories);
+        middlewareState.SaveToThread(thread, TestFactories);
 
         // Load back from respective stores
         var restoredFromSession = MiddlewareState.LoadFromSession(session, TestFactories);
-        var restoredFromBranch = MiddlewareState.LoadFromBranch(branch, TestFactories);
+        var restoredFromThread = MiddlewareState.LoadFromThread(thread, TestFactories);
 
         // Assert: Permission state restored from session (session-scoped)
         restoredFromSession.PermissionPersistent().Should().NotBeNull();
         restoredFromSession.PermissionPersistent()!.GetPermission("Bash")
             .Should().Be(PermissionChoice.AlwaysAllow);
 
-        // Assert: History compaction restored from branch (branch-scoped)
-        restoredFromBranch.Compaction().Should().NotBeNull();
-        restoredFromBranch.Compaction()!.LastCompaction!.ModelCompactedMessageIds.Should().ContainSingle("msg");
+        // Assert: History compaction restored from thread (thread-scoped)
+        restoredFromThread.Compaction().Should().NotBeNull();
+        restoredFromThread.Compaction()!.LastCompaction!.ModelCompactedMessageIds.Should().ContainSingle("msg");
     }
 
     [Fact]

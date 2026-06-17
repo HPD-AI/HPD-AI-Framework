@@ -607,7 +607,7 @@ public sealed class EditFileTests : IDisposable
             state,
             eventCoordinator ?? new EventCoordinator(),
             new Session("test-session"),
-            new Branch("test-session"),
+            new Thread("test-session"),
             CancellationToken.None);
     }
 

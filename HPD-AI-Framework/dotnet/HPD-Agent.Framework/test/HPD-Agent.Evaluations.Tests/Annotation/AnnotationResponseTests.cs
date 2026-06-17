@@ -24,7 +24,7 @@ public sealed class AnnotationResponseTests
             {
                 AnnotationId = "annotation-123",
                 SessionId = "session-1",
-                BranchId = "branch-1",
+                ThreadId = "thread-1",
                 TurnIndex = 1,
                 TriggerEvaluatorName = "test",
                 TriggerScore = 0.5,
@@ -73,7 +73,7 @@ public sealed class AnnotationResponseTests
             Result = result,
             Source = EvaluationSource.Human,
             SessionId = "session",
-            BranchId = "branch",
+            ThreadId = "thread",
             TurnIndex = 0,
             AgentName = "agent",
             SamplingRate = 1.0,

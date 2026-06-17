@@ -53,7 +53,7 @@ describe('AgentClient', () => {
       }
     ));
 
-    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', threadId: 'main' });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(order).toEqual([
@@ -77,7 +77,7 @@ describe('AgentClient', () => {
       durationMilliseconds: 321,
     }));
 
-    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', threadId: 'main' });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(events).toEqual([{
@@ -104,7 +104,7 @@ describe('AgentClient', () => {
       { version: '1.0', type: EventTypes.TEXT_DELTA, text: 'Hello', messageId: 'msg-1' }
     ));
 
-    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', threadId: 'main' });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(typed).not.toHaveBeenCalled();
@@ -125,12 +125,12 @@ describe('AgentClient', () => {
       text: 'Hello',
       sessionId: 'session-123',
       agentId: 'agent-1',
-      branchId: 'main',
+      threadId: 'main',
       runConfig,
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/inputs',
+      'http://localhost:5135/agents/agent-1/sessions/session-123/threads/main/inputs',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
@@ -158,11 +158,11 @@ describe('AgentClient', () => {
       text: 'Hello',
       sessionId: 'session-123',
       agentId: 'agent-1',
-      branchId: 'main',
+      threadId: 'main',
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/inputs',
+      'http://localhost:5135/agents/agent-1/sessions/session-123/threads/main/inputs',
       expect.objectContaining({
         credentials: 'include',
         headers: expect.objectContaining({
@@ -186,11 +186,11 @@ describe('AgentClient', () => {
       text: 'Hello',
       sessionId: 'session-123',
       agentId: 'agent-1',
-      branchId: 'main',
+      threadId: 'main',
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      '/api/hpd-agent/agents/agent-1/sessions/session-123/branches/main/inputs',
+      '/api/hpd-agent/agents/agent-1/sessions/session-123/threads/main/inputs',
       expect.objectContaining({ method: 'POST' }),
     );
   });
@@ -204,7 +204,7 @@ describe('AgentClient', () => {
         text: async () => '',
       } as Response);
 
-    await client.start({ agentId: 'agent-1', sessionId: 'session-123', branchId: 'main' });
+    await client.start({ agentId: 'agent-1', sessionId: 'session-123', threadId: 'main' });
     await client.submitInput({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'perm-1',
@@ -214,7 +214,7 @@ describe('AgentClient', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/responses',
+      'http://localhost:5135/agents/agent-1/sessions/session-123/threads/main/responses',
       expect.objectContaining({ method: 'POST' })
     );
   });
@@ -234,7 +234,7 @@ describe('AgentClient', () => {
       text: async () => '',
     } as Response);
 
-    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', threadId: 'main' });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(errors).toEqual(['stream broke']);
@@ -257,11 +257,11 @@ describe('AgentClient', () => {
         text: async () => '',
       } as Response);
 
-    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', threadId: 'main' });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchSpy).toHaveBeenLastCalledWith(
-      'http://localhost:5135/agents/agent-1/sessions/session-123/branches/main/responses',
+      'http://localhost:5135/agents/agent-1/sessions/session-123/threads/main/responses',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
@@ -297,7 +297,7 @@ describe('AgentClient', () => {
         },
       }));
 
-    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', threadId: 'main' });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -347,10 +347,10 @@ describe('AgentClient', () => {
       transport: 'websocket',
     });
 
-    await client.start({ agentId: 'agent-1', sessionId: 'session-123', branchId: 'main' });
+    await client.start({ agentId: 'agent-1', sessionId: 'session-123', threadId: 'main' });
 
     expect(urls).toEqual([
-      'wss://hpd.local/api/hpd-agent/agents/agent-1/sessions/session-123/branches/main/ws',
+      'wss://hpd.local/api/hpd-agent/agents/agent-1/sessions/session-123/threads/main/ws',
     ]);
 
     client.disconnectLive();
@@ -383,7 +383,7 @@ describe('AgentClient', () => {
       } as Response;
     });
 
-    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', threadId: 'main' });
 
     await new Promise((resolve) => setTimeout(resolve, 10));
     client.disconnectLive();
@@ -409,7 +409,7 @@ describe('AgentClient', () => {
       text: async () => '',
     } as Response);
 
-    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', threadId: 'main' });
 
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(client.connected).toBe(true);

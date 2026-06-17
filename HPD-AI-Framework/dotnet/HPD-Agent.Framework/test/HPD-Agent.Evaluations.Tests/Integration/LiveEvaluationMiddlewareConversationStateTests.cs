@@ -67,12 +67,12 @@ public sealed class LiveEvaluationMiddlewareConversationStateTests
     }
 
     [Fact]
-    public void BuildConversationHistoryForEvaluation_MergesBranchHistoryAndStoredResponses()
+    public void BuildConversationHistoryForEvaluation_MergesThreadHistoryAndStoredResponses()
     {
-        var branchAssistant = new ChatMessage(ChatRole.Assistant, "Branch history response");
-        var branchUser = new ChatMessage(ChatRole.User, "Earlier user message");
+        var threadAssistant = new ChatMessage(ChatRole.Assistant, "Thread history response");
+        var threadUser = new ChatMessage(ChatRole.User, "Earlier user message");
         var turnCtx = new TestContextBuilder()
-            .WithConversationHistory(branchUser, branchAssistant)
+            .WithConversationHistory(threadUser, threadAssistant)
             .Build();
         var state = new ConversationEvalStateData
         {
@@ -82,14 +82,14 @@ public sealed class LiveEvaluationMiddlewareConversationStateTests
         var history = LiveEvaluationMiddleware.BuildConversationHistoryForEvaluation(turnCtx, state);
 
         history.Should().HaveCount(3);
-        history[0].Should().BeSameAs(branchUser);
-        history[1].Should().BeSameAs(branchAssistant);
+        history[0].Should().BeSameAs(threadUser);
+        history[1].Should().BeSameAs(threadAssistant);
         history[2].Role.Should().Be(ChatRole.Assistant);
         history[2].Text.Should().Be("Stored response");
     }
 
     [Fact]
-    public void BuildConversationHistoryForEvaluation_DoesNotDuplicateStoredResponsesAlreadyInBranchHistory()
+    public void BuildConversationHistoryForEvaluation_DoesNotDuplicateStoredResponsesAlreadyInThreadHistory()
     {
         var existing = new ChatMessage(ChatRole.Assistant, "Already present");
         var turnCtx = new TestContextBuilder()

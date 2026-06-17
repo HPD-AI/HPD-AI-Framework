@@ -1,12 +1,12 @@
 import type { AgentClient } from './client.js';
 import { EventTypes } from './types/events.js';
 import type { RunConfig } from './types/run-config.js';
-import type { BranchEvent, CreateSessionRequest, SearchSessionsRequest, Session } from './types/session.js';
-import type { BranchRun } from './types/branch-run.js';
+import type { ThreadEvent, CreateSessionRequest, SearchSessionsRequest, Session } from './types/session.js';
+import type { ThreadRun } from './types/thread-run.js';
 
 export interface OpenChatOptions {
   agentId: string;
-  branchId?: string;
+  threadId?: string;
   session?: {
     id?: string;
     search?: SearchSessionsRequest;
@@ -18,7 +18,7 @@ export interface OpenChatOptions {
 export interface ChatSessionOptions {
   agentId: string;
   sessionId: string;
-  branchId?: string;
+  threadId?: string;
 }
 
 export interface SendTextOptions {
@@ -42,7 +42,7 @@ export class ChatManager {
   }
 
   async open(options: OpenChatOptions): Promise<ChatSession> {
-    const branchId = options.branchId ?? 'main';
+    const threadId = options.threadId ?? 'main';
     let sessionId = options.session?.id;
 
     if (!sessionId && options.session?.search) {
@@ -58,54 +58,54 @@ export class ChatManager {
 
     return new ChatSession(this.client, {
       agentId: options.agentId,
-      branchId,
+      threadId,
       sessionId,
     });
   }
 }
 
 /**
- * Convenience wrapper for a single agent/session/branch chat.
+ * Convenience wrapper for a single agent/session/thread chat.
  *
- * ChatSession scopes common chat operations to one agent/session/branch. Transcript
+ * ChatSession scopes common chat operations to one agent/session/thread. Transcript
  * rendering is intentionally left to applications via AgentClient.on/onAny and
- * getBranchEvents().
+ * getThreadEvents().
  */
 export class ChatSession {
   readonly agentId: string;
   sessionId: string;
-  branchId: string;
+  threadId: string;
 
   constructor(private readonly client: AgentClient, options: ChatSessionOptions) {
     this.agentId = options.agentId;
     this.sessionId = options.sessionId;
-    this.branchId = options.branchId ?? 'main';
+    this.threadId = options.threadId ?? 'main';
   }
 
   dispose(): void {
   }
 
-  async getBranchEvents(): Promise<BranchEvent[]> {
-    return this.client.getBranchEvents(this.sessionId, this.branchId);
+  async getThreadEvents(): Promise<ThreadEvent[]> {
+    return this.client.getThreadEvents(this.sessionId, this.threadId);
   }
 
-  async getRuns(): Promise<BranchRun[]> {
-    return this.client.getBranchRuns(this.agentId, this.sessionId, this.branchId);
+  async getRuns(): Promise<ThreadRun[]> {
+    return this.client.getThreadRuns(this.agentId, this.sessionId, this.threadId);
   }
 
-  async getActiveRun(): Promise<BranchRun | null> {
-    return this.client.getActiveBranchRun(this.agentId, this.sessionId, this.branchId);
+  async getActiveRun(): Promise<ThreadRun | null> {
+    return this.client.getActiveThreadRun(this.agentId, this.sessionId, this.threadId);
   }
 
-  async getRun(runtimeRunId: string): Promise<BranchRun | null> {
-    return this.client.getBranchRun(this.agentId, this.sessionId, this.branchId, runtimeRunId);
+  async getRun(runtimeRunId: string): Promise<ThreadRun | null> {
+    return this.client.getThreadRun(this.agentId, this.sessionId, this.threadId, runtimeRunId);
   }
 
   async subscribeLive(options: { signal?: AbortSignal } = {}): Promise<void> {
     await this.client.start({
       agentId: this.agentId,
       sessionId: this.sessionId,
-      branchId: this.branchId,
+      threadId: this.threadId,
       signal: options.signal,
     });
   }
@@ -119,7 +119,7 @@ export class ChatSession {
       type: EventTypes.USER_TEXT_INPUT,
       agentId: this.agentId,
       sessionId: this.sessionId,
-      branchId: this.branchId,
+      threadId: this.threadId,
       text,
       runConfig: options.runConfig,
     }, { signal: options.signal });
@@ -134,7 +134,7 @@ export class ChatSession {
       type: EventTypes.INTERRUPTION_REQUEST,
       agentId: this.agentId,
       sessionId: this.sessionId,
-      branchId: this.branchId,
+      threadId: this.threadId,
       eventFlowId: options.eventFlowId ?? undefined,
       reason: options.reason ?? 'Interrupted by client.',
       source: 'User',
@@ -145,8 +145,8 @@ export class ChatSession {
     return this.client.getSession(this.sessionId);
   }
 
-  switchSession(sessionId: string, branchId = this.branchId): void {
+  switchSession(sessionId: string, threadId = this.threadId): void {
     this.sessionId = sessionId;
-    this.branchId = branchId;
+    this.threadId = threadId;
   }
 }

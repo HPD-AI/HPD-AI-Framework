@@ -786,7 +786,7 @@ public sealed class CompositeJailbreakStrategy : IRedTeamStrategy
     }
 }
 
-/// <summary>Represents the payload as a small decision tree that gradually selects the unsafe branch.</summary>
+/// <summary>Represents the payload as a small decision tree that gradually selects the unsafe thread.</summary>
 public sealed class TreeJailbreakStrategy : IRedTeamStrategy
 {
     public string Id => "jailbreak-tree";

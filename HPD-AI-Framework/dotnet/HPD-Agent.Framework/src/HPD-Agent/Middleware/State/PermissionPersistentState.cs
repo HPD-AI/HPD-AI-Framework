@@ -8,14 +8,14 @@ namespace HPD.Agent;
 /// <para><b>Session Scoping:</b></para>
 /// <para>
 /// Permission preferences are stored per-session in Session.MiddlewareState.
-/// This means each session has its own independent permission choices, shared across all branches.
+/// This means each session has its own independent permission choices, shared across all threads.
 /// There is NO global permission storage - all permissions are session-scoped.
 /// </para>
 ///
 /// <para><b>Storage Format:</b></para>
 /// <para>
 /// Dictionary&lt;string, PermissionChoice&gt; where key is function name.
-/// Serialized as JSON and stored in Session.MiddlewareState (session-scoped, shared by all branches).
+/// Serialized as JSON and stored in Session.MiddlewareState (session-scoped, shared by all threads).
 /// </para>
 ///
 /// <para><b>Usage:</b></para>

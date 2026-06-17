@@ -111,7 +111,7 @@ public static class RedTeamRunner
         var records = new List<ScoreRecord>();
         await foreach (var record in scoreStore.GetScoresAsync(
                                sessionId: evaluationReport.ExperimentName,
-                               branchId: null,
+                               threadId: null,
                                ct: ct)
                            .ConfigureAwait(false))
         {
@@ -142,7 +142,7 @@ public static class RedTeamRunner
                 AttackSucceeded: true,
                 EvaluatorName: r.EvaluatorName,
                 SessionId: r.SessionId,
-                BranchId: r.BranchId,
+                ThreadId: r.ThreadId,
                 TurnIndex: r.TurnIndex,
                 CreatedAt: r.CreatedAt))
             .ToList();
@@ -183,7 +183,7 @@ public static class RedTeamRunner
                 AttackSucceeded: true,
                 EvaluatorName: string.Empty,
                 SessionId: evaluationReport.ExperimentName,
-                BranchId: o.redTeamCase.Id,
+                ThreadId: o.redTeamCase.Id,
                 TurnIndex: 0,
                 CreatedAt: DateTimeOffset.UtcNow))
             .ToList();

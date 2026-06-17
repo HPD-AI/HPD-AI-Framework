@@ -16,7 +16,7 @@
  *   delegates state changes to the callbacks.
  *
  * Submitting calls `workspace.editMessage(messageIndex, draft)`, which forks
- * the branch at that index and re-runs the model.
+ * the thread at that index and re-runs the model.
  *
  * Parts: Root, Textarea, SaveButton, CancelButton
  *

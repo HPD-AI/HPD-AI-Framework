@@ -593,8 +593,8 @@ public partial class TelegramBot
         if (_sessionMapper is null || _sessionManager is null || _agentManager is null)
             return;
 
-        var (sessionId, branchId) = await _sessionMapper.ResolveAsync(threadId, ct);
-        _ = StreamToTelegramAsync(sessionId, branchId, parsed, CancellationToken.None);
+        var (sessionId, threadId) = await _sessionMapper.ResolveAsync(threadId, ct);
+        _ = StreamToTelegramAsync(sessionId, threadId, parsed, CancellationToken.None);
     }
 
     private async Task ProcessCallbackQueryAsync(CallbackQuery query, CancellationToken ct)
@@ -649,7 +649,7 @@ public partial class TelegramBot
 
     private async Task StreamToTelegramAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         TelegramParsedMessage message,
         CancellationToken ct)
     {
@@ -666,7 +666,7 @@ public partial class TelegramBot
                 new BotStreamingRequest<TelegramStreamContext>(
                     AgentId: _config.ResolveAgentId(),
                     SessionId: sessionId,
-                    BranchId: branchId,
+                    ThreadId: threadId,
                     Text: message.Text,
                     Context: context,
                     Strategy: streaming.Strategy,

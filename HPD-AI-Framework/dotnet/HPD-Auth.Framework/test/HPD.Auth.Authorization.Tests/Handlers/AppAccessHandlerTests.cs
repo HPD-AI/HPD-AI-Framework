@@ -147,7 +147,7 @@ public class AppAccessHandlerTests
     public async Task HttpContext_resource_with_no_appId_route_value_calls_Fail()
     {
         // Resource IS an HttpContext, but the appId route key is absent.
-        // This exercises the branch where context.Resource is HttpContext
+        // This exercises the thread where context.Resource is HttpContext
         // but GetRouteValue("appId") returns null.
         var userId = Guid.NewGuid();
         var user = AuthenticatedUser(userId.ToString());

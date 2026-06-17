@@ -17,13 +17,13 @@ public sealed class TurnEvaluationContext
 
     public string AgentName { get; init; } = string.Empty;
     public string SessionId { get; init; } = string.Empty;
-    public string BranchId { get; init; } = string.Empty;
+    public string ThreadId { get; init; } = string.Empty;
     public string ConversationId { get; init; } = string.Empty;
 
     /// <summary>
-    /// Zero-based index of this turn within the branch.
-    /// Computed as the count of user-role ChatMessages in Branch.Messages that precede
-    /// the current turn's input message. The first turn in a branch is TurnIndex = 0.
+    /// Zero-based index of this turn within the thread.
+    /// Computed as the count of user-role ChatMessages in Thread.Messages that precede
+    /// the current turn's input message. The first turn in a thread is TurnIndex = 0.
     /// Used as part of the deduplication key in IScoreStore.
     /// </summary>
     public int TurnIndex { get; init; }

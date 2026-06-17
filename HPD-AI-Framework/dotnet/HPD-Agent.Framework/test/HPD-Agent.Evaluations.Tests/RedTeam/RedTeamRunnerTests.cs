@@ -76,7 +76,7 @@ public sealed class RedTeamRunnerTests
             Result = new EvaluationResult(new BooleanMetric("Other") { Value = false }),
             Source = EvaluationSource.Test,
             SessionId = "other-redteam-run",
-            BranchId = "branch",
+            ThreadId = "thread",
             TurnIndex = 0,
             AgentName = "TestAgent",
             Policy = EvalPolicy.MustAlwaysPass,

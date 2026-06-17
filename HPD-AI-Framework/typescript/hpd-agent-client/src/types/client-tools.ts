@@ -103,7 +103,7 @@ export interface AgentClientInput {
  */
 export interface AgentExecutionContext {
   sessionId?: string;
-  branchId?: string;
+  threadId?: string;
   agentId?: string;
   runId?: string;
   messageId?: string;

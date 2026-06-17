@@ -1,6 +1,6 @@
 using HPD.Agent;
 using HPD.Agent.Audio.AgentIntegration;
-using HPD.Agent.Audio.AgentIntegration.Branch;
+using HPD.Agent.Audio.AgentIntegration.Thread;
 using HPD.Agent.Audio.AgentIntegration.Middleware;
 using HPD.Agent.Audio.Ledger;
 
@@ -65,14 +65,14 @@ public static class AgentBuilderAudioRuntimeExtensions
 
     public static AgentBuilder WithAudioRuntimeAttachment(
         this AgentBuilder builder,
-        IBranchProjectionSink branchProjectionSink)
+        IThreadProjectionSink threadProjectionSink)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        ArgumentNullException.ThrowIfNull(branchProjectionSink);
+        ArgumentNullException.ThrowIfNull(threadProjectionSink);
 
         return builder.WithAudioRuntimeAttachment(new AudioRuntimeAttachmentOptions
         {
-            BranchProjectionSink = branchProjectionSink
+            ThreadProjectionSink = threadProjectionSink
         });
     }
 
@@ -83,6 +83,6 @@ public static class AgentBuilderAudioRuntimeExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(sessionStore);
 
-        return builder.WithAudioRuntimeAttachment(new SessionBranchProjectionSink(sessionStore));
+        return builder.WithAudioRuntimeAttachment(new SessionThreadProjectionSink(sessionStore));
     }
 }

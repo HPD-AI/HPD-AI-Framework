@@ -10,11 +10,11 @@
  * @example
  * ```typescript
  * try {
- *   await client.branches.delete('session-123', 'branch-456');
+ *   await client.threads.delete('session-123', 'thread-456');
  * } catch (error) {
  *   if (error instanceof AgentError && error.code === 'CONFLICT') {
  *     console.error('Cannot delete:', error.details);
- *     // { "HasChildren": ["Cannot delete branch with 3 child branches..."] }
+ *     // { "HasChildren": ["Cannot delete thread with 3 child threads..."] }
  *   }
  * }
  * ```
@@ -36,9 +36,9 @@ export class AgentError extends Error {
    * Format: { fieldName: ["error message 1", "error message 2"] }
    *
    * Example V3 validation errors:
-   * - { "HasChildren": ["Cannot delete branch with 3 children..."] }
-   * - { "ProtectedBranch": ["Cannot delete the 'main' branch."] }
-   * - { "IsStreaming": ["Branch is actively streaming and cannot be cancelled"] }
+   * - { "HasChildren": ["Cannot delete thread with 3 children..."] }
+   * - { "ProtectedThread": ["Cannot delete the 'main' thread."] }
+   * - { "IsStreaming": ["Thread is actively streaming and cannot be cancelled"] }
    */
   public readonly details?: Record<string, string[]>;
 
@@ -152,7 +152,7 @@ export class AgentError extends Error {
  *
  * @example
  * ```typescript
- * const response = await fetch('/api/sessions/123/branches/456', { method: 'DELETE' });
+ * const response = await fetch('/api/sessions/123/threads/456', { method: 'DELETE' });
  * if (!response.ok) {
  *   const body = await response.json().catch(() => null);
  *   throw parseErrorResponse(response, body);

@@ -66,10 +66,10 @@ public class PlatformSessionMapperTests : IDisposable
     [Fact]
     public async Task ResolveAsync_NoExistingSessions_CreatesNewSession()
     {
-        var (sessionId, branchId) = await _mapper.ResolveAsync("slack:C123:111.000");
+        var (sessionId, threadId) = await _mapper.ResolveAsync("slack:C123:111.000");
 
         sessionId.Should().NotBeNullOrEmpty();
-        branchId.Should().Be("main");
+        threadId.Should().Be("main");
     }
 
     [Fact]
@@ -102,13 +102,13 @@ public class PlatformSessionMapperTests : IDisposable
     }
 
     [Fact]
-    public async Task ResolveAsync_ExistingSession_ReturnsBranchId()
+    public async Task ResolveAsync_ExistingSession_ReturnsThreadId()
     {
         const string key = "slack:C100:333.000";
 
-        var (_, branchId) = await _mapper.ResolveAsync(key);
+        var (_, threadId) = await _mapper.ResolveAsync(key);
 
-        branchId.Should().Be("main");
+        threadId.Should().Be("main");
     }
 
     [Fact]
@@ -154,21 +154,21 @@ public class PlatformSessionMapperTests : IDisposable
     }
 
     [Fact]
-    public async Task ResolveAsync_MatchedSession_NoBranches_FallsBackToMain()
+    public async Task ResolveAsync_MatchedSession_NoThreads_FallsBackToMain()
     {
-        // Create a session via the mapper (which creates the "main" branch)
+        // Create a session via the mapper (which creates the "main" thread)
         const string key = "slack:C5:500.000";
         var (sessionId, _) = await _mapper.ResolveAsync(key);
 
-        // Delete branches from the store to simulate a session with no branches
-        var branches = await _store.ListBranchIdsAsync(sessionId);
-        foreach (var b in branches)
-            await _store.DeleteBranchAsync(sessionId, b);
+        // Delete threads from the store to simulate a session with no threads
+        var threads = await _store.ListThreadIdsAsync(sessionId);
+        foreach (var b in threads)
+            await _store.DeleteThreadAsync(sessionId, b);
 
-        // Resolve again — no branches means fallback to "main"
-        var (_, branchId) = await _mapper.ResolveAsync(key);
+        // Resolve again — no threads means fallback to "main"
+        var (_, threadId) = await _mapper.ResolveAsync(key);
 
-        branchId.Should().Be("main");
+        threadId.Should().Be("main");
     }
 
     // ── BindThreadAsync ──────────────────────────────────────────────
@@ -176,23 +176,23 @@ public class PlatformSessionMapperTests : IDisposable
     [Fact]
     public async Task BindThreadAsync_NewPlatformKey_ResolvesToExistingSession()
     {
-        var (sessionId, branchId) = await _mapper.ResolveAsync("discord:guild:channel:");
+        var (sessionId, threadId) = await _mapper.ResolveAsync("discord:guild:channel:");
 
-        await _mapper.BindThreadAsync("discord:guild:channel:thread", sessionId, branchId);
+        await _mapper.BindThreadAsync("discord:guild:channel:thread", sessionId, threadId);
 
-        var (resolvedSessionId, resolvedBranchId) =
+        var (resolvedSessionId, resolvedThreadId) =
             await _mapper.ResolveAsync("discord:guild:channel:thread");
         resolvedSessionId.Should().Be(sessionId);
-        resolvedBranchId.Should().Be(branchId);
+        resolvedThreadId.Should().Be(threadId);
     }
 
     [Fact]
     public async Task BindThreadAsync_DuplicatePlatformKey_DoesNotDuplicateAlias()
     {
-        var (sessionId, branchId) = await _mapper.ResolveAsync("discord:guild:channel:");
+        var (sessionId, threadId) = await _mapper.ResolveAsync("discord:guild:channel:");
 
-        await _mapper.BindThreadAsync("discord:guild:channel:thread", sessionId, branchId);
-        await _mapper.BindThreadAsync("discord:guild:channel:thread", sessionId, branchId);
+        await _mapper.BindThreadAsync("discord:guild:channel:thread", sessionId, threadId);
+        await _mapper.BindThreadAsync("discord:guild:channel:thread", sessionId, threadId);
 
         var session = await _store.LoadSessionAsync(sessionId);
         session.Should().NotBeNull();
@@ -246,10 +246,10 @@ public class PlatformSessionMapperTests : IDisposable
     [Fact]
     public async Task ResetAsync_NoExistingSession_CreatesNewSession()
     {
-        var (sessionId, branchId) = await _mapper.ResetAsync("slack:C6:600.000");
+        var (sessionId, threadId) = await _mapper.ResetAsync("slack:C6:600.000");
 
         sessionId.Should().NotBeNullOrEmpty();
-        branchId.Should().Be("main");
+        threadId.Should().Be("main");
     }
 
     // ── ResetAsync — existing session ─────────────────────────────────

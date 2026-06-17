@@ -8,7 +8,7 @@ using HPD.Agent.Serialization;
 
 namespace HPD.Agent.TUI.Runtime;
 
-public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessionBranchRuntime, IAgentTuiAgentRuntime, IAsyncDisposable
+public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessionThreadRuntime, IAgentTuiAgentRuntime, IAsyncDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -320,11 +320,11 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         }
     }
 
-    public async Task<IReadOnlyList<AgentTuiBranchInfo>> ListBranchesAsync(
+    public async Task<IReadOnlyList<AgentTuiThreadInfo>> ListThreadsAsync(
         string sessionId,
         CancellationToken cancellationToken = default)
     {
-        using var response = await _http.GetAsync($"sessions/{Escape(sessionId)}/branches", cancellationToken)
+        using var response = await _http.GetAsync($"sessions/{Escape(sessionId)}/threads", cancellationToken)
             .ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
@@ -333,21 +333,21 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         if (!response.IsSuccessStatusCode)
         {
-            await ThrowForUnexpectedResponseAsync(response, "list branches", cancellationToken)
+            await ThrowForUnexpectedResponseAsync(response, "list threads", cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        return await ReadArrayAsync(response, ParseBranchInfo, cancellationToken)
+        return await ReadArrayAsync(response, ParseThreadInfo, cancellationToken)
             .ConfigureAwait(false);
     }
 
-    public async Task<AgentTuiBranchInfo?> GetBranchAsync(
+    public async Task<AgentTuiThreadInfo?> GetThreadAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default)
     {
         using var response = await _http.GetAsync(
-                $"sessions/{Escape(sessionId)}/branches/{Escape(branchId)}",
+                $"sessions/{Escape(sessionId)}/threads/{Escape(threadId)}",
                 cancellationToken)
             .ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
@@ -357,92 +357,92 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         if (!response.IsSuccessStatusCode)
         {
-            await ThrowForUnexpectedResponseAsync(response, "load branch", cancellationToken)
+            await ThrowForUnexpectedResponseAsync(response, "load thread", cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        return await ReadObjectAsync(response, ParseBranchInfo, cancellationToken)
+        return await ReadObjectAsync(response, ParseThreadInfo, cancellationToken)
             .ConfigureAwait(false);
     }
 
-    public async Task<AgentTuiBranchInfo> CreateBranchAsync(
+    public async Task<AgentTuiThreadInfo> CreateThreadAsync(
         string agentId,
         string sessionId,
-        string? branchId = null,
+        string? threadId = null,
         string? name = null,
         CancellationToken cancellationToken = default)
-        => await CreateBranchAsync(
+        => await CreateThreadAsync(
                 agentId,
                 sessionId,
-                new AgentTuiCreateBranchRequest(branchId, name),
+                new AgentTuiCreateThreadRequest(threadId, name),
                 cancellationToken)
             .ConfigureAwait(false);
 
-    public async Task<AgentTuiBranchInfo> CreateBranchAsync(
+    public async Task<AgentTuiThreadInfo> CreateThreadAsync(
         string agentId,
         string sessionId,
-        AgentTuiCreateBranchRequest request,
+        AgentTuiCreateThreadRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var id = string.IsNullOrWhiteSpace(request.BranchId) ? Guid.NewGuid().ToString("N")[..12] : request.BranchId;
+        var id = string.IsNullOrWhiteSpace(request.ThreadId) ? Guid.NewGuid().ToString("N")[..12] : request.ThreadId;
         var json = SerializeJson(JsonObject(
-            ("branchId", JsonValue.Create(id)),
+            ("threadId", JsonValue.Create(id)),
             ("name", JsonValue.Create(request.Name)),
             ("description", JsonValue.Create(request.Description)),
             ("tags", ToJsonArray(request.Tags)),
             ("metadata", ToJsonObject(request.Metadata))));
         using var response = await PostJsonEnvelopeAsync(
-                $"agents/{Escape(agentId)}/sessions/{Escape(sessionId)}/branches",
+                $"agents/{Escape(agentId)}/sessions/{Escape(sessionId)}/threads",
                 json,
                 cancellationToken)
             .ConfigureAwait(false);
         if (response.StatusCode is not HttpStatusCode.Created and not HttpStatusCode.OK)
         {
-            await ThrowForUnexpectedResponseAsync(response, "create branch", cancellationToken)
+            await ThrowForUnexpectedResponseAsync(response, "create thread", cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        return await ReadObjectAsync(response, ParseBranchInfo, cancellationToken)
+        return await ReadObjectAsync(response, ParseThreadInfo, cancellationToken)
             .ConfigureAwait(false);
     }
 
-    public async Task<AgentTuiBranchInfo> ForkBranchAsync(
+    public async Task<AgentTuiThreadInfo> ForkThreadAsync(
         string agentId,
         string sessionId,
-        string sourceBranchId,
-        AgentTuiForkBranchRequest request,
+        string sourceThreadId,
+        AgentTuiForkThreadRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         var json = SerializeJson(JsonObject(
-            ("newBranchId", JsonValue.Create(request.NewBranchId)),
+            ("newThreadId", JsonValue.Create(request.NewThreadId)),
             ("fromMessageId", JsonValue.Create(request.FromMessageId)),
             ("name", JsonValue.Create(request.Name)),
             ("description", JsonValue.Create(request.Description)),
             ("tags", ToJsonArray(request.Tags)),
             ("metadata", ToJsonObject(request.Metadata))));
         using var response = await PostJsonEnvelopeAsync(
-                $"agents/{Escape(agentId)}/sessions/{Escape(sessionId)}/branches/{Escape(sourceBranchId)}/fork",
+                $"agents/{Escape(agentId)}/sessions/{Escape(sessionId)}/threads/{Escape(sourceThreadId)}/fork",
                 json,
                 cancellationToken)
             .ConfigureAwait(false);
         if (response.StatusCode is not HttpStatusCode.Created and not HttpStatusCode.OK)
         {
-            await ThrowForUnexpectedResponseAsync(response, "fork branch", cancellationToken)
+            await ThrowForUnexpectedResponseAsync(response, "fork thread", cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        return await ReadObjectAsync(response, ParseBranchInfo, cancellationToken)
+        return await ReadObjectAsync(response, ParseThreadInfo, cancellationToken)
             .ConfigureAwait(false);
     }
 
-    public async Task<AgentTuiBranchInfo> UpdateBranchAsync(
+    public async Task<AgentTuiThreadInfo> UpdateThreadAsync(
         string sessionId,
-        string branchId,
-        AgentTuiBranchUpdate update,
+        string threadId,
+        AgentTuiThreadUpdate update,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(update);
@@ -454,27 +454,27 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             ("metadata", ToJsonObject(update.Metadata))));
         using var response = await SendJsonEnvelopeAsync(
                 HttpMethod.Patch,
-                $"sessions/{Escape(sessionId)}/branches/{Escape(branchId)}",
+                $"sessions/{Escape(sessionId)}/threads/{Escape(threadId)}",
                 json,
                 cancellationToken)
             .ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            await ThrowForUnexpectedResponseAsync(response, "update branch", cancellationToken)
+            await ThrowForUnexpectedResponseAsync(response, "update thread", cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        return await ReadObjectAsync(response, ParseBranchInfo, cancellationToken)
+        return await ReadObjectAsync(response, ParseThreadInfo, cancellationToken)
             .ConfigureAwait(false);
     }
 
-    public async Task<IReadOnlyList<AgentTuiBranchInfo>> GetSiblingBranchesAsync(
+    public async Task<IReadOnlyList<AgentTuiThreadInfo>> GetSiblingThreadsAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default)
     {
         using var response = await _http.GetAsync(
-                $"sessions/{Escape(sessionId)}/branches/{Escape(branchId)}/siblings",
+                $"sessions/{Escape(sessionId)}/threads/{Escape(threadId)}/siblings",
                 cancellationToken)
             .ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
@@ -484,22 +484,22 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         if (!response.IsSuccessStatusCode)
         {
-            await ThrowForUnexpectedResponseAsync(response, "load sibling branches", cancellationToken)
+            await ThrowForUnexpectedResponseAsync(response, "load sibling threads", cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        return await ReadArrayAsync(response, ParseBranchInfo, cancellationToken)
+        return await ReadArrayAsync(response, ParseThreadInfo, cancellationToken)
             .ConfigureAwait(false);
     }
 
-    public async Task DeleteBranchAsync(
+    public async Task DeleteThreadAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         bool recursive = false,
         CancellationToken cancellationToken = default)
     {
         using var response = await _http.DeleteAsync(
-                $"sessions/{Escape(sessionId)}/branches/{Escape(branchId)}?recursive={recursive.ToString().ToLowerInvariant()}",
+                $"sessions/{Escape(sessionId)}/threads/{Escape(threadId)}?recursive={recursive.ToString().ToLowerInvariant()}",
                 cancellationToken)
             .ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
@@ -509,7 +509,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         if (!response.IsSuccessStatusCode)
         {
-            await ThrowForUnexpectedResponseAsync(response, "delete branch", cancellationToken)
+            await ThrowForUnexpectedResponseAsync(response, "delete thread", cancellationToken)
                 .ConfigureAwait(false);
         }
     }
@@ -522,7 +522,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
-            $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/branches/{Escape(scope.BranchId)}/events/live");
+            $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/events/live");
         using var response = await _http.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -580,7 +580,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         var json = AgentEventSerializer.ToJson(input);
         using var response = await PostJsonEnvelopeAsync(
-                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/branches/{Escape(scope.BranchId)}/inputs",
+                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/inputs",
                 json,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -608,7 +608,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         var json = AgentEventSerializer.ToJson(response);
         using var httpResponse = await PostJsonEnvelopeAsync(
-                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/branches/{Escape(scope.BranchId)}/responses",
+                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/responses",
                 json,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -620,14 +620,14 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         }
     }
 
-    public async Task<IReadOnlyList<AgentEvent>> GetBranchEventsAsync(
+    public async Task<IReadOnlyList<AgentEvent>> GetThreadEventsAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(scope);
 
         using var response = await _http.GetAsync(
-                $"sessions/{Escape(scope.SessionId)}/branches/{Escape(scope.BranchId)}/events",
+                $"sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/events",
                 cancellationToken)
             .ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
@@ -637,7 +637,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         if (!response.IsSuccessStatusCode)
         {
-            await ThrowForUnexpectedResponseAsync(response, "load branch events", cancellationToken)
+            await ThrowForUnexpectedResponseAsync(response, "load thread events", cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -662,14 +662,14 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         return events;
     }
 
-    public async Task<AgentTuiBranchRun?> GetActiveRunAsync(
+    public async Task<AgentTuiThreadRun?> GetActiveRunAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(scope);
 
         using var response = await _http.GetAsync(
-                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/branches/{Escape(scope.BranchId)}/runs/active",
+                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/runs/active",
                 cancellationToken)
             .ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
@@ -701,7 +701,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         var runtimeRunId = GetRequiredString(root, "runtimeRunId");
         var agentId = GetRequiredString(root, "agentId");
         var sessionId = GetRequiredString(root, "sessionId");
-        var branchId = GetRequiredString(root, "branchId");
+        var threadId = GetRequiredString(root, "threadId");
         var status = GetRequiredString(root, "status");
         var startedAt = GetRequiredDateTimeOffset(root, "startedAt");
         var completedAt = GetOptionalDateTimeOffset(root, "completedAt");
@@ -715,11 +715,11 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         return string.IsNullOrWhiteSpace(runtimeRunId)
             ? null
-            : new AgentTuiBranchRun(
+            : new AgentTuiThreadRun(
                 runtimeRunId,
                 agentId,
                 sessionId,
-                branchId,
+                threadId,
                 status,
                 startedAt,
                 completedAt,
@@ -915,7 +915,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             config);
     }
 
-    private static AgentTuiBranchInfo ParseBranchInfo(JsonElement element)
+    private static AgentTuiThreadInfo ParseThreadInfo(JsonElement element)
         => new(
             GetRequiredString(element, "id"),
             GetRequiredString(element, "sessionId"),
@@ -933,7 +933,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             ReadStringMap(element, "ancestors"),
             GetOptionalInt32(element, "siblingIndex") ?? 0,
             GetOptionalInt32(element, "totalSiblings") ?? 1,
-            GetOptionalString(element, "originalBranchId"),
+            GetOptionalString(element, "originalThreadId"),
             GetOptionalString(element, "previousSiblingId"),
             GetOptionalString(element, "nextSiblingId"),
             ReadObjectMap(element, "metadata"));

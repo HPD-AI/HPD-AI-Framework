@@ -173,7 +173,7 @@ public static class LogGraphRenderer
     }
 
     /// <summary>
-    /// Adds merge/fork connector characters (/ and \) to show branching
+    /// Adds merge/fork connector characters (/ and \) to show threading
     /// </summary>
     private static void AddMergeConnectors(StringBuilder line, List<CommitId?> lanes, 
         int currentLaneIndex, IReadOnlyList<GraphEdge> edges)

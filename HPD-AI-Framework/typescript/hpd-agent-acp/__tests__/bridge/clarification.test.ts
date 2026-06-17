@@ -29,7 +29,7 @@ function makeWriter() {
 
 function makeSession() {
   const registry = new SessionRegistry();
-  return registry.create('hpd-1', 'branch-1', '/cwd');
+  return registry.create('hpd-1', 'thread-1', '/cwd');
 }
 
 function makeClarificationEvent(overrides?: Partial<{ question: string; requestId: string; options: string[] }>) {

@@ -1584,7 +1584,7 @@ function _page($$renderer, $$props) {
       return {
         workspaceKey: params.get("workspace") ?? "",
         sessionId: params.get("session") ?? "",
-        branchId: params.get("branch") ?? "main"
+        threadId: params.get("thread") ?? "main"
       };
     }
     async function sendMessage(value) {
@@ -1686,7 +1686,7 @@ function _page($$renderer, $$props) {
     }
     $$renderer2.push(`<!--]--> <aside class="workspace-rail svelte-1uha8ag"><div class="workspace-surface-shell svelte-1uha8ag"><div class="workspace-surface svelte-1uha8ag"><header class="svelte-1uha8ag"><div class="surface-title svelte-1uha8ag"><span class="surface-icon svelte-1uha8ag">`);
     Icon($$renderer2, "cpu");
-    $$renderer2.push(`<!----></span> <span class="svelte-1uha8ag"><h2 class="svelte-1uha8ag">HPD-OS</h2> <p class="svelte-1uha8ag">${escape_html("No workspace selected")}</p></span></div> <span class="surface-status svelte-1uha8ag"${attr("data-active", isStreaming() || activeTools().length > 0)}>${escape_html(monitorStatus())}</span></header> <div class="surface-grid svelte-1uha8ag"><section class="svelte-1uha8ag"><span class="surface-label svelte-1uha8ag">Workspace Root</span> <code class="svelte-1uha8ag">${escape_html(activeRootSummary())}</code></section> <section class="svelte-1uha8ag"><span class="surface-label svelte-1uha8ag">Session</span> <code class="svelte-1uha8ag">${escape_html(activeSession() ? formatSessionLabel(activeSession()) : "No active session")}</code></section> <section class="svelte-1uha8ag"><span class="surface-label svelte-1uha8ag">Branch</span> <code class="svelte-1uha8ag">${escape_html("No branch")}</code></section> <section class="svelte-1uha8ag"><span class="surface-label svelte-1uha8ag">Model</span> <code class="svelte-1uha8ag">${escape_html(runConfig.modelId ?? "Default model")}</code></section></div> <div class="surface-activity svelte-1uha8ag"><div class="surface-label svelte-1uha8ag">Current Activity</div> `);
+    $$renderer2.push(`<!----></span> <span class="svelte-1uha8ag"><h2 class="svelte-1uha8ag">HPD-OS</h2> <p class="svelte-1uha8ag">${escape_html("No workspace selected")}</p></span></div> <span class="surface-status svelte-1uha8ag"${attr("data-active", isStreaming() || activeTools().length > 0)}>${escape_html(monitorStatus())}</span></header> <div class="surface-grid svelte-1uha8ag"><section class="svelte-1uha8ag"><span class="surface-label svelte-1uha8ag">Workspace Root</span> <code class="svelte-1uha8ag">${escape_html(activeRootSummary())}</code></section> <section class="svelte-1uha8ag"><span class="surface-label svelte-1uha8ag">Session</span> <code class="svelte-1uha8ag">${escape_html(activeSession() ? formatSessionLabel(activeSession()) : "No active session")}</code></section> <section class="svelte-1uha8ag"><span class="surface-label svelte-1uha8ag">Thread</span> <code class="svelte-1uha8ag">${escape_html("No thread")}</code></section> <section class="svelte-1uha8ag"><span class="surface-label svelte-1uha8ag">Model</span> <code class="svelte-1uha8ag">${escape_html(runConfig.modelId ?? "Default model")}</code></section></div> <div class="surface-activity svelte-1uha8ag"><div class="surface-label svelte-1uha8ag">Current Activity</div> `);
     if (monitorItems().length) {
       $$renderer2.push("<!--[0-->");
       $$renderer2.push(`<div class="surface-activity-list svelte-1uha8ag"><!--[-->`);

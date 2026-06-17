@@ -14,7 +14,7 @@ public sealed record EvalScoreEvent : AgentEvent
     public EvaluationResult Result { get; init; } = null!;
     public EvaluationSource Source { get; init; }
     public string SessionId { get; init; } = string.Empty;
-    public string BranchId { get; init; } = string.Empty;
+    public string ThreadId { get; init; } = string.Empty;
     public int TurnIndex { get; init; }
     public TimeSpan EvaluatorDuration { get; init; }
 }
@@ -24,7 +24,7 @@ public sealed record EvalFailedEvent : AgentEvent
 {
     public string EvaluatorName { get; init; } = string.Empty;
     public string SessionId { get; init; } = string.Empty;
-    public string BranchId { get; init; } = string.Empty;
+    public string ThreadId { get; init; } = string.Empty;
     public int TurnIndex { get; init; }
     public string ErrorMessage { get; init; } = string.Empty;
     public bool TimedOut { get; init; }
@@ -36,7 +36,7 @@ public sealed record AnnotationRequestedEvent : AgentEvent, IAgentRequestEvent
 {
     public string AnnotationId { get; init; } = string.Empty;
     public string SessionId { get; init; } = string.Empty;
-    public string BranchId { get; init; } = string.Empty;
+    public string ThreadId { get; init; } = string.Empty;
     public int TurnIndex { get; init; }
     public string TriggerEvaluatorName { get; init; } = string.Empty;
     public double TriggerScore { get; init; }
@@ -70,7 +70,7 @@ public sealed record EvalPolicyViolationEvent : AgentEvent
     public string EvaluatorName { get; init; } = string.Empty;
     public string MetricName { get; init; } = string.Empty;
     public string SessionId { get; init; } = string.Empty;
-    public string BranchId { get; init; } = string.Empty;
+    public string ThreadId { get; init; } = string.Empty;
     public int TurnIndex { get; init; }
     public EvaluationResult Result { get; init; } = null!;
 }

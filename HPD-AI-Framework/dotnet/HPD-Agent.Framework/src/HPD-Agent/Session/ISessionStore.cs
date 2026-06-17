@@ -7,15 +7,15 @@ using System.Threading.Tasks;
 namespace HPD.Agent;
 
 /// <summary>
-/// Interface for persisting and loading session and branch state.
-/// V3 Architecture: Supports session metadata, branches, and crash recovery.
+/// Interface for persisting and loading session and thread state.
+/// V3 Architecture: Supports session metadata, threads, and crash recovery.
 /// </summary>
 /// <remarks>
 /// <para><b>V3 Changes:</b></para>
 /// <list type="bullet">
 /// <item>Session methods now work with Session (metadata only, no messages)</item>
-/// <item>New branch methods for managing conversation branches</item>
-/// <item>UncommittedTurn remains session-scoped (contains BranchId internally)</item>
+/// <item>New thread methods for managing conversation threads</item>
+/// <item>UncommittedTurn remains session-scoped (contains ThreadId internally)</item>
 /// </list>
 /// </remarks>
 public interface ISessionStore
@@ -30,7 +30,7 @@ public interface ISessionStore
     /// </summary>
     /// <remarks>
     /// <para><b>V3 Change:</b> Returns Session (metadata) instead of the former monolithic session type.</para>
-    /// <para>Messages are stored as branch events and projected into Branch objects by LoadBranchAsync.</para>
+    /// <para>Messages are stored as thread events and projected into Thread objects by LoadThreadAsync.</para>
     /// </remarks>
     Task<Session?> LoadSessionAsync(
         string sessionId,
@@ -42,7 +42,7 @@ public interface ISessionStore
     /// </summary>
     /// <remarks>
     /// <para><b>V3 Change:</b> Saves Session (metadata) instead of the former monolithic session type.</para>
-    /// <para>Messages are persisted as branch events and projected into Branch objects on load.</para>
+    /// <para>Messages are persisted as thread events and projected into Thread objects on load.</para>
     /// </remarks>
     Task SaveSessionAsync(
         Session session,
@@ -56,57 +56,57 @@ public interface ISessionStore
 
     /// <summary>
     /// Delete a session and all its data from persistent storage.
-    /// This deletes the session metadata, all branches, and uncommitted turn.
+    /// This deletes the session metadata, all threads, and uncommitted turn.
     /// </summary>
     /// <remarks>
-    /// <para><b>V3 Behavior:</b> Deletes session + all branches. Content cleanup is handled by IContentStore policy.</para>
+    /// <para><b>V3 Behavior:</b> Deletes session + all threads. Content cleanup is handled by IContentStore policy.</para>
     /// </remarks>
     Task DeleteSessionAsync(
         string sessionId,
         CancellationToken cancellationToken = default);
 
     // ═══════════════════════════════════════════════════════════════════
-    // BRANCH PERSISTENCE ( New - conversation paths)
+    // THREAD PERSISTENCE ( New - conversation paths)
     // ═══════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Load a branch (conversation path) from persistent storage.
-    /// Returns null if branch doesn't exist.
+    /// Load a thread (conversation path) from persistent storage.
+    /// Returns null if thread doesn't exist.
     /// </summary>
     /// <remarks>
-    /// <para><b>V3 Addition:</b> Branches contain messages and branch-scoped middleware state.</para>
+    /// <para><b>V3 Addition:</b> Threads contain messages and thread-scoped middleware state.</para>
     /// </remarks>
-    Task<Branch?> LoadBranchAsync(
+    Task<Thread?> LoadThreadAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Load the event-sourced branch document from persistent storage.
-    /// Returns null if the branch does not exist.
+    /// Load the event-sourced thread document from persistent storage.
+    /// Returns null if the thread does not exist.
     /// </summary>
-    Task<BranchEventDocument?> LoadBranchDocumentAsync(
+    Task<ThreadEventDocument?> LoadThreadDocumentAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Append a branch event to the branch's durable event stream.
+    /// Append a thread event to the thread's durable event stream.
     /// Implementations assign the event sequence number before persisting.
     /// </summary>
-    Task AppendBranchEventAsync(
+    Task AppendThreadEventAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         AgentEvent evt,
         long? expectedSequenceNumber = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Read branch events for deterministic replay.
+    /// Read thread events for deterministic replay.
     /// </summary>
-    IAsyncEnumerable<AgentEvent> ReadBranchEventsAsync(
+    IAsyncEnumerable<AgentEvent> ReadThreadEventsAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         HPD.Events.ReplayReadOptions options,
         CancellationToken cancellationToken = default)
     {
@@ -115,7 +115,7 @@ public interface ISessionStore
         async IAsyncEnumerable<AgentEvent> ReadAsync(
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
         {
-            var document = await LoadBranchDocumentAsync(sessionId, branchId, ct).ConfigureAwait(false);
+            var document = await LoadThreadDocumentAsync(sessionId, threadId, ct).ConfigureAwait(false);
             if (document is null)
                 yield break;
 
@@ -125,25 +125,25 @@ public interface ISessionStore
     }
 
     /// <summary>
-    /// List all branch IDs for a session.
+    /// List all thread IDs for a session.
     /// </summary>
     /// <remarks>
     /// <para><b>V3 Addition:</b> Enables UI to show all conversation variants.</para>
     /// </remarks>
-    Task<List<string>> ListBranchIdsAsync(
+    Task<List<string>> ListThreadIdsAsync(
         string sessionId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Delete a specific branch from a session.
-    /// Does not delete the session itself or other branches.
+    /// Delete a specific thread from a session.
+    /// Does not delete the session itself or other threads.
     /// </summary>
     /// <remarks>
     /// <para><b>V3 Addition:</b> Allows cleanup of unwanted conversation paths.</para>
     /// </remarks>
-    Task DeleteBranchAsync(
+    Task DeleteThreadAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default);
 
     // ═══════════════════════════════════════════════════════════════════

@@ -47,8 +47,8 @@ public static partial class EventTypes
         public const string AGENT_TURN_STARTED = "AGENT_TURN_STARTED";
         public const string AGENT_TURN_FINISHED = "AGENT_TURN_FINISHED";
         public const string STATE_SNAPSHOT = "STATE_SNAPSHOT";
-        public const string BRANCH_RUN_STARTED = "BRANCH_RUN_STARTED";
-        public const string BRANCH_RUN_COMPLETED = "BRANCH_RUN_COMPLETED";
+        public const string THREAD_RUN_STARTED = "THREAD_RUN_STARTED";
+        public const string THREAD_RUN_COMPLETED = "THREAD_RUN_COMPLETED";
     }
 
     #endregion

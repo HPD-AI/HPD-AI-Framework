@@ -9,7 +9,7 @@ export interface ScoreRecord {
   evaluatorVersion: string;
   source: 'Live' | 'Test' | 'Retroactive' | 'Human';
   sessionId: string;
-  branchId: string;
+  threadId: string;
   turnIndex: number;
   agentName: string;
   providerKey?: string;
@@ -76,12 +76,12 @@ export interface ScoreAggregate {
   passRate: number;
 }
 
-export interface BranchComparisonResult {
+export interface ThreadComparisonResult {
   sessionId: string;
-  branchId1: string;
-  branchId2: string;
-  branch1Scores: Record<string, ScoreAggregate>;
-  branch2Scores: Record<string, ScoreAggregate>;
+  threadId1: string;
+  threadId2: string;
+  thread1Scores: Record<string, ScoreAggregate>;
+  thread2Scores: Record<string, ScoreAggregate>;
 }
 
 export interface ToolUsageSummary {
@@ -92,7 +92,7 @@ export interface ToolUsageSummary {
 
 export interface RiskAutonomyDataPoint {
   sessionId: string;
-  branchId: string;
+  threadId: string;
   turnIndex: number;
   agentName: string;
   riskScore: number;

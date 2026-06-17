@@ -257,7 +257,7 @@ public sealed class SpanQueryTests
     // ── Or ────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Or_FirstBranchMatches_ReturnsTrue()
+    public void Or_FirstThreadMatches_ReturnsTrue()
     {
         var span = MakeSpan("ReadFile");
         var query = new SpanQuery
@@ -272,7 +272,7 @@ public sealed class SpanQueryTests
     }
 
     [Fact]
-    public void Or_SecondBranchMatches_ReturnsTrue()
+    public void Or_SecondThreadMatches_ReturnsTrue()
     {
         var span = MakeSpan("WriteFile");
         var query = new SpanQuery
@@ -287,7 +287,7 @@ public sealed class SpanQueryTests
     }
 
     [Fact]
-    public void Or_NoBranchMatches_ReturnsFalse()
+    public void Or_NoThreadMatches_ReturnsFalse()
     {
         var span = MakeSpan("DeleteFile");
         var query = new SpanQuery

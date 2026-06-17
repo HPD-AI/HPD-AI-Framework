@@ -131,11 +131,11 @@ public class Phase3CombinatorialValidationTests
                 && val1 is bool b1 && b1;
             Assert.True(isSubAgent, $"{subAgent.Name} should have IsSubAgent = true");
 
-            // Should advertise branch-native execution
+            // Should advertise thread-native execution
             object? executionModel = null;
             var hasExecutionModel = subAgent.AdditionalProperties?.TryGetValue("ExecutionModel", out executionModel) == true;
             Assert.True(hasExecutionModel, $"SubAgent {subAgent.Name} should have ExecutionModel");
-            Assert.Equal("BranchNative", executionModel as string);
+            Assert.Equal("ThreadNative", executionModel as string);
             Assert.False(subAgent.AdditionalProperties?.ContainsKey("SessionMode") == true);
 
             // Should have ParentToolHarness
@@ -308,14 +308,14 @@ public class Phase3CombinatorialValidationTests
     {
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
         var session = new global::HPD.Agent.Session("session-1");
-        var branch = new global::HPD.Agent.Branch("session-1") { Id = "branch-1" };
+        var thread = new global::HPD.Agent.Thread("session-1") { Id = "thread-1" };
         var agentContext = new AgentContext(
             "AgentA",
             "conversation-1",
             state,
             new EventCoordinator(),
             session,
-            branch,
+            thread,
             CancellationToken.None);
         var beforeContext = agentContext.AsBeforeFunction(
             function,

@@ -128,9 +128,9 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             ?? context.TraceId
             ?? $"audio-session-{Guid.NewGuid():N}");
 
-        var branchRef = new BranchRef(
+        var threadRef = new ThreadRef(
             context.SessionId ?? context.ConversationId ?? "session",
-            context.BranchId ?? "main");
+            context.ThreadId ?? "main");
 
         var results = new List<AudioInteractionRuntimeResult>();
         try
@@ -144,13 +144,13 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
                     InputContentRefs = detections
                         .Select(detection => detection.InputContent)
                         .ToArray(),
-                    BranchRef = branchRef,
+                    ThreadRef = threadRef,
                     RequestId = context.TraceId,
                     PolicySet = options.PolicySet,
                     ProviderRoute = providerRoute,
                     ProviderCandidates = options.ProviderCandidates,
                     InteractionSessionFactory = interactionSessionFactory,
-                    BranchProjectionSink = options.BranchProjectionSink
+                    ThreadProjectionSink = options.ThreadProjectionSink
                 }, cancellationToken).ConfigureAwait(false);
 
                 results.Add(result);
@@ -226,9 +226,9 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             ?? context.ConversationId
             ?? context.TraceId
             ?? $"audio-session-{Guid.NewGuid():N}");
-        var branchRef = new BranchRef(
+        var threadRef = new ThreadRef(
             context.SessionId ?? context.ConversationId ?? "session",
-            context.BranchId ?? "main");
+            context.ThreadId ?? "main");
         var responseId = new ResponseId(
             context.FinalResponse.ResponseId
             ?? $"response-{Guid.NewGuid():N}");
@@ -243,7 +243,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             new AssistantFinalTextToSpeechOutputRequest
             {
                 SessionId = sessionId,
-                Branch = branchRef,
+                Thread = threadRef,
                 Text = text,
                 RequestId = context.TraceId,
                 ResponseId = responseId,
@@ -279,7 +279,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             ?? request.State.ConversationId
             ?? request.State.RunId
             ?? $"audio-session-{Guid.NewGuid():N}");
-        var branchRef = new BranchRef(sessionId.Value, "main");
+        var threadRef = new ThreadRef(sessionId.Value, "main");
         var responseId = new ResponseId($"response-{Guid.NewGuid():N}");
         var outputFlowId = new OutputFlowId($"output-{Guid.NewGuid():N}");
         var outputOptions = ResolveAssistantOutputOptions(options, null, request.ClientSet, request.ContentStore);
@@ -289,7 +289,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         var coordinator = new ProgressiveOutputCoordinator(new ProgressiveOutputCoordinatorOptions
         {
             SessionId = sessionId,
-            Branch = branchRef,
+            Thread = threadRef,
             OutputFlowId = outputFlowId,
             InitialResponseId = responseId,
             PacingOptions = options.AssistantOutputPacingOptions,
@@ -334,7 +334,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             await ProjectCommittedAssistantOutputAsync(
                 options,
                 completion,
-                branchRef,
+                threadRef,
                 new AudioTurnId(request.State.RunId ?? outputFlowId.Value),
                 ledger,
                 trace,
@@ -538,14 +538,14 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
     private async ValueTask ProjectCommittedAssistantOutputAsync(
         AudioRuntimeAttachmentOptions options,
         ProgressiveOutputCompletion completion,
-        BranchRef branchRef,
+        ThreadRef threadRef,
         AudioTurnId turnId,
         List<RealtimeLedgerRecord> ledger,
         List<RealtimeAudioTraceRecord> trace,
         CancellationToken cancellationToken)
     {
-        if (options.BranchProjectionSink is null ||
-            !options.PolicySet.BranchProjection.ProjectCommittedAssistantOutputs ||
+        if (options.ThreadProjectionSink is null ||
+            !options.PolicySet.ThreadProjection.ProjectCommittedAssistantOutputs ||
             completion.Commit is not { } commit ||
             !ShouldProjectAssistantOutput(commit) ||
             string.IsNullOrWhiteSpace(commit.Text))
@@ -553,44 +553,44 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             return;
         }
 
-        var projection = new BranchProjectionRecord
+        var projection = new ThreadProjectionRecord
         {
             TurnId = turnId,
             Text = commit.Text,
-            Kind = BranchProjectionKind.AssistantOutput,
-            Role = BranchProjectionRole.Assistant,
+            Kind = ThreadProjectionKind.AssistantOutput,
+            Role = ThreadProjectionRole.Assistant,
             OutputFlowId = commit.OutputFlowId,
             ResponseId = commit.ResponseId
         };
-        var projectedEvent = await options.BranchProjectionSink
-            .ProjectAsync(branchRef, projection, cancellationToken)
+        var projectedEvent = await options.ThreadProjectionSink
+            .ProjectAsync(threadRef, projection, cancellationToken)
             .ConfigureAwait(false);
-        var projectionId = new BranchProjectionId($"branch-projection-{Guid.NewGuid():N}");
+        var projectionId = new ThreadProjectionId($"thread-projection-{Guid.NewGuid():N}");
         var correlation = new AudioCorrelation
         {
-            ConversationId = branchRef.SessionId,
+            ConversationId = threadRef.SessionId,
             RequestId = turnId.Value,
             SessionId = completion.SessionId,
             OutputFlowId = commit.OutputFlowId
         };
 
-        ledger.Add(new BranchProjectionLedgerRecord
+        ledger.Add(new ThreadProjectionLedgerRecord
         {
             Id = new LedgerRecordId($"ledger-{Guid.NewGuid():N}"),
             SessionId = completion.SessionId,
-            Family = LedgerRecordFamily.BranchProjection,
+            Family = LedgerRecordFamily.ThreadProjection,
             RecordedAt = DateTimeOffset.UtcNow,
             Correlation = correlation,
             ProjectionId = projectionId,
-            Branch = branchRef,
+            Thread = threadRef,
             Projection = projection,
             ProjectedEvent = projectedEvent
         });
-        trace.Add(new AudioBranchProjectionTraceRecord
+        trace.Add(new AudioThreadProjectionTraceRecord
         {
             Id = new TraceRecordId($"trace-{Guid.NewGuid():N}"),
             SessionId = completion.SessionId,
-            Family = RealtimeAudioTraceRecordFamily.BranchProjection,
+            Family = RealtimeAudioTraceRecordFamily.ThreadProjection,
             RecordedAt = DateTimeOffset.UtcNow,
             Correlation = correlation,
             ProjectionId = projectionId,
@@ -709,7 +709,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         return new AudioInteractionRuntimeMetadata(
             ledger.Count,
             trace.Count,
-            ledger.OfType<BranchProjectionLedgerRecord>().Count(),
+            ledger.OfType<ThreadProjectionLedgerRecord>().Count(),
             result.TurnDecision?.Commit?.Text,
             plan?.RouteEpoch.ProviderKey ?? result.RouteDecision?.Epoch.ProviderKey,
             result.RouteDecision?.Kind.ToString(),

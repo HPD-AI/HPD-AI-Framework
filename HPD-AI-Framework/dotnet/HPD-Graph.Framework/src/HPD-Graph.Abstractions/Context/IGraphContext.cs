@@ -255,7 +255,7 @@ public interface IGraphContext
     /// Use cases:
     /// - Original workflow input that should be available to all nodes (not just the first)
     /// - Configuration or context that multiple nodes need
-    /// - Routing patterns where upstream output is for branching, not for downstream processing
+    /// - Routing patterns where upstream output is for threading, not for downstream processing
     ///
     /// When SharedData is set, the orchestrator includes it in HandlerInputs for every node.
     /// Keys are prefixed with "shared." to distinguish from upstream node outputs.

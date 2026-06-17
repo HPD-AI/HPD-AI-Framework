@@ -1,9 +1,9 @@
 /**
- * Session & Branch types for HPD-Agent V3 architecture.
+ * Session & Thread types for HPD-Agent V3 architecture.
  *
  * Architecture:
- * - Session: Top-level container with metadata (shared across all branches)
- * - Branch: Conversation path with messages (multiple branches per session)
+ * - Session: Top-level container with metadata (shared across all threads)
+ * - Thread: Conversation path with messages (multiple threads per session)
  */
 
 import type { AgentEvent } from './events.js';
@@ -14,7 +14,7 @@ import type { AgentEvent } from './events.js';
 
 /**
  * Session represents a chat conversation container.
- * Contains metadata and session-scoped state shared across all branches.
+ * Contains metadata and session-scoped state shared across all threads.
  */
 export interface Session {
   /** Unique identifier for this session */
@@ -23,10 +23,10 @@ export interface Session {
   /** When this session was created */
   createdAt: string; // ISO 8601
 
-  /** Last time any branch in this session was updated */
+  /** Last time any thread in this session was updated */
   lastActivity: string; // ISO 8601
 
-  /** Session-level metadata (not branch-specific) */
+  /** Session-level metadata (not thread-specific) */
   metadata: Record<string, unknown>;
 }
 
@@ -81,25 +81,25 @@ export interface SearchSessionsRequest {
 }
 
 // ============================================
-// BRANCH
+// THREAD
 // ============================================
 
 /**
- * Branch represents a conversation path within a session.
- * Contains messages and branch-specific state.
+ * Thread represents a conversation path within a session.
+ * Contains messages and thread-specific state.
  */
-export interface Branch {
+export interface Thread {
   // ==========================================
   // Identity
   // ==========================================
 
-  /** Unique identifier for this branch */
+  /** Unique identifier for this thread */
   id: string;
 
   /** Parent session ID */
   sessionId: string;
 
-  /** Optional display name for this branch */
+  /** Optional display name for this thread */
   name?: string;
 
   /** Optional user-friendly description */
@@ -109,18 +109,18 @@ export interface Branch {
   // Fork ancestry
   // ==========================================
 
-  /** Source branch ID if this was forked (null for original branches) */
+  /** Source thread ID if this was forked (null for original threads) */
   forkedFrom?: string;
 
-  /** Message id where fork occurred (null for original branches) */
+  /** Message id where fork occurred (null for original threads) */
   forkedAtMessageId?: string;
 
-  /** Resolved message index where fork occurred (diagnostic; null for original branches) */
+  /** Resolved message index where fork occurred (diagnostic; null for original threads) */
   forkedAtMessageIndex?: number;
 
   /**
    * Full ancestry chain for multi-level fork tracking.
-   * Key: depth (0 = root), Value: branch ID at that depth.
+   * Key: depth (0 = root), Value: thread ID at that depth.
    * Example: { "0": "main", "1": "experimental", "2": "formal" }
    */
   ancestors?: Record<string, string>;
@@ -129,19 +129,19 @@ export interface Branch {
   // Timestamps & stats
   // ==========================================
 
-  /** When this branch was created */
+  /** When this thread was created */
   createdAt: string; // ISO 8601
 
-  /** Last time this branch was updated */
+  /** Last time this thread was updated */
   lastActivity: string; // ISO 8601
 
-  /** Number of messages in this branch */
+  /** Number of messages in this thread */
   messageCount: number;
 
-  /** Optional tags for categorizing branches */
+  /** Optional tags for categorizing threads */
   tags?: string[];
 
-  /** Branch-level application metadata */
+  /** Thread-level application metadata */
   metadata?: Record<string, unknown>;
 
   // ==========================================
@@ -150,29 +150,29 @@ export interface Branch {
 
   /**
    * Position among siblings at this fork point (0-based).
-   * Siblings are branches that forked from the same parent at the same message id.
-   * Stable ordering: original branch = 0, subsequent forks ordered chronologically.
+   * Siblings are threads that forked from the same parent at the same message id.
+   * Stable ordering: original thread = 0, subsequent forks ordered chronologically.
    */
   siblingIndex: number;
 
   /**
-   * Total number of sibling branches at this fork point (including this branch).
+   * Total number of sibling threads at this fork point (including this thread).
    * Updated atomically when siblings are added or removed.
    */
   totalSiblings: number;
 
   /**
-   * True if this is the original branch (not forked from another).
+   * True if this is the original thread (not forked from another).
    * Equivalent to: forkedFrom == null
    */
   isOriginal: boolean;
 
   /**
-   * ID of the original branch in this sibling group.
-   * For original branches: null
-   * For forked branches: ID of the branch they forked from
+   * ID of the original thread in this sibling group.
+   * For original threads: null
+   * For forked threads: ID of the thread they forked from
    */
-  originalBranchId?: string;
+  originalThreadId?: string;
 
   // ==========================================
   // Navigation pointers (V3 - precomputed by backend)
@@ -197,27 +197,27 @@ export interface Branch {
   // ==========================================
 
   /**
-   * IDs of branches that forked directly from this branch.
-   * Updated when a branch forks from this one or a child is deleted.
+   * IDs of threads that forked directly from this thread.
+   * Updated when a thread forks from this one or a child is deleted.
    */
-  childBranches: string[];
+  childThreads: string[];
 
   /**
-   * Count of direct child branches (forks from this branch).
-   * Computed property: childBranches.length
+   * Count of direct child threads (forks from this thread).
+   * Computed property: childThreads.length
    */
   totalForks: number;
 }
 
 /**
- * Lightweight sibling branch metadata for navigation UI.
+ * Lightweight sibling thread metadata for navigation UI.
  * Includes only fields needed for sibling selection and display.
  */
-export interface SiblingBranch {
-  /** Unique identifier for this branch */
+export interface SiblingThread {
+  /** Unique identifier for this thread */
   id: string;
 
-  /** Display name for this branch */
+  /** Display name for this thread */
   name: string;
 
   /** Position among siblings (0-based) */
@@ -226,25 +226,25 @@ export interface SiblingBranch {
   /** Total number of siblings at this fork point */
   totalSiblings: number;
 
-  /** True if this is the original branch */
+  /** True if this is the original thread */
   isOriginal: boolean;
 
-  /** Number of messages in this branch */
+  /** Number of messages in this thread */
   messageCount: number;
 
-  /** When this branch was created */
+  /** When this thread was created */
   createdAt: string; // ISO 8601
 
-  /** Last time this branch was updated */
+  /** Last time this thread was updated */
   lastActivity: string; // ISO 8601
 }
 
 /**
- * Request to create a new branch.
+ * Request to create a new thread.
  */
-export interface CreateBranchRequest {
-  /** Optional branch ID (generated if not provided) */
-  branchId?: string;
+export interface CreateThreadRequest {
+  /** Optional thread ID (generated if not provided) */
+  threadId?: string;
 
   /** Optional display name */
   name?: string;
@@ -255,17 +255,17 @@ export interface CreateBranchRequest {
   /** Optional tags */
   tags?: string[];
 
-  /** Optional branch-level metadata */
+  /** Optional thread-level metadata */
   metadata?: Record<string, unknown>;
 
-  /** Agent definition ID used in the route for agent-scoped branch creation */
+  /** Agent definition ID used in the route for agent-scoped thread creation */
   agentId?: string;
 }
 
 /**
- * Request to update branch metadata.
+ * Request to update thread metadata.
  */
-export interface UpdateBranchRequest {
+export interface UpdateThreadRequest {
   /** Optional display name */
   name?: string;
 
@@ -280,16 +280,16 @@ export interface UpdateBranchRequest {
 }
 
 /**
- * Request to fork a branch at a specific message id.
+ * Request to fork a thread at a specific message id.
  */
-export interface ForkBranchRequest {
-  /** Optional new branch ID (generated if not provided) */
-  newBranchId?: string;
+export interface ForkThreadRequest {
+  /** Optional new thread ID (generated if not provided) */
+  newThreadId?: string;
 
   /** Message id where fork occurs (copies messages through this message) */
   fromMessageId: string;
 
-  /** Optional display name for the forked branch */
+  /** Optional display name for the forked thread */
   name?: string;
 
   /** Optional description */
@@ -298,10 +298,10 @@ export interface ForkBranchRequest {
   /** Optional tags */
   tags?: string[];
 
-  /** Optional branch-level metadata */
+  /** Optional thread-level metadata */
   metadata?: Record<string, unknown>;
 
-  /** Agent definition ID used in the route for agent-scoped branch forking */
+  /** Agent definition ID used in the route for agent-scoped thread forking */
   agentId?: string;
 }
 
@@ -401,7 +401,7 @@ export interface AiUnknownContent {
 }
 
 /**
- * Union of all possible AIContent types from branch message history.
+ * Union of all possible AIContent types from thread message history.
  * Discriminated by the $type field matching the M.E.AI wire format.
  */
 export type AIContent =
@@ -419,9 +419,9 @@ export type AIContent =
   | AiUnknownContent;
 
 /**
- * Materialized branch transcript message returned by branch-history APIs.
+ * Materialized thread transcript message returned by thread-history APIs.
  */
-export interface BranchMessage {
+export interface ThreadMessage {
   /** Stable message id. */
   id: string;
 
@@ -439,25 +439,25 @@ export interface BranchMessage {
 }
 
 // ============================================
-// BRANCH EVENT LOG
+// THREAD EVENT LOG
 // ============================================
 
 /**
- * Durable branch event envelope returned by GET /sessions/{sid}/branches/{bid}/events.
+ * Durable thread event envelope returned by GET /sessions/{sid}/threads/{bid}/events.
  * The type value intentionally matches the live runtime event name when the event
- * represents transcript activity; branch-only events use branch-specific names.
+ * represents transcript activity; thread-only events use thread-specific names.
  */
-export type BranchEvent = AgentEvent & {
+export type ThreadEvent = AgentEvent & {
   eventId?: string;
   sessionId?: string;
-  branchId?: string;
+  threadId?: string;
   sequenceNumber?: number;
   timestamp?: string;
   eventFlowId?: string;
 };
 
 /**
- * Reference to an uploaded content (returned by POST /sessions/{sid}/branches/{bid}/content).
+ * Reference to an uploaded content (returned by POST /sessions/{sid}/threads/{bid}/content).
  * Passed as attachments in SendOptions; the workspace converts these to
  * UriContent references in the outgoing message.
  */

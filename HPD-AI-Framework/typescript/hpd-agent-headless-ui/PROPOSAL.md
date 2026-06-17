@@ -2,40 +2,40 @@
 
 ## Summary
 
-Restart `hpd-agent-headless-ui` as a small, branch-native TypeScript UI-state layer over the existing HPD Agent protocol. This is the first version of the restarted core, not a retrofit of the archived Svelte MVP.
+Restart `hpd-agent-headless-ui` as a small, thread-native TypeScript UI-state layer over the existing HPD Agent protocol. This is the first version of the restarted core, not a retrofit of the archived Svelte MVP.
 
-The previous design tried to own too much: sessions, branches, branch caches, streaming, rehydration, permission state, active selection, and UI projection all lived inside one broad workspace abstraction. That made the UI layer compete with the lower-level infrastructure instead of reflecting it.
+The previous design tried to own too much: sessions, threads, thread caches, streaming, rehydration, permission state, active selection, and UI projection all lived inside one broad workspace abstraction. That made the UI layer compete with the lower-level infrastructure instead of reflecting it.
 
 The new design should not be a second runtime. It should be a thin set of composable primitives that understand the lower-level architecture:
 
 ```text
 Session = shared container
-Branch = durable event stream / aggregate boundary
-Branch messages = rehydrated projection
-Live events = incremental continuation of a branch stream
+Thread = durable event stream / aggregate boundary
+Thread messages = rehydrated projection
+Live events = incremental continuation of a thread stream
 ```
 
-The library should be a branch-native state lens for HPD Agent. The core should be framework-neutral TypeScript. Svelte, React, Vue, Solid, or other framework bindings should be adapters around the same core, not the core itself.
+The library should be a thread-native state lens for HPD Agent. The core should be framework-neutral TypeScript. Svelte, React, Vue, Solid, or other framework bindings should be adapters around the same core, not the core itself.
 
 ## Goals
 
-- Treat `Branch` as the primary UI runtime identity.
+- Treat `Thread` as the primary UI runtime identity.
 - Separate rehydration from live event projection.
-- Scope every live projection to `{ agentId, sessionId, branchId }`.
+- Scope every live projection to `{ agentId, sessionId, threadId }`.
 - Reuse `hpd-agent-client` for transport, REST, typed events, and request response routing.
-- Keep session and branch navigation as optional helpers, not part of the core streaming primitive.
+- Keep session and thread navigation as optional helpers, not part of the core streaming primitive.
 - Provide framework-neutral TypeScript state primitives without hiding the protocol lifecycle.
-- Keep UI framework adapters separate from the branch/event core.
+- Keep UI framework adapters separate from the thread/event core.
 - Make disposal and scope changes explicit.
 
 ## Non-Goals
 
 - Do not build a new event bus.
 - Do not build a new transport abstraction.
-- Do not duplicate branch run ownership or conflict logic.
+- Do not duplicate thread run ownership or conflict logic.
 - Do not own durable persistence.
-- Do not globally cache every branch as a hidden workspace runtime.
-- Do not route live events into "whatever branch is active right now."
+- Do not globally cache every thread as a hidden workspace runtime.
+- Do not route live events into "whatever thread is active right now."
 - Do not replace `hpd-agent-client`.
 - Do not depend on Svelte runes, stores, React hooks, signals, DOM APIs, or component lifecycle inside the core package.
 
@@ -45,12 +45,12 @@ The lower layers already provide most of what the UI needs.
 
 `HPD-Agent` and hosting provide:
 
-- Durable branch event documents.
-- Branch projection into messages.
-- Branch-scoped live runtime instances.
-- Branch run lifecycle events.
+- Durable thread event documents.
+- Thread projection into messages.
+- Thread-scoped live runtime instances.
+- Thread run lifecycle events.
 - Request session waiters and lifecycle events.
-- Session-scoped and branch-scoped state separation.
+- Session-scoped and thread-scoped state separation.
 
 `hpd-agent-client` provides:
 
@@ -59,7 +59,7 @@ The lower layers already provide most of what the UI needs.
 - SSE and WebSocket transports.
 - Input submission.
 - Permission, clarification, continuation, and client-tool response envelopes.
-- REST APIs for sessions, branches, branch events, branch messages, branch runs, and agents.
+- REST APIs for sessions, threads, thread events, thread messages, thread runs, and agents.
 
 The new headless UI should compose these capabilities rather than abstracting over them as if they did not exist.
 
@@ -87,31 +87,31 @@ Framework packages can adapt that core into each framework's preferred reactive 
 
 The archived library mixed core state, Svelte reactivity, and component behavior together. The restart should separate them.
 
-### Branch Scope
+### Thread Scope
 
-Most live UI state belongs to a single branch runtime scope:
+Most live UI state belongs to a single thread runtime scope:
 
 ```ts
-interface BranchScope {
+interface ThreadScope {
   agentId: string;
   sessionId: string;
-  branchId: string;
+  threadId: string;
 }
 ```
 
-A live stream, projection, pending permissions, and branch run state should all be tied to one `BranchScope`.
+A live stream, projection, pending permissions, and thread run state should all be tied to one `ThreadScope`.
 
 ### Rehydration
 
-Rehydration loads durable branch state that already happened.
+Rehydration loads durable thread state that already happened.
 
 Possible inputs:
 
 ```ts
-Branch
-BranchMessage[]
-BranchEvent[]
-BranchRun[]
+Thread
+ThreadMessage[]
+ThreadEvent[]
+ThreadRun[]
 ```
 
 Rehydration establishes a settled baseline. It should not simulate streaming. Rehydrated messages should be non-streaming, non-thinking, and stable.
@@ -135,7 +135,7 @@ reasoning
 activeTools
 pendingPermissions
 pendingClarifications
-branchRun
+threadRun
 error
 ```
 
@@ -143,9 +143,9 @@ Projection should be deterministic, mostly pure in behavior, and transport-agnos
 
 ### Live Stream
 
-Live stream connects to the backend for exactly one branch scope. It receives runtime events and feeds them into a projection.
+Live stream connects to the backend for exactly one thread scope. It receives runtime events and feeds them into a projection.
 
-The live stream is not the durable history. It is the continuation of the branch after the current baseline.
+The live stream is not the durable history. It is the continuation of the thread after the current baseline.
 
 ## Core Rule
 
@@ -167,7 +167,7 @@ client.onAny((event) => {
 });
 ```
 
-Or use a branch controller whose transport connection is already scoped to the branch.
+Or use a thread controller whose transport connection is already scoped to the thread.
 
 ## Proposed Public API
 
@@ -175,24 +175,24 @@ Start with a very small framework-neutral package surface.
 
 ```ts
 export {
-  createBranchProjection,
-  createBranchController,
-  loadBranchSnapshot,
+  createThreadProjection,
+  createThreadController,
+  loadThreadSnapshot,
   eventBelongsToScope,
 };
 ```
 
-Session list, branch list, and branch navigation helpers can be added after these primitives are solid. UI components belong in framework adapter packages.
+Session list, thread list, and thread navigation helpers can be added after these primitives are solid. UI components belong in framework adapter packages.
 
-## Primitive 1: `createBranchProjection`
+## Primitive 1: `createThreadProjection`
 
-`createBranchProjection` owns state for one branch. It does not fetch, connect, submit, or respond. It only rehydrates and projects.
+`createThreadProjection` owns state for one thread. It does not fetch, connect, submit, or respond. It only rehydrates and projects.
 
 ```ts
-const projection = createBranchProjection();
+const projection = createThreadProjection();
 
 projection.rehydrate({
-  branch,
+  thread,
   messages,
   runs,
 });
@@ -208,7 +208,7 @@ projection.project(event);
 - Hold pending permissions.
 - Hold pending clarifications.
 - Hold pending client tool requests if the app wants to render them.
-- Hold current branch run summary.
+- Hold current thread run summary.
 - Apply live events.
 - Load durable snapshots.
 - Reset state.
@@ -218,48 +218,48 @@ projection.project(event);
 - No transport connection.
 - No HTTP calls.
 - No session selection.
-- No branch selection.
-- No global branch cache.
+- No thread selection.
+- No global thread cache.
 - No hidden active-scope tracking.
 
 ### Suggested Type
 
 ```ts
-interface BranchProjection {
-  getSnapshot(): BranchProjectionSnapshot;
-  subscribe(listener: BranchProjectionListener): Unsubscribe;
+interface ThreadProjection {
+  getSnapshot(): ThreadProjectionSnapshot;
+  subscribe(listener: ThreadProjectionListener): Unsubscribe;
 
-  rehydrate(snapshot: BranchSnapshot): void;
+  rehydrate(snapshot: ThreadSnapshot): void;
   project(event: AgentEvent): void;
   clearError(): void;
   reset(): void;
 }
 
-interface BranchProjectionSnapshot {
+interface ThreadProjectionSnapshot {
   messages: Message[];
   streaming: boolean;
   reasoning: boolean;
   activeTools: ToolCall[];
   pendingPermissions: PermissionRequest[];
   pendingClarifications: ClarificationRequest[];
-  branchRun: BranchRunView | null;
+  threadRun: ThreadRunView | null;
   error: string | null;
   canSend: boolean;
 }
 
-type BranchProjectionListener = (snapshot: BranchProjectionSnapshot) => void;
+type ThreadProjectionListener = (snapshot: ThreadProjectionSnapshot) => void;
 type Unsubscribe = () => void;
 ```
 
 ### Rehydration Inputs
 
 ```ts
-interface BranchSnapshot {
-  branch?: Branch | null;
-  messages?: BranchMessage[];
-  events?: BranchEvent[];
-  runs?: BranchRun[];
-  activeRun?: BranchRun | null;
+interface ThreadSnapshot {
+  thread?: Thread | null;
+  messages?: ThreadMessage[];
+  events?: ThreadEvent[];
+  runs?: ThreadRun[];
+  activeRun?: ThreadRun | null;
 }
 ```
 
@@ -289,56 +289,56 @@ CLARIFICATION_REQUEST    -> add pending clarification
 MESSAGE_TURN_STARTED     -> mark streaming/running context
 MESSAGE_TURN_FINISHED    -> clear turn context
 MESSAGE_TURN_ERROR       -> set error, clear active streaming flags
-BRANCH_RUN_STARTED       -> mark branch run active
-BRANCH_RUN_COMPLETED     -> mark branch run complete/cancelled/failed
+THREAD_RUN_STARTED       -> mark thread run active
+THREAD_RUN_COMPLETED     -> mark thread run complete/cancelled/failed
 ```
 
 Unknown events should be ignored by default but optionally observable.
 
-## Primitive 2: `createBranchController`
+## Primitive 2: `createThreadController`
 
-`createBranchController` combines a branch projection with client commands and a scoped live connection.
+`createThreadController` combines a thread projection with client commands and a scoped live connection.
 
 ```ts
-const branch = createBranchController({
+const thread = createThreadController({
   client,
   agentId,
   sessionId,
-  branchId,
+  threadId,
 });
 
-await branch.rehydrate();
-await branch.connect();
-await branch.sendText("hello");
-await branch.approve(permissionId);
-await branch.dispose();
+await thread.rehydrate();
+await thread.connect();
+await thread.sendText("hello");
+await thread.approve(permissionId);
+await thread.dispose();
 ```
 
 ### Responsibilities
 
-- Own exactly one `BranchScope`.
-- Own one `BranchProjection`.
-- Rehydrate durable state for its branch.
+- Own exactly one `ThreadScope`.
+- Own one `ThreadProjection`.
+- Rehydrate durable state for its thread.
 - Connect and disconnect the live stream.
-- Submit user input to the scoped branch.
+- Submit user input to the scoped thread.
 - Send request responses for permission and clarification events.
-- Interrupt active branch work.
+- Interrupt active thread work.
 - Dispose subscriptions and network connections.
 
 ### Non-Responsibilities
 
 - No session list.
-- No branch list.
-- No branch switching.
-- No global branch cache.
+- No thread list.
+- No thread switching.
+- No global thread cache.
 - No app-level navigation policy.
 
 ### Suggested Type
 
 ```ts
-interface BranchController {
-  readonly scope: BranchScope;
-  readonly projection: BranchProjection;
+interface ThreadController {
+  readonly scope: ThreadScope;
+  readonly projection: ThreadProjection;
 
   readonly connected: boolean;
   readonly loading: boolean;
@@ -366,10 +366,10 @@ The normal lifecycle should be explicit:
 ```text
 create controller
   -> rehydrate durable baseline
-  -> connect live branch stream
+  -> connect live thread stream
   -> send input
   -> project live events
-  -> branch run completes
+  -> thread run completes
   -> optionally refresh durable state
   -> disconnect/dispose
 ```
@@ -377,19 +377,19 @@ create controller
 The controller may offer a convenience method:
 
 ```ts
-await branch.start();
+await thread.start();
 ```
 
 But internally that should mean:
 
 ```ts
-await branch.rehydrate();
-await branch.connect();
+await thread.rehydrate();
+await thread.connect();
 ```
 
 ### Event Scope Guard
 
-Even if the transport endpoint is branch-scoped, the controller should guard events.
+Even if the transport endpoint is thread-scoped, the controller should guard events.
 
 ```ts
 if (eventBelongsToScope(event, scope)) {
@@ -407,17 +407,17 @@ interface ScopeGuardOptions {
 }
 ```
 
-Default for `createBranchController`: `false`.
+Default for `createThreadController`: `false`.
 
 Default for standalone `eventBelongsToScope`: `false`.
 
-## Primitive 3: `loadBranchSnapshot`
+## Primitive 3: `loadThreadSnapshot`
 
-`loadBranchSnapshot` is an optional fetch helper for durable branch data. It should not connect live streams and should not retain cached state.
+`loadThreadSnapshot` is an optional fetch helper for durable thread data. It should not connect live streams and should not retain cached state.
 
 ```ts
-const snapshot = await loadBranchSnapshot(
-  { client, agentId, sessionId, branchId },
+const snapshot = await loadThreadSnapshot(
+  { client, agentId, sessionId, threadId },
   { includeRuns: true },
 );
 ```
@@ -426,12 +426,12 @@ This can power apps that want full control over projection and transport.
 
 ## Optional Later Helpers
 
-These should be separate from branch streaming.
+These should be separate from thread streaming.
 
 ```ts
 createSessionList(client)
-createBranchList(client, sessionId)
-createBranchNavigator(client, sessionId)
+createThreadList(client, sessionId)
+createThreadNavigator(client, sessionId)
 ```
 
 They can expose metadata and navigation helpers, but should not own live event projection.
@@ -445,17 +445,17 @@ Framework adapters should consume projections/controllers rather than create hid
 Adapter examples:
 
 ```svelte
-<MessageList projection={branch.projection} />
-<ChatInput controller={branch} />
-<PermissionDialog controller={branch} />
-<ToolCallList projection={branch.projection} />
+<MessageList projection={thread.projection} />
+<ChatInput controller={thread} />
+<PermissionDialog controller={thread} />
+<ToolCallList projection={thread.projection} />
 ```
 
 ```tsx
-<MessageList projection={branch.projection} />
-<ChatInput controller={branch} />
-<PermissionDialog controller={branch} />
-<ToolCallList projection={branch.projection} />
+<MessageList projection={thread.projection} />
+<ChatInput controller={thread} />
+<PermissionDialog controller={thread} />
+<ToolCallList projection={thread.projection} />
 ```
 
 Framework adapters should translate the core subscription API into local reactivity:
@@ -467,7 +467,7 @@ Framework adapters should translate the core subscription API into local reactiv
 
 The event lifecycle remains in the core primitives.
 
-This is what `headless-ui.framework` means in practice: the framework package is an adapter layer over the same headless TypeScript core. It provides idiomatic bindings for a UI framework without changing the underlying branch lifecycle model.
+This is what `headless-ui.framework` means in practice: the framework package is an adapter layer over the same headless TypeScript core. It provides idiomatic bindings for a UI framework without changing the underlying thread lifecycle model.
 
 ## Request Sessions
 
@@ -509,7 +509,7 @@ It may expose pending client tool requests for display/debugging, but actual inv
 Default strategy.
 
 ```ts
-const messages = await client.getBranchMessages(sessionId, branchId);
+const messages = await client.getThreadMessages(sessionId, threadId);
 projection.rehydrate({ messages });
 ```
 
@@ -530,14 +530,14 @@ Cons:
 Canonical strategy.
 
 ```ts
-const events = await client.getBranchEvents(sessionId, branchId);
+const events = await client.getThreadEvents(sessionId, threadId);
 projection.rehydrate({ events });
 ```
 
 Pros:
 
 - Closer to source of truth.
-- Can reconstruct richer branch UI.
+- Can reconstruct richer thread UI.
 
 Cons:
 
@@ -549,21 +549,21 @@ Cons:
 Potential future strategy.
 
 ```ts
-const [branch, messages, runs] = await Promise.all([
-  client.getBranch(sessionId, branchId),
-  client.getBranchMessages(sessionId, branchId),
-  client.getBranchRuns(agentId, sessionId, branchId),
+const [thread, messages, runs] = await Promise.all([
+  client.getThread(sessionId, threadId),
+  client.getThreadMessages(sessionId, threadId),
+  client.getThreadRuns(agentId, sessionId, threadId),
 ]);
 ```
 
-Use messages for transcript, runs for lifecycle, branch for metadata.
+Use messages for transcript, runs for lifecycle, thread for metadata.
 
 ## Error Model
 
 Separate error categories:
 
 ```ts
-type BranchControllerErrorKind =
+type ThreadControllerErrorKind =
   | "rehydration"
   | "connection"
   | "submission"
@@ -582,8 +582,8 @@ The UI should be able to clear projection errors without losing durable state.
 Disposal must be explicit.
 
 ```ts
-await branch.disconnect();
-await branch.dispose();
+await thread.disconnect();
+await thread.dispose();
 ```
 
 `dispose()` should:
@@ -597,35 +597,35 @@ await branch.dispose();
 
 ## Scope Changes
 
-Changing branch selection is an app-shell concern.
+Changing thread selection is an app-shell concern.
 
 Recommended app behavior:
 
 ```ts
-let branch = createBranchController({ client, agentId, sessionId, branchId });
-await branch.start();
+let thread = createThreadController({ client, agentId, sessionId, threadId });
+await thread.start();
 
-// On branch selection change:
-await branch.dispose();
-branch = createBranchController({ client, agentId, sessionId, branchId: nextBranchId });
-await branch.start();
+// On thread selection change:
+await thread.dispose();
+thread = createThreadController({ client, agentId, sessionId, threadId: nextThreadId });
+await thread.start();
 ```
 
-This is intentionally boring. It avoids cross-branch stream leakage.
+This is intentionally boring. It avoids cross-thread stream leakage.
 
 ## Suggested Initial File Layout
 
 ```text
 src/lib/
-  branch/
-    branch-controller.ts
-    branch-projection.ts
-    load-branch-snapshot.ts
+  thread/
+    thread-controller.ts
+    thread-projection.ts
+    load-thread-snapshot.ts
     scope.ts
     types.ts
     index.ts
   internal/
-    map-branch-message.ts
+    map-thread-message.ts
     map-event.ts
   index.ts
 ```
@@ -645,34 +645,34 @@ typescript/
 
 The archived implementation contains useful pieces:
 
-- `AgentState` event handlers are a good starting point for `BranchProjection`.
+- `AgentState` event handlers are a good starting point for `ThreadProjection`.
 - `mapToUIMessages` is useful for message rehydration.
-- Permission dialog behavior is useful for a future framework adapter, but should depend on a branch controller, not a workspace.
+- Permission dialog behavior is useful for a future framework adapter, but should depend on a thread controller, not a workspace.
 - Message, tool, input, and run-config components can be salvaged into adapter packages after the core primitives settle.
 
 Avoid carrying forward:
 
 - the single `WorkspaceImpl` that owns all levels;
-- branch LRU cache;
+- thread LRU cache;
 - active-state global event dispatch;
 - hidden continuation auto-approval;
-- conflating branch navigation with branch streaming;
+- conflating thread navigation with thread streaming;
 - treating `send()` as sufficient when no live observer is connected.
 
 ## Implementation Plan
 
-### Phase 1: Core Branch Projection
+### Phase 1: Core Thread Projection
 
-- Add `createBranchProjection`.
+- Add `createThreadProjection`.
 - Port minimal message/tool/permission/clarification event handling.
-- Add message rehydration from `BranchMessage[]`.
+- Add message rehydration from `ThreadMessage[]`.
 - Add unit tests for event projection and rehydration.
 
-### Phase 2: Branch Controller
+### Phase 2: Thread Controller
 
-- Add `createBranchController`.
+- Add `createThreadController`.
 - Use existing `AgentClient` for `start`, `stop`, `run`, and typed responses.
-- Ensure `connect()` uses exact branch scope.
+- Ensure `connect()` uses exact thread scope.
 - Ensure `sendText()` connects or clearly requires connection.
 - Add scope guard.
 - Add disposal tests.
@@ -680,22 +680,22 @@ Avoid carrying forward:
 ### Phase 3: Framework Adapter Spike
 
 - Build a small Svelte adapter package over the framework-neutral core.
-- Rebuild `MessageList`, `ChatInput`, `PermissionDialog`, and `ToolCallList` against `BranchProjection` / `BranchController`.
+- Rebuild `MessageList`, `ChatInput`, `PermissionDialog`, and `ToolCallList` against `ThreadProjection` / `ThreadController`.
 - Keep components stateless where possible.
 - Prove that another adapter, such as React, would not need core changes.
 
 ### Phase 4: Optional Navigation Helpers
 
-- Add session and branch list helpers only after branch primitives are proven.
+- Add session and thread list helpers only after thread primitives are proven.
 - Keep them separate from streaming.
 
 ## Open Questions
 
 - Should `sendText()` automatically call `connect()` if disconnected, or should the app call `connect()` explicitly?
-- Should `BranchController.start()` be the recommended happy path?
+- Should `ThreadController.start()` be the recommended happy path?
 - Should event rehydration be supported in v1 of the restart, or should message rehydration ship first?
 - Should scope-less events be accepted only during active runs?
-- Should branch controllers share one `AgentClient`, or should each controller own its own client/transport instance by default?
+- Should thread controllers share one `AgentClient`, or should each controller own its own client/transport instance by default?
 - What should the adapter package naming convention be?
 - Should the core package include tiny framework-agnostic DOM helpers, or should all DOM behavior live only in adapters?
 
@@ -706,14 +706,14 @@ Avoid carrying forward:
 - Let `sendText()` require a connected controller initially, or make auto-connect an explicit option:
 
 ```ts
-createBranchController({ ..., autoConnectOnSend: true })
+createThreadController({ ..., autoConnectOnSend: true })
 ```
 
-- Use one `AgentClient` per controller until the client exposes isolated branch stream objects. This avoids handler leakage from shared global `onAny` subscriptions.
-- Keep event rehydration as a second pass once the core branch projection is stable.
+- Use one `AgentClient` per controller until the client exposes isolated thread stream objects. This avoids handler leakage from shared global `onAny` subscriptions.
+- Keep event rehydration as a second pass once the core thread projection is stable.
 
 ## North Star
 
-The headless UI is not the runtime. It is not the event store. It is not the branch owner.
+The headless UI is not the runtime. It is not the event store. It is not the thread owner.
 
-It is a framework-neutral state lens over a branch event stream.
+It is a framework-neutral state lens over a thread event stream.

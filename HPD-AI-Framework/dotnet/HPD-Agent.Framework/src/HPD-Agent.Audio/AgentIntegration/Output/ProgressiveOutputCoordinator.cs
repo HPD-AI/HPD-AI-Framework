@@ -139,7 +139,7 @@ internal sealed class ProgressiveOutputCoordinator
     {
         return new AudioCorrelation
         {
-            ConversationId = _options.Branch.SessionId,
+            ConversationId = _options.Thread.SessionId,
             RequestId = _options.RequestId,
             SessionId = _options.SessionId,
             OutputFlowId = _flow.Id
@@ -216,7 +216,7 @@ internal sealed record ProgressiveOutputCoordinatorOptions
 {
     public required AudioSessionId SessionId { get; init; }
 
-    public required BranchRef Branch { get; init; }
+    public required ThreadRef Thread { get; init; }
 
     public required OutputFlowId OutputFlowId { get; init; }
 

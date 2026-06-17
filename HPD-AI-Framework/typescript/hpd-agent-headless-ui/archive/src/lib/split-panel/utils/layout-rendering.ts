@@ -2,10 +2,10 @@
  * Layout Rendering Utilities
  *
  * Helper functions for rendering the layout tree structure.
- * Supports polymorphic rendering of Branch and Leaf nodes.
+ * Supports polymorphic rendering of Thread and Leaf nodes.
  */
 
-import type { LayoutNode, BranchNode } from '../types/index.js';
+import type { LayoutNode, ThreadNode } from '../types/index.js';
 import type { SplitPanelState } from '../state/split-panel-state.svelte.js';
 
 /**
@@ -36,10 +36,10 @@ export interface ActiveChild {
  * Get active children (flex > FLEX_EPS) with their indices.
  * Used for rendering only visible children and computing handle positions.
  *
- * @param node - Branch node to get active children from
+ * @param node - Thread node to get active children from
  * @returns Array of active child information
  */
-export function getActiveChildren(node: BranchNode): ActiveChild[] {
+export function getActiveChildren(node: ThreadNode): ActiveChild[] {
 	const active: number[] = [];
 
 	// Collect indices of active children
@@ -62,13 +62,13 @@ export function getActiveChildren(node: BranchNode): ActiveChild[] {
  * Compute CSS grid template string from active child sizes.
  * Includes handle sizes between active siblings.
  *
- * @param node - Branch node to compute template for
+ * @param node - Thread node to compute template for
  * @param axis - Layout axis ('row' = horizontal, 'column' = vertical)
  * @param layoutState - Layout state for size computation
  * @returns CSS grid template string (e.g., "200px 4px 1fr")
  */
 export function computeGridTemplate(
-	node: BranchNode,
+	node: ThreadNode,
 	axis: 'row' | 'column',
 	layoutState: SplitPanelState
 ): string {
@@ -106,7 +106,7 @@ export function computeGridTemplate(
  * Encode parent path and divider index for resize handle data attributes.
  * Format: "parentPath:dividerIndex" (e.g., "0,1:2" or ":0" for root)
  *
- * @param parentPath - Path to parent branch node
+ * @param parentPath - Path to parent thread node
  * @param dividerIndex - Index of divider in parent
  * @returns Encoded string
  */

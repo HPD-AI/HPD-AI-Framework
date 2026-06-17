@@ -231,9 +231,9 @@ public class BackEdgeDetectionTests
     }
 
     [Fact]
-    public void GetBackEdges_ParallelBranches_DetectsCorrectly()
+    public void GetBackEdges_ParallelThreads_DetectsCorrectly()
     {
-        // Arrange: Parallel branches with one having a back-edge
+        // Arrange: Parallel threads with one having a back-edge
         //     → B → C →
         // A →           → END
         //     → D → E → (with E→D back-edge)
@@ -253,7 +253,7 @@ public class BackEdgeDetectionTests
             .AddEdge("D", "E")
             .AddEdge("C", "END")
             .AddEdge("E", "END")
-            .AddEdge("E", "D")  // Back-edge in second branch
+            .AddEdge("E", "D")  // Back-edge in second thread
             .Build();
 
         // Act

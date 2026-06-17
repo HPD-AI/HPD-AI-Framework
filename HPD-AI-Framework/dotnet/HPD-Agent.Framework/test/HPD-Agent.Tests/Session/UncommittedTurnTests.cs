@@ -19,7 +19,7 @@ public class UncommittedTurnTests : AgentTestBase
         return new UncommittedTurn
         {
             SessionId = sessionId,
-            BranchId = UncommittedTurn.DefaultBranch,
+            ThreadId = UncommittedTurn.DefaultThread,
             TurnId = "turn-1",
             Iteration = 2,
             CompletedFunctions = ImmutableHashSet.Create("read_file", "write_file"),
@@ -46,7 +46,7 @@ public class UncommittedTurnTests : AgentTestBase
 
         Assert.NotNull(loaded);
         Assert.Equal("test-session", loaded.SessionId);
-        Assert.Equal(UncommittedTurn.DefaultBranch, loaded.BranchId);
+        Assert.Equal(UncommittedTurn.DefaultThread, loaded.ThreadId);
         Assert.Equal("turn-1", loaded.TurnId);
         Assert.Equal(2, loaded.Iteration);
         Assert.Contains("read_file", loaded.CompletedFunctions);
@@ -137,7 +137,7 @@ public class UncommittedTurnTests : AgentTestBase
 
             Assert.NotNull(loaded);
             Assert.Equal("test-session", loaded.SessionId);
-            Assert.Equal(UncommittedTurn.DefaultBranch, loaded.BranchId);
+            Assert.Equal(UncommittedTurn.DefaultThread, loaded.ThreadId);
             Assert.Equal("turn-1", loaded.TurnId);
             Assert.Equal(2, loaded.Iteration);
             Assert.False(loaded.IsTerminated);
@@ -254,7 +254,7 @@ public class UncommittedTurnTests : AgentTestBase
 
         Assert.NotNull(deserialized);
         Assert.Equal(turn.SessionId, deserialized.SessionId);
-        Assert.Equal(turn.BranchId, deserialized.BranchId);
+        Assert.Equal(turn.ThreadId, deserialized.ThreadId);
         Assert.Equal(turn.TurnId, deserialized.TurnId);
         Assert.Equal(turn.Iteration, deserialized.Iteration);
         Assert.Equal(turn.IsTerminated, deserialized.IsTerminated);

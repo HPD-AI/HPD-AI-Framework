@@ -3,7 +3,7 @@ using HPD.Agent.Audio.Ledger;
 using HPD.Agent.Audio.Media;
 using HPD.Agent.Audio.Policies;
 using HPD.Agent.Audio.Providers;
-using HPD.Agent.Audio.Runtime.Branch;
+using HPD.Agent.Audio.Runtime.Thread;
 using HPD.Agent.Audio.Runtime.Ledger;
 using HPD.Agent.Audio.Runtime.Providers;
 using HPD.Agent.Audio.Runtime.Replay;
@@ -36,8 +36,8 @@ public sealed class AudioInteractionRuntimeRunner
 
         var ledger = request.Ledger ?? new InMemoryRealtimeConversationLedger();
         var trace = request.Trace ?? new InMemoryRealtimeAudioTraceStore();
-        var inMemoryBranch = new InMemoryBranchProjectionSink();
-        var branch = request.BranchProjectionSink ?? inMemoryBranch;
+        var inMemoryThread = new InMemoryThreadProjectionSink();
+        var thread = request.ThreadProjectionSink ?? inMemoryThread;
         var policy = request.PolicySet ?? new AudioPolicySet();
         var correlation = new AudioCorrelation
         {
@@ -53,7 +53,7 @@ public sealed class AudioInteractionRuntimeRunner
                     Kind = TransportBindingKind.ContentInput,
                     SessionId = request.SessionId,
                     Content = content,
-                    Branch = request.BranchRef,
+                    Thread = request.ThreadRef,
                     Correlation = correlation
                 })
                 .ToArray();
@@ -101,7 +101,7 @@ public sealed class AudioInteractionRuntimeRunner
                 request.SessionId,
                 ledger,
                 trace,
-                branch,
+                thread,
                 [],
                 null,
                 null,
@@ -124,14 +124,14 @@ public sealed class AudioInteractionRuntimeRunner
                     cancellationToken);
             }
 
-            return await BuildResultAsync(request.SessionId, ledger, trace, branch, [], null, null, null, cancellationToken);
+            return await BuildResultAsync(request.SessionId, ledger, trace, thread, [], null, null, null, cancellationToken);
         }
 
         var envelopes = new List<CanonicalMediaEnvelope>();
         var transportContext = new AudioTransportContext
         {
             SessionId = request.SessionId,
-            Branch = request.BranchRef,
+            Thread = request.ThreadRef,
             PolicySet = policy,
             Correlation = correlation
         };
@@ -179,7 +179,7 @@ public sealed class AudioInteractionRuntimeRunner
                     cancellationToken);
             }
 
-            return await BuildResultAsync(request.SessionId, ledger, trace, branch, envelopes, null, null, null, cancellationToken);
+            return await BuildResultAsync(request.SessionId, ledger, trace, thread, envelopes, null, null, null, cancellationToken);
         }
 
         var route = request.ProviderRoute ?? new FakeProviderRoute(_ids, _clock);
@@ -252,7 +252,7 @@ public sealed class AudioInteractionRuntimeRunner
                     cancellationToken);
             }
 
-            return await BuildResultAsync(request.SessionId, ledger, trace, branch, envelopes, routeDecision, finalDecision, turnController.Snapshot, cancellationToken);
+            return await BuildResultAsync(request.SessionId, ledger, trace, thread, envelopes, routeDecision, finalDecision, turnController.Snapshot, cancellationToken);
         }
 
         if (routeDecision.Kind is ProviderRouteDecisionKind.Reject or ProviderRouteDecisionKind.Fail ||
@@ -274,7 +274,7 @@ public sealed class AudioInteractionRuntimeRunner
                     cancellationToken);
             }
 
-            return await BuildResultAsync(request.SessionId, ledger, trace, branch, envelopes, routeDecision, finalDecision, turnController.Snapshot, cancellationToken);
+            return await BuildResultAsync(request.SessionId, ledger, trace, thread, envelopes, routeDecision, finalDecision, turnController.Snapshot, cancellationToken);
         }
 
         var plan = routeDecision.Plan;
@@ -392,17 +392,17 @@ public sealed class AudioInteractionRuntimeRunner
                 await ledger.AppendAsync(turnLedger, cancellationToken);
                 await TraceLedgerAsync(trace, request.SessionId, turnLedger, transcriptEvidence.Correlation, cancellationToken);
 
-                if (policy.BranchProjection.ProjectCommittedUserTurns)
+                if (policy.ThreadProjection.ProjectCommittedUserTurns)
                 {
-                    await ProjectBranchAsync(
-                        branch,
+                    await ProjectThreadAsync(
+                        thread,
                         ledger,
                         trace,
                         request,
                         finalDecision.Commit.TurnId,
                         finalDecision.Commit.Text,
-                        BranchProjectionKind.UserTurn,
-                        BranchProjectionRole.User,
+                        ThreadProjectionKind.UserTurn,
+                        ThreadProjectionRole.User,
                         transcriptUpdate.InputContentId,
                         null,
                         null,
@@ -431,17 +431,17 @@ public sealed class AudioInteractionRuntimeRunner
                 await ledger.AppendAsync(outputLedger, cancellationToken);
                 await TraceLedgerAsync(trace, request.SessionId, outputLedger, update.Correlation, cancellationToken);
 
-                if (outputTextUpdate.IsFinal && policy.BranchProjection.ProjectCommittedAssistantOutputs)
+                if (outputTextUpdate.IsFinal && policy.ThreadProjection.ProjectCommittedAssistantOutputs)
                 {
-                    await ProjectBranchAsync(
-                        branch,
+                    await ProjectThreadAsync(
+                        thread,
                         ledger,
                         trace,
                         request,
                         turnId,
                         outputTextUpdate.Delta,
-                        BranchProjectionKind.AssistantOutput,
-                        BranchProjectionRole.Assistant,
+                        ThreadProjectionKind.AssistantOutput,
+                        ThreadProjectionRole.Assistant,
                         null,
                         outputFlowId,
                         outputTextUpdate.ResponseId,
@@ -478,14 +478,14 @@ public sealed class AudioInteractionRuntimeRunner
             }
         }
 
-        return await BuildResultAsync(request.SessionId, ledger, trace, branch, envelopes, routeDecision, finalDecision, turnController.Snapshot, cancellationToken);
+        return await BuildResultAsync(request.SessionId, ledger, trace, thread, envelopes, routeDecision, finalDecision, turnController.Snapshot, cancellationToken);
     }
 
     private async ValueTask<AudioInteractionRuntimeResult> BuildResultAsync(
         AudioSessionId sessionId,
         IRealtimeConversationLedger ledger,
         IRealtimeAudioTraceStore trace,
-        IBranchProjectionSink branch,
+        IThreadProjectionSink thread,
         IReadOnlyList<CanonicalMediaEnvelope>? envelopes,
         ProviderRouteDecision? routeDecision,
         TurnDecision? turnDecision,
@@ -496,7 +496,7 @@ public sealed class AudioInteractionRuntimeRunner
         return new AudioInteractionRuntimeResult(
             Ledger: ledger,
             Trace: trace,
-            Branch: branch,
+            Thread: thread,
             Envelopes: envelopes ?? [],
             RouteDecision: routeDecision,
             TurnDecision: turnDecision,
@@ -540,23 +540,23 @@ public sealed class AudioInteractionRuntimeRunner
         }, cancellationToken);
     }
 
-    private async ValueTask ProjectBranchAsync(
-        IBranchProjectionSink branch,
+    private async ValueTask ProjectThreadAsync(
+        IThreadProjectionSink thread,
         IRealtimeConversationLedger ledger,
         IRealtimeAudioTraceStore trace,
         AudioInteractionRuntimeRequest request,
         AudioTurnId turnId,
         string text,
-        BranchProjectionKind kind,
-        BranchProjectionRole role,
+        ThreadProjectionKind kind,
+        ThreadProjectionRole role,
         InputContentId? inputContentId,
         OutputFlowId? outputFlowId,
         ResponseId? responseId,
         AudioCorrelation correlation,
         CancellationToken cancellationToken)
     {
-        var projectionId = _ids.NextBranchProjectionId();
-        var projection = new BranchProjectionRecord
+        var projectionId = _ids.NextThreadProjectionId();
+        var projection = new ThreadProjectionRecord
         {
             TurnId = turnId,
             Text = text,
@@ -566,26 +566,26 @@ public sealed class AudioInteractionRuntimeRunner
             OutputFlowId = outputFlowId,
             ResponseId = responseId
         };
-        var projectedEvent = await branch.ProjectAsync(request.BranchRef, projection, cancellationToken);
-        var projectionLedger = new BranchProjectionLedgerRecord
+        var projectedEvent = await thread.ProjectAsync(request.ThreadRef, projection, cancellationToken);
+        var projectionLedger = new ThreadProjectionLedgerRecord
         {
             Id = _ids.NextLedgerRecordId(),
             SessionId = request.SessionId,
-            Family = LedgerRecordFamily.BranchProjection,
+            Family = LedgerRecordFamily.ThreadProjection,
             RecordedAt = _clock.Tick(),
             ProjectionId = projectionId,
-            Branch = request.BranchRef,
+            Thread = request.ThreadRef,
             Projection = projection,
             ProjectedEvent = projectedEvent,
             Correlation = correlation
         };
         await ledger.AppendAsync(projectionLedger, cancellationToken);
         await TraceLedgerAsync(trace, request.SessionId, projectionLedger, correlation, cancellationToken);
-        await TraceAsync(trace, new AudioBranchProjectionTraceRecord
+        await TraceAsync(trace, new AudioThreadProjectionTraceRecord
         {
             Id = _ids.NextTraceRecordId(),
             SessionId = request.SessionId,
-            Family = RealtimeAudioTraceRecordFamily.BranchProjection,
+            Family = RealtimeAudioTraceRecordFamily.ThreadProjection,
             RecordedAt = _clock.Tick(),
             ProjectionId = projectionId,
             ProjectedEvent = projectedEvent,
@@ -660,7 +660,7 @@ public sealed record AudioInteractionRuntimeRequest
 
     public IReadOnlyList<TransportBinding> InputBindings { get; init; } = [];
 
-    public BranchRef BranchRef { get; init; } = new("session", "main");
+    public ThreadRef ThreadRef { get; init; } = new("session", "main");
 
     public string? RequestId { get; init; }
 
@@ -682,13 +682,13 @@ public sealed record AudioInteractionRuntimeRequest
 
     public IRealtimeAudioTraceStore? Trace { get; init; }
 
-    public IBranchProjectionSink? BranchProjectionSink { get; init; }
+    public IThreadProjectionSink? ThreadProjectionSink { get; init; }
 }
 
 public sealed record AudioInteractionRuntimeResult(
     IRealtimeConversationLedger Ledger,
     IRealtimeAudioTraceStore Trace,
-    IBranchProjectionSink Branch,
+    IThreadProjectionSink Thread,
     IReadOnlyList<CanonicalMediaEnvelope> Envelopes,
     ProviderRouteDecision? RouteDecision,
     TurnDecision? TurnDecision,

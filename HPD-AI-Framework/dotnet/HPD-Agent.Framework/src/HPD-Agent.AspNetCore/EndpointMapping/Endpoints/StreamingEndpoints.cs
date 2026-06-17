@@ -31,29 +31,29 @@ internal static class StreamingEndpoints
         IEndpointRouteBuilder endpoints,
         IAgentStreamingService streaming)
     {
-        // POST /agents/{agentId}/sessions/{sid}/branches/{bid}/inputs - Submit runtime-owned input
-        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/inputs",
+        // POST /agents/{agentId}/sessions/{sid}/threads/{bid}/inputs - Submit runtime-owned input
+        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/inputs",
                 async (string agentId, string sid, string bid, JsonElement request, CancellationToken ct) =>
                     await SubmitInput(agentId, sid, bid, request, streaming, ct))
             .WithName("SubmitAgentInput")
             .WithSummary("Submit an agent input event to the runtime");
 
-        // GET /agents/{agentId}/sessions/{sid}/branches/{bid}/events/live - SSE observer
-        endpoints.MapGet("/agents/{agentId}/sessions/{sid}/branches/{bid}/events/live",
+        // GET /agents/{agentId}/sessions/{sid}/threads/{bid}/events/live - SSE observer
+        endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/events/live",
                 async (string agentId, string sid, string bid, HttpContext context, CancellationToken ct) =>
                     await ObserveEventsWithSse(agentId, sid, bid, context, streaming, ct))
             .WithName("ObserveLiveEventsWithSse")
             .WithSummary("Observe live agent events using Server-Sent Events (SSE)");
 
-        // POST /agents/{agentId}/sessions/{sid}/branches/{bid}/interrupt - Explicit runtime interruption
-        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/interrupt",
+        // POST /agents/{agentId}/sessions/{sid}/threads/{bid}/interrupt - Explicit runtime interruption
+        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/interrupt",
                 async (string agentId, string sid, string bid, JsonElement? request, CancellationToken ct) =>
                     await Interrupt(agentId, sid, bid, request, streaming, ct))
             .WithName("InterruptAgentRun")
             .WithSummary("Explicitly interrupt active runtime work");
 
-        // GET /agents/{agentId}/sessions/{sid}/branches/{bid}/ws - WebSocket streaming
-        endpoints.MapGet("/agents/{agentId}/sessions/{sid}/branches/{bid}/ws", (string agentId, string sid, string bid, HttpContext context, CancellationToken ct) =>
+        // GET /agents/{agentId}/sessions/{sid}/threads/{bid}/ws - WebSocket streaming
+        endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/ws", (string agentId, string sid, string bid, HttpContext context, CancellationToken ct) =>
                 StreamWithWebSocket(agentId, sid, bid, context, streaming, ct))
             .WithName("StreamWithWebSocket")
             .WithSummary("Stream agent responses using WebSocket");
@@ -83,7 +83,7 @@ internal static class StreamingEndpoints
         IAgentStreamingService streaming,
         CancellationToken ct = default)
     {
-        var leaseResult = await streaming.GetAgentForBranchAsync(agentId, sid, bid, ct);
+        var leaseResult = await streaming.GetAgentForThreadAsync(agentId, sid, bid, ct);
         if (leaseResult.Status == AgentServiceStatus.NotFound)
             return TypedResults.NotFound();
 
@@ -121,7 +121,7 @@ internal static class StreamingEndpoints
             });
         }
 
-        var leaseResult = await streaming.GetAgentForBranchAsync(agentId, sid, bid, ct);
+        var leaseResult = await streaming.GetAgentForThreadAsync(agentId, sid, bid, ct);
         if (leaseResult.Status == AgentServiceStatus.NotFound)
             return TypedResults.NotFound();
         if (leaseResult.Status == AgentServiceStatus.Conflict)
@@ -196,7 +196,7 @@ internal static class StreamingEndpoints
                     {
                         await webSocket.CloseAsync(
                             WebSocketCloseStatus.PolicyViolation,
-                            submitResult.ErrorCode ?? "Branch run conflict",
+                            submitResult.ErrorCode ?? "Thread run conflict",
                             ct);
                         return TypedResults.Ok();
                     }
@@ -205,7 +205,7 @@ internal static class StreamingEndpoints
                     {
                         await webSocket.CloseAsync(
                             WebSocketCloseStatus.InvalidPayloadData,
-                            "Session or branch not found",
+                            "Session or thread not found",
                             ct);
                         return TypedResults.Ok();
                     }

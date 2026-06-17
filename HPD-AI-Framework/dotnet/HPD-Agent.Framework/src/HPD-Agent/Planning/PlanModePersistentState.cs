@@ -228,7 +228,7 @@ public enum PlanStepStatus
 ///
 /// <para><b>Session Scoping:</b></para>
 /// <para>
-/// Plans are stored per-branch in Branch.MiddlewareState.
+/// Plans are stored per-thread in Thread.MiddlewareState.
 /// Each session can have multiple plans (one per conversation ID).
 /// </para>
 ///
@@ -248,7 +248,7 @@ public enum PlanStepStatus
 ///
 /// <para><b>Persistence:</b></para>
 /// <para>
-/// This state is automatically saved to Branch.MiddlewareState
+/// This state is automatically saved to Thread.MiddlewareState
 /// at the end of each agent run via SaveToSession() and loaded via LoadFromSession().
 /// The agent's registered MiddlewareStateFactory handles serialization.
 /// </para>

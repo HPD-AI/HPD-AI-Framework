@@ -116,10 +116,10 @@ describe('SseParser', () => {
     expect(events).toHaveLength(0);
   });
 
-  it('should parse durable branch metadata events with branchMetadata payloads', () => {
+  it('should parse durable thread metadata events with threadMetadata payloads', () => {
     const parser = new SseParser();
     const chunk = new TextEncoder().encode(
-      'data: {"version":"1.0","type":"BRANCH_METADATA_UPDATED","name":"Reviewer","branchMetadata":{"kind":"subagent","parentBranchId":"main"}}\n\n'
+      'data: {"version":"1.0","type":"THREAD_METADATA_UPDATED","name":"Reviewer","threadMetadata":{"kind":"subagent","parentThreadId":"main"}}\n\n'
     );
 
     const events = parser.processChunk(chunk);
@@ -127,11 +127,11 @@ describe('SseParser', () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
       version: '1.0',
-      type: 'BRANCH_METADATA_UPDATED',
+      type: 'THREAD_METADATA_UPDATED',
       name: 'Reviewer',
-      branchMetadata: {
+      threadMetadata: {
         kind: 'subagent',
-        parentBranchId: 'main',
+        parentThreadId: 'main',
       },
     });
   });

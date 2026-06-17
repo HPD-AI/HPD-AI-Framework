@@ -19,12 +19,12 @@ public class AgentSessionServiceTests : IDisposable
     public void Dispose() => _manager.Dispose();
 
     [Fact]
-    public async Task CreateSessionAsync_CreatesDefaultMainBranch()
+    public async Task CreateSessionAsync_CreatesDefaultMainThread()
     {
         var session = await _service.CreateSessionAsync();
 
         session.Id.Should().NotBeNullOrWhiteSpace();
-        (await _store.LoadBranchAsync(session.Id, "main")).Should().NotBeNull();
+        (await _store.LoadThreadAsync(session.Id, "main")).Should().NotBeNull();
     }
 
     [Fact]
@@ -79,13 +79,13 @@ public class AgentSessionServiceTests : IDisposable
     public async Task DeleteSessionAsync_DeletesStoreData_AndCleansLocks()
     {
         var created = await _service.CreateSessionAsync(new CreateSessionRequest("delete-me", null));
-        _manager.TryAcquireBranchOperationLock(created.Id, "main").Should().BeTrue();
-        _manager.ReleaseBranchOperationLock(created.Id, "main");
+        _manager.TryAcquireThreadOperationLock(created.Id, "main").Should().BeTrue();
+        _manager.ReleaseThreadOperationLock(created.Id, "main");
 
         (await _service.DeleteSessionAsync(created.Id)).Should().BeTrue();
 
         (await _store.LoadSessionAsync(created.Id)).Should().BeNull();
-        _manager.TryAcquireBranchOperationLock(created.Id, "main").Should().BeTrue();
+        _manager.TryAcquireThreadOperationLock(created.Id, "main").Should().BeTrue();
     }
 
     private sealed class TestSessionManager : SessionManager

@@ -76,19 +76,19 @@ public class ErrorHandlingTests
     }
 
     [Fact]
-    public async Task Execute_PartialFailure_ShouldCompleteOtherBranches()
+    public async Task Execute_PartialFailure_ShouldCompleteOtherThreads()
     {
-        // Arrange - Parallel branches where one fails
+        // Arrange - Parallel threads where one fails
         var graph = new TestGraphBuilder()
             .AddStartNode()
-            .AddHandlerNode("success_branch", "SuccessHandler")
-            .AddHandlerNode("failure_branch", "FailureHandler")
+            .AddHandlerNode("success_thread", "SuccessHandler")
+            .AddHandlerNode("failure_thread", "FailureHandler")
             .AddHandlerNode("merge", "SuccessHandler")
             .AddEndNode()
-            .AddEdge("start", "success_branch")
-            .AddEdge("start", "failure_branch")
-            .AddEdge("success_branch", "merge")
-            .AddEdge("failure_branch", "merge")
+            .AddEdge("start", "success_thread")
+            .AddEdge("start", "failure_thread")
+            .AddEdge("success_thread", "merge")
+            .AddEdge("failure_thread", "merge")
             .AddEdge("merge", "end")
             .Build();
 
@@ -104,11 +104,11 @@ public class ErrorHandlingTests
         }
         catch
         {
-            // Expected if one branch fails
+            // Expected if one thread fails
         }
 
-        // Assert - Success branch should have completed
-        // Success branch may not complete if failure branch blocks execution
+        // Assert - Success thread should have completed
+        // Success thread may not complete if failure thread blocks execution
     }
 
     [Fact]

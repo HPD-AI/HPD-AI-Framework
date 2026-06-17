@@ -76,28 +76,28 @@ public class DtoSerializationTests
     }
 
     [Fact]
-    public void BranchDto_SerializesAndDeserializes_WithAllProperties()
+    public void ThreadDto_SerializesAndDeserializes_WithAllProperties()
     {
         // Arrange
-        var original = new BranchDto(
-            "branch-1",
+        var original = new ThreadDto(
+            "thread-1",
             "session-123",
-            "Main Branch",
-            "Primary conversation branch",
-            "parent-branch",
+            "Main Thread",
+            "Primary conversation thread",
+            "parent-thread",
             "message-5",
             5,
             DateTime.UtcNow,
             DateTime.UtcNow.AddMinutes(10),
             25,
             new List<string> { "tag1", "tag2" },
-            new Dictionary<string, string> { ["0"] = "root", ["1"] = "parent-branch" },
+            new Dictionary<string, string> { ["0"] = "root", ["1"] = "parent-thread" },
             0, 1, true, null, null, null, 0,
             new Dictionary<string, object> { ["purpose"] = "draft", ["priority"] = 2 });
 
         // Act
         var json = JsonSerializer.Serialize(original, _options);
-        var deserialized = JsonSerializer.Deserialize<BranchDto>(json, _options);
+        var deserialized = JsonSerializer.Deserialize<ThreadDto>(json, _options);
 
         // Assert
         deserialized.Should().NotBeNull();
@@ -117,11 +117,11 @@ public class DtoSerializationTests
     }
 
     [Fact]
-    public void BranchDto_SerializesAndDeserializes_WithNullOptionalFields()
+    public void ThreadDto_SerializesAndDeserializes_WithNullOptionalFields()
     {
         // Arrange
-        var original = new BranchDto(
-            "branch-1",
+        var original = new ThreadDto(
+            "thread-1",
             "session-123",
             "Main",
             null,
@@ -137,7 +137,7 @@ public class DtoSerializationTests
 
         // Act
         var json = JsonSerializer.Serialize(original, _options);
-        var deserialized = JsonSerializer.Deserialize<BranchDto>(json, _options);
+        var deserialized = JsonSerializer.Deserialize<ThreadDto>(json, _options);
 
         // Assert
         deserialized.Should().NotBeNull();
@@ -225,23 +225,23 @@ public class DtoSerializationTests
     }
 
     [Fact]
-    public void CreateBranchRequest_SerializesAndDeserializes_Correctly()
+    public void CreateThreadRequest_SerializesAndDeserializes_Correctly()
     {
         // Arrange
-        var original = new CreateBranchRequest(
-            "new-branch",
-            "New Branch",
-            "Branch description",
+        var original = new CreateThreadRequest(
+            "new-thread",
+            "New Thread",
+            "Thread description",
             null,
             new Dictionary<string, object> { ["workspaceId"] = "workspace-1" });
 
         // Act
         var json = JsonSerializer.Serialize(original, _options);
-        var deserialized = JsonSerializer.Deserialize<CreateBranchRequest>(json, _options);
+        var deserialized = JsonSerializer.Deserialize<CreateThreadRequest>(json, _options);
 
         // Assert
         deserialized.Should().NotBeNull();
-        deserialized!.BranchId.Should().Be(original.BranchId);
+        deserialized!.ThreadId.Should().Be(original.ThreadId);
         deserialized.Name.Should().Be(original.Name);
         deserialized.Description.Should().Be(original.Description);
         deserialized.Metadata.Should().NotBeNull();
@@ -249,24 +249,24 @@ public class DtoSerializationTests
     }
 
     [Fact]
-    public void ForkBranchRequest_SerializesAndDeserializes_Correctly()
+    public void ForkThreadRequest_SerializesAndDeserializes_Correctly()
     {
         // Arrange
-        var original = new ForkBranchRequest(
-            "forked-branch",
+        var original = new ForkThreadRequest(
+            "forked-thread",
             "message-5",
-            "Forked Branch",
+            "Forked Thread",
             "Fork description",
             null,
             new Dictionary<string, object> { ["variant"] = "formal" });
 
         // Act
         var json = JsonSerializer.Serialize(original, _options);
-        var deserialized = JsonSerializer.Deserialize<ForkBranchRequest>(json, _options);
+        var deserialized = JsonSerializer.Deserialize<ForkThreadRequest>(json, _options);
 
         // Assert
         deserialized.Should().NotBeNull();
-        deserialized!.NewBranchId.Should().Be(original.NewBranchId);
+        deserialized!.NewThreadId.Should().Be(original.NewThreadId);
         deserialized.FromMessageId.Should().Be(original.FromMessageId);
         deserialized.Name.Should().Be(original.Name);
         deserialized.Metadata.Should().NotBeNull();
@@ -280,7 +280,7 @@ public class DtoSerializationTests
         var original = new UserTextInputEvent("Hello")
         {
             SessionId = "session-123",
-            BranchId = "main",
+            ThreadId = "main",
             AgentId = "default",
             RunConfig = new AgentRunConfig
             {
@@ -307,7 +307,7 @@ public class DtoSerializationTests
         deserialized.Should().NotBeNull();
         deserialized!.Text.Should().Be(original.Text);
         deserialized.SessionId.Should().Be(original.SessionId);
-        deserialized.BranchId.Should().Be(original.BranchId);
+        deserialized.ThreadId.Should().Be(original.ThreadId);
         deserialized.AgentId.Should().Be(original.AgentId);
         deserialized.RunConfig.Should().NotBeNull();
         deserialized.RunConfig!.Chat.Should().NotBeNull();

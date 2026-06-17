@@ -53,7 +53,7 @@ public sealed class AnnotationItem
 {
     public string AnnotationId { get; init; } = Guid.NewGuid().ToString();
     public string SessionId { get; init; } = string.Empty;
-    public string BranchId { get; init; } = string.Empty;
+    public string ThreadId { get; init; } = string.Empty;
     public int TurnIndex { get; init; }
     public string? TriggerEvaluatorName { get; init; }
     public double? TriggerScore { get; init; }
@@ -107,7 +107,7 @@ public sealed class AnnotationQueue
     /// Returns the annotation ID, or null if not queued (score above threshold or queue full).
     /// </summary>
     public string? TryEnqueueFromScore(
-        string sessionId, string branchId, int turnIndex,
+        string sessionId, string threadId, int turnIndex,
         string evaluatorName, double score)
     {
         if (_options.AutoQueueBelowScore.HasValue && score > _options.AutoQueueBelowScore.Value)
@@ -116,7 +116,7 @@ public sealed class AnnotationQueue
         var item = new AnnotationItem
         {
             SessionId = sessionId,
-            BranchId = branchId,
+            ThreadId = threadId,
             TurnIndex = turnIndex,
             TriggerEvaluatorName = evaluatorName,
             TriggerScore = score,

@@ -10,13 +10,13 @@ public class HPDAgentConfig
 {
     /// <summary>
     /// The session store to use for this agent.
-    /// Owns session lifecycle (list, create, delete) and is shared with the agent for branch persistence.
+    /// Owns session lifecycle (list, create, delete) and is shared with the agent for thread persistence.
     /// Defaults to <see cref="InMemorySessionStore"/> if not set.
     /// Use <see cref="JsonSessionStore"/> for persistence across restarts.
     /// </summary>
     /// <remarks>
     /// The hosting layer owns the store, not the AgentBuilder. The store is created at startup
-    /// so that session/branch endpoints work before any agent is built. When a stream request
+    /// so that session/thread endpoints work before any agent is built. When a stream request
     /// arrives, the same store is passed into the AgentBuilder automatically — do not also
     /// call WithSessionStore() inside <see cref="ConfigureAgent"/>.
     /// </remarks>
@@ -85,11 +85,11 @@ public class HPDAgentConfig
     public TimeSpan AgentIdleTimeout { get; set; } = TimeSpan.FromMinutes(30);
 
     /// <summary>
-    /// Whether to allow recursive branch deletion via DELETE /branches/{id}?recursive=true.
-    /// When false (default), deleting a branch with children is rejected — callers must
-    /// delete leaf branches manually. When true, the entire subtree is deleted atomically.
+    /// Whether to allow recursive thread deletion via DELETE /threads/{id}?recursive=true.
+    /// When false (default), deleting a thread with children is rejected — callers must
+    /// delete leaf threads manually. When true, the entire subtree is deleted atomically.
     /// Enable only if your UI explicitly surfaces this as a deliberate "delete subtree" action.
     /// Default: false.
     /// </summary>
-    public bool AllowRecursiveBranchDelete { get; set; } = false;
+    public bool AllowRecursiveThreadDelete { get; set; } = false;
 }

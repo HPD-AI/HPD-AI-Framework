@@ -231,7 +231,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         context.TryEmit(new LanguageServerDocumentOpenedEvent
         {
             SessionId = context.SessionId,
-            BranchId = context.BranchId,
+            ThreadId = context.ThreadId,
             Path = resolution.Path,
             Uri = uri,
             LanguageId = languageId,
@@ -303,7 +303,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         context.TryEmit(new LanguageServerWatchedFileChangedEvent
         {
             SessionId = context.SessionId,
-            BranchId = context.BranchId,
+            ThreadId = context.ThreadId,
             Path = resolution.Path,
             Uri = uri,
             ChangeKind = watchedChangeKind
@@ -323,7 +323,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 context.TryEmit(new LanguageServerDocumentClosedEvent
                 {
                     SessionId = context.SessionId,
-                    BranchId = context.BranchId,
+                    ThreadId = context.ThreadId,
                     Path = resolution.Path,
                     Uri = uri
                 });
@@ -387,7 +387,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
             context.TryEmit(new LanguageServerDocumentOpenedEvent
             {
                 SessionId = context.SessionId,
-                BranchId = context.BranchId,
+                ThreadId = context.ThreadId,
                 Path = resolution.Path,
                 Uri = uri,
                 LanguageId = languageId,
@@ -410,7 +410,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
             context.TryEmit(new LanguageServerDocumentChangedEvent
             {
                 SessionId = context.SessionId,
-                BranchId = context.BranchId,
+                ThreadId = context.ThreadId,
                 Path = resolution.Path,
                 Uri = uri,
                 LanguageId = languageId,
@@ -429,7 +429,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         context.TryEmit(new LanguageServerDocumentSavedEvent
         {
             SessionId = context.SessionId,
-            BranchId = context.BranchId,
+            ThreadId = context.ThreadId,
             Path = resolution.Path,
             Uri = uri
         });
@@ -447,7 +447,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         context.TryEmit(new LanguageServerDiagnosticsReceivedEvent
         {
             SessionId = context.SessionId,
-            BranchId = context.BranchId,
+            ThreadId = context.ThreadId,
             Path = resolution.Path,
             Uri = uri,
             DiagnosticSetCount = diagnostics.Count,

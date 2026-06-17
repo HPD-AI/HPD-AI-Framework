@@ -22,7 +22,7 @@ public class SubAgentIntegrationTests
         var additionalProps = new Dictionary<string, object>
         {
             ["IsSubAgent"] = true,
-            ["ExecutionModel"] = "BranchNative"
+            ["ExecutionModel"] = "ThreadNative"
         };
 
         // Add ParentToolHarness if specified (not ToolHarnessName - that was the bug!)
@@ -141,11 +141,11 @@ public class SubAgentIntegrationTests
         Assert.NotNull(mathExpert);
 
         Assert.True(weatherExpert.AdditionalProperties?.ContainsKey("ExecutionModel"));
-        Assert.Equal("BranchNative", weatherExpert.AdditionalProperties!["ExecutionModel"] as string);
+        Assert.Equal("ThreadNative", weatherExpert.AdditionalProperties!["ExecutionModel"] as string);
         Assert.False(weatherExpert.AdditionalProperties?.ContainsKey("SessionMode"));
 
         Assert.True(mathExpert.AdditionalProperties?.ContainsKey("ExecutionModel"));
-        Assert.Equal("BranchNative", mathExpert.AdditionalProperties!["ExecutionModel"] as string);
+        Assert.Equal("ThreadNative", mathExpert.AdditionalProperties!["ExecutionModel"] as string);
         Assert.False(mathExpert.AdditionalProperties?.ContainsKey("SessionMode"));
     }
 

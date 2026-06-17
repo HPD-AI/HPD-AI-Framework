@@ -43,7 +43,7 @@ function getAllPanelIds(state: SplitPanelState): string[] {
 	const traverse = (node: any): void => {
 		if (node.type === 'leaf') {
 			ids.push(node.id);
-		} else if (node.type === 'branch') {
+		} else if (node.type === 'thread') {
 			for (const child of node.children) {
 				traverse(child);
 			}

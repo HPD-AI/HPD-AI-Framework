@@ -10,20 +10,20 @@ import { EventTypes } from './types/events.js';
 import type { AgentTransport, RuntimeScope, RunTransportOptions } from './types/transport.js';
 import type {
   Session,
-  Branch,
-  BranchMessage,
-  SiblingBranch,
-  BranchEvent,
+  Thread,
+  ThreadMessage,
+  SiblingThread,
+  ThreadEvent,
   ContentReference,
   CreateSessionRequest,
   SearchSessionsRequest,
   UpdateSessionRequest,
   ListSessionsOptions,
-  CreateBranchRequest,
-  ForkBranchRequest,
-  UpdateBranchRequest,
+  CreateThreadRequest,
+  ForkThreadRequest,
+  UpdateThreadRequest,
 } from './types/session.js';
-import type { BranchRun } from './types/branch-run.js';
+import type { ThreadRun } from './types/thread-run.js';
 import type {
   AgentSummaryDto,
   StoredAgentDto,
@@ -38,7 +38,7 @@ import type {
   PassRateResult,
   FailureRateResult,
   AgentComparisonResult,
-  BranchComparisonResult,
+  ThreadComparisonResult,
   ToolUsageSummary,
   CostBreakdown,
 } from './types/evals.js';
@@ -307,67 +307,67 @@ export class AgentClient {
   }
 
   // ============================================
-  // Branch CRUD
+  // Thread CRUD
   // ============================================
 
-  listBranches(sessionId: string): Promise<Branch[]> {
-    return this.api.listBranches(sessionId);
+  listThreads(sessionId: string): Promise<Thread[]> {
+    return this.api.listThreads(sessionId);
   }
 
-  getBranch(sessionId: string, branchId: string): Promise<Branch | null> {
-    return this.api.getBranch(sessionId, branchId);
+  getThread(sessionId: string, threadId: string): Promise<Thread | null> {
+    return this.api.getThread(sessionId, threadId);
   }
 
-  createBranch(sessionId: string, options?: CreateBranchRequest): Promise<Branch> {
-    return this.api.createBranch(sessionId, options);
+  createThread(sessionId: string, options?: CreateThreadRequest): Promise<Thread> {
+    return this.api.createThread(sessionId, options);
   }
 
-  forkBranch(sessionId: string, branchId: string, options: ForkBranchRequest): Promise<Branch> {
-    return this.api.forkBranch(sessionId, branchId, options);
+  forkThread(sessionId: string, threadId: string, options: ForkThreadRequest): Promise<Thread> {
+    return this.api.forkThread(sessionId, threadId, options);
   }
 
-  updateBranch(sessionId: string, branchId: string, request: UpdateBranchRequest): Promise<Branch> {
-    return this.api.updateBranch(sessionId, branchId, request);
+  updateThread(sessionId: string, threadId: string, request: UpdateThreadRequest): Promise<Thread> {
+    return this.api.updateThread(sessionId, threadId, request);
   }
 
-  deleteBranch(sessionId: string, branchId: string, options?: { recursive?: boolean }): Promise<void> {
-    return this.api.deleteBranch(sessionId, branchId, options);
+  deleteThread(sessionId: string, threadId: string, options?: { recursive?: boolean }): Promise<void> {
+    return this.api.deleteThread(sessionId, threadId, options);
   }
 
-  getBranchEvents(sessionId: string, branchId: string): Promise<BranchEvent[]> {
-    return this.api.getBranchEvents(sessionId, branchId);
+  getThreadEvents(sessionId: string, threadId: string): Promise<ThreadEvent[]> {
+    return this.api.getThreadEvents(sessionId, threadId);
   }
 
-  getBranchMessages(sessionId: string, branchId: string): Promise<BranchMessage[]> {
-    return this.api.getBranchMessages(sessionId, branchId);
+  getThreadMessages(sessionId: string, threadId: string): Promise<ThreadMessage[]> {
+    return this.api.getThreadMessages(sessionId, threadId);
   }
 
-  getBranchRuns(agentId: string, sessionId: string, branchId: string): Promise<BranchRun[]> {
-    return this.api.getBranchRuns(agentId, sessionId, branchId);
+  getThreadRuns(agentId: string, sessionId: string, threadId: string): Promise<ThreadRun[]> {
+    return this.api.getThreadRuns(agentId, sessionId, threadId);
   }
 
-  getActiveBranchRun(agentId: string, sessionId: string, branchId: string): Promise<BranchRun | null> {
-    return this.api.getActiveBranchRun(agentId, sessionId, branchId);
+  getActiveThreadRun(agentId: string, sessionId: string, threadId: string): Promise<ThreadRun | null> {
+    return this.api.getActiveThreadRun(agentId, sessionId, threadId);
   }
 
-  getBranchRun(agentId: string, sessionId: string, branchId: string, runtimeRunId: string): Promise<BranchRun | null> {
-    return this.api.getBranchRun(agentId, sessionId, branchId, runtimeRunId);
+  getThreadRun(agentId: string, sessionId: string, threadId: string, runtimeRunId: string): Promise<ThreadRun | null> {
+    return this.api.getThreadRun(agentId, sessionId, threadId, runtimeRunId);
   }
 
   // ============================================
   // Sibling Navigation
   // ============================================
 
-  getBranchSiblings(sessionId: string, branchId: string): Promise<SiblingBranch[]> {
-    return this.api.getBranchSiblings(sessionId, branchId);
+  getThreadSiblings(sessionId: string, threadId: string): Promise<SiblingThread[]> {
+    return this.api.getThreadSiblings(sessionId, threadId);
   }
 
-  getNextSibling(sessionId: string, branchId: string): Promise<Branch | null> {
-    return this.api.getNextSibling(sessionId, branchId);
+  getNextSibling(sessionId: string, threadId: string): Promise<Thread | null> {
+    return this.api.getNextSibling(sessionId, threadId);
   }
 
-  getPreviousSibling(sessionId: string, branchId: string): Promise<Branch | null> {
-    return this.api.getPreviousSibling(sessionId, branchId);
+  getPreviousSibling(sessionId: string, threadId: string): Promise<Thread | null> {
+    return this.api.getPreviousSibling(sessionId, threadId);
   }
 
   // ============================================
@@ -402,8 +402,8 @@ export class AgentClient {
     return this.api.getScores(evaluatorName, from, to);
   }
 
-  getScoresByBranch(sessionId: string, branchId?: string): Promise<ScoreRecord[]> {
-    return this.api.getScoresByBranch(sessionId, branchId);
+  getScoresByThread(sessionId: string, threadId?: string): Promise<ScoreRecord[]> {
+    return this.api.getScoresByThread(sessionId, threadId);
   }
 
   writeScore(record: Omit<ScoreRecord, 'id'>): Promise<ScoreRecord> {
@@ -434,8 +434,8 @@ export class AgentClient {
     return this.api.getAgentComparison(evaluatorName, agentNames, from, to);
   }
 
-  getBranchComparison(sessionId: string, branchId1: string, branchId2: string, evaluatorNames: string[]): Promise<BranchComparisonResult> {
-    return this.api.getBranchComparison(sessionId, branchId1, branchId2, evaluatorNames);
+  getThreadComparison(sessionId: string, threadId1: string, threadId2: string, evaluatorNames: string[]): Promise<ThreadComparisonResult> {
+    return this.api.getThreadComparison(sessionId, threadId1, threadId2, evaluatorNames);
   }
 
   getToolUsage(from?: string, to?: string): Promise<Record<string, ToolUsageSummary>> {
@@ -450,8 +450,8 @@ export class AgentClient {
     return this.api.getScoresByVersion(evaluatorName, version);
   }
 
-  uploadContent(sessionId: string, branchId: string, file: File | Blob, name?: string): Promise<ContentReference> {
-    return this.api.uploadContent(sessionId, branchId, file, name);
+  uploadContent(sessionId: string, threadId: string, file: File | Blob, name?: string): Promise<ContentReference> {
+    return this.api.uploadContent(sessionId, threadId, file, name);
   }
 }
 

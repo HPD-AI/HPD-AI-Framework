@@ -37,15 +37,15 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(AgentInputEvent))]
 [JsonSerializable(typeof(UserTextInputEvent))]
 [JsonSerializable(typeof(UserMessagesInputEvent))]
-[JsonSerializable(typeof(BranchCreatedEvent))]
-[JsonSerializable(typeof(BranchForkedEvent))]
-[JsonSerializable(typeof(BranchMetadataUpdatedEvent))]
-[JsonSerializable(typeof(BranchTreeUpdatedEvent))]
+[JsonSerializable(typeof(ThreadCreatedEvent))]
+[JsonSerializable(typeof(ThreadForkedEvent))]
+[JsonSerializable(typeof(ThreadMetadataUpdatedEvent))]
+[JsonSerializable(typeof(ThreadTreeUpdatedEvent))]
 [JsonSerializable(typeof(MessageStartedEvent))]
 [JsonSerializable(typeof(MessageCompletedEvent))]
 [JsonSerializable(typeof(ContentAddedEvent))]
-[JsonSerializable(typeof(BranchMiddlewareStateCommittedEvent))]
-[JsonSerializable(typeof(BranchHistoryCompactedEvent))]
+[JsonSerializable(typeof(ThreadMiddlewareStateCommittedEvent))]
+[JsonSerializable(typeof(ThreadHistoryCompactedEvent))]
 [JsonSerializable(typeof(AgentRunConfig))]
 [JsonSerializable(typeof(AudioRunConfig))]
 [JsonSerializable(typeof(AudioConfig))]
@@ -57,7 +57,7 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(InputMediaDisposition))]
 [JsonSerializable(typeof(TraceCapturePolicy))]
 [JsonSerializable(typeof(PrivacyPolicy))]
-[JsonSerializable(typeof(BranchProjectionPolicy))]
+[JsonSerializable(typeof(ThreadProjectionPolicy))]
 [JsonSerializable(typeof(AssistantOutputSynthesisMode))]
 [JsonSerializable(typeof(AssistantAudioArtifactCapturePolicy))]
 [JsonSerializable(typeof(TextToSpeechPacingOptions))]
@@ -106,8 +106,8 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(AgentTurnStartedEvent))]
 [JsonSerializable(typeof(AgentTurnFinishedEvent))]
 [JsonSerializable(typeof(StateSnapshotEvent))]
-[JsonSerializable(typeof(BranchRunStartedEvent))]
-[JsonSerializable(typeof(BranchRunCompletedEvent))]
+[JsonSerializable(typeof(ThreadRunStartedEvent))]
+[JsonSerializable(typeof(ThreadRunCompletedEvent))]
 
 // Content Events
 [JsonSerializable(typeof(TextMessageStartEvent))]
@@ -170,8 +170,8 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(ClientTools.JsonContent))]
 [JsonSerializable(typeof(ClientTools.ClientToolAugmentation))]
 
-// Branch events removed - branching is now an application-level concern
-// Applications should define their own branch event types if needed
+// Thread events removed - threading is now an application-level concern
+// Applications should define their own thread event types if needed
 
 // Content Events
 [JsonSerializable(typeof(ContentUploadedEvent))]

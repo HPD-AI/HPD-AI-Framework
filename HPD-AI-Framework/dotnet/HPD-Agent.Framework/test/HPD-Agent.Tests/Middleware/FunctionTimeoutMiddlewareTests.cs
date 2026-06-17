@@ -372,7 +372,7 @@ public class FunctionTimeoutMiddlewareTests
             agentState,
             new HPD.Events.Core.EventCoordinator(),
             new global::HPD.Agent.Session("test-session"),
-            new global::HPD.Agent.Branch("test-session"),
+            new global::HPD.Agent.Thread("test-session"),
             CancellationToken.None);
     }
 

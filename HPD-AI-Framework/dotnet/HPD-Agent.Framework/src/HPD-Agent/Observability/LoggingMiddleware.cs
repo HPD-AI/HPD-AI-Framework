@@ -182,7 +182,7 @@ public class LoggingMiddleware : IAgentMiddleware
         sb.AppendLine($"{_options.LogPrefix} MESSAGE TURN #{turnNumber} - START");
         sb.AppendLine($"  Agent: {context.AgentName}");
         sb.AppendLine($"  UserMessage: {context.UserMessage?.Text?.Length ?? 0} chars");
-        sb.AppendLine($"  BranchHistory: {context.BranchHistory?.Count ?? 0} messages");
+        sb.AppendLine($"  ThreadHistory: {context.ThreadHistory?.Count ?? 0} messages");
         sb.AppendLine($"  ConversationId: {context.ConversationId}");
 
         sb.AppendLine("═══════════════════════════════════════════════════════════════════════════════════════════════════");

@@ -213,13 +213,13 @@ public partial class SlackBot(
 
         var threadTs    = GetThreadTs(ev!);
         var platformKey = SlackThreadId.Format(ev!.Channel!, threadTs);
-        var (sessionId, branchId) = await sessionMapper.ResolveAsync(platformKey, ctx.CancellationToken);
+        var (sessionId, threadId) = await sessionMapper.ResolveAsync(platformKey, ctx.CancellationToken);
         var input = await BuildInputAsync(ev, ctx.CancellationToken);
 
-        Console.WriteLine($"[SLACK] HandleMessageAsync: channel={ev.Channel} channelType={ev.ChannelType} user={ev.User} botId={ev.BotId} subtype={ev.Subtype} text={ev.Text} threadTs={threadTs} sessionId={sessionId} branchId={branchId}");
+        Console.WriteLine($"[SLACK] HandleMessageAsync: channel={ev.Channel} channelType={ev.ChannelType} user={ev.User} botId={ev.BotId} subtype={ev.Subtype} text={ev.Text} threadTs={threadTs} sessionId={sessionId} threadId={threadId}");
 
         // Fire-and-forget: Slack requires 200 within 3 seconds.
-        _ = StreamToSlackAsync(sessionId, branchId, input, ev.Channel!, threadTs, CancellationToken.None);
+        _ = StreamToSlackAsync(sessionId, threadId, input, ev.Channel!, threadTs, CancellationToken.None);
         return BotAdapterResponse.Ok();
     }
 
@@ -274,7 +274,7 @@ public partial class SlackBot(
     {
         var userName    = await userCache.GetDisplayNameAsync(payload.UserId, ctx.CancellationToken);
         var platformKey = SlackThreadId.Format(payload.ChannelId, ""); // slash commands have no thread
-        var (sessionId, branchId) = await sessionMapper.ResolveAsync(platformKey, ctx.CancellationToken);
+        var (sessionId, threadId) = await sessionMapper.ResolveAsync(platformKey, ctx.CancellationToken);
 
         var input = new AgentInput(
             Text:      $"{payload.Command} {payload.Text}".Trim(),
@@ -288,7 +288,7 @@ public partial class SlackBot(
             });
 
         // Fire-and-forget: Slack requires 200 within 3 seconds.
-        _ = StreamToSlackAsync(sessionId, branchId, input, payload.ChannelId, "", CancellationToken.None);
+        _ = StreamToSlackAsync(sessionId, threadId, input, payload.ChannelId, "", CancellationToken.None);
         return BotAdapterResponse.Ok();
     }
 
@@ -372,7 +372,7 @@ public partial class SlackBot(
     // ── Streaming ──────────────────────────────────────────────────────────────
 
     private async Task StreamToSlackAsync(
-        string sessionId, string branchId,
+        string sessionId, string threadId,
         AgentInput input,
         string channel, string threadTs,
         CancellationToken ct)
@@ -392,7 +392,7 @@ public partial class SlackBot(
                 new BotStreamingRequest<SlackStreamContext>(
                     AgentId: agentId,
                     SessionId: sessionId,
-                    BranchId: branchId,
+                    ThreadId: threadId,
                     Text: input.Text,
                     Context: context,
                     Strategy: streaming.Strategy,
@@ -415,7 +415,7 @@ public partial class SlackBot(
                 ct);
 
             if (!started)
-                Console.WriteLine($"[SLACK] StreamToSlackAsync: branch operation lock already held for session={sessionId} branch={branchId}, dropping");
+                Console.WriteLine($"[SLACK] StreamToSlackAsync: thread operation lock already held for session={sessionId} thread={threadId}, dropping");
             else
                 Console.WriteLine("[SLACK] StreamToSlackAsync: agent stream complete");
         }
@@ -645,9 +645,9 @@ public partial class SlackBot(
                         {
                             var threadTs    = GetThreadTs(ev!);
                             var platformKey = SlackThreadId.Format(ev!.Channel!, threadTs);
-                            var (sessionId, branchId) = await sessionMapper.ResolveAsync(platformKey, ct);
+                            var (sessionId, threadId) = await sessionMapper.ResolveAsync(platformKey, ct);
                             var input = await BuildInputAsync(ev, ct);
-                            _ = StreamToSlackAsync(sessionId, branchId, input, ev.Channel!, threadTs, CancellationToken.None);
+                            _ = StreamToSlackAsync(sessionId, threadId, input, ev.Channel!, threadTs, CancellationToken.None);
                         }
                         break;
                     }

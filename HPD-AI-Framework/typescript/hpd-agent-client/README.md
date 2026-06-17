@@ -4,10 +4,10 @@ TypeScript SDK for building HPD-Agent chat/runtime applications.
 
 ## Features
 
-- **Chat runtime** - Open chat sessions, load branch history, and send text turns.
+- **Chat runtime** - Open chat sessions, load thread history, and send text turns.
 - **Client tools** - Register browser/client-side tools with automatic response events.
 - **Split API/runtime layers** - HTTP resources are handled by `AgentHttpApi`; SSE/WebSocket transports only stream runtime events.
-- **Type safe protocol** - Typed agent events, session/branch DTOs, run config, client tools, and eval DTOs.
+- **Type safe protocol** - Typed agent events, session/thread DTOs, run config, client tools, and eval DTOs.
 - **Zero runtime dependencies** - Pure TypeScript for browser and Node.js.
 
 ## Quick Start
@@ -23,13 +23,13 @@ client.tools.register('get_active_view', () => ({
 
 const chat = await client.chat.open({
   agentId: 'assistant',
-  branchId: 'main',
+  threadId: 'main',
   session: {
     create: { metadata: { title: 'New chat' } },
   },
 });
 
-const history = await chat.getBranchEvents();
+const history = await chat.getThreadEvents();
 applyEvents(history);
 
 client.onAny((event) => applyEvent(event));
@@ -80,14 +80,14 @@ client.on(EventTypes.TEXT_DELTA, (event) => {
 await client.start({
   agentId: 'assistant',
   sessionId: 'session-1',
-  branchId: 'main',
+  threadId: 'main',
 });
 
 await client.run({
   type: EventTypes.USER_TEXT_INPUT,
   agentId: 'assistant',
   sessionId: 'session-1',
-  branchId: 'main',
+  threadId: 'main',
   text: 'Hello',
 });
 ```
@@ -101,7 +101,7 @@ const sessions = await client.api.searchSessions({
   metadata: { projectId: 'p1' },
 });
 
-const events = await client.api.getBranchEvents(sessions[0].id, 'main');
+const events = await client.api.getThreadEvents(sessions[0].id, 'main');
 ```
 
 ## Transports

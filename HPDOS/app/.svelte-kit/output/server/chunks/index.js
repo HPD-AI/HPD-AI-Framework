@@ -5,7 +5,7 @@ const EFFECT = 1 << 2;
 const RENDER_EFFECT = 1 << 3;
 const MANAGED_EFFECT = 1 << 24;
 const BLOCK_EFFECT = 1 << 4;
-const BRANCH_EFFECT = 1 << 5;
+const THREAD_EFFECT = 1 << 5;
 const ROOT_EFFECT = 1 << 6;
 const BOUNDARY_EFFECT = 1 << 7;
 const CONNECTED = 1 << 9;
@@ -435,7 +435,7 @@ class Renderer {
    */
   global;
   /**
-   * State that is local to the branch it is declared in.
+   * State that is local to the thread it is declared in.
    * It will be shallow-copied to all children.
    *
    * @type {{ select_value: string | undefined }}
@@ -1261,7 +1261,7 @@ export {
   MANAGED_EFFECT as K,
   ROOT_EFFECT as L,
   MAYBE_DIRTY as M,
-  BRANCH_EFFECT as N,
+  THREAD_EFFECT as N,
   includes as O,
   REACTION_IS_UPDATING as P,
   index_of as Q,

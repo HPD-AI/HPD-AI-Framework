@@ -119,7 +119,7 @@ The vector smoke gate runs:
 10,000 variants x 100 bars
 ```
 
-It records report version, gate name, machine/runtime metadata, git branch/commit metadata when available, logical processor count, configured parallelism, elapsed time, and pass/fail in an optional JSON report.
+It records report version, gate name, machine/runtime metadata, git thread/commit metadata when available, logical processor count, configured parallelism, elapsed time, and pass/fail in an optional JSON report.
 
 The replay certification smoke gate currently covers:
 
@@ -132,7 +132,7 @@ The replay certification smoke gate currently covers:
 - cross-venue market sweep routing
 - bundled provider-style routing and replay order-policy feeds
 
-When invoked with `--replay-certification-report`, the report writes report version, gate name, machine/runtime metadata, git branch/commit metadata when available, and structured evidence fields for each scenario, such as balances, quantities, routing decisions, charge amounts, policy rejection reasons, and dataset ids.
+When invoked with `--replay-certification-report`, the report writes report version, gate name, machine/runtime metadata, git thread/commit metadata when available, and structured evidence fields for each scenario, such as balances, quantities, routing decisions, charge amounts, policy rejection reasons, and dataset ids.
 
 ## What The Local Gate Proves
 

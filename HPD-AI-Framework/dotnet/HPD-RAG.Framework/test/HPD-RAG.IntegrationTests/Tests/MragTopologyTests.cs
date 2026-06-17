@@ -80,7 +80,7 @@ public sealed class MragTopologyTests
     [Fact]
     public async Task ConditionalEdge_WhenEquals_PipelineBuildsSuccessfully()
     {
-        // Router pipeline with conditional branching — tests that WhenEquals edge compiles.
+        // Router pipeline with conditional threading — tests that WhenEquals edge compiles.
         var pipeline = MragPipeline.Create()
             .WithName("conditional-route")
             .AddHandler("read", MragHandlerNames.ReadMarkdown)

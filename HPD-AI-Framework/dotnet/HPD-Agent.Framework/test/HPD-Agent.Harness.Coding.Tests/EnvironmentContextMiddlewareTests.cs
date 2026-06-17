@@ -274,7 +274,7 @@ public sealed class EnvironmentContextMiddlewareTests
             "test-agent");
 
         var session = new Session("test-session");
-        var branch = new Branch("test-session");
+        var thread = new Thread("test-session");
 
         var agentContext = new AgentContext(
             "test-agent",
@@ -282,7 +282,7 @@ public sealed class EnvironmentContextMiddlewareTests
             state,
             new EventCoordinator(),
             session,
-            branch,
+            thread,
             CancellationToken.None);
 
         return agentContext;

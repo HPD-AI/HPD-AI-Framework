@@ -1881,7 +1881,7 @@ const updated = {
   check: () => false
 };
 async function render_response({
-  branch,
+  thread,
   fetched,
   options: options2,
   manifest,
@@ -1938,7 +1938,7 @@ async function render_response({
         updated
       },
       constructors: await Promise.all(
-        branch.map(({ node }) => {
+        thread.map(({ node }) => {
           if (!node.component) {
             throw new Error(`Missing +page.svelte component for route ${event.route.id}`);
           }
@@ -1954,8 +1954,8 @@ async function render_response({
       props.errors = error_components;
     }
     let data2 = {};
-    for (let i = 0; i < branch.length; i += 1) {
-      data2 = { ...data2, ...branch[i].data };
+    for (let i = 0; i < thread.length; i += 1) {
+      data2 = { ...data2, ...thread[i].data };
       props[`data_${i}`] = data2;
     }
     props.page = {
@@ -2023,7 +2023,7 @@ async function render_response({
   } else {
     rendered = { head: "", html: "", css: { code: "", map: null }, hashes: { script: [] } };
   }
-  for (const { node } of branch) {
+  for (const { node } of thread) {
     for (const url of node.imports) modulepreloads.add(url);
     for (const url of node.stylesheets) stylesheets.add(url);
     for (const url of node.fonts) fonts.add(url);
@@ -2168,7 +2168,7 @@ async function render_response({
         serialized.error = devalue.uneval(error2);
       }
       const hydrate = [
-        `node_ids: [${branch.map(({ node }) => node.index).join(", ")}]`,
+        `node_ids: [${thread.map(({ node }) => node.index).join(", ")}]`,
         `data: ${data}`,
         `form: ${serialized.form}`,
         `error: ${serialized.error}`
@@ -2484,7 +2484,7 @@ async function respond_with_error({
   }
   const fetched = [];
   try {
-    const branch = [];
+    const thread = [];
     const default_layout = await manifest._.nodes[0]();
     const nodes = new PageNodes([default_layout]);
     const ssr = nodes.ssr();
@@ -2514,7 +2514,7 @@ async function respond_with_error({
         state,
         csr
       });
-      branch.push(
+      thread.push(
         {
           node: default_layout,
           server_data,
@@ -2538,7 +2538,7 @@ async function respond_with_error({
       },
       status,
       error: await handle_error_and_jsonify(event, event_state, options2, error2),
-      branch,
+      thread,
       error_components: [],
       fetched,
       event,
@@ -2615,7 +2615,7 @@ async function render_page(event, event_state, page, options2, manifest, state, 
       return await render_response({
         // provide nodes without running load functions so that the styles and
         // fonts are linked in the head before CSR takes over
-        branch: compact(nodes.data).map((node) => {
+        thread: compact(nodes.data).map((node) => {
           return {
             node,
             data: null,
@@ -2638,7 +2638,7 @@ async function render_page(event, event_state, page, options2, manifest, state, 
         data_serializer: server_data_serializer(event, event_state, options2)
       });
     }
-    const branch = [];
+    const thread = [];
     let load_error = null;
     const data_serializer = server_data_serializer(event, event_state, options2);
     const data_serializer_json = state.prerendering && should_prerender_data ? server_data_serializer_json(event, event_state, options2) : null;
@@ -2713,7 +2713,7 @@ async function render_page(event, event_state, page, options2, manifest, state, 
         try {
           const server_data = await server_promises[i];
           const data = await load_promises[i];
-          branch.push({ node, server_data, data });
+          thread.push({ node, server_data, data });
         } catch (e) {
           const err = normalize_error(e);
           if (err instanceof Redirect) {
@@ -2739,11 +2739,11 @@ async function render_page(event, event_state, page, options2, manifest, state, 
               );
               const node2 = await manifest._.nodes[index]();
               let j = i;
-              while (!branch[j]) j -= 1;
+              while (!thread[j]) j -= 1;
               data_serializer.set_max_nodes(j + 1);
-              const layouts = compact(branch.slice(0, j + 1));
+              const layouts = compact(thread.slice(0, j + 1));
               const nodes2 = new PageNodes(layouts.map((layout) => layout.node));
-              const error_branch = layouts.concat({
+              const error_thread = layouts.concat({
                 node: node2,
                 data: null,
                 server_data: null
@@ -2764,11 +2764,11 @@ async function render_page(event, event_state, page, options2, manifest, state, 
                 error_components: await load_error_components(
                   options2,
                   ssr,
-                  error_branch,
+                  error_thread,
                   page,
                   manifest
                 ),
-                branch: error_branch,
+                thread: error_thread,
                 fetched,
                 data_serializer
               });
@@ -2777,7 +2777,7 @@ async function render_page(event, event_state, page, options2, manifest, state, 
           return static_error_page(options2, status2, error2.message);
         }
       } else {
-        branch.push(null);
+        thread.push(null);
       }
     }
     if (state.prerendering && data_serializer_json) {
@@ -2805,11 +2805,11 @@ async function render_page(event, event_state, page, options2, manifest, state, 
       },
       status,
       error: null,
-      branch: compact(branch),
+      thread: compact(thread),
       action_result,
       fetched,
       data_serializer: !ssr ? server_data_serializer(event, event_state, options2) : data_serializer,
-      error_components: await load_error_components(options2, ssr, branch, page, manifest)
+      error_components: await load_error_components(options2, ssr, thread, page, manifest)
     });
   } catch (e) {
     if (e instanceof Redirect) {
@@ -2827,13 +2827,13 @@ async function render_page(event, event_state, page, options2, manifest, state, 
     });
   }
 }
-async function load_error_components(options2, ssr, branch, page, manifest) {
+async function load_error_components(options2, ssr, thread, page, manifest) {
   let error_components;
   if (options2.server_error_boundaries && ssr) {
     let last_idx = -1;
     error_components = await Promise.all(
       // eslint-disable-next-line @typescript-eslint/await-thenable
-      branch.map((b, i) => {
+      thread.map((b, i) => {
         if (i === 0) return void 0;
         if (!b) return null;
         i--;
@@ -3694,7 +3694,7 @@ async function internal_respond(request, options2, manifest, state) {
           page_config: { ssr: false, csr: true },
           status: 200,
           error: null,
-          branch: [
+          thread: [
             // include the root layout because it applies to every page
             {
               node: (

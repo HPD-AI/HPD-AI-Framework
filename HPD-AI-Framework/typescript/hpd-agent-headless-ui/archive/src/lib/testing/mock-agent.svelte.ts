@@ -6,17 +6,17 @@
  *
  * Features:
  * - Simulated character-by-character streaming
- * - In-memory sessions and branches
- * - Branch switching, forking, sibling navigation
- * - Session switching with per-session branch state isolation
+ * - In-memory sessions and threads
+ * - Thread switching, forking, sibling navigation
+ * - Session switching with per-session thread state isolation
  */
 
 import { AgentState } from '../agent/agent.svelte.ts';
 import type {
-	Branch,
+	Thread,
 	Session,
 	CreateSessionRequest,
-	CreateBranchRequest,
+	CreateThreadRequest,
 	PermissionChoice,
 	AgentSummaryDto,
 	StoredAgentDto,
@@ -57,7 +57,7 @@ function generateId(): string {
 	return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function makeMockBranch(overrides: Partial<Branch> & { id: string; sessionId: string }): Branch {
+function makeMockThread(overrides: Partial<Thread> & { id: string; sessionId: string }): Thread {
 	return {
 		name: overrides.id,
 		description: '',
@@ -72,10 +72,10 @@ function makeMockBranch(overrides: Partial<Branch> & { id: string; sessionId: st
 		siblingIndex: 0,
 		totalSiblings: 1,
 		isOriginal: true,
-		originalBranchId: undefined,
+		originalThreadId: undefined,
 		previousSiblingId: undefined,
 		nextSiblingId: undefined,
-		childBranches: [],
+		childThreads: [],
 		totalForks: 0,
 		...overrides
 	};
@@ -109,21 +109,21 @@ class MockWorkspaceImpl implements Workspace {
 	#error = $state<string | null>(null);
 
 	// ==========================================
-	// Level 2: Branch registry ($state)
+	// Level 2: Thread registry ($state)
 	// ==========================================
 
-	#branches = $state<Map<string, Branch>>(new Map());
-	#activeBranchId = $state<string | null>(null);
+	#threads = $state<Map<string, Thread>>(new Map());
+	#activeThreadId = $state<string | null>(null);
 
 	// ==========================================
-	// Internal: per-session branch maps + state cache
+	// Internal: per-session thread maps + state cache
 	// ==========================================
 
-	// sessionId → Map<branchId, Branch>
-	readonly #sessionBranches = new Map<string, Map<string, Branch>>();
+	// sessionId → Map<threadId, Thread>
+	readonly #sessionThreads = new Map<string, Map<string, Thread>>();
 
-	// `${sessionId}:${branchId}` → AgentState
-	readonly #branchStates = new Map<string, AgentState>();
+	// `${sessionId}:${threadId}` → AgentState
+	readonly #threadStates = new Map<string, AgentState>();
 
 	// ==========================================
 	// Derived state
@@ -131,28 +131,28 @@ class MockWorkspaceImpl implements Workspace {
 
 	readonly state = $derived.by((): AgentState | null => {
 		const sid = this.#activeSessionId;
-		const bid = this.#activeBranchId;
+		const bid = this.#activeThreadId;
 		if (!sid || !bid) return null;
-		return this.#branchStates.get(`${sid}:${bid}`) ?? null;
+		return this.#threadStates.get(`${sid}:${bid}`) ?? null;
 	});
 
-	readonly activeBranch = $derived.by((): Branch | null => {
-		if (!this.#activeBranchId) return null;
-		return this.#branches.get(this.#activeBranchId) ?? null;
+	readonly activeThread = $derived.by((): Thread | null => {
+		if (!this.#activeThreadId) return null;
+		return this.#threads.get(this.#activeThreadId) ?? null;
 	});
 
-	readonly activeSiblings = $derived.by((): Branch[] => {
-		const branch = this.activeBranch;
-		if (!branch) return [];
-		// Include peer forks (same ForkedFrom + ForkedAtMessageId) AND the source branch (slot 0).
-		const peers = Array.from(this.#branches.values()).filter(
+	readonly activeSiblings = $derived.by((): Thread[] => {
+		const thread = this.activeThread;
+		if (!thread) return [];
+		// Include peer forks (same ForkedFrom + ForkedAtMessageId) AND the source thread (slot 0).
+		const peers = Array.from(this.#threads.values()).filter(
 			(b) =>
-				b.forkedFrom === branch.forkedFrom &&
-				b.forkedAtMessageId === branch.forkedAtMessageId
+				b.forkedFrom === thread.forkedFrom &&
+				b.forkedAtMessageId === thread.forkedAtMessageId
 		);
-		// For a fork branch: also include its source (ForkedFrom)
-		if (!branch.isOriginal && branch.forkedFrom) {
-			const source = this.#branches.get(branch.forkedFrom);
+		// For a fork thread: also include its source (ForkedFrom)
+		if (!thread.isOriginal && thread.forkedFrom) {
+			const source = this.#threads.get(thread.forkedFrom);
 			if (source && !peers.some((p) => p.id === source.id)) {
 				peers.push(source);
 			}
@@ -160,14 +160,14 @@ class MockWorkspaceImpl implements Workspace {
 		return peers.sort((a, b) => a.siblingIndex - b.siblingIndex);
 	});
 
-	readonly canGoNext = $derived.by(() => this.activeBranch?.nextSiblingId != null);
-	readonly canGoPrevious = $derived.by(() => this.activeBranch?.previousSiblingId != null);
+	readonly canGoNext = $derived.by(() => this.activeThread?.nextSiblingId != null);
+	readonly canGoPrevious = $derived.by(() => this.activeThread?.previousSiblingId != null);
 
 	readonly currentSiblingPosition = $derived.by(() => {
-		if (!this.activeBranch) return { current: 0, total: 0 };
+		if (!this.activeThread) return { current: 0, total: 0 };
 		return {
-			current: this.activeBranch.siblingIndex + 1,
-			total: this.activeBranch.totalSiblings
+			current: this.activeThread.siblingIndex + 1,
+			total: this.activeThread.totalSiblings
 		};
 	});
 
@@ -187,11 +187,11 @@ class MockWorkspaceImpl implements Workspace {
 	get error() {
 		return this.#error;
 	}
-	get branches() {
-		return this.#branches;
+	get threads() {
+		return this.#threads;
 	}
-	get activeBranchId() {
-		return this.#activeBranchId;
+	get activeThreadId() {
+		return this.#activeThreadId;
 	}
 
 	// ==========================================
@@ -219,13 +219,13 @@ class MockWorkspaceImpl implements Workspace {
 		);
 		this.#sessions = sessions;
 
-		// Each session starts with a 'main' branch and an empty AgentState
+		// Each session starts with a 'main' thread and an empty AgentState
 		for (const session of sessions) {
-			const mainBranch = makeMockBranch({ id: 'main', sessionId: session.id });
-			const branchMap = new Map<string, Branch>();
-			branchMap.set('main', mainBranch);
-			this.#sessionBranches.set(session.id, branchMap);
-			this.#branchStates.set(`${session.id}:main`, new AgentState());
+			const mainThread = makeMockThread({ id: 'main', sessionId: session.id });
+			const threadMap = new Map<string, Thread>();
+			threadMap.set('main', mainThread);
+			this.#sessionThreads.set(session.id, threadMap);
+			this.#threadStates.set(`${session.id}:main`, new AgentState());
 		}
 
 		// Activate first session (synchronous — no async needed for mock init)
@@ -236,22 +236,22 @@ class MockWorkspaceImpl implements Workspace {
 	// Internal helpers
 	// ==========================================
 
-	#syncActivateSession(sessionId: string, branchId: string): void {
-		const branchMap = this.#sessionBranches.get(sessionId) ?? new Map();
-		this.#branches = new Map(branchMap);
+	#syncActivateSession(sessionId: string, threadId: string): void {
+		const threadMap = this.#sessionThreads.get(sessionId) ?? new Map();
+		this.#threads = new Map(threadMap);
 		this.#activeSessionId = sessionId;
-		this.#activeBranchId = branchId;
+		this.#activeThreadId = threadId;
 	}
 
-	async #asyncActivateBranch(sessionId: string, branchId: string): Promise<void> {
+	async #asyncActivateThread(sessionId: string, threadId: string): Promise<void> {
 		this.#loading = true;
 		await sleep(80); // simulate network
 
-		const cacheKey = `${sessionId}:${branchId}`;
-		if (!this.#branchStates.has(cacheKey)) {
-			this.#branchStates.set(cacheKey, new AgentState());
+		const cacheKey = `${sessionId}:${threadId}`;
+		if (!this.#threadStates.has(cacheKey)) {
+			this.#threadStates.set(cacheKey, new AgentState());
 		}
-		this.#activeBranchId = branchId;
+		this.#activeThreadId = threadId;
 		this.#loading = false;
 	}
 
@@ -282,18 +282,18 @@ class MockWorkspaceImpl implements Workspace {
 		state.onTextMessageEnd(messageId);
 	}
 
-	#syncSessionBranches(sessionId: string): void {
-		const branchMap = this.#sessionBranches.get(sessionId);
-		if (branchMap && sessionId === this.#activeSessionId) {
-			this.#branches = new Map(branchMap);
+	#syncSessionThreads(sessionId: string): void {
+		const threadMap = this.#sessionThreads.get(sessionId);
+		if (threadMap && sessionId === this.#activeSessionId) {
+			this.#threads = new Map(threadMap);
 		}
 	}
 
-	#updateBranch(sessionId: string, branch: Branch): void {
-		const branchMap = this.#sessionBranches.get(sessionId) ?? new Map<string, Branch>();
-		branchMap.set(branch.id, branch);
-		this.#sessionBranches.set(sessionId, branchMap);
-		this.#syncSessionBranches(sessionId);
+	#updateThread(sessionId: string, thread: Thread): void {
+		const threadMap = this.#sessionThreads.get(sessionId) ?? new Map<string, Thread>();
+		threadMap.set(thread.id, thread);
+		this.#sessionThreads.set(sessionId, threadMap);
+		this.#syncSessionThreads(sessionId);
 	}
 
 	// ==========================================
@@ -305,19 +305,19 @@ class MockWorkspaceImpl implements Workspace {
 		this.#loading = true;
 		await sleep(100);
 
-		const branchMap = this.#sessionBranches.get(sessionId) ?? new Map();
-		this.#branches = new Map(branchMap);
+		const threadMap = this.#sessionThreads.get(sessionId) ?? new Map();
+		this.#threads = new Map(threadMap);
 		this.#activeSessionId = sessionId;
-		this.#activeBranchId = null;
+		this.#activeThreadId = null;
 
-		// Activate 'main' branch (or first available)
-		const firstBranchId = branchMap.has('main') ? 'main' : [...branchMap.keys()][0] ?? null;
-		if (firstBranchId) {
-			const cacheKey = `${sessionId}:${firstBranchId}`;
-			if (!this.#branchStates.has(cacheKey)) {
-				this.#branchStates.set(cacheKey, new AgentState());
+		// Activate 'main' thread (or first available)
+		const firstThreadId = threadMap.has('main') ? 'main' : [...threadMap.keys()][0] ?? null;
+		if (firstThreadId) {
+			const cacheKey = `${sessionId}:${firstThreadId}`;
+			if (!this.#threadStates.has(cacheKey)) {
+				this.#threadStates.set(cacheKey, new AgentState());
 			}
-			this.#activeBranchId = firstBranchId;
+			this.#activeThreadId = firstThreadId;
 		}
 
 		this.#loading = false;
@@ -325,11 +325,11 @@ class MockWorkspaceImpl implements Workspace {
 
 	async createSession(options?: CreateSessionRequest): Promise<void> {
 		const session = makeMockSession(options?.sessionId);
-		const mainBranch = makeMockBranch({ id: 'main', sessionId: session.id });
-		const branchMap = new Map<string, Branch>();
-		branchMap.set('main', mainBranch);
-		this.#sessionBranches.set(session.id, branchMap);
-		this.#branchStates.set(`${session.id}:main`, new AgentState());
+		const mainThread = makeMockThread({ id: 'main', sessionId: session.id });
+		const threadMap = new Map<string, Thread>();
+		threadMap.set('main', mainThread);
+		this.#sessionThreads.set(session.id, threadMap);
+		this.#threadStates.set(`${session.id}:main`, new AgentState());
 		this.#sessions = [...this.#sessions, session];
 		await this.selectSession(session.id);
 	}
@@ -341,57 +341,57 @@ class MockWorkspaceImpl implements Workspace {
 				await this.selectSession(other.id);
 			} else {
 				this.#activeSessionId = null;
-				this.#activeBranchId = null;
-				this.#branches = new Map();
+				this.#activeThreadId = null;
+				this.#threads = new Map();
 			}
 		}
 
 		this.#sessions = this.#sessions.filter((s) => s.id !== sessionId);
-		this.#sessionBranches.delete(sessionId);
+		this.#sessionThreads.delete(sessionId);
 
-		for (const key of this.#branchStates.keys()) {
+		for (const key of this.#threadStates.keys()) {
 			if (key.startsWith(`${sessionId}:`)) {
-				this.#branchStates.delete(key);
+				this.#threadStates.delete(key);
 			}
 		}
 	}
 
 	// ==========================================
-	// Level 2: Branch operations
+	// Level 2: Thread operations
 	// ==========================================
 
-	async switchBranch(branchId: string): Promise<void> {
-		if (branchId === this.#activeBranchId) return;
+	async switchThread(threadId: string): Promise<void> {
+		if (threadId === this.#activeThreadId) return;
 		const sessionId = this.#activeSessionId;
 		if (!sessionId) throw new Error('No active session');
-		if (!this.#branches.has(branchId)) throw new Error(`Branch ${branchId} not found`);
-		await this.#asyncActivateBranch(sessionId, branchId);
+		if (!this.#threads.has(threadId)) throw new Error(`Thread ${threadId} not found`);
+		await this.#asyncActivateThread(sessionId, threadId);
 	}
 
 	async goToNextSibling(): Promise<void> {
-		const next = this.activeBranch?.nextSiblingId;
+		const next = this.activeThread?.nextSiblingId;
 		if (!next) throw new Error('No next sibling');
-		await this.switchBranch(next);
+		await this.switchThread(next);
 	}
 
 	async goToPreviousSibling(): Promise<void> {
-		const prev = this.activeBranch?.previousSiblingId;
+		const prev = this.activeThread?.previousSiblingId;
 		if (!prev) throw new Error('No previous sibling');
-		await this.switchBranch(prev);
+		await this.switchThread(prev);
 	}
 
 	async goToSiblingByIndex(index: number): Promise<void> {
 		const sibling = this.activeSiblings[index];
 		if (!sibling) throw new Error(`No sibling at index ${index}`);
-		await this.switchBranch(sibling.id);
+		await this.switchThread(sibling.id);
 	}
 
 	async editMessage(messageIndex: number, newContent: string): Promise<void> {
 		const sessionId = this.#activeSessionId;
-		const branchId = this.#activeBranchId;
+		const threadId = this.#activeThreadId;
 		const activeState = this.state;
 
-		if (!sessionId || !branchId || !activeState) throw new Error('No active branch');
+		if (!sessionId || !threadId || !activeState) throw new Error('No active thread');
 
 		const messages = activeState.messages;
 		if (messageIndex < 0 || messageIndex >= messages.length) {
@@ -402,7 +402,7 @@ class MockWorkspaceImpl implements Workspace {
 		}
 
 		const forkId = `fork-${generateId()}`;
-		const sourceBranch = this.#branches.get(branchId);
+		const sourceThread = this.#threads.get(threadId);
 		const forkAtIndex = Math.max(0, messageIndex - 1);
 		const fromMessageId = messages[forkAtIndex]?.id;
 		if (!fromMessageId) {
@@ -410,8 +410,8 @@ class MockWorkspaceImpl implements Workspace {
 		}
 
 		// Existing forks at this message id (not including source)
-		const existingForks = Array.from(this.#branches.values())
-			.filter((b) => b.forkedFrom === branchId && b.forkedAtMessageId === fromMessageId)
+		const existingForks = Array.from(this.#threads.values())
+			.filter((b) => b.forkedFrom === threadId && b.forkedAtMessageId === fromMessageId)
 			.sort((a, b) => a.siblingIndex - b.siblingIndex);
 
 		// Source is always slot 0; new fork is appended after all existing forks
@@ -420,16 +420,16 @@ class MockWorkspaceImpl implements Workspace {
 		const totalSiblings = newForkSiblingIndex + 1; // source + existingForks + new fork
 
 		// Last existing sibling before the new fork
-		const lastBeforeNew = existingForks.length > 0 ? existingForks[existingForks.length - 1] : sourceBranch;
+		const lastBeforeNew = existingForks.length > 0 ? existingForks[existingForks.length - 1] : sourceThread;
 
-		const fork = makeMockBranch({
+		const fork = makeMockThread({
 			id: forkId,
 			sessionId,
-			forkedFrom: branchId,
+			forkedFrom: threadId,
 			forkedAtMessageId: fromMessageId,
 			forkedAtMessageIndex: forkAtIndex,
 			isOriginal: false,
-			originalBranchId: branchId,
+			originalThreadId: threadId,
 			siblingIndex: newForkSiblingIndex,
 			totalSiblings,
 			previousSiblingId: lastBeforeNew?.id,
@@ -437,82 +437,82 @@ class MockWorkspaceImpl implements Workspace {
 		});
 
 		// Update all existing siblings' totalSiblings and the last sibling's nextSiblingId
-		const allSiblingsToUpdate = sourceBranch ? [sourceBranch, ...existingForks] : existingForks;
+		const allSiblingsToUpdate = sourceThread ? [sourceThread, ...existingForks] : existingForks;
 		for (const sibling of allSiblingsToUpdate) {
 			const isLast = sibling.id === lastBeforeNew?.id;
-			this.#updateBranch(sessionId, {
+			this.#updateThread(sessionId, {
 				...sibling,
 				totalSiblings,
 				nextSiblingId: isLast ? forkId : sibling.nextSiblingId,
-				...(sibling.id === branchId
-					? { childBranches: [...sibling.childBranches, forkId], totalForks: sibling.totalForks + 1 }
+				...(sibling.id === threadId
+					? { childThreads: [...sibling.childThreads, forkId], totalForks: sibling.totalForks + 1 }
 					: {}),
 			});
 		}
 
-		this.#updateBranch(sessionId, fork);
+		this.#updateThread(sessionId, fork);
 
 		// Pre-populate fork state with messages through the fork point.
 		const forkState = new AgentState();
 		forkState.loadHistory(messages.slice(0, forkAtIndex + 1).map((m) => ({ ...m })));
-		this.#branchStates.set(`${sessionId}:${forkId}`, forkState);
+		this.#threadStates.set(`${sessionId}:${forkId}`, forkState);
 
-		await this.switchBranch(forkId);
+		await this.switchThread(forkId);
 		await this.send(newContent);
 	}
 
-	async deleteBranch(branchId: string, _options?: { recursive?: boolean }): Promise<void> {
+	async deleteThread(threadId: string, _options?: { recursive?: boolean }): Promise<void> {
 		const sessionId = this.#activeSessionId;
 		if (!sessionId) throw new Error('No active session');
 
-		const branchToDelete = this.#branches.get(branchId);
-		if (!branchToDelete) throw new Error('Branch not found');
+		const threadToDelete = this.#threads.get(threadId);
+		if (!threadToDelete) throw new Error('Thread not found');
 
-		if (branchToDelete.childBranches.length > 0) {
-			throw new Error('Cannot delete branch with children');
+		if (threadToDelete.childThreads.length > 0) {
+			throw new Error('Cannot delete thread with children');
 		}
 
-		if (this.#activeBranchId === branchId) {
+		if (this.#activeThreadId === threadId) {
 			const targetId =
-				branchToDelete.nextSiblingId ??
-				branchToDelete.previousSiblingId ??
-				branchToDelete.originalBranchId ??
-				Array.from(this.#branches.keys()).find((id) => id !== branchId) ??
+				threadToDelete.nextSiblingId ??
+				threadToDelete.previousSiblingId ??
+				threadToDelete.originalThreadId ??
+				Array.from(this.#threads.keys()).find((id) => id !== threadId) ??
 				null;
 
-			if (!targetId) throw new Error('Cannot delete the only branch');
-			await this.switchBranch(targetId);
+			if (!targetId) throw new Error('Cannot delete the only thread');
+			await this.switchThread(targetId);
 		}
 
-		const branchMap = this.#sessionBranches.get(sessionId);
-		branchMap?.delete(branchId);
-		this.#syncSessionBranches(sessionId);
-		this.#branchStates.delete(`${sessionId}:${branchId}`);
+		const threadMap = this.#sessionThreads.get(sessionId);
+		threadMap?.delete(threadId);
+		this.#syncSessionThreads(sessionId);
+		this.#threadStates.delete(`${sessionId}:${threadId}`);
 	}
 
-	async createBranch(options?: CreateBranchRequest): Promise<Branch> {
+	async createThread(options?: CreateThreadRequest): Promise<Thread> {
 		const sessionId = this.#activeSessionId;
 		if (!sessionId) throw new Error('No active session');
 
-		const branchId = options?.branchId ?? `branch-${generateId()}`;
-		const branch = makeMockBranch({
-			id: branchId,
+		const threadId = options?.threadId ?? `thread-${generateId()}`;
+		const thread = makeMockThread({
+			id: threadId,
 			sessionId,
-			name: options?.name ?? branchId
+			name: options?.name ?? threadId
 		});
-		this.#updateBranch(sessionId, branch);
-		return branch;
+		this.#updateThread(sessionId, thread);
+		return thread;
 	}
 
-	async refreshBranch(_branchId: string): Promise<void> {
-		// In mock, branch metadata is always current
+	async refreshThread(_threadId: string): Promise<void> {
+		// In mock, thread metadata is always current
 		await sleep(0);
 	}
 
-	invalidateBranch(branchId: string): void {
+	invalidateThread(threadId: string): void {
 		const sessionId = this.#activeSessionId;
 		if (!sessionId) return;
-		this.#branchStates.delete(`${sessionId}:${branchId}`);
+		this.#threadStates.delete(`${sessionId}:${threadId}`);
 	}
 
 	// ==========================================
@@ -521,7 +521,7 @@ class MockWorkspaceImpl implements Workspace {
 
 	async send(content: string): Promise<void> {
 		const activeState = this.state;
-		if (!activeState) throw new Error('No active branch');
+		if (!activeState) throw new Error('No active thread');
 
 		activeState.addUserMessage(content);
 		await sleep(100); // simulate network latency
@@ -578,13 +578,13 @@ class MockWorkspaceImpl implements Workspace {
 		createSession: async () => ({ id: 'mock', createdAt: new Date().toISOString(), metadata: {}, lastActivity: new Date().toISOString() }),
 		updateSession: async (id: string, _req: UpdateSessionRequest) => ({ id, createdAt: new Date().toISOString(), metadata: {}, lastActivity: new Date().toISOString() }),
 		deleteSession: async () => {},
-		listBranches: async () => [],
-		getBranch: async () => null,
-		createBranch: async () => ({ id: 'mock', sessionId: '', name: '', description: '', createdAt: new Date().toISOString(), lastActivity: new Date().toISOString(), messageCount: 0, tags: [], siblingIndex: 0, totalSiblings: 1, isOriginal: true, childBranches: [], totalForks: 0 }),
-		forkBranch: async () => ({ id: 'mock', sessionId: '', name: '', description: '', createdAt: new Date().toISOString(), lastActivity: new Date().toISOString(), messageCount: 0, tags: [], siblingIndex: 0, totalSiblings: 1, isOriginal: false, childBranches: [], totalForks: 0 }),
-		deleteBranch: async () => {},
-		getBranchMessages: async () => [],
-		getBranchSiblings: async () => [],
+		listThreads: async () => [],
+		getThread: async () => null,
+		createThread: async () => ({ id: 'mock', sessionId: '', name: '', description: '', createdAt: new Date().toISOString(), lastActivity: new Date().toISOString(), messageCount: 0, tags: [], siblingIndex: 0, totalSiblings: 1, isOriginal: true, childThreads: [], totalForks: 0 }),
+		forkThread: async () => ({ id: 'mock', sessionId: '', name: '', description: '', createdAt: new Date().toISOString(), lastActivity: new Date().toISOString(), messageCount: 0, tags: [], siblingIndex: 0, totalSiblings: 1, isOriginal: false, childThreads: [], totalForks: 0 }),
+		deleteThread: async () => {},
+		getThreadMessages: async () => [],
+		getThreadSiblings: async () => [],
 		getNextSibling: async () => null,
 		getPreviousSibling: async () => null,
 		listAgents: async () => [],
@@ -619,15 +619,15 @@ export function createMockWorkspace(options?: MockWorkspaceOptions): Workspace {
 class MockAgentImpl implements Workspace {
 	readonly state = new AgentState();
 
-	// Session / branch stubs — not needed for permission tests
+	// Session / thread stubs — not needed for permission tests
 	readonly sessions: Session[] = [];
 	readonly activeSessionId: string | null = null;
 	readonly loading = false;
 	readonly error: string | null = null;
-	readonly branches: Map<string, Branch> = new Map();
-	readonly activeBranchId: string | null = null;
-	readonly activeBranch: Branch | null = null;
-	readonly activeSiblings: Branch[] = [];
+	readonly threads: Map<string, Thread> = new Map();
+	readonly activeThreadId: string | null = null;
+	readonly activeThread: Thread | null = null;
+	readonly activeSiblings: Thread[] = [];
 	readonly canGoNext = false;
 	readonly canGoPrevious = false;
 	readonly currentSiblingPosition = { current: 0, total: 0 };
@@ -635,17 +635,17 @@ class MockAgentImpl implements Workspace {
 	async selectSession(_sessionId: string): Promise<void> {}
 	async createSession(): Promise<void> {}
 	async deleteSession(_sessionId: string): Promise<void> {}
-	async switchBranch(_branchId: string): Promise<void> {}
+	async switchThread(_threadId: string): Promise<void> {}
 	async goToNextSibling(): Promise<void> {}
 	async goToPreviousSibling(): Promise<void> {}
 	async goToSiblingByIndex(_index: number): Promise<void> {}
 	async editMessage(_messageIndex: number, _newContent: string): Promise<void> {}
-	async deleteBranch(_branchId: string, _options?: { recursive?: boolean }): Promise<void> {}
-	async createBranch(): Promise<Branch> {
+	async deleteThread(_threadId: string, _options?: { recursive?: boolean }): Promise<void> {}
+	async createThread(): Promise<Thread> {
 		throw new Error('Not implemented');
 	}
-	async refreshBranch(_branchId: string): Promise<void> {}
-	invalidateBranch(_branchId: string): void {}
+	async refreshThread(_threadId: string): Promise<void> {}
+	invalidateThread(_threadId: string): void {}
 	async send(_content: string): Promise<void> {}
 	async run(_input: AgentRunInputEvent): Promise<void> {}
 	abort(): void {}
@@ -680,13 +680,13 @@ class MockAgentImpl implements Workspace {
 		createSession: async () => ({ id: 'mock', createdAt: new Date().toISOString(), metadata: {}, lastActivity: new Date().toISOString() }),
 		updateSession: async (id: string, _req: UpdateSessionRequest) => ({ id, createdAt: new Date().toISOString(), metadata: {}, lastActivity: new Date().toISOString() }),
 		deleteSession: async () => {},
-		listBranches: async () => [],
-		getBranch: async () => null,
-		createBranch: async () => ({ id: 'mock', sessionId: '', name: '', description: '', createdAt: new Date().toISOString(), lastActivity: new Date().toISOString(), messageCount: 0, tags: [], siblingIndex: 0, totalSiblings: 1, isOriginal: true, childBranches: [], totalForks: 0 }),
-		forkBranch: async () => ({ id: 'mock', sessionId: '', name: '', description: '', createdAt: new Date().toISOString(), lastActivity: new Date().toISOString(), messageCount: 0, tags: [], siblingIndex: 0, totalSiblings: 1, isOriginal: false, childBranches: [], totalForks: 0 }),
-		deleteBranch: async () => {},
-		getBranchMessages: async () => [],
-		getBranchSiblings: async () => [],
+		listThreads: async () => [],
+		getThread: async () => null,
+		createThread: async () => ({ id: 'mock', sessionId: '', name: '', description: '', createdAt: new Date().toISOString(), lastActivity: new Date().toISOString(), messageCount: 0, tags: [], siblingIndex: 0, totalSiblings: 1, isOriginal: true, childThreads: [], totalForks: 0 }),
+		forkThread: async () => ({ id: 'mock', sessionId: '', name: '', description: '', createdAt: new Date().toISOString(), lastActivity: new Date().toISOString(), messageCount: 0, tags: [], siblingIndex: 0, totalSiblings: 1, isOriginal: false, childThreads: [], totalForks: 0 }),
+		deleteThread: async () => {},
+		getThreadMessages: async () => [],
+		getThreadSiblings: async () => [],
 		getNextSibling: async () => null,
 		getPreviousSibling: async () => null,
 		listAgents: async () => [],

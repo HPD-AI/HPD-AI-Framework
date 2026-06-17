@@ -66,7 +66,7 @@ public class EndpointComposabilityTests
             },
             endpoints => endpoints.MapHPDAgentApi(options =>
             {
-                options.MapBranches = false;
+                options.MapThreads = false;
                 options.MapContent = false;
                 options.MapStreaming = false;
                 options.MapMiddlewareResponses = false;
@@ -93,7 +93,7 @@ public class EndpointComposabilityTests
             },
             endpoints => endpoints.MapHPDAgentApi(options =>
             {
-                options.MapBranches = false;
+                options.MapThreads = false;
                 options.MapContent = false;
                 options.MapStreaming = false;
                 options.MapMiddlewareResponses = false;
@@ -120,7 +120,7 @@ public class EndpointComposabilityTests
             },
             endpoints => endpoints.MapHPDAgentApi("named-agent", options =>
             {
-                options.MapBranches = false;
+                options.MapThreads = false;
                 options.MapContent = false;
                 options.MapStreaming = false;
                 options.MapMiddlewareResponses = false;
@@ -204,8 +204,8 @@ public class EndpointComposabilityTests
     {
         private readonly HPDAgentHostingServices _services = new(
             new CustomSessionService(),
-            new UnsupportedBranchService(),
-            new UnsupportedBranchRunService(),
+            new UnsupportedThreadService(),
+            new UnsupportedThreadRunService(),
             new UnsupportedContentService(),
             new UnsupportedAgentDefinitionService(),
             new UnsupportedMiddlewareResponseService(),
@@ -214,31 +214,31 @@ public class EndpointComposabilityTests
         public HPDAgentHostingServices Get(string name) => _services;
     }
 
-    private sealed class UnsupportedBranchService : IAgentBranchService
+    private sealed class UnsupportedThreadService : IAgentThreadService
     {
-        public Task<AgentServiceResult<IReadOnlyList<BranchDto>>> ListBranchesAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<BranchDto>> GetBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<BranchDto>> CreateBranchAsync(string agentId, string sessionId, CreateBranchRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<BranchDto>> ForkBranchAsync(string agentId, string sessionId, string branchId, ForkBranchRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<BranchDto>> UpdateBranchAsync(string sessionId, string branchId, UpdateBranchRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult> DeleteBranchAsync(string sessionId, string branchId, bool recursive = false, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<IReadOnlyList<AgentEvent>>> GetEventsAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<IReadOnlyList<BranchDto>>> GetSiblingsAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<IReadOnlyList<ThreadDto>>> ListThreadsAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ThreadDto>> GetThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ThreadDto>> CreateThreadAsync(string agentId, string sessionId, CreateThreadRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ThreadDto>> ForkThreadAsync(string agentId, string sessionId, string threadId, ForkThreadRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ThreadDto>> UpdateThreadAsync(string sessionId, string threadId, UpdateThreadRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult> DeleteThreadAsync(string sessionId, string threadId, bool recursive = false, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<IReadOnlyList<AgentEvent>>> GetEventsAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<IReadOnlyList<ThreadDto>>> GetSiblingsAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
-    private sealed class UnsupportedBranchRunService : IAgentBranchRunService
+    private sealed class UnsupportedThreadRunService : IAgentThreadRunService
     {
-        public Task<AgentServiceResult<IReadOnlyList<BranchRunDto>>> ListRunsAsync(string agentId, string sessionId, string branchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<BranchRunDto?>> GetActiveRunAsync(string agentId, string sessionId, string branchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<BranchRunDto>> GetRunAsync(string agentId, string sessionId, string branchId, string runtimeRunId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<IReadOnlyList<ThreadRunDto>>> ListRunsAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ThreadRunDto?>> GetActiveRunAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ThreadRunDto>> GetRunAsync(string agentId, string sessionId, string threadId, string runtimeRunId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class UnsupportedContentService : IAgentContentService
     {
-        public Task<AgentServiceResult<ContentDto>> UploadContentAsync(string sessionId, string branchId, Stream content, string fileName, string? contentType, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<IReadOnlyList<ContentDto>>> ListContentAsync(string sessionId, string branchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<AgentContentDownload>> DownloadContentAsync(string sessionId, string branchId, string contentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult> DeleteContentAsync(string sessionId, string branchId, string contentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ContentDto>> UploadContentAsync(string sessionId, string threadId, Stream content, string fileName, string? contentType, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<IReadOnlyList<ContentDto>>> ListContentAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<AgentContentDownload>> DownloadContentAsync(string sessionId, string threadId, string contentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult> DeleteContentAsync(string sessionId, string threadId, string contentId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class UnsupportedAgentDefinitionService : IAgentDefinitionService
@@ -252,14 +252,14 @@ public class EndpointComposabilityTests
 
     private sealed class UnsupportedMiddlewareResponseService : IAgentMiddlewareResponseService
     {
-        public Task<AgentServiceResult<HPD.Events.RespondResult>> RespondAsync(string agentId, string sessionId, string branchId, HPD.Events.IResponseEvent response, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<HPD.Events.RespondResult>> RespondAsync(string agentId, string sessionId, string threadId, HPD.Events.IResponseEvent response, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class UnsupportedStreamingService : IAgentStreamingService
     {
-        public Task<AgentServiceResult<AgentStreamLease>> GetAgentForBranchAsync(string agentId, string sessionId, string branchId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult> SubmitInputAsync(string agentId, string sessionId, string branchId, AgentInputEvent input, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult> InterruptAsync(string agentId, string sessionId, string branchId, InterruptionRequestEvent interruption, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public AgentInputEvent ApplyRouteScope(AgentInputEvent input, string agentId, string sessionId, string branchId, string? runtimeRunId = null) => throw new NotSupportedException();
+        public Task<AgentServiceResult<AgentStreamLease>> GetAgentForThreadAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult> SubmitInputAsync(string agentId, string sessionId, string threadId, AgentInputEvent input, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult> InterruptAsync(string agentId, string sessionId, string threadId, InterruptionRequestEvent interruption, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public AgentInputEvent ApplyRouteScope(AgentInputEvent input, string agentId, string sessionId, string threadId, string? runtimeRunId = null) => throw new NotSupportedException();
     }
 }

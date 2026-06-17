@@ -205,8 +205,8 @@ public class MragPipeline
     /// <typeparamref name="TRouter"/> must implement <c>IMragRouter&lt;TIn&gt;</c>
     /// and be registered in the caller's DI container.
     ///
-    /// <paramref name="ports"/> must equal the number of distinct output port branches.
-    /// Wire branches via: <c>.From(nodeId).Port(0).To("branch-a").Done()</c>
+    /// <paramref name="ports"/> must equal the number of distinct output port threads.
+    /// Wire threads via: <c>.From(nodeId).Port(0).To("thread-a").Done()</c>
     /// </summary>
     public MragPipeline AddRouter<TRouter>(
         string nodeId,

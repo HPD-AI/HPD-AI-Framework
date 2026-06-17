@@ -5,12 +5,12 @@
  * These tests cover:
  *   - Initialization state
  *   - Session CRUD and switching
- *   - Branch CRUD and switching
+ *   - Thread CRUD and switching
  *   - Derived state correctness ($derived)
  *   - LRU cache isolation per session
  *   - Streaming simulation (send)
  *   - editMessage fork flow
- *   - deleteBranch edge cases
+ *   - deleteThread edge cases
  *   - Workspace interface contract
  */
 
@@ -42,9 +42,9 @@ describe('createMockWorkspace — initialization', () => {
 		expect(ws.activeSessionId).toBe('mock-session-1');
 	});
 
-	it('main branch is active on creation', () => {
+	it('main thread is active on creation', () => {
 		const ws = createMockWorkspace();
-		expect(ws.activeBranchId).toBe('main');
+		expect(ws.activeThreadId).toBe('main');
 	});
 
 	it('state is not null after init', () => {
@@ -67,9 +67,9 @@ describe('createMockWorkspace — initialization', () => {
 		expect(ws.error).toBeNull();
 	});
 
-	it('each session has a main branch', () => {
+	it('each session has a main thread', () => {
 		const ws = createMockWorkspace();
-		expect(ws.branches.has('main')).toBe(true);
+		expect(ws.threads.has('main')).toBe(true);
 	});
 });
 
@@ -84,10 +84,10 @@ describe('createMockWorkspace — selectSession', () => {
 		expect(ws.activeSessionId).toBe('mock-session-2');
 	});
 
-	it('switches to main branch in new session', async () => {
+	it('switches to main thread in new session', async () => {
 		const ws = createMockWorkspace();
 		await ws.selectSession('mock-session-2');
-		expect(ws.activeBranchId).toBe('main');
+		expect(ws.activeThreadId).toBe('main');
 	});
 
 	it('new session has its own isolated AgentState', async () => {
@@ -117,7 +117,7 @@ describe('createMockWorkspace — selectSession', () => {
 		const stateBefore = ws.state;
 		await ws.selectSession('mock-session-1');
 		expect(ws.state).toBe(stateBefore);
-		expect(ws.activeBranchId).toBe('main');
+		expect(ws.activeThreadId).toBe('main');
 	});
 
 	it('switching back to session-1 restores its state', async () => {
@@ -155,10 +155,10 @@ describe('createMockWorkspace — createSession', () => {
 		expect(ws.activeSessionId).toBe(lastId);
 	});
 
-	it('new session has main branch active', async () => {
+	it('new session has main thread active', async () => {
 		const ws = createMockWorkspace();
 		await ws.createSession();
-		expect(ws.activeBranchId).toBe('main');
+		expect(ws.activeThreadId).toBe('main');
 	});
 
 	it('respects provided sessionId', async () => {
@@ -193,7 +193,7 @@ describe('createMockWorkspace — deleteSession', () => {
 		await ws.deleteSession('mock-session-1');
 		await ws.deleteSession('mock-session-2');
 		expect(ws.activeSessionId).toBeNull();
-		expect(ws.activeBranchId).toBeNull();
+		expect(ws.activeThreadId).toBeNull();
 		expect(ws.state).toBeNull();
 	});
 
@@ -211,30 +211,30 @@ describe('createMockWorkspace — deleteSession', () => {
 });
 
 // ============================================
-// Group 4: Branch switching
+// Group 4: Thread switching
 // ============================================
 
-describe('createMockWorkspace — switchBranch', () => {
-	it('changes activeBranchId', async () => {
+describe('createMockWorkspace — switchThread', () => {
+	it('changes activeThreadId', async () => {
 		const ws = createMockWorkspace();
-		await ws.createBranch({ branchId: 'feature' });
-		await ws.switchBranch('feature');
-		expect(ws.activeBranchId).toBe('feature');
+		await ws.createThread({ threadId: 'feature' });
+		await ws.switchThread('feature');
+		expect(ws.activeThreadId).toBe('feature');
 	});
 
-	it('state updates to the new branch state', async () => {
+	it('state updates to the new thread state', async () => {
 		const ws = createMockWorkspace();
 		const mainState = ws.state;
 
-		await ws.createBranch({ branchId: 'feature' });
-		await ws.switchBranch('feature');
+		await ws.createThread({ threadId: 'feature' });
+		await ws.switchThread('feature');
 		expect(ws.state).not.toBe(mainState);
 	});
 
-	it('new branch starts with empty messages', async () => {
+	it('new thread starts with empty messages', async () => {
 		const ws = createMockWorkspace();
-		await ws.createBranch({ branchId: 'feature' });
-		await ws.switchBranch('feature');
+		await ws.createThread({ threadId: 'feature' });
+		await ws.switchThread('feature');
 		expect(ws.state?.messages).toHaveLength(0);
 	});
 
@@ -243,101 +243,101 @@ describe('createMockWorkspace — switchBranch', () => {
 		await ws.send('main message');
 		const mainMsgCount = ws.state?.messages.length ?? 0;
 
-		await ws.createBranch({ branchId: 'feature' });
-		await ws.switchBranch('feature');
-		await ws.switchBranch('main');
+		await ws.createThread({ threadId: 'feature' });
+		await ws.switchThread('feature');
+		await ws.switchThread('main');
 
 		expect(ws.state?.messages.length).toBe(mainMsgCount);
 	});
 
-	it('switchBranch with current branch is a no-op', async () => {
+	it('switchThread with current thread is a no-op', async () => {
 		const ws = createMockWorkspace();
 		const stateBefore = ws.state;
-		await ws.switchBranch('main');
+		await ws.switchThread('main');
 		expect(ws.state).toBe(stateBefore);
 	});
 
-	it('throws when branch does not exist', async () => {
+	it('throws when thread does not exist', async () => {
 		const ws = createMockWorkspace();
-		await expect(ws.switchBranch('nonexistent')).rejects.toThrow();
+		await expect(ws.switchThread('nonexistent')).rejects.toThrow();
 	});
 });
 
 // ============================================
-// Group 5: Branch creation and deletion
+// Group 5: Thread creation and deletion
 // ============================================
 
-describe('createMockWorkspace — createBranch', () => {
-	it('adds branch to branches map', async () => {
+describe('createMockWorkspace — createThread', () => {
+	it('adds thread to threads map', async () => {
 		const ws = createMockWorkspace();
-		await ws.createBranch({ branchId: 'feature' });
-		expect(ws.branches.has('feature')).toBe(true);
+		await ws.createThread({ threadId: 'feature' });
+		expect(ws.threads.has('feature')).toBe(true);
 	});
 
-	it('returned branch has the provided id', async () => {
+	it('returned thread has the provided id', async () => {
 		const ws = createMockWorkspace();
-		const branch = await ws.createBranch({ branchId: 'feature' });
-		expect(branch.id).toBe('feature');
+		const thread = await ws.createThread({ threadId: 'feature' });
+		expect(thread.id).toBe('feature');
 	});
 
-	it('does not switch activeBranchId automatically', async () => {
+	it('does not switch activeThreadId automatically', async () => {
 		const ws = createMockWorkspace();
-		await ws.createBranch({ branchId: 'feature' });
-		expect(ws.activeBranchId).toBe('main');
+		await ws.createThread({ threadId: 'feature' });
+		expect(ws.activeThreadId).toBe('main');
 	});
 
 	it('generates an id when none provided', async () => {
 		const ws = createMockWorkspace();
-		const branch = await ws.createBranch();
-		expect(branch.id).toBeTruthy();
-		expect(ws.branches.has(branch.id)).toBe(true);
+		const thread = await ws.createThread();
+		expect(thread.id).toBeTruthy();
+		expect(ws.threads.has(thread.id)).toBe(true);
 	});
 });
 
-describe('createMockWorkspace — deleteBranch', () => {
-	it('removes branch from branches map', async () => {
+describe('createMockWorkspace — deleteThread', () => {
+	it('removes thread from threads map', async () => {
 		const ws = createMockWorkspace();
-		await ws.createBranch({ branchId: 'feature' });
-		await ws.deleteBranch('feature');
-		expect(ws.branches.has('feature')).toBe(false);
+		await ws.createThread({ threadId: 'feature' });
+		await ws.deleteThread('feature');
+		expect(ws.threads.has('feature')).toBe(false);
 	});
 
-	it('deleting inactive branch does not change activeBranchId', async () => {
+	it('deleting inactive thread does not change activeThreadId', async () => {
 		const ws = createMockWorkspace();
-		await ws.createBranch({ branchId: 'feature' });
-		await ws.deleteBranch('feature');
-		expect(ws.activeBranchId).toBe('main');
+		await ws.createThread({ threadId: 'feature' });
+		await ws.deleteThread('feature');
+		expect(ws.activeThreadId).toBe('main');
 	});
 
-	it('throws when deleting the only branch', async () => {
+	it('throws when deleting the only thread', async () => {
 		const ws = createMockWorkspace();
-		await expect(ws.deleteBranch('main')).rejects.toThrow();
+		await expect(ws.deleteThread('main')).rejects.toThrow();
 	});
 
-	it('throws when branch does not exist', async () => {
+	it('throws when thread does not exist', async () => {
 		const ws = createMockWorkspace();
-		await expect(ws.deleteBranch('nonexistent')).rejects.toThrow();
+		await expect(ws.deleteThread('nonexistent')).rejects.toThrow();
 	});
 
-	it('navigates away when deleting active branch', async () => {
+	it('navigates away when deleting active thread', async () => {
 		const ws = createMockWorkspace();
-		await ws.createBranch({ branchId: 'feature' });
-		await ws.switchBranch('feature');
-		await ws.deleteBranch('feature');
-		expect(ws.activeBranchId).toBe('main');
+		await ws.createThread({ threadId: 'feature' });
+		await ws.switchThread('feature');
+		await ws.deleteThread('feature');
+		expect(ws.activeThreadId).toBe('main');
 	});
 
-	it('throws when branch has children', async () => {
+	it('throws when thread has children', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		// Send a message so editMessage has something to fork from
 		await ws.send('hello');
 		await tick(300);
-		// editMessage creates a fork, making main the parent with childBranches.length > 0
+		// editMessage creates a fork, making main the parent with childThreads.length > 0
 		await ws.editMessage(0, 'fork it');
 		await tick(300);
 		// Now switch back to main and try to delete it — main has a child fork
-		await ws.switchBranch('main');
-		await expect(ws.deleteBranch('main')).rejects.toThrow();
+		await ws.switchThread('main');
+		await expect(ws.deleteThread('main')).rejects.toThrow();
 	});
 });
 
@@ -346,19 +346,19 @@ describe('createMockWorkspace — deleteBranch', () => {
 // ============================================
 
 describe('createMockWorkspace — editMessage', () => {
-	it('creates a fork branch after sending a message', async () => {
+	it('creates a fork thread after sending a message', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('original message');
 		await tick(300);
 
-		const branchCountBefore = ws.branches.size;
+		const threadCountBefore = ws.threads.size;
 		await ws.editMessage(0, 'edited message');
 		await tick(300);
 
-		expect(ws.branches.size).toBeGreaterThan(branchCountBefore);
+		expect(ws.threads.size).toBeGreaterThan(threadCountBefore);
 	});
 
-	it('switches to the fork branch', async () => {
+	it('switches to the fork thread', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('original message');
 		await tick(300);
@@ -366,7 +366,7 @@ describe('createMockWorkspace — editMessage', () => {
 		await ws.editMessage(0, 'edited message');
 		await tick(300);
 
-		expect(ws.activeBranchId).not.toBe('main');
+		expect(ws.activeThreadId).not.toBe('main');
 	});
 
 	it('fork contains the edited message', async () => {
@@ -418,7 +418,7 @@ describe('createMockWorkspace — sibling navigation', () => {
 	it('goToSiblingByIndex(0) switches to first sibling', async () => {
 		const ws = createMockWorkspace();
 		await ws.goToSiblingByIndex(0);
-		expect(ws.activeBranchId).toBe('main');
+		expect(ws.activeThreadId).toBe('main');
 	});
 });
 
@@ -427,20 +427,20 @@ describe('createMockWorkspace — sibling navigation', () => {
 // ============================================
 
 describe('createMockWorkspace — derived state', () => {
-	it('activeBranch reflects branches.get(activeBranchId)', () => {
+	it('activeThread reflects threads.get(activeThreadId)', () => {
 		const ws = createMockWorkspace();
-		const branch = ws.branches.get('main');
-		expect(ws.activeBranch).toBe(branch);
+		const thread = ws.threads.get('main');
+		expect(ws.activeThread).toBe(thread);
 	});
 
-	it('activeBranch is null when activeBranchId is null', async () => {
+	it('activeThread is null when activeThreadId is null', async () => {
 		const ws = createMockWorkspace();
 		await ws.deleteSession('mock-session-1');
 		await ws.deleteSession('mock-session-2');
-		expect(ws.activeBranch).toBeNull();
+		expect(ws.activeThread).toBeNull();
 	});
 
-	it('state is null when activeBranchId is null', async () => {
+	it('state is null when activeThreadId is null', async () => {
 		const ws = createMockWorkspace();
 		await ws.deleteSession('mock-session-1');
 		await ws.deleteSession('mock-session-2');
@@ -453,26 +453,26 @@ describe('createMockWorkspace — derived state', () => {
 		expect(ws.currentSiblingPosition.total).toBe(1);
 	});
 
-	it('currentSiblingPosition is { 0, 0 } when no active branch', async () => {
+	it('currentSiblingPosition is { 0, 0 } when no active thread', async () => {
 		const ws = createMockWorkspace();
 		await ws.deleteSession('mock-session-1');
 		await ws.deleteSession('mock-session-2');
 		expect(ws.currentSiblingPosition).toEqual({ current: 0, total: 0 });
 	});
 
-	it('canGoNext is false for a lone branch', () => {
+	it('canGoNext is false for a lone thread', () => {
 		const ws = createMockWorkspace();
 		expect(ws.canGoNext).toBe(false);
 	});
 
-	it('canGoPrevious is false for a lone branch', () => {
+	it('canGoPrevious is false for a lone thread', () => {
 		const ws = createMockWorkspace();
 		expect(ws.canGoPrevious).toBe(false);
 	});
 
-	it('activeSiblings includes active branch when no siblings', () => {
+	it('activeSiblings includes active thread when no siblings', () => {
 		const ws = createMockWorkspace();
-		// main has forkedFrom: null, so filter matches all root branches
+		// main has forkedFrom: null, so filter matches all root threads
 		expect(ws.activeSiblings.length).toBeGreaterThanOrEqual(1);
 	});
 });
@@ -525,13 +525,13 @@ describe('createMockWorkspace — send', () => {
 		await expect(ws.send('hello')).rejects.toThrow();
 	});
 
-	it('send to one branch does not affect another branch', async () => {
+	it('send to one thread does not affect another thread', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('main message');
 		await tick(300);
 
-		await ws.createBranch({ branchId: 'feature' });
-		await ws.switchBranch('feature');
+		await ws.createThread({ threadId: 'feature' });
+		await ws.switchThread('feature');
 		expect(ws.state?.messages).toHaveLength(0);
 	});
 });
@@ -541,7 +541,7 @@ describe('createMockWorkspace — send', () => {
 // ============================================
 
 describe('createMockWorkspace — clear', () => {
-	it('clears all messages from active branch state', async () => {
+	it('clears all messages from active thread state', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('hello');
 		await tick(300);
@@ -596,9 +596,9 @@ describe('createMockWorkspace — Workspace interface contract', () => {
 
 	it('exposes all required Level 2 properties', () => {
 		const ws: Workspace = createMockWorkspace();
-		expect(ws.branches instanceof Map).toBe(true);
-		expect(ws.activeBranchId === null || typeof ws.activeBranchId === 'string').toBe(true);
-		expect(ws.activeBranch === null || typeof ws.activeBranch === 'object').toBe(true);
+		expect(ws.threads instanceof Map).toBe(true);
+		expect(ws.activeThreadId === null || typeof ws.activeThreadId === 'string').toBe(true);
+		expect(ws.activeThread === null || typeof ws.activeThread === 'object').toBe(true);
 		expect(Array.isArray(ws.activeSiblings)).toBe(true);
 		expect(typeof ws.canGoNext).toBe('boolean');
 		expect(typeof ws.canGoPrevious).toBe('boolean');
@@ -615,15 +615,15 @@ describe('createMockWorkspace — Workspace interface contract', () => {
 		expect(typeof ws.selectSession).toBe('function');
 		expect(typeof ws.createSession).toBe('function');
 		expect(typeof ws.deleteSession).toBe('function');
-		expect(typeof ws.switchBranch).toBe('function');
+		expect(typeof ws.switchThread).toBe('function');
 		expect(typeof ws.goToNextSibling).toBe('function');
 		expect(typeof ws.goToPreviousSibling).toBe('function');
 		expect(typeof ws.goToSiblingByIndex).toBe('function');
 		expect(typeof ws.editMessage).toBe('function');
-		expect(typeof ws.deleteBranch).toBe('function');
-		expect(typeof ws.createBranch).toBe('function');
-		expect(typeof ws.refreshBranch).toBe('function');
-		expect(typeof ws.invalidateBranch).toBe('function');
+		expect(typeof ws.deleteThread).toBe('function');
+		expect(typeof ws.createThread).toBe('function');
+		expect(typeof ws.refreshThread).toBe('function');
+		expect(typeof ws.invalidateThread).toBe('function');
 		expect(typeof ws.send).toBe('function');
 		expect(typeof ws.abort).toBe('function');
 		expect(typeof ws.approve).toBe('function');
@@ -634,23 +634,23 @@ describe('createMockWorkspace — Workspace interface contract', () => {
 });
 
 // ============================================
-// Group 12: invalidateBranch / refreshBranch
+// Group 12: invalidateThread / refreshThread
 // ============================================
 
-describe('createMockWorkspace — invalidateBranch / refreshBranch', () => {
-	it('invalidateBranch does not throw', () => {
+describe('createMockWorkspace — invalidateThread / refreshThread', () => {
+	it('invalidateThread does not throw', () => {
 		const ws = createMockWorkspace();
-		expect(() => ws.invalidateBranch('main')).not.toThrow();
+		expect(() => ws.invalidateThread('main')).not.toThrow();
 	});
 
-	it('invalidateBranch on nonexistent branch does not throw', () => {
+	it('invalidateThread on nonexistent thread does not throw', () => {
 		const ws = createMockWorkspace();
-		expect(() => ws.invalidateBranch('nonexistent')).not.toThrow();
+		expect(() => ws.invalidateThread('nonexistent')).not.toThrow();
 	});
 
-	it('refreshBranch does not throw', async () => {
+	it('refreshThread does not throw', async () => {
 		const ws = createMockWorkspace();
-		await expect(ws.refreshBranch('main')).resolves.not.toThrow();
+		await expect(ws.refreshThread('main')).resolves.not.toThrow();
 	});
 });
 
@@ -692,7 +692,7 @@ describe('createMockWorkspace — canSend', () => {
 		expect(ws.state?.canSend).toBe(true);
 	});
 
-	it('is null when no active branch', async () => {
+	it('is null when no active thread', async () => {
 		const ws = createMockWorkspace();
 		await ws.deleteSession('mock-session-1');
 		await ws.deleteSession('mock-session-2');
@@ -743,7 +743,7 @@ describe('createMockWorkspace — editMessage message pre-population', () => {
 		expect(settled.length).toBe(ws.state!.messages.length);
 	});
 
-	it('parent branch records the fork in childBranches', async () => {
+	it('parent thread records the fork in childThreads', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('hello');
 		await tick(300);
@@ -751,10 +751,10 @@ describe('createMockWorkspace — editMessage message pre-population', () => {
 		await ws.editMessage(0, 'edit');
 		await tick(300);
 
-		// Switch back to main and check its childBranches
-		await ws.switchBranch('main');
-		const main = ws.branches.get('main')!;
-		expect(main.childBranches.length).toBeGreaterThan(0);
+		// Switch back to main and check its childThreads
+		await ws.switchThread('main');
+		const main = ws.threads.get('main')!;
+		expect(main.childThreads.length).toBeGreaterThan(0);
 	});
 });
 
@@ -773,45 +773,45 @@ describe('createMockWorkspace — error lifecycle', () => {
 		expect(ws.loading).toBe(false);
 	});
 
-	it('switchBranch to nonexistent does not permanently set error', async () => {
+	it('switchThread to nonexistent does not permanently set error', async () => {
 		const ws = createMockWorkspace();
-		// switchBranch throws but error state on the workspace should reset next time
-		await ws.switchBranch('nonexistent').catch(() => {});
+		// switchThread throws but error state on the workspace should reset next time
+		await ws.switchThread('nonexistent').catch(() => {});
 		// After a successful operation, workspace is usable again
-		await ws.switchBranch('main');
-		expect(ws.activeBranchId).toBe('main');
+		await ws.switchThread('main');
+		expect(ws.activeThreadId).toBe('main');
 	});
 });
 
 // ============================================
-// Group 16: streaming does not bleed across branches
+// Group 16: streaming does not bleed across threads
 // ============================================
 
 describe('createMockWorkspace — stream isolation', () => {
-	it('send() to main does not affect feature branch messages', async () => {
+	it('send() to main does not affect feature thread messages', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
 		await ws.send('main message');
 		await tick(300);
 		const mainCount = ws.state!.messages.length;
 
-		await ws.createBranch({ branchId: 'feature' });
-		await ws.switchBranch('feature');
-		// feature branch starts empty regardless of what main has
+		await ws.createThread({ threadId: 'feature' });
+		await ws.switchThread('feature');
+		// feature thread starts empty regardless of what main has
 		expect(ws.state!.messages).toHaveLength(0);
 
 		// Switch back — main still has its messages
-		await ws.switchBranch('main');
+		await ws.switchThread('main');
 		expect(ws.state!.messages.length).toBe(mainCount);
 	});
 
-	it('send() to feature branch does not appear in main', async () => {
+	it('send() to feature thread does not appear in main', async () => {
 		const ws = createMockWorkspace({ typingDelay: 0 });
-		await ws.createBranch({ branchId: 'feature' });
-		await ws.switchBranch('feature');
+		await ws.createThread({ threadId: 'feature' });
+		await ws.switchThread('feature');
 		await ws.send('feature message');
 		await tick(300);
 
-		await ws.switchBranch('main');
+		await ws.switchThread('main');
 		expect(ws.state!.messages).toHaveLength(0);
 	});
 });

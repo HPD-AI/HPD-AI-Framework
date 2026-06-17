@@ -358,19 +358,19 @@ public class GraphValidationTests
     }
 
     [Fact]
-    public void Validate_ParallelBranches_ShouldSucceed()
+    public void Validate_ParallelThreads_ShouldSucceed()
     {
         // Arrange - Graph with parallel execution paths
         var graph = new TestGraphBuilder()
             .AddStartNode()
-            .AddHandlerNode("branch1", "Handler1")
-            .AddHandlerNode("branch2", "Handler2")
+            .AddHandlerNode("thread1", "Handler1")
+            .AddHandlerNode("thread2", "Handler2")
             .AddHandlerNode("merge", "Handler3")
             .AddEndNode()
-            .AddEdge("start", "branch1")
-            .AddEdge("start", "branch2")
-            .AddEdge("branch1", "merge")
-            .AddEdge("branch2", "merge")
+            .AddEdge("start", "thread1")
+            .AddEdge("start", "thread2")
+            .AddEdge("thread1", "merge")
+            .AddEdge("thread2", "merge")
             .AddEdge("merge", "end")
             .Build();
 

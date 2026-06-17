@@ -7,16 +7,16 @@ import type {
 	CreateSessionRequest,
 	UpdateSessionRequest,
 	ListSessionsOptions,
-	CreateBranchRequest,
-	ForkBranchRequest,
+	CreateThreadRequest,
+	ForkThreadRequest,
 	AgentSummaryDto,
 	StoredAgentDto,
 	CreateAgentRequest,
 	UpdateAgentRequest,
 	Session,
-	Branch,
-	SiblingBranch,
-	BranchMessage,
+	Thread,
+	SiblingThread,
+	ThreadMessage,
 	ContentReference,
 	RunConfig,
 	ChatRunConfig,
@@ -49,18 +49,18 @@ export interface AgentClientLike {
 	updateSession(sessionId: string, request: UpdateSessionRequest): Promise<Session>;
 	deleteSession(sessionId: string): Promise<void>;
 
-	// Branch CRUD
-	listBranches(sessionId: string): Promise<Branch[]>;
-	getBranch(sessionId: string, branchId: string): Promise<Branch | null>;
-	createBranch(sessionId: string, options?: CreateBranchRequest): Promise<Branch>;
-	forkBranch(sessionId: string, branchId: string, options: ForkBranchRequest): Promise<Branch>;
-	deleteBranch(sessionId: string, branchId: string, options?: { recursive?: boolean }): Promise<void>;
-	getBranchMessages(sessionId: string, branchId: string): Promise<BranchMessage[]>;
+	// Thread CRUD
+	listThreads(sessionId: string): Promise<Thread[]>;
+	getThread(sessionId: string, threadId: string): Promise<Thread | null>;
+	createThread(sessionId: string, options?: CreateThreadRequest): Promise<Thread>;
+	forkThread(sessionId: string, threadId: string, options: ForkThreadRequest): Promise<Thread>;
+	deleteThread(sessionId: string, threadId: string, options?: { recursive?: boolean }): Promise<void>;
+	getThreadMessages(sessionId: string, threadId: string): Promise<ThreadMessage[]>;
 
 	// Sibling navigation
-	getBranchSiblings(sessionId: string, branchId: string): Promise<SiblingBranch[]>;
-	getNextSibling(sessionId: string, branchId: string): Promise<Branch | null>;
-	getPreviousSibling(sessionId: string, branchId: string): Promise<Branch | null>;
+	getThreadSiblings(sessionId: string, threadId: string): Promise<SiblingThread[]>;
+	getNextSibling(sessionId: string, threadId: string): Promise<Thread | null>;
+	getPreviousSibling(sessionId: string, threadId: string): Promise<Thread | null>;
 
 	// Agent definition CRUD
 	listAgents(): Promise<AgentSummaryDto[]>;
@@ -70,7 +70,7 @@ export interface AgentClientLike {
 	deleteAgent(agentId: string): Promise<void>;
 
 	// Content upload
-	uploadContent(sessionId: string, branchId: string, file: File | Blob, name?: string): Promise<ContentReference>;
+	uploadContent(sessionId: string, threadId: string, file: File | Blob, name?: string): Promise<ContentReference>;
 }
 
 export interface CreateWorkspaceOptions {
@@ -86,11 +86,11 @@ export interface CreateWorkspaceOptions {
 	/** Session to activate on init (defaults to most recent) */
 	sessionId?: string;
 
-	/** Branch to activate on init within the initial session (defaults to 'main') */
-	initialBranchId?: string;
+	/** Thread to activate on init within the initial session (defaults to 'main') */
+	initialThreadId?: string;
 
-	/** Maximum number of branch states to keep in memory (default: 10) */
-	maxCachedBranches?: number;
+	/** Maximum number of thread states to keep in memory (default: 10) */
+	maxCachedThreads?: number;
 
 	/** Handler for client tool invocations */
 	onClientToolInvoke?: ClientToolHandler;
@@ -134,7 +134,7 @@ export interface Workspace {
 	/** ID of the currently active session */
 	readonly activeSessionId: string | null;
 
-	/** True while loading (session switch, branch switch, init) */
+	/** True while loading (session switch, thread switch, init) */
 	readonly loading: boolean;
 
 	/** Error message, or null */
@@ -150,27 +150,27 @@ export interface Workspace {
 	deleteSession(sessionId: string): Promise<void>;
 
 	// ==========================================
-	// Level 2: Branch view (of active session)
+	// Level 2: Thread view (of active session)
 	// ==========================================
 
-	/** All branches of the active session */
-	readonly branches: Map<string, Branch>;
+	/** All threads of the active session */
+	readonly threads: Map<string, Thread>;
 
-	/** ID of the currently active branch */
-	readonly activeBranchId: string | null;
+	/** ID of the currently active thread */
+	readonly activeThreadId: string | null;
 
-	/** Active branch metadata (derived) */
-	readonly activeBranch: Branch | null;
+	/** Active thread metadata (derived) */
+	readonly activeThread: Thread | null;
 
-	/** Sibling branches of the active branch, sorted by siblingIndex */
-	readonly activeSiblings: Branch[];
+	/** Sibling threads of the active thread, sorted by siblingIndex */
+	readonly activeSiblings: Thread[];
 
 	readonly canGoNext: boolean;
 	readonly canGoPrevious: boolean;
 	readonly currentSiblingPosition: { current: number; total: number };
 
-	/** Switch to a different branch in the active session */
-	switchBranch(branchId: string): Promise<void>;
+	/** Switch to a different thread in the active session */
+	switchThread(threadId: string): Promise<void>;
 
 	goToNextSibling(): Promise<void>;
 	goToPreviousSibling(): Promise<void>;
@@ -178,28 +178,28 @@ export interface Workspace {
 
 	/**
 	 * Fork at messageIndex, switch to the fork, send editedContent.
-	 * The edit creates a new sibling branch from the parent.
+	 * The edit creates a new sibling thread from the parent.
 	 */
 	editMessage(messageIndex: number, newContent: string): Promise<void>;
 
-	/** Delete a branch. If active, navigates to a sibling first.
-	 *  Pass recursive: true to delete the entire subtree (must be enabled server-side via AllowRecursiveBranchDelete). */
-	deleteBranch(branchId: string, options?: { recursive?: boolean }): Promise<void>;
+	/** Delete a thread. If active, navigates to a sibling first.
+	 *  Pass recursive: true to delete the entire subtree (must be enabled server-side via AllowRecursiveThreadDelete). */
+	deleteThread(threadId: string, options?: { recursive?: boolean }): Promise<void>;
 
-	/** Create a new empty branch in the active session */
-	createBranch(options?: CreateBranchRequest): Promise<Branch>;
+	/** Create a new empty thread in the active session */
+	createThread(options?: CreateThreadRequest): Promise<Thread>;
 
-	/** Refresh branch metadata from backend */
-	refreshBranch(branchId: string): Promise<void>;
+	/** Refresh thread metadata from backend */
+	refreshThread(threadId: string): Promise<void>;
 
-	/** Force reload on next switchBranch() (drop cached state) */
-	invalidateBranch(branchId: string): void;
+	/** Force reload on next switchThread() (drop cached state) */
+	invalidateThread(threadId: string): void;
 
 	// ==========================================
-	// Level 3: Branch streaming state
+	// Level 3: Thread streaming state
 	// ==========================================
 
-	/** Reactive state of the active branch (messages, streaming, tools, etc.) */
+	/** Reactive state of the active thread (messages, streaming, tools, etc.) */
 	readonly state: AgentState | null;
 
 	// ==========================================
@@ -239,6 +239,6 @@ export interface Workspace {
 	/** Respond to a clarification request */
 	clarify(clarificationId: string, answer: string): Promise<void>;
 
-	/** Clear all messages on the active branch */
+	/** Clear all messages on the active thread */
 	clear(): void;
 }

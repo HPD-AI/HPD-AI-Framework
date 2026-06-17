@@ -45,28 +45,28 @@ public class SessionEndpointsTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task CreateSession_CreatesMainBranch_Automatically()
+    public async Task CreateSession_CreatesMainThread_Automatically()
     {
         // Arrange
         var createResponse = await _client.PostAsync("/sessions", null);
         var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
 
-        // Act - List branches
-        var branchesResponse = await _client.GetAsync($"/sessions/{session!.Id}/branches");
+        // Act - List threads
+        var threadsResponse = await _client.GetAsync($"/sessions/{session!.Id}/threads");
 
         // Debug: Check response status and content
-        if (!branchesResponse.IsSuccessStatusCode)
+        if (!threadsResponse.IsSuccessStatusCode)
         {
-            var errorBody = await branchesResponse.Content.ReadAsStringAsync();
-            throw new Exception($"GET /sessions/{session.Id}/branches failed with {branchesResponse.StatusCode}. Body: {errorBody}");
+            var errorBody = await threadsResponse.Content.ReadAsStringAsync();
+            throw new Exception($"GET /sessions/{session.Id}/threads failed with {threadsResponse.StatusCode}. Body: {errorBody}");
         }
 
-        var branches = await branchesResponse.Content.ReadFromJsonAsync<List<BranchDto>>();
+        var threads = await threadsResponse.Content.ReadFromJsonAsync<List<ThreadDto>>();
 
         // Assert
-        branches.Should().NotBeNull();
-        branches!.Should().ContainSingle();
-        branches[0].Id.Should().Be("main");
+        threads.Should().NotBeNull();
+        threads!.Should().ContainSingle();
+        threads[0].Id.Should().Be("main");
     }
 
     [Fact]
@@ -420,7 +420,7 @@ public class SessionEndpointsTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task DeleteSession_DeletesAllBranches()
+    public async Task DeleteSession_DeletesAllThreads()
     {
         // Arrange
         var createResponse = await _client.PostAsync("/sessions", null);
@@ -429,9 +429,9 @@ public class SessionEndpointsTests : IClassFixture<TestWebApplicationFactory>
         // Act
         await _client.DeleteAsync($"/sessions/{session!.Id}");
 
-        // Assert - Try to get branches (should fail because session is gone)
-        var branchesResponse = await _client.GetAsync($"/sessions/{session.Id}/branches");
-        branchesResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        // Assert - Try to get threads (should fail because session is gone)
+        var threadsResponse = await _client.GetAsync($"/sessions/{session.Id}/threads");
+        threadsResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]

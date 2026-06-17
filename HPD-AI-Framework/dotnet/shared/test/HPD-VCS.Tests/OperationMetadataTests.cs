@@ -152,7 +152,7 @@ public class OperationMetadataTests
         var tags = new Dictionary<string, string>
         {
             { "operation", "commit" },
-            { "branch", "main" },
+            { "thread", "main" },
             { "user-id", "12345" }
         };
         

@@ -24,7 +24,7 @@ export interface MessageEditRootProps extends Omit<HTMLAttributes<HTMLDivElement
 	editing?: boolean;
 	/** Called when startEdit() is invoked in controlled mode */
 	onStartEdit?: () => void;
-	/** Called after a successful save (branch fork + model re-run) */
+	/** Called after a successful save (thread fork + model re-run) */
 	onSave?: () => void;
 	/** Called when the user cancels without saving */
 	onCancel?: () => void;

@@ -7,7 +7,7 @@
 		workspace,
 		messageIndex,
 		role,
-		branch = null,
+		thread = null,
 		class: className,
 		child,
 		children,
@@ -18,7 +18,7 @@
 		workspace: boxWith(() => workspace),
 		messageIndex: boxWith(() => messageIndex),
 		role: boxWith(() => role),
-		branch: boxWith(() => branch),
+		thread: boxWith(() => thread),
 	});
 
 	const mergedProps = $derived(mergeProps(restProps, rootState.props, className ? { class: className } : {}) as MessageActionsRootHTMLProps);

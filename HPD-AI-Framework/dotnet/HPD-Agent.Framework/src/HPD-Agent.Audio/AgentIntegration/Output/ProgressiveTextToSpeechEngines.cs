@@ -232,7 +232,7 @@ internal abstract class ProgressiveTextToSpeechEngineBase : IProgressiveTextToSp
     {
         return new AudioCorrelation
         {
-            ConversationId = Options.Branch.SessionId,
+            ConversationId = Options.Thread.SessionId,
             RequestId = Options.RequestId,
             SessionId = Options.SessionId,
             OutputFlowId = OutputFlow.Id
@@ -439,7 +439,7 @@ internal sealed class SegmentTextToSpeechEngine : ProgressiveTextToSpeechEngineB
                 new TextToSpeechSynthesisContext
                 {
                     SessionId = Options.SessionId,
-                    Branch = Options.Branch,
+                    Thread = Options.Thread,
                     Correlation = CreateCorrelation(),
                     Options = Options.OutputOptions,
                     EmitEvent = Options.EmitEvent,

@@ -4,7 +4,7 @@ using Microsoft.Extensions.AI;
 namespace HPD.Agent;
 
 /// <summary>
-/// Branch-scoped state for compaction middleware.
+/// Thread-scoped state for compaction middleware.
 /// </summary>
 [MiddlewareState(Persistent = true)]
 public sealed record CompactionStateData
@@ -15,7 +15,7 @@ public sealed record CompactionStateData
     public CompactionSnapshot? LastCompaction { get; init; }
 
     /// <summary>
-    /// Number of completed user-visible message turns on this branch.
+    /// Number of completed user-visible message turns on this thread.
     /// </summary>
     public int MessageTurnCount { get; init; }
 

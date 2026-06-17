@@ -5,21 +5,21 @@ namespace HPD.Agent;
 
 /// <summary>
 /// In-memory session store for development and testing.
-/// V3 Architecture: Separate storage for Session metadata and branch event documents.
+/// V3 Architecture: Separate storage for Session metadata and thread event documents.
 /// Data is lost on process restart.
 /// </summary>
 /// <remarks>
 /// <para><b>Storage Structure:</b></para>
 /// <code>
 /// _sessions: ConcurrentDictionary&lt;string, Session&gt;        ← Session metadata
-/// _branches: ConcurrentDictionary&lt;string, BranchEventDocument&gt; ← Event documents per branch
+/// _threads: ConcurrentDictionary&lt;string, ThreadEventDocument&gt; ← Event documents per thread
 /// _uncommittedTurns: ConcurrentDictionary&lt;string, UncommittedTurn&gt; ← Crash recovery
 /// </code>
 /// </remarks>
 public class InMemorySessionStore : ISessionStore
 {
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
-    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, BranchEventDocument>> _branches = new();
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, ThreadEventDocument>> _threads = new();
     private readonly ConcurrentDictionary<string, UncommittedTurn> _uncommittedTurns = new();
 
     // ═══════════════════════════════════════════════════════════════════
@@ -54,67 +54,67 @@ public class InMemorySessionStore : ISessionStore
     public Task DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         _sessions.TryRemove(sessionId, out _);
-        _branches.TryRemove(sessionId, out _);
+        _threads.TryRemove(sessionId, out _);
         _uncommittedTurns.TryRemove(sessionId, out _);
         return Task.CompletedTask;
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // BRANCH EVENT PERSISTENCE
+    // THREAD EVENT PERSISTENCE
     // ═══════════════════════════════════════════════════════════════════
 
-    public Task<Branch?> LoadBranchAsync(
+    public Task<Thread?> LoadThreadAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default)
     {
-        if (_branches.TryGetValue(sessionId, out var sessionBranches) &&
-            sessionBranches.TryGetValue(branchId, out var document))
+        if (_threads.TryGetValue(sessionId, out var sessionThreads) &&
+            sessionThreads.TryGetValue(threadId, out var document))
         {
-            var branch = BranchProjector.Project(document);
+            var thread = ThreadProjector.Project(document);
             if (_sessions.TryGetValue(sessionId, out var session))
-                branch.Session = session;
-            return Task.FromResult<Branch?>(branch);
+                thread.Session = session;
+            return Task.FromResult<Thread?>(thread);
         }
 
-        return Task.FromResult<Branch?>(null);
+        return Task.FromResult<Thread?>(null);
     }
 
-    public Task<BranchEventDocument?> LoadBranchDocumentAsync(
+    public Task<ThreadEventDocument?> LoadThreadDocumentAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default)
     {
-        if (_branches.TryGetValue(sessionId, out var sessionBranches) &&
-            sessionBranches.TryGetValue(branchId, out var document))
+        if (_threads.TryGetValue(sessionId, out var sessionThreads) &&
+            sessionThreads.TryGetValue(threadId, out var document))
         {
-            return Task.FromResult<BranchEventDocument?>(document);
+            return Task.FromResult<ThreadEventDocument?>(document);
         }
 
-        return Task.FromResult<BranchEventDocument?>(null);
+        return Task.FromResult<ThreadEventDocument?>(null);
     }
 
-    public Task AppendBranchEventAsync(
+    public Task AppendThreadEventAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         AgentEvent evt,
         long? expectedSequenceNumber = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(evt);
         cancellationToken.ThrowIfCancellationRequested();
-        evt = BranchEventValidation.PrepareForAppend(sessionId, branchId, evt);
+        evt = ThreadEventValidation.PrepareForAppend(sessionId, threadId, evt);
 
-        var sessionBranches = _branches.GetOrAdd(sessionId, _ => new ConcurrentDictionary<string, BranchEventDocument>());
-        sessionBranches.AddOrUpdate(
-            branchId,
+        var sessionThreads = _threads.GetOrAdd(sessionId, _ => new ConcurrentDictionary<string, ThreadEventDocument>());
+        sessionThreads.AddOrUpdate(
+            threadId,
             _ =>
             {
                 evt.SequenceNumber = 1;
-                return new BranchEventDocument
+                return new ThreadEventDocument
                 {
                     SessionId = sessionId,
-                    BranchId = branchId,
+                    ThreadId = threadId,
                     CreatedAt = evt.Timestamp,
                     UpdatedAt = evt.Timestamp,
                     NextSequenceNumber = 2,
@@ -127,7 +127,7 @@ public class InMemorySessionStore : ISessionStore
                     existing.NextSequenceNumber - 1 != expectedSequenceNumber.Value)
                 {
                     throw new InvalidOperationException(
-                        $"Branch '{branchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {existing.NextSequenceNumber - 1}.");
+                        $"Thread '{threadId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {existing.NextSequenceNumber - 1}.");
                 }
 
                 evt.SequenceNumber = existing.NextSequenceNumber;
@@ -144,13 +144,13 @@ public class InMemorySessionStore : ISessionStore
         return Task.CompletedTask;
     }
 
-    public async IAsyncEnumerable<AgentEvent> ReadBranchEventsAsync(
+    public async IAsyncEnumerable<AgentEvent> ReadThreadEventsAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         HPD.Events.ReplayReadOptions options,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var document = await LoadBranchDocumentAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false);
+        var document = await LoadThreadDocumentAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false);
         if (document is null)
             yield break;
 
@@ -158,26 +158,26 @@ public class InMemorySessionStore : ISessionStore
             yield return evt;
     }
 
-    public Task<List<string>> ListBranchIdsAsync(
+    public Task<List<string>> ListThreadIdsAsync(
         string sessionId,
         CancellationToken cancellationToken = default)
     {
-        if (_branches.TryGetValue(sessionId, out var sessionBranches))
+        if (_threads.TryGetValue(sessionId, out var sessionThreads))
         {
-            return Task.FromResult(sessionBranches.Keys.ToList());
+            return Task.FromResult(sessionThreads.Keys.ToList());
         }
 
         return Task.FromResult(new List<string>());
     }
 
-    public Task DeleteBranchAsync(
+    public Task DeleteThreadAsync(
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken cancellationToken = default)
     {
-        if (_branches.TryGetValue(sessionId, out var sessionBranches))
+        if (_threads.TryGetValue(sessionId, out var sessionThreads))
         {
-            sessionBranches.TryRemove(branchId, out _);
+            sessionThreads.TryRemove(threadId, out _);
         }
 
         return Task.CompletedTask;
@@ -236,7 +236,7 @@ public class InMemorySessionStore : ISessionStore
             foreach (var sessionId in sessionsToRemove)
             {
                 _sessions.TryRemove(sessionId, out _);
-                _branches.TryRemove(sessionId, out _);
+                _threads.TryRemove(sessionId, out _);
                 _uncommittedTurns.TryRemove(sessionId, out _);
             }
         }

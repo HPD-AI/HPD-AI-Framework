@@ -3,14 +3,14 @@ using HPD.Agent.Hosting.Lifecycle;
 namespace HPD.Agent.Bots.Session;
 
 /// <summary>
-/// Resolves an inbound platform message to an HPD <c>sessionId</c> + <c>branchId</c>.
+/// Resolves an inbound platform message to an HPD <c>sessionId</c> + <c>threadId</c>.
 /// Operates in-process against <see cref="SessionManager"/> — no external store, no HTTP.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <see cref="ResolveAsync"/> searches the session store by <c>metadata["platformKey"]</c>.
 /// On a miss it delegates to <see cref="SessionManager.CreateSessionAsync"/> — the same
-/// method that creates the session, the default "main" branch, and persists both atomically.
+/// method that creates the session, the default "main" thread, and persists both atomically.
 /// </para>
 /// <para>
 /// The mapper never bypasses <see cref="SessionManager"/>. All session creation goes
@@ -47,9 +47,9 @@ public sealed class PlatformSessionMapper
     /// </param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>
-    /// The <c>sessionId</c> and <c>branchId</c> ("main") for this platform key.
+    /// The <c>sessionId</c> and <c>threadId</c> ("main") for this platform key.
     /// </returns>
-    public async Task<(string SessionId, string BranchId)> ResolveAsync(
+    public async Task<(string SessionId, string ThreadId)> ResolveAsync(
         string platformKey,
         CancellationToken ct = default)
     {
@@ -62,14 +62,14 @@ public sealed class PlatformSessionMapper
             var session = await _manager.Store.LoadSessionAsync(sessionId, ct);
             if (session?.Metadata != null && MetadataContainsPlatformKey(session.Metadata, platformKey))
             {
-                // Return the first branch (always "main" for adapter-created sessions)
-                var branchIds = await _manager.Store.ListBranchIdsAsync(sessionId, ct);
-                var branchId  = branchIds.Count > 0 ? branchIds[0] : "main";
-                return (sessionId, branchId);
+                // Return the first thread (always "main" for adapter-created sessions)
+                var threadIds = await _manager.Store.ListThreadIdsAsync(sessionId, ct);
+                var threadId  = threadIds.Count > 0 ? threadIds[0] : "main";
+                return (sessionId, threadId);
             }
         }
 
-        // No match — create a new session via the manager (atomically creates session + "main" branch)
+        // No match — create a new session via the manager (atomically creates session + "main" thread)
         var metadata = new Dictionary<string, object>
         {
             [PlatformKeyMetadataField] = platformKey,
@@ -84,17 +84,17 @@ public sealed class PlatformSessionMapper
     /// <remarks>
     /// Use this when a platform creates a new thread/channel identity after the
     /// initial inbound message, but future messages in that thread should keep
-    /// routing to the same HPD session and branch.
+    /// routing to the same HPD session and thread.
     /// </remarks>
     public async Task BindThreadAsync(
         string platformKey,
         string sessionId,
-        string branchId,
+        string threadId,
         CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(platformKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
         var session = await _manager.Store.LoadSessionAsync(sessionId, ct)
             ?? throw new InvalidOperationException($"Session '{sessionId}' was not found.");
@@ -116,7 +116,7 @@ public sealed class PlatformSessionMapper
     /// <remarks>
     /// Use this when the user explicitly starts a new conversation (e.g. a "reset" slash command).
     /// </remarks>
-    public async Task<(string SessionId, string BranchId)> ResetAsync(
+    public async Task<(string SessionId, string ThreadId)> ResetAsync(
         string platformKey,
         CancellationToken ct = default)
     {

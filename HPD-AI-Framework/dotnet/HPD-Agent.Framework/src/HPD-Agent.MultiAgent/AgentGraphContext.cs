@@ -24,7 +24,7 @@ public class AgentGraphContext : GraphContext
     public string WorkflowName { get; }
 
     /// <summary>
-    /// Resolves durable session and branch routes for node agent runs.
+    /// Resolves durable session and thread routes for node agent runs.
     /// </summary>
     public IMultiAgentConversationRuntime Conversation { get; }
 

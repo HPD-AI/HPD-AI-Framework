@@ -14,8 +14,8 @@ using HPD.VCS.WorkingCopy;
 namespace HPD.VCS.Tests;
 
 /// <summary>
-/// Unit tests for Module 7: Branching, Merging, and Conflict Handling
-/// Tests all features including branch management, merge operations, conflict materialization, and resolution.
+/// Unit tests for Module 7: Threading, Merging, and Conflict Handling
+/// Tests all features including thread management, merge operations, conflict materialization, and resolution.
 /// </summary>
 public class Module7Tests
 {
@@ -38,10 +38,10 @@ public class Module7Tests
         return await Repository.InitializeAsync(_repoPath, _userSettings, mockFileSystem);
     }
 
-    #region Branch Management Tests
+    #region Thread Management Tests
 
     [Fact]
-    public async Task CreateBranchAsync_ValidInput_CreatesBranch()
+    public async Task CreateThreadAsync_ValidInput_CreatesThread()
     {
         // Arrange
         var repository = await CreateRepositoryAsync();
@@ -50,20 +50,20 @@ public class Module7Tests
         var initialCommitId = initialViewData!.Value.WorkspaceCommitIds["default"];
 
         // Act
-        await repository.CreateBranchAsync("feature-branch", initialCommitId);
+        await repository.CreateThreadAsync("feature-thread", initialCommitId);
 
         // Assert
-        var branchCommitId = repository.GetBranch("feature-branch");
-        Assert.NotNull(branchCommitId);
-        Assert.Equal(initialCommitId, branchCommitId.Value);
+        var threadCommitId = repository.GetThread("feature-thread");
+        Assert.NotNull(threadCommitId);
+        Assert.Equal(initialCommitId, threadCommitId.Value);
 
-        // Verify branch is in current view data
-        Assert.True(repository.CurrentViewData.Branches.ContainsKey("feature-branch"));
-        Assert.Equal(initialCommitId, repository.CurrentViewData.Branches["feature-branch"]);
+        // Verify thread is in current view data
+        Assert.True(repository.CurrentViewData.Threads.ContainsKey("feature-thread"));
+        Assert.Equal(initialCommitId, repository.CurrentViewData.Threads["feature-thread"]);
     }
 
     [Fact]
-    public async Task CreateBranchAsync_DuplicateBranch_ThrowsArgumentException()
+    public async Task CreateThreadAsync_DuplicateThread_ThrowsArgumentException()
     {
         // Arrange
         var repository = await CreateRepositoryAsync();
@@ -71,17 +71,17 @@ public class Module7Tests
         var initialViewData = await repository.OperationStore.ReadViewAsync(initialOperationData!.Value.AssociatedViewId);
         var initialCommitId = initialViewData!.Value.WorkspaceCommitIds["default"];
 
-        await repository.CreateBranchAsync("duplicate-branch", initialCommitId);
+        await repository.CreateThreadAsync("duplicate-thread", initialCommitId);
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<ArgumentException>(
-            () => repository.CreateBranchAsync("duplicate-branch", initialCommitId));
+            () => repository.CreateThreadAsync("duplicate-thread", initialCommitId));
         
         Assert.Contains("already exists", exception.Message);
     }
 
     [Fact]
-    public async Task CreateBranchAsync_NonExistentCommit_ThrowsInvalidOperationException()
+    public async Task CreateThreadAsync_NonExistentCommit_ThrowsInvalidOperationException()
     {
         // Arrange
         var repository = await CreateRepositoryAsync();
@@ -89,13 +89,13 @@ public class Module7Tests
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => repository.CreateBranchAsync("test-branch", nonExistentCommitId));
+            () => repository.CreateThreadAsync("test-thread", nonExistentCommitId));
         
         Assert.Contains("does not exist", exception.Message);
     }
 
     [Fact]
-    public async Task DeleteBranchAsync_ExistingBranch_DeletesBranch()
+    public async Task DeleteThreadAsync_ExistingThread_DeletesThread()
     {
         // Arrange
         var repository = await CreateRepositoryAsync();
@@ -103,32 +103,32 @@ public class Module7Tests
         var initialViewData = await repository.OperationStore.ReadViewAsync(initialOperationData!.Value.AssociatedViewId);
         var initialCommitId = initialViewData!.Value.WorkspaceCommitIds["default"];
 
-        await repository.CreateBranchAsync("temp-branch", initialCommitId);
-        Assert.NotNull(repository.GetBranch("temp-branch"));
+        await repository.CreateThreadAsync("temp-thread", initialCommitId);
+        Assert.NotNull(repository.GetThread("temp-thread"));
 
         // Act
-        await repository.DeleteBranchAsync("temp-branch");
+        await repository.DeleteThreadAsync("temp-thread");
 
         // Assert
-        Assert.Null(repository.GetBranch("temp-branch"));
-        Assert.False(repository.CurrentViewData.Branches.ContainsKey("temp-branch"));
+        Assert.Null(repository.GetThread("temp-thread"));
+        Assert.False(repository.CurrentViewData.Threads.ContainsKey("temp-thread"));
     }
 
     [Fact]
-    public async Task DeleteBranchAsync_NonExistentBranch_ThrowsArgumentException()
+    public async Task DeleteThreadAsync_NonExistentThread_ThrowsArgumentException()
     {
         // Arrange
         var repository = await CreateRepositoryAsync();
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<ArgumentException>(
-            () => repository.DeleteBranchAsync("non-existent-branch"));
+            () => repository.DeleteThreadAsync("non-existent-thread"));
         
         Assert.Contains("does not exist", exception.Message);
     }
 
     [Fact]
-    public async Task GetBranch_ExistingBranch_ReturnsCommitId()
+    public async Task GetThread_ExistingThread_ReturnsCommitId()
     {
         // Arrange
         var repository = await CreateRepositoryAsync();
@@ -136,10 +136,10 @@ public class Module7Tests
         var initialViewData = await repository.OperationStore.ReadViewAsync(initialOperationData!.Value.AssociatedViewId);
         var initialCommitId = initialViewData!.Value.WorkspaceCommitIds["default"];
 
-        await repository.CreateBranchAsync("test-branch", initialCommitId);
+        await repository.CreateThreadAsync("test-thread", initialCommitId);
 
         // Act
-        var result = repository.GetBranch("test-branch");
+        var result = repository.GetThread("test-thread");
 
         // Assert
         Assert.NotNull(result);
@@ -147,20 +147,20 @@ public class Module7Tests
     }
 
     [Fact]
-    public async Task GetBranch_NonExistentBranch_ReturnsNull()
+    public async Task GetThread_NonExistentThread_ReturnsNull()
     {
         // Arrange
         var repository = await CreateRepositoryAsync();
 
         // Act
-        var result = repository.GetBranch("non-existent-branch");
+        var result = repository.GetThread("non-existent-thread");
 
         // Assert
         Assert.Null(result);
     }
 
     [Fact]
-    public async Task CommitAsync_BranchAutoAdvancement_MovesBranchPointer()
+    public async Task CommitAsync_ThreadAutoAdvancement_MovesThreadPointer()
     {
         // Arrange
         var mockFileSystem = CreateFreshMockFileSystem();
@@ -170,26 +170,26 @@ public class Module7Tests
         var initialViewData = await repository.OperationStore.ReadViewAsync(initialOperationData!.Value.AssociatedViewId);
         var initialCommitId = initialViewData!.Value.WorkspaceCommitIds["default"];
 
-        // Create branch pointing to initial commit
-        await repository.CreateBranchAsync("main", initialCommitId);
-        var branchCommitBeforeAdvancement = repository.GetBranch("main");
+        // Create thread pointing to initial commit
+        await repository.CreateThreadAsync("main", initialCommitId);
+        var threadCommitBeforeAdvancement = repository.GetThread("main");
 
-        // Add a file and commit to trigger branch advancement
+        // Add a file and commit to trigger thread advancement
         mockFileSystem.AddFile(Path.Combine(_repoPath, "test.txt"), new MockFileData("test content"));
 
         // Act
-        var newCommitId = await repository.CommitAsync("Advance branch", _userSettings, new SnapshotOptions());
+        var newCommitId = await repository.CommitAsync("Advance thread", _userSettings, new SnapshotOptions());
 
         // Assert
         Assert.NotNull(newCommitId);
-        Assert.NotEqual(branchCommitBeforeAdvancement, newCommitId);
+        Assert.NotEqual(threadCommitBeforeAdvancement, newCommitId);
         
-        var branchCommitAfterAdvancement = repository.GetBranch("main");
-        Assert.Equal(newCommitId, branchCommitAfterAdvancement);
+        var threadCommitAfterAdvancement = repository.GetThread("main");
+        Assert.Equal(newCommitId, threadCommitAfterAdvancement);
     }
 
     [Fact]
-    public async Task CommitAsync_DetachedHead_NobranchAdvancement()
+    public async Task CommitAsync_DetachedHead_NothreadAdvancement()
     {
         // Arrange
         var mockFileSystem = CreateFreshMockFileSystem();
@@ -199,8 +199,8 @@ public class Module7Tests
         var initialViewData = await repository.OperationStore.ReadViewAsync(initialOperationData!.Value.AssociatedViewId);
         var initialCommitId = initialViewData!.Value.WorkspaceCommitIds["default"];
 
-        // Create branch but don't point current workspace to it (simulating detached HEAD)
-        await repository.CreateBranchAsync("main", initialCommitId);
+        // Create thread but don't point current workspace to it (simulating detached HEAD)
+        await repository.CreateThreadAsync("main", initialCommitId);
         
         // Simulate detached head by modifying workspace to point to a different commit
         var detachedCommitId = ObjectIdBase.FromHexString<CommitId>(ValidCommitHex);
@@ -211,7 +211,7 @@ public class Module7Tests
             BindingFlags.NonPublic | BindingFlags.Instance);
         reflectedField?.SetValue(repository, modifiedViewData);
 
-        var branchCommitBeforeCommit = repository.GetBranch("main");
+        var threadCommitBeforeCommit = repository.GetThread("main");
 
         // Add a file and commit
         mockFileSystem.AddFile(Path.Combine(_repoPath, "test.txt"), new MockFileData("test content"));
@@ -222,10 +222,10 @@ public class Module7Tests
         // Assert
         Assert.NotNull(newCommitId);
         
-        // Branch should not have moved since workspace was detached
-        var branchCommitAfterCommit = repository.GetBranch("main");
-        Assert.Equal(branchCommitBeforeCommit, branchCommitAfterCommit);
-        Assert.NotEqual(branchCommitAfterCommit, newCommitId);
+        // Thread should not have moved since workspace was detached
+        var threadCommitAfterCommit = repository.GetThread("main");
+        Assert.Equal(threadCommitBeforeCommit, threadCommitAfterCommit);
+        Assert.NotEqual(threadCommitAfterCommit, newCommitId);
     }
 
     #endregion
@@ -297,20 +297,20 @@ public class Module7Tests
         mockFileSystem.AddFile(Path.Combine(_repoPath, "base.txt"), new MockFileData("base content"));
         var baseCommit = await repository.CommitAsync("Base commit", _userSettings, new SnapshotOptions());
         
-        // Create branch A
-        await repository.CreateBranchAsync("branch-a", baseCommit!.Value);
-        mockFileSystem.AddFile(Path.Combine(_repoPath, "branch-a.txt"), new MockFileData("branch a content"));
-        var commitA = await repository.CommitAsync("Branch A commit", _userSettings, new SnapshotOptions());
+        // Create thread A
+        await repository.CreateThreadAsync("thread-a", baseCommit!.Value);
+        mockFileSystem.AddFile(Path.Combine(_repoPath, "thread-a.txt"), new MockFileData("thread a content"));
+        var commitA = await repository.CommitAsync("Thread A commit", _userSettings, new SnapshotOptions());
         
-        // Create branch B from base
-        await repository.CreateBranchAsync("branch-b", baseCommit!.Value);
-        // Simulate checkout to branch B by updating workspace
-        var branchBViewData = repository.CurrentViewData.WithWorkspaceCommit("default", baseCommit!.Value);
+        // Create thread B from base
+        await repository.CreateThreadAsync("thread-b", baseCommit!.Value);
+        // Simulate checkout to thread B by updating workspace
+        var threadBViewData = repository.CurrentViewData.WithWorkspaceCommit("default", baseCommit!.Value);
         var reflectedField = typeof(Repository).GetField("_currentViewData", BindingFlags.NonPublic | BindingFlags.Instance);
-        reflectedField?.SetValue(repository, branchBViewData);
+        reflectedField?.SetValue(repository, threadBViewData);
         
-        mockFileSystem.AddFile(Path.Combine(_repoPath, "branch-b.txt"), new MockFileData("branch b content"));
-        var commitB = await repository.CommitAsync("Branch B commit", _userSettings, new SnapshotOptions());
+        mockFileSystem.AddFile(Path.Combine(_repoPath, "thread-b.txt"), new MockFileData("thread b content"));
+        var commitB = await repository.CommitAsync("Thread B commit", _userSettings, new SnapshotOptions());
 
         // Use reflection to access private method
         var methodInfo = typeof(Repository).GetMethod("FindMergeBasesAsync",
@@ -341,18 +341,18 @@ public class Module7Tests
         mockFileSystem.AddFile(Path.Combine(_repoPath, "base.txt"), new MockFileData("base content"));
         var baseCommit = await repository.CommitAsync("Base commit", _userSettings, new SnapshotOptions());
         
-        // Create a branch from base
-        await repository.CreateBranchAsync("feature", baseCommit!.Value);
+        // Create a thread from base
+        await repository.CreateThreadAsync("feature", baseCommit!.Value);
         
-        // Add commit to feature branch
+        // Add commit to feature thread
         mockFileSystem.AddFile(Path.Combine(_repoPath, "feature.txt"), new MockFileData("feature content"));
         var featureCommit = await repository.CommitAsync("Feature commit", _userSettings, new SnapshotOptions());
         
-        // Update feature branch to point to new commit
-        await repository.DeleteBranchAsync("feature");
-        await repository.CreateBranchAsync("feature", featureCommit!.Value);
+        // Update feature thread to point to new commit
+        await repository.DeleteThreadAsync("feature");
+        await repository.CreateThreadAsync("feature", featureCommit!.Value);
         
-        // Reset current workspace to base (simulating being on main branch)
+        // Reset current workspace to base (simulating being on main thread)
         var baseViewData = repository.CurrentViewData.WithWorkspaceCommit("default", baseCommit!.Value);
         var reflectedField = typeof(Repository).GetField("_currentViewData", BindingFlags.NonPublic | BindingFlags.Instance);
         reflectedField?.SetValue(repository, baseViewData);
@@ -376,25 +376,25 @@ public class Module7Tests
         mockFileSystem.AddFile(Path.Combine(_repoPath, "file.txt"), new MockFileData("content"));
         var commit = await repository.CommitAsync("Initial commit", _userSettings, new SnapshotOptions());
         
-        // Create branch pointing to same commit
-        await repository.CreateBranchAsync("same-branch", commit!.Value);
+        // Create thread pointing to same commit
+        await repository.CreateThreadAsync("same-thread", commit!.Value);
 
-        // Act - Merge branch that points to current commit
-        var mergeResult = await repository.MergeAsync("same-branch", _userSettings);
+        // Act - Merge thread that points to current commit
+        var mergeResult = await repository.MergeAsync("same-thread", _userSettings);
 
         // Assert - Should be no-op and return current commit
         Assert.Equal(commit!.Value, mergeResult);
     }
 
     [Fact]
-    public async Task MergeAsync_NonExistentBranch_ThrowsArgumentException()
+    public async Task MergeAsync_NonExistentThread_ThrowsArgumentException()
     {
         // Arrange
         var repository = await CreateRepositoryAsync();
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<ArgumentException>(
-            () => repository.MergeAsync("non-existent-branch", _userSettings));
+            () => repository.MergeAsync("non-existent-thread", _userSettings));
         
         Assert.Contains("does not exist", exception.Message);
     }
@@ -560,11 +560,11 @@ public class Module7Tests
         var side2Commit = await repository.CommitAsync("Side2", _userSettings, new SnapshotOptions());        // Create merge commit using MergeAsync
         await repository.CheckoutAsync(side1Commit!.Value, new CheckoutOptions(), _userSettings);
         
-        // Create temporary branch pointing to side2 for merge
-        await repository.CreateBranchAsync("temp-branch", side2Commit!.Value);
+        // Create temporary thread pointing to side2 for merge
+        await repository.CreateThreadAsync("temp-thread", side2Commit!.Value);
         
         // Act - This should create a merge commit with conflicts
-        var mergeCommit = await repository.MergeAsync("temp-branch", _userSettings);
+        var mergeCommit = await repository.MergeAsync("temp-thread", _userSettings);
         
         // The merge should create conflict markers in the working copy
         // Verify that conflict markers are present in the file
@@ -647,10 +647,10 @@ public class Module7Tests
 
     #endregion
 
-    #region Undo Branch Deletion Tests
+    #region Undo Thread Deletion Tests
 
     [Fact]
-    public async Task UndoOperationAsync_DeletedBranch_RestoresBranch()
+    public async Task UndoOperationAsync_DeletedThread_RestoresThread()
     {
         // Arrange
         var repository = await CreateRepositoryAsync();
@@ -658,12 +658,12 @@ public class Module7Tests
         var initialViewData = await repository.OperationStore.ReadViewAsync(initialOperationData!.Value.AssociatedViewId);
         var initialCommitId = initialViewData!.Value.WorkspaceCommitIds["default"];
 
-        // Create and then delete a branch
-        await repository.CreateBranchAsync("deletable-branch", initialCommitId);
-        Assert.NotNull(repository.GetBranch("deletable-branch"));
+        // Create and then delete a thread
+        await repository.CreateThreadAsync("deletable-thread", initialCommitId);
+        Assert.NotNull(repository.GetThread("deletable-thread"));
         
-        await repository.DeleteBranchAsync("deletable-branch");
-        Assert.Null(repository.GetBranch("deletable-branch"));
+        await repository.DeleteThreadAsync("deletable-thread");
+        Assert.Null(repository.GetThread("deletable-thread"));
 
         // Act - Undo the deletion
         var undoOperationId = await repository.UndoOperationAsync(_userSettings);
@@ -671,14 +671,14 @@ public class Module7Tests
         // Assert
         Assert.NotEqual(default(OperationId), undoOperationId);
         
-        // Branch should be restored
-        var restoredBranch = repository.GetBranch("deletable-branch");
-        Assert.NotNull(restoredBranch);
-        Assert.Equal(initialCommitId, restoredBranch.Value);
+        // Thread should be restored
+        var restoredThread = repository.GetThread("deletable-thread");
+        Assert.NotNull(restoredThread);
+        Assert.Equal(initialCommitId, restoredThread.Value);
     }
 
     [Fact]
-    public async Task UndoOperationAsync_CreateBranch_RemovesBranch()
+    public async Task UndoOperationAsync_CreateThread_RemovesThread()
     {
         // Arrange
         var repository = await CreateRepositoryAsync();
@@ -686,9 +686,9 @@ public class Module7Tests
         var initialViewData = await repository.OperationStore.ReadViewAsync(initialOperationData!.Value.AssociatedViewId);
         var initialCommitId = initialViewData!.Value.WorkspaceCommitIds["default"];
 
-        // Create a branch
-        await repository.CreateBranchAsync("undo-test-branch", initialCommitId);
-        Assert.NotNull(repository.GetBranch("undo-test-branch"));
+        // Create a thread
+        await repository.CreateThreadAsync("undo-test-thread", initialCommitId);
+        Assert.NotNull(repository.GetThread("undo-test-thread"));
 
         // Act - Undo the creation
         var undoOperationId = await repository.UndoOperationAsync(_userSettings);
@@ -696,8 +696,8 @@ public class Module7Tests
         // Assert
         Assert.NotEqual(default(OperationId), undoOperationId);
         
-        // Branch should be removed
-        Assert.Null(repository.GetBranch("undo-test-branch"));
+        // Thread should be removed
+        Assert.Null(repository.GetThread("undo-test-thread"));
     }
 
     #endregion
@@ -705,10 +705,10 @@ public class Module7Tests
     #region Integration Tests
 
     [Fact]
-    public async Task CompleteWorkflow_BranchMergeConflictResolution_WorksEndToEnd()
+    public async Task CompleteWorkflow_ThreadMergeConflictResolution_WorksEndToEnd()
     {
         // This test demonstrates a complete workflow:
-        // 1. Create branches
+        // 1. Create threads
         // 2. Make conflicting changes
         // 3. Attempt merge (creates conflicts)
         // 4. Resolve conflicts
@@ -722,21 +722,21 @@ public class Module7Tests
         mockFileSystem.AddFile(Path.Combine(_repoPath, "workflow.txt"), new MockFileData("initial content\n"));
         var mainCommit = await repository.CommitAsync("Initial commit", _userSettings, new SnapshotOptions());
         
-        // Create and setup feature branch
-        await repository.CreateBranchAsync("feature", mainCommit!.Value);
+        // Create and setup feature thread
+        await repository.CreateThreadAsync("feature", mainCommit!.Value);
         
         // Make changes on main
-        mockFileSystem.GetFile(Path.Combine(_repoPath, "workflow.txt")).TextContents = "main branch content\n";
+        mockFileSystem.GetFile(Path.Combine(_repoPath, "workflow.txt")).TextContents = "main thread content\n";
         var mainCommit2 = await repository.CommitAsync("Main changes", _userSettings, new SnapshotOptions());
         
         // Make conflicting changes on feature (simulate checkout and commit)
         await repository.CheckoutAsync(mainCommit!.Value, new CheckoutOptions(), _userSettings);
-        mockFileSystem.GetFile(Path.Combine(_repoPath, "workflow.txt")).TextContents = "feature branch content\n";
+        mockFileSystem.GetFile(Path.Combine(_repoPath, "workflow.txt")).TextContents = "feature thread content\n";
         var featureCommit = await repository.CommitAsync("Feature changes", _userSettings, new SnapshotOptions());
         
-        // Update feature branch
-        await repository.DeleteBranchAsync("feature");
-        await repository.CreateBranchAsync("feature", featureCommit!.Value);
+        // Update feature thread
+        await repository.DeleteThreadAsync("feature");
+        await repository.CreateThreadAsync("feature", featureCommit!.Value);
         
         // Act - Attempt merge (this should create conflicts in a full implementation)
         await repository.CheckoutAsync(mainCommit2!.Value, new CheckoutOptions(), _userSettings);
@@ -770,9 +770,9 @@ public class Module7Tests
     }
 
     [Fact]
-    public async Task BranchOperations_WithConcurrentAccess_MaintainsConsistency()
+    public async Task ThreadOperations_WithConcurrentAccess_MaintainsConsistency()
     {
-        // This test verifies that branch operations are properly synchronized
+        // This test verifies that thread operations are properly synchronized
         // and maintain consistency under concurrent access scenarios
         
         // Arrange
@@ -784,18 +784,18 @@ public class Module7Tests
         var initialViewData = await repository1.OperationStore.ReadViewAsync(initialOperationData!.Value.AssociatedViewId);
         var initialCommitId = initialViewData!.Value.WorkspaceCommitIds["default"];
 
-        // Act - Concurrent branch creation
-        await repository1.CreateBranchAsync("branch1", initialCommitId);
+        // Act - Concurrent thread creation
+        await repository1.CreateThreadAsync("thread1", initialCommitId);
         
-        // Repository2 should see the branch created by repository1 after reload
+        // Repository2 should see the thread created by repository1 after reload
         var repository2Reloaded = await Repository.LoadAsync(_repoPath, mockFileSystem);
         
         // Assert
-        Assert.NotNull(repository1.GetBranch("branch1"));
-        Assert.NotNull(repository2Reloaded.GetBranch("branch1"));
+        Assert.NotNull(repository1.GetThread("thread1"));
+        Assert.NotNull(repository2Reloaded.GetThread("thread1"));
         
         // Verify both see the same commit ID
-        Assert.Equal(repository1.GetBranch("branch1"), repository2Reloaded.GetBranch("branch1"));
+        Assert.Equal(repository1.GetThread("thread1"), repository2Reloaded.GetThread("thread1"));
     }
 
     #endregion

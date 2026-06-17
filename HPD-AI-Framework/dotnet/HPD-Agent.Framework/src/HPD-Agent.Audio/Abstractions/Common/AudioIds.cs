@@ -40,7 +40,7 @@ public readonly record struct TraceRecordId(string Value)
     public override string ToString() => Value;
 }
 
-public readonly record struct BranchProjectionId(string Value)
+public readonly record struct ThreadProjectionId(string Value)
 {
     public override string ToString() => Value;
 }

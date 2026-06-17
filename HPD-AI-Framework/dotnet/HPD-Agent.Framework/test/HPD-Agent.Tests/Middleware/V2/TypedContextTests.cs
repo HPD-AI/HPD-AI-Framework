@@ -209,7 +209,7 @@ public class TypedContextTests
             state,
             eventCoordinator,
             new HPD.Agent.Session("test-session"),
-            new HPD.Agent.Session("test-session").CreateBranch(),
+            new HPD.Agent.Session("test-session").CreateThread(),
             CancellationToken.None);
     }
 }

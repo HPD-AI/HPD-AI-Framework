@@ -145,7 +145,7 @@
 	const activeTools = $derived.by(() => activeSessionMatchesWorkspace ? workspace?.state?.activeTools ?? [] : []);
 	const pendingPermissions = $derived.by(() => activeSessionMatchesWorkspace ? workspace?.state?.pendingPermissions ?? [] : []);
 	const pendingClarifications = $derived.by(() => activeSessionMatchesWorkspace ? workspace?.state?.pendingClarifications ?? [] : []);
-	const activeBranch = $derived(workspace?.activeBranch ?? null);
+	const activeThread = $derived(workspace?.activeThread ?? null);
 	const canSend = $derived(Boolean(workspace && activeWorkspace && activeSessionMatchesWorkspace && (workspace.state?.canSend ?? !isStreaming)));
 	const startupContext = readStartupContext();
 	const allSessions = $derived.by(() => {
@@ -187,7 +187,7 @@
 		try {
 			await Promise.all([loadRuntime(), loadWorkspaces(startupContext.workspaceKey)]);
 
-			workspace = createWorkspaceInstance(startupContext.sessionId, startupContext.branchId);
+			workspace = createWorkspaceInstance(startupContext.sessionId, startupContext.threadId);
 		} catch (error) {
 			loadError = error instanceof Error ? error.message : 'Could not initialize HPD-OS workspace.';
 		}
@@ -198,16 +198,16 @@
 		return {
 			workspaceKey: params.get('workspace') ?? '',
 			sessionId: params.get('session') ?? '',
-			branchId: params.get('branch') ?? 'main'
+			threadId: params.get('thread') ?? 'main'
 		};
 	}
 
-	function createWorkspaceInstance(sessionId?: string, branchId?: string) {
+	function createWorkspaceInstance(sessionId?: string, threadId?: string) {
 		return createWorkspace({
 			baseUrl: backendUrl,
 			agentId: defaultAgentId,
 			sessionId: sessionId || undefined,
-			initialBranchId: branchId || undefined,
+			initialThreadId: threadId || undefined,
 			onError: (message) => (loadError = message)
 		});
 	}
@@ -468,7 +468,7 @@
 					name: nextName
 				}
 			});
-			workspace = createWorkspaceInstance(workspace.activeSessionId ?? session.id, workspace.activeBranchId ?? 'main');
+			workspace = createWorkspaceInstance(workspace.activeSessionId ?? session.id, workspace.activeThreadId ?? 'main');
 		} catch (error) {
 			alert(error instanceof Error ? error.message : 'Could not rename session.');
 		}
@@ -842,7 +842,7 @@
 			items.push({
 				id: `session-${activeSession.id}`,
 				label: 'Session',
-				detail: `${formatSessionLabel(activeSession)} / ${workspace?.activeBranchId ?? 'no branch'}`,
+				detail: `${formatSessionLabel(activeSession)} / ${workspace?.activeThreadId ?? 'no thread'}`,
 				status: activeSessionMatchesWorkspace ? 'complete' : 'waiting'
 			});
 		}
@@ -1447,7 +1447,7 @@
 														</article>
 
 														{#if workspace && !editState.editing}
-															<MessageActions.Root {workspace} messageIndex={index} role={message.role} branch={activeBranch}>
+															<MessageActions.Root {workspace} messageIndex={index} role={message.role} thread={activeThread}>
 																{#snippet children(actions)}
 																	<div class="message-actions" data-role={message.role}>
 																		{#if message.role === 'user'}
@@ -1507,8 +1507,8 @@
 							<code>{activeSession ? formatSessionLabel(activeSession) : 'No active session'}</code>
 						</section>
 						<section>
-							<span class="surface-label">Branch</span>
-							<code>{workspace?.activeBranchId ?? 'No branch'}</code>
+							<span class="surface-label">Thread</span>
+							<code>{workspace?.activeThreadId ?? 'No thread'}</code>
 						</section>
 						<section>
 							<span class="surface-label">Model</span>

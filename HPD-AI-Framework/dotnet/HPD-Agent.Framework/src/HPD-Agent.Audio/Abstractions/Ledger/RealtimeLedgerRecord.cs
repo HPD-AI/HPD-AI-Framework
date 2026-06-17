@@ -19,7 +19,7 @@ public enum LedgerRecordFamily
     Transcript = 1,
     UserTurn = 2,
     AssistantOutput = 3,
-    BranchProjection = 4,
+    ThreadProjection = 4,
     Policy = 5,
     Route = 6,
     InterruptionRepair = 7,

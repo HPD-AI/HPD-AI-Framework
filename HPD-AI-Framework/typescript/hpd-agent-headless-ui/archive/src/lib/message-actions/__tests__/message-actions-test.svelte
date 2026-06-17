@@ -6,7 +6,7 @@
 	 * on everything so browser tests can assert against real DOM output.
 	 */
 	import * as MessageActions from '../exports.js';
-	import type { Branch } from '@hpd-research/hpd-agent-client';
+	import type { Thread } from '@hpd-research/hpd-agent-client';
 	import type { Workspace } from '../../workspace/types.ts';
 	import type { MessageRole } from '../../agent/types.ts';
 
@@ -14,7 +14,7 @@
 		workspace: Workspace;
 		messageIndex?: number;
 		role?: MessageRole;
-		branch?: Branch | null;
+		thread?: Thread | null;
 		copyContent?: string;
 		onPrev?: () => void;
 		onNext?: () => void;
@@ -38,7 +38,7 @@
 		workspace,
 		messageIndex = 0,
 		role = 'user',
-		branch = null,
+		thread = null,
 		copyContent = 'Hello world',
 		onPrev,
 		onNext,
@@ -62,7 +62,7 @@
 	{workspace}
 	{messageIndex}
 	{role}
-	{branch}
+	{thread}
 	data-testid="root"
 >
 	{#snippet children({ hasSiblings, pending, position })}
@@ -118,7 +118,7 @@
 			{/snippet}
 		</MessageActions.CopyButton>
 
-		<!-- Branch nav — always rendered so tests can assert disabled state -->
+		<!-- Thread nav — always rendered so tests can assert disabled state -->
 		<MessageActions.Prev
 			aria-label={prevAriaLabel}
 			onclick={onPrev}

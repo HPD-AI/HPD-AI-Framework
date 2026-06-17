@@ -11,7 +11,7 @@ namespace HPD.Agent.Middleware;
 /// </summary>
 /// <remarks>
 /// This context intentionally does not expose AgentContext, HookContext,
-/// UpdateState, UpdateMiddlewareState, or raw mutable Session/Branch objects.
+/// UpdateState, UpdateMiddlewareState, or raw mutable Session/Thread objects.
 /// Function bodies may use runtime services, but live state mutation belongs to
 /// scheduler-owned middleware phases.
 /// </remarks>
@@ -36,7 +36,7 @@ public sealed class FunctionExecutionContext
             AgentName = hookContext.AgentName,
             ConversationId = hookContext.ConversationId,
             SessionId = hookContext.SessionId,
-            BranchId = hookContext.BranchId,
+            ThreadId = hookContext.ThreadId,
             TraceId = hookContext.TraceId,
             FunctionCallId = request.CallId,
             FunctionName = request.FunctionName,
@@ -65,7 +65,7 @@ public sealed class FunctionExecutionContext
 
     public string? SessionId => InvocationSnapshot.SessionId;
 
-    public string? BranchId => InvocationSnapshot.BranchId;
+    public string? ThreadId => InvocationSnapshot.ThreadId;
 
     public string? TraceId => InvocationSnapshot.TraceId;
 

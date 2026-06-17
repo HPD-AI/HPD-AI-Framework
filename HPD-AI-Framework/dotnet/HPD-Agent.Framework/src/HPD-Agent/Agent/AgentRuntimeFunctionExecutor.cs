@@ -67,7 +67,7 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
             initialState: state,
             eventCoordinator: _eventCoordinator,
             session: null,
-            branch: null,
+            thread: null,
             cancellationToken: cancellationToken,
             parentChatClient: _baseClient,
             services: _serviceProvider,

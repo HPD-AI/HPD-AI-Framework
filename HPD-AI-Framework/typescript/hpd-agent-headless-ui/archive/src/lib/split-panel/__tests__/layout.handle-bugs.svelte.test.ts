@@ -25,7 +25,7 @@ import { flushSync } from 'svelte';
 import { SplitPanelState } from '../state/split-panel-state.svelte.js';
 import { LayoutHistory } from '../state/layout-history.svelte.js';
 import { LayoutPersistence } from '../state/layout-persistence.svelte.js';
-import type { BranchNode } from '../types/types.js';
+import type { ThreadNode } from '../types/types.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -40,9 +40,9 @@ function setup3Panes(): SplitPanelState {
 	return state;
 }
 
-function getRootBranch(state: SplitPanelState): BranchNode {
+function getRootThread(state: SplitPanelState): ThreadNode {
 	const root = state.root;
-	if (root.type !== 'branch') throw new Error('root is not branch');
+	if (root.type !== 'thread') throw new Error('root is not thread');
 	return root;
 }
 
@@ -131,11 +131,11 @@ describe('Bug 6 — invalidatePathCache is public and clears stale path cache', 
 		expect(() => state.invalidatePathCache()).not.toThrow();
 
 		// Resize should still find panels correctly after cache invalidation
-		const sizeBefore = (getRootBranch(state).children[0] as any).size;
+		const sizeBefore = (getRootThread(state).children[0] as any).size;
 		state.resizeDivider([], 0, 40);
 
 		return new Promise<void>((resolve) => requestAnimationFrame(() => {
-			const sizeAfter = (getRootBranch(state).children[0] as any).size;
+			const sizeAfter = (getRootThread(state).children[0] as any).size;
 			expect(sizeAfter).not.toBe(sizeBefore);
 			resolve();
 		}));
@@ -148,9 +148,9 @@ describe('Bug 6 — invalidatePathCache is public and clears stale path cache', 
 		state.resizeDivider([], 0, 50);
 
 		return new Promise<void>((resolve) => requestAnimationFrame(() => {
-			const branch = getRootBranch(state);
-			const p1 = branch.children[0] as any;
-			const p2 = branch.children[1] as any;
+			const thread = getRootThread(state);
+			const p1 = thread.children[0] as any;
+			const p2 = thread.children[1] as any;
 
 			// p1 grew, p2 shrank — correct panels targeted
 			expect(p1.size).toBeGreaterThan(200);
@@ -176,8 +176,8 @@ describe('Bug 6 — invalidatePathCache is public and clears stale path cache', 
 		expect(() => state.resizeDivider([], 0, 30)).not.toThrow();
 
 		return new Promise<void>((resolve) => requestAnimationFrame(() => {
-			const branch = getRootBranch(state);
-			expect(branch.children.length).toBe(3);
+			const thread = getRootThread(state);
+			expect(thread.children.length).toBe(3);
 			resolve();
 		}));
 	});
@@ -199,12 +199,12 @@ describe('Bug 2 — SplitPanelState has no recomputeLayout method', () => {
 		state.resizeDivider([], 0, 40);
 
 		return new Promise<void>((resolve) => requestAnimationFrame(() => {
-			const sizesBefore = getRootBranch(state).children.map((c: any) => c.size);
+			const sizesBefore = getRootThread(state).children.map((c: any) => c.size);
 
 			// Calling updateContainerSize with same dims (what resetAdjacentPanes now uses)
 			expect(() => state.updateContainerSize(600, 400)).not.toThrow();
 
-			const sizesAfter = getRootBranch(state).children.map((c: any) => c.size);
+			const sizesAfter = getRootThread(state).children.map((c: any) => c.size);
 			// Sizes should be stable (within rounding)
 			for (let i = 0; i < 3; i++) {
 				expect(Math.abs(sizesAfter[i] - sizesBefore[i])).toBeLessThan(5);

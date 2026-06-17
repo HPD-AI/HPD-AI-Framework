@@ -148,55 +148,55 @@ internal sealed class StubDeterministicEvaluator : HpdDeterministicEvaluatorBase
 /// </summary>
 internal sealed class FakeSessionStore : ISessionStore
 {
-    private readonly Dictionary<(string sessionId, string branchId), Branch> _branches = new();
+    private readonly Dictionary<(string sessionId, string threadId), Thread> _threads = new();
 
-    public void AddBranch(string sessionId, Branch branch) =>
-        _branches[(sessionId, branch.Id)] = branch;
+    public void AddThread(string sessionId, Thread thread) =>
+        _threads[(sessionId, thread.Id)] = thread;
 
-    public Task<Branch?> LoadBranchAsync(string sessionId, string branchId, CancellationToken ct = default) =>
-        Task.FromResult(_branches.GetValueOrDefault((sessionId, branchId)));
+    public Task<Thread?> LoadThreadAsync(string sessionId, string threadId, CancellationToken ct = default) =>
+        Task.FromResult(_threads.GetValueOrDefault((sessionId, threadId)));
     public Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default) => Task.FromResult<Session?>(null);
     public Task SaveSessionAsync(Session session, CancellationToken ct = default) => Task.CompletedTask;
     public Task<List<string>> ListSessionIdsAsync(CancellationToken ct = default) => Task.FromResult(new List<string>());
     public Task DeleteSessionAsync(string sessionId, CancellationToken ct = default) => Task.CompletedTask;
-    public Task<List<string>> ListBranchIdsAsync(string sessionId, CancellationToken ct = default) => Task.FromResult(new List<string>());
-    public Task DeleteBranchAsync(string sessionId, string branchId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<List<string>> ListThreadIdsAsync(string sessionId, CancellationToken ct = default) => Task.FromResult(new List<string>());
+    public Task DeleteThreadAsync(string sessionId, string threadId, CancellationToken ct = default) => Task.CompletedTask;
     public Task<UncommittedTurn?> LoadUncommittedTurnAsync(string sessionId, CancellationToken ct = default) => Task.FromResult<UncommittedTurn?>(null);
     public Task SaveUncommittedTurnAsync(UncommittedTurn turn, CancellationToken ct = default) => Task.CompletedTask;
     public Task DeleteUncommittedTurnAsync(string sessionId, CancellationToken ct = default) => Task.CompletedTask;
     public Task<int> DeleteInactiveSessionsAsync(TimeSpan threshold, bool dryRun = false, CancellationToken ct = default) => Task.FromResult(0);
 }
 
-// ── BranchBuilder ─────────────────────────────────────────────────────────
+// ── ThreadBuilder ─────────────────────────────────────────────────────────
 
 /// <summary>
-/// Fluent builder for Branch instances used in integration tests.
+/// Fluent builder for Thread instances used in integration tests.
 /// </summary>
-internal sealed class BranchBuilder
+internal sealed class ThreadBuilder
 {
     private readonly string _sessionId;
-    private readonly string _branchId;
+    private readonly string _threadId;
     private readonly List<ChatMessage> _messages = new();
 
-    public BranchBuilder(string sessionId = "sess-1", string branchId = "branch-1")
+    public ThreadBuilder(string sessionId = "sess-1", string threadId = "thread-1")
     {
         _sessionId = sessionId;
-        _branchId = branchId;
+        _threadId = threadId;
     }
 
-    public BranchBuilder AddUserMessage(string text)
+    public ThreadBuilder AddUserMessage(string text)
     {
         _messages.Add(new ChatMessage(ChatRole.User, text));
         return this;
     }
 
-    public BranchBuilder AddAssistantMessage(string text)
+    public ThreadBuilder AddAssistantMessage(string text)
     {
         _messages.Add(new ChatMessage(ChatRole.Assistant, text));
         return this;
     }
 
-    public BranchBuilder AddToolCall(string callId, string toolName, string result)
+    public ThreadBuilder AddToolCall(string callId, string toolName, string result)
     {
         var callMsg = new ChatMessage(ChatRole.Assistant,
             [new FunctionCallContent(callId, toolName, new Dictionary<string, object?>())]);
@@ -207,11 +207,11 @@ internal sealed class BranchBuilder
         return this;
     }
 
-    public Branch Build()
+    public Thread Build()
     {
-        // Use internal Branch(sessionId, branchId) constructor (accessible via InternalsVisibleTo)
-        var branch = new Branch(_sessionId, _branchId);
-        branch.Messages.AddRange(_messages);
-        return branch;
+        // Use internal Thread(sessionId, threadId) constructor (accessible via InternalsVisibleTo)
+        var thread = new Thread(_sessionId, _threadId);
+        thread.Messages.AddRange(_messages);
+        return thread;
     }
 }

@@ -1,8 +1,8 @@
 /**
- * SplitPanelSplitState - Component Wrapper for Split (BranchNode)
+ * SplitPanelSplitState - Component Wrapper for Split (ThreadNode)
  *
  * Provides component-level state management for split containers that arrange
- * children along an axis (horizontal/vertical). Represents BranchNode in the layout tree.
+ * children along an axis (horizontal/vertical). Represents ThreadNode in the layout tree.
  *
  * Features:
  * - Context-based access to root state and parent split
@@ -63,7 +63,7 @@ export interface RegisteredChild {
 }
 
 /**
- * SplitPanelSplitState - Component state wrapper for split containers (BranchNode).
+ * SplitPanelSplitState - Component state wrapper for split containers (ThreadNode).
  *
  * Manages split-specific state and coordinates with root state for layout operations.
  * Provides reactive props for component rendering and child path computation.

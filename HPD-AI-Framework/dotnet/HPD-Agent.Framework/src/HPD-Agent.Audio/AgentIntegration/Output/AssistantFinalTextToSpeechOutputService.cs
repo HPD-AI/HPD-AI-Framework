@@ -39,7 +39,7 @@ public sealed class AssistantFinalTextToSpeechOutputService
         var responseId = request.ResponseId ?? new ResponseId($"response-{Guid.NewGuid():N}");
         var correlation = new AudioCorrelation
         {
-            ConversationId = request.Branch.SessionId,
+            ConversationId = request.Thread.SessionId,
             RequestId = request.RequestId,
             SessionId = request.SessionId,
             OutputFlowId = outputFlowId
@@ -113,7 +113,7 @@ public sealed class AssistantFinalTextToSpeechOutputService
             new TextToSpeechSynthesisContext
             {
                 SessionId = request.SessionId,
-                Branch = request.Branch,
+                Thread = request.Thread,
                 Correlation = correlation,
                 Options = request.Options,
                 EmitEvent = request.EmitEvent
@@ -208,7 +208,7 @@ public sealed record AssistantFinalTextToSpeechOutputRequest
 {
     public required AudioSessionId SessionId { get; init; }
 
-    public required BranchRef Branch { get; init; }
+    public required ThreadRef Thread { get; init; }
 
     public required string Text { get; init; }
 

@@ -70,7 +70,7 @@ public class Module9Tests : IDisposable
         await rewriteBuilder.WriteAsync();
 
         // Assert - Repository state should be unchanged before commit
-        Assert.Equal(initialHeadData.Branches, repo.CurrentViewData.Branches);
+        Assert.Equal(initialHeadData.Threads, repo.CurrentViewData.Threads);
         Assert.Equal(initialHeadData.WorkspaceCommitIds, repo.CurrentViewData.WorkspaceCommitIds);
         
         // The original commit should still exist and be unchanged
@@ -116,7 +116,7 @@ public class Module9Tests : IDisposable
         GC.Collect(); // Force cleanup
 
         // Assert - Repository state should be exactly the same
-        Assert.Equal(initialHeadData.Branches, repo.CurrentViewData.Branches);
+        Assert.Equal(initialHeadData.Threads, repo.CurrentViewData.Threads);
         Assert.Equal(initialHeadData.WorkspaceCommitIds, repo.CurrentViewData.WorkspaceCommitIds);
         
         // The original commit should still exist and be unchanged
@@ -206,11 +206,11 @@ public class Module9Tests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(repo.RepoPath, "fileB.txt"), "Content B");
         var commitB = await repo.CommitAsync("Commit B", _userSettings, new SnapshotOptions());
         
-        // Create branch for parallel development
-        // Commit C (left branch)
+        // Create thread for parallel development
+        // Commit C (left thread)
         await File.WriteAllTextAsync(Path.Combine(repo.RepoPath, "fileC.txt"), "Content C");
         var commitC = await repo.CommitAsync("Commit C", _userSettings, new SnapshotOptions());
-          // Go back to B and create commit D (right branch)
+          // Go back to B and create commit D (right thread)
         await repo.CheckoutAsync(commitB!.Value, new CheckoutOptions(), _userSettings);
         await File.WriteAllTextAsync(Path.Combine(repo.RepoPath, "fileD.txt"), "Content D");
         var commitD = await repo.CommitAsync("Commit D", _userSettings, new SnapshotOptions());
@@ -346,10 +346,10 @@ public class Module9Tests : IDisposable
 
     #endregion
 
-    #region Branch/Workspace Pointer Updates Tests
+    #region Thread/Workspace Pointer Updates Tests
 
     [Fact]
-    public async Task Describe_UpdatesBranchPointers()
+    public async Task Describe_UpdatesThreadPointers()
     {
         // Arrange
         var repo = await InitializeRepository();
@@ -357,16 +357,16 @@ public class Module9Tests : IDisposable
         // Create initial commit
         await File.WriteAllTextAsync(Path.Combine(repo.RepoPath, "file1.txt"), "Initial content");
         var initialCommit = await repo.CommitAsync("Initial commit", _userSettings, new SnapshotOptions());
-          // Create a branch pointing to this commit
-        var branchName = "test-branch";
-        var newBranches = new Dictionary<string, CommitId>(repo.CurrentViewData.Branches)
+          // Create a thread pointing to this commit
+        var threadName = "test-thread";
+        var newThreads = new Dictionary<string, CommitId>(repo.CurrentViewData.Threads)
         {
-            [branchName] = initialCommit!.Value
+            [threadName] = initialCommit!.Value
         };
         var updatedViewData = new ViewData(
             repo.CurrentViewData.WorkspaceCommitIds,
             repo.CurrentViewData.HeadCommitIds,
-            newBranches
+            newThreads
         );
         
         // Simulate updating the repository view data by directly updating the internal state
@@ -375,15 +375,15 @@ public class Module9Tests : IDisposable
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
         viewField?.SetValue(repo, updatedViewData);
 
-        // Act - Describe the commit that the branch points to
+        // Act - Describe the commit that the thread points to
         var operationId = await repo.DescribeAsync(initialCommit.Value, "Modified description", _userSettings);
 
-        // Assert - Branch pointer should move to the new commit
-        var newBranchCommit = repo.CurrentViewData.Branches[branchName];
-        Assert.NotEqual(initialCommit.Value, newBranchCommit); // Should be different commit ID
+        // Assert - Thread pointer should move to the new commit
+        var newThreadCommit = repo.CurrentViewData.Threads[threadName];
+        Assert.NotEqual(initialCommit.Value, newThreadCommit); // Should be different commit ID
         
         // Verify the new commit has the updated description
-        var newCommitData = await repo.ObjectStore.ReadCommitAsync(newBranchCommit);
+        var newCommitData = await repo.ObjectStore.ReadCommitAsync(newThreadCommit);
         Assert.True(newCommitData.HasValue);
         Assert.Equal("Modified description", newCommitData.Value.Description);
     }
@@ -416,7 +416,7 @@ public class Module9Tests : IDisposable
     }
 
     [Fact]
-    public async Task Squash_UpdatesBranchAndWorkspacePointers()
+    public async Task Squash_UpdatesThreadAndWorkspacePointers()
     {
         // Arrange
         var repo = await InitializeRepository();
@@ -427,16 +427,16 @@ public class Module9Tests : IDisposable
         
         await File.WriteAllTextAsync(Path.Combine(repo.RepoPath, "fileB.txt"), "Content B");
         var commitB = await repo.CommitAsync("Commit B", _userSettings, new SnapshotOptions());
-          // Create a branch pointing to commit B
-        var branchName = "test-branch";
-        var newBranches = new Dictionary<string, CommitId>(repo.CurrentViewData.Branches)
+          // Create a thread pointing to commit B
+        var threadName = "test-thread";
+        var newThreads = new Dictionary<string, CommitId>(repo.CurrentViewData.Threads)
         {
-            [branchName] = commitB!.Value
+            [threadName] = commitB!.Value
         };
         var updatedViewData = new ViewData(
             repo.CurrentViewData.WorkspaceCommitIds,
             repo.CurrentViewData.HeadCommitIds,
-            newBranches
+            newThreads
         );
         
         // Simulate updating the repository view data
@@ -447,17 +447,17 @@ public class Module9Tests : IDisposable
         // Act - Squash B into A
         var operationId = await repo.SquashAsync(commitB.Value, _userSettings);
 
-        // Assert - Both branch and workspace pointers should move to the squashed commit
-        var newBranchCommit = repo.CurrentViewData.Branches[branchName];
+        // Assert - Both thread and workspace pointers should move to the squashed commit
+        var newThreadCommit = repo.CurrentViewData.Threads[threadName];
         var newWorkspaceCommit = repo.CurrentViewData.WorkspaceCommitIds["default"];
         
         // They should both point to the same new squashed commit
-        Assert.Equal(newBranchCommit, newWorkspaceCommit);
-        Assert.NotEqual(commitB.Value, newBranchCommit); // Should be different from original B
-        Assert.NotEqual(commitA!.Value, newBranchCommit); // Should be different from original A
+        Assert.Equal(newThreadCommit, newWorkspaceCommit);
+        Assert.NotEqual(commitB.Value, newThreadCommit); // Should be different from original B
+        Assert.NotEqual(commitA!.Value, newThreadCommit); // Should be different from original A
         
         // Verify the new commit has combined changes
-        var squashedCommit = await repo.ObjectStore.ReadCommitAsync(newBranchCommit);
+        var squashedCommit = await repo.ObjectStore.ReadCommitAsync(newThreadCommit);
         Assert.True(squashedCommit.HasValue);
         
         var squashedTree = await repo.ObjectStore.ReadTreeAsync(squashedCommit.Value.RootTreeId);

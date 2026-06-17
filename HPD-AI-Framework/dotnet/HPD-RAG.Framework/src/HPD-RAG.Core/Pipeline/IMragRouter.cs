@@ -3,7 +3,7 @@ using HPD.RAG.Core.Context;
 namespace HPD.RAG.Core.Pipeline;
 
 /// <summary>
-/// Tier 1.5 custom node — runtime routing decisions (quality branching, classification, guardrails).
+/// Tier 1.5 custom node — runtime routing decisions (quality threading, classification, guardrails).
 /// MRAG bridges this to HPD.Graph's PortOutputs internally.
 /// Builder exposes .Port(n).To() for port-based edge wiring.
 /// </summary>
