@@ -24,7 +24,7 @@ namespace HPD.Agent.Permissions;
 /// <item>If no stored permission, emit PermissionRequestEvent and wait for response</item>
 /// </list>
 ///
-/// <para><b>Bidirectional Events:</b></para>
+/// <para><b>Request Session Events:</b></para>
 /// <list type="bullet">
 /// <item><see cref="PermissionRequestEvent"/>: Emitted to request user permission</item>
 /// <item><see cref="PermissionResponseEvent"/>: Expected response from UI handler</item>
@@ -246,9 +246,9 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             }
         }
 
-        //     
-        // REQUEST PERMISSION VIA BIDIRECTIONAL EVENTS
-        //     
+        //
+        // REQUEST PERMISSION VIA REQUEST SESSION
+        //
 
         var permissionId = Guid.NewGuid().ToString();
         // Wait for response from external handler
@@ -387,7 +387,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             }
         }
 
-        // Request permission via bidirectional events
+        // Request permission via a request session
         var permissionId = Guid.NewGuid().ToString();
         // Wait for response from external handler
         PermissionResponseEvent response;

@@ -45,14 +45,16 @@ public class SubAgentRuntimeTests
         var childBranch = await store.LoadBranchAsync(route.SessionId, route.BranchId);
         childBranch.Should().NotBeNull();
         childBranch!.Messages.Should().HaveCount(parentBranch.Messages.Count);
-        childBranch.Metadata["kind"].Should().Be("subagent");
-        childBranch.Metadata["subAgentName"].Should().Be("Reviewer");
-        childBranch.Metadata["parentSessionId"].Should().Be("parent-session");
-        childBranch.Metadata["parentBranchId"].Should().Be("main");
-        childBranch.Metadata["sessionPolicy"].Should().Be(nameof(SubAgentSessionPolicy.ParentSession));
-        childBranch.Metadata["branchPolicy"].Should().Be(nameof(SubAgentBranchPolicy.ForkFromParentBranch));
-        childBranch.Metadata["visibility"].Should().Be("hidden");
+        childBranch.Kind.Should().Be(BranchKind.SubAgent);
+        childBranch.SubAgentName.Should().Be("Reviewer");
+        childBranch.ParentSessionId.Should().Be("parent-session");
+        childBranch.ParentBranchId.Should().Be("main");
+        childBranch.SessionPolicy.Should().Be(nameof(SubAgentSessionPolicy.ParentSession));
+        childBranch.BranchPolicy.Should().Be(nameof(SubAgentBranchPolicy.ForkFromParentBranch));
+        childBranch.Visibility.Should().Be(BranchVisibility.Hidden);
         childBranch.Metadata["purpose"].Should().Be("review-current-branch");
+        childBranch.Metadata.Should().NotContainKey("kind");
+        childBranch.Metadata.Should().NotContainKey("parentBranchId");
 
         context.ResultMetadata.TryGet<string>("subAgentStatus", out var status).Should().BeTrue();
         status.Should().Be("started");
@@ -86,8 +88,9 @@ public class SubAgentRuntimeTests
         var childBranch = await store.LoadBranchAsync(route.SessionId, route.BranchId);
         childBranch.Should().NotBeNull();
         childBranch!.Messages.Should().BeEmpty();
-        childBranch.Metadata["kind"].Should().Be("subagent");
-        childBranch.Metadata["branchPolicy"].Should().Be(nameof(SubAgentBranchPolicy.FreshBranch));
+        childBranch.Kind.Should().Be(BranchKind.SubAgent);
+        childBranch.BranchPolicy.Should().Be(nameof(SubAgentBranchPolicy.FreshBranch));
+        childBranch.Metadata.Should().NotContainKey("kind");
     }
 
     [Fact]

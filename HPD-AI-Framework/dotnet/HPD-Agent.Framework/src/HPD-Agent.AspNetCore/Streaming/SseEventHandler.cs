@@ -134,17 +134,8 @@ internal static class SseEventHandler
         if (branch == null)
             return false;
 
-        return IsMetadataValue(branch.Metadata, "kind", "subagent") &&
-            IsMetadataValue(branch.Metadata, "parentSessionId", routeSessionId) &&
-            IsMetadataValue(branch.Metadata, "parentBranchId", routeBranchId);
-    }
-
-    private static bool IsMetadataValue(
-        IReadOnlyDictionary<string, object> metadata,
-        string key,
-        string expected)
-    {
-        return metadata.TryGetValue(key, out var value) &&
-            string.Equals(Convert.ToString(value), expected, StringComparison.Ordinal);
+        return branch.Kind == BranchKind.SubAgent &&
+            string.Equals(branch.ParentSessionId, routeSessionId, StringComparison.Ordinal) &&
+            string.Equals(branch.ParentBranchId, routeBranchId, StringComparison.Ordinal);
     }
 }

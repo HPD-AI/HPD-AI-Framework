@@ -27,12 +27,59 @@ public sealed record BranchEventDocument
     public List<AgentEvent> Events { get; init; } = [];
 }
 
+public sealed record BranchEventStreamMetadata
+{
+    public string Schema { get; init; } = "hpd.agent.branch.meta";
+    public int Version { get; init; } = 1;
+    public required string SessionId { get; init; }
+    public required string BranchId { get; init; }
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;
+    public long NextSequenceNumber { get; init; } = 1;
+    public string? Name { get; init; }
+    public string? Description { get; init; }
+    public List<string>? Tags { get; init; }
+    public BranchKind Kind { get; init; } = BranchKind.Conversation;
+    public BranchVisibility Visibility { get; init; } = BranchVisibility.Visible;
+    public string? ParentSessionId { get; init; }
+    public string? ParentBranchId { get; init; }
+    public string? SubAgentName { get; init; }
+    public string? SubAgentRunId { get; init; }
+    public string? SubAgentSourceKind { get; init; }
+    public string? ParentToolCallId { get; init; }
+    public string? SessionPolicy { get; init; }
+    public string? BranchPolicy { get; init; }
+    public int MessageCount { get; init; }
+}
+
+public sealed record BranchProjectionCache
+{
+    public string Schema { get; init; } = "hpd.agent.branch.projection-cache";
+    public int Version { get; init; } = 1;
+    public required string SessionId { get; init; }
+    public required string BranchId { get; init; }
+    public required long LastSequenceNumber { get; init; }
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;
+    public required Branch Branch { get; init; }
+}
+
 public sealed record BranchCreatedEvent(
     string? Name,
     string? Description,
     List<string>? Tags,
     Dictionary<string, object>? BranchMetadata,
-    DateTime CreatedAt) : AgentEvent;
+    DateTime CreatedAt,
+    BranchKind BranchKind = BranchKind.Conversation,
+    BranchVisibility Visibility = BranchVisibility.Visible,
+    string? ParentSessionId = null,
+    string? ParentBranchId = null,
+    string? SubAgentName = null,
+    string? SubAgentRunId = null,
+    string? SubAgentSourceKind = null,
+    string? ParentToolCallId = null,
+    string? SessionPolicy = null,
+    string? BranchPolicy = null) : AgentEvent;
 
 public sealed record BranchForkedEvent(
     string SourceBranchId,
@@ -44,7 +91,17 @@ public sealed record BranchMetadataUpdatedEvent(
     string? Name,
     string? Description,
     List<string>? Tags,
-    Dictionary<string, object>? BranchMetadata) : AgentEvent;
+    Dictionary<string, object>? BranchMetadata,
+    BranchKind BranchKind = BranchKind.Conversation,
+    BranchVisibility Visibility = BranchVisibility.Visible,
+    string? ParentSessionId = null,
+    string? ParentBranchId = null,
+    string? SubAgentName = null,
+    string? SubAgentRunId = null,
+    string? SubAgentSourceKind = null,
+    string? ParentToolCallId = null,
+    string? SessionPolicy = null,
+    string? BranchPolicy = null) : AgentEvent;
 
 public sealed record BranchTreeUpdatedEvent(
     string? ForkedFrom,
@@ -92,7 +149,17 @@ public static class BranchEventFactory
             branch.Description,
             branch.Tags,
             branch.Metadata.Count > 0 ? branch.Metadata : null,
-            branch.CreatedAt));
+            branch.CreatedAt,
+            branch.Kind,
+            branch.Visibility,
+            branch.ParentSessionId,
+            branch.ParentBranchId,
+            branch.SubAgentName,
+            branch.SubAgentRunId,
+            branch.SubAgentSourceKind,
+            branch.ParentToolCallId,
+            branch.SessionPolicy,
+            branch.BranchPolicy));
 
     public static AgentEvent BranchForked(Branch branch) =>
         branch.ForkedFrom is null
@@ -108,7 +175,17 @@ public static class BranchEventFactory
             branch.Name,
             branch.Description,
             branch.Tags,
-            branch.Metadata.Count > 0 ? branch.Metadata : null));
+            branch.Metadata.Count > 0 ? branch.Metadata : null,
+            branch.Kind,
+            branch.Visibility,
+            branch.ParentSessionId,
+            branch.ParentBranchId,
+            branch.SubAgentName,
+            branch.SubAgentRunId,
+            branch.SubAgentSourceKind,
+            branch.ParentToolCallId,
+            branch.SessionPolicy,
+            branch.BranchPolicy));
 
     public static AgentEvent BranchTreeUpdated(Branch branch) =>
         Scope(branch.SessionId, branch.Id, new BranchTreeUpdatedEvent(

@@ -1,27 +1,36 @@
 namespace HPD.Events;
 
 /// <summary>
-/// Request/response surface for bidirectional event workflows.
+/// Request/response surface for request-session event workflows.
 /// </summary>
 public interface IRequestResponseBus
 {
     /// <summary>
-    /// Emit a bidirectional request and wait for its matching response.
+    /// Start a tracked answerable request session without requiring the caller to await it immediately.
+    /// </summary>
+    RequestHandle StartRequest<TRequest, TResponse>(
+        TRequest request,
+        RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent;
+
+    /// <summary>
+    /// Start a request session and wait for its matching response.
     /// </summary>
     Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
         TimeSpan timeout,
         CancellationToken ct = default)
-        where TRequest : Event, IBidirectionalEvent
-        where TResponse : Event;
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent;
 
     /// <summary>
-    /// Complete a pending request with a response, throwing when no waiter exists.
+    /// Attempt to resolve a pending request with a response.
     /// </summary>
-    void Respond(string requestId, Event response);
+    RespondResult Respond(Event response);
 
     /// <summary>
-    /// Try to complete a pending request with a response.
+    /// Attempt to resolve a pending request with a response.
     /// </summary>
-    bool TryRespond(string requestId, Event response);
+    RespondResult Respond(string requestId, Event response);
 }

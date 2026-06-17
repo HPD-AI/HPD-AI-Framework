@@ -103,6 +103,22 @@ public static partial class EventTypes
 
     #endregion
 
+    #region Request Lifecycle Events
+
+    /// <summary>
+    /// Generic request-session lifecycle events projected onto the Agent event surface.
+    /// </summary>
+    public static class RequestLifecycle
+    {
+        public const string AGENT_REQUEST_STARTED = "AGENT_REQUEST_STARTED";
+        public const string AGENT_REQUEST_RESOLVED = "AGENT_REQUEST_RESOLVED";
+        public const string AGENT_REQUEST_EXPIRED = "AGENT_REQUEST_EXPIRED";
+        public const string AGENT_REQUEST_CANCELLED = "AGENT_REQUEST_CANCELLED";
+        public const string AGENT_RESPONSE_REJECTED = "AGENT_RESPONSE_REJECTED";
+    }
+
+    #endregion
+
     #region Permission Events
 
     /// <summary>
@@ -152,7 +168,7 @@ public static partial class EventTypes
     #region Client Tool Events
 
     /// <summary>
-    /// Client tool bidirectional events.
+    /// Client tool request/response events.
     /// </summary>
     public static class ClientTool
     {
@@ -187,7 +203,7 @@ public static partial class EventTypes
         public const string NESTED_AGENT_INVOKED = "NESTED_AGENT_INVOKED";
         public const string DOCUMENT_PROCESSED = "DOCUMENT_PROCESSED";
         public const string INTERNAL_MESSAGE_PREPARED = "INTERNAL_MESSAGE_PREPARED";
-        public const string BIDIRECTIONAL_EVENT_PROCESSED = "BIDIRECTIONAL_EVENT_PROCESSED";
+        public const string REQUEST_EVENT_PROCESSED = "REQUEST_EVENT_PROCESSED";
         public const string AGENT_DECISION = "AGENT_DECISION";
         public const string AGENT_COMPLETION = "AGENT_COMPLETION";
         public const string ITERATION_CONTEXT_SNAPSHOT = "ITERATION_CONTEXT_SNAPSHOT";

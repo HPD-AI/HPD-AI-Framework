@@ -8,8 +8,8 @@ namespace HPD.Events.Core;
 /// </summary>
 internal sealed class EventChannelRouter : IDisposable
 {
-    private readonly ConcurrentDictionary<string, (TaskCompletionSource<Event>, CancellationTokenSource)>
-        _responseWaiters = new();
+    private readonly ConcurrentDictionary<string, RequestSession> _requestSessions = new();
+    private readonly ConcurrentDictionary<string, TerminalRequestState> _terminalRequests = new();
     private readonly ConcurrentDictionary<EventChannelRouter, byte> _children = new();
     private readonly List<IClassEventSubscriber> _subscribers = new();
     private readonly EventFlowRegistry _eventFlowRegistry = new();
@@ -157,54 +157,117 @@ internal sealed class EventChannelRouter : IDisposable
         _parentCoordinator = parent;
     }
 
-    internal async Task<TResponse> WaitForResponseAsync<TResponse>(
-        string requestId,
-        TimeSpan timeout,
-        CancellationToken ct = default) where TResponse : Event
+    public RequestHandle StartRequest<TRequest, TResponse>(
+        TRequest request,
+        RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent
     {
-        if (string.IsNullOrWhiteSpace(requestId))
-            throw new ArgumentException("Request ID cannot be null or whitespace", nameof(requestId));
-
+        ArgumentNullException.ThrowIfNull(request);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        var tcs = new TaskCompletionSource<Event>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (string.IsNullOrWhiteSpace(request.RequestId))
+            throw new ArgumentException("Request ID cannot be null or whitespace", nameof(request));
 
-        if (!_responseWaiters.TryAdd(requestId, (tcs, cts)))
-            throw new InvalidOperationException($"Duplicate request ID: {requestId}");
+        options ??= new RequestOptions();
+        var timeoutCts = options.CancellationToken.CanBeCanceled
+            ? CancellationTokenSource.CreateLinkedTokenSource(options.CancellationToken)
+            : new CancellationTokenSource();
+        var completion = new TaskCompletionSource<Event>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var session = new RequestSession(
+            request.RequestId,
+            request.SourceName,
+            request,
+            typeof(TRequest),
+            typeof(TResponse),
+            completion,
+            timeoutCts,
+            options.Timeout,
+            request.ResponsePolicy,
+            request.Target,
+            request.Visibility);
+
+        if (!_requestSessions.TryAdd(request.RequestId, session))
+        {
+            timeoutCts.Dispose();
+            throw new InvalidOperationException($"Duplicate request ID: {request.RequestId}");
+        }
+
+        if (options.Timeout is { } timeout)
+        {
+            timeoutCts.CancelAfter(timeout);
+        }
+
+        session.CancellationRegistration = timeoutCts.Token.Register(() =>
+        {
+            if (options.CancellationToken.IsCancellationRequested)
+                CancelLocalRequest(request.RequestId, "Request cancellation was requested.");
+            else
+                ExpireLocalRequest(request.RequestId);
+        });
 
         try
         {
-            cts.CancelAfter(timeout);
-            using var registration = cts.Token.Register(() =>
-            {
-                _responseWaiters.TryRemove(requestId, out _);
-                tcs.TrySetCanceled(cts.Token);
-            });
+            PublishDiagnostic(new RequestStartedEvent(
+                request.RequestId,
+                request.SourceName,
+                typeof(TRequest).Name,
+                typeof(TResponse).Name,
+                request.ResponsePolicy,
+                request.Target,
+                request.Visibility,
+                session.CreatedAt), skipSubscriberId: null);
 
-            var response = await tcs.Task.ConfigureAwait(false);
+            Emit(request);
+        }
+        catch
+        {
+            _requestSessions.TryRemove(request.RequestId, out _);
+            session.DisposeCancellation();
+            throw;
+        }
 
-            if (response is not TResponse typedResponse)
-            {
-                throw new InvalidOperationException(
-                    $"Response type mismatch. Expected {typeof(TResponse).Name}, got {response.GetType().Name}");
-            }
+        return new RequestHandle(
+            request.RequestId,
+            completion.Task,
+            () => session.ToSnapshot(),
+            reason => CancelLocalRequest(request.RequestId, reason));
+    }
 
-            return typedResponse;
+    internal async Task<TResponse> RequestAsync<TRequest, TResponse>(
+        TRequest request,
+        TimeSpan timeout,
+        CancellationToken ct = default)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent
+    {
+        var handle = StartRequest<TRequest, TResponse>(
+            request,
+            new RequestOptions { Timeout = timeout, CancellationToken = ct });
+
+        try
+        {
+            var response = await handle.Response.ConfigureAwait(false);
+            return (TResponse)response;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             throw new TimeoutException(
-                $"No response received for request ID '{requestId}' within {timeout.TotalSeconds:F1}s");
-        }
-        finally
-        {
-            _responseWaiters.TryRemove(requestId, out _);
-            cts.Dispose();
+                $"No response received for request ID '{request.RequestId}' within {timeout.TotalSeconds:F1}s");
         }
     }
 
-    public bool TryRespond(string requestId, Event response)
+    public RespondResult Respond(Event response)
+    {
+        if (response is not IResponseEvent responseEvent)
+        {
+            throw new ArgumentException("Response event must implement IResponseEvent.", nameof(response));
+        }
+
+        return Respond(responseEvent.RequestId, response);
+    }
+
+    public RespondResult Respond(string requestId, Event response, bool publishRejection = true)
     {
         if (string.IsNullOrWhiteSpace(requestId))
             throw new ArgumentException("Request ID cannot be null or whitespace", nameof(requestId));
@@ -213,19 +276,36 @@ internal sealed class EventChannelRouter : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         var matches = new List<EventChannelRouter>();
-        FindResponseWaiters(requestId, matches);
+        FindRequestSessions(requestId, matches);
 
         if (matches.Count == 0)
-            return false;
+        {
+            var terminal = FindTerminalRequest(requestId);
+            var status = terminal?.Status switch
+            {
+                RespondStatus.Accepted => RespondStatus.AlreadyResolved,
+                RespondStatus.TimedOut => RespondStatus.TimedOut,
+                RespondStatus.Cancelled => RespondStatus.Cancelled,
+                _ => RespondStatus.NotFound
+            };
+            var result = RespondResult.For(status, requestId, terminal?.Message ?? "No pending request session found.");
+            if (publishRejection)
+                PublishResponseRejected(requestId, response, result);
+
+            return result;
+        }
 
         if (matches.Count > 1)
         {
-            throw new InvalidOperationException(
-                $"Multiple pending response waiters found for request ID '{requestId}' in the coordinator hierarchy.");
+            var result = RespondResult.For(
+                RespondStatus.AmbiguousRequest,
+                requestId,
+                $"Multiple pending request sessions found for request ID '{requestId}' in the coordinator hierarchy.");
+            PublishResponseRejected(requestId, response, result);
+            return result;
         }
 
-        matches[0].CompleteLocalResponse(requestId, response);
-        return true;
+        return matches[0].CompleteLocalResponse(requestId, response);
     }
 
     public EventCoordinatorStats GetStats()
@@ -416,25 +496,175 @@ internal sealed class EventChannelRouter : IDisposable
 
     private void OnSubscriberDropped() => Interlocked.Increment(ref _totalDropped);
 
-    private void FindResponseWaiters(string requestId, List<EventChannelRouter> matches)
+    private void FindRequestSessions(string requestId, List<EventChannelRouter> matches)
     {
         if (_disposed)
             return;
 
-        if (_responseWaiters.ContainsKey(requestId))
+        if (_requestSessions.ContainsKey(requestId))
             matches.Add(this);
 
         foreach (var child in _children.Keys)
-            child.FindResponseWaiters(requestId, matches);
+            child.FindRequestSessions(requestId, matches);
     }
 
-    private void CompleteLocalResponse(string requestId, Event response)
+    private TerminalRequestState? FindTerminalRequest(string requestId)
     {
-        if (_responseWaiters.TryRemove(requestId, out var waiter))
+        if (_terminalRequests.TryGetValue(requestId, out var terminal))
+            return terminal;
+
+        foreach (var child in _children.Keys)
         {
-            waiter.Item1.TrySetResult(response);
-            waiter.Item2.Dispose();
+            if (child.FindTerminalRequest(requestId) is { } childTerminal)
+                return childTerminal;
         }
+
+        return null;
+    }
+
+    private RespondResult CompleteLocalResponse(string requestId, Event response)
+    {
+        if (!_requestSessions.TryGetValue(requestId, out var session))
+            return RespondResult.For(RespondStatus.NotFound, requestId, "No pending request session found.");
+
+        if (response is not IResponseEvent responseEvent)
+        {
+            var result = RespondResult.For(
+                RespondStatus.ResponseTypeMismatch,
+                requestId,
+                "Response event must implement IResponseEvent.");
+            PublishResponseRejected(requestId, response, result);
+            return result;
+        }
+
+        if (!session.ExpectedResponseType.IsInstanceOfType(response))
+        {
+            var result = RespondResult.For(
+                RespondStatus.ResponseTypeMismatch,
+                requestId,
+                $"Response type mismatch. Expected {session.ExpectedResponseType.Name}, got {response.GetType().Name}.");
+            PublishResponseRejected(requestId, response, result);
+            return result;
+        }
+
+        if (!MatchesTarget(session, responseEvent))
+        {
+            var result = RespondResult.For(
+                RespondStatus.TargetMismatch,
+                requestId,
+                "Response did not match the request responder target.");
+            PublishResponseRejected(requestId, response, result);
+            return result;
+        }
+
+        if (!_requestSessions.TryRemove(requestId, out session))
+        {
+            var result = RespondResult.For(RespondStatus.AlreadyResolved, requestId, "Request has already resolved.");
+            PublishResponseRejected(requestId, response, result);
+            return result;
+        }
+
+        var resolvedAt = DateTimeOffset.UtcNow;
+        session.MarkResolved(resolvedAt);
+        session.DisposeCancellation();
+        _terminalRequests[requestId] = new TerminalRequestState(RespondStatus.Accepted, "Request has already resolved.");
+        session.Completion.TrySetResult(response);
+
+        PublishDiagnostic(new RequestResolvedEvent(
+            requestId,
+            session.SourceName,
+            session.RequestType.Name,
+            response.GetType().Name,
+            responseEvent.ResponderId,
+            responseEvent.ResponderGroup,
+            resolvedAt), skipSubscriberId: null);
+
+        return RespondResult.For(RespondStatus.Accepted, requestId);
+    }
+
+    private CancelRequestResult CancelLocalRequest(string requestId, string? reason)
+    {
+        if (!_requestSessions.TryRemove(requestId, out var session))
+        {
+            if (_terminalRequests.TryGetValue(requestId, out var terminal))
+            {
+                return terminal.Status switch
+                {
+                    RespondStatus.Accepted => new CancelRequestResult(CancelRequestStatus.AlreadyResolved, requestId),
+                    RespondStatus.TimedOut => new CancelRequestResult(CancelRequestStatus.TimedOut, requestId),
+                    RespondStatus.Cancelled => new CancelRequestResult(CancelRequestStatus.AlreadyCancelled, requestId),
+                    _ => new CancelRequestResult(CancelRequestStatus.NotFound, requestId)
+                };
+            }
+
+            return new CancelRequestResult(CancelRequestStatus.NotFound, requestId);
+        }
+
+        var cancelledAt = DateTimeOffset.UtcNow;
+        session.MarkCancelled(cancelledAt);
+        session.DisposeCancellation();
+        _terminalRequests[requestId] = new TerminalRequestState(RespondStatus.Cancelled, reason ?? "Request was cancelled.");
+        session.Completion.TrySetCanceled();
+        PublishDiagnostic(new RequestCancelledEvent(
+            requestId,
+            session.SourceName,
+            session.RequestType.Name,
+            reason,
+            cancelledAt), skipSubscriberId: null);
+
+        return new CancelRequestResult(CancelRequestStatus.Cancelled, requestId);
+    }
+
+    private void ExpireLocalRequest(string requestId)
+    {
+        if (!_requestSessions.TryRemove(requestId, out var session))
+            return;
+
+        var expiredAt = DateTimeOffset.UtcNow;
+        session.MarkExpired(expiredAt);
+        session.DisposeCancellation();
+        _terminalRequests[requestId] = new TerminalRequestState(RespondStatus.TimedOut, "Request timed out.");
+        session.Completion.TrySetCanceled();
+        PublishDiagnostic(new RequestExpiredEvent(
+            requestId,
+            session.SourceName,
+            session.RequestType.Name,
+            session.Timeout ?? TimeSpan.Zero,
+            expiredAt), skipSubscriberId: null);
+    }
+
+    private static bool MatchesTarget(RequestSession session, IResponseEvent response)
+    {
+        if (session.ResponsePolicy != ResponsePolicy.TargetedResponder || session.Target is not { } target)
+            return true;
+
+        if (!string.IsNullOrWhiteSpace(target.ResponderId) &&
+            !string.Equals(target.ResponderId, response.ResponderId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(target.ResponderGroup) &&
+            !string.Equals(target.ResponderGroup, response.ResponderGroup, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return target.RequiredCapabilities.Count == 0 ||
+            target.RequiredCapabilities.All(response.Capabilities.Contains);
+    }
+
+    private void PublishResponseRejected(string requestId, Event response, RespondResult result)
+    {
+        var responseEvent = response as IResponseEvent;
+        PublishDiagnostic(new ResponseRejectedEvent(
+            requestId,
+            response.GetType().Name,
+            result.Status,
+            result.Message,
+            responseEvent?.ResponderId,
+            responseEvent?.ResponderGroup,
+            DateTimeOffset.UtcNow), skipSubscriberId: null);
     }
 
     private async Task RunHandlerPumpAsync<TEvent>(
@@ -486,15 +716,103 @@ internal sealed class EventChannelRouter : IDisposable
             _subscribers.Clear();
         }
 
-        foreach (var (_, (tcs, cts)) in _responseWaiters)
+        foreach (var (requestId, session) in _requestSessions)
         {
-            tcs.TrySetCanceled();
-            cts.Dispose();
+            _requestSessions.TryRemove(requestId, out _);
+            session.MarkCancelled(DateTimeOffset.UtcNow);
+            session.DisposeCancellation();
+            _terminalRequests[requestId] = new TerminalRequestState(RespondStatus.Cancelled, "Coordinator disposed.");
+            session.Completion.TrySetCanceled();
         }
 
-        _responseWaiters.Clear();
+        _requestSessions.Clear();
         _children.Clear();
     }
+
+    private sealed class RequestSession
+    {
+        private RequestState _state = RequestState.Pending;
+        private DateTimeOffset? _resolvedAt;
+
+        public RequestSession(
+            string requestId,
+            string sourceName,
+            Event request,
+            Type requestType,
+            Type expectedResponseType,
+            TaskCompletionSource<Event> completion,
+            CancellationTokenSource cancellation,
+            TimeSpan? timeout,
+            ResponsePolicy responsePolicy,
+            ResponderTarget? target,
+            RequestVisibility visibility)
+        {
+            RequestId = requestId;
+            SourceName = sourceName;
+            Request = request;
+            RequestType = requestType;
+            ExpectedResponseType = expectedResponseType;
+            Completion = completion;
+            Cancellation = cancellation;
+            Timeout = timeout;
+            ResponsePolicy = responsePolicy;
+            Target = target;
+            Visibility = visibility;
+            CreatedAt = DateTimeOffset.UtcNow;
+        }
+
+        public string RequestId { get; }
+        public string SourceName { get; }
+        public Event Request { get; }
+        public Type RequestType { get; }
+        public Type ExpectedResponseType { get; }
+        public TaskCompletionSource<Event> Completion { get; }
+        public CancellationTokenSource Cancellation { get; }
+        public TimeSpan? Timeout { get; }
+        public ResponsePolicy ResponsePolicy { get; }
+        public ResponderTarget? Target { get; }
+        public RequestVisibility Visibility { get; }
+        public DateTimeOffset CreatedAt { get; }
+        public CancellationTokenRegistration CancellationRegistration { get; set; }
+
+        public void MarkResolved(DateTimeOffset resolvedAt)
+        {
+            _state = RequestState.Resolved;
+            _resolvedAt = resolvedAt;
+        }
+
+        public void MarkExpired(DateTimeOffset expiredAt)
+        {
+            _state = RequestState.Expired;
+            _resolvedAt = expiredAt;
+        }
+
+        public void MarkCancelled(DateTimeOffset cancelledAt)
+        {
+            _state = RequestState.Cancelled;
+            _resolvedAt = cancelledAt;
+        }
+
+        public RequestSnapshot ToSnapshot() => new(
+            RequestId,
+            SourceName,
+            RequestType.Name,
+            ExpectedResponseType.Name,
+            ResponsePolicy,
+            Target,
+            Visibility,
+            _state,
+            CreatedAt,
+            _resolvedAt);
+
+        public void DisposeCancellation()
+        {
+            CancellationRegistration.Dispose();
+            Cancellation.Dispose();
+        }
+    }
+
+    private sealed record TerminalRequestState(RespondStatus Status, string? Message);
 
     private interface IClassEventSubscriber
     {

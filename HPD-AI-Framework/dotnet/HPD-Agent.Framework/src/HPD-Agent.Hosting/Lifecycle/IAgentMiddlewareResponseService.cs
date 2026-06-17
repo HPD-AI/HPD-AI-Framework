@@ -4,10 +4,10 @@ namespace HPD.Agent.Hosting.Lifecycle;
 
 public interface IAgentMiddlewareResponseService
 {
-    Task<AgentServiceResult> RespondAsync(
+    Task<AgentServiceResult<RespondResult>> RespondAsync(
         string agentId,
         string sessionId,
         string branchId,
-        IBidirectionalEvent response,
+        IResponseEvent response,
         CancellationToken cancellationToken = default);
 }

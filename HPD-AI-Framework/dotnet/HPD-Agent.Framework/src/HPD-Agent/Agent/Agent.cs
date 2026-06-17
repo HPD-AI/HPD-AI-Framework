@@ -253,10 +253,13 @@ public sealed class Agent
             as ILoggerFactory;
 
         _agentLogger = loggerFactory?.CreateLogger<Agent>();
-        _eventSubscriptions = eventSubscriptionFactories?
+        var subscriptions = eventSubscriptionFactories?
             .Select(factory => factory(_eventCoordinator))
             .ToList()
             ?? [];
+
+        subscriptions.AddRange(CreateRequestLifecycleProjectionSubscriptions());
+        _eventSubscriptions = subscriptions;
     }
 
     /// <summary>
@@ -600,6 +603,70 @@ public sealed class Agent
         evt.Metadata == null && AgentMetadata != null
             ? evt with { Metadata = AgentMetadata }
             : evt;
+
+    private IReadOnlyList<IDisposable> CreateRequestLifecycleProjectionSubscriptions() =>
+    [
+        _eventCoordinator.Subscribe<HPD.Events.RequestStartedEvent>(evt =>
+        {
+            PublishProjectedLifecycleEvent(new AgentRequestStartedEvent(
+                evt.RequestId,
+                evt.SourceName,
+                evt.RequestEventType,
+                evt.ExpectedResponseEventType,
+                evt.ResponsePolicy,
+                evt.Target,
+                evt.Visibility,
+                evt.StartedAt));
+            return ValueTask.CompletedTask;
+        }),
+        _eventCoordinator.Subscribe<HPD.Events.RequestResolvedEvent>(evt =>
+        {
+            PublishProjectedLifecycleEvent(new AgentRequestResolvedEvent(
+                evt.RequestId,
+                evt.SourceName,
+                evt.RequestEventType,
+                evt.ResponseEventType,
+                evt.ResponderId,
+                evt.ResponderGroup,
+                evt.ResolvedAt));
+            return ValueTask.CompletedTask;
+        }),
+        _eventCoordinator.Subscribe<HPD.Events.RequestExpiredEvent>(evt =>
+        {
+            PublishProjectedLifecycleEvent(new AgentRequestExpiredEvent(
+                evt.RequestId,
+                evt.SourceName,
+                evt.RequestEventType,
+                evt.Timeout,
+                evt.ExpiredAt));
+            return ValueTask.CompletedTask;
+        }),
+        _eventCoordinator.Subscribe<HPD.Events.RequestCancelledEvent>(evt =>
+        {
+            PublishProjectedLifecycleEvent(new AgentRequestCancelledEvent(
+                evt.RequestId,
+                evt.SourceName,
+                evt.RequestEventType,
+                evt.Reason,
+                evt.CancelledAt));
+            return ValueTask.CompletedTask;
+        }),
+        _eventCoordinator.Subscribe<HPD.Events.ResponseRejectedEvent>(evt =>
+        {
+            PublishProjectedLifecycleEvent(new AgentResponseRejectedEvent(
+                evt.RequestId,
+                evt.ResponseEventType,
+                evt.Status,
+                evt.Reason,
+                evt.ResponderId,
+                evt.ResponderGroup,
+                evt.RejectedAt));
+            return ValueTask.CompletedTask;
+        })
+    ];
+
+    private void PublishProjectedLifecycleEvent(AgentEvent evt) =>
+        _eventCoordinator.Emit(EnrichOutputEvent(evt));
 
     private async Task CommitBranchMessagesAsync(
         Session? session,
@@ -1502,36 +1569,35 @@ public sealed class Agent
     }
 
     /// <summary>
-    /// Routes a bidirectional response event to the waiter matching its request ID.
+    /// Routes a response event to the request session matching its request ID.
     /// </summary>
-    public Task RespondAsync(
-        HPD.Events.IBidirectionalEvent response,
+    public Task<HPD.Events.RespondResult> RespondAsync(
+        HPD.Events.IResponseEvent response,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(response);
         cancellationToken.ThrowIfCancellationRequested();
 
         if (response is not HPD.Events.Event responseEvent)
-            throw new ArgumentException("Bidirectional response must also be an HPD.Events.Event.", nameof(response));
+            throw new ArgumentException("Response must also be an HPD.Events.Event.", nameof(response));
 
-        GetActiveEventCoordinator().Respond(response.RequestId, responseEvent);
-        return Task.CompletedTask;
+        return Task.FromResult(GetActiveEventCoordinator().Respond(response.RequestId, responseEvent));
     }
 
     /// <summary>
-    /// Attempts to route a bidirectional response event to the waiter matching its request ID.
+    /// Attempts to route a response event to the request session matching its request ID.
     /// </summary>
-    public Task<bool> TryRespondAsync(
-        HPD.Events.IBidirectionalEvent response,
+    public Task<HPD.Events.RespondResult> RespondIfPendingAsync(
+        HPD.Events.IResponseEvent response,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(response);
         cancellationToken.ThrowIfCancellationRequested();
 
         if (response is not HPD.Events.Event responseEvent)
-            throw new ArgumentException("Bidirectional response must also be an HPD.Events.Event.", nameof(response));
+            throw new ArgumentException("Response must also be an HPD.Events.Event.", nameof(response));
 
-        return Task.FromResult(GetActiveEventCoordinator().TryRespond(response.RequestId, responseEvent));
+        return Task.FromResult(GetActiveEventCoordinator().Respond(response.RequestId, responseEvent));
     }
 
     /// <summary>
@@ -3936,7 +4002,7 @@ public sealed class Agent
     /// <summary>
     /// Runs the agent with structured output, yielding typed results.
     /// This is the primary implementation - all other overloads delegate to this.
-    /// Preserves all bidirectional events (permissions, continuations, custom events).
+    /// Preserves all request events (permissions, continuations, custom events).
     /// </summary>
     /// <typeparam name="T">The output type. Must be a reference type for JSON deserialization.</typeparam>
     /// <param name="messages">Messages to process</param>
@@ -4019,12 +4085,12 @@ public sealed class Agent
         await foreach (var evt in RunTurnStreamAsync(messages, session, branch, options, cancellationToken))
         {
             // ═══════════════════════════════════════════════════════════════
-            // PASS-THROUGH: All bidirectional events (built-in + custom)
+            // PASS-THROUGH: All request events (built-in + custom)
             // Uses interface check - supports PermissionRequestEvent,
             // ContinuationRequestEvent, ClarificationRequestEvent, and any
-            // custom events implementing IBidirectionalEvent
+            // custom events implementing IAgentRequestEvent
             // ═══════════════════════════════════════════════════════════════
-            if (evt is IBidirectionalAgentEvent)
+            if (evt is IAgentRequestEvent)
             {
                 yield return evt;
                 continue;
@@ -5613,7 +5679,9 @@ public sealed class Agent
 
         if (forkOptions.Metadata != null)
         {
-            foreach (var kvp in forkOptions.Metadata)
+            var extensionMetadata = new Dictionary<string, object>(forkOptions.Metadata, StringComparer.Ordinal);
+            newBranch.ApplyRuntimeMetadata(extensionMetadata);
+            foreach (var kvp in extensionMetadata)
             {
                 newBranch.Metadata[kvp.Key] = kvp.Value;
             }

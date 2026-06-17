@@ -16,6 +16,12 @@ namespace HPD.Agent.Hosting.Data;
 /// <param name="MessageCount">Number of messages in this branch</param>
 /// <param name="Tags">Optional tags for categorizing branches</param>
 /// <param name="Metadata">Arbitrary branch-level metadata (optional)</param>
+/// <param name="Kind">Runtime classification for this branch</param>
+/// <param name="Visibility">Default list visibility for this branch</param>
+/// <param name="ParentSessionId">Parent session for runtime child branches</param>
+/// <param name="ParentBranchId">Parent branch for runtime child branches</param>
+/// <param name="SubAgentName">Subagent name when this is a subagent branch</param>
+/// <param name="SubAgentRunId">Subagent run id when this is a subagent branch</param>
 /// <param name="Ancestors">Full ancestry chain for multi-level fork tracking</param>
 /// <param name="SiblingIndex">Position among siblings at this fork point (0-based)</param>
 /// <param name="TotalSiblings">Total number of sibling branches at this fork point</param>
@@ -45,7 +51,13 @@ public record BranchDto(
     string? PreviousSiblingId,
     string? NextSiblingId,
     int TotalForks,
-    Dictionary<string, object>? Metadata = null);
+    Dictionary<string, object>? Metadata = null,
+    BranchKind Kind = BranchKind.Conversation,
+    BranchVisibility Visibility = BranchVisibility.Visible,
+    string? ParentSessionId = null,
+    string? ParentBranchId = null,
+    string? SubAgentName = null,
+    string? SubAgentRunId = null);
 
 /// <summary>
 /// Lightweight sibling branch metadata for navigation UI.

@@ -636,19 +636,20 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         }
     }
 
-    public Task RespondAsync(
+    public async Task RespondAsync(
         AgentTuiRuntimeScope scope,
         AgentEvent response,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(response);
 
-        if (response is not IBidirectionalEvent bidirectional)
+        if (response is not IResponseEvent responseEvent)
         {
-            throw new ArgumentException("Response event must implement IBidirectionalEvent.", nameof(response));
+            throw new ArgumentException("Response event must implement IResponseEvent.", nameof(response));
         }
 
-        return _agent.TryRespondAsync(bidirectional, cancellationToken);
+        await _agent.RespondIfPendingAsync(responseEvent, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<AgentEvent>> GetBranchEventsAsync(

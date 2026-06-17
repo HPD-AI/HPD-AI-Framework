@@ -55,7 +55,7 @@ namespace HPD.Graph.Abstractions.Events;
 /// // Continue with deletion...
 /// </code>
 /// </example>
-public sealed record NodeApprovalRequestEvent : GraphEvent, IBidirectionalGraphEvent
+public sealed record NodeApprovalRequestEvent : GraphEvent, IGraphRequestEvent
 {
     /// <summary>Unique identifier for this approval request</summary>
     public required string RequestId { get; init; }
@@ -86,7 +86,7 @@ public sealed record NodeApprovalRequestEvent : GraphEvent, IBidirectionalGraphE
 /// Response to node approval request.
 /// Sent by external handler back to waiting node.
 /// </summary>
-public sealed record NodeApprovalResponseEvent : GraphEvent, IBidirectionalGraphEvent
+public sealed record NodeApprovalResponseEvent : GraphEvent, IGraphResponseEvent
 {
     /// <summary>Unique identifier matching the request</summary>
     public required string RequestId { get; init; }

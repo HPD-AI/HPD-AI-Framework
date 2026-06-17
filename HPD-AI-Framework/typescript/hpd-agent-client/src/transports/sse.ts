@@ -1,6 +1,6 @@
-import { AgentError, parseErrorResponse } from '../errors.js';
+import { parseErrorResponse } from '../errors.js';
 import { SseParser } from '../parser.js';
-import type { AgentEvent, AgentRunInputEvent } from '../types/events.js';
+import type { AgentEvent, AgentRunInputEvent, RespondResult, RespondStatus } from '../types/events.js';
 import { EventTypes } from '../types/events.js';
 import type {
   AgentTransport,
@@ -76,7 +76,7 @@ export class SseTransport implements AgentTransport {
     void this.processStream(response.body);
   }
 
-  async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<void> {
+  async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<RespondResult | undefined> {
     const sessionId = 'sessionId' in input ? input.sessionId : undefined;
     const branchId = 'branchId' in input ? input.branchId : undefined;
     const agentId = 'agentId' in input ? input.agentId : undefined;
@@ -86,8 +86,7 @@ export class SseTransport implements AgentTransport {
     this.agentId = agentId ?? this.agentId;
 
     if (this.isResponseInput(input)) {
-      await this.postResponse(input);
-      return;
+      return this.postResponse(input);
     }
 
     if (!this.sessionId) {
@@ -119,6 +118,7 @@ export class SseTransport implements AgentTransport {
     }
 
     await response.body?.cancel().catch(() => undefined);
+    return undefined;
   }
 
   onEvent(handler: (event: AgentEvent) => void): void {
@@ -183,7 +183,7 @@ export class SseTransport implements AgentTransport {
       input.type === EventTypes.CLIENT_TOOL_INVOKE_RESPONSE;
   }
 
-  private async postResponse(input: AgentRunInputEvent): Promise<void> {
+  private async postResponse(input: AgentRunInputEvent): Promise<RespondResult> {
     if (!this.agentId || !this.sessionId || !this.branchId) {
       throw new Error('Not connected');
     }
@@ -194,35 +194,41 @@ export class SseTransport implements AgentTransport {
       body: JSON.stringify(input),
     });
 
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
+    const body = await response.json?.().catch(() => null) ?? null;
+    const requestId = requestIdForResponse(input);
 
-      if (response.status === 409) {
-        const details = body?.errors as Record<string, string[]> | undefined;
-        const serverCode = details ? Object.keys(details)[0] : undefined;
+    if (response.ok) {
+      return normalizeRespondResult(body, requestId);
+    }
 
-        if (details && serverCode) {
-          const messages = details[serverCode];
-
-          throw new AgentError(
-            messages?.[0] ?? body?.title ?? 'Response was not accepted',
-            serverCode,
-            {
-              statusCode: response.status,
-              details,
-            },
-          );
-        }
-
-        throw new AgentError(
-          'Response was not accepted because the request is no longer pending',
-          'STALE_RESPONSE',
-          { statusCode: response.status },
-        );
+    if (response.status === 409) {
+      if (body?.result) {
+        return normalizeRespondResult(body.result, requestId);
       }
 
-      throw parseErrorResponse(response, body);
+      const details = body?.errors as Record<string, string[]> | undefined;
+      const serverCode = details ? Object.keys(details)[0] : undefined;
+
+      if (details && serverCode) {
+        const messages = details[serverCode];
+        const status = normalizeRespondStatus(serverCode);
+        return {
+          status,
+          requestId,
+          message: messages?.[0] ?? body?.title ?? 'Response was not accepted',
+          accepted: status === 'accepted',
+        };
+      }
+
+      return {
+        status: 'alreadyResolved',
+        requestId,
+        message: 'Response was not accepted because the request is no longer pending',
+        accepted: false,
+      };
     }
+
+    throw parseErrorResponse(response, body);
   }
 
   private endpointForResponse(input: AgentRunInputEvent): string {
@@ -246,4 +252,65 @@ export class SseTransport implements AgentTransport {
 
     return controller.signal;
   }
+}
+
+function requestIdForResponse(input: AgentRunInputEvent): string {
+  if ('requestId' in input && typeof input.requestId === 'string') return input.requestId;
+  if ('permissionId' in input && typeof input.permissionId === 'string') return input.permissionId;
+  if ('continuationId' in input && typeof input.continuationId === 'string') return input.continuationId;
+  return '';
+}
+
+function normalizeRespondResult(value: unknown, fallbackRequestId: string): RespondResult {
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const status = normalizeRespondStatus(record.status);
+    return {
+      status,
+      requestId: typeof record.requestId === 'string' ? record.requestId : fallbackRequestId,
+      message: typeof record.message === 'string' ? record.message : null,
+      accepted: typeof record.accepted === 'boolean' ? record.accepted : status === 'accepted',
+    };
+  }
+
+  return {
+    status: 'accepted',
+    requestId: fallbackRequestId,
+    message: null,
+    accepted: true,
+  };
+}
+
+function normalizeRespondStatus(value: unknown): RespondStatus {
+  if (typeof value === 'number') {
+    return [
+      'accepted',
+      'notFound',
+      'alreadyResolved',
+      'timedOut',
+      'cancelled',
+      'responseTypeMismatch',
+      'targetMismatch',
+      'ambiguousRequest',
+    ][value] as RespondStatus | undefined ?? 'notFound';
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.charAt(0).toLowerCase() + value.slice(1);
+    switch (normalized) {
+      case 'accepted':
+      case 'notFound':
+      case 'alreadyResolved':
+      case 'timedOut':
+      case 'cancelled':
+      case 'responseTypeMismatch':
+      case 'targetMismatch':
+      case 'ambiguousRequest':
+        return normalized;
+      default:
+        return value.toUpperCase() === 'STALE_RESPONSE' ? 'alreadyResolved' : 'notFound';
+    }
+  }
+
+  return 'notFound';
 }

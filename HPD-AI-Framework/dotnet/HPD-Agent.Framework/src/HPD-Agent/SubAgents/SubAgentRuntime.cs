@@ -86,7 +86,9 @@ public static class SubAgentRuntime
         var branch = new Branch(sessionId, branchId) { Session = session };
         if (metadata != null)
         {
-            foreach (var kvp in metadata)
+            var extensionMetadata = new Dictionary<string, object>(metadata, StringComparer.Ordinal);
+            branch.ApplyRuntimeMetadata(extensionMetadata);
+            foreach (var kvp in extensionMetadata)
                 branch.Metadata[kvp.Key] = kvp.Value;
         }
 

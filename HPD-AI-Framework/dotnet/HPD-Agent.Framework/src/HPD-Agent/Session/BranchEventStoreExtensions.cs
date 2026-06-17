@@ -11,8 +11,20 @@ public static class BranchEventStoreExtensions
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(branch);
 
-        var document = BranchEventDocumentBuilder.FromInitialBranch(sessionId, branch);
-        return store.SaveBranchDocumentAsync(document, cancellationToken: cancellationToken);
+        return SaveAsync();
+
+        async Task SaveAsync()
+        {
+            var document = BranchEventDocumentBuilder.FromInitialBranch(sessionId, branch);
+            foreach (var evt in document.Events)
+            {
+                await store.AppendBranchEventAsync(
+                    sessionId,
+                    branch.Id,
+                    evt,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 
     public static Task AppendBranchMetadataUpdatedAsync(

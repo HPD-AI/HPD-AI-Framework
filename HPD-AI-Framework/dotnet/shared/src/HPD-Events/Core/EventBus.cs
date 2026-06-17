@@ -63,21 +63,29 @@ public sealed class EventBus :
     public EventBusStats GetStats() => ((IEventBus)_coordinator).GetStats();
 
     /// <inheritdoc />
+    public RequestHandle StartRequest<TRequest, TResponse>(
+        TRequest request,
+        RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent =>
+        _coordinator.StartRequest<TRequest, TResponse>(request, options);
+
+    /// <inheritdoc />
     public Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
         TimeSpan timeout,
         CancellationToken ct = default)
-        where TRequest : Event, IBidirectionalEvent
-        where TResponse : Event =>
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent =>
         _coordinator.RequestAsync<TRequest, TResponse>(request, timeout, ct);
 
     /// <inheritdoc />
-    public void Respond(string requestId, Event response) =>
-        _coordinator.Respond(requestId, response);
+    public RespondResult Respond(Event response) =>
+        _coordinator.Respond(response);
 
     /// <inheritdoc />
-    public bool TryRespond(string requestId, Event response) =>
-        _coordinator.TryRespond(requestId, response);
+    public RespondResult Respond(string requestId, Event response) =>
+        _coordinator.Respond(requestId, response);
 
     /// <inheritdoc />
     public void SetParent(IEventBus parent)

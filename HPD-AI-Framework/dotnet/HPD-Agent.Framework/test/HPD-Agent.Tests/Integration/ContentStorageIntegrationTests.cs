@@ -122,12 +122,12 @@ public class ContentStorageIntegrationTests
             await session.SaveAsync();
             await store.SaveInitialBranchAsync(session.Id, branch);
 
-            // Assert: Verify branch was saved with URI reference (not bytes)
-            var branchFile = Path.Combine(tempDir, session.Id, "branches", branch.Id, "branch.json");
-            Assert.True(File.Exists(branchFile));
-            var branchJson = await File.ReadAllTextAsync(branchFile);
-            Assert.Contains($"hpd-content://{contentId}", branchJson);
-            Assert.DoesNotContain("\"Data\":", branchJson); // Binary data NOT in branch JSON
+            // Assert: Verify branch stream was saved with URI reference (not bytes)
+            var branchEventsFile = Path.Combine(tempDir, session.Id, "branches", branch.Id, "branch.events.jsonl");
+            Assert.True(File.Exists(branchEventsFile));
+            var branchEventsJson = await File.ReadAllTextAsync(branchEventsFile);
+            Assert.Contains($"hpd-content://{contentId}", branchEventsJson);
+            Assert.DoesNotContain("\"Data\":", branchEventsJson); // Binary data NOT in branch event stream
         }
         finally
         {
@@ -508,6 +508,18 @@ public class ContentStorageIntegrationTests
 
         public Task<Branch?> LoadBranchAsync(string sessionId, string branchId, CancellationToken cancellationToken = default)
             => Task.FromResult<Branch?>(null);
+
+        public Task<BranchEventDocument?> LoadBranchDocumentAsync(string sessionId, string branchId, CancellationToken cancellationToken = default)
+            => Task.FromResult<BranchEventDocument?>(null);
+
+        public Task AppendBranchEventAsync(
+            string sessionId,
+            string branchId,
+            AgentEvent evt,
+            long? expectedSequenceNumber = null,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
         public Task<List<string>> ListBranchIdsAsync(string sessionId, CancellationToken cancellationToken = default)
             => Task.FromResult(new List<string>());
 

@@ -111,6 +111,13 @@ public static partial class AgentEventSerializer
 
         // Branch events removed - branching is now an application-level concern
 
+        // Request Lifecycle Events
+        [typeof(AgentRequestStartedEvent)] = EventTypes.RequestLifecycle.AGENT_REQUEST_STARTED,
+        [typeof(AgentRequestResolvedEvent)] = EventTypes.RequestLifecycle.AGENT_REQUEST_RESOLVED,
+        [typeof(AgentRequestExpiredEvent)] = EventTypes.RequestLifecycle.AGENT_REQUEST_EXPIRED,
+        [typeof(AgentRequestCancelledEvent)] = EventTypes.RequestLifecycle.AGENT_REQUEST_CANCELLED,
+        [typeof(AgentResponseRejectedEvent)] = EventTypes.RequestLifecycle.AGENT_RESPONSE_REJECTED,
+
         // Observability Events
         [typeof(CollapsedToolsVisibleEvent)] = EventTypes.Observability.COLLAPSED_TOOLS_VISIBLE,
         [typeof(ContainerExpandedEvent)] = EventTypes.Observability.CONTAINER_EXPANDED,
@@ -129,7 +136,7 @@ public static partial class AgentEventSerializer
         [typeof(NestedAgentInvokedEvent)] = EventTypes.Observability.NESTED_AGENT_INVOKED,
         [typeof(DocumentProcessedEvent)] = EventTypes.Observability.DOCUMENT_PROCESSED,
         [typeof(InternalMessagePreparedEvent)] = EventTypes.Observability.INTERNAL_MESSAGE_PREPARED,
-        [typeof(BidirectionalEventProcessedEvent)] = EventTypes.Observability.BIDIRECTIONAL_EVENT_PROCESSED,
+        [typeof(RequestEventProcessedEvent)] = EventTypes.Observability.REQUEST_EVENT_PROCESSED,
         [typeof(AgentDecisionEvent)] = EventTypes.Observability.AGENT_DECISION,
         [typeof(AgentCompletionEvent)] = EventTypes.Observability.AGENT_COMPLETION,
         [typeof(IterationContextSnapshotEvent)] = EventTypes.Observability.ITERATION_CONTEXT_SNAPSHOT,

@@ -11,25 +11,25 @@ namespace HPD.Agent.Tests.Core;
 
 public class RuntimeLifecycleTests : AgentTestBase
 {
-    private sealed record CustomBidirectionalResponseEvent(
+    private sealed record CustomRequestResponseEvent(
         string RequestId,
         string SourceName,
-        string Value) : AgentEvent, IBidirectionalAgentEvent
+        string Value) : AgentEvent, IAgentResponseEvent
     {
         public override EventChannel Channel { get; init; } = EventChannel.Interactive;
         public override EventKind Kind { get; init; } = EventKind.Control;
         public override EventDirection Direction { get; init; } = EventDirection.Upstream;
     }
 
-    private sealed record CustomBidirectionalRequestEvent(
+    private sealed record CustomRequestEvent(
         string RequestId,
-        string SourceName) : AgentEvent, IBidirectionalAgentEvent
+        string SourceName) : AgentEvent, IAgentRequestEvent
     {
         public override EventChannel Channel { get; init; } = EventChannel.Interactive;
         public override EventKind Kind { get; init; } = EventKind.Control;
     }
 
-    private sealed class NonEventBidirectionalResponseEvent : IBidirectionalEvent
+    private sealed class NonEventResponseEvent : IResponseEvent
     {
         public string RequestId { get; init; } = "non-event-response";
         public string SourceName { get; init; } = "test";
@@ -2655,7 +2655,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.TryRespondAsync(new PermissionResponseEvent("perm-1", "source", true), TestCancellationToken);
+        await agent.RespondIfPendingAsync(new PermissionResponseEvent("perm-1", "source", true), TestCancellationToken);
 
         Assert.Equal(0, middleware.BeforeMessageTurnCalls);
     }
@@ -2668,7 +2668,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.TryRespondAsync(new ClarificationResponseEvent("clar-1", "source", "question?", "answer"), TestCancellationToken);
+        await agent.RespondIfPendingAsync(new ClarificationResponseEvent("clar-1", "source", "question?", "answer"), TestCancellationToken);
 
         Assert.Equal(0, middleware.BeforeMessageTurnCalls);
     }
@@ -2681,7 +2681,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.TryRespondAsync(new ContinuationResponseEvent("cont-1", "source", true), TestCancellationToken);
+        await agent.RespondIfPendingAsync(new ContinuationResponseEvent("cont-1", "source", true), TestCancellationToken);
 
         Assert.Equal(0, middleware.BeforeMessageTurnCalls);
     }
@@ -2694,7 +2694,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.TryRespondAsync(new ClientToolInvokeResponseEvent("client-tool-1", "done"), TestCancellationToken);
+        await agent.RespondIfPendingAsync(new ClientToolInvokeResponseEvent("client-tool-1", "done"), TestCancellationToken);
 
         Assert.Equal(0, middleware.BeforeMessageTurnCalls);
     }
@@ -2737,37 +2737,37 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
-    public async Task RespondAsync_NonEventBidirectionalEvent_ThrowsArgumentException()
+    public async Task RespondAsync_NonEventResponseEvent_ThrowsArgumentException()
     {
         var agent = CreateAgent(client: new FakeChatClient());
 
         var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
-            agent.RespondAsync(new NonEventBidirectionalResponseEvent(), TestCancellationToken));
+            agent.RespondAsync(new NonEventResponseEvent(), TestCancellationToken));
 
         Assert.Contains("must also be an HPD.Events.Event", ex.Message);
     }
 
     [Fact]
-    public async Task TryRespondAsync_ResponseEvents_WithNoActiveWaiter_ReturnFalse()
+    public async Task RespondIfPendingAsync_ResponseEvents_WithNoActiveWaiter_ReturnsNotFound()
     {
         var agent = CreateAgent(client: new FakeChatClient());
 
-        Assert.False(await agent.TryRespondAsync(new PermissionResponseEvent("perm-1", "source", true), TestCancellationToken));
-        Assert.False(await agent.TryRespondAsync(new ContinuationResponseEvent("cont-1", "source", true), TestCancellationToken));
-        Assert.False(await agent.TryRespondAsync(new ClarificationResponseEvent("clar-1", "source", "question?", "answer"), TestCancellationToken));
-        Assert.False(await agent.TryRespondAsync(new ClientToolInvokeResponseEvent("client-tool-1", "done"), TestCancellationToken));
+        Assert.Equal(RespondStatus.NotFound, (await agent.RespondIfPendingAsync(new PermissionResponseEvent("perm-1", "source", true), TestCancellationToken)).Status);
+        Assert.Equal(RespondStatus.NotFound, (await agent.RespondIfPendingAsync(new ContinuationResponseEvent("cont-1", "source", true), TestCancellationToken)).Status);
+        Assert.Equal(RespondStatus.NotFound, (await agent.RespondIfPendingAsync(new ClarificationResponseEvent("clar-1", "source", "question?", "answer"), TestCancellationToken)).Status);
+        Assert.Equal(RespondStatus.NotFound, (await agent.RespondIfPendingAsync(new ClientToolInvokeResponseEvent("client-tool-1", "done"), TestCancellationToken)).Status);
     }
 
     [Fact]
-    public async Task RespondAsync_CustomBidirectionalEvent_RoutesByRequestId()
+    public async Task RespondAsync_CustomRequestEvent_RoutesByRequestId()
     {
         var agent = CreateAgent(client: new FakeChatClient());
-        var waitTask = agent.EventCoordinator.RequestAsync<CustomBidirectionalRequestEvent, CustomBidirectionalResponseEvent>(
-            new CustomBidirectionalRequestEvent("custom-request", "custom-source"),
+        var waitTask = agent.EventCoordinator.RequestAsync<CustomRequestEvent, CustomRequestResponseEvent>(
+            new CustomRequestEvent("custom-request", "custom-source"),
             TimeSpan.FromSeconds(5),
             TestCancellationToken);
 
-        await agent.RespondAsync(new CustomBidirectionalResponseEvent(
+        await agent.RespondAsync(new CustomRequestResponseEvent(
             "custom-request",
             "custom-source",
             "done"), TestCancellationToken);

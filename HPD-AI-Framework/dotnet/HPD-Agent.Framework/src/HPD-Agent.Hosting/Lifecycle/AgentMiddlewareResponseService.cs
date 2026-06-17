@@ -13,27 +13,33 @@ public sealed class AgentMiddlewareResponseService : IAgentMiddlewareResponseSer
         _agentManager = agentManager ?? throw new ArgumentNullException(nameof(agentManager));
     }
 
-    public async Task<AgentServiceResult> RespondAsync(
+    public async Task<AgentServiceResult<RespondResult>> RespondAsync(
         string agentId,
         string sessionId,
         string branchId,
-        IBidirectionalEvent response,
+        IResponseEvent response,
         CancellationToken cancellationToken = default)
     {
         if (!await RouteScopeExistsAsync(sessionId, branchId, cancellationToken))
-            return AgentServiceResult.NotFound;
+            return AgentServiceResult<RespondResult>.NotFound;
 
         var agent = _agentManager.GetRuntimeAgent(agentId, sessionId, branchId);
         if (agent == null)
         {
-            return AgentServiceResult.ConflictWith(
+            return AgentServiceResult<RespondResult>.ConflictWith(
                 "BranchRuntimeNotActive",
                 $"Branch '{branchId}' in session '{sessionId}' does not have an active runtime for agent '{agentId}'.");
         }
 
-        return await agent.TryRespondAsync(response, cancellationToken)
-            ? AgentServiceResult.Success
-            : AgentServiceResult.Conflict;
+        var result = await agent.RespondIfPendingAsync(response, cancellationToken)
+            .ConfigureAwait(false);
+
+        return result.Accepted
+            ? AgentServiceResult<RespondResult>.Success(result)
+            : AgentServiceResult<RespondResult>.ConflictWith(
+                result.Status.ToString(),
+                result.Message ?? "Response was not accepted.")
+                with { Value = result };
     }
 
     private async Task<bool> RouteScopeExistsAsync(

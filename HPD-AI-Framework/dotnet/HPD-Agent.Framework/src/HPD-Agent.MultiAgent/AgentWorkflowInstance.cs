@@ -423,7 +423,7 @@ public sealed class AgentWorkflowInstance
 
     /// <summary>
     /// Execute the workflow with streaming events, using a <see cref="WorkflowEventCoordinator"/>
-    /// for bidirectional event patterns (e.g. approval responses) and subscriptions.
+    /// for request-session patterns (e.g. approval responses) and subscriptions.
     /// This overload avoids any direct dependency on HPD.Events.
     /// </summary>
     /// <param name="input">The input to the workflow.</param>
@@ -913,13 +913,13 @@ public static class ApprovalWorkflowExtensions
     /// <param name="requestId">The request ID from NodeApprovalRequestEvent.</param>
     /// <param name="reason">Optional reason for approval.</param>
     /// <param name="resumeData">Optional data to pass back to the node.</param>
-    public static void Approve(
+    public static RespondResult Approve(
         this HPD.Events.IEventCoordinator coordinator,
         string requestId,
         string? reason = null,
         object? resumeData = null)
     {
-        coordinator.Respond(requestId, new NodeApprovalResponseEvent
+        return coordinator.Respond(requestId, new NodeApprovalResponseEvent
         {
             RequestId = requestId,
             SourceName = "User",
@@ -935,12 +935,12 @@ public static class ApprovalWorkflowExtensions
     /// <param name="coordinator">The event coordinator.</param>
     /// <param name="requestId">The request ID from NodeApprovalRequestEvent.</param>
     /// <param name="reason">Reason for denial.</param>
-    public static void Deny(
+    public static RespondResult Deny(
         this HPD.Events.IEventCoordinator coordinator,
         string requestId,
         string reason = "Denied by user")
     {
-        coordinator.Respond(requestId, new NodeApprovalResponseEvent
+        return coordinator.Respond(requestId, new NodeApprovalResponseEvent
         {
             RequestId = requestId,
             SourceName = "User",

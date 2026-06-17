@@ -457,14 +457,14 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
-        if (evt is not IBidirectionalEvent bidirectional ||
-            string.IsNullOrWhiteSpace(bidirectional.RequestId) ||
+        if (evt is not IRequestEvent request ||
+            string.IsNullOrWhiteSpace(request.RequestId) ||
             !_registry.TryFindInteractionHandler(evt, out var handler))
         {
             return;
         }
 
-        if (!_handledInteractionIds.Add(bidirectional.RequestId))
+        if (!_handledInteractionIds.Add(request.RequestId))
         {
             return;
         }

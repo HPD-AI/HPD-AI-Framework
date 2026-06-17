@@ -152,7 +152,7 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
     }
 
     [Fact]
-    public async Task Respond_Returns400_ForNonBidirectionalEvent()
+    public async Task Respond_Returns400_ForNonResponseEvent()
     {
         // Arrange
         var sessionId = await CreateTestSession();

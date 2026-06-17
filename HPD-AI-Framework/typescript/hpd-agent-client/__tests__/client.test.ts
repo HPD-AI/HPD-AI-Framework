@@ -267,11 +267,40 @@ describe('AgentClient', () => {
         body: JSON.stringify({
           type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
           requestId: 'req-1',
+          capabilities: ['client-tool:echo'],
           content: [{ type: 'text', text: 'done' }],
           success: true,
         }),
       })
     );
+  });
+
+  it('does not auto respond to targeted client tool requests for another responder', async () => {
+    const client = new AgentClient({
+      baseUrl: 'http://localhost:5135',
+      responderId: 'browser-a',
+      responderGroups: ['web-ui'],
+    });
+    client.tools.register('echo', () => 'done');
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(okStream({
+        version: '1.0',
+        type: EventTypes.CLIENT_TOOL_INVOKE_REQUEST,
+        requestId: 'req-1',
+        toolName: 'browser.echo',
+        arguments: {},
+        responsePolicy: 'targetedResponder',
+        target: {
+          responderId: 'browser-b',
+          requiredCapabilities: ['client-tool:echo'],
+        },
+      }));
+
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', branchId: 'main' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it('uses WebSocket transport when specified', () => {

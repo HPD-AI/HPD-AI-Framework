@@ -4,6 +4,18 @@ using System.Text.Json.Serialization;
 
 namespace HPD.Agent;
 
+public enum BranchKind
+{
+    Conversation,
+    SubAgent
+}
+
+public enum BranchVisibility
+{
+    Visible,
+    Hidden
+}
+
 /// <summary>
 /// Branch represents a conversation path within a session.
 /// Contains messages and branch-specific state.
@@ -96,6 +108,41 @@ public class Branch
     /// Use this for UI/app state that belongs to one conversation path rather than the whole session.
     /// </summary>
     public Dictionary<string, object> Metadata { get; init; }
+
+    /// <summary>
+    /// Runtime classification for this branch. Infrastructure uses this instead of magic metadata keys.
+    /// </summary>
+    public BranchKind Kind { get; set; } = BranchKind.Conversation;
+
+    /// <summary>
+    /// Whether this branch should be shown in ordinary branch lists.
+    /// Subagent branches default to hidden.
+    /// </summary>
+    public BranchVisibility Visibility { get; set; } = BranchVisibility.Visible;
+
+    /// <summary>Parent session for runtime child branches such as subagents.</summary>
+    public string? ParentSessionId { get; set; }
+
+    /// <summary>Parent branch for runtime child branches such as subagents.</summary>
+    public string? ParentBranchId { get; set; }
+
+    /// <summary>Name of the subagent that owns this branch, when Kind is SubAgent.</summary>
+    public string? SubAgentName { get; set; }
+
+    /// <summary>Run id of the subagent invocation that created this branch.</summary>
+    public string? SubAgentRunId { get; set; }
+
+    /// <summary>Source kind for the subagent definition, when Kind is SubAgent.</summary>
+    public string? SubAgentSourceKind { get; set; }
+
+    /// <summary>Parent tool call id that created this child branch.</summary>
+    public string? ParentToolCallId { get; set; }
+
+    /// <summary>Subagent session policy captured for inspection and routing.</summary>
+    public string? SessionPolicy { get; set; }
+
+    /// <summary>Subagent branch policy captured for inspection and routing.</summary>
+    public string? BranchPolicy { get; set; }
 
     /// <summary>
     /// Full ancestry chain for multi-level fork tracking.
@@ -294,7 +341,17 @@ public class Branch
         List<string>? childBranches,
         string? originalBranchId = null,
         string? previousSiblingId = null,
-        string? nextSiblingId = null)
+        string? nextSiblingId = null,
+        BranchKind kind = BranchKind.Conversation,
+        BranchVisibility visibility = BranchVisibility.Visible,
+        string? parentSessionId = null,
+        string? parentBranchId = null,
+        string? subAgentName = null,
+        string? subAgentRunId = null,
+        string? subAgentSourceKind = null,
+        string? parentToolCallId = null,
+        string? sessionPolicy = null,
+        string? branchPolicy = null)
     {
         Id = id;
         SessionId = sessionId;
@@ -308,6 +365,16 @@ public class Branch
         Description = description;
         Tags = tags;
         Metadata = metadata ?? [];
+        Kind = kind;
+        Visibility = visibility;
+        ParentSessionId = parentSessionId;
+        ParentBranchId = parentBranchId;
+        SubAgentName = subAgentName;
+        SubAgentRunId = subAgentRunId;
+        SubAgentSourceKind = subAgentSourceKind;
+        ParentToolCallId = parentToolCallId;
+        SessionPolicy = sessionPolicy;
+        BranchPolicy = branchPolicy;
         Ancestors = ancestors;
         MiddlewareState = middlewareState;
 
@@ -357,6 +424,57 @@ public class Branch
             Messages.Add(message);
         }
         LastActivity = DateTime.UtcNow;
+    }
+
+    internal void ApplyRuntimeMetadata(Dictionary<string, object>? metadata)
+    {
+        if (metadata == null)
+            return;
+
+        if (TryRemoveString(metadata, "kind", out var kind) &&
+            string.Equals(kind, "subagent", StringComparison.OrdinalIgnoreCase))
+        {
+            Kind = BranchKind.SubAgent;
+        }
+
+        if (TryRemoveString(metadata, "visibility", out var visibility))
+        {
+            Visibility = string.Equals(visibility, "hidden", StringComparison.OrdinalIgnoreCase)
+                ? BranchVisibility.Hidden
+                : BranchVisibility.Visible;
+        }
+
+        if (TryRemoveString(metadata, "parentSessionId", out var parentSessionId))
+            ParentSessionId = parentSessionId;
+        if (TryRemoveString(metadata, "parentBranchId", out var parentBranchId))
+            ParentBranchId = parentBranchId;
+        if (TryRemoveString(metadata, "subAgentName", out var subAgentName))
+            SubAgentName = subAgentName;
+        if (TryRemoveString(metadata, "subAgentRunId", out var subAgentRunId))
+            SubAgentRunId = subAgentRunId;
+        if (TryRemoveString(metadata, "subAgentSourceKind", out var subAgentSourceKind))
+            SubAgentSourceKind = subAgentSourceKind;
+        if (TryRemoveString(metadata, "parentToolCallId", out var parentToolCallId))
+            ParentToolCallId = parentToolCallId;
+        if (TryRemoveString(metadata, "sessionPolicy", out var sessionPolicy))
+            SessionPolicy = sessionPolicy;
+        if (TryRemoveString(metadata, "branchPolicy", out var branchPolicy))
+            BranchPolicy = branchPolicy;
+
+        metadata.Remove("createdBy");
+    }
+
+    private static bool TryRemoveString(Dictionary<string, object> metadata, string key, out string? value)
+    {
+        if (metadata.TryGetValue(key, out var raw))
+        {
+            metadata.Remove(key);
+            value = Convert.ToString(raw);
+            return !string.IsNullOrWhiteSpace(value);
+        }
+
+        value = null;
+        return false;
     }
 
     /// <summary>

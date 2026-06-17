@@ -1,6 +1,7 @@
 using System.Text.Json;
 using HPD.Agent.Serialization;
 using HPD.Agent.Tests.Infrastructure;
+using HPD.Events;
 using Microsoft.Extensions.AI;
 using Xunit;
 
@@ -87,6 +88,72 @@ public class BranchEventStoreTests : AgentTestBase
     }
 
     [Fact]
+    public void BranchEventFactory_PersistsRequestSessionProjectionEvents()
+    {
+        var now = DateTimeOffset.UtcNow;
+        AgentEvent[] events =
+        [
+            new AgentRequestStartedEvent(
+                "request-1",
+                "source",
+                "PermissionRequestEvent",
+                "PermissionResponseEvent",
+                ResponsePolicy.FirstValidResponseWins,
+                null,
+                RequestVisibility.AllObservers,
+                now),
+            new AgentRequestResolvedEvent(
+                "request-1",
+                "source",
+                "PermissionRequestEvent",
+                "PermissionResponseEvent",
+                null,
+                null,
+                now),
+            new AgentRequestExpiredEvent(
+                "request-2",
+                "source",
+                "PermissionRequestEvent",
+                TimeSpan.FromSeconds(30),
+                now),
+            new AgentRequestCancelledEvent(
+                "request-3",
+                "source",
+                "PermissionRequestEvent",
+                "cancelled",
+                now),
+            new AgentResponseRejectedEvent(
+                "request-1",
+                "PermissionResponseEvent",
+                RespondStatus.AlreadyResolved,
+                "Request has already resolved.",
+                "client-a",
+                null,
+                now)
+        ];
+
+        foreach (var evt in events)
+        {
+            var branchEvent = BranchEventFactory.FromAgentEvent(
+                "session-1",
+                "main",
+                evt,
+                messageTurnId: null,
+                conversationId: null,
+                iteration: 0,
+                inputMessageCount: 0,
+                isResume: false,
+                terminationReason: null,
+                turnMessageCount: 0);
+
+            Assert.NotNull(branchEvent);
+            Assert.True(evt.ShouldPersistToBranch());
+            Assert.Equal("session-1", branchEvent.SessionId);
+            Assert.Equal("main", branchEvent.BranchId);
+        }
+    }
+
+    [Fact]
     public async Task InMemoryStore_ReadBranchEvents_UsesReplayOptions()
     {
         var store = new InMemorySessionStore();
@@ -113,7 +180,7 @@ public class BranchEventStoreTests : AgentTestBase
     }
 
     [Fact]
-    public async Task JsonSessionStore_WritesBranchJsonAsEventDocument()
+    public async Task JsonSessionStore_WritesBranchEventStreamAndLazyProjectionCache()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-branch-events-{Guid.NewGuid():N}");
 
@@ -130,24 +197,43 @@ public class BranchEventStoreTests : AgentTestBase
                 branch.Id,
                 BranchEventFactory.TurnStarted("session-1", "main", "turn-1", "session-1", "agent-1", "Agent", 0, false));
 
-            var branchJsonPath = Path.Combine(tempDir, "session-1", "branches", "main", "branch.json");
-            var json = await File.ReadAllTextAsync(branchJsonPath);
-            using var raw = JsonDocument.Parse(json);
-            var events = raw.RootElement.GetProperty("events").EnumerateArray().ToList();
+            var branchDir = Path.Combine(tempDir, "session-1", "branches", "main");
+            var branchJsonPath = Path.Combine(branchDir, "branch.json");
+            var eventsPath = Path.Combine(branchDir, "branch.events.jsonl");
+            var metadataPath = Path.Combine(branchDir, "branch.meta.json");
+            var oldSnapshotPath = Path.Combine(branchDir, "branch.snapshot.json");
+            var projectionPath = Path.Combine(branchDir, "branch.projection.json");
 
-            Assert.Equal("hpd.agent.branch.events", raw.RootElement.GetProperty("schema").GetString());
+            Assert.False(File.Exists(branchJsonPath));
+            Assert.False(File.Exists(oldSnapshotPath));
+            Assert.True(File.Exists(eventsPath));
+            Assert.True(File.Exists(metadataPath));
+            Assert.False(File.Exists(projectionPath));
+
+            var eventDocuments = (await File.ReadAllLinesAsync(eventsPath))
+                .Where(line => !string.IsNullOrWhiteSpace(line))
+                .Select(line => JsonDocument.Parse(line))
+                .ToList();
+            var events = eventDocuments.Select(document => document.RootElement).ToList();
+
             Assert.Contains(events, e => e.GetProperty("type").GetString() == BranchEventTypes.BranchCreated);
             Assert.Contains(events, e => e.GetProperty("type").GetString() == EventTypes.MessageTurn.MESSAGE_TURN_STARTED);
             Assert.All(events, e =>
             {
-                Assert.Equal(session.Id, e.GetProperty("sessionId").GetString());
-                Assert.Equal(branch.Id, e.GetProperty("branchId").GetString());
+                Assert.False(e.TryGetProperty("sessionId", out _));
+                Assert.False(e.TryGetProperty("branchId", out _));
                 Assert.False(e.TryGetProperty("channel", out _));
                 Assert.False(e.TryGetProperty("kind", out _));
                 Assert.False(e.TryGetProperty("direction", out _));
                 Assert.False(e.TryGetProperty("canInterrupt", out _));
                 Assert.False(e.TryGetProperty("exchangeTimestampNs", out _));
             });
+
+            using var metadata = JsonDocument.Parse(await File.ReadAllTextAsync(metadataPath));
+            Assert.Equal("hpd.agent.branch.meta", metadata.RootElement.GetProperty("schema").GetString());
+            Assert.Equal(3, metadata.RootElement.GetProperty("nextSequenceNumber").GetInt64());
+            Assert.Equal("Conversation", metadata.RootElement.GetProperty("kind").GetString());
+            Assert.Equal("Visible", metadata.RootElement.GetProperty("visibility").GetString());
 
             var document = await store.LoadBranchDocumentAsync(session.Id, branch.Id, TestCancellationToken);
             Assert.NotNull(document);
@@ -158,6 +244,19 @@ public class BranchEventStoreTests : AgentTestBase
                 Assert.Equal(session.Id, e.SessionId);
                 Assert.Equal(branch.Id, e.BranchId);
             });
+
+            Assert.False(File.Exists(projectionPath));
+
+            var loadedBranch = await store.LoadBranchAsync(session.Id, branch.Id, TestCancellationToken);
+            Assert.NotNull(loadedBranch);
+            Assert.True(File.Exists(projectionPath));
+
+            using var projection = JsonDocument.Parse(await File.ReadAllTextAsync(projectionPath));
+            Assert.Equal("hpd.agent.branch.projection-cache", projection.RootElement.GetProperty("schema").GetString());
+            Assert.Equal(2, projection.RootElement.GetProperty("lastSequenceNumber").GetInt64());
+
+            foreach (var eventDocument in eventDocuments)
+                eventDocument.Dispose();
         }
         finally
         {
@@ -235,7 +334,7 @@ public class BranchEventStoreTests : AgentTestBase
     }
 
     [Fact]
-    public async Task JsonSessionStore_LoadBranchDocument_RejectsEventWithoutScope()
+    public async Task JsonSessionStore_LoadBranchDocument_HydratesEventScopeFromStreamMetadata()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-branch-events-{Guid.NewGuid():N}");
 
@@ -244,26 +343,67 @@ public class BranchEventStoreTests : AgentTestBase
             var branchDir = Path.Combine(tempDir, "session-1", "branches", "main");
             Directory.CreateDirectory(branchDir);
             await File.WriteAllTextAsync(
-                Path.Combine(branchDir, "branch.json"),
+                Path.Combine(branchDir, "branch.meta.json"),
                 """
                 {
-                  "schema": "hpd.agent.branch.events",
-                  "version": 3,
+                  "schema": "hpd.agent.branch.event-stream",
+                  "version": 1,
                   "sessionId": "session-1",
                   "branchId": "main",
                   "createdAt": "2026-01-01T00:00:00+00:00",
                   "updatedAt": "2026-01-01T00:00:00+00:00",
-                  "nextSequenceNumber": 2,
-                  "events": [
-                    {
-                      "type": "BRANCH_CREATED",
-                      "eventId": "evt-1",
-                      "name": "Main",
-                      "createdAt": "2026-01-01T00:00:00+00:00",
-                      "sequenceNumber": 1
-                    }
-                  ]
+                  "nextSequenceNumber": 2
                 }
+                """);
+            await File.WriteAllTextAsync(
+                Path.Combine(branchDir, "branch.events.jsonl"),
+                """
+                {"type":"BRANCH_CREATED","eventId":"evt-1","name":"Main","createdAt":"2026-01-01T00:00:00+00:00","sequenceNumber":1}
+                
+                """);
+
+            var store = new JsonSessionStore(tempDir);
+
+            var document = await store.LoadBranchDocumentAsync("session-1", "main");
+
+            var evt = Assert.Single(document!.Events);
+            Assert.Equal("session-1", evt.SessionId);
+            Assert.Equal("main", evt.BranchId);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task JsonSessionStore_LoadBranchDocument_RejectsConflictingEventScope()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-branch-events-{Guid.NewGuid():N}");
+
+        try
+        {
+            var branchDir = Path.Combine(tempDir, "session-1", "branches", "main");
+            Directory.CreateDirectory(branchDir);
+            await File.WriteAllTextAsync(
+                Path.Combine(branchDir, "branch.meta.json"),
+                """
+                {
+                  "schema": "hpd.agent.branch.event-stream",
+                  "version": 1,
+                  "sessionId": "session-1",
+                  "branchId": "main",
+                  "createdAt": "2026-01-01T00:00:00+00:00",
+                  "updatedAt": "2026-01-01T00:00:00+00:00",
+                  "nextSequenceNumber": 2
+                }
+                """);
+            await File.WriteAllTextAsync(
+                Path.Combine(branchDir, "branch.events.jsonl"),
+                """
+                {"type":"BRANCH_CREATED","eventId":"evt-1","sessionId":"other-session","branchId":"main","name":"Main","createdAt":"2026-01-01T00:00:00+00:00","sequenceNumber":1}
+                
                 """);
 
             var store = new JsonSessionStore(tempDir);

@@ -48,7 +48,14 @@ export const EventTypes = {
   TOOL_CALL_END: 'TOOL_CALL_END',
   TOOL_CALL_RESULT: 'TOOL_CALL_RESULT',
 
-  // Permissions (bidirectional)
+  // Request Lifecycle
+  AGENT_REQUEST_STARTED: 'AGENT_REQUEST_STARTED',
+  AGENT_REQUEST_RESOLVED: 'AGENT_REQUEST_RESOLVED',
+  AGENT_REQUEST_EXPIRED: 'AGENT_REQUEST_EXPIRED',
+  AGENT_REQUEST_CANCELLED: 'AGENT_REQUEST_CANCELLED',
+  AGENT_RESPONSE_REJECTED: 'AGENT_RESPONSE_REJECTED',
+
+  // Permissions
   PERMISSION_REQUEST: 'PERMISSION_REQUEST',
   PERMISSION_RESPONSE: 'PERMISSION_RESPONSE',
   PERMISSION_APPROVED: 'PERMISSION_APPROVED',
@@ -58,7 +65,7 @@ export const EventTypes = {
   CONTINUATION_REQUEST: 'CONTINUATION_REQUEST',
   CONTINUATION_RESPONSE: 'CONTINUATION_RESPONSE',
 
-  // Clarification (bidirectional)
+  // Clarification
   CLARIFICATION_REQUEST: 'CLARIFICATION_REQUEST',
   CLARIFICATION_RESPONSE: 'CLARIFICATION_RESPONSE',
 
@@ -66,7 +73,7 @@ export const EventTypes = {
   MIDDLEWARE_PROGRESS: 'MIDDLEWARE_PROGRESS',
   MIDDLEWARE_ERROR: 'MIDDLEWARE_ERROR',
 
-  // Client Tools (bidirectional)
+  // Client Tools
   CLIENT_TOOL_INVOKE_REQUEST: 'CLIENT_TOOL_INVOKE_REQUEST',
   CLIENT_TOOL_INVOKE_RESPONSE: 'CLIENT_TOOL_INVOKE_RESPONSE',
   CLIENT_TOOL_GROUPS_REGISTERED: 'CLIENT_TOOL_GROUPS_REGISTERED',
@@ -89,7 +96,7 @@ export const EventTypes = {
   NESTED_AGENT_INVOKED: 'NESTED_AGENT_INVOKED',
   DOCUMENT_PROCESSED: 'DOCUMENT_PROCESSED',
   INTERNAL_MESSAGE_PREPARED: 'INTERNAL_MESSAGE_PREPARED',
-  BIDIRECTIONAL_EVENT_PROCESSED: 'BIDIRECTIONAL_EVENT_PROCESSED',
+  REQUEST_EVENT_PROCESSED: 'REQUEST_EVENT_PROCESSED',
   AGENT_DECISION: 'AGENT_DECISION',
   AGENT_COMPLETION: 'AGENT_COMPLETION',
   ITERATION_CONTEXT_SNAPSHOT: 'ITERATION_CONTEXT_SNAPSHOT',
@@ -132,6 +139,39 @@ export interface BaseEvent {
   timestamp?: string;
   eventFlowId?: string;
   streamId?: string;
+}
+
+export type ResponsePolicy = 'firstValidResponseWins' | 'targetedResponder';
+
+export type RequestVisibility = 'allObservers' | 'eligibleRespondersOnly';
+
+export interface ResponderTarget {
+  responderId?: string | null;
+  responderGroup?: string | null;
+  requiredCapabilities?: string[];
+}
+
+export type RespondStatus =
+  | 'accepted'
+  | 'notFound'
+  | 'alreadyResolved'
+  | 'timedOut'
+  | 'cancelled'
+  | 'responseTypeMismatch'
+  | 'targetMismatch'
+  | 'ambiguousRequest';
+
+export interface RespondResult {
+  status: RespondStatus;
+  requestId: string;
+  message?: string | null;
+  accepted: boolean;
+}
+
+export interface ResponseMetadata {
+  responderId?: string | null;
+  responderGroup?: string | null;
+  capabilities?: string[];
 }
 
 /**
@@ -487,7 +527,63 @@ export interface ToolCallResultEvent extends BaseEvent {
 }
 
 // ============================================
-// Permission Events (Bidirectional)
+// Request Lifecycle Events
+// ============================================
+
+export interface AgentRequestStartedEvent extends BaseEvent {
+  type: typeof EventTypes.AGENT_REQUEST_STARTED;
+  requestId: string;
+  sourceName: string;
+  requestEventType: string;
+  expectedResponseEventType: string;
+  responsePolicy: ResponsePolicy;
+  target?: ResponderTarget | null;
+  visibility: RequestVisibility;
+  startedAt: string;
+}
+
+export interface AgentRequestResolvedEvent extends BaseEvent {
+  type: typeof EventTypes.AGENT_REQUEST_RESOLVED;
+  requestId: string;
+  sourceName: string;
+  requestEventType: string;
+  responseEventType: string;
+  responderId?: string | null;
+  responderGroup?: string | null;
+  resolvedAt: string;
+}
+
+export interface AgentRequestExpiredEvent extends BaseEvent {
+  type: typeof EventTypes.AGENT_REQUEST_EXPIRED;
+  requestId: string;
+  sourceName: string;
+  requestEventType: string;
+  timeout: string | number;
+  expiredAt: string;
+}
+
+export interface AgentRequestCancelledEvent extends BaseEvent {
+  type: typeof EventTypes.AGENT_REQUEST_CANCELLED;
+  requestId: string;
+  sourceName: string;
+  requestEventType: string;
+  reason?: string | null;
+  cancelledAt: string;
+}
+
+export interface AgentResponseRejectedEvent extends BaseEvent {
+  type: typeof EventTypes.AGENT_RESPONSE_REJECTED;
+  requestId: string;
+  responseEventType: string;
+  status: RespondStatus;
+  reason?: string | null;
+  responderId?: string | null;
+  responderGroup?: string | null;
+  rejectedAt: string;
+}
+
+// ============================================
+// Permission Events
 // ============================================
 
 export type PermissionChoice = 'ask' | 'allow_always' | 'deny_always';
@@ -502,7 +598,7 @@ export interface PermissionRequestEvent extends BaseEvent {
   arguments?: Record<string, unknown>;
 }
 
-export interface PermissionResponseEvent extends BaseEvent {
+export interface PermissionResponseEvent extends BaseEvent, ResponseMetadata {
   type: typeof EventTypes.PERMISSION_RESPONSE;
   permissionId: string;
   sourceName: string;
@@ -525,7 +621,7 @@ export interface PermissionDeniedEvent extends BaseEvent {
 }
 
 // ============================================
-// Continuation Events (Bidirectional)
+// Continuation Events
 // ============================================
 
 export interface ContinuationRequestEvent extends BaseEvent {
@@ -536,7 +632,7 @@ export interface ContinuationRequestEvent extends BaseEvent {
   maxIterations: number;
 }
 
-export interface ContinuationResponseEvent extends BaseEvent {
+export interface ContinuationResponseEvent extends BaseEvent, ResponseMetadata {
   type: typeof EventTypes.CONTINUATION_RESPONSE;
   continuationId: string;
   sourceName: string;
@@ -545,7 +641,7 @@ export interface ContinuationResponseEvent extends BaseEvent {
 }
 
 // ============================================
-// Clarification Events (Bidirectional)
+// Clarification Events
 // ============================================
 
 export interface ClarificationRequestEvent extends BaseEvent {
@@ -557,7 +653,7 @@ export interface ClarificationRequestEvent extends BaseEvent {
   options?: string[];
 }
 
-export interface ClarificationResponseEvent extends BaseEvent {
+export interface ClarificationResponseEvent extends BaseEvent, ResponseMetadata {
   type: typeof EventTypes.CLARIFICATION_RESPONSE;
   requestId: string;
   sourceName: string;
@@ -583,19 +679,23 @@ export interface MiddlewareErrorEvent extends BaseEvent {
 }
 
 // ============================================
-// Client Tool Events (Bidirectional)
+// Client Tool Events
 // ============================================
 
 export interface ClientToolInvokeRequestEvent extends BaseEvent {
   type: typeof EventTypes.CLIENT_TOOL_INVOKE_REQUEST;
   requestId: string;
+  sourceName?: string;
   toolName: string;
   callId: string;
   arguments: Record<string, unknown>;
   description?: string;
+  responsePolicy?: ResponsePolicy;
+  target?: ResponderTarget | null;
+  visibility?: RequestVisibility;
 }
 
-export interface ClientToolInvokeResponseEvent extends BaseEvent {
+export interface ClientToolInvokeResponseEvent extends BaseEvent, ResponseMetadata {
   type: typeof EventTypes.CLIENT_TOOL_INVOKE_RESPONSE;
   requestId: string;
   content: ToolResultContent[];
@@ -671,6 +771,12 @@ export type KnownAgentEvent =
   | ToolCallArgsEvent
   | ToolCallEndEvent
   | ToolCallResultEvent
+  // Request Lifecycle Events
+  | AgentRequestStartedEvent
+  | AgentRequestResolvedEvent
+  | AgentRequestExpiredEvent
+  | AgentRequestCancelledEvent
+  | AgentResponseRejectedEvent
   // Permission Events
   | PermissionRequestEvent
   | PermissionResponseEvent
@@ -754,6 +860,18 @@ export function isClientToolInvokeRequestEvent(
   event: BaseEvent
 ): event is ClientToolInvokeRequestEvent {
   return event.type === EventTypes.CLIENT_TOOL_INVOKE_REQUEST;
+}
+
+export function isAgentRequestResolvedEvent(event: BaseEvent): event is AgentRequestResolvedEvent {
+  return event.type === EventTypes.AGENT_REQUEST_RESOLVED;
+}
+
+export function isAgentRequestExpiredEvent(event: BaseEvent): event is AgentRequestExpiredEvent {
+  return event.type === EventTypes.AGENT_REQUEST_EXPIRED;
+}
+
+export function isAgentRequestCancelledEvent(event: BaseEvent): event is AgentRequestCancelledEvent {
+  return event.type === EventTypes.AGENT_REQUEST_CANCELLED;
 }
 
 export function isclientToolHarnessesRegisteredEvent(

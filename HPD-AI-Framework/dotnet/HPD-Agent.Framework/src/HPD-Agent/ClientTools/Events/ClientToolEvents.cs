@@ -22,11 +22,14 @@ public record ClientToolInvokeRequestEvent(
     string CallId,
     IReadOnlyDictionary<string, object?> Arguments,
     string? Description = null
-) : AgentEvent, IBidirectionalAgentEvent
+) : AgentEvent, IAgentRequestEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override EventKind Kind { get; init; } = EventKind.Control;
     public string SourceName => "HPD.Agent.ClientTools";
+    public ResponsePolicy ResponsePolicy => ResponsePolicy.TargetedResponder;
+    public ResponderTarget? Target { get; init; }
+    public RequestVisibility Visibility { get; init; } = RequestVisibility.AllObservers;
 }
 
 /// <summary>
@@ -45,12 +48,16 @@ public record ClientToolInvokeResponseEvent(
     bool Success = true,
     string? ErrorMessage = null,
     ClientToolAugmentation? Augmentation = null
-) : AgentEvent, IBidirectionalAgentEvent
+) : AgentEvent, IAgentResponseEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override EventKind Kind { get; init; } = EventKind.Control;
     public override EventDirection Direction { get; init; } = EventDirection.Upstream;
     public string SourceName => "HPD.Agent.ClientTools";
+    public string? ResponderId { get; init; }
+    public string? ResponderGroup { get; init; }
+    public HashSet<string> Capabilities { get; init; } = [];
+    IReadOnlySet<string> IResponseEvent.Capabilities => Capabilities;
 
     /// <summary>
     /// Convenience constructor for simple text results.

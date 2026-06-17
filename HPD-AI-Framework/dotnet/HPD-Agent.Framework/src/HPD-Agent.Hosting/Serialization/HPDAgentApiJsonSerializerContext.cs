@@ -1,6 +1,13 @@
 using System.Text.Json.Serialization;
 using HPD.Agent;
+using HPD.Agent.Audio;
+using HPD.Agent.Audio.Output;
+using HPD.Agent.Audio.Policies;
+using HPD.Agent.ClientTools;
 using HPD.Agent.Hosting.Data;
+using HPD.Agent.Middleware;
+using HPD.Agent.StructuredOutput;
+using HPD.Events;
 
 namespace HPD.Agent.Hosting.Serialization;
 
@@ -48,7 +55,34 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(UpdateBranchRequest))]
 [JsonSerializable(typeof(ForkBranchRequest))]
 [JsonSerializable(typeof(StreamTextRequest))]
+// Run config DTO graph used by StreamTextRequest
+[JsonSerializable(typeof(AgentRunConfig))]
+[JsonSerializable(typeof(AgentModelTransportMode))]
+[JsonSerializable(typeof(AgentClientConfig))]
+[JsonSerializable(typeof(ClientProviderConfig))]
+[JsonSerializable(typeof(AudioRunConfig))]
+[JsonSerializable(typeof(ChatRunConfig))]
+[JsonSerializable(typeof(UploadStrategy))]
+[JsonSerializable(typeof(CompactionBehavior))]
+[JsonSerializable(typeof(StructuredOutputOptions))]
+[JsonSerializable(typeof(AgentClientInput))]
+[JsonSerializable(typeof(ClientToolDefinition))]
+[JsonSerializable(typeof(AudioInputMode))]
+[JsonSerializable(typeof(AudioOutputMode))]
+[JsonSerializable(typeof(AssistantOutputSynthesisMode))]
+[JsonSerializable(typeof(AssistantAudioArtifactCapturePolicy))]
+[JsonSerializable(typeof(TextToSpeechPacingOptions))]
+[JsonSerializable(typeof(TextToSpeechFirstSegmentOptions))]
+[JsonSerializable(typeof(TextToSpeechContinuationOptions))]
+[JsonSerializable(typeof(TextToSpeechBoundaryOptions))]
+[JsonSerializable(typeof(TextToSpeechFilteringOptions))]
+[JsonSerializable(typeof(TextToSpeechPacingMode))]
+[JsonSerializable(typeof(TextToSpeechEmojiPolicy))]
+[JsonSerializable(typeof(ProgressiveTextToSpeechRouteMode))]
+[JsonSerializable(typeof(PushTextInputAggregationMode))]
 // Note: Agent input/output events are covered by AgentEventJsonContext.
+[JsonSerializable(typeof(RespondResult))]
+[JsonSerializable(typeof(RespondStatus))]
 [JsonSerializable(typeof(ClientToolContentDto))]
 [JsonSerializable(typeof(ClientToolContentDto[]))]
 [JsonSerializable(typeof(List<ClientToolContentDto>))]

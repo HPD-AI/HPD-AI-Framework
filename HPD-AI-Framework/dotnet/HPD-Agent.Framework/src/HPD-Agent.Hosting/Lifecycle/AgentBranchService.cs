@@ -69,7 +69,7 @@ public sealed class AgentBranchService : IAgentBranchService
         branch.Name = request.Name ?? branchId;
         branch.Description = request.Description;
         branch.Tags = request.Tags;
-        MergeBranchMetadata(branch.Metadata, request.Metadata);
+        MergeBranchMetadata(branch, request.Metadata);
         await _sessionManager.Store.SaveInitialBranchAsync(sessionId, branch, cancellationToken);
 
         branch = await _sessionManager.Store.LoadBranchAsync(sessionId, branchId, cancellationToken)
@@ -108,7 +108,7 @@ public sealed class AgentBranchService : IAgentBranchService
                 if (request.Name != null) branch.Name = request.Name;
                 if (request.Description != null) branch.Description = request.Description;
                 if (request.Tags != null) branch.Tags = request.Tags;
-                MergeBranchMetadata(branch.Metadata, request.Metadata);
+                MergeBranchMetadata(branch, request.Metadata);
                 branch.LastActivity = DateTime.UtcNow;
 
                 await _sessionManager.Store.AppendBranchMetadataUpdatedAsync(branch, cancellationToken);
@@ -361,25 +361,37 @@ public sealed class AgentBranchService : IAgentBranchService
             branch.Tags = tags;
         if (metadata != null)
         {
+            var runtimeMetadata = metadata
+                .Where(kvp => kvp.Value != null)
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value!, StringComparer.Ordinal);
+            branch.ApplyRuntimeMetadata(runtimeMetadata);
             branch.Metadata.Clear();
-            foreach (var (key, value) in metadata)
+            foreach (var (key, value) in runtimeMetadata)
                 branch.Metadata[key] = value;
         }
     }
 
     private static void MergeBranchMetadata(
-        Dictionary<string, object> target,
+        Branch branch,
         Dictionary<string, object?>? patch)
     {
         if (patch == null)
             return;
 
+        var extensionPatch = patch
+            .Where(kvp => kvp.Value != null)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value!, StringComparer.Ordinal);
+        branch.ApplyRuntimeMetadata(extensionPatch);
+
         foreach (var (key, value) in patch)
         {
             if (value == null)
-                target.Remove(key);
-            else
-                target[key] = value;
+                branch.Metadata.Remove(key);
+        }
+
+        foreach (var (key, value) in extensionPatch)
+        {
+            branch.Metadata[key] = value;
         }
     }
 }

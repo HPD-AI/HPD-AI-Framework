@@ -1,5 +1,6 @@
 using System.Text.Json;
 using HPD.Agent;
+using HPD.Agent.ClientTools;
 using HPD.Agent.Serialization;
 using Xunit;
 
@@ -429,7 +430,7 @@ public class AgentEventSerializerTests
 /// <summary>
 /// Tests for AgentEventSerializer.FromJson — the deserialization path.
 /// Covers round-trips, discriminator lookup, null/optional fields, malformed
-/// input, SSE wire format, bidirectional events, and hierarchical execution context.
+/// input, SSE wire format, request/response events, and hierarchical execution context.
 /// </summary>
 public class AgentEventSerializerFromJsonTests
 {
@@ -1146,10 +1147,10 @@ public class AgentEventSerializerFromJsonTests
     #endregion
 
     // -------------------------------------------------------------------------
-    // Bidirectional events (client → server)
+    // Request/response events (client -> server)
     // -------------------------------------------------------------------------
 
-    #region Bidirectional Event Tests
+    #region Request Response Event Tests
 
     [Fact]
     public void FromJson_PermissionResponseEvent_RoundTrips()
@@ -1179,6 +1180,27 @@ public class AgentEventSerializerFromJsonTests
         // Assert
         Assert.Equal("req-1", result.RequestId);
         Assert.Equal("I mean this", result.Answer);
+    }
+
+    [Fact]
+    public void FromJson_ClientToolInvokeResponseEvent_RoundTrips()
+    {
+        // Arrange
+        var evt = new ClientToolInvokeResponseEvent(
+            RequestId: "tool-req-1",
+            Content: [new TextContent("Tool execution succeeded")],
+            Success: true);
+
+        // Act
+        var json = AgentEventSerializer.ToJson(evt);
+        var result = Assert.IsType<ClientToolInvokeResponseEvent>(AgentEventSerializer.DeserializeEventJson(json));
+
+        // Assert
+        Assert.Equal("tool-req-1", result.RequestId);
+        Assert.True(result.Success);
+        var content = Assert.Single(result.Content);
+        var text = Assert.IsType<TextContent>(content);
+        Assert.Equal("Tool execution succeeded", text.Text);
     }
 
     [Fact]

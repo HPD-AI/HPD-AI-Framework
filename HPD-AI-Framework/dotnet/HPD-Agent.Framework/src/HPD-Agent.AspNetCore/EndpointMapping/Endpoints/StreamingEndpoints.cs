@@ -161,7 +161,7 @@ internal static class StreamingEndpoints
 
                 var evt = AgentEventSerializer.FromJson(json);
                 var input = evt as AgentInputEvent;
-                var response = evt as HPD.Events.IBidirectionalEvent;
+                var response = evt as HPD.Events.IResponseEvent;
                 if (input is null && response is null)
                 {
                     await webSocket.CloseAsync(
@@ -212,7 +212,18 @@ internal static class StreamingEndpoints
                 }
                 else
                 {
-                    await agent.TryRespondAsync(response!, ct);
+                    var respondResult = await agent.RespondIfPendingAsync(response!, ct);
+                    if (!respondResult.Accepted)
+                    {
+                        var resultJson = JsonSerializer.Serialize(respondResult, CaseInsensitiveJson);
+                        var bytes = Encoding.UTF8.GetBytes(resultJson);
+
+                        await webSocket.SendAsync(
+                            new ArraySegment<byte>(bytes),
+                            WebSocketMessageType.Text,
+                            endOfMessage: true,
+                            ct);
+                    }
                 }
             }
         }

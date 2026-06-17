@@ -1,117 +1,55 @@
 # HPD Agent Headless UI
 
-**The world's first headless component library specifically for AI chat interfaces.**
+Framework-neutral branch state primitives for HPD-Agent UI.
 
-## Our Unique Position
+This package is intentionally plain TypeScript. Framework adapters such as Svelte or React should wrap these primitives rather than live in the core.
 
-**HPD Headless UI** is the first library to combine truly headless architecture with AI-specific primitives.
+See [PROPOSAL.md](./PROPOSAL.md) for the restart architecture and [docs/USER_DX.md](./docs/USER_DX.md) for API usage guidance.
 
-**What this means:**
--   **Truly Headless** - Zero CSS, you control all styling
--   **AI-Specific Primitives** - Streaming, tools, permissions built-in
--   **Protocol-First Design** - Maps directly to HPD events
+## First Slice
 
----
+The initial implementation is branch-native:
 
-## Features
+- `createBranchProjection()` folds branch snapshots and live events into UI-ready state.
+- `loadBranchSnapshot()` loads durable branch state through `hpd-agent-client`.
+- `createBranchController()` combines resource loading, scoped live connection, projection, and response helpers.
+- `eventBelongsToScope()` guards projection so live events cannot drift into the wrong branch.
 
-- 🎯 **Simple API** - 8 lines of code for a working AI chat with streaming
-- 🚀 **Protocol-first** - Maps directly to HPD's 67 events
-- 💎 **Truly headless** - Zero CSS shipped, data attributes only
-- ⚡ **Fine-grained reactivity** - Automatic updates with runes
-- 📦 **Bundle conscious** - < 20 KB total
-- 🎨 **Complete styling control** - Build iMessage, ChatGPT, or your own design
+## Usage
 
----
+```ts
+import { AgentClient } from '@hpd-research/hpd-agent-client';
+import { createBranchController } from '@hpd-research/hpd-agent-headless-ui';
 
-## Quick Start
+const client = new AgentClient({
+  baseUrl: 'http://localhost:5000',
+  transport: 'sse',
+});
 
-```bash
-npm install @hpd-research/hpd-agent-svelte-headless-ui
+const branch = createBranchController({
+  client,
+  agentId: 'agent-1',
+  sessionId: 'session-1',
+  branchId: 'branch-1',
+});
+
+const unsubscribe = branch.projection.subscribe((snapshot) => {
+  render(snapshot.messages, {
+    streaming: snapshot.streaming,
+    pendingPermissions: snapshot.pendingPermissions,
+    canSend: snapshot.canSend,
+  });
+});
+
+await branch.start({ includeRuns: true });
+await branch.sendText('Hello');
+
+unsubscribe();
+await branch.dispose();
 ```
 
-```svelte
-<script>
-import { createMockAgent } from '@hpd-research/hpd-agent-svelte-headless-ui';
+Rehydration and projection stay separate on purpose. Rehydration loads durable baseline state; projection applies live branch events after that baseline.
 
-const agent = createMockAgent();
-let input = '';
+Live events are scoped strictly by default. If an older transport path emits scope-less events, opt into that compatibility behavior explicitly with `allowScopeLessEvents: true`.
 
-async function send() {
-  await agent.send(input);
-  input = '';
-}
-</script>
-
-<div class="chat">
-  {#each agent.state.messages as message}
-    <div class="message {message.role}">
-      {message.content}
-      {#if message.streaming}
-        <span class="cursor">▊</span>
-      {/if}
-    </div>
-  {/each}
-
-  <input bind:value={input} />
-  <button onclick={send}>Send</button>
-</div>
-
-<style>
-  /* You provide ALL the styling - we provide the reactivity */
-  .chat { /* your styles */ }
-  .message { /* your styles */ }
-  .cursor { /* your styles */ }
-</style>
-```
-
-**That's it!** 8 lines of code for a working AI chat with streaming text.
-
----
-
-## Architecture
-
-```
-HPD Backend → AgentClient → EventMapper → AgentState → Svelte Reactivity → Your UI
-              (15 KB)       (NEW!)        ($state)    (automatic)       (your design)
-```
-
-**Protocol-First Design:**
-- HPD's events map directly to AgentState updates
-- Svelte runes make updates automatic (no manual subscriptions)
-- You just read `agent.state.messages` - it's always current
-
----
-
-## Documentation
-
-- **Full Proposal:** [InternalDocs/Proposal/README.md](../../InternalDocs/ShellOS/Proposal/hpd-agent-svelte-headless-ui/README.md)
-- **Developer Guide:** [CLAUDE.md](./CLAUDE.md)
-- **API Reference:** Coming soon
-
----
-
-## Development
-
-```bash
-# Development
-npm run dev                # Start dev server
-npm run check              # Type checking
-
-# Testing
-npm run test:unit          # Unit tests (13 passing)
-npm run test               # All tests
-
-# Analysis
-npm run analyze            # Bundle size analysis
-
-# Building
-npm run build              # Build library
-npm run prepack            # Package for NPM
-```
-
----
-
-## License
-
-MIT
+Controllers assume a dedicated client connection by default. For a caller-owned client, pass `stopClientOnDisconnect: false` so `disconnect()` detaches listeners without stopping the shared client.

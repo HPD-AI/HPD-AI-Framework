@@ -570,7 +570,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         // If timeout is zero, suspend indefinitely (for long-term approvals)
         if (approval.Timeout == TimeSpan.Zero)
         {
-            context.EventCoordinator?.Emit(request);
+            context.EventCoordinator?.StartRequest<NodeApprovalRequestEvent, NodeApprovalResponseEvent>(request);
             return NodeExecutionResult.Suspended.ForHumanApproval(
                 suspendToken: requestId,
                 resumeValue: outputs,

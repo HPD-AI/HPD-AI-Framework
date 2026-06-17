@@ -14,7 +14,7 @@ public sealed record SuspensionOptions
     public TimeSpan ActiveWaitTimeout { get; init; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Whether to emit bidirectional events during suspension.
+    /// Whether to emit request events during suspension.
     /// Default: true.
     /// Note: Events only emitted if EventCoordinator is available in context.
     /// </summary>

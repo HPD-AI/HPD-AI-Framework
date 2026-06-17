@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentRunInputEvent } from './events.js';
+import type { AgentEvent, AgentRunInputEvent, RespondResult } from './events.js';
 
 /**
  * Runtime connection scope for long-lived transports such as WebSocket.
@@ -20,7 +20,7 @@ export interface RunTransportOptions {
 
 /**
  * Abstract runtime transport interface.
- * Implementations handle only event streaming and bidirectional runtime input.
+ * Implementations handle only event streaming and request-session runtime input.
  * HTTP resources such as sessions, branches, agents, evals, and contents are owned
  * by AgentHttpApi rather than duplicated by every transport.
  */
@@ -28,8 +28,8 @@ export interface AgentTransport {
   /** Connect/start a long-lived runtime transport. SSE transports may no-op. */
   connect(scope?: RuntimeScope): Promise<void>;
 
-  /** Submit an agent input event to the runtime. */
-  submitInput(event: AgentRunInputEvent, options?: RunTransportOptions): Promise<void>;
+  /** Submit an agent input event to the runtime. Response events may return a structured status. */
+  submitInput(event: AgentRunInputEvent, options?: RunTransportOptions): Promise<RespondResult | undefined>;
 
   /** Register event handler */
   onEvent(handler: (event: AgentEvent) => void): void;

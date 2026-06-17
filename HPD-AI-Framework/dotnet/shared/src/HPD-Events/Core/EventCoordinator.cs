@@ -88,49 +88,50 @@ public sealed class EventCoordinator :
     }
 
     /// <inheritdoc />
+    public RequestHandle StartRequest<TRequest, TResponse>(
+        TRequest request,
+        RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return _events.StartRequest<TRequest, TResponse>(request, options);
+    }
+
+    /// <inheritdoc />
     public async Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
         TimeSpan timeout,
         CancellationToken ct = default)
-        where TRequest : Event, IBidirectionalEvent
-        where TResponse : Event
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        using var requestCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var responseTask = _events.WaitForResponseAsync<TResponse>(
-            request.RequestId,
-            timeout,
-            requestCts.Token);
-
-        try
-        {
-            Emit(request);
-        }
-        catch
-        {
-            await requestCts.CancelAsync().ConfigureAwait(false);
-            throw;
-        }
-
-        return await responseTask.ConfigureAwait(false);
+        return await _events.RequestAsync<TRequest, TResponse>(request, timeout, ct)
+            .ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public void Respond(string requestId, Event response)
+    public RespondResult Respond(Event response)
     {
-        if (!TryRespond(requestId, response))
-            throw new InvalidOperationException($"No pending response waiter found for request ID '{requestId}'.");
+        if (response is not IResponseEvent responseEvent)
+            throw new ArgumentException("Response event must implement IResponseEvent.", nameof(response));
+
+        return Respond(responseEvent.RequestId, response);
     }
 
     /// <inheritdoc />
-    public bool TryRespond(string requestId, Event response)
+    public RespondResult Respond(string requestId, Event response)
     {
-        if (_events.TryRespond(requestId, response))
-            return true;
+        var parent = _events.ParentCoordinator as EventCoordinator;
+        var result = _events.Respond(requestId, response, publishRejection: parent is null);
+        if (result.Accepted)
+            return result;
 
-        return _events.ParentCoordinator is EventCoordinator parent &&
-            parent.TryRespond(requestId, response);
+        return parent is not null && result.Status == RespondStatus.NotFound
+            ? parent.Respond(requestId, response)
+            : result;
     }
 
     /// <inheritdoc />

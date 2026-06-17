@@ -47,6 +47,42 @@ internal static class BranchEventValidation
         }
     }
 
+    public static BranchEventDocument HydrateDocumentEventScope(BranchEventDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        var events = document.Events
+            .Select(evt => evt with
+            {
+                SessionId = string.IsNullOrWhiteSpace(evt.SessionId)
+                    ? document.SessionId
+                    : evt.SessionId,
+                BranchId = string.IsNullOrWhiteSpace(evt.BranchId)
+                    ? document.BranchId
+                    : evt.BranchId
+            })
+            .ToList();
+
+        return document with { Events = events };
+    }
+
+    public static AgentEvent HydrateEventScope(string sessionId, string branchId, AgentEvent evt)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
+        ArgumentNullException.ThrowIfNull(evt);
+
+        return evt with
+        {
+            SessionId = string.IsNullOrWhiteSpace(evt.SessionId)
+                ? sessionId
+                : evt.SessionId,
+            BranchId = string.IsNullOrWhiteSpace(evt.BranchId)
+                ? branchId
+                : evt.BranchId
+        };
+    }
+
     public static void RequireDocumentScope(BranchEventDocument document, string sessionId, string branchId)
     {
         ArgumentNullException.ThrowIfNull(document);

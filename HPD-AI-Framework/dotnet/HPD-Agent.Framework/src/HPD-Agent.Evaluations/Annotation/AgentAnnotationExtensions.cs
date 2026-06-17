@@ -7,7 +7,7 @@ namespace HPD.Agent.Evaluations.Annotation;
 
 /// <summary>
 /// Convenience helpers for submitting human annotation responses through the
-/// agent's existing bidirectional event coordinator.
+/// agent's existing request-session event coordinator.
 /// </summary>
 public static class AgentAnnotationExtensions
 {

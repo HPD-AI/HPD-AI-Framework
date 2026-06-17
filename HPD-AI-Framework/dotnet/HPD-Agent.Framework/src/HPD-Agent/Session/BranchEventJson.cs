@@ -9,12 +9,13 @@ namespace HPD.Agent;
 internal static class BranchEventJson
 {
     public static JsonSerializerOptions Options { get; } = CreateOptions();
+    public static JsonSerializerOptions CompactOptions { get; } = CreateOptions(writeIndented: false);
 
-    private static JsonSerializerOptions CreateOptions()
+    private static JsonSerializerOptions CreateOptions(bool writeIndented = true)
     {
         var options = new JsonSerializerOptions
         {
-            WriteIndented = true,
+            WriteIndented = writeIndented,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
@@ -44,6 +45,8 @@ internal sealed class BranchEventJsonConverter : JsonConverter<AgentEvent>
 {
     private static readonly HashSet<string> BranchOmittedProperties = new(StringComparer.OrdinalIgnoreCase)
     {
+        "sessionId",
+        "branchId",
         "version",
         "channel",
         "kind",

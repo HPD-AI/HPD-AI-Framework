@@ -104,7 +104,7 @@ public sealed class AnnotationQueueTests
     }
 
     [Fact]
-    public void AnnotationResponseEvent_ImplementsBidirectionalContract()
+    public void AnnotationResponseEvent_ImplementsResponseContract()
     {
         var response = new AnnotationResponseEvent
         {

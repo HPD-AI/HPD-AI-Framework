@@ -600,10 +600,10 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(response);
 
-        if (response is not HPD.Events.IBidirectionalEvent)
+        if (response is not HPD.Events.IResponseEvent)
         {
             throw new NotSupportedException(
-                $"Response event '{response.GetType().Name}' is not a bidirectional response event.");
+                $"Response event '{response.GetType().Name}' is not a request response event.");
         }
 
         var json = AgentEventSerializer.ToJson(response);

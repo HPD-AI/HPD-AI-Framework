@@ -32,7 +32,7 @@ public sealed record EvalFailedEvent : AgentEvent
 }
 
 /// <summary>Emitted when a turn is flagged for human annotation.</summary>
-public sealed record AnnotationRequestedEvent : AgentEvent, IBidirectionalAgentEvent
+public sealed record AnnotationRequestedEvent : AgentEvent, IAgentRequestEvent
 {
     public string AnnotationId { get; init; } = string.Empty;
     public string SessionId { get; init; } = string.Empty;
@@ -46,7 +46,7 @@ public sealed record AnnotationRequestedEvent : AgentEvent, IBidirectionalAgentE
 }
 
 /// <summary>Human response to an annotation request.</summary>
-public sealed record AnnotationResponseEvent : AgentEvent, IBidirectionalAgentEvent
+public sealed record AnnotationResponseEvent : AgentEvent, IAgentResponseEvent
 {
     public string AnnotationId { get; init; } = string.Empty;
     public string ReviewerId { get; init; } = string.Empty;

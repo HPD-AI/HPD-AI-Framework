@@ -270,12 +270,12 @@ public class LoggingEventObserver
                 }
                 break;
 
-            // Bidirectional event processing
-            case BidirectionalEventProcessedEvent e:
+            // Request event processing
+            case RequestEventProcessedEvent e:
                 if (_logger.IsEnabled(LogLevel.Trace))
                 {
                     _logger.LogTrace(
-                        "Agent '{AgentName}' processed bidirectional event '{EventType}' (RequiresResponse: {RequiresResponse})",
+                        "Agent '{AgentName}' processed request event '{EventType}' (RequiresResponse: {RequiresResponse})",
                         e.AgentName, e.EventType, e.RequiresResponse);
                 }
                 break;

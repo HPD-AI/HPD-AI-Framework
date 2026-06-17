@@ -1,7 +1,7 @@
 /**
  * Client Tools Protocol Types
  *
- * Types for bidirectional tool orchestration between the agent and client applications.
+ * Types for request-session tool orchestration between the agent and client applications.
  * Enables clients to register tools that execute in the browser/client context.
  */
 

@@ -4,6 +4,7 @@ import type {
   AgentRunInputEvent,
   ClientToolInvokeRequestEvent,
   KnownAgentEvent,
+  RespondResult,
 } from './types/events.js';
 import { EventTypes } from './types/events.js';
 import type { AgentTransport, RuntimeScope, RunTransportOptions } from './types/transport.js';
@@ -76,6 +77,15 @@ export interface AgentClientConfig {
   /** Fetch credentials mode for HTTP requests. Use 'include' for cookie-backed auth. */
   credentials?: RequestCredentials;
 
+  /** Stable responder identity for targeted request sessions. */
+  responderId?: string;
+
+  /** Responder groups this client belongs to. */
+  responderGroups?: string[];
+
+  /** Capabilities available to this client. */
+  capabilities?: string[];
+
 }
 
 // ============================================
@@ -142,13 +152,14 @@ export class AgentClient {
     this.transport.disconnect();
   }
 
-  async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<void> {
-    await this.transport.submitInput(input, options);
+  async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<RespondResult | undefined> {
+    const result = await this.transport.submitInput(input, options);
     await this.outputDispatchQueue;
+    return result;
   }
 
-  async run(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<void> {
-    await this.submitInput(input, options);
+  async run(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<RespondResult | undefined> {
+    return this.submitInput(input, options);
   }
 
   abort(): void {
@@ -204,17 +215,47 @@ export class AgentClient {
       await handler(event);
     }
 
-    if (event.type === EventTypes.CLIENT_TOOL_INVOKE_REQUEST) {
+    if (event.type === EventTypes.CLIENT_TOOL_INVOKE_REQUEST &&
+      this.matchesResponderTarget(event as ClientToolInvokeRequestEvent)) {
       const toolResponse = await this.tools.handleInvoke(event as ClientToolInvokeRequestEvent);
       await this.transport.submitInput({
         type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
         requestId: toolResponse.requestId,
+        responderId: this.config.responderId,
+        responderGroup: this.config.responderGroups?.[0],
+        capabilities: this.responderCapabilities(),
         content: toolResponse.content,
         success: toolResponse.success,
         errorMessage: toolResponse.errorMessage,
         augmentation: toolResponse.augmentation,
       });
     }
+  }
+
+  private matchesResponderTarget(request: ClientToolInvokeRequestEvent): boolean {
+    if (!isTargetedResponderPolicy(request.responsePolicy) || !request.target) {
+      return true;
+    }
+
+    const target = request.target;
+    if (target.responderId && target.responderId !== this.config.responderId) {
+      return false;
+    }
+
+    const groups = new Set(this.config.responderGroups ?? []);
+    if (target.responderGroup && !groups.has(target.responderGroup)) {
+      return false;
+    }
+
+    const capabilities = new Set(this.responderCapabilities());
+    return (target.requiredCapabilities ?? []).every((capability) => capabilities.has(capability));
+  }
+
+  private responderCapabilities(): string[] {
+    return [...new Set([
+      ...(this.config.capabilities ?? []),
+      ...this.tools.capabilities,
+    ])];
   }
 
   private async dispatchError(error: Error): Promise<void> {
@@ -412,4 +453,10 @@ export class AgentClient {
   uploadContent(sessionId: string, branchId: string, file: File | Blob, name?: string): Promise<ContentReference> {
     return this.api.uploadContent(sessionId, branchId, file, name);
   }
+}
+
+function isTargetedResponderPolicy(value: unknown): boolean {
+  return value === 'targetedResponder' ||
+    value === 'TargetedResponder' ||
+    value === 1;
 }

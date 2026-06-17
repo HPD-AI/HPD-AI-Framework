@@ -845,36 +845,75 @@ public sealed record ToolCallBackgroundTaskFaultedEvent : ToolCallBackgroundTask
 
 #region Middleware Events
 
-/// <summary>
-/// Marker interface for agent-specific bidirectional events.
-/// Inherits from HPD.Events.IBidirectionalEvent for cross-domain consistency.
-/// Events implementing this interface can:
-/// - Be emitted during execution
-/// - Bubble to parent agents via AsyncLocal
-/// - Participate in RequestAsync/Respond request-response flows
-/// </summary>
-public interface IBidirectionalAgentEvent : HPD.Events.IBidirectionalEvent
+public interface IAgentRequestEvent : HPD.Events.IRequestEvent;
+
+public interface IAgentResponseEvent : HPD.Events.IResponseEvent;
+
+public sealed record AgentRequestStartedEvent(
+    string RequestId,
+    string SourceName,
+    string RequestEventType,
+    string ExpectedResponseEventType,
+    HPD.Events.ResponsePolicy ResponsePolicy,
+    HPD.Events.ResponderTarget? Target,
+    HPD.Events.RequestVisibility Visibility,
+    DateTimeOffset StartedAt) : AgentEvent
 {
-    // Inherits RequestId and SourceName from HPD.Events.IBidirectionalEvent
+    public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override bool ShouldPersistToBranch() => true;
 }
 
-/// <summary>
-/// Marker interface for permission-related Middleware events.
-/// Permission events are a specialized subset of Middleware events
-/// that require user interaction and approval workflows.
-/// </summary>
-/// <remarks>
-/// Implements IBidirectionalAgentEvent.RequestId via PermissionId.
-/// Each implementing record must provide: string IBidirectionalAgentEvent.RequestId => PermissionId;
-/// </remarks>
-public interface IPermissionEvent : IBidirectionalAgentEvent
+public sealed record AgentRequestResolvedEvent(
+    string RequestId,
+    string SourceName,
+    string RequestEventType,
+    string ResponseEventType,
+    string? ResponderId,
+    string? ResponderGroup,
+    DateTimeOffset ResolvedAt) : AgentEvent
 {
-    /// <summary>
-    /// Unique identifier for this permission interaction.
-    /// Used to correlate requests and responses.
-    /// Maps to IBidirectionalAgentEvent.RequestId for consistency.
-    /// </summary>
-    string PermissionId { get; }
+    public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override bool ShouldPersistToBranch() => true;
+}
+
+public sealed record AgentRequestExpiredEvent(
+    string RequestId,
+    string SourceName,
+    string RequestEventType,
+    TimeSpan Timeout,
+    DateTimeOffset ExpiredAt) : AgentEvent
+{
+    public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override bool ShouldPersistToBranch() => true;
+}
+
+public sealed record AgentRequestCancelledEvent(
+    string RequestId,
+    string SourceName,
+    string RequestEventType,
+    string? Reason,
+    DateTimeOffset CancelledAt) : AgentEvent
+{
+    public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override bool ShouldPersistToBranch() => true;
+}
+
+public sealed record AgentResponseRejectedEvent(
+    string RequestId,
+    string ResponseEventType,
+    HPD.Events.RespondStatus Status,
+    string? Reason,
+    string? ResponderId,
+    string? ResponderGroup,
+    DateTimeOffset RejectedAt) : AgentEvent
+{
+    public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
+    public override bool ShouldPersistToBranch() => true;
 }
 
 /// <summary>
@@ -887,13 +926,13 @@ public record PermissionRequestEvent(
     string FunctionName,
     string? Description,
     string CallId,
-    IDictionary<string, object?>? Arguments) : AgentEvent, IPermissionEvent
+    IDictionary<string, object?>? Arguments) : AgentEvent, IAgentRequestEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 
     /// <summary>Explicit interface implementation - maps PermissionId to RequestId</summary>
-    string HPD.Events.IBidirectionalEvent.RequestId => PermissionId;
+    string HPD.Events.IRequestCorrelatedEvent.RequestId => PermissionId;
 }
 
 /// <summary>
@@ -905,14 +944,14 @@ public record PermissionResponseEvent(
     string SourceName,
     bool Approved,
     string? Reason = null,
-    PermissionChoice Choice = PermissionChoice.Ask) : AgentEvent, IPermissionEvent
+    PermissionChoice Choice = PermissionChoice.Ask) : AgentEvent, IAgentResponseEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
     public override EventDirection Direction { get; init; } = EventDirection.Upstream;
 
     /// <summary>Explicit interface implementation - maps PermissionId to RequestId</summary>
-    string HPD.Events.IBidirectionalEvent.RequestId => PermissionId;
+    string HPD.Events.IRequestCorrelatedEvent.RequestId => PermissionId;
 }
 
 /// <summary>
@@ -920,13 +959,10 @@ public record PermissionResponseEvent(
 /// </summary>
 public record PermissionApprovedEvent(
     string PermissionId,
-    string SourceName) : AgentEvent, IPermissionEvent
+    string SourceName) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-
-    /// <summary>Explicit interface implementation - maps PermissionId to RequestId</summary>
-    string HPD.Events.IBidirectionalEvent.RequestId => PermissionId;
 }
 
 /// <summary>
@@ -936,13 +972,10 @@ public record PermissionDeniedEvent(
     string PermissionId,
     string SourceName,
     string CallId,
-    string Reason) : AgentEvent, IPermissionEvent
+    string Reason) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-
-    /// <summary>Explicit interface implementation - maps PermissionId to RequestId</summary>
-    string HPD.Events.IBidirectionalEvent.RequestId => PermissionId;
 }
 
 /// <summary>
@@ -952,19 +985,13 @@ public record ContinuationRequestEvent(
     string ContinuationId,
     string SourceName,
     int CurrentIteration,
-    int MaxIterations) : AgentEvent, IPermissionEvent
+    int MaxIterations) : AgentEvent, IAgentRequestEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 
-    /// <summary>
-    /// Explicit interface implementation for IPermissionEvent.PermissionId
-    /// Maps ContinuationId to PermissionId for consistency.
-    /// </summary>
-    string IPermissionEvent.PermissionId => ContinuationId;
-
     /// <summary>Explicit interface implementation - maps ContinuationId to RequestId</summary>
-    string HPD.Events.IBidirectionalEvent.RequestId => ContinuationId;
+    string HPD.Events.IRequestCorrelatedEvent.RequestId => ContinuationId;
 }
 
 /// <summary>
@@ -974,39 +1001,14 @@ public record ContinuationResponseEvent(
     string ContinuationId,
     string SourceName,
     bool Approved,
-    int ExtensionAmount = 0) : AgentEvent, IPermissionEvent
+    int ExtensionAmount = 0) : AgentEvent, IAgentResponseEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
     public override EventDirection Direction { get; init; } = EventDirection.Upstream;
 
-    /// <summary>
-    /// Explicit interface implementation for IPermissionEvent.PermissionId
-    /// Maps ContinuationId to PermissionId for consistency.
-    /// </summary>
-    string IPermissionEvent.PermissionId => ContinuationId;
-
     /// <summary>Explicit interface implementation - maps ContinuationId to RequestId</summary>
-    string HPD.Events.IBidirectionalEvent.RequestId => ContinuationId;
-}
-
-/// <summary>
-/// Marker interface for clarification-related events.
-/// Clarification events enable agents/ToolHarnesses to ask the user for additional information
-/// during execution, supporting human-in-the-loop workflows beyond just permissions.
-/// </summary>
-public interface IClarificationEvent : IBidirectionalAgentEvent
-{
-    /// <summary>
-    /// Unique identifier for this clarification interaction.
-    /// Used to correlate requests and responses.
-    /// </summary>
-    string RequestId { get; }
-
-    /// <summary>
-    /// The question being asked to the user.
-    /// </summary>
-    string Question { get; }
+    string HPD.Events.IRequestCorrelatedEvent.RequestId => ContinuationId;
 }
 
 /// <summary>
@@ -1018,7 +1020,7 @@ public record ClarificationRequestEvent(
     string SourceName,
     string Question,
     string? AgentName = null,
-    string[]? Options = null) : AgentEvent, IClarificationEvent
+    string[]? Options = null) : AgentEvent, IAgentRequestEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
@@ -1032,7 +1034,7 @@ public record ClarificationResponseEvent(
     string RequestId,
     string SourceName,
     string Question,
-    string Answer) : AgentEvent, IClarificationEvent
+    string Answer) : AgentEvent, IAgentResponseEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
@@ -1041,7 +1043,7 @@ public record ClarificationResponseEvent(
 
 /// <summary>
 /// Middleware reports an error (one-way, no response needed).
-/// This is NOT a bidirectional event - it's just informational.
+/// This is not a request event - it's just informational.
 /// </summary>
 public record MiddlewareErrorEvent(
     string SourceName,
@@ -1615,9 +1617,9 @@ public record InternalMessagePreparedEvent(
 }
 
 /// <summary>
-/// Emitted when a bidirectional event is processed.
+/// Emitted when a request event is processed.
 /// </summary>
-public record BidirectionalEventProcessedEvent(
+public record RequestEventProcessedEvent(
     string AgentName,
     string EventType,
     bool RequiresResponse,
@@ -1923,7 +1925,7 @@ public record EventDroppedEvent(
 #endregion
 
 /// <summary>
-/// Abstraction for bidirectional event coordination.
+/// Abstraction for request-session event coordination.
 /// Enables middlewares to emit events and wait for responses
 /// without knowing about Agent internals.
 /// </summary>

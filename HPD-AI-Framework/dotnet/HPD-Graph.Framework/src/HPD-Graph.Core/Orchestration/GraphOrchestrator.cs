@@ -2553,7 +2553,7 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
     /// <summary>
     /// Handles node suspension with layered suspension pattern:
     /// 1. Durability: Save checkpoint (if store available)
-    /// 2. Reactivity: Emit bidirectional event (if coordinator available)
+    /// 2. Reactivity: Emit request event (if coordinator available)
     /// 3. Waiting: Await response with timeout
     /// 4. Fallback: On timeout/denial, return false to halt cleanly
     /// </summary>
@@ -2715,8 +2715,10 @@ public class GraphOrchestrator<TContext> : IGraphOrchestrator<TContext>
             }
             else
             {
-                // No active wait - just emit and halt immediately
-                context.EventCoordinator.Emit(requestEvent);
+                // No active wait - publish and track a detached request session.
+                context.EventCoordinator.StartRequest<
+                    Abstractions.Events.NodeApprovalRequestEvent,
+                    Abstractions.Events.NodeApprovalResponseEvent>(requestEvent);
             }
         }
         else if (options.EmitEvents && context.EventCoordinator == null)

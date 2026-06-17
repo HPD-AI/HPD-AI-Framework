@@ -8,7 +8,7 @@ namespace HPD.Agent.Tests.StructuredOutput;
 
 /// <summary>
 /// Unit tests for structured output in native mode.
-/// Tests streaming partials, deduplication, bidirectional events, error handling, etc.
+/// Tests streaming partials, deduplication, request/response events, error handling, etc.
 /// Uses shared TestResponse/NestedResponse models from TestModels.cs
 /// </summary>
 public class StructuredOutputTests
@@ -139,7 +139,7 @@ public class StructuredOutputTests
     }
 
     [Fact]
-    public async Task NativeMode_PassesThroughBidirectionalEvents()
+    public async Task NativeMode_PassesThroughRequestEvents()
     {
         // Arrange
         var fakeClient = new FakeChatClient();
@@ -158,11 +158,11 @@ public class StructuredOutputTests
             events.Add(evt);
         }
 
-        // Assert - bidirectional events (if any) should pass through
-        // Note: This test verifies the mechanism works; actual bidirectional events
+        // Assert - request events (if any) should pass through
+        // Note: This test verifies the mechanism works; actual request events
         // would come from middleware like permission requests
-        var bidirectionalEvents = events.Where(e => e is IBidirectionalAgentEvent).ToList();
-        // Just verify we can enumerate without error - bidirectional events depend on middleware config
+        var requestEvents = events.Where(e => e is IAgentRequestEvent).ToList();
+        // Just verify we can enumerate without error - request events depend on middleware config
         Assert.NotNull(events);
     }
 

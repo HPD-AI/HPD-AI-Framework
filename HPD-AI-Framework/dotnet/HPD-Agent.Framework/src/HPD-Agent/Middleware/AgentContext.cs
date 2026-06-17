@@ -385,13 +385,13 @@ public sealed class AgentContext
     }
 
     /// <summary>
-    /// Emits a bidirectional request event and waits for its matching response.
+    /// Starts a request session and waits for its matching response.
     /// </summary>
     public async Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
         TimeSpan? timeout = null)
-        where TRequest : AgentEvent, HPD.Events.IBidirectionalEvent
-        where TResponse : AgentEvent
+        where TRequest : AgentEvent, HPD.Events.IRequestEvent
+        where TResponse : AgentEvent, HPD.Events.IResponseEvent
     {
         ArgumentNullException.ThrowIfNull(request);
 

@@ -163,7 +163,7 @@ public interface IGraphContext
     HPD.Events.IEventCoordinator? EventCoordinator { get; }
 
     /// <summary>
-    /// Emits a bidirectional request event and waits for its matching response.
+    /// Starts a request session and waits for its matching response.
     /// </summary>
     /// <typeparam name="TResponse">Expected response event type (must inherit from GraphEvent)</typeparam>
     /// <param name="requestId">Unique identifier matching the request event</param>
@@ -175,7 +175,7 @@ public interface IGraphContext
     /// <exception cref="OperationCanceledException">Operation was cancelled</exception>
     /// <remarks>
     /// <para>
-    /// This method is used by node handlers that need bidirectional communication:
+    /// This method is used by node handlers that need request/response communication:
     /// </para>
     /// <list type="number">
     /// <item>Handler calls RequestAsync with a request event (e.g., NodeApprovalRequestEvent)</item>
@@ -217,8 +217,8 @@ public interface IGraphContext
         TRequest request,
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
-        where TRequest : HPD.Events.Event, HPD.Events.IBidirectionalEvent
-        where TResponse : HPD.Events.Event
+        where TRequest : HPD.Events.Event, HPD.Events.IRequestEvent
+        where TResponse : HPD.Events.Event, HPD.Events.IResponseEvent
     {
         if (EventCoordinator == null)
             throw new InvalidOperationException("EventCoordinator is not configured for this context");

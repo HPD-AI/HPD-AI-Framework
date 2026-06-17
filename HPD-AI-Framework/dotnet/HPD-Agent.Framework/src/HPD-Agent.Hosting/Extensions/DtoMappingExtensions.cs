@@ -50,7 +50,13 @@ public static class DtoMappingExtensions
             branch.PreviousSiblingId,
             branch.NextSiblingId,
             branch.TotalForks,
-            branch.Metadata.Count > 0 ? branch.Metadata : null);
+            branch.Metadata.Count > 0 ? branch.Metadata : null,
+            branch.Kind,
+            branch.Visibility,
+            branch.ParentSessionId,
+            branch.ParentBranchId,
+            branch.SubAgentName,
+            branch.SubAgentRunId);
     }
 
     /// <summary>

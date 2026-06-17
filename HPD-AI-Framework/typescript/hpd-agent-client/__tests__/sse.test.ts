@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AgentError } from '../src/errors.js';
 import { SseTransport } from '../src/transports/sse.js';
 import { EventTypes } from '../src/types/events.js';
 
@@ -66,19 +65,23 @@ describe('SseTransport runtime', () => {
     );
   });
 
-  it('posts bidirectional responses to their response endpoints after scope is known', async () => {
+  it('posts request responses to their response endpoints after scope is known', async () => {
     const transport = new SseTransport('http://localhost:5135');
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({ ok: true, body: stream(), text: async () => '' } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        text: async () => '',
+        json: async () => ({
+          status: 'Accepted',
+          requestId: 'p1',
+          accepted: true,
+        }),
       } as Response);
 
     await transport.connect({ agentId: 'a1', sessionId: 's1', branchId: 'main' });
 
-    await transport.submitInput({
+    const result = await transport.submitInput({
       type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'p1',
       sourceName: 'permission',
@@ -89,9 +92,15 @@ describe('SseTransport runtime', () => {
       'http://localhost:5135/agents/a1/sessions/s1/branches/main/responses',
       expect.objectContaining({ method: 'POST' }),
     );
+    expect(result).toEqual({
+      status: 'accepted',
+      requestId: 'p1',
+      message: null,
+      accepted: true,
+    });
   });
 
-  it('surfaces stale response conflicts as AgentError', async () => {
+  it('returns stale response conflicts as structured response results', async () => {
     const transport = new SseTransport('http://localhost:5135');
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({ ok: true, body: stream(), text: async () => '' } as Response)
@@ -108,13 +117,15 @@ describe('SseTransport runtime', () => {
       permissionId: 'p1',
       sourceName: 'permission',
       approved: true,
-    })).rejects.toMatchObject({
-      name: 'AgentError',
-      code: 'STALE_RESPONSE',
-    } satisfies Partial<AgentError>);
+    })).resolves.toEqual({
+      status: 'alreadyResolved',
+      requestId: 'p1',
+      message: 'Response was not accepted because the request is no longer pending',
+      accepted: false,
+    });
   });
 
-  it('preserves server-provided middleware response conflict codes', async () => {
+  it('returns server-provided middleware response conflict results', async () => {
     const transport = new SseTransport('http://localhost:5135');
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({ ok: true, body: stream(), text: async () => '' } as Response)
@@ -136,14 +147,12 @@ describe('SseTransport runtime', () => {
       permissionId: 'p1',
       sourceName: 'permission',
       approved: true,
-    })).rejects.toMatchObject({
-      name: 'AgentError',
-      code: 'BranchRuntimeNotActive',
-      statusCode: 409,
-      details: {
-        BranchRuntimeNotActive: ['The branch exists, but no runtime is waiting for this response.'],
-      },
-    } satisfies Partial<AgentError>);
+    })).resolves.toEqual({
+      status: 'notFound',
+      requestId: 'p1',
+      message: 'The branch exists, but no runtime is waiting for this response.',
+      accepted: false,
+    });
   });
 
   it('disconnects an active live subscription', async () => {

@@ -664,14 +664,21 @@ public sealed class EditFileTests : IDisposable
 
         public void SetParent(IEventCoordinator parent) => _inner.SetParent(parent);
 
+        public RequestHandle StartRequest<TRequest, TResponse>(
+            TRequest request,
+            RequestOptions? options = null)
+            where TRequest : Event, IRequestEvent
+            where TResponse : Event, IResponseEvent
+            => _inner.StartRequest<TRequest, TResponse>(request, options);
+
         public Task<TResponse> RequestAsync<TRequest, TResponse>(TRequest request, TimeSpan timeout, CancellationToken ct = default)
-            where TRequest : Event, IBidirectionalEvent
-            where TResponse : Event
+            where TRequest : Event, IRequestEvent
+            where TResponse : Event, IResponseEvent
             => _inner.RequestAsync<TRequest, TResponse>(request, timeout, ct);
 
-        public void Respond(string requestId, Event response) => _inner.Respond(requestId, response);
+        public RespondResult Respond(Event response) => _inner.Respond(response);
 
-        public bool TryRespond(string requestId, Event response) => _inner.TryRespond(requestId, response);
+        public RespondResult Respond(string requestId, Event response) => _inner.Respond(requestId, response);
 
         public EventCoordinatorStats GetStats() => _inner.GetStats();
     }

@@ -17,9 +17,26 @@ public static class BranchProjector
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
 
         var branch = new Branch(sessionId, branchId);
+        Apply(branch, events);
+        return branch;
+    }
+
+    public static Branch Apply(Branch branch, IEnumerable<AgentEvent> events)
+    {
+        ArgumentNullException.ThrowIfNull(branch);
+        ArgumentNullException.ThrowIfNull(events);
+
         var messages = new Dictionary<string, MessageProjection>(StringComparer.Ordinal);
         var messageOrder = new List<string>();
         var toolCalls = new Dictionary<string, ToolCallProjection>(StringComparer.Ordinal);
+
+        foreach (var message in branch.Messages)
+        {
+            EnsureMessageIdentity(message);
+            var messageId = message.MessageId!;
+            messages[messageId] = MessageProjection.FromChatMessage(message);
+            messageOrder.Add(messageId);
+        }
 
         foreach (var evt in events.OrderBy(e => e.SequenceNumber))
         {
@@ -51,6 +68,9 @@ public static class BranchProjector
                 branch.Description = data.Description;
                 branch.Tags = data.Tags;
                 ReplaceMetadata(branch.Metadata, data.BranchMetadata);
+                ApplyHeader(branch, data.BranchKind, data.Visibility, data.ParentSessionId, data.ParentBranchId,
+                    data.SubAgentName, data.SubAgentRunId, data.SubAgentSourceKind, data.ParentToolCallId,
+                    data.SessionPolicy, data.BranchPolicy);
                 branch.LastActivity = data.CreatedAt;
                 break;
             }
@@ -71,6 +91,9 @@ public static class BranchProjector
                 branch.Description = data.Description;
                 branch.Tags = data.Tags;
                 ReplaceMetadata(branch.Metadata, data.BranchMetadata);
+                ApplyHeader(branch, data.BranchKind, data.Visibility, data.ParentSessionId, data.ParentBranchId,
+                    data.SubAgentName, data.SubAgentRunId, data.SubAgentSourceKind, data.ParentToolCallId,
+                    data.SessionPolicy, data.BranchPolicy);
                 branch.LastActivity = evt.Timestamp.UtcDateTime;
                 break;
             }
@@ -250,6 +273,31 @@ public static class BranchProjector
         }
 
         messageOrder.InsertRange(insertIndex, replacementIds);
+    }
+
+    private static void ApplyHeader(
+        Branch branch,
+        BranchKind kind,
+        BranchVisibility visibility,
+        string? parentSessionId,
+        string? parentBranchId,
+        string? subAgentName,
+        string? subAgentRunId,
+        string? subAgentSourceKind,
+        string? parentToolCallId,
+        string? sessionPolicy,
+        string? branchPolicy)
+    {
+        branch.Kind = kind;
+        branch.Visibility = visibility;
+        branch.ParentSessionId = parentSessionId;
+        branch.ParentBranchId = parentBranchId;
+        branch.SubAgentName = subAgentName;
+        branch.SubAgentRunId = subAgentRunId;
+        branch.SubAgentSourceKind = subAgentSourceKind;
+        branch.ParentToolCallId = parentToolCallId;
+        branch.SessionPolicy = sessionPolicy;
+        branch.BranchPolicy = branchPolicy;
     }
 
     private static void ReplaceMetadata(

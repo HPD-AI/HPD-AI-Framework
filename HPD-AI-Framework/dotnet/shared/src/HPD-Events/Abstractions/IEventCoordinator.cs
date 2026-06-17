@@ -13,7 +13,7 @@ namespace HPD.Events;
 /// Key Features:
 /// - Fan-out event routing with per-subscriber mailboxes
 /// - Hierarchical event bubbling via SetParent (child events bubble to parent)
-/// - Bidirectional request/response with RequestAsync and Respond/TryRespond
+/// - Request-session request/response with RequestAsync and Respond
 /// - Interruptible streams (group events that can be canceled together)
 /// - Removable typed, catch-all, stream, and channel subscriptions
 /// </summary>
@@ -94,27 +94,34 @@ public interface IEventCoordinator
     void SetParent(IEventCoordinator parent);
 
     /// <summary>
-    /// Emit a bidirectional request event and wait for its matching response.
-    /// The response waiter is registered before the request is emitted.
+    /// Start a tracked answerable request session without requiring the caller to await it immediately.
+    /// </summary>
+    RequestHandle StartRequest<TRequest, TResponse>(
+        TRequest request,
+        RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent;
+
+    /// <summary>
+    /// Emit a request event and wait for its matching response.
+    /// The request session is registered before the request is emitted.
     /// </summary>
     Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
         TimeSpan timeout,
         CancellationToken ct = default)
-        where TRequest : Event, IBidirectionalEvent
-        where TResponse : Event;
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent;
 
     /// <summary>
-    /// Complete a pending bidirectional request with a matching response.
-    /// Throws when no active waiter exists.
+    /// Attempt to resolve a pending request with a matching response.
     /// </summary>
-    void Respond(string requestId, Event response);
+    RespondResult Respond(Event response);
 
     /// <summary>
-    /// Try to complete a pending bidirectional request with a matching response.
-    /// Returns false when the request has already completed, timed out, or never existed.
+    /// Attempt to resolve a pending request with a matching response.
     /// </summary>
-    bool TryRespond(string requestId, Event response);
+    RespondResult Respond(string requestId, Event response);
 
     /// <summary>
     /// Registry for managing interruptible event flows.

@@ -10,7 +10,7 @@ namespace HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 
 /// <summary>
 /// Middleware response endpoints for the HPD-Agent API.
-/// These endpoints allow clients to respond to bidirectional runtime requests.
+/// These endpoints allow clients to respond to runtime request sessions.
 /// </summary>
 internal static class MiddlewareResponseEndpoints
 {
@@ -23,8 +23,8 @@ internal static class MiddlewareResponseEndpoints
     {
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/branches/{bid}/responses", (string agentId, string sid, string bid, HttpRequest request, CancellationToken ct) =>
                 Respond(agentId, sid, bid, request, responses, ct))
-            .WithName("RespondToBidirectionalEvent")
-            .WithSummary("Respond to a bidirectional request from the agent");
+            .WithName("RespondToAgentRequest")
+            .WithSummary("Respond to a request from the agent");
     }
 
     private static async Task<IResult> Respond(
@@ -43,7 +43,7 @@ internal static class MiddlewareResponseEndpoints
             {
                 return TypedResults.ValidationProblem(new Dictionary<string, string[]>
                 {
-                    ["BidirectionalResponse"] = ["A response event envelope is required."]
+                    ["RequestResponse"] = ["A response event envelope is required."]
                 });
             }
 
@@ -51,15 +51,15 @@ internal static class MiddlewareResponseEndpoints
             {
                 return TypedResults.ValidationProblem(new Dictionary<string, string[]>
                 {
-                    ["BidirectionalResponse"] = ["The request body must be a valid agent event envelope."]
+                    ["RequestResponse"] = ["The request body must be a valid agent event envelope."]
                 });
             }
 
-            if (evt is not IBidirectionalEvent response)
+            if (evt is not IResponseEvent response)
             {
                 return TypedResults.ValidationProblem(new Dictionary<string, string[]>
                 {
-                    ["BidirectionalResponse"] = ["The event must implement IBidirectionalEvent."]
+                    ["RequestResponse"] = ["The event must implement IResponseEvent."]
                 });
             }
 
@@ -69,21 +69,22 @@ internal static class MiddlewareResponseEndpoints
         {
             return TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["BidirectionalResponseError"] = [ex.Message]
+                ["RequestResponseError"] = [ex.Message]
             });
         }
     }
 
-    private static IResult ToHttpResult(AgentServiceResult result)
+    private static IResult ToHttpResult(AgentServiceResult<RespondResult> result)
     {
         return result.Status switch
         {
-            AgentServiceStatus.Success => TypedResults.Ok(),
+            AgentServiceStatus.Success => TypedResults.Ok(result.Value),
             AgentServiceStatus.NotFound => TypedResults.NotFound(),
             AgentServiceStatus.Conflict when result.ErrorCode != null => TypedResults.Json(
                 new
                 {
                     title = result.ErrorMessage ?? "Middleware response conflict.",
+                    result = result.Value,
                     errors = new Dictionary<string, string[]>
                     {
                         [result.ErrorCode] = [result.ErrorMessage ?? "Middleware response conflict."]

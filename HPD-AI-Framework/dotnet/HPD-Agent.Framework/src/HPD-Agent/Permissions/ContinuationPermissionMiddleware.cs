@@ -116,7 +116,7 @@ public class ContinuationPermissionMiddleware : IAgentMiddleware
     //     
 
     /// <summary>
-    /// Requests continuation permission via bidirectional events.
+    /// Requests continuation permission via a request session.
     /// </summary>
     /// <returns>True if user approves continuation, false otherwise</returns>
     private async Task<bool> RequestContinuationPermissionAsync(

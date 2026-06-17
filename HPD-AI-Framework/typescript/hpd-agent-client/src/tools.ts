@@ -63,6 +63,10 @@ export class ClientToolRegistry {
     return [...this.toolharnesses.values()];
   }
 
+  get capabilities(): string[] {
+    return [...this.handlers.keys()].map((toolName) => `client-tool:${toolName}`);
+  }
+
   canHandle(toolName: string): boolean {
     return this.handlers.has(normalizeClientToolName(toolName)) || this.fallbackHandler !== null;
   }

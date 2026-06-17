@@ -88,31 +88,7 @@ public interface ISessionStore
     Task<BranchEventDocument?> LoadBranchDocumentAsync(
         string sessionId,
         string branchId,
-        CancellationToken cancellationToken = default)
-    {
-        return LoadBranchAsync(sessionId, branchId, cancellationToken)
-            .ContinueWith(
-                task => task.Result is null
-                    ? null
-                    : BranchEventDocumentBuilder.FromBranchSnapshot(sessionId, task.Result),
-                cancellationToken,
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
-    }
-
-    /// <summary>
-    /// Save the event-sourced branch document to persistent storage.
-    /// Implementations may use <paramref name="expectedSequenceNumber"/> for optimistic concurrency.
-    /// </summary>
-    Task SaveBranchDocumentAsync(
-        BranchEventDocument document,
-        long? expectedSequenceNumber = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(document);
-        throw new NotSupportedException(
-            $"{GetType().Name} must implement event-sourced branch document persistence.");
-    }
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Append a branch event to the branch's durable event stream.
@@ -123,29 +99,7 @@ public interface ISessionStore
         string branchId,
         AgentEvent evt,
         long? expectedSequenceNumber = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(evt);
-
-        return AppendAsync();
-
-        async Task AppendAsync()
-        {
-            var document = await LoadBranchDocumentAsync(sessionId, branchId, cancellationToken).ConfigureAwait(false)
-                ?? new BranchEventDocument { SessionId = sessionId, BranchId = branchId };
-
-            evt = BranchEventValidation.PrepareForAppend(sessionId, branchId, evt);
-            evt.SequenceNumber = document.NextSequenceNumber;
-            document = document with
-            {
-                UpdatedAt = evt.Timestamp,
-                NextSequenceNumber = document.NextSequenceNumber + 1,
-                Events = [.. document.Events, evt]
-            };
-
-            await SaveBranchDocumentAsync(document, expectedSequenceNumber, cancellationToken).ConfigureAwait(false);
-        }
-    }
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Read branch events for deterministic replay.

@@ -169,11 +169,14 @@ public class AgentContextEmitTests
         public EventInbox<TEvent> CreateInbox<TEvent>(EventInboxOptions? options = null) where TEvent : Event => _inner.CreateInbox<TEvent>(options);
         public EventInbox<Event> CreateChannelInbox(EventChannel channel, EventInboxOptions? options = null) => _inner.CreateChannelInbox(channel, options);
         public void SetParent(IEventCoordinator parent) => _inner.SetParent(parent);
+        public RequestHandle StartRequest<TRequest, TResponse>(TRequest request, RequestOptions? options = null)
+            where TRequest : Event, IRequestEvent
+            where TResponse : Event, IResponseEvent => _inner.StartRequest<TRequest, TResponse>(request, options);
         public Task<TResponse> RequestAsync<TRequest, TResponse>(TRequest request, TimeSpan timeout, CancellationToken ct = default)
-            where TRequest : Event, IBidirectionalEvent
-            where TResponse : Event => _inner.RequestAsync<TRequest, TResponse>(request, timeout, ct);
-        public void Respond(string requestId, Event response) => _inner.Respond(requestId, response);
-        public bool TryRespond(string requestId, Event response) => _inner.TryRespond(requestId, response);
+            where TRequest : Event, IRequestEvent
+            where TResponse : Event, IResponseEvent => _inner.RequestAsync<TRequest, TResponse>(request, timeout, ct);
+        public RespondResult Respond(Event response) => _inner.Respond(response);
+        public RespondResult Respond(string requestId, Event response) => _inner.Respond(requestId, response);
         public IEventFlowRegistry EventFlows => _inner.EventFlows;
         public EventCoordinatorStats GetStats() => _inner.GetStats();
     }

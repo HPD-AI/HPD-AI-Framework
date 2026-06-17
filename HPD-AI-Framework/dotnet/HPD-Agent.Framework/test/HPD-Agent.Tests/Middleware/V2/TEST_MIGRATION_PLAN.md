@@ -31,7 +31,7 @@ public static class MiddlewareTestHelpers
             agentName,
             conversationId,
             state,
-            new BidirectionalEventCoordinator(),
+            new HPD.Events.Core.EventCoordinator(),
             CancellationToken.None);
     }
 

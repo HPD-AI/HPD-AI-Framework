@@ -205,7 +205,7 @@ public sealed class AnnotationQueue
 
     /// <summary>
     /// Submit a human response for an annotation request. Unlike <see cref="Complete"/>,
-    /// this accepts pending items because bidirectional UI flows may respond directly
+    /// this accepts pending items because request-session UI flows may respond directly
     /// to the emitted request without separately claiming the in-memory queue item first.
     /// </summary>
     public bool SubmitResponse(

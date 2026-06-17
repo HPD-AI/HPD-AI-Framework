@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentRunInputEvent } from '../types/events.js';
+import type { AgentEvent, AgentRunInputEvent, RespondResult } from '../types/events.js';
 import type { AgentTransport, RunTransportOptions, RuntimeScope } from '../types/transport.js';
 
 /**
@@ -102,7 +102,7 @@ export class WebSocketTransport implements AgentTransport {
     });
   }
 
-  async submitInput(input: AgentRunInputEvent, _options?: RunTransportOptions): Promise<void> {
+  async submitInput(input: AgentRunInputEvent, _options?: RunTransportOptions): Promise<RespondResult | undefined> {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
@@ -113,6 +113,7 @@ export class WebSocketTransport implements AgentTransport {
       branchId: 'branchId' in input ? input.branchId ?? this.scope?.branchId ?? 'main' : this.scope?.branchId ?? 'main',
       agentId: 'agentId' in input ? input.agentId ?? this.scope?.agentId : this.scope?.agentId,
     }));
+    return undefined;
   }
 
   onEvent(handler: (event: AgentEvent) => void): void {

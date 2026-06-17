@@ -14,11 +14,17 @@ namespace HPD.Agent;
 ///   ├── session.json          ← Session metadata + session-scoped middleware state
 ///   ├── branches/              ← All conversation branches
 ///   │   ├── main/
-///   │   │   └── branch.json   ← Branch event document projected into Branch
+///   │   │   ├── branch.meta.json      ← Event stream metadata + next sequence number
+///   │   │   ├── branch.events.jsonl   ← Append-only branch event stream
+///   │   │   └── branch.projection.json ← Lazy Branch projection cache
 ///   │   ├── formal/
-///   │   │   └── branch.json
+///   │   │   ├── branch.meta.json
+///   │   │   ├── branch.events.jsonl
+///   │   │   └── branch.projection.json
 ///   │   └── casual/
-///   │       └── branch.json
+///   │       ├── branch.meta.json
+///   │       ├── branch.events.jsonl
+///   │       └── branch.projection.json
 ///   └── uncommitted.json       ← Crash recovery buffer (session-scoped, contains branchId)
 /// </code>
 /// </remarks>
@@ -114,18 +120,49 @@ public class JsonSessionStore : ISessionStore
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
 
-        var branchPath = GetBranchFilePath(sessionId, branchId);
+        var metadataPath = GetBranchMetadataFilePath(sessionId, branchId);
+        var eventsPath = GetBranchEventsFilePath(sessionId, branchId);
 
-        if (!File.Exists(branchPath))
+        if (!File.Exists(metadataPath) && !File.Exists(eventsPath))
             return Task.FromResult<Branch?>(null);
 
         lock (_lock)
         {
-            var json = File.ReadAllText(branchPath);
-            var document = JsonSerializer.Deserialize<BranchEventDocument>(json, BranchEventJson.Options)
-                ?? throw new InvalidDataException($"Branch document '{branchPath}' is empty.");
-            BranchEventValidation.RequireDocumentScope(document, sessionId, branchId);
-            var branch = BranchProjector.Project(document);
+            var projection = LoadBranchProjectionCacheNoLock(sessionId, branchId);
+            Branch branch;
+            long lastSequenceNumber;
+
+            if (projection is not null)
+            {
+                branch = projection.Branch;
+                lastSequenceNumber = projection.LastSequenceNumber;
+            }
+            else
+            {
+                branch = new Branch(sessionId, branchId);
+                lastSequenceNumber = 0;
+            }
+
+            var tailEvents = ReadBranchEventsNoLock(sessionId, branchId)
+                .Where(evt => evt.SequenceNumber > lastSequenceNumber)
+                .ToList();
+
+            if (tailEvents.Count > 0)
+                BranchProjector.Apply(branch, tailEvents);
+
+            if (projection is null || tailEvents.Count > 0)
+            {
+                var metadata = LoadBranchMetadataNoLock(sessionId, branchId);
+                var checkpointSequence = tailEvents.Count == 0
+                    ? lastSequenceNumber
+                    : tailEvents.Max(evt => evt.SequenceNumber);
+                SaveBranchProjectionCacheNoLock(
+                    metadata,
+                    branch,
+                    checkpointSequence,
+                    checkpointSequence == 0 ? DateTimeOffset.UtcNow : tailEvents.Last().Timestamp);
+            }
+
             return Task.FromResult(branch);
         }
     }
@@ -138,51 +175,28 @@ public class JsonSessionStore : ISessionStore
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
 
-        var branchPath = GetBranchFilePath(sessionId, branchId);
+        var metadataPath = GetBranchMetadataFilePath(sessionId, branchId);
+        var eventsPath = GetBranchEventsFilePath(sessionId, branchId);
 
-        if (!File.Exists(branchPath))
+        if (!File.Exists(metadataPath) && !File.Exists(eventsPath))
             return Task.FromResult<BranchEventDocument?>(null);
 
         lock (_lock)
         {
-            var json = File.ReadAllText(branchPath);
-            var document = JsonSerializer.Deserialize<BranchEventDocument>(json, BranchEventJson.Options)
-                ?? throw new InvalidDataException($"Branch document '{branchPath}' is empty.");
+            var metadata = LoadBranchMetadataNoLock(sessionId, branchId);
+            var events = ReadBranchEventsNoLock(sessionId, branchId).ToList();
+            var document = new BranchEventDocument
+            {
+                SessionId = metadata.SessionId,
+                BranchId = metadata.BranchId,
+                CreatedAt = metadata.CreatedAt,
+                UpdatedAt = metadata.UpdatedAt,
+                NextSequenceNumber = metadata.NextSequenceNumber,
+                Events = events
+            };
             BranchEventValidation.RequireDocumentScope(document, sessionId, branchId);
             return Task.FromResult<BranchEventDocument?>(document);
         }
-    }
-
-    public Task SaveBranchDocumentAsync(
-        BranchEventDocument document,
-        long? expectedSequenceNumber = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(document);
-        BranchEventValidation.RequireDocumentScope(document, document.SessionId, document.BranchId);
-
-        var branchPath = GetBranchFilePath(document.SessionId, document.BranchId);
-
-        lock (_lock)
-        {
-            if (expectedSequenceNumber is not null && File.Exists(branchPath))
-            {
-                var existingJson = File.ReadAllText(branchPath);
-                var existing = JsonSerializer.Deserialize<BranchEventDocument>(existingJson, BranchEventJson.Options)
-                    ?? throw new InvalidDataException($"Branch document '{branchPath}' is empty.");
-                BranchEventValidation.RequireDocumentScope(existing, document.SessionId, document.BranchId);
-                if (existing.NextSequenceNumber - 1 != expectedSequenceNumber.Value)
-                {
-                    throw new InvalidOperationException(
-                        $"Branch '{document.BranchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {existing.NextSequenceNumber - 1}.");
-                }
-            }
-
-            var json = JsonSerializer.Serialize(document, BranchEventJson.Options);
-            WriteAtomically(branchPath, json);
-        }
-
-        return Task.CompletedTask;
     }
 
     public Task AppendBranchEventAsync(
@@ -196,48 +210,39 @@ public class JsonSessionStore : ISessionStore
         ArgumentException.ThrowIfNullOrWhiteSpace(branchId);
         ArgumentNullException.ThrowIfNull(evt);
 
-        var branchPath = GetBranchFilePath(sessionId, branchId);
+        var eventsPath = GetBranchEventsFilePath(sessionId, branchId);
 
         lock (_lock)
         {
-            BranchEventDocument document;
-            if (File.Exists(branchPath))
-            {
-                var json = File.ReadAllText(branchPath);
-                document = JsonSerializer.Deserialize<BranchEventDocument>(json, BranchEventJson.Options)
-                    ?? throw new InvalidDataException($"Branch document '{branchPath}' is empty.");
-                BranchEventValidation.RequireDocumentScope(document, sessionId, branchId);
-            }
-            else
-            {
-                document = new BranchEventDocument
-                {
-                    SessionId = sessionId,
-                    BranchId = branchId,
-                    CreatedAt = evt.Timestamp
-                };
-            }
+            var metadata = LoadBranchMetadataNoLock(sessionId, branchId, evt.Timestamp);
 
             if (expectedSequenceNumber is not null &&
-                document.NextSequenceNumber - 1 != expectedSequenceNumber.Value)
+                metadata.NextSequenceNumber - 1 != expectedSequenceNumber.Value)
             {
                 throw new InvalidOperationException(
-                    $"Branch '{branchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {document.NextSequenceNumber - 1}.");
+                    $"Branch '{branchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {metadata.NextSequenceNumber - 1}.");
             }
 
             evt = BranchEventValidation.PrepareForAppend(sessionId, branchId, evt);
-            evt.SequenceNumber = document.NextSequenceNumber;
-            var events = document.Events.ToList();
-            events.Add(evt);
-            document = document with
+            evt.SequenceNumber = metadata.NextSequenceNumber;
+
+            var directory = Path.GetDirectoryName(eventsPath);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+
+            File.AppendAllText(
+                eventsPath,
+                JsonSerializer.Serialize(evt, BranchEventJson.CompactOptions) + System.Environment.NewLine);
+
+            metadata = metadata with
             {
                 UpdatedAt = evt.Timestamp,
-                NextSequenceNumber = document.NextSequenceNumber + 1,
-                Events = events
+                NextSequenceNumber = metadata.NextSequenceNumber + 1
             };
+            metadata = ApplyBranchHeader(metadata, evt);
 
-            var outputJson = JsonSerializer.Serialize(document, BranchEventJson.Options);
-            WriteAtomically(branchPath, outputJson);
+            SaveBranchMetadataNoLock(metadata);
+
         }
 
         return Task.CompletedTask;
@@ -407,11 +412,201 @@ public class JsonSessionStore : ISessionStore
     private string GetBranchDirectoryPath(string sessionId, string branchId)
         => Path.Combine(GetBranchesDirectoryPath(sessionId), branchId);
 
-    private string GetBranchFilePath(string sessionId, string branchId)
-        => Path.Combine(GetBranchDirectoryPath(sessionId, branchId), "branch.json");
+    private string GetBranchMetadataFilePath(string sessionId, string branchId)
+        => Path.Combine(GetBranchDirectoryPath(sessionId, branchId), "branch.meta.json");
+
+    private string GetBranchEventsFilePath(string sessionId, string branchId)
+        => Path.Combine(GetBranchDirectoryPath(sessionId, branchId), "branch.events.jsonl");
+
+    private string GetBranchProjectionCacheFilePath(string sessionId, string branchId)
+        => Path.Combine(GetBranchDirectoryPath(sessionId, branchId), "branch.projection.json");
 
     private string GetUncommittedTurnFilePath(string sessionId)
         => Path.Combine(GetSessionDirectoryPath(sessionId), "uncommitted.json");
+
+    private BranchEventStreamMetadata LoadBranchMetadataNoLock(
+        string sessionId,
+        string branchId,
+        DateTimeOffset? createdAt = null)
+    {
+        var metadataPath = GetBranchMetadataFilePath(sessionId, branchId);
+        if (File.Exists(metadataPath))
+        {
+            var json = File.ReadAllText(metadataPath);
+            var metadata = JsonSerializer.Deserialize(
+                json,
+                SessionJsonContext.Combined.BranchEventStreamMetadata)
+                ?? throw new InvalidDataException($"Branch metadata '{metadataPath}' is empty.");
+            RequireMetadataScope(metadata, sessionId, branchId);
+            return metadata;
+        }
+
+        var eventsPath = GetBranchEventsFilePath(sessionId, branchId);
+        if (File.Exists(eventsPath))
+        {
+            throw new InvalidDataException(
+                $"Branch event stream '{eventsPath}' is missing required metadata file '{metadataPath}'.");
+        }
+
+        var now = createdAt ?? DateTimeOffset.UtcNow;
+        return new BranchEventStreamMetadata
+        {
+            SessionId = sessionId,
+            BranchId = branchId,
+            CreatedAt = now,
+            UpdatedAt = now,
+            NextSequenceNumber = 1
+        };
+    }
+
+    private static BranchEventStreamMetadata ApplyBranchHeader(
+        BranchEventStreamMetadata metadata,
+        AgentEvent evt)
+    {
+        return evt switch
+        {
+            BranchCreatedEvent data => metadata with
+            {
+                Name = data.Name,
+                Description = data.Description,
+                Tags = data.Tags,
+                Kind = data.BranchKind,
+                Visibility = data.Visibility,
+                ParentSessionId = data.ParentSessionId,
+                ParentBranchId = data.ParentBranchId,
+                SubAgentName = data.SubAgentName,
+                SubAgentRunId = data.SubAgentRunId,
+                SubAgentSourceKind = data.SubAgentSourceKind,
+                ParentToolCallId = data.ParentToolCallId,
+                SessionPolicy = data.SessionPolicy,
+                BranchPolicy = data.BranchPolicy
+            },
+            BranchMetadataUpdatedEvent data => metadata with
+            {
+                Name = data.Name,
+                Description = data.Description,
+                Tags = data.Tags,
+                Kind = data.BranchKind,
+                Visibility = data.Visibility,
+                ParentSessionId = data.ParentSessionId,
+                ParentBranchId = data.ParentBranchId,
+                SubAgentName = data.SubAgentName,
+                SubAgentRunId = data.SubAgentRunId,
+                SubAgentSourceKind = data.SubAgentSourceKind,
+                ParentToolCallId = data.ParentToolCallId,
+                SessionPolicy = data.SessionPolicy,
+                BranchPolicy = data.BranchPolicy
+            },
+            MessageStartedEvent => metadata with { MessageCount = metadata.MessageCount + 1 },
+            BranchHistoryCompactedEvent data => metadata with { MessageCount = data.ReplacementMessages.Count },
+            _ => metadata
+        };
+    }
+
+    private static void RequireMetadataScope(
+        BranchEventStreamMetadata metadata,
+        string sessionId,
+        string branchId)
+    {
+        if (!StringComparer.Ordinal.Equals(metadata.SessionId, sessionId))
+        {
+            throw new InvalidDataException(
+                $"Branch metadata session scope '{metadata.SessionId}' does not match requested session '{sessionId}'.");
+        }
+
+        if (!StringComparer.Ordinal.Equals(metadata.BranchId, branchId))
+        {
+            throw new InvalidDataException(
+                $"Branch metadata branch scope '{metadata.BranchId}' does not match requested branch '{branchId}'.");
+        }
+    }
+
+    private void SaveBranchMetadataNoLock(BranchEventStreamMetadata metadata)
+    {
+        var metadataPath = GetBranchMetadataFilePath(metadata.SessionId, metadata.BranchId);
+        var json = JsonSerializer.Serialize(metadata, SessionJsonContext.Combined.BranchEventStreamMetadata);
+        WriteAtomically(metadataPath, json);
+    }
+
+    private List<AgentEvent> ReadBranchEventsNoLock(string sessionId, string branchId)
+    {
+        var eventsPath = GetBranchEventsFilePath(sessionId, branchId);
+        var events = new List<AgentEvent>();
+        if (!File.Exists(eventsPath))
+            return events;
+
+        foreach (var line in File.ReadLines(eventsPath))
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            var evt = JsonSerializer.Deserialize<AgentEvent>(line, BranchEventJson.Options)
+                ?? throw new InvalidDataException($"Branch event stream '{eventsPath}' contains an empty event line.");
+            evt = BranchEventValidation.HydrateEventScope(sessionId, branchId, evt);
+            BranchEventValidation.RequirePersistableScope(sessionId, branchId, evt);
+            events.Add(evt);
+        }
+
+        return events;
+    }
+
+    private BranchProjectionCache? LoadBranchProjectionCacheNoLock(string sessionId, string branchId)
+    {
+        var projectionPath = GetBranchProjectionCacheFilePath(sessionId, branchId);
+        if (!File.Exists(projectionPath))
+            return null;
+
+        var json = File.ReadAllText(projectionPath);
+        var projection = JsonSerializer.Deserialize(
+            json,
+            SessionJsonContext.Combined.BranchProjectionCache)
+            ?? throw new InvalidDataException($"Branch projection cache '{projectionPath}' is empty.");
+
+        if (!StringComparer.Ordinal.Equals(projection.SessionId, sessionId))
+        {
+            throw new InvalidDataException(
+                $"Branch projection cache session scope '{projection.SessionId}' does not match requested session '{sessionId}'.");
+        }
+
+        if (!StringComparer.Ordinal.Equals(projection.BranchId, branchId))
+        {
+            throw new InvalidDataException(
+                $"Branch projection cache branch scope '{projection.BranchId}' does not match requested branch '{branchId}'.");
+        }
+
+        return projection;
+    }
+
+    private void SaveBranchProjectionCacheNoLock(
+        BranchEventStreamMetadata metadata,
+        Branch branch,
+        long lastSequenceNumber,
+        DateTimeOffset updatedAt)
+    {
+        var projection = new BranchProjectionCache
+        {
+            SessionId = metadata.SessionId,
+            BranchId = metadata.BranchId,
+            LastSequenceNumber = lastSequenceNumber,
+            CreatedAt = metadata.CreatedAt,
+            UpdatedAt = updatedAt,
+            Branch = branch
+        };
+
+        var projectionPath = GetBranchProjectionCacheFilePath(metadata.SessionId, metadata.BranchId);
+        var json = JsonSerializer.Serialize(projection, SessionJsonContext.Combined.BranchProjectionCache);
+        WriteAtomically(projectionPath, json);
+    }
+
+    private void RequireExpectedSequenceNoLock(string sessionId, string branchId, long expectedSequenceNumber)
+    {
+        var metadata = LoadBranchMetadataNoLock(sessionId, branchId);
+        if (metadata.NextSequenceNumber - 1 != expectedSequenceNumber)
+        {
+            throw new InvalidOperationException(
+                $"Branch '{branchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {metadata.NextSequenceNumber - 1}.");
+        }
+    }
 
     private void WriteAtomically(string filePath, string content)
     {

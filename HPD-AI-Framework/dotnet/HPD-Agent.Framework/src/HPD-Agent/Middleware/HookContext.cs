@@ -278,13 +278,13 @@ public abstract class HookContext
     }
 
     /// <summary>
-    /// Emits a bidirectional request event and waits for its matching response.
+    /// Starts a request session and waits for its matching response.
     /// </summary>
     public Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
         TimeSpan? timeout = null)
-        where TRequest : AgentEvent, HPD.Events.IBidirectionalEvent
-        where TResponse : AgentEvent
+        where TRequest : AgentEvent, HPD.Events.IRequestEvent
+        where TResponse : AgentEvent, HPD.Events.IResponseEvent
         => Base.RequestAsync<TRequest, TResponse>(request, timeout);
 
     /// <summary>
@@ -311,7 +311,7 @@ public abstract class HookContext
     [EditorBrowsable(EditorBrowsableState.Never)]
     public HPD.Events.IEventCoordinator? GetParentEventCoordinator()
     {
-        // BidirectionalEventCoordinator now implements HPD.Events.IEventCoordinator
+        // The request-session coordinator implements HPD.Events.IEventCoordinator.
         return Base.EventCoordinator as HPD.Events.IEventCoordinator;
     }
 

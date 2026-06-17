@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Events;
+using HPD.Events.Core;
 using HPD.Graph.Tests.Helpers;
 using HPD.Graph.Abstractions.Checkpointing;
 using HPD.Graph.Abstractions.Events;
@@ -495,8 +496,8 @@ public class ConfigurableSuspendingHandler : IGraphNodeHandler<GraphContext>
 /// </summary>
 public class TestEventCoordinator : IEventCoordinator
 {
+    private readonly EventCoordinator _inner = new();
     private readonly List<Event> _emittedEvents = new();
-    private readonly Dictionary<string, TaskCompletionSource<Event>> _waiters = new();
     private readonly object _lock = new();
 
     public IReadOnlyList<Event> EmittedEvents => _emittedEvents;
@@ -510,70 +511,44 @@ public class TestEventCoordinator : IEventCoordinator
     }
 
     public ValueTask EmitAsync(Event evt, CancellationToken ct = default) { Emit(evt); return ValueTask.CompletedTask; }
-    public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler, EventSubscriptionOptions? options = null) where TEvent : Event => new NoopSubscription();
-    public IDisposable SubscribeAny(Func<Event, ValueTask> handler, EventSubscriptionOptions? options = null) => new NoopSubscription();
-    public EventInbox<TEvent> CreateInbox<TEvent>(EventInboxOptions? options = null) where TEvent : Event => default;
-    public EventInbox<Event> CreateChannelInbox(EventChannel channel, EventInboxOptions? options = null) => default;
-    public EventCoordinatorStats GetStats() => default;
+    public IDisposable Subscribe<TEvent>(Func<TEvent, ValueTask> handler, EventSubscriptionOptions? options = null) where TEvent : Event => _inner.Subscribe(handler, options);
+    public IDisposable SubscribeAny(Func<Event, ValueTask> handler, EventSubscriptionOptions? options = null) => _inner.SubscribeAny(handler, options);
+    public EventInbox<TEvent> CreateInbox<TEvent>(EventInboxOptions? options = null) where TEvent : Event => _inner.CreateInbox<TEvent>(options);
+    public EventInbox<Event> CreateChannelInbox(EventChannel channel, EventInboxOptions? options = null) => _inner.CreateChannelInbox(channel, options);
+    public EventCoordinatorStats GetStats() => _inner.GetStats();
 
-    public void SetParent(IEventCoordinator parent) { }
+    public void SetParent(IEventCoordinator parent) => _inner.SetParent(parent);
+
+    public RequestHandle StartRequest<TRequest, TResponse>(
+        TRequest request,
+        RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent
+    {
+        var handle = _inner.StartRequest<TRequest, TResponse>(request, options);
+        Emit(request);
+        return handle;
+    }
 
     public Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
         TimeSpan timeout,
         CancellationToken ct = default)
-        where TRequest : Event, IBidirectionalEvent
-        where TResponse : Event
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent
     {
-        var responseTask = WaitForResponseAsync<TResponse>(request.RequestId, timeout, ct);
+        var responseTask = _inner.RequestAsync<TRequest, TResponse>(request, timeout, ct);
         Emit(request);
         return responseTask;
     }
 
-    private Task<TResponse> WaitForResponseAsync<TResponse>(string requestId, TimeSpan timeout, CancellationToken ct = default)
-        where TResponse : Event
-    {
-        var tcs = new TaskCompletionSource<Event>();
+    public RespondResult Respond(Event response)
+        => _inner.Respond(response);
 
-        lock (_lock)
-        {
-            _waiters[requestId] = tcs;
-        }
+    public RespondResult Respond(string requestId, Event response)
+        => _inner.Respond(requestId, response);
 
-        // Set up timeout
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(timeout);
-        cts.Token.Register(() =>
-        {
-            tcs.TrySetException(new TimeoutException($"Timeout waiting for response to {requestId}"));
-        });
-
-        return tcs.Task.ContinueWith(t =>
-        {
-            if (t.IsFaulted)
-                throw t.Exception!.InnerException!;
-            return (TResponse)t.Result;
-        });
-    }
-
-    public void Respond(string requestId, Event response)
-    {
-        if (!TryRespond(requestId, response))
-            throw new InvalidOperationException($"No pending response waiter found for request ID '{requestId}'.");
-    }
-
-    public bool TryRespond(string requestId, Event response)
-    {
-        TaskCompletionSource<Event>? tcs;
-        lock (_lock)
-        {
-            _waiters.TryGetValue(requestId, out tcs);
-        }
-
-        return tcs?.TrySetResult(response) == true;
-    }
-
-    public IEventFlowRegistry EventFlows => throw new NotImplementedException();
+    public IEventFlowRegistry EventFlows => _inner.EventFlows;
 
 }
 

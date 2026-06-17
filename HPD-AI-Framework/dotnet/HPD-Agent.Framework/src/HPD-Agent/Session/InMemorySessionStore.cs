@@ -94,31 +94,6 @@ public class InMemorySessionStore : ISessionStore
         return Task.FromResult<BranchEventDocument?>(null);
     }
 
-    public Task SaveBranchDocumentAsync(
-        BranchEventDocument document,
-        long? expectedSequenceNumber = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(document);
-        cancellationToken.ThrowIfCancellationRequested();
-        BranchEventValidation.RequireDocumentScope(document, document.SessionId, document.BranchId);
-
-        var sessionBranches = _branches.GetOrAdd(
-            document.SessionId,
-            _ => new ConcurrentDictionary<string, BranchEventDocument>());
-
-        if (expectedSequenceNumber is not null &&
-            sessionBranches.TryGetValue(document.BranchId, out var existing) &&
-            existing.NextSequenceNumber - 1 != expectedSequenceNumber.Value)
-        {
-            throw new InvalidOperationException(
-                $"Branch '{document.BranchId}' sequence mismatch. Expected {expectedSequenceNumber}, actual {existing.NextSequenceNumber - 1}.");
-        }
-
-        sessionBranches[document.BranchId] = document;
-        return Task.CompletedTask;
-    }
-
     public Task AppendBranchEventAsync(
         string sessionId,
         string branchId,

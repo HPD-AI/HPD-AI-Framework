@@ -6,7 +6,7 @@ namespace HPD.MultiAgent;
 
 /// <summary>
 /// Event coordinator for multi-agent workflows.
-/// Provides approval response methods, subscriptions, and bidirectional event patterns
+/// Provides approval response methods, subscriptions, and request-session event patterns
 /// without requiring a direct reference to HPD.Events or HPD.Events.Core.
 ///
 /// <para>
@@ -37,7 +37,7 @@ public sealed class WorkflowEventCoordinator : IDisposable
     /// <param name="requestId">The <see cref="NodeApprovalRequestEvent.RequestId"/> from the event.</param>
     /// <param name="reason">Optional reason shown in audit logs.</param>
     /// <param name="resumeData">Optional data passed back into the node after approval.</param>
-    public void Approve(string requestId, string? reason = null, object? resumeData = null)
+    public RespondResult Approve(string requestId, string? reason = null, object? resumeData = null)
         => _inner.Approve(requestId, reason, resumeData);
 
     /// <summary>
@@ -45,7 +45,7 @@ public sealed class WorkflowEventCoordinator : IDisposable
     /// </summary>
     /// <param name="requestId">The <see cref="NodeApprovalRequestEvent.RequestId"/> from the event.</param>
     /// <param name="reason">Reason for denial (shown to the workflow and in audit logs).</param>
-    public void Deny(string requestId, string reason = "Denied by user")
+    public RespondResult Deny(string requestId, string reason = "Denied by user")
         => _inner.Deny(requestId, reason);
 
     // ── Subscriptions ─────────────────────────────────────────────────────────
