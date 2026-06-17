@@ -32,7 +32,6 @@ namespace HPD.Agent;
 [JsonSerializable(typeof(AgentEvent))]
 [JsonSerializable(typeof(List<AgentEvent>))]
 [JsonSerializable(typeof(ToolResultPayload))]
-[JsonSerializable(typeof(UncommittedTurn))]
 
 // HPD-specific types
 [JsonSerializable(typeof(AgentLoopState))]
@@ -59,7 +58,7 @@ namespace HPD.Agent;
 [JsonSerializable(typeof(IReadOnlyList<ContextItem>))]
 [JsonSerializable(typeof(IReadOnlySet<string>))]
 
-// Common middleware state types that may be checkpointed in AgentLoopState.
+// Common middleware state types that may be serialized in AgentLoopState.
 [JsonSerializable(typeof(BatchPermissionStateData))]
 [JsonSerializable(typeof(CircuitBreakerStateData))]
 [JsonSerializable(typeof(ContinuationPermissionStateData))]

@@ -245,10 +245,6 @@ public class Thread
     /// </remarks>
     public Dictionary<string, string> MiddlewareState { get; init; }
 
-    /// <summary>Current execution state (for crash recovery, null when idle)</summary>
-    [JsonIgnore]
-    public AgentLoopState? ExecutionState { get; set; }
-
     /// <summary>
     /// Parameterless constructor for JSON deserialization.
     /// Properties are populated via init setters.

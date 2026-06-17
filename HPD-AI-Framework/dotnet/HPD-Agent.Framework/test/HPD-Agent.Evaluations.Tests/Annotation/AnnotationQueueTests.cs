@@ -50,7 +50,7 @@ public sealed class AnnotationQueueTests
         var annotationId = queue.TryEnqueueFromScore("session", "thread", 0, "Safety", 0.1);
         queue.Claim(annotationId!, "reviewer-1").Should().NotBeNull();
 
-        Thread.Sleep(20);
+        System.Threading.Thread.Sleep(20);
 
         var claimed = queue.Claim(annotationId!, "reviewer-2");
 

@@ -503,8 +503,6 @@ public sealed class Agent
         });
     }
 
-    /// <summary>
-    /// Validates middleware state schema when resuming from checkpoint.
     // ── Span ID helpers ───────────────────────────────────────────────────────
 
     /// <summary>Generates a 128-bit OTel-compatible trace ID (32 lowercase hex chars).</summary>
@@ -516,83 +514,6 @@ public sealed class Agent
         => Convert.ToHexString(RandomNumberGenerator.GetBytes(8)).ToLowerInvariant();
 
     // ─────────────────────────────────────────────────────────────────────────
-
-    /// Schema is computed from runtime-registered factories (not compiled constants).
-    /// </summary>
-    /// <param name="checkpointState">Middleware state from checkpoint</param>
-    /// <returns>The checkpoint state when it was produced by the current middleware schema.</returns>
-    private MiddlewareState ValidateMiddlewareSchema(MiddlewareState checkpointState)
-    {
-        var (currentSignature, currentVersions) = GetCurrentMiddlewareSchema();
-
-        if (string.IsNullOrWhiteSpace(checkpointState.SchemaSignature))
-        {
-            throw new InvalidOperationException(
-                "Cannot resume checkpoint without middleware schema metadata.");
-        }
-
-        if (!StringComparer.Ordinal.Equals(checkpointState.SchemaSignature, currentSignature))
-        {
-            var oldTypes = checkpointState.SchemaSignature
-                .Split(',', StringSplitOptions.RemoveEmptyEntries)
-                .ToHashSet(StringComparer.Ordinal);
-            var newTypes = _stateFactories.Keys.ToHashSet(StringComparer.Ordinal);
-
-            var removed = oldTypes.Except(newTypes).OrderBy(type => type, StringComparer.Ordinal).ToArray();
-            var added = newTypes.Except(oldTypes).OrderBy(type => type, StringComparer.Ordinal).ToArray();
-
-            throw new InvalidOperationException(
-                "Cannot resume checkpoint created with a different middleware schema. " +
-                $"Added: {string.Join(", ", added)}. Removed: {string.Join(", ", removed)}.");
-        }
-
-        if (checkpointState.StateVersions is null)
-        {
-            throw new InvalidOperationException(
-                "Cannot resume checkpoint without middleware state version metadata.");
-        }
-
-        foreach (var (stateType, currentVersion) in currentVersions)
-        {
-            if (!checkpointState.StateVersions.TryGetValue(stateType, out var checkpointVersion))
-            {
-                throw new InvalidOperationException(
-                    $"Cannot resume checkpoint without version metadata for middleware state '{stateType}'.");
-            }
-
-            if (checkpointVersion != currentVersion)
-            {
-                throw new InvalidOperationException(
-                    $"Cannot resume checkpoint with middleware state '{stateType}' version {checkpointVersion}; expected {currentVersion}.");
-            }
-        }
-
-        return checkpointState;
-    }
-
-    private MiddlewareState StampMiddlewareSchema(MiddlewareState middlewareState)
-    {
-        var (currentSignature, currentVersions) = GetCurrentMiddlewareSchema();
-        return new MiddlewareState
-        {
-            States = middlewareState.States,
-            SchemaSignature = currentSignature,
-            SchemaVersion = 1,
-            StateVersions = currentVersions
-        };
-    }
-
-    private (string Signature, ImmutableDictionary<string, int> Versions) GetCurrentMiddlewareSchema()
-    {
-        var currentSignature = string.Join(",",
-            _stateFactories.Keys.OrderBy(k => k, StringComparer.Ordinal));
-
-        var currentVersions = _stateFactories.ToImmutableDictionary(
-            kvp => kvp.Key,
-            kvp => kvp.Value.Version);
-
-        return (currentSignature, currentVersions);
-    }
 
     /// <summary>
     /// Publishes an output event produced by the agent engine.
@@ -909,33 +830,6 @@ public sealed class Agent
                 evt.GetType().Name);
             // Event content persistence is opt-in telemetry/storage and should not break streaming.
         }
-    }
-
-    private async Task SaveTurnCheckpointAsync(
-        ISessionStore? store,
-        Session? session,
-        Thread? thread,
-        string turnId,
-        DateTime turnStartTime,
-        AgentLoopState state,
-        CancellationToken cancellationToken)
-    {
-        if (store == null || session == null)
-            return;
-
-        await store.SaveUncommittedTurnAsync(new UncommittedTurn
-        {
-            SessionId = session.Id,
-            ThreadId = thread?.Id ?? UncommittedTurn.DefaultThread,
-            TurnId = turnId,
-            Iteration = state.Iteration,
-            CompletedFunctions = state.CompletedFunctions,
-            MiddlewareState = StampMiddlewareSchema(state.MiddlewareState),
-            IsTerminated = state.IsTerminated,
-            TerminationReason = state.TerminationReason,
-            CreatedAt = turnStartTime,
-            LastUpdatedAt = DateTime.UtcNow
-        }, cancellationToken).ConfigureAwait(false);
     }
 
     private Task HandleInterruptionAsync(InterruptionRequestEvent interruption, CancellationToken cancellationToken)
@@ -1723,7 +1617,7 @@ public sealed class Agent
             conversationId = Guid.NewGuid().ToString();
         }
 
-        var isResumeTurn = newInputMessages.Count == 0 && thread?.ExecutionState != null;
+        var isResumeTurn = newInputMessages.Count == 0 && thread?.Messages.Count > 0;
 
         try
         {
@@ -1756,103 +1650,25 @@ public sealed class Agent
                 ParentSpanId = null   // root span
             };
  
-            // MESSAGE PREPARATION: Split logic between Fresh Run vs Resume
-            // FRESH RUN: Process documents → PrepareMessages → Create initial state
-            // RESUME:    Use state.CurrentMessages as-is (already prepared)
             AgentLoopState state;
             IEnumerable<ChatMessage> effectiveMessages;
             ChatOptions? effectiveOptions;
             // Shared mutable message list - all contexts reference this same list (zero-sync architecture)
             List<ChatMessage> sharedMessages;
 
-            // Check for uncommitted turn (crash recovery via session store)
-            UncommittedTurn? uncommittedTurn = null;
-            var store = Config?.SessionStore;
-            if (session != null && store != null)
-            {
-                try
-                {
-                    uncommittedTurn = await store.LoadUncommittedTurnAsync(
-                        session.Id, effectiveCancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception)
-                {
-                    // Best-effort — if we can't load, treat as fresh run
-                }
-            }
+            // Load persistent middleware state from session + thread (split by scope).
+            var sessionState = MiddlewareState.LoadFromSession(session, _stateFactories);
+            var threadState = MiddlewareState.LoadFromThread(thread, _stateFactories);
+            var persistentState = sessionState.Merge(threadState);
 
-            var isResumingTurn = uncommittedTurn != null && !newInputMessages.Any();
+            // Initialize state from durable thread history. Crash recovery is represented by
+            // thread events and run/tool projections, not a separate uncommitted loop snapshot.
+            sharedMessages = new List<ChatMessage>(messages);
+            state = AgentLoopState.Initial(sharedMessages, messageTurnId, conversationId, this.Name, persistentState);
 
-            if (isResumingTurn)
-            {
-                // RESUME PATH: Restore from uncommitted turn (crash recovery)
-                var restoreStopwatch = Stopwatch.StartNew();
-
-                // Reconstruct full message list from the durable thread transcript.
-                sharedMessages = thread!.Messages.ToList();
-
-                var restoredMiddlewareState = ValidateMiddlewareSchema(uncommittedTurn.MiddlewareState);
-
-                // Reconstruct AgentLoopState from uncommitted turn
-                state = AgentLoopState.Initial(sharedMessages, messageTurnId, conversationId, this.Name, restoredMiddlewareState);
-                state = state with
-                {
-                    Iteration = uncommittedTurn.Iteration,
-                    CompletedFunctions = uncommittedTurn.CompletedFunctions,
-                    IsTerminated = uncommittedTurn.IsTerminated,
-                    TerminationReason = uncommittedTurn.TerminationReason,
-                    // Reset history tracking — first LLM call after recovery sends full history
-                    InnerClientTracksHistory = false,
-                    MessagesSentToInnerClient = 0
-                };
-
-                effectiveMessages = sharedMessages;
-                effectiveOptions = turn.Options;
-
-                restoreStopwatch.Stop();
-
-                // Emit checkpoint restored event
-                yield return new CheckpointEvent(
-                    Operation: CheckpointOperation.Restored,
-                    SessionId: session.Id,
-                    Timestamp: DateTimeOffset.UtcNow,
-                    Duration: restoreStopwatch.Elapsed,
-                    Iteration: state.Iteration,
-                    MessageCount: sharedMessages.Count)
-                { TraceId = traceId };
-            }
-            else
-            {
-                //
-                // FRESH RUN PATH: Use PreparedTurn directly (all preparation already done)
-                //
-
-                // Discard stale uncommitted turn if user sent a new message (last-write-wins)
-                if (uncommittedTurn != null && session != null && store != null)
-                {
-                    _ = Task.Run(async () =>
-                    {
-                        try { await store.DeleteUncommittedTurnAsync(session.Id); }
-                        catch { /* best-effort */ }
-                    }, CancellationToken.None);
-                }
-
-                // Load persistent middleware state from session + thread ( split by scope)
-                var sessionState = MiddlewareState.LoadFromSession(session, _stateFactories);
-                var threadState = MiddlewareState.LoadFromThread(thread, _stateFactories);
-                var persistentState = sessionState.Merge(threadState);
-
-                // Initialize state with FULL uncompacted history
-                // PreparedTurn.MessagesForLLM contains the compacted version (for LLM calls)
-                // We store the full history in state for proper message counting
-                // Create ONE shared mutable list for the entire turn - all contexts reference this same list
-                sharedMessages = new List<ChatMessage>(messages);
-                state = AgentLoopState.Initial(sharedMessages, messageTurnId, conversationId, this.Name, persistentState);
-
-                // Use PreparedTurn's already-prepared messages and options
-                effectiveMessages = turn.MessagesForLLM;
-                effectiveOptions = turn.Options;  // Already merged + Middlewareed
-            }
+            // Use PreparedTurn's already-prepared messages and options
+            effectiveMessages = turn.MessagesForLLM;
+            effectiveOptions = turn.Options;  // Already merged + Middlewareed
 
             //     
             // BUILD CONFIGURATION & DECISION ENGINE (common to both paths)
@@ -2903,14 +2719,6 @@ public sealed class Agent
                                 thread,
                                 [historyMessage],
                                 effectiveCancellationToken).ConfigureAwait(false);
-                            await SaveTurnCheckpointAsync(
-                                store,
-                                session,
-                                thread,
-                                messageTurnId,
-                                orchestrationStartTime,
-                                state,
-                                effectiveCancellationToken).ConfigureAwait(false);
                         }
 
                         var effectiveOptionsForTools = beforeIterationContext.Options;
@@ -3034,14 +2842,6 @@ public sealed class Agent
                             thread,
                             [toolResultMessage],
                             effectiveCancellationToken).ConfigureAwait(false);
-                        await SaveTurnCheckpointAsync(
-                            store,
-                            session,
-                            thread,
-                            messageTurnId,
-                            orchestrationStartTime,
-                            state,
-                            effectiveCancellationToken).ConfigureAwait(false);
 
                         // Build callId → toolharnessName / callType mappings for result events
                         var callIdToToolHarness = toolRequests.ToDictionary(
@@ -3123,14 +2923,6 @@ public sealed class Agent
                                     thread,
                                     [finalAssistantMessage],
                                     effectiveCancellationToken).ConfigureAwait(false);
-                                await SaveTurnCheckpointAsync(
-                                    store,
-                                    session,
-                                    thread,
-                                    messageTurnId,
-                                    orchestrationStartTime,
-                                    state,
-                                    effectiveCancellationToken).ConfigureAwait(false);
                             }
                         }
 
@@ -3184,8 +2976,6 @@ public sealed class Agent
                 // Advance to next iteration
                 state = state.NextIteration();
 
-                // No separate iteration checkpoint needed — uncommitted turn save
-                // fires after each tool batch (more granular than per-iteration)
             }
 
             if (responseUpdates.Any())
@@ -3210,14 +3000,6 @@ public sealed class Agent
                             session,
                             thread,
                             [finalAssistantMessage],
-                            effectiveCancellationToken).ConfigureAwait(false);
-                        await SaveTurnCheckpointAsync(
-                            store,
-                            session,
-                            thread,
-                            messageTurnId,
-                            orchestrationStartTime,
-                            state,
                             effectiveCancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -3272,35 +3054,6 @@ public sealed class Agent
                 DateTimeOffset.UtcNow)
             { TraceId = traceId };
     
-            // DELETE UNCOMMITTED TURN (turn completed successfully — no longer needed)
-            if (session != null && store != null)
-            {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await store.DeleteUncommittedTurnAsync(session.Id);
-
-                        PublishOutputEvent(new CheckpointEvent(
-                            Operation: CheckpointOperation.Cleared,
-                            SessionId: session.Id,
-                            Timestamp: DateTimeOffset.UtcNow,
-                            Iteration: state.Iteration,
-                            Success: true));
-                    }
-                    catch (Exception ex)
-                    {
-                        PublishOutputEvent(new CheckpointEvent(
-                            Operation: CheckpointOperation.Cleared,
-                            SessionId: session.Id,
-                            Timestamp: DateTimeOffset.UtcNow,
-                            Iteration: state.Iteration,
-                            Success: false,
-                            ErrorMessage: ex.Message));
-                    }
-                }, CancellationToken.None);
-            }
-
             // MIDDLEWARE: AfterMessageTurnAsync (V2 - turn-level hook)
             // Update AgentContext with final state
             agentContext.SyncState(state);
@@ -3373,10 +3126,6 @@ public sealed class Agent
                     // Ignore errors - middleware state persistence is not critical to execution
                 }
 
-                // Clear ExecutionState on successful completion
-                // ExecutionState is only for crash recovery - once we complete successfully,
-                // it should be null so subsequent runs start fresh (not as a "resume")
-                thread.ExecutionState = null;
             }
 
             historyCompletionSource.TrySetResult(turnHistory);
@@ -3838,30 +3587,10 @@ public sealed class Agent
             var hasMessages = messages?.Any() ?? false;
             var hasHistory = thread.Messages.Count > 0;
 
-            // Check for uncommitted turn
-            var hasUncommittedTurn = false;
-            var runStore = Config?.SessionStore;
-            if (runStore != null && session != null)
-            {
-                try
-                {
-                    hasUncommittedTurn = await runStore.LoadUncommittedTurnAsync(
-                        session.Id, cancellationToken).ConfigureAwait(false) != null;
-                }
-                catch { /* best-effort */ }
-            }
-            var hasCheckpoint = thread.ExecutionState != null || hasUncommittedTurn;
-
-            if (!hasCheckpoint && !hasMessages && !hasHistory)
+            if (!hasMessages && !hasHistory)
             {
                 throw new InvalidOperationException(
                     "Cannot run agent with empty thread and no messages.");
-            }
-
-            if (thread.ExecutionState != null && hasMessages)
-            {
-                throw new InvalidOperationException(
-                    "Cannot add new messages when resuming mid-execution.");
             }
         }
 
@@ -3907,7 +3636,7 @@ public sealed class Agent
         string? messageTurnId = null;
         string? conversationId = session?.Id;
         var currentIteration = 0;
-        var isResume = inputMessages.Count == 0 && thread?.ExecutionState != null;
+        var isResume = inputMessages.Count == 0 && thread?.Messages.Count > 0;
         var turnFinished = false;
 
         while (true)

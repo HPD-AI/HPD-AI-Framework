@@ -125,42 +125,6 @@ public class LoggingEventObserver
                 }
                 break;
 
-            // Checkpoint operations (consolidated)
-            case CheckpointEvent e:
-                switch (e.Operation)
-                {
-                    case CheckpointOperation.Saved:
-                        if (e.Success == true)
-                        {
-                            _logger.LogInformation(
-                                "Checkpoint saved for thread '{SessionId}' at iteration {Iteration} in {Duration}ms",
-                                e.SessionId, e.Iteration, e.Duration?.TotalMilliseconds ?? 0);
-                        }
-                        else
-                        {
-                            _logger.LogWarning(
-                                "Checkpoint save failed for thread '{SessionId}' at iteration {Iteration}: {Error}",
-                                e.SessionId, e.Iteration, e.ErrorMessage);
-                        }
-                        break;
-
-                    case CheckpointOperation.Restored:
-                        _logger.LogInformation(
-                            "Checkpoint restored for thread '{SessionId}' from iteration {Iteration} ({MessageCount} messages) in {Duration}ms",
-                            e.SessionId, e.Iteration, e.MessageCount, e.Duration?.TotalMilliseconds ?? 0);
-                        break;
-
-                    case CheckpointOperation.Cleared:
-                        if (_logger.IsEnabled(LogLevel.Debug))
-                        {
-                            _logger.LogDebug(
-                                "Uncommitted turn cleared for thread '{SessionId}' at iteration {Iteration}",
-                                e.SessionId, e.Iteration);
-                        }
-                        break;
-                }
-                break;
-
             // Retry events (consolidated)
             case InternalRetryEvent e:
                 switch (e.Status)

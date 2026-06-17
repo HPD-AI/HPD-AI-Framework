@@ -8,14 +8,14 @@ namespace HPD.Agent;
 
 /// <summary>
 /// Interface for persisting and loading session and thread state.
-/// V3 Architecture: Supports session metadata, threads, and crash recovery.
+/// Thread events are the durable execution and transcript source of truth.
 /// </summary>
 /// <remarks>
 /// <para><b>V3 Changes:</b></para>
 /// <list type="bullet">
 /// <item>Session methods now work with Session (metadata only, no messages)</item>
 /// <item>New thread methods for managing conversation threads</item>
-/// <item>UncommittedTurn remains session-scoped (contains ThreadId internally)</item>
+/// <item>Thread runs and recovery are projected from thread events</item>
 /// </list>
 /// </remarks>
 public interface ISessionStore
@@ -56,7 +56,7 @@ public interface ISessionStore
 
     /// <summary>
     /// Delete a session and all its data from persistent storage.
-    /// This deletes the session metadata, all threads, and uncommitted turn.
+    /// This deletes the session metadata and all threads.
     /// </summary>
     /// <remarks>
     /// <para><b>V3 Behavior:</b> Deletes session + all threads. Content cleanup is handled by IContentStore policy.</para>
@@ -147,40 +147,11 @@ public interface ISessionStore
         CancellationToken cancellationToken = default);
 
     // ═══════════════════════════════════════════════════════════════════
-    // UNCOMMITTED TURN (Crash Recovery — one per session)
-    // ═══════════════════════════════════════════════════════════════════
-
-    /// <summary>
-    /// Load the uncommitted turn for a session, if one exists.
-    /// Returns null if no turn is in progress (session is idle).
-    /// </summary>
-    Task<UncommittedTurn?> LoadUncommittedTurnAsync(
-        string sessionId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Save (overwrite) the uncommitted turn for a session.
-    /// Called after each tool batch completes (fire-and-forget from agent loop).
-    /// </summary>
-    Task SaveUncommittedTurnAsync(
-        UncommittedTurn turn,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Delete the uncommitted turn for a session.
-    /// Called when a message turn completes successfully.
-    /// </summary>
-    Task DeleteUncommittedTurnAsync(
-        string sessionId,
-        CancellationToken cancellationToken = default);
-
-    // ═══════════════════════════════════════════════════════════════════
     // CLEANUP
     // ═══════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// Delete sessions inactive longer than the threshold.
-    /// Also cleans up any orphaned uncommitted turns.
     /// </summary>
     Task<int> DeleteInactiveSessionsAsync(
         TimeSpan inactivityThreshold,

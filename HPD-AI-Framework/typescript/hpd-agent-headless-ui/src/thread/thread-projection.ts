@@ -195,14 +195,15 @@ class ThreadProjectionImpl implements ThreadProjection {
           : known.cancelled
             ? 'cancelled'
             : 'completed';
+        const currentRun = this.snapshot.threadRun;
         this.snapshot = {
           ...this.snapshot,
           threadRun: {
             runtimeRunId: known.runtimeRunId,
             agentId: known.agentId,
             status,
-            startedAt: this.snapshot.threadRun?.runtimeRunId === known.runtimeRunId
-              ? this.snapshot.threadRun.startedAt
+            startedAt: currentRun?.runtimeRunId === known.runtimeRunId
+              ? currentRun.startedAt
               : undefined,
             errorType: known.errorType,
             errorMessage: known.errorMessage,
@@ -568,5 +569,7 @@ function mapThreadRun(run: ThreadRun): ThreadRunView {
     completedAt: run.completedAt,
     errorType: run.error?.type,
     errorMessage: run.error?.message,
+    backgroundOperation: run.backgroundOperation,
+    backgroundTasks: run.backgroundTasks,
   };
 }

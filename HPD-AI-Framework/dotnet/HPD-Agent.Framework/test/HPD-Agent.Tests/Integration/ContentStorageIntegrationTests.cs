@@ -526,15 +526,6 @@ public class ContentStorageIntegrationTests
         public Task DeleteThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
-        public Task<UncommittedTurn?> LoadUncommittedTurnAsync(string sessionId, CancellationToken cancellationToken = default)
-            => Task.FromResult<UncommittedTurn?>(null);
-
-        public Task SaveUncommittedTurnAsync(UncommittedTurn turn, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
-        public Task DeleteUncommittedTurnAsync(string sessionId, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
         public Task<int> DeleteInactiveSessionsAsync(TimeSpan inactivityThreshold, bool dryRun = false, CancellationToken cancellationToken = default)
             => Task.FromResult(0);
     }

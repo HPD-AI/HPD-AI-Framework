@@ -83,7 +83,7 @@ export interface ClientToolRequest {
   description?: string;
 }
 
-export type ThreadRunViewStatus = 'idle' | 'active' | 'completed' | 'cancelled' | 'failed';
+export type ThreadRunViewStatus = 'idle' | 'active' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
 
 export interface ThreadRunView {
   runtimeRunId: string;
@@ -93,6 +93,8 @@ export interface ThreadRunView {
   completedAt?: string | null;
   errorType?: string | null;
   errorMessage?: string | null;
+  backgroundOperation?: ThreadRun['backgroundOperation'];
+  backgroundTasks?: ThreadRun['backgroundTasks'];
 }
 
 export interface ThreadProjectionSnapshot {

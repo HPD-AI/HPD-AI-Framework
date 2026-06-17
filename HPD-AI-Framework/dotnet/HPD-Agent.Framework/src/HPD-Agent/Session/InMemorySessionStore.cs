@@ -13,14 +13,12 @@ namespace HPD.Agent;
 /// <code>
 /// _sessions: ConcurrentDictionary&lt;string, Session&gt;        ← Session metadata
 /// _threads: ConcurrentDictionary&lt;string, ThreadEventDocument&gt; ← Event documents per thread
-/// _uncommittedTurns: ConcurrentDictionary&lt;string, UncommittedTurn&gt; ← Crash recovery
 /// </code>
 /// </remarks>
 public class InMemorySessionStore : ISessionStore
 {
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, ThreadEventDocument>> _threads = new();
-    private readonly ConcurrentDictionary<string, UncommittedTurn> _uncommittedTurns = new();
 
     // ═══════════════════════════════════════════════════════════════════
     // SESSION PERSISTENCE ( Metadata only)
@@ -55,7 +53,6 @@ public class InMemorySessionStore : ISessionStore
     {
         _sessions.TryRemove(sessionId, out _);
         _threads.TryRemove(sessionId, out _);
-        _uncommittedTurns.TryRemove(sessionId, out _);
         return Task.CompletedTask;
     }
 
@@ -183,38 +180,6 @@ public class InMemorySessionStore : ISessionStore
         return Task.CompletedTask;
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // UNCOMMITTED TURN (Crash Recovery - session-scoped)
-    // ═══════════════════════════════════════════════════════════════════
-
-    public Task<UncommittedTurn?> LoadUncommittedTurnAsync(
-        string sessionId,
-        CancellationToken cancellationToken = default)
-    {
-        _uncommittedTurns.TryGetValue(sessionId, out var turn);
-        return Task.FromResult(turn);
-    }
-
-    public Task SaveUncommittedTurnAsync(
-        UncommittedTurn turn,
-        CancellationToken cancellationToken = default)
-    {
-        _uncommittedTurns[turn.SessionId] = turn;
-        return Task.CompletedTask;
-    }
-
-    public Task DeleteUncommittedTurnAsync(
-        string sessionId,
-        CancellationToken cancellationToken = default)
-    {
-        _uncommittedTurns.TryRemove(sessionId, out _);
-        return Task.CompletedTask;
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // CLEANUP
-    // ═══════════════════════════════════════════════════════════════════
-
     public Task<int> DeleteInactiveSessionsAsync(
         TimeSpan inactivityThreshold,
         bool dryRun = false,
@@ -237,7 +202,6 @@ public class InMemorySessionStore : ISessionStore
             {
                 _sessions.TryRemove(sessionId, out _);
                 _threads.TryRemove(sessionId, out _);
-                _uncommittedTurns.TryRemove(sessionId, out _);
             }
         }
 

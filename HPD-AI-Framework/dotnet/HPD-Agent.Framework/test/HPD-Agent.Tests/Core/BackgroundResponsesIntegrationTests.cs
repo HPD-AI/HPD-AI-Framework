@@ -134,12 +134,8 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
             Thread = thread
         }, TestCancellationToken);
 
-        // Assert: ExecutionState should not have active background operation after completion
-        // (This is set during streaming when continuation token becomes null)
-        // Note: ExecutionState is only set during actual background operations
-        // With FakeChatClient not returning continuation tokens, there won't be one
-        Assert.True(thread.ExecutionState == null ||
-                    thread.ExecutionState.ActiveBackgroundOperation == null);
+        // Assert: regular non-background completion still leaves ordinary transcript state intact.
+        Assert.NotEmpty(thread.Messages);
     }
 
     [Fact]

@@ -581,10 +581,6 @@ public class AgentEventSerializerTests
         var iterJson = AgentEventSerializer.ToJson(iterEvt);
         Assert.Contains("\"type\":\"ITERATION_START\"", iterJson);
 
-        // CheckpointEvent
-        var checkEvt = new CheckpointEvent(CheckpointOperation.Saved, "thread-1", DateTimeOffset.Now);
-        var checkJson = AgentEventSerializer.ToJson(checkEvt);
-        Assert.Contains("\"type\":\"CHECKPOINT\"", checkJson);
     }
 
     [Fact]

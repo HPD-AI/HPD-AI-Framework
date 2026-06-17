@@ -9,14 +9,14 @@ using Xunit;
 namespace HPD.Agent.Tests.Middleware;
 
 /// <summary>
-/// CRITICAL CHECKPOINT ROUND-TRIP TEST .
+/// MIDDLEWARE STATE SERIALIZATION TEST.
 /// Verifies that middleware state survives serialization → deserialization → access cycle.
-/// This is the single most important test for the checkpoint/resume feature.
+/// 
 /// </summary>
-public class CheckpointRoundTripTests
+public class MiddlewareStateSerializationTests
 {
     /// <summary>
-    /// The golden path: State is written, checkpointed, resumed, and accessible.
+    /// The golden path: State is written, serialized, deserialized, and accessible.
     /// </summary>
     [Fact]
     public async Task CriticalPath_StateRoundTrip_PreservesAllMiddlewareState()
@@ -35,9 +35,9 @@ public class CheckpointRoundTripTests
 
         var runtimeState = AgentLoopState.InitialSafe(
             messages: new[] { new ChatMessage(ChatRole.User, "Test message") },
-            runId: "checkpoint-test-run",
-            conversationId: "checkpoint-test-conv",
-            agentName: "CheckpointAgent")
+            runId: "serialization-test-run",
+            conversationId: "serialization-test-conv",
+            agentName: "SerializationAgent")
             with
             {
                 MiddlewareState = new MiddlewareState()
@@ -52,7 +52,7 @@ public class CheckpointRoundTripTests
         Assert.Equal(30, runtimeState.MiddlewareState.ContinuationPermission()?.CurrentExtendedLimit);
 
         //      
-        // PHASE 2: CHECKPOINT - Serialize to durable storage
+        // PHASE 2: Serialize to durable storage
         //      
 
         var json = JsonSerializer.Serialize(runtimeState, AIJsonUtilities.DefaultOptions);
@@ -75,7 +75,7 @@ public class CheckpointRoundTripTests
         Assert.Contains("\"currentExtendedLimit\": 30", json);  // camelCase property (note: space after colon due to WriteIndented)
 
         //      
-        // PHASE 3: RESUME - Deserialize from durable storage
+        // PHASE 3: Deserialize from durable storage
         //      
 
         var deserializedState = JsonSerializer.Deserialize<AgentLoopState>(json, AIJsonUtilities.DefaultOptions);
@@ -132,7 +132,7 @@ public class CheckpointRoundTripTests
     }
 
     /// <summary>
-    /// Edge case: Empty middleware state checkpoints and resumes correctly.
+    /// Edge case: Empty middleware state round-trips correctly.
     /// </summary>
     [Fact]
     public void EmptyMiddlewareState_RoundTrip_ReturnsNullForAllStates()
@@ -216,7 +216,7 @@ public class CheckpointRoundTripTests
     }
 
     /// <summary>
-    /// Complex scenario: Multiple state updates through checkpoint/resume cycle.
+    /// Complex scenario: Multiple state updates across serialization cycles.
     /// </summary>
     [Fact]
     public void ComplexScenario_MultipleUpdates_PreservesStateCorrectly()
@@ -233,7 +233,7 @@ public class CheckpointRoundTripTests
                     .WithErrorTracking(new ErrorTrackingStateData { ConsecutiveFailures = 0 })
             };
 
-        // Checkpoint 1
+        // Round-trip 1
         var json1 = JsonSerializer.Serialize(state1, AIJsonUtilities.DefaultOptions);
         var state2 = JsonSerializer.Deserialize<AgentLoopState>(json1, AIJsonUtilities.DefaultOptions)!;
 
@@ -244,7 +244,7 @@ public class CheckpointRoundTripTests
             MiddlewareState = state2.MiddlewareState.WithErrorTracking(errorState)
         };
 
-        // Checkpoint 2
+        // Round-trip 2
         var json2 = JsonSerializer.Serialize(state3, AIJsonUtilities.DefaultOptions);
         var state4 = JsonSerializer.Deserialize<AgentLoopState>(json2, AIJsonUtilities.DefaultOptions)!;
 
@@ -255,7 +255,7 @@ public class CheckpointRoundTripTests
             MiddlewareState = state4.MiddlewareState.WithErrorTracking(errorState2)
         };
 
-        // Checkpoint 3
+        // Round-trip 3
         var json3 = JsonSerializer.Serialize(state5, AIJsonUtilities.DefaultOptions);
         var finalState = JsonSerializer.Deserialize<AgentLoopState>(json3, AIJsonUtilities.DefaultOptions)!;
 
@@ -264,10 +264,10 @@ public class CheckpointRoundTripTests
     }
 
     /// <summary>
-    /// Integration test: Real middleware workflow with checkpoint/resume.
+    /// Integration test: Real middleware workflow through serialization.
     /// </summary>
     [Fact]
-    public async Task RealMiddlewareWorkflow_WithCheckpoint_WorksCorrectly()
+    public async Task RealMiddlewareWorkflow_WithSerialization_WorksCorrectly()
     {
         // Setup: Initial state with some middleware state
         var initialState = AgentLoopState.InitialSafe(
@@ -283,25 +283,25 @@ public class CheckpointRoundTripTests
                         .RecordToolCall("Tool1", "sig1"))
             };
 
-        // Checkpoint
-        var checkpointJson = JsonSerializer.Serialize(initialState, AIJsonUtilities.DefaultOptions);
+        // Serialize
+        var serializedJson = JsonSerializer.Serialize(initialState, AIJsonUtilities.DefaultOptions);
 
-        // Simulate crash/restart...
+        
 
-        // Resume
-        var resumedState = JsonSerializer.Deserialize<AgentLoopState>(checkpointJson, AIJsonUtilities.DefaultOptions)!;
+        // Deserialize
+        var deserializedState = JsonSerializer.Deserialize<AgentLoopState>(serializedJson, AIJsonUtilities.DefaultOptions)!;
 
         // Verify middleware can read state
-        Assert.Equal(1, resumedState.MiddlewareState.ErrorTracking()?.ConsecutiveFailures);
-        Assert.Equal(1, resumedState.MiddlewareState.CircuitBreaker()?.ConsecutiveCountPerTool["Tool1"]);
+        Assert.Equal(1, deserializedState.MiddlewareState.ErrorTracking()?.ConsecutiveFailures);
+        Assert.Equal(1, deserializedState.MiddlewareState.CircuitBreaker()?.ConsecutiveCountPerTool["Tool1"]);
 
         // Verify middleware can update state
-        var cbState = resumedState.MiddlewareState.CircuitBreaker()!;
+        var cbState = deserializedState.MiddlewareState.CircuitBreaker()!;
         var updatedCbState = cbState.RecordToolCall("Tool1", "sig1"); // Identical call
 
-        var updatedState = resumedState with
+        var updatedState = deserializedState with
         {
-            MiddlewareState = resumedState.MiddlewareState.WithCircuitBreaker(updatedCbState)
+            MiddlewareState = deserializedState.MiddlewareState.WithCircuitBreaker(updatedCbState)
         };
 
         Assert.Equal(2, updatedState.MiddlewareState.CircuitBreaker()?.ConsecutiveCountPerTool["Tool1"]);

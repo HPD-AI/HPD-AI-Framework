@@ -1094,11 +1094,11 @@ public sealed class ExecuteCommandTests : IDisposable
         public Task SaveSessionAsync(Session session, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
         public Task DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<Thread?> LoadThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => Task.FromResult<Thread?>(null);        public Task<List<string>> ListThreadIdsAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
+        public Task<Thread?> LoadThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => Task.FromResult<Thread?>(null);
+        public Task<ThreadEventDocument?> LoadThreadDocumentAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => Task.FromResult<ThreadEventDocument?>(null);
+        public Task AppendThreadEventAsync(string sessionId, string threadId, AgentEvent evt, long? expectedSequenceNumber = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<List<string>> ListThreadIdsAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
         public Task DeleteThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<UncommittedTurn?> LoadUncommittedTurnAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult<UncommittedTurn?>(null);
-        public Task SaveUncommittedTurnAsync(UncommittedTurn turn, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task DeleteUncommittedTurnAsync(string sessionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<int> DeleteInactiveSessionsAsync(TimeSpan inactivityThreshold, bool dryRun = false, CancellationToken cancellationToken = default) => Task.FromResult(0);
     }
 

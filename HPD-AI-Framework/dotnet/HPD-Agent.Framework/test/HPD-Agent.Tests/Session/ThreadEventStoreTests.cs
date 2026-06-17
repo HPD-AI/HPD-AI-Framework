@@ -88,6 +88,42 @@ public class ThreadEventStoreTests : AgentTestBase
     }
 
     [Fact]
+    public void ThreadRunProjector_ProjectsPersistedOpenRunAsInterrupted_WhenRuntimeIsNotLive()
+    {
+        var startedAt = DateTimeOffset.UtcNow;
+        var runs = ThreadRunProjector.Project(
+            "agent-1",
+            "session-1",
+            "main",
+            [
+                new ThreadRunStartedEvent("run-1", "agent-1", startedAt)
+            ]);
+
+        var run = Assert.Single(runs);
+        Assert.Equal("run-1", run.RuntimeRunId);
+        Assert.Equal(ThreadRunStatus.Interrupted, run.Status);
+        Assert.Null(run.CompletedAt);
+    }
+
+    [Fact]
+    public void ThreadRunProjector_ProjectsPersistedOpenRunAsActive_WhenRuntimeIsLive()
+    {
+        var startedAt = DateTimeOffset.UtcNow;
+        var runs = ThreadRunProjector.Project(
+            "agent-1",
+            "session-1",
+            "main",
+            [
+                new ThreadRunStartedEvent("run-1", "agent-1", startedAt)
+            ],
+            activeRuntimeRunId: "run-1");
+
+        var run = Assert.Single(runs);
+        Assert.Equal("run-1", run.RuntimeRunId);
+        Assert.Equal(ThreadRunStatus.Active, run.Status);
+    }
+
+    [Fact]
     public void ThreadEventFactory_PersistsRequestSessionProjectionEvents()
     {
         var now = DateTimeOffset.UtcNow;

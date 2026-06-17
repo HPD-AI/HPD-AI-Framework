@@ -1194,58 +1194,6 @@ public record CompactionCacheEvent(
 }
 
 
-/// <summary>
-/// Checkpoint operation type.
-/// </summary>
-public enum CheckpointOperation
-{
-    Saved,
-    Restored,
-    Cleared
-}
-
-/// <summary>
-/// Emitted for all checkpoint-related operations (save, restore, pending writes).
-/// </summary>
-public record CheckpointEvent : AgentEvent, IObservabilityEvent
-{
-    public CheckpointEvent(
-        CheckpointOperation Operation,
-        string SessionId,
-        DateTimeOffset Timestamp,
-        TimeSpan? Duration = null,
-        int? Iteration = null,
-        int? WriteCount = null,
-        int? SizeBytes = null,
-        int? MessageCount = null,
-        bool? Success = null,
-        string? ErrorMessage = null)
-    {
-        this.Operation = Operation;
-        this.SessionId = SessionId;
-        this.Timestamp = Timestamp;
-        this.Duration = Duration;
-        this.Iteration = Iteration;
-        this.WriteCount = WriteCount;
-        this.SizeBytes = SizeBytes;
-        this.MessageCount = MessageCount;
-        this.Success = Success;
-        this.ErrorMessage = ErrorMessage;
-    }
-
-    public CheckpointOperation Operation { get; init; }
-    public DateTimeOffset Timestamp { get; init; }
-    public TimeSpan? Duration { get; init; }
-    public int? Iteration { get; init; }
-    public int? WriteCount { get; init; }
-    public int? SizeBytes { get; init; }
-    public int? MessageCount { get; init; }
-    public bool? Success { get; init; }
-    public string? ErrorMessage { get; init; }
-
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-}
-
 #region Background Operation Events
 
 /// <summary>
@@ -1765,33 +1713,6 @@ public record MiddlewareStateChangedEvent(
 ) : AgentEvent, IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-}
-
-/// <summary>
-/// Emitted when middleware schema changes are detected during checkpoint restoration.
-/// Used for monitoring, alerting, and audit trails.
-/// </summary>
-public record SchemaChangedEvent(
-    string? OldSignature,
-    string NewSignature,
-    IReadOnlyList<string> RemovedTypes,
-    IReadOnlyList<string> AddedTypes,
-    bool IsUpgrade
-) : AgentEvent, IObservabilityEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-
-    public SchemaChangedEvent(
-        string? oldSignature,
-        string newSignature)
-        : this(
-            OldSignature: oldSignature,
-            NewSignature: newSignature,
-            RemovedTypes: Array.Empty<string>(),
-            AddedTypes: Array.Empty<string>(),
-            IsUpgrade: oldSignature == null)
-    {
-    }
 }
 
 /// <summary>

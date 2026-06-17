@@ -1,4 +1,5 @@
 import type { ClientToolAugmentation, ToolResultContent } from './client-tools.js';
+import type { BackgroundOperationStatus } from './thread-run.js';
 
 /**
  * Event type constants matching C# EventTypes.cs
@@ -87,7 +88,6 @@ export const EventTypes = {
   ITERATION_START: 'ITERATION_START',
   CIRCUIT_BREAKER_TRIGGERED: 'CIRCUIT_BREAKER_TRIGGERED',
   HISTORY_REDUCTION_CACHE: 'HISTORY_REDUCTION_CACHE',
-  CHECKPOINT: 'CHECKPOINT',
   INTERNAL_PARALLEL_TOOL_EXECUTION: 'INTERNAL_PARALLEL_TOOL_EXECUTION',
   INTERNAL_RETRY: 'INTERNAL_RETRY',
   FUNCTION_RETRY: 'FUNCTION_RETRY',
@@ -102,8 +102,9 @@ export const EventTypes = {
   ITERATION_CONTEXT_SNAPSHOT: 'ITERATION_CONTEXT_SNAPSHOT',
   MIDDLEWARE_STATE_SNAPSHOT: 'MIDDLEWARE_STATE_SNAPSHOT',
   MIDDLEWARE_STATE_CHANGED: 'MIDDLEWARE_STATE_CHANGED',
-  SCHEMA_CHANGED: 'SCHEMA_CHANGED',
   COLLAPSING_STATE: 'COLLAPSING_STATE',
+  BACKGROUND_OPERATION_STARTED: 'BACKGROUND_OPERATION_STARTED',
+  BACKGROUND_OPERATION_STATUS: 'BACKGROUND_OPERATION_STATUS',
 
   // Control
   INTERRUPTION_REQUEST: 'INTERRUPTION_REQUEST',
@@ -349,6 +350,20 @@ export interface ThreadRunCompletedEvent extends BaseEvent {
   cancelled: boolean;
   errorType?: string | null;
   errorMessage?: string | null;
+}
+
+export interface BackgroundOperationStartedEvent extends BaseEvent {
+  type: typeof EventTypes.BACKGROUND_OPERATION_STARTED;
+  continuationToken: unknown;
+  status: BackgroundOperationStatus;
+  operationId?: string | null;
+}
+
+export interface BackgroundOperationStatusEvent extends BaseEvent {
+  type: typeof EventTypes.BACKGROUND_OPERATION_STATUS;
+  continuationToken: unknown;
+  status: BackgroundOperationStatus;
+  statusMessage?: string | null;
 }
 
 export interface ContextMessageSnapshot {
@@ -755,6 +770,8 @@ export type KnownAgentEvent =
   | StateSnapshotEvent
   | ThreadRunStartedEvent
   | ThreadRunCompletedEvent
+  | BackgroundOperationStartedEvent
+  | BackgroundOperationStatusEvent
   | IterationContextSnapshotEvent
   | MiddlewareStateSnapshotEvent
   | MiddlewareStateChangedEvent

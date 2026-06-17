@@ -509,37 +509,6 @@ public class ThreadOperationTests : AgentTestBase
     }
 
     //──────────────────────────────────────────────────────────────────
-    // UNCOMMITTED TURN + THREAD INTEGRATION
-    //──────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public async Task UncommittedTurn_ThreadId_PreservedCorrectly()
-    {
-        // Arrange
-        var store = new InMemorySessionStore();
-        var turn = new UncommittedTurn
-        {
-            SessionId = "test-session",
-            ThreadId = "formal",
-            TurnId = "turn-formal",
-            Iteration = 1,
-            CompletedFunctions = System.Collections.Immutable.ImmutableHashSet<string>.Empty,
-            MiddlewareState = new MiddlewareState(),
-            IsTerminated = false,
-            CreatedAt = DateTime.UtcNow,
-            LastUpdatedAt = DateTime.UtcNow,
-        };
-
-        // Act
-        await store.SaveUncommittedTurnAsync(turn);
-        var loaded = await store.LoadUncommittedTurnAsync("test-session");
-
-        // Assert
-        Assert.NotNull(loaded);
-        Assert.Equal("formal", loaded.ThreadId);
-    }
-
-    //──────────────────────────────────────────────────────────────────
     // THREAD CLASS UNIT TESTS
     //──────────────────────────────────────────────────────────────────
 

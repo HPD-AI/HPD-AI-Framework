@@ -25,7 +25,6 @@ namespace HPD.Agent;
 ///   │       ├── thread.meta.json
 ///   │       ├── thread.events.jsonl
 ///   │       └── thread.projection.json
-///   └── uncommitted.json       ← Crash recovery buffer (session-scoped, contains threadId)
 /// </code>
 /// </remarks>
 public class JsonSessionStore : ISessionStore
@@ -301,63 +300,6 @@ public class JsonSessionStore : ISessionStore
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // UNCOMMITTED TURN (Crash Recovery - session-scoped)
-    // ═══════════════════════════════════════════════════════════════════
-
-    public Task<UncommittedTurn?> LoadUncommittedTurnAsync(
-        string sessionId,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-
-        var filePath = GetUncommittedTurnFilePath(sessionId);
-
-        if (!File.Exists(filePath))
-            return Task.FromResult<UncommittedTurn?>(null);
-
-        lock (_lock)
-        {
-            var json = File.ReadAllText(filePath);
-            var turn = JsonSerializer.Deserialize(json, SessionJsonContext.Combined.UncommittedTurn);
-            return Task.FromResult(turn);
-        }
-    }
-
-    public Task SaveUncommittedTurnAsync(
-        UncommittedTurn turn,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(turn);
-
-        var filePath = GetUncommittedTurnFilePath(turn.SessionId);
-        var json = JsonSerializer.Serialize(turn, SessionJsonContext.Combined.UncommittedTurn);
-
-        lock (_lock)
-        {
-            WriteAtomically(filePath, json);
-        }
-
-        return Task.CompletedTask;
-    }
-
-    public Task DeleteUncommittedTurnAsync(
-        string sessionId,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-
-        var filePath = GetUncommittedTurnFilePath(sessionId);
-
-        lock (_lock)
-        {
-            if (File.Exists(filePath))
-                File.Delete(filePath);
-        }
-
-        return Task.CompletedTask;
-    }
-
-    // ═══════════════════════════════════════════════════════════════════
     // CLEANUP
     // ═══════════════════════════════════════════════════════════════════
 
@@ -420,9 +362,6 @@ public class JsonSessionStore : ISessionStore
 
     private string GetThreadProjectionCacheFilePath(string sessionId, string threadId)
         => Path.Combine(GetThreadDirectoryPath(sessionId, threadId), "thread.projection.json");
-
-    private string GetUncommittedTurnFilePath(string sessionId)
-        => Path.Combine(GetSessionDirectoryPath(sessionId), "uncommitted.json");
 
     private ThreadEventStreamMetadata LoadThreadMetadataNoLock(
         string sessionId,

@@ -1,4 +1,4 @@
-export type ThreadRunStatus = "active" | "completed" | "cancelled" | "failed";
+export type ThreadRunStatus = "active" | "completed" | "cancelled" | "failed" | "interrupted";
 
 export type BackgroundOperationStatus =
   | "Queued"

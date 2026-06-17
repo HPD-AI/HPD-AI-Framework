@@ -660,7 +660,7 @@ public static partial class NativeExports
         }
     }
 
-    // V2 serialize_thread / deserialize_thread APIs removed — crash recovery is now automatic via UncommittedTurn.
+    // V2 serialize_thread / deserialize_thread APIs removed — recovery is projected from thread events.
 
     //    
     // PERMISSION SYSTEM APIs (Human-in-the-Loop)

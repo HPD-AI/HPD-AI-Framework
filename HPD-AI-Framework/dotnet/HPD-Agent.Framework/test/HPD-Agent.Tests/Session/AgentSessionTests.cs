@@ -221,27 +221,6 @@ public class AgentSessionTests : AgentTestBase
     }
 
     //──────────────────────────────────────────────────────────────────
-    // THREAD - EXECUTION STATE
-    //──────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void Thread_ExecutionState_GetSet()
-    {
-        // Arrange
-        var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread();
-        var state = AgentLoopState.InitialSafe(
-            new List<ChatMessage>(), "run-123", "conv-456", "TestAgent");
-
-        // Act
-        thread.ExecutionState = state;
-
-        // Assert
-        Assert.NotNull(thread.ExecutionState);
-        Assert.Equal("run-123", thread.ExecutionState.RunId);
-    }
-
-    //──────────────────────────────────────────────────────────────────
     // SESSION - STORE PROPERTY
     //──────────────────────────────────────────────────────────────────
 

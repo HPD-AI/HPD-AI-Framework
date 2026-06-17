@@ -159,11 +159,10 @@ internal sealed class FakeSessionStore : ISessionStore
     public Task SaveSessionAsync(Session session, CancellationToken ct = default) => Task.CompletedTask;
     public Task<List<string>> ListSessionIdsAsync(CancellationToken ct = default) => Task.FromResult(new List<string>());
     public Task DeleteSessionAsync(string sessionId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<ThreadEventDocument?> LoadThreadDocumentAsync(string sessionId, string threadId, CancellationToken ct = default) => Task.FromResult<ThreadEventDocument?>(null);
+    public Task AppendThreadEventAsync(string sessionId, string threadId, AgentEvent evt, long? expectedSequenceNumber = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task<List<string>> ListThreadIdsAsync(string sessionId, CancellationToken ct = default) => Task.FromResult(new List<string>());
     public Task DeleteThreadAsync(string sessionId, string threadId, CancellationToken ct = default) => Task.CompletedTask;
-    public Task<UncommittedTurn?> LoadUncommittedTurnAsync(string sessionId, CancellationToken ct = default) => Task.FromResult<UncommittedTurn?>(null);
-    public Task SaveUncommittedTurnAsync(UncommittedTurn turn, CancellationToken ct = default) => Task.CompletedTask;
-    public Task DeleteUncommittedTurnAsync(string sessionId, CancellationToken ct = default) => Task.CompletedTask;
     public Task<int> DeleteInactiveSessionsAsync(TimeSpan threshold, bool dryRun = false, CancellationToken ct = default) => Task.FromResult(0);
 }
 

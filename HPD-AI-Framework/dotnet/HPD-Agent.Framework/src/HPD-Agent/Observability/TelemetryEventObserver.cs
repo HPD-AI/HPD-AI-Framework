@@ -26,15 +26,12 @@ public class TelemetryEventObserver : IDisposable
     private readonly Counter<int> _stateSnapshots;
     private readonly Counter<int> _parallelToolExecutions;
     private readonly Counter<int> _permissionDenials;
-    private readonly Counter<int> _checkpointErrors;
     private readonly Counter<int> _retryExhaustions;
 
     // Histograms
     private readonly Histogram<double> _iterationDuration;
     private readonly Histogram<int> _parallelBatchSize;
     private readonly Histogram<double> _semaphoreWaitDuration;
-    private readonly Histogram<double> _checkpointDuration;
-    private readonly Histogram<double> _checkpointRestoreDuration;
     private readonly Histogram<double> _documentProcessingDuration;
     private readonly Histogram<double> _completionDuration;
     private readonly Histogram<double> _messageTurnDuration;
@@ -46,7 +43,6 @@ public class TelemetryEventObserver : IDisposable
     private readonly Histogram<double> _retryDelayHistogram;
     private readonly Histogram<int> _compactionTokenSavingsHistogram;
     private readonly Histogram<int> _nestingDepthHistogram;
-    private readonly Histogram<int> _checkpointSizeHistogram;
     private readonly Histogram<long> _usageInputTokensHistogram;
     private readonly Histogram<long> _usageOutputTokensHistogram;
     private readonly Histogram<long> _usageTotalTokensHistogram;
@@ -108,16 +104,6 @@ public class TelemetryEventObserver : IDisposable
             unit: "ms",
             description: "Duration of agent iterations");
 
-        _checkpointDuration = _meter.CreateHistogram<double>(
-            "agent.checkpoint.duration",
-            unit: "ms",
-            description: "Duration of checkpoint save operations");
-
-        _checkpointRestoreDuration = _meter.CreateHistogram<double>(
-            "agent.checkpoint_restore.duration",
-            unit: "ms",
-            description: "Duration of checkpoint restore operations");
-
         _documentProcessingDuration = _meter.CreateHistogram<double>(
             "agent.document_processing.duration",
             unit: "ms",
@@ -138,10 +124,6 @@ public class TelemetryEventObserver : IDisposable
         _permissionDenials = _meter.CreateCounter<int>(
             "agent.permission_denials",
             description: "Number of permission denials");
-
-        _checkpointErrors = _meter.CreateCounter<int>(
-            "agent.checkpoint_errors",
-            description: "Number of checkpoint save failures");
 
         _retryExhaustions = _meter.CreateCounter<int>(
             "agent.retry_exhaustions",
@@ -199,11 +181,6 @@ public class TelemetryEventObserver : IDisposable
         _nestingDepthHistogram = _meter.CreateHistogram<int>(
             "agent.nesting.depth",
             description: "Distribution of agent nesting depths");
-
-        _checkpointSizeHistogram = _meter.CreateHistogram<int>(
-            "agent.checkpoint.size",
-            unit: "bytes",
-            description: "Distribution of checkpoint sizes");
 
         _usageInputTokensHistogram = _meter.CreateHistogram<long>(
             "agent.usage.input_tokens",
@@ -382,50 +359,6 @@ public class TelemetryEventObserver : IDisposable
                     _compactionTokenSavingsHistogram.Record(e.TokenSavings.Value,
                         new KeyValuePair<string, object?>("agent.name", e.AgentName),
                         new KeyValuePair<string, object?>("is.hit", e.IsHit));
-                }
-                break;
-
-            // Checkpoint operations (consolidated)
-            case CheckpointEvent e:
-                switch (e.Operation)
-                {
-                    case CheckpointOperation.Saved:
-                        if (e.Duration.HasValue)
-                        {
-                            _checkpointDuration.Record(e.Duration.Value.TotalMilliseconds,
-                                new KeyValuePair<string, object?>("thread.id", e.SessionId),
-                                new KeyValuePair<string, object?>("success", e.Success ?? false));
-                        }
-
-                        if (e.SizeBytes.HasValue)
-                        {
-                            _checkpointSizeHistogram.Record(e.SizeBytes.Value,
-                                new KeyValuePair<string, object?>("thread.id", e.SessionId),
-                                new KeyValuePair<string, object?>("success", e.Success ?? false));
-                        }
-
-                        if (e.Success == false)
-                        {
-                            _checkpointErrors.Add(1,
-                                new KeyValuePair<string, object?>("thread.id", e.SessionId),
-                                new KeyValuePair<string, object?>("iteration", e.Iteration ?? 0),
-                                new KeyValuePair<string, object?>("error", e.ErrorMessage ?? "unknown"));
-                        }
-                        break;
-
-                    case CheckpointOperation.Restored:
-                        if (e.Duration.HasValue)
-                        {
-                            _checkpointRestoreDuration.Record(e.Duration.Value.TotalMilliseconds,
-                                new KeyValuePair<string, object?>("thread.id", e.SessionId),
-                                new KeyValuePair<string, object?>("from.iteration", e.Iteration ?? 0),
-                                new KeyValuePair<string, object?>("message.count", e.MessageCount ?? 0));
-                        }
-                        break;
-
-                    case CheckpointOperation.Cleared:
-                        // Uncommitted turn deleted after successful turn completion
-                        break;
                 }
                 break;
 
