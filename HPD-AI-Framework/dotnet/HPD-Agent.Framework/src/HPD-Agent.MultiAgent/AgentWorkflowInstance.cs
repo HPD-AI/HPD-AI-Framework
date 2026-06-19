@@ -584,7 +584,7 @@ public sealed class AgentWorkflowInstance
             {
                 // Emit error event
                 eventCoordinator.Emit(new MessageTurnErrorEvent(
-                    Message: ex.Message,
+                    ErrorMessage: ex.Message,
                     Exception: ex));
             }
             finally

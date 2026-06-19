@@ -22,13 +22,11 @@ namespace HPD.Agent.Hosting.Data;
 /// <param name="ParentThreadId">Parent thread for runtime child threads</param>
 /// <param name="SubAgentName">Subagent name when this is a subagent thread</param>
 /// <param name="SubAgentRunId">Subagent run id when this is a subagent thread</param>
+/// <param name="SubAgentSourceKind">Subagent definition source kind when this is a subagent thread</param>
+/// <param name="ParentToolCallId">Parent tool call id that created this runtime child thread</param>
+/// <param name="SessionPolicy">Subagent session policy captured for inspection and routing</param>
+/// <param name="ThreadPolicy">Subagent thread policy captured for inspection and routing</param>
 /// <param name="Ancestors">Full ancestry chain for multi-level fork tracking</param>
-/// <param name="SiblingIndex">Position among siblings at this fork point (0-based)</param>
-/// <param name="TotalSiblings">Total number of sibling threads at this fork point</param>
-/// <param name="IsOriginal">True if this is the original thread (not forked from another)</param>
-/// <param name="OriginalThreadId">ID of the original thread in this sibling group</param>
-/// <param name="PreviousSiblingId">ID of the previous sibling (null if first)</param>
-/// <param name="NextSiblingId">ID of the next sibling (null if last)</param>
 /// <param name="TotalForks">Count of direct child threads</param>
 public record ThreadDto(
     string Id,
@@ -43,13 +41,6 @@ public record ThreadDto(
     int MessageCount,
     List<string>? Tags,
     Dictionary<string, string>? Ancestors,
-    //  Tree navigation metadata
-    int SiblingIndex,
-    int TotalSiblings,
-    bool IsOriginal,
-    string? OriginalThreadId,
-    string? PreviousSiblingId,
-    string? NextSiblingId,
     int TotalForks,
     Dictionary<string, object>? Metadata = null,
     ThreadKind Kind = ThreadKind.MainAgent,
@@ -57,26 +48,94 @@ public record ThreadDto(
     string? ParentSessionId = null,
     string? ParentThreadId = null,
     string? SubAgentName = null,
-    string? SubAgentRunId = null);
+    string? SubAgentRunId = null,
+    string? SubAgentSourceKind = null,
+    string? ParentToolCallId = null,
+    string? SessionPolicy = null,
+    string? ThreadPolicy = null);
 
 /// <summary>
-/// Lightweight sibling thread metadata for navigation UI.
-/// Includes only fields needed for sibling selection and display.
+/// Session-level thread graph for branch navigation.
 /// </summary>
-/// <param name="Id">Unique identifier for this thread</param>
-/// <param name="Name">Display name for this thread</param>
-/// <param name="SiblingIndex">Position among siblings (0-based)</param>
-/// <param name="TotalSiblings">Total number of siblings at this fork point</param>
-/// <param name="IsOriginal">True if this is the original thread</param>
-/// <param name="MessageCount">Number of messages in this thread</param>
-/// <param name="CreatedAt">When this thread was created</param>
-/// <param name="LastActivity">Last time this thread was updated</param>
-public record SiblingThreadDto(
+/// <param name="Threads">All thread metadata in the session.</param>
+/// <param name="ForkGroups">Fork-point groups derived from thread lineage.</param>
+/// <param name="RuntimeChildren">Runtime child threads attached to parent threads.</param>
+public record ThreadGraphDto(
+    IReadOnlyList<ThreadDto> Threads,
+    IReadOnlyList<ThreadForkGroupDto> ForkGroups,
+    IReadOnlyList<ThreadRuntimeChildDto> RuntimeChildren);
+
+/// <summary>
+/// A set of branch choices that diverge from the same semantic fork point.
+/// </summary>
+/// <param name="Id">Stable graph-local id for this fork group.</param>
+/// <param name="SourceThreadId">Canonical visible thread that owns the shared context.</param>
+/// <param name="ForkedAtMessageId">Last shared message id before divergence.</param>
+/// <param name="ForkedAtMessageIndex">Resolved index of the last shared message.</param>
+/// <param name="ChoiceMessageIndex">Transcript message index where users choose between this group's branches.</param>
+/// <param name="Members">Source thread followed by forks in stable display order.</param>
+public record ThreadForkGroupDto(
     string Id,
+    string SourceThreadId,
+    string? ForkedAtMessageId,
+    int? ForkedAtMessageIndex,
+    int ChoiceMessageIndex,
+    IReadOnlyList<ThreadForkGroupMemberDto> Members);
+
+/// <summary>
+/// Lightweight member metadata for branch navigation UI.
+/// </summary>
+/// <param name="ThreadId">Thread id to select when this member is chosen.</param>
+/// <param name="Name">Display name for this thread.</param>
+/// <param name="Index">Position within this fork group.</param>
+/// <param name="IsSource">True when this member is the source thread.</param>
+/// <param name="ChoiceMessageId">Message row in this member where the branch control belongs.</param>
+/// <param name="ChoiceMessageIndex">Transcript index in this member where the branch control belongs.</param>
+/// <param name="MessageCount">Number of messages in the thread.</param>
+/// <param name="CreatedAt">When this thread was created.</param>
+/// <param name="LastActivity">Last time this thread was updated.</param>
+public record ThreadForkGroupMemberDto(
+    string ThreadId,
     string Name,
-    int SiblingIndex,
-    int TotalSiblings,
-    bool IsOriginal,
+    int Index,
+    bool IsSource,
+    string? ChoiceMessageId,
+    int? ChoiceMessageIndex,
+    int MessageCount,
+    DateTime CreatedAt,
+    DateTime LastActivity);
+
+/// <summary>
+/// Runtime child thread metadata, such as hidden subagent threads attached to a parent thread.
+/// </summary>
+/// <param name="ThreadId">Runtime child thread id.</param>
+/// <param name="ParentSessionId">Parent session id.</param>
+/// <param name="ParentThreadId">Parent thread id.</param>
+/// <param name="Name">Display name for this runtime child.</param>
+/// <param name="Kind">Runtime classification.</param>
+/// <param name="Visibility">Default list visibility.</param>
+/// <param name="SubAgentName">Subagent name when applicable.</param>
+/// <param name="SubAgentRunId">Subagent run id when applicable.</param>
+/// <param name="SubAgentSourceKind">Subagent definition source kind when applicable.</param>
+/// <param name="ParentToolCallId">Parent tool call id when applicable.</param>
+/// <param name="SessionPolicy">Subagent session policy when applicable.</param>
+/// <param name="ThreadPolicy">Subagent thread policy when applicable.</param>
+/// <param name="MessageCount">Number of messages in the runtime child thread.</param>
+/// <param name="CreatedAt">When this thread was created.</param>
+/// <param name="LastActivity">Last time this thread was updated.</param>
+public record ThreadRuntimeChildDto(
+    string ThreadId,
+    string ParentSessionId,
+    string ParentThreadId,
+    string Name,
+    ThreadKind Kind,
+    ThreadVisibility Visibility,
+    string? SubAgentName,
+    string? SubAgentRunId,
+    string? SubAgentSourceKind,
+    string? ParentToolCallId,
+    string? SessionPolicy,
+    string? ThreadPolicy,
     int MessageCount,
     DateTime CreatedAt,
     DateTime LastActivity);

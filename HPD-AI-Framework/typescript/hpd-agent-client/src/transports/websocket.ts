@@ -1,4 +1,5 @@
-import type { AgentEvent, AgentRunInputEvent, RespondResult } from '../types/events.js';
+import type { AgentEvent, AgentRunInputEvent } from '../types/events.js';
+import type { SubmitInputResult } from '../types/transport.js';
 import type { AgentTransport, RunTransportOptions, RuntimeScope } from '../types/transport.js';
 
 /**
@@ -102,7 +103,7 @@ export class WebSocketTransport implements AgentTransport {
     });
   }
 
-  async submitInput(input: AgentRunInputEvent, _options?: RunTransportOptions): Promise<RespondResult | undefined> {
+  async submitInput(input: AgentRunInputEvent, _options?: RunTransportOptions): Promise<SubmitInputResult> {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }

@@ -22,7 +22,29 @@ export { SseParser } from './parser.js';
 
 // Chat runtime
 export { ChatManager, ChatSession } from './chat.js';
-export type { CancelActiveTurnOptions, ChatSessionOptions, OpenChatOptions, SendTextOptions } from './chat.js';
+export {
+  contentReferenceToUriContent,
+  createTextContent,
+} from './chat.js';
+export type {
+  CancelActiveTurnOptions,
+  ChatSessionOptions,
+  OpenChatOptions,
+  SendMessageInput,
+  SendMessageOptions,
+} from './chat.js';
+
+// Thread transcript helpers
+export {
+  formatToolResultPayload,
+  mapThreadMessage,
+  mapThreadMessages,
+  projectThreadEventsToMessages,
+} from './thread-messages.js';
+export type {
+  ThreadMessageReadModel,
+  ThreadToolCallReadModel,
+} from './thread-messages.js';
 
 // Client tools
 export { ClientToolRegistry, normalizeClientToolName } from './tools.js';

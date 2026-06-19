@@ -8,6 +8,10 @@ public interface IAgentThreadService
         string sessionId,
         CancellationToken cancellationToken = default);
 
+    Task<AgentServiceResult<ThreadGraphDto>> GetThreadGraphAsync(
+        string sessionId,
+        CancellationToken cancellationToken = default);
+
     Task<AgentServiceResult<ThreadDto>> GetThreadAsync(
         string sessionId,
         string threadId,
@@ -43,8 +47,4 @@ public interface IAgentThreadService
         string threadId,
         CancellationToken cancellationToken = default);
 
-    Task<AgentServiceResult<IReadOnlyList<ThreadDto>>> GetSiblingsAsync(
-        string sessionId,
-        string threadId,
-        CancellationToken cancellationToken = default);
 }

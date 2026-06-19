@@ -468,27 +468,26 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             .ConfigureAwait(false);
     }
 
-    public async Task<IReadOnlyList<AgentTuiThreadInfo>> GetSiblingThreadsAsync(
+    public async Task<AgentTuiThreadGraph> GetThreadGraphAsync(
         string sessionId,
-        string threadId,
         CancellationToken cancellationToken = default)
     {
         using var response = await _http.GetAsync(
-                $"sessions/{Escape(sessionId)}/threads/{Escape(threadId)}/siblings",
+                $"sessions/{Escape(sessionId)}/thread-graph",
                 cancellationToken)
             .ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
-            return [];
+            return new AgentTuiThreadGraph([], [], []);
         }
 
         if (!response.IsSuccessStatusCode)
         {
-            await ThrowForUnexpectedResponseAsync(response, "load sibling threads", cancellationToken)
+            await ThrowForUnexpectedResponseAsync(response, "load thread graph", cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        return await ReadArrayAsync(response, ParseThreadInfo, cancellationToken)
+        return await ReadObjectAsync(response, ParseThreadGraph, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -924,19 +923,68 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             GetRequiredDateTimeOffset(element, "createdAt"),
             GetRequiredDateTimeOffset(element, "lastActivity"),
             GetOptionalInt32(element, "messageCount") ?? 0,
-            GetOptionalBoolean(element, "isOriginal") ?? false,
             GetOptionalString(element, "forkedFrom"),
             GetOptionalString(element, "forkedAtMessageId"),
             GetOptionalInt32(element, "forkedAtMessageIndex"),
             GetOptionalInt32(element, "totalForks") ?? 0,
             ReadStringArray(element, "tags"),
             ReadStringMap(element, "ancestors"),
-            GetOptionalInt32(element, "siblingIndex") ?? 0,
-            GetOptionalInt32(element, "totalSiblings") ?? 1,
-            GetOptionalString(element, "originalThreadId"),
-            GetOptionalString(element, "previousSiblingId"),
-            GetOptionalString(element, "nextSiblingId"),
+            GetOptionalEnum(element, "kind", ThreadKind.MainAgent),
+            GetOptionalEnum(element, "visibility", ThreadVisibility.Visible),
+            GetOptionalString(element, "parentSessionId"),
+            GetOptionalString(element, "parentThreadId"),
+            GetOptionalString(element, "subAgentName"),
+            GetOptionalString(element, "subAgentRunId"),
+            GetOptionalString(element, "subAgentSourceKind"),
+            GetOptionalString(element, "parentToolCallId"),
+            GetOptionalString(element, "sessionPolicy"),
+            GetOptionalString(element, "threadPolicy"),
             ReadObjectMap(element, "metadata"));
+
+    private static AgentTuiThreadGraph ParseThreadGraph(JsonElement element) =>
+        new(
+            ReadArray(element, "threads", ParseThreadInfo),
+            ReadArray(element, "forkGroups", ParseForkGroup),
+            ReadArray(element, "runtimeChildren", ParseRuntimeChild));
+
+    private static AgentTuiThreadForkGroup ParseForkGroup(JsonElement element) =>
+        new(
+            GetRequiredString(element, "id"),
+            GetRequiredString(element, "sourceThreadId"),
+            GetOptionalString(element, "forkedAtMessageId"),
+            GetOptionalInt32(element, "forkedAtMessageIndex"),
+            GetRequiredInt32(element, "choiceMessageIndex"),
+            ReadArray(element, "members", ParseForkGroupMember));
+
+    private static AgentTuiThreadForkGroupMember ParseForkGroupMember(JsonElement element) =>
+        new(
+            GetRequiredString(element, "threadId"),
+            GetRequiredString(element, "name"),
+            GetOptionalInt32(element, "index") ?? 0,
+            GetOptionalBoolean(element, "isSource") ?? false,
+            GetOptionalString(element, "choiceMessageId"),
+            GetOptionalInt32(element, "choiceMessageIndex"),
+            GetOptionalInt32(element, "messageCount") ?? 0,
+            GetRequiredDateTimeOffset(element, "createdAt"),
+            GetRequiredDateTimeOffset(element, "lastActivity"));
+
+    private static AgentTuiThreadRuntimeChild ParseRuntimeChild(JsonElement element) =>
+        new(
+            GetRequiredString(element, "threadId"),
+            GetRequiredString(element, "parentSessionId"),
+            GetRequiredString(element, "parentThreadId"),
+            GetRequiredString(element, "name"),
+            GetOptionalEnum(element, "kind", ThreadKind.MainAgent),
+            GetOptionalEnum(element, "visibility", ThreadVisibility.Visible),
+            GetOptionalString(element, "subAgentName"),
+            GetOptionalString(element, "subAgentRunId"),
+            GetOptionalString(element, "subAgentSourceKind"),
+            GetOptionalString(element, "parentToolCallId"),
+            GetOptionalString(element, "sessionPolicy"),
+            GetOptionalString(element, "threadPolicy"),
+            GetOptionalInt32(element, "messageCount") ?? 0,
+            GetRequiredDateTimeOffset(element, "createdAt"),
+            GetRequiredDateTimeOffset(element, "lastActivity"));
 
     private static JsonObject? ToJsonObject(
         IReadOnlyDictionary<string, object?>? values)
@@ -1002,6 +1050,29 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         return values;
     }
 
+    private static IReadOnlyList<T> ReadArray<T>(
+        JsonElement element,
+        string propertyName,
+        Func<JsonElement, T> parse)
+    {
+        if (!element.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var values = new List<T>();
+        foreach (var item in property.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.Object)
+            {
+                values.Add(parse(item));
+            }
+        }
+
+        return values;
+    }
+
     private static IReadOnlyList<string>? ReadStringArray(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var property) ||
@@ -1062,6 +1133,21 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         => element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.Number
             ? property.GetInt32()
             : null;
+
+    private static int GetRequiredInt32(JsonElement element, string propertyName)
+        => GetOptionalInt32(element, propertyName)
+           ?? throw new InvalidOperationException($"Missing required integer property '{propertyName}'.");
+
+    private static TEnum GetOptionalEnum<TEnum>(
+        JsonElement element,
+        string propertyName,
+        TEnum fallback)
+        where TEnum : struct
+        => element.TryGetProperty(propertyName, out var property) &&
+           property.ValueKind == JsonValueKind.String &&
+           Enum.TryParse<TEnum>(property.GetString(), ignoreCase: true, out var value)
+            ? value
+            : fallback;
 
     private static bool? GetOptionalBoolean(JsonElement element, string propertyName)
         => element.TryGetProperty(propertyName, out var property) && property.ValueKind is JsonValueKind.True or JsonValueKind.False

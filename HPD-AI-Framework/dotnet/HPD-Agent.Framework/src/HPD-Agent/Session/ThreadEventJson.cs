@@ -51,7 +51,6 @@ internal sealed class ThreadEventJsonConverter : JsonConverter<AgentEvent>
         "channel",
         "kind",
         "direction",
-        "eventFlowId",
         "canInterrupt",
         "exchangeTimestampNs",
         "metadata",

@@ -72,7 +72,7 @@ internal static class StreamingEndpoints
             return TypedResults.BadRequest();
 
         var result = await streaming.SubmitInputAsync(agentId, sid, bid, input, ct);
-        return ToEmptyHttpResult(result, accepted: true);
+        return ToSubmissionHttpResult(result);
     }
 
     private static async Task<IResult> ObserveEventsWithSse(
@@ -188,20 +188,32 @@ internal static class StreamingEndpoints
 
                 if (input is not null)
                 {
-                    var submitResult = input is InterruptionRequestEvent interruption
-                        ? await streaming.InterruptAsync(agentId, sid, bid, interruption, ct)
-                        : await streaming.SubmitInputAsync(agentId, sid, bid, input, ct);
+                    var submitStatus = AgentServiceStatus.Success;
+                    string? submitErrorCode = null;
 
-                    if (submitResult.Status == AgentServiceStatus.Conflict)
+                    if (input is InterruptionRequestEvent interruption)
+                    {
+                        var interruptResult = await streaming.InterruptAsync(agentId, sid, bid, interruption, ct);
+                        submitStatus = interruptResult.Status;
+                        submitErrorCode = interruptResult.ErrorCode;
+                    }
+                    else
+                    {
+                        var inputResult = await streaming.SubmitInputAsync(agentId, sid, bid, input, ct);
+                        submitStatus = inputResult.Status;
+                        submitErrorCode = inputResult.ErrorCode;
+                    }
+
+                    if (submitStatus == AgentServiceStatus.Conflict)
                     {
                         await webSocket.CloseAsync(
                             WebSocketCloseStatus.PolicyViolation,
-                            submitResult.ErrorCode ?? "Thread run conflict",
+                            submitErrorCode ?? "Thread run conflict",
                             ct);
                         return TypedResults.Ok();
                     }
 
-                    if (submitResult.Status == AgentServiceStatus.NotFound)
+                    if (submitStatus == AgentServiceStatus.NotFound)
                     {
                         await webSocket.CloseAsync(
                             WebSocketCloseStatus.InvalidPayloadData,
@@ -248,20 +260,6 @@ internal static class StreamingEndpoints
     {
         if (request.ValueKind != JsonValueKind.Object)
             return null;
-
-        if (!request.TryGetProperty("type", out _) &&
-            TryGetPropertyIgnoreCase(request, "text", out var textElement) &&
-            textElement.GetString() is { Length: > 0 } text)
-        {
-            var streamText = JsonSerializer.Deserialize<StreamTextRequest>(
-                request.GetRawText(),
-                CaseInsensitiveJson);
-
-            return new UserTextInputEvent(text)
-            {
-                RunConfig = streamText?.RunConfig
-            };
-        }
 
         return AgentEventSerializer.FromJson(request.GetRawText()) as AgentInputEvent;
     }
@@ -314,6 +312,22 @@ internal static class StreamingEndpoints
         {
             AgentServiceStatus.Success when accepted => TypedResults.Accepted(string.Empty),
             AgentServiceStatus.Success => TypedResults.Ok(),
+            AgentServiceStatus.NotFound => TypedResults.NotFound(),
+            AgentServiceStatus.Conflict => TypedResults.Conflict(),
+            AgentServiceStatus.ValidationError => TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [result.ErrorCode ?? "ValidationError"] = result.ErrorMessages?.ToArray()
+                    ?? [result.ErrorMessage ?? "Validation failed."]
+            }),
+            _ => TypedResults.StatusCode(StatusCodes.Status500InternalServerError)
+        };
+    }
+
+    private static IResult ToSubmissionHttpResult(AgentServiceResult<InputSubmissionDto> result)
+    {
+        return result.Status switch
+        {
+            AgentServiceStatus.Success => TypedResults.Accepted(string.Empty, result.Value),
             AgentServiceStatus.NotFound => TypedResults.NotFound(),
             AgentServiceStatus.Conflict => TypedResults.Conflict(),
             AgentServiceStatus.ValidationError => TypedResults.ValidationProblem(new Dictionary<string, string[]>

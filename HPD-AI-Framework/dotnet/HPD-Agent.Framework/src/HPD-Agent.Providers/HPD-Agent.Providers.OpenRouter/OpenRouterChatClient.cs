@@ -563,9 +563,8 @@ internal sealed class OpenRouterChatClient : IChatClient
                     Role = m.Role.Value.ToLowerInvariant()
                 };
 
-                // ✨ PERFORMANCE: Check for multimodal content once
                 var hasMultimodalContent = false;
-                List<object>? contentParts = null;
+                List<OpenRouterContentPart>? contentParts = null;
 
                 foreach (var content in m.Contents)
                 {
@@ -583,11 +582,14 @@ internal sealed class OpenRouterChatClient : IChatClient
                             }
                             else
                             {
-                                (contentParts ??= []).Add(
-                                    textContent.AdditionalProperties?.ContainsKey("cache_control") == true ?
-                                    new { type = "text", text = textContent.Text, cache_control = new { type = "ephemeral" } } :
-                                    new { type = "text", text = textContent.Text }
-                                );
+                                (contentParts ??= []).Add(new OpenRouterContentPart
+                                {
+                                    Type = "text",
+                                    Text = textContent.Text,
+                                    CacheControl = textContent.AdditionalProperties?.ContainsKey("cache_control") == true
+                                        ? new OpenRouterCacheControl()
+                                        : null
+                                });
                             }
                             break;
 
@@ -604,8 +606,16 @@ internal sealed class OpenRouterChatClient : IChatClient
                             }
                             else if (dataContent.MediaType == "application/pdf")
                             {
-                                hasPdfContent = true; // ✨ PERFORMANCE: Set flag here
-                                (contentParts ??= []).Add(new { type = "file", file = new { filename = "document.pdf", file_data = dataContent.Uri.ToString() } });
+                                hasPdfContent = true;
+                                (contentParts ??= []).Add(new OpenRouterContentPart
+                                {
+                                    Type = "file",
+                                    File = new OpenRouterFile
+                                    {
+                                        Filename = "document.pdf",
+                                        FileData = dataContent.Uri.ToString()
+                                    }
+                                });
                             }
                             else if (dataContent.MediaType?.StartsWith("audio/") == true)
                             {
@@ -617,13 +627,28 @@ internal sealed class OpenRouterChatClient : IChatClient
                                     {
                                         var format = parts[0].Split('/').LastOrDefault() ?? "wav";
                                         var base64Data = parts[1];
-                                        (contentParts ??= []).Add(new { type = "input_audio", input_audio = new { data = base64Data, format = format } });
+                                        (contentParts ??= []).Add(new OpenRouterContentPart
+                                        {
+                                            Type = "input_audio",
+                                            InputAudio = new OpenRouterInputAudio
+                                            {
+                                                Data = base64Data,
+                                                Format = format
+                                            }
+                                        });
                                     }
                                 }
                             }
                             else if (dataContent.MediaType?.StartsWith("video/") == true)
                             {
-                                (contentParts ??= []).Add(new { type = "input_video", video_url = new { url = dataContent.Uri.ToString() } });
+                                (contentParts ??= []).Add(new OpenRouterContentPart
+                                {
+                                    Type = "input_video",
+                                    VideoUrl = new OpenRouterVideoUrl
+                                    {
+                                        Url = dataContent.Uri.ToString()
+                                    }
+                                });
                             }
                             break;
                     }
@@ -1229,16 +1254,16 @@ internal sealed class OpenRouterChatClient : IChatClient
     ///
     /// Supported image formats: image/png, image/jpeg, image/webp, image/gif
     /// </summary>
-    private static object CreateImageUrlPart(string url, string? detail)
+    private static OpenRouterContentPart CreateImageUrlPart(string url, string? detail)
     {
-        // Include detail parameter for OpenAI model compatibility
-        // OpenRouter will pass it through to OpenAI models, others will ignore it
-        if (detail != null)
+        return new OpenRouterContentPart
         {
-            return new { type = "image_url", image_url = new { url, detail } };
-        }
-
-        // Standard OpenRouter format (officially documented)
-        return new { type = "image_url", image_url = new { url } };
+            Type = "image_url",
+            ImageUrl = new OpenRouterImageUrl
+            {
+                Url = url,
+                Detail = detail
+            }
+        };
     }
 }

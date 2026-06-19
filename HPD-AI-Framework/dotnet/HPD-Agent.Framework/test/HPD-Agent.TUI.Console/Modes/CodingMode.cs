@@ -13,7 +13,7 @@ internal static class CodingMode
         var agentId = options.Get("agent", "tui-coding-agent");
         var sessionId = options.Get("session", "local-session");
         var threadId = options.Get("thread", "main");
-        var model = options.Get("model", "deepseek/deepseek-v4-flash");
+        var model = options.Get("model", "qwen/qwen3.7-plus");
         var workspacePath = Path.GetFullPath(options.Get("workspace", Directory.GetCurrentDirectory()));
         if (!Directory.Exists(workspacePath))
         {

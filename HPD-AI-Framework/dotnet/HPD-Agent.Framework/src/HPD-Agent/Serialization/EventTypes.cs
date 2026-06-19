@@ -17,7 +17,6 @@ public static partial class EventTypes
     /// </summary>
     public static class Input
     {
-        public const string USER_TEXT_INPUT = "USER_TEXT_INPUT";
         public const string USER_MESSAGES_INPUT = "USER_MESSAGES_INPUT";
     }
 

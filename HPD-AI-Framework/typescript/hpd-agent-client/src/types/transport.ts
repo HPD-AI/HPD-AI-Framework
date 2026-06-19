@@ -1,5 +1,11 @@
 import type { AgentEvent, AgentRunInputEvent, RespondResult } from './events.js';
 
+export interface InputSubmissionResult {
+  runtimeRunId: string;
+}
+
+export type SubmitInputResult = RespondResult | InputSubmissionResult | undefined;
+
 /**
  * Runtime connection scope for long-lived transports such as WebSocket.
  */
@@ -29,7 +35,7 @@ export interface AgentTransport {
   connect(scope?: RuntimeScope): Promise<void>;
 
   /** Submit an agent input event to the runtime. Response events may return a structured status. */
-  submitInput(event: AgentRunInputEvent, options?: RunTransportOptions): Promise<RespondResult | undefined>;
+  submitInput(event: AgentRunInputEvent, options?: RunTransportOptions): Promise<SubmitInputResult>;
 
   /** Register event handler */
   onEvent(handler: (event: AgentEvent) => void): void;

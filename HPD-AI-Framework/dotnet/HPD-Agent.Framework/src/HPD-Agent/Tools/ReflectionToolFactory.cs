@@ -243,7 +243,9 @@ internal static class ReflectionToolFactory
                         return ValueTask.CompletedTask;
                     });
 
-                    await agent.RunAsync(new UserTextInputEvent(query)
+                    await agent.RunAsync(new UserMessagesInputEvent([
+                        new ChatMessage(ChatRole.User, query)
+                    ])
                     {
                         SessionId = route.SessionId,
                         ThreadId = route.ThreadId

@@ -1,40 +1,124 @@
 import { describe, expect, it } from 'vitest';
-import { EventTypes, type ThreadMessage } from '@hpd-research/hpd-agent-client';
+import { EventTypes, type AgentEvent } from '@hpd-research/hpd-agent-client';
 import { createThreadProjection, eventBelongsToScope } from '../src/index.js';
 
 describe('createThreadProjection', () => {
-  it('rehydrates settled thread messages without streaming state', () => {
+  it('projects message turn usage into context usage and the completed work group', () => {
     const projection = createThreadProjection();
-    const messages: ThreadMessage[] = [
+
+    projection.project({
+      type: EventTypes.MESSAGE_TURN_STARTED,
+      messageTurnId: 'turn-1',
+      conversationId: 'conv-1',
+      agentName: 'Agent',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    });
+    projection.project({
+      type: EventTypes.MESSAGE_TURN_FINISHED,
+      messageTurnId: 'turn-1',
+      conversationId: 'conv-1',
+      agentName: 'Agent',
+      duration: 'PT1S',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      usage: {
+        inputTokenCount: 900,
+        outputTokenCount: 100,
+        totalTokenCount: 1000,
+        cachedInputTokenCount: 250,
+        reasoningTokenCount: 40,
+      },
+    });
+
+    const snapshot = projection.getSnapshot();
+    expect(snapshot.contextUsage).toMatchObject({
+      turnId: 'turn-1',
+      conversationId: 'conv-1',
+      usage: {
+        inputTokenCount: 900,
+        outputTokenCount: 100,
+        totalTokenCount: 1000,
+        cachedInputTokenCount: 250,
+        reasoningTokenCount: 40,
+      },
+    });
+    expect(snapshot.workGroups[0].usage).toMatchObject({
+      totalTokenCount: 1000,
+    });
+  });
+
+  it('rehydrates settled thread events through the same path as live projection', () => {
+    const events: AgentEvent[] = [
       {
-        id: 'm1',
+        type: EventTypes.MESSAGE_STARTED,
+        messageId: 'm1',
         role: 'user',
+        additionalProperties: {
+          quote: {
+            text: 'quoted context',
+            messageId: 'source-message',
+          },
+        },
         timestamp: '2026-01-01T00:00:00.000Z',
-        contents: [{ $type: 'text', text: 'hello' }],
       },
       {
-        id: 'm2',
+        type: EventTypes.CONTENT_ADDED,
+        messageId: 'm1',
+        content: { $type: 'text', text: 'hello' },
+        timestamp: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        type: EventTypes.MESSAGE_COMPLETED,
+        messageId: 'm1',
+        timestamp: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        type: EventTypes.MESSAGE_STARTED,
+        messageId: 'm2',
         role: 'assistant',
         timestamp: '2026-01-01T00:00:01.000Z',
-        contents: [
-          { $type: 'reasoning', text: 'thinking' },
-          { $type: 'text', text: 'hi there' },
-        ],
+      },
+      {
+        type: EventTypes.CONTENT_ADDED,
+        messageId: 'm2',
+        content: { $type: 'reasoning', text: 'thinking' },
+        timestamp: '2026-01-01T00:00:01.000Z',
+      },
+      {
+        type: EventTypes.CONTENT_ADDED,
+        messageId: 'm2',
+        content: { $type: 'text', text: 'hi there' },
+        timestamp: '2026-01-01T00:00:01.000Z',
+      },
+      {
+        type: EventTypes.MESSAGE_COMPLETED,
+        messageId: 'm2',
+        timestamp: '2026-01-01T00:00:01.000Z',
       },
     ];
 
-    projection.rehydrate({ messages });
+    const replayed = createThreadProjection();
+    const live = createThreadProjection();
+    replayed.rehydrate({ events });
+    for (const event of events) live.project(event);
 
-    const snapshot = projection.getSnapshot();
-    expect(snapshot.messages).toHaveLength(2);
-    expect(snapshot.messages[0].content).toBe('hello');
-    expect(snapshot.messages[1].content).toBe('hi there');
-    expect(snapshot.messages[1].reasoning).toBe('thinking');
-    expect(snapshot.streaming).toBe(false);
+    const snapshot = replayed.getSnapshot();
+    expect(snapshot.transcriptMessages).toEqual(live.getSnapshot().transcriptMessages);
+    expect(snapshot.transcriptMessages).toHaveLength(2);
+    expect(snapshot.transcriptMessages[0].content).toBe('hello');
+    expect(snapshot.transcriptMessages[0].additionalProperties).toEqual({
+      quote: {
+        text: 'quoted context',
+        messageId: 'source-message',
+      },
+    });
+    expect(snapshot.transcriptMessages[1].content).toBe('hi there');
+    expect(snapshot.transcriptMessages[1].reasoning).toBe('thinking');
+    expect(snapshot.timeline.map((item) => item.type)).toEqual(['message', 'message']);
+    expect(snapshot.activity.streaming).toBe(false);
     expect(snapshot.canSend).toBe(true);
   });
 
-  it('projects text deltas into a live assistant message', () => {
+  it('projects text deltas outside a turn into a transcript message', () => {
     const projection = createThreadProjection();
 
     projection.project({
@@ -58,9 +142,474 @@ describe('createThreadProjection', () => {
     });
 
     const snapshot = projection.getSnapshot();
-    expect(snapshot.messages[0].content).toBe('hello');
-    expect(snapshot.messages[0].streaming).toBe(false);
-    expect(snapshot.streaming).toBe(false);
+    expect(snapshot.transcriptMessages[0].content).toBe('hello');
+    expect(snapshot.transcriptMessages[0].streaming).toBe(false);
+    expect(snapshot.activity.streaming).toBe(false);
+  });
+
+  it('reconciles an optimistic user row when durable input admission events arrive', () => {
+    const projection = createThreadProjection();
+
+    projection.project({
+      type: EventTypes.TEXT_MESSAGE_START,
+      messageId: 'optimistic:user:1',
+      role: 'user',
+      clientInputId: 'client-1',
+      optimistic: true,
+    });
+    projection.project({
+      type: EventTypes.TEXT_DELTA,
+      messageId: 'optimistic:user:1',
+      text: 'what tools do you have',
+    });
+    projection.project({
+      type: EventTypes.TEXT_MESSAGE_END,
+      messageId: 'optimistic:user:1',
+    });
+
+    projection.project({
+      type: EventTypes.MESSAGE_STARTED,
+      messageId: 'm-user-1',
+      role: 'user',
+      clientInputId: 'client-1',
+    });
+    projection.project({
+      type: EventTypes.TEXT_MESSAGE_START,
+      messageId: 'm-user-1',
+      role: 'user',
+      clientInputId: 'client-1',
+    });
+    projection.project({
+      type: EventTypes.TEXT_DELTA,
+      messageId: 'm-user-1',
+      text: 'what tools do you have',
+    });
+    projection.project({
+      type: EventTypes.TEXT_MESSAGE_END,
+      messageId: 'm-user-1',
+    });
+
+    const snapshot = projection.getSnapshot();
+    expect(snapshot.transcriptMessages).toMatchObject([{
+      id: 'm-user-1',
+      role: 'user',
+      content: 'what tools do you have',
+      placement: 'transcript',
+      clientInputId: 'client-1',
+      streaming: false,
+    }]);
+    expect(snapshot.timeline).toHaveLength(1);
+    expect(snapshot.timeline[0]).toMatchObject({
+      type: 'message',
+      id: 'message:m-user-1',
+      message: { id: 'm-user-1' },
+    });
+  });
+
+  it('keeps live user input in the transcript during a running turn', () => {
+    const projection = createThreadProjection();
+
+    projection.project({
+      type: EventTypes.THREAD_RUN_STARTED,
+      runtimeRunId: 'run1',
+      agentId: 'agent',
+      startedAt: '2026-01-01T00:00:00.000Z',
+    });
+    projection.project({
+      type: EventTypes.MESSAGE_TURN_STARTED,
+      messageTurnId: 'turn1',
+      conversationId: 'conv1',
+      agentName: 'Agent',
+      timestamp: '2026-01-01T00:00:01.000Z',
+    });
+    projection.project({
+      type: EventTypes.TEXT_MESSAGE_START,
+      messageId: 'u1',
+      role: 'user',
+      eventFlowId: 'turn1',
+    });
+    projection.project({
+      type: EventTypes.TEXT_DELTA,
+      messageId: 'u1',
+      text: 'list files',
+      eventFlowId: 'turn1',
+    });
+    projection.project({
+      type: EventTypes.TEXT_MESSAGE_END,
+      messageId: 'u1',
+      eventFlowId: 'turn1',
+    });
+
+    let snapshot = projection.getSnapshot();
+    expect(snapshot.transcriptMessages).toMatchObject([{
+      id: 'u1',
+      role: 'user',
+      content: 'list files',
+      placement: 'transcript',
+      turnId: 'turn1',
+    }]);
+    expect(snapshot.workGroups[0].parts).toEqual([]);
+    expect(snapshot.timeline.map((item) => item.type)).toEqual(['work', 'message']);
+
+    projection.project({
+      type: EventTypes.TEXT_MESSAGE_START,
+      messageId: 'a1',
+      role: 'assistant',
+      eventFlowId: 'turn1',
+    });
+    projection.project({
+      type: EventTypes.TEXT_DELTA,
+      messageId: 'a1',
+      text: 'Here are the files.',
+      eventFlowId: 'turn1',
+    });
+    projection.project({
+      type: EventTypes.TEXT_MESSAGE_END,
+      messageId: 'a1',
+      eventFlowId: 'turn1',
+    });
+    projection.project({
+      type: EventTypes.MESSAGE_TURN_FINISHED,
+      messageTurnId: 'turn1',
+      conversationId: 'conv1',
+      agentName: 'Agent',
+      duration: '00:00:01',
+      timestamp: '2026-01-01T00:00:02.000Z',
+    });
+
+    snapshot = projection.getSnapshot();
+    expect(snapshot.transcriptMessages.map((message) => message.content))
+      .toEqual(['list files', 'Here are the files.']);
+    expect(snapshot.timeline.map((item) => item.type)).toEqual(['work', 'message', 'message']);
+  });
+
+  it('projects durable message events live without duplicating runtime deltas', () => {
+    const projection = createThreadProjection();
+
+    projection.project({
+      type: EventTypes.MESSAGE_STARTED,
+      messageId: 'm1',
+      role: 'assistant',
+      authorName: 'Agent',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    projection.project({
+      type: EventTypes.CONTENT_ADDED,
+      messageId: 'm1',
+      content: { $type: 'text', text: 'hello' },
+    });
+    projection.project({
+      type: EventTypes.CONTENT_ADDED,
+      messageId: 'm1',
+      content: { $type: 'text', text: 'hello' },
+    });
+    projection.project({
+      type: EventTypes.MESSAGE_COMPLETED,
+      messageId: 'm1',
+    });
+
+    const snapshot = projection.getSnapshot();
+    expect(snapshot.transcriptMessages).toMatchObject([{
+      id: 'm1',
+      role: 'assistant',
+      authorName: 'Agent',
+      content: 'hello',
+      streaming: false,
+    }]);
+  });
+
+  it('projects a turn into work, retains completed tools, and promotes final assistant text', () => {
+    const projection = createThreadProjection();
+
+    const events = [{
+      type: EventTypes.THREAD_RUN_STARTED,
+      runtimeRunId: 'run1',
+      agentId: 'agent',
+      startedAt: '2026-01-01T00:00:00.000Z',
+    }, {
+      type: EventTypes.MESSAGE_TURN_STARTED,
+      messageTurnId: 'turn1',
+      conversationId: 'conv1',
+      agentName: 'Agent',
+      timestamp: '2026-01-01T00:00:01.000Z',
+    }, {
+      type: EventTypes.REASONING_MESSAGE_START,
+      messageId: 'r1',
+      role: 'assistant',
+      eventFlowId: 'turn1',
+    }, {
+      type: EventTypes.REASONING_DELTA,
+      messageId: 'r1',
+      text: 'thinking',
+      eventFlowId: 'turn1',
+    }, {
+      type: EventTypes.REASONING_MESSAGE_END,
+      messageId: 'r1',
+      eventFlowId: 'turn1',
+    }, {
+      type: EventTypes.TEXT_MESSAGE_START,
+      messageId: 'a1',
+      role: 'assistant',
+      eventFlowId: 'turn1',
+    }, {
+      type: EventTypes.TEXT_DELTA,
+      messageId: 'a1',
+      text: 'done',
+      eventFlowId: 'turn1',
+    }, {
+      type: EventTypes.TOOL_CALL_START,
+      callId: 'tool1',
+      name: 'ReadFile',
+      messageId: 'a1',
+      eventFlowId: 'turn1',
+    }, {
+      type: EventTypes.TOOL_CALL_ARGS,
+      callId: 'tool1',
+      argsJson: '{"path":"README.md"}',
+      eventFlowId: 'turn1',
+    }, {
+      type: EventTypes.TOOL_CALL_RESULT,
+      callId: 'tool1',
+      result: { text: 'contents' },
+      eventFlowId: 'turn1',
+    }] satisfies AgentEvent[];
+
+    for (const event of events) projection.project(event);
+
+    let snapshot = projection.getSnapshot();
+    expect(snapshot.workGroups).toHaveLength(1);
+    expect(snapshot.workGroups[0]).toMatchObject({
+      turnId: 'turn1',
+      conversationId: 'conv1',
+      runId: 'run1',
+      status: 'working',
+    });
+    expect(snapshot.workGroups[0].parts.map((part) => part.type))
+      .toEqual(['reasoning', 'assistant-draft', 'tool']);
+    expect(snapshot.workGroups[0].parts.find((part) => part.type === 'tool')).toMatchObject({
+      tool: {
+        callId: 'tool1',
+        status: 'complete',
+        resultText: 'contents',
+        turnId: 'turn1',
+        runId: 'run1',
+      },
+    });
+    expect(snapshot.activeTools).toHaveLength(0);
+    expect(snapshot.transcriptMessages).toEqual([]);
+
+    const completionEvents = [{
+      type: EventTypes.TEXT_MESSAGE_END,
+      messageId: 'a1',
+      eventFlowId: 'turn1',
+    }, {
+      type: EventTypes.MESSAGE_TURN_FINISHED,
+      messageTurnId: 'turn1',
+      conversationId: 'conv1',
+      agentName: 'Agent',
+      duration: '00:00:01',
+      timestamp: '2026-01-01T00:00:02.000Z',
+    }] satisfies AgentEvent[];
+
+    for (const event of completionEvents) projection.project(event);
+
+    snapshot = projection.getSnapshot();
+    expect(snapshot.workGroups[0]).toMatchObject({
+      status: 'worked',
+      openByDefault: false,
+      finalMessageId: 'a1',
+    });
+    expect(snapshot.transcriptMessages).toMatchObject([{
+      id: 'a1',
+      content: 'done',
+      placement: 'final',
+      turnId: 'turn1',
+      conversationId: 'conv1',
+      runId: 'run1',
+    }]);
+    expect(snapshot.timeline.map((item) => item.type)).toEqual(['work', 'message']);
+
+    const rehydrated = createThreadProjection();
+    rehydrated.rehydrate({
+      events: [...events, ...completionEvents],
+      runs: [],
+      activeRun: null,
+    });
+
+    expect(rehydrated.getSnapshot().timeline).toEqual(snapshot.timeline);
+    expect(rehydrated.getSnapshot().workGroups).toEqual(snapshot.workGroups);
+    expect(rehydrated.getSnapshot().transcriptMessages).toEqual(snapshot.transcriptMessages);
+  });
+
+  it('keeps reasoning in work when reasoning and answer share a message id', () => {
+    const events = [{
+      type: EventTypes.THREAD_RUN_STARTED,
+      runtimeRunId: 'run1',
+      agentId: 'agent',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    }, {
+      type: EventTypes.MESSAGE_TURN_STARTED,
+      messageTurnId: 'turn1',
+      conversationId: 'conv1',
+      agentName: 'Agent',
+      timestamp: '2026-01-01T00:00:01.000Z',
+    }, {
+      type: EventTypes.REASONING_MESSAGE_START,
+      messageId: 'shared-message',
+      role: 'assistant',
+      eventFlowId: 'turn1',
+      timestamp: '2026-01-01T00:00:02.000Z',
+    }, {
+      type: EventTypes.REASONING_DELTA,
+      messageId: 'shared-message',
+      text: 'private chain of thought',
+      eventFlowId: 'turn1',
+      timestamp: '2026-01-01T00:00:03.000Z',
+    }, {
+      type: EventTypes.REASONING_MESSAGE_END,
+      messageId: 'shared-message',
+      eventFlowId: 'turn1',
+      timestamp: '2026-01-01T00:00:04.000Z',
+    }, {
+      type: EventTypes.TEXT_MESSAGE_START,
+      messageId: 'shared-message',
+      role: 'assistant',
+      eventFlowId: 'turn1',
+      timestamp: '2026-01-01T00:00:05.000Z',
+    }, {
+      type: EventTypes.TEXT_DELTA,
+      messageId: 'shared-message',
+      text: 'public answer',
+      eventFlowId: 'turn1',
+      timestamp: '2026-01-01T00:00:06.000Z',
+    }, {
+      type: EventTypes.TEXT_MESSAGE_END,
+      messageId: 'shared-message',
+      eventFlowId: 'turn1',
+      timestamp: '2026-01-01T00:00:07.000Z',
+    }, {
+      type: EventTypes.MESSAGE_TURN_FINISHED,
+      messageTurnId: 'turn1',
+      conversationId: 'conv1',
+      agentName: 'Agent',
+      duration: '00:00:01',
+      timestamp: '2026-01-01T00:00:08.000Z',
+    }] satisfies AgentEvent[];
+
+    const live = createThreadProjection();
+    for (const event of events) live.project(event);
+
+    const hydrated = createThreadProjection();
+    hydrated.rehydrate({ events, runs: [], activeRun: null });
+
+    for (const snapshot of [live.getSnapshot(), hydrated.getSnapshot()]) {
+      expect(snapshot.timeline.map((item) => item.type)).toEqual(['work', 'message']);
+      expect(snapshot.workGroups[0]).toMatchObject({
+        label: 'Agent',
+        status: 'worked',
+      });
+      expect(snapshot.workGroups[0].parts).toMatchObject([
+        { type: 'reasoning', text: 'private chain of thought' },
+        { type: 'assistant-draft', message: { content: 'public answer' } },
+      ]);
+      expect(snapshot.transcriptMessages).toMatchObject([{
+        id: 'shared-message',
+        content: 'public answer',
+        placement: 'final',
+      }]);
+      expect(snapshot.transcriptMessages[0]).not.toHaveProperty('reasoning');
+    }
+
+    expect(hydrated.getSnapshot().timeline).toEqual(live.getSnapshot().timeline);
+  });
+
+  it('preserves multiple tool call order through completion and turn collapse', () => {
+    const projection = createThreadProjection();
+
+    projection.project({
+      type: EventTypes.THREAD_RUN_STARTED,
+      runtimeRunId: 'run1',
+      agentId: 'agent',
+      startedAt: '2026-01-01T00:00:00.000Z',
+    });
+    projection.project({
+      type: EventTypes.MESSAGE_TURN_STARTED,
+      messageTurnId: 'turn1',
+      conversationId: 'conv1',
+      agentName: 'Agent',
+      timestamp: '2026-01-01T00:00:01.000Z',
+    });
+    projection.project({
+      type: EventTypes.TEXT_MESSAGE_START,
+      messageId: 'a1',
+      role: 'assistant',
+      eventFlowId: 'turn1',
+    });
+
+    for (let index = 1; index <= 5; index += 1) {
+      projection.project({
+        type: EventTypes.TOOL_CALL_START,
+        callId: `tool-${index}`,
+        name: 'EditFile',
+        messageId: 'a1',
+        eventFlowId: 'turn1',
+      });
+      projection.project({
+        type: EventTypes.TOOL_CALL_ARGS,
+        callId: `tool-${index}`,
+        argsJson: JSON.stringify({ index }),
+        eventFlowId: 'turn1',
+      });
+    }
+
+    expect(readWorkToolIds(projection.getSnapshot().workGroups[0]))
+      .toEqual(['tool-1', 'tool-2', 'tool-3', 'tool-4', 'tool-5']);
+    expect(projection.getSnapshot().activeTools.map((tool) => tool.callId))
+      .toEqual(['tool-1', 'tool-2', 'tool-3', 'tool-4', 'tool-5']);
+
+    for (let index = 5; index >= 1; index -= 1) {
+      projection.project({
+        type: EventTypes.TOOL_CALL_RESULT,
+        callId: `tool-${index}`,
+        result: { text: `result ${index}` },
+        eventFlowId: 'turn1',
+      });
+    }
+
+    let snapshot = projection.getSnapshot();
+    expect(readWorkToolIds(snapshot.workGroups[0]))
+      .toEqual(['tool-1', 'tool-2', 'tool-3', 'tool-4', 'tool-5']);
+    expect(readWorkToolStatuses(snapshot.workGroups[0]))
+      .toEqual(['complete', 'complete', 'complete', 'complete', 'complete']);
+    expect(snapshot.activeTools).toEqual([]);
+
+    projection.project({
+      type: EventTypes.TEXT_DELTA,
+      messageId: 'a1',
+      text: 'Finished edits',
+      eventFlowId: 'turn1',
+    });
+    projection.project({
+      type: EventTypes.TEXT_MESSAGE_END,
+      messageId: 'a1',
+      eventFlowId: 'turn1',
+    });
+    projection.project({
+      type: EventTypes.MESSAGE_TURN_FINISHED,
+      messageTurnId: 'turn1',
+      conversationId: 'conv1',
+      agentName: 'Agent',
+      duration: '00:00:01',
+      timestamp: '2026-01-01T00:00:02.000Z',
+    });
+
+    snapshot = projection.getSnapshot();
+    expect(snapshot.workGroups[0].openByDefault).toBe(false);
+    expect(snapshot.workGroups[0].status).toBe('worked');
+    expect(readWorkToolIds(snapshot.workGroups[0]))
+      .toEqual(['tool-1', 'tool-2', 'tool-3', 'tool-4', 'tool-5']);
+    expect(snapshot.timeline.map((item) => item.type)).toEqual(['work', 'message']);
   });
 
   it('tracks pending permission requests until approval or denial events', () => {
@@ -73,14 +622,19 @@ describe('createThreadProjection', () => {
       functionName: 'Bash',
       callId: 'c1',
     });
-    expect(projection.getSnapshot().pendingPermissions).toHaveLength(1);
+    expect(projection.getSnapshot().pendingRuntimeRequests).toHaveLength(1);
+    expect(projection.getSnapshot().pendingRuntimeRequests[0]).toMatchObject({
+      id: 'p1',
+      kind: 'permission',
+      request: { permissionId: 'p1' },
+    });
 
     projection.project({
       type: EventTypes.PERMISSION_APPROVED,
       permissionId: 'p1',
       sourceName: 'permission',
     });
-    expect(projection.getSnapshot().pendingPermissions).toHaveLength(0);
+    expect(projection.getSnapshot().pendingRuntimeRequests).toHaveLength(0);
   });
 
   it('clears pending runtime requests from request lifecycle terminal events', () => {
@@ -102,14 +656,38 @@ describe('createThreadProjection', () => {
     projection.project({
       type: EventTypes.CLIENT_TOOL_INVOKE_REQUEST,
       requestId: 't1',
+      sourceName: 'HPD.Agent.ClientTools',
       toolName: 'pickFile',
       callId: 'tc1',
       arguments: {},
+      description: 'Choose a local file',
+      responsePolicy: 'targetedResponder',
+      target: {
+        responderId: 'desktop',
+        requiredCapabilities: ['client-tool:pickFile'],
+      },
+      visibility: 'allObservers',
     });
 
-    expect(projection.getSnapshot().pendingPermissions).toHaveLength(1);
-    expect(projection.getSnapshot().pendingClarifications).toHaveLength(1);
-    expect(projection.getSnapshot().pendingClientToolRequests).toHaveLength(1);
+    expect(projection.getSnapshot().pendingRuntimeRequests.map((request) => request.kind))
+      .toEqual(['permission', 'clarification', 'client-tool']);
+    expect(projection.getSnapshot().pendingRuntimeRequests[2]).toMatchObject({
+      id: 't1',
+      kind: 'client-tool',
+      sourceName: 'HPD.Agent.ClientTools',
+      requestEventType: 'CLIENT_TOOL_INVOKE_REQUEST',
+      responsePolicy: 'targetedResponder',
+      target: {
+        responderId: 'desktop',
+        requiredCapabilities: ['client-tool:pickFile'],
+      },
+      visibility: 'allObservers',
+      request: {
+        requestId: 't1',
+        toolName: 'pickFile',
+        description: 'Choose a local file',
+      },
+    });
 
     projection.project({
       type: EventTypes.AGENT_REQUEST_RESOLVED,
@@ -135,9 +713,56 @@ describe('createThreadProjection', () => {
       cancelledAt: '2026-01-01T00:00:02.000Z',
     });
 
-    expect(projection.getSnapshot().pendingPermissions).toHaveLength(0);
-    expect(projection.getSnapshot().pendingClarifications).toHaveLength(0);
-    expect(projection.getSnapshot().pendingClientToolRequests).toHaveLength(0);
+    expect(projection.getSnapshot().pendingRuntimeRequests).toHaveLength(0);
+  });
+
+  it('tracks custom request events through the generic runtime request model', () => {
+    const projection = createThreadProjection();
+
+    projection.project({
+      type: EventTypes.AGENT_REQUEST_STARTED,
+      requestId: 'custom-1',
+      sourceName: 'custom-source',
+      requestEventType: 'CustomRequestEvent',
+      expectedResponseEventType: 'CustomResponseEvent',
+      responsePolicy: 'targetedResponder',
+      target: { responderGroup: 'reviewers' },
+      visibility: 'eligibleRespondersOnly',
+      startedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    expect(projection.getSnapshot().pendingRuntimeRequests[0]).toMatchObject({
+      id: 'custom-1',
+      kind: 'custom',
+      sourceName: 'custom-source',
+      requestEventType: 'CustomRequestEvent',
+      expectedResponseEventType: 'CustomResponseEvent',
+      responsePolicy: 'targetedResponder',
+      target: { responderGroup: 'reviewers' },
+      visibility: 'eligibleRespondersOnly',
+      startedAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    projection.project({
+      type: 'CUSTOM_REVIEW_REQUEST',
+      requestId: 'custom-2',
+      sourceName: 'custom-source',
+      responsePolicy: 'firstValidResponseWins',
+      visibility: 'allObservers',
+      prompt: 'Approve this custom operation?',
+    });
+
+    expect(projection.getSnapshot().pendingRuntimeRequests[1]).toMatchObject({
+      id: 'custom-2',
+      kind: 'custom',
+      sourceName: 'custom-source',
+      requestEventType: 'CUSTOM_REVIEW_REQUEST',
+      responsePolicy: 'firstValidResponseWins',
+      visibility: 'allObservers',
+      event: {
+        prompt: 'Approve this custom operation?',
+      },
+    });
   });
 
   it('tracks thread run lifecycle', () => {
@@ -152,7 +777,7 @@ describe('createThreadProjection', () => {
       threadId: 'main',
     });
     expect(projection.getSnapshot().threadRun?.status).toBe('active');
-    expect(projection.getSnapshot().streaming).toBe(true);
+    expect(projection.getSnapshot().activity.streaming).toBe(true);
 
     projection.project({
       type: EventTypes.THREAD_RUN_COMPLETED,
@@ -163,13 +788,29 @@ describe('createThreadProjection', () => {
       threadId: 'main',
     });
     expect(projection.getSnapshot().threadRun?.status).toBe('completed');
-    expect(projection.getSnapshot().streaming).toBe(false);
+    expect(projection.getSnapshot().activity.streaming).toBe(false);
+  });
+
+  it('projects generic wire-level error events', () => {
+    const projection = createThreadProjection();
+
+    projection.project({
+      type: 'CUSTOM_DOMAIN_ERROR',
+      isError: true,
+      errorMessage: 'custom failure',
+      sessionId: 's1',
+      threadId: 'main',
+    });
+
+    expect(projection.getSnapshot().error).toBe('custom failure');
+    expect(projection.getSnapshot().canSend).toBe(false);
   });
 
   it('rehydrates interrupted thread runs without marking the thread as streaming', () => {
     const projection = createThreadProjection();
 
     projection.rehydrate({
+      events: [],
       runs: [{
         runtimeRunId: 'run1',
         agentId: 'agent',
@@ -186,7 +827,7 @@ describe('createThreadProjection', () => {
 
     const snapshot = projection.getSnapshot();
     expect(snapshot.threadRun?.status).toBe('interrupted');
-    expect(snapshot.streaming).toBe(false);
+    expect(snapshot.activity.streaming).toBe(false);
     expect(snapshot.canSend).toBe(true);
   });
 
@@ -194,6 +835,7 @@ describe('createThreadProjection', () => {
     const projection = createThreadProjection();
 
     projection.rehydrate({
+      events: [],
       activeRun: {
         runtimeRunId: 'run1',
         agentId: 'agent',
@@ -222,9 +864,21 @@ describe('createThreadProjection', () => {
     expect(snapshot.threadRun?.status).toBe('active');
     expect(snapshot.threadRun?.backgroundOperation?.continuationToken).toBe('token');
     expect(snapshot.threadRun?.backgroundTasks).toHaveLength(1);
-    expect(snapshot.streaming).toBe(true);
+    expect(snapshot.activity.streaming).toBe(true);
   });
 });
+
+function readWorkToolIds(work: ReturnType<ReturnType<typeof createThreadProjection>['getSnapshot']>['workGroups'][number]): string[] {
+  return work.parts
+    .filter((part) => part.type === 'tool')
+    .map((part) => part.tool.callId);
+}
+
+function readWorkToolStatuses(work: ReturnType<ReturnType<typeof createThreadProjection>['getSnapshot']>['workGroups'][number]): string[] {
+  return work.parts
+    .filter((part) => part.type === 'tool')
+    .map((part) => part.tool.status);
+}
 
 describe('eventBelongsToScope', () => {
   it('matches events scoped to the same session and thread', () => {

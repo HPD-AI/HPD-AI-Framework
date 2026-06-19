@@ -277,7 +277,7 @@ public class LoggingEventObserver
 
             // Errors
             case MessageTurnErrorEvent e:
-                _logger.LogError(e.Exception, "Agent error: {Message}", e.Message);
+                _logger.LogError(e.Exception, "Agent error: {Message}", e.ErrorMessage);
                 break;
         }
 

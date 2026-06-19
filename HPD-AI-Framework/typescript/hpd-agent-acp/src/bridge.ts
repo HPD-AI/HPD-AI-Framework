@@ -271,11 +271,14 @@ export function createBridge(
       );
 
       await client.run({
-        type: EventTypes.USER_TEXT_INPUT,
+        type: EventTypes.USER_MESSAGES_INPUT,
         sessionId: session.hpdSessionId,
         threadId: session.hpdThreadId,
         agentId: config.agentName ?? 'default',
-        text: promptText,
+        messages: [{
+          role: 'user',
+          contents: [{ $type: 'text', text: promptText }],
+        }],
         runConfig: {
           clientToolInput: {
             clientToolHarnesses: capsToToolHarnesses(clientCapabilities),

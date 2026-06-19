@@ -1,4 +1,5 @@
 using HPD.Agent;
+using HPD.Agent.Hosting.Data;
 
 namespace HPD.Agent.Hosting.Lifecycle;
 
@@ -29,7 +30,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
         return AgentServiceResult<AgentStreamLease>.Success(new AgentStreamLease(agent));
     }
 
-    public async Task<AgentServiceResult> SubmitInputAsync(
+    public async Task<AgentServiceResult<InputSubmissionDto>> SubmitInputAsync(
         string agentId,
         string sessionId,
         string threadId,
@@ -39,17 +40,18 @@ public sealed class AgentStreamingService : IAgentStreamingService
         var lease = await GetAgentForThreadAsync(agentId, sessionId, threadId, cancellationToken)
             .ConfigureAwait(false);
         if (lease.Status != AgentServiceStatus.Success)
-            return new AgentServiceResult(lease.Status, lease.ErrorCode, lease.ErrorMessage, lease.ErrorMessages);
+            return new AgentServiceResult<InputSubmissionDto>(lease.Status, default, lease.ErrorCode, lease.ErrorMessage, lease.ErrorMessages);
 
         if (!_sessionManager.TryStartThreadRun(agentId, sessionId, threadId, out var run))
         {
-            return AgentServiceResult.ConflictWith(
+            return AgentServiceResult<InputSubmissionDto>.ConflictWith(
                 "ThreadRunActive",
                 $"Thread '{threadId}' in session '{sessionId}' already has an active run.");
         }
 
         var agent = lease.Value!.Agent;
         input = ApplyRouteScope(input, agentId, sessionId, threadId, run.RuntimeRunId);
+
         var startedEvent = new ThreadRunStartedEvent(run.RuntimeRunId, agentId, run.StartedAt)
         {
             SessionId = sessionId,
@@ -111,7 +113,8 @@ public sealed class AgentStreamingService : IAgentStreamingService
             throw;
         }
 
-        return AgentServiceResult.Success;
+        return AgentServiceResult<InputSubmissionDto>.Success(
+            new InputSubmissionDto(run.RuntimeRunId));
     }
 
     public async Task<AgentServiceResult> InterruptAsync(
@@ -155,15 +158,9 @@ public sealed class AgentStreamingService : IAgentStreamingService
     {
         return input switch
         {
-            UserTextInputEvent text => text with
-            {
-                AgentId = agentId,
-                SessionId = sessionId,
-                ThreadId = threadId,
-                RuntimeRunId = runtimeRunId ?? text.RuntimeRunId
-            },
             UserMessagesInputEvent messages => messages with
             {
+                ClientInputId = messages.ClientInputId,
                 AgentId = agentId,
                 SessionId = sessionId,
                 ThreadId = threadId,

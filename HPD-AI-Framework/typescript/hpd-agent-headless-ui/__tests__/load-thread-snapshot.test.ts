@@ -5,7 +5,6 @@ import { loadThreadSnapshot } from '../src/index.js';
 function fakeClient(): AgentClient {
   return {
     getThread: vi.fn(async () => ({ id: 'main', sessionId: 's1' })),
-    getThreadMessages: vi.fn(async () => []),
     getThreadEvents: vi.fn(async () => []),
     getThreadRuns: vi.fn(async () => []),
     getActiveThreadRun: vi.fn(async () => null),
@@ -13,7 +12,7 @@ function fakeClient(): AgentClient {
 }
 
 describe('loadThreadSnapshot', () => {
-  it('loads durable thread baseline without runs or events by default', async () => {
+  it('loads durable thread baseline from events by default', async () => {
     const client = fakeClient();
 
     const snapshot = await loadThreadSnapshot({
@@ -24,8 +23,7 @@ describe('loadThreadSnapshot', () => {
     });
 
     expect(client.getThread).toHaveBeenCalledWith('s1', 'main');
-    expect(client.getThreadMessages).toHaveBeenCalledWith('s1', 'main');
-    expect(client.getThreadEvents).not.toHaveBeenCalled();
+    expect(client.getThreadEvents).toHaveBeenCalledWith('s1', 'main');
     expect(client.getThreadRuns).not.toHaveBeenCalled();
     expect(snapshot.thread).toEqual({ id: 'main', sessionId: 's1' });
     expect(snapshot.events).toEqual([]);
@@ -33,7 +31,7 @@ describe('loadThreadSnapshot', () => {
     expect(snapshot.activeRun).toBeNull();
   });
 
-  it('can include durable events and thread runs explicitly', async () => {
+  it('can include thread runs explicitly', async () => {
     const client = fakeClient();
 
     await loadThreadSnapshot({
@@ -42,7 +40,6 @@ describe('loadThreadSnapshot', () => {
       sessionId: 's1',
       threadId: 'main',
     }, {
-      includeEvents: true,
       includeRuns: true,
     });
 

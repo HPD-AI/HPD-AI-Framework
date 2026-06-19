@@ -54,9 +54,9 @@ public class ThreadEventStoreTests : AgentTestBase
 
         var projected = await store.LoadThreadAsync(session.Id, thread.Id);
         Assert.Equal("main", projected!.Name);
-        Assert.Equal(0, projected.SiblingIndex);
-        Assert.Equal(1, projected.TotalSiblings);
-        Assert.True(projected.IsOriginal);
+        Assert.Null(projected.ForkedFrom);
+        Assert.Null(projected.ForkedAtMessageId);
+        Assert.Null(projected.ForkedAtMessageIndex);
         Assert.Empty(projected.ChildThreads);
     }
 
@@ -85,6 +85,48 @@ public class ThreadEventStoreTests : AgentTestBase
 
         Assert.Single(projected.Messages);
         Assert.Equal("durable", projected.Messages[0].Text);
+    }
+
+    [Fact]
+    public void ThreadProjector_CoalescesStreamingDeltasIntoDurableMessageContents()
+    {
+        var thread = new Thread("session-1", "main");
+        var message = new ChatMessage(ChatRole.Assistant, []) { MessageId = "assistant-1" };
+        message.AdditionalProperties ??= [];
+        message.AdditionalProperties["quote"] = new Dictionary<string, object?>
+        {
+            ["text"] = "quoted context",
+            ["messageId"] = "user-1",
+            ["source"] = "selection"
+        };
+
+        var document = ThreadEventDocumentBuilder.Create(
+            "session-1",
+            "main",
+            [
+                ThreadEventFactory.ThreadCreated(thread),
+                ThreadEventFactory.MessageStarted("session-1", "main", message),
+                ThreadEventFactory.ReasoningStarted("session-1", "main", "turn-1", "assistant-1", ChatRole.Assistant.Value, 0),
+                ThreadEventFactory.ReasoningDelta("session-1", "main", "turn-1", "assistant-1", "first ", null, 0),
+                ThreadEventFactory.ReasoningDelta("session-1", "main", "turn-1", "assistant-1", "thought", null, 0),
+                ThreadEventFactory.ReasoningCompleted("session-1", "main", "turn-1", "assistant-1", 0),
+                ThreadEventFactory.TextMessageStarted("session-1", "main", "turn-1", "assistant-1", ChatRole.Assistant.Value, 0),
+                ThreadEventFactory.TextDelta("session-1", "main", "turn-1", "assistant-1", "final ", 0),
+                ThreadEventFactory.TextDelta("session-1", "main", "turn-1", "assistant-1", "answer", 0),
+                ThreadEventFactory.TextMessageCompleted("session-1", "main", "turn-1", "assistant-1", 0),
+                ThreadEventFactory.MessageCompleted("session-1", "main", "assistant-1")
+            ]);
+
+        var projected = ThreadProjector.Project(document);
+
+        var projectedMessage = Assert.Single(projected.Messages);
+        var reasoning = Assert.Single(projectedMessage.Contents.OfType<TextReasoningContent>());
+        var text = Assert.Single(projectedMessage.Contents.OfType<TextContent>());
+        Assert.Equal("first thought", reasoning.Text);
+        Assert.Equal("final answer", text.Text);
+        Assert.True(projectedMessage.AdditionalProperties?.ContainsKey("quote"));
+        Assert.Equal("turn-1", projectedMessage.AdditionalProperties?[
+            ThreadHistoryCompactionMetadata.MessageTurnIdPropertyName]);
     }
 
     [Fact]
@@ -339,6 +381,37 @@ public class ThreadEventStoreTests : AgentTestBase
         }
     }
 
+    [Fact]
+    public async Task JsonSessionStore_AppendThreadEvent_PersistsEventFlowId()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-thread-events-{Guid.NewGuid():N}");
+
+        try
+        {
+            var store = new JsonSessionStore(tempDir);
+
+            await store.AppendThreadEventAsync(
+                "session-1",
+                "main",
+                ThreadEventFactory.TextDelta("session-1", "main", "turn-1", "msg-1", "hello", 0));
+
+            var eventsPath = Path.Combine(tempDir, "session-1", "threads", "main", "thread.events.jsonl");
+            var line = Assert.Single(await File.ReadAllLinesAsync(eventsPath));
+            using var json = JsonDocument.Parse(line);
+
+            Assert.Equal("turn-1", json.RootElement.GetProperty("eventFlowId").GetString());
+
+            var document = await store.LoadThreadDocumentAsync("session-1", "main");
+            var evt = Assert.Single(document!.Events);
+            Assert.Equal("turn-1", evt.EventFlowId);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -517,7 +590,7 @@ public class ThreadEventStoreTests : AgentTestBase
         Assert.False(string.IsNullOrWhiteSpace(failed.MessageTurnId));
         Assert.Equal("session-1", failed.ConversationId);
         Assert.Equal(nameof(InvalidOperationException), failed.ErrorType);
-        Assert.Contains("No responses queued", failed.Message);
+        Assert.Contains("No responses queued", failed.ErrorMessage);
     }
 
     [Fact]

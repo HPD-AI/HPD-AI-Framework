@@ -249,6 +249,9 @@ public abstract record AgentEvent : HPD.Events.Event
 /// </summary>
 public abstract record AgentInputEvent
 {
+    /// <summary>Client-owned correlation identifier for reconciling submitted input with admitted transcript messages.</summary>
+    public string? ClientInputId { get; init; }
+
     /// <summary>Session scope for the input event.</summary>
     public string? SessionId { get; init; }
 
@@ -291,13 +294,6 @@ public sealed record ThreadRunCompletedEvent(
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
     public override EventChannel Channel { get; init; } = EventChannel.Control;
     public override bool ShouldPersistToThread() => true;
-}
-
-/// <summary>
-/// User text input sent into an agent turn.
-/// </summary>
-public sealed record UserTextInputEvent(string Text) : AgentInputEvent
-{
 }
 
 /// <summary>
@@ -409,7 +405,7 @@ public record MessageTurnFinishedEvent : AgentEvent
 /// Error category is lazily computed from the exception using GenericErrorHandler.
 /// </summary>
 public record MessageTurnErrorEvent(
-    string Message,
+    string ErrorMessage,
     [property: System.Text.Json.Serialization.JsonIgnore] Exception? Exception = null) : AgentEvent, IErrorEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
@@ -419,9 +415,6 @@ public record MessageTurnErrorEvent(
     public string? AgentId { get; init; }
     public string? AgentName { get; init; }
     public string? ErrorType { get; init; }
-
-    /// <inheritdoc />
-    string IErrorEvent.ErrorMessage => Message;
 
     // Lazy-computed error details from the exception
     private ErrorHandling.ProviderErrorDetails? _errorDetails;
@@ -564,11 +557,14 @@ public sealed record UserAudioTranscriptCompletedEvent(
 /// </summary>
 public sealed record UserAudioTranscriptFailedEvent(
     string MessageId,
-    string Error,
+    string ErrorMessage,
     string? ProviderItemId = null,
-    int? ContentIndex = null) : AgentEvent
+    int? ContentIndex = null) : AgentEvent, IErrorEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+
+    [JsonIgnore]
+    public Exception? Exception => null;
 }
 
 
@@ -830,7 +826,7 @@ public sealed record ToolCallBackgroundTaskCancelledEvent : ToolCallBackgroundTa
 /// <summary>
 /// Emitted when runtime-owned background work started by a tool call faults.
 /// </summary>
-public sealed record ToolCallBackgroundTaskFaultedEvent : ToolCallBackgroundTaskEvent
+public sealed record ToolCallBackgroundTaskFaultedEvent : ToolCallBackgroundTaskEvent, IErrorEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 
@@ -839,6 +835,9 @@ public sealed record ToolCallBackgroundTaskFaultedEvent : ToolCallBackgroundTask
     public required string ExceptionType { get; init; }
 
     public required string ErrorMessage { get; init; }
+
+    [JsonIgnore]
+    public Exception? Exception => null;
 }
 
 #endregion

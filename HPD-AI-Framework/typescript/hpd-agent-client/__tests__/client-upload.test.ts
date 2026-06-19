@@ -4,7 +4,7 @@
  * What these tests cover:
  *   1. uploadContent() — AgentHttpApi via AgentClient: correct URL, method, multipart body, return value,
  *      error handling.
- *   2. runConfig threading: USER_TEXT_INPUT.runConfig is forwarded in the event envelope.
+ *   2. runConfig threading: USER_MESSAGES_INPUT.runConfig is forwarded in the event envelope.
  *   3. SseTransport: runConfig included/omitted from POST body based on input events.
  *
  * Test type: unit — all network I/O is replaced by vi.spyOn(globalThis, 'fetch').
@@ -160,11 +160,14 @@ describe('AgentClient.submitInput() — runConfig threading', () => {
     const signal = new AbortController().signal;
 
     await client.submitInput({
-      type: EventTypes.USER_TEXT_INPUT,
+      type: EventTypes.USER_MESSAGES_INPUT,
       sessionId: 'sess-1',
       agentId: 'agent-1',
       threadId: 'main',
-      text: 'hi',
+      messages: [{
+        role: 'user',
+        contents: [{ $type: 'text', text: 'hi' }],
+      }],
       runConfig,
     }, { signal }).catch(() => {});
 
@@ -185,11 +188,14 @@ describe('AgentClient.submitInput() — runConfig threading', () => {
 
     const signal = new AbortController().signal;
     await client.submitInput({
-      type: EventTypes.USER_TEXT_INPUT,
+      type: EventTypes.USER_MESSAGES_INPUT,
       sessionId: 'sess-1',
       agentId: 'agent-1',
       threadId: 'main',
-      text: 'hi',
+      messages: [{
+        role: 'user',
+        contents: [{ $type: 'text', text: 'hi' }],
+      }],
     }, { signal }).catch(() => {});
 
     const [, init] = vi.mocked(fetch).mock.calls[0];
@@ -223,11 +229,14 @@ describe('SseTransport — submitInput runConfig in POST body', () => {
 
     const runConfig = { modelId: 'claude-opus-4-6' };
     await transport.submitInput({
-      type: EventTypes.USER_TEXT_INPUT,
+      type: EventTypes.USER_MESSAGES_INPUT,
       sessionId: 'sess-1',
       agentId: 'agent-1',
       threadId: 'main',
-      text: 'hi',
+      messages: [{
+        role: 'user',
+        contents: [{ $type: 'text', text: 'hi' }],
+      }],
       runConfig,
     }).catch(() => {});
 
@@ -253,11 +262,14 @@ describe('SseTransport — submitInput runConfig in POST body', () => {
     transport.onClose(() => {});
 
     await transport.submitInput({
-      type: EventTypes.USER_TEXT_INPUT,
+      type: EventTypes.USER_MESSAGES_INPUT,
       sessionId: 'sess-1',
       agentId: 'agent-1',
       threadId: 'main',
-      text: 'hi',
+      messages: [{
+        role: 'user',
+        contents: [{ $type: 'text', text: 'hi' }],
+      }],
     }).catch(() => {});
 
     const [, init] = vi.mocked(fetch).mock.calls[0];

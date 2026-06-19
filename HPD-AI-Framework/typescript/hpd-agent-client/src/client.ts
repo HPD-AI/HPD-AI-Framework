@@ -4,15 +4,14 @@ import type {
   AgentRunInputEvent,
   ClientToolInvokeRequestEvent,
   KnownAgentEvent,
-  RespondResult,
 } from './types/events.js';
 import { EventTypes } from './types/events.js';
-import type { AgentTransport, RuntimeScope, RunTransportOptions } from './types/transport.js';
+import type { AgentTransport, RuntimeScope, RunTransportOptions, SubmitInputResult } from './types/transport.js';
 import type {
   Session,
   Thread,
   ThreadMessage,
-  SiblingThread,
+  ThreadGraph,
   ThreadEvent,
   ContentReference,
   CreateSessionRequest,
@@ -152,13 +151,13 @@ export class AgentClient {
     this.transport.disconnect();
   }
 
-  async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<RespondResult | undefined> {
+  async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<SubmitInputResult> {
     const result = await this.transport.submitInput(input, options);
     await this.outputDispatchQueue;
     return result;
   }
 
-  async run(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<RespondResult | undefined> {
+  async run(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<SubmitInputResult> {
     return this.submitInput(input, options);
   }
 
@@ -354,20 +353,8 @@ export class AgentClient {
     return this.api.getThreadRun(agentId, sessionId, threadId, runtimeRunId);
   }
 
-  // ============================================
-  // Sibling Navigation
-  // ============================================
-
-  getThreadSiblings(sessionId: string, threadId: string): Promise<SiblingThread[]> {
-    return this.api.getThreadSiblings(sessionId, threadId);
-  }
-
-  getNextSibling(sessionId: string, threadId: string): Promise<Thread | null> {
-    return this.api.getNextSibling(sessionId, threadId);
-  }
-
-  getPreviousSibling(sessionId: string, threadId: string): Promise<Thread | null> {
-    return this.api.getPreviousSibling(sessionId, threadId);
+  getThreadGraph(sessionId: string): Promise<ThreadGraph> {
+    return this.api.getThreadGraph(sessionId);
   }
 
   // ============================================

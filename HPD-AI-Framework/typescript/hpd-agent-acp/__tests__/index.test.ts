@@ -106,12 +106,14 @@ function makeMockClient(overrides: Partial<MockClient> = {}): MockClient {
     for (const handler of errorHandlers) await handler(error);
   };
   const run = overrides.run ?? vi.fn().mockImplementation(async (input: any, options?: any) => {
-    if (input.type !== 'USER_TEXT_INPUT') return;
+    if (input.type !== 'USER_MESSAGES_INPUT') return;
+    const content = input.messages?.[0]?.contents?.[0];
+    const text = content?.$type === 'text' ? content.text : '';
     if (overrides.stream) {
       return overrides.stream(
         input.sessionId,
         input.threadId,
-        [{ role: 'user', content: input.text }],
+        [{ role: 'user', content: text }],
         {
           onEvent: emit,
           onPermissionRequest: (event: any) => emit(event),
@@ -127,7 +129,6 @@ function makeMockClient(overrides: Partial<MockClient> = {}): MockClient {
         { signal: options?.signal, runConfig: input.runConfig },
       );
     }
-    if (input.type !== 'USER_TEXT_INPUT') return;
     await emit({ type: 'MESSAGE_TURN_FINISHED', version: '1.0' });
   });
 

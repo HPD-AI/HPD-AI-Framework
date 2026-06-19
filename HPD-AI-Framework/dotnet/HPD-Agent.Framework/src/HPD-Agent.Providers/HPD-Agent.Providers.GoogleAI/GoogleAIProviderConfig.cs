@@ -320,15 +320,6 @@ public class GoogleAIProviderConfig
     [JsonPropertyName("allowedFunctionNames")]
     public List<string>? AllowedFunctionNames { get; set; }
 
-    //
-    // ADDITIONAL OPTIONS
-    //
-
-    /// <summary>
-    /// Additional custom parameters for model-specific features not covered by standard options.
-    /// </summary>
-    [JsonPropertyName("additionalProperties")]
-    public Dictionary<string, object>? AdditionalProperties { get; set; }
 }
 
 /// <summary>

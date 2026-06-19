@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Channels;
 using HPD.Agent.TUI.Runtime;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.TUI.Console.Demo;
 
@@ -86,7 +87,9 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
             Metadata = AgentMetadata(scope, "sample-agent")
         }, cancellationToken);
 
-        var userText = input is UserTextInputEvent text ? text.Text : "input";
+        var userText = input is UserMessagesInputEvent messages
+            ? FirstText(messages.Messages)
+            : "input";
         await Delay(cancellationToken);
         await PublishAsync(new TextDeltaEvent($"I received: **{EscapeMarkdown(userText)}**\n\n", messageId)
         {
@@ -142,6 +145,20 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         }, cancellationToken);
 
         _activeRun = null;
+    }
+
+    private static string FirstText(IEnumerable<ChatMessage> messages)
+    {
+        foreach (var message in messages)
+        {
+            foreach (var content in message.Contents)
+            {
+                if (content is TextContent text)
+                    return text.Text;
+            }
+        }
+
+        return "input";
     }
 
     private async Task PublishAsync(AgentEvent evt, CancellationToken cancellationToken)

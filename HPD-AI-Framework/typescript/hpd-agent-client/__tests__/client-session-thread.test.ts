@@ -43,7 +43,18 @@ const BASE = 'http://localhost:5135';
 
 // Minimal fixtures matching server DTOs
 const SESSION = { id: 'sess-1', createdAt: '2024-01-01T00:00:00Z', lastActivity: '2024-01-01T00:00:00Z', metadata: {} };
-const THREAD  = { id: 'thread-1', sessionId: 'sess-1', createdAt: '2024-01-01T00:00:00Z', metadata: {} };
+const THREAD  = {
+  id: 'thread-1',
+  sessionId: 'sess-1',
+  createdAt: '2024-01-01T00:00:00Z',
+  lastActivity: '2024-01-01T00:00:00Z',
+  messageCount: 0,
+  metadata: {},
+  kind: 'MainAgent',
+  visibility: 'Visible',
+  childThreads: [],
+  totalForks: 0,
+};
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -211,6 +222,29 @@ describe('AgentClient — session/thread passthroughs', () => {
       const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0];
       expect(String(url)).toBe(`${BASE}/sessions/sess-1/threads/thread-1`);
       expect(result).toEqual(THREAD);
+    });
+
+    it('returns subagent thread metadata from the server DTO unchanged', async () => {
+      const subAgentThread = {
+        ...THREAD,
+        id: 'subagent/reviewer/run-1',
+        name: 'Reviewer',
+        kind: 'SubAgent',
+        visibility: 'Hidden',
+        parentSessionId: 'sess-1',
+        parentThreadId: 'main',
+        subAgentName: 'Reviewer',
+        subAgentRunId: 'run-1',
+      };
+      mockFetchJson(subAgentThread);
+
+      const result = await client.getThread('sess-1', 'subagent/reviewer/run-1');
+
+      expect(result).toEqual(subAgentThread);
+      expect(result?.kind).toBe('SubAgent');
+      expect(result?.visibility).toBe('Hidden');
+      expect(result?.parentThreadId).toBe('main');
+      expect(result?.subAgentName).toBe('Reviewer');
     });
 
     it('returns null for a missing thread', async () => {
@@ -434,84 +468,32 @@ describe('AgentClient — session/thread passthroughs', () => {
     });
   });
 
-  // ==========================================================================
-  // Sibling Navigation
-  // ==========================================================================
+  describe('getThreadGraph', () => {
+    it('calls GET /sessions/{sid}/thread-graph and returns threads plus fork groups', async () => {
+      const graph = {
+        threads: [THREAD, { ...THREAD, id: 'thread-2', forkedFrom: 'thread-1' }],
+        forkGroups: [
+          {
+            id: 'thread-1@message-1',
+            sourceThreadId: 'thread-1',
+            forkedAtMessageId: 'message-1',
+            forkedAtMessageIndex: 0,
+            choiceMessageIndex: 1,
+            members: [
+              { threadId: 'thread-1', name: 'thread-1', index: 0, isSource: true, messageCount: 1, createdAt: THREAD.createdAt, lastActivity: THREAD.lastActivity },
+              { threadId: 'thread-2', name: 'thread-2', index: 1, isSource: false, messageCount: 1, createdAt: THREAD.createdAt, lastActivity: THREAD.lastActivity },
+            ],
+          },
+        ],
+        runtimeChildren: [],
+      };
+      mockFetchJson(graph);
 
-  describe('getThreadSiblings', () => {
-    it('calls GET /sessions/{sid}/threads/{bid}/siblings and returns siblings array', async () => {
-      const siblings = [
-        { id: 'thread-1', siblingIndex: 0, totalSiblings: 2, isOriginal: true },
-        { id: 'thread-2', siblingIndex: 1, totalSiblings: 2, isOriginal: false },
-      ];
-      mockFetchJson(siblings);
-
-      const result = await client.getThreadSiblings('sess-1', 'thread-1');
+      const result = await client.getThreadGraph('sess-1');
 
       const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0];
-      expect(String(url)).toBe(`${BASE}/sessions/sess-1/threads/thread-1/siblings`);
-      expect(result).toEqual(siblings);
-    });
-  });
-
-  describe('getNextSibling', () => {
-    it('resolves the next sibling by following nextSiblingId from the current thread', async () => {
-      // The API calls getThread twice: once to get nextSiblingId, once to fetch that thread.
-      const current = { ...THREAD, id: 'thread-1', nextSiblingId: 'thread-2' };
-      const next    = { ...THREAD, id: 'thread-2' };
-
-      vi.spyOn(globalThis, 'fetch')
-        .mockResolvedValueOnce({ ok: true, json: async () => current, text: async () => '' } as Response)
-        .mockResolvedValueOnce({ ok: true, json: async () => next,    text: async () => '' } as Response);
-
-      const result = await client.getNextSibling('sess-1', 'thread-1');
-
-      // Second fetch should resolve the next thread by its ID
-      const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[1];
-      expect(String(url)).toBe(`${BASE}/sessions/sess-1/threads/thread-2`);
-      expect(result).toEqual(next);
-    });
-
-    it('returns null when the current thread has no nextSiblingId', async () => {
-      const current = { ...THREAD, id: 'thread-last', nextSiblingId: undefined };
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-        ok: true,
-        json: async () => current,
-        text: async () => '',
-      } as Response);
-
-      const result = await client.getNextSibling('sess-1', 'thread-last');
-      expect(result).toBeNull();
-    });
-  });
-
-  describe('getPreviousSibling', () => {
-    it('resolves the previous sibling by following previousSiblingId from the current thread', async () => {
-      // The API calls getThread twice: once to get previousSiblingId, once to fetch that thread.
-      const current = { ...THREAD, id: 'thread-1', previousSiblingId: 'thread-0' };
-      const prev    = { ...THREAD, id: 'thread-0' };
-
-      vi.spyOn(globalThis, 'fetch')
-        .mockResolvedValueOnce({ ok: true, json: async () => current, text: async () => '' } as Response)
-        .mockResolvedValueOnce({ ok: true, json: async () => prev,    text: async () => '' } as Response);
-
-      const result = await client.getPreviousSibling('sess-1', 'thread-1');
-
-      const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[1];
-      expect(String(url)).toBe(`${BASE}/sessions/sess-1/threads/thread-0`);
-      expect(result).toEqual(prev);
-    });
-
-    it('returns null when the current thread has no previousSiblingId', async () => {
-      const current = { ...THREAD, id: 'thread-first', previousSiblingId: undefined };
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-        ok: true,
-        json: async () => current,
-        text: async () => '',
-      } as Response);
-
-      const result = await client.getPreviousSibling('sess-1', 'thread-first');
-      expect(result).toBeNull();
+      expect(String(url)).toBe(`${BASE}/sessions/sess-1/thread-graph`);
+      expect(result).toEqual(graph);
     });
   });
 });

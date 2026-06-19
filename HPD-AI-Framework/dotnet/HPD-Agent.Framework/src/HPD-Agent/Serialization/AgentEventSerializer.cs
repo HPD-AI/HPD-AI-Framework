@@ -36,7 +36,6 @@ public static partial class AgentEventSerializer
     private static readonly Dictionary<Type, string> TypeNames = new()
     {
         // Input Events
-        [typeof(UserTextInputEvent)] = EventTypes.Input.USER_TEXT_INPUT,
         [typeof(UserMessagesInputEvent)] = EventTypes.Input.USER_MESSAGES_INPUT,
 
         // Thread Events
@@ -351,6 +350,14 @@ public static partial class AgentEventSerializer
 
         var eventJson = JsonSerializer.Serialize(value, GetTypeInfo(concreteType));
         var prefix = $"\"version\":\"{version}\",\"type\":\"{eventType}\"";
+        if (value is IErrorEvent errorEvent)
+        {
+            prefix += ",\"isError\":true";
+            if (!eventJson.Contains("\"errorMessage\"", StringComparison.Ordinal))
+            {
+                prefix += $",\"errorMessage\":{JsonSerializer.Serialize(errorEvent.ErrorMessage, StandardJsonOptions)}";
+            }
+        }
 
         return eventJson == "{}"
             ? $"{{{prefix}}}"

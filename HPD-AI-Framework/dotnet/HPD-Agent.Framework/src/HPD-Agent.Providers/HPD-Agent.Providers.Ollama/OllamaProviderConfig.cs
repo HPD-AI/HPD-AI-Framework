@@ -342,25 +342,4 @@ public class OllamaProviderConfig
     [JsonPropertyName("template")]
     public string? Template { get; set; }
 
-    /// <summary>
-    /// Enable or disable thinking for reasoning models like openthinker, qwen3,
-    /// deepseek-r1, phi4-reasoning. Can be boolean (true/false) or string ("high", "medium", "low").
-    /// This might cause errors with non-reasoning models.
-    /// More information: https://github.com/ollama/ollama/releases/tag/v0.9.0
-    /// Maps to ChatRequest.Think.
-    /// </summary>
-    [JsonPropertyName("think")]
-    public object? Think { get; set; }
-
-    //
-    // ADVANCED OPTIONS
-    //
-
-    /// <summary>
-    /// Additional custom parameters to pass to the model.
-    /// This is a flexible dictionary for model-specific parameters not covered
-    /// by the standard options.
-    /// </summary>
-    [JsonPropertyName("additionalProperties")]
-    public Dictionary<string, object>? AdditionalProperties { get; set; }
 }

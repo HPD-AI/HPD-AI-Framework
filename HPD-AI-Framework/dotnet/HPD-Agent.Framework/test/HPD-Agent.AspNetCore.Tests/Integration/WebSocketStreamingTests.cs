@@ -8,6 +8,7 @@ using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
 using HPD.Agent.Serialization;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.AspNetCore.Tests.Integration;
 
@@ -34,12 +35,16 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
     private static string CreateInputJson(string text)
     {
-        return AgentEventSerializer.ToJson(new UserTextInputEvent(text));
+        return AgentEventSerializer.ToJson(new UserMessagesInputEvent([
+            new ChatMessage(ChatRole.User, text)
+        ]));
     }
 
     private static string CreateInputJson(string text, string agentId)
     {
-        return AgentEventSerializer.ToJson(new UserTextInputEvent(text)
+        return AgentEventSerializer.ToJson(new UserMessagesInputEvent([
+            new ChatMessage(ChatRole.User, text)
+        ])
         {
             AgentId = agentId
         });

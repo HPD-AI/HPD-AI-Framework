@@ -356,7 +356,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
             IServiceProvider serviceProvider,
             string name,
             IAgentFactory? agentFactory = null)
-            : base(agentStore, sessionManager, optionsMonitor, serviceProvider, name, agentFactory) { }
+            : base(agentStore, sessionManager, optionsMonitor, serviceProvider, name, new InMemoryContentStore(), agentFactory) { }
 
         public TimeSpan GetIdleTimeoutForTests() => GetIdleTimeout();
     }

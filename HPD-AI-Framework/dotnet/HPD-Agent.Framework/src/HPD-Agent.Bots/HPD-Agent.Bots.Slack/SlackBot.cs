@@ -720,7 +720,7 @@ public partial class SlackBot(
     }
 
     // ── Bot-internal input bag ─────────────────────────────────────────────
-    // Crosses the agent boundary as UserTextInputEvent in StreamToSlackAsync.
+    // Crosses the agent boundary as UserMessagesInputEvent in StreamToSlackAsync.
     // RecipientUserId/RecipientTeamId drive native streaming eligibility.
     // Extensions carries Slack-specific values (triggerId, responseUrl) for
     // post-stream use by user code subscribing to adapter events.

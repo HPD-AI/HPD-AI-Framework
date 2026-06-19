@@ -1,6 +1,7 @@
 import { parseErrorResponse } from '../errors.js';
 import { SseParser } from '../parser.js';
 import type { AgentEvent, AgentRunInputEvent, RespondResult, RespondStatus } from '../types/events.js';
+import type { InputSubmissionResult, SubmitInputResult } from '../types/transport.js';
 import { EventTypes } from '../types/events.js';
 import type {
   AgentTransport,
@@ -76,7 +77,7 @@ export class SseTransport implements AgentTransport {
     void this.processStream(response.body);
   }
 
-  async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<RespondResult | undefined> {
+  async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<SubmitInputResult> {
     const sessionId = 'sessionId' in input ? input.sessionId : undefined;
     const threadId = 'threadId' in input ? input.threadId : undefined;
     const agentId = 'agentId' in input ? input.agentId : undefined;
@@ -106,9 +107,7 @@ export class SseTransport implements AgentTransport {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(input.type === EventTypes.USER_TEXT_INPUT
-        ? { text: input.text, runConfig: input.runConfig }
-        : input),
+      body: JSON.stringify(input),
       signal: options?.signal,
     });
 
@@ -117,8 +116,7 @@ export class SseTransport implements AgentTransport {
       throw new Error(`HTTP ${response.status}: ${text}`);
     }
 
-    await response.body?.cancel().catch(() => undefined);
-    return undefined;
+    return readInputSubmissionResult(response);
   }
 
   onEvent(handler: (event: AgentEvent) => void): void {
@@ -191,7 +189,7 @@ export class SseTransport implements AgentTransport {
     const response = await this.fetch(`${this.baseUrl}${this.endpointForResponse(input)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
+      body: serializeResponseInput(input),
     });
 
     const body = await response.json?.().catch(() => null) ?? null;
@@ -254,11 +252,55 @@ export class SseTransport implements AgentTransport {
   }
 }
 
+function serializeResponseInput(input: AgentRunInputEvent): string {
+  const body: Record<string, unknown> = {
+    version: input.version ?? '1.0',
+    type: input.type,
+  };
+
+  for (const [key, value] of Object.entries(input)) {
+    if (value === undefined || key === 'version' || key === 'type') continue;
+    body[key] = key === 'choice' ? serializePermissionChoice(value) : value;
+  }
+
+  return JSON.stringify(body);
+}
+
+function serializePermissionChoice(value: unknown): unknown {
+  switch (value) {
+    case 'ask':
+      return 0;
+    case 'allow_always':
+      return 1;
+    case 'deny_always':
+      return 2;
+    default:
+      return value;
+  }
+}
+
 function requestIdForResponse(input: AgentRunInputEvent): string {
   if ('requestId' in input && typeof input.requestId === 'string') return input.requestId;
   if ('permissionId' in input && typeof input.permissionId === 'string') return input.permissionId;
   if ('continuationId' in input && typeof input.continuationId === 'string') return input.continuationId;
   return '';
+}
+
+async function readInputSubmissionResult(response: Response): Promise<InputSubmissionResult | undefined> {
+  const text = await response.text().catch(() => '');
+  if (!text.trim()) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+
+  if (!parsed || typeof parsed !== 'object') return undefined;
+  const record = parsed as Record<string, unknown>;
+  const runtimeRunId = typeof record.runtimeRunId === 'string' ? record.runtimeRunId : '';
+  return { runtimeRunId };
 }
 
 function normalizeRespondResult(value: unknown, fallbackRequestId: string): RespondResult {

@@ -21,6 +21,11 @@ internal static class ThreadEndpoints
             .WithName("ListThreads")
             .WithSummary("List all threads in a session");
 
+        endpoints.MapGet("/sessions/{sid}/thread-graph", (string sid, CancellationToken ct) =>
+                GetThreadGraph(sid, threads, ct))
+            .WithName("GetThreadGraph")
+            .WithSummary("Get threads and fork groups for a session");
+
         endpoints.MapGet("/sessions/{sid}/threads/{bid}", (string sid, string bid, CancellationToken ct) =>
                 GetThread(sid, bid, threads, ct))
             .WithName("GetThread")
@@ -51,10 +56,6 @@ internal static class ThreadEndpoints
             .WithName("GetThreadEvents")
             .WithSummary("Get the normalized event log for a thread");
 
-        endpoints.MapGet("/sessions/{sid}/threads/{bid}/siblings", (string sid, string bid, CancellationToken ct) =>
-                GetSiblings(sid, bid, threads, ct))
-            .WithName("GetSiblingThreads")
-            .WithSummary("Get sibling thread IDs");
     }
 
     private static async Task<Results<Ok<List<ThreadDto>>, NotFound, ValidationProblem>> ListThreads(
@@ -72,6 +73,24 @@ internal static class ThreadEndpoints
         catch (Exception ex)
         {
             return Validation("ListThreadsError", ex.Message);
+        }
+    }
+
+    private static async Task<Results<Ok<ThreadGraphDto>, NotFound, ValidationProblem>> GetThreadGraph(
+        string sid,
+        IAgentThreadService threads,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var result = await threads.GetThreadGraphAsync(sid, ct);
+            return result.Status == AgentServiceStatus.NotFound
+                ? TypedResults.NotFound()
+                : TypedResults.Ok(result.Value!);
+        }
+        catch (Exception ex)
+        {
+            return Validation("GetThreadGraphError", ex.Message);
         }
     }
 
@@ -196,25 +215,6 @@ internal static class ThreadEndpoints
         catch (Exception ex)
         {
             return Validation("GetEventsError", ex.Message);
-        }
-    }
-
-    private static async Task<Results<Ok<List<ThreadDto>>, NotFound, ValidationProblem>> GetSiblings(
-        string sid,
-        string bid,
-        IAgentThreadService threads,
-        CancellationToken ct = default)
-    {
-        try
-        {
-            var result = await threads.GetSiblingsAsync(sid, bid, ct);
-            return result.Status == AgentServiceStatus.NotFound
-                ? TypedResults.NotFound()
-                : TypedResults.Ok(result.Value!.ToList());
-        }
-        catch (Exception ex)
-        {
-            return Validation("GetSiblingsError", ex.Message);
         }
     }
 

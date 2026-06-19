@@ -1,5 +1,20 @@
 import type { ClientToolAugmentation, ToolResultContent } from './client-tools.js';
+import type { AIContent } from './session.js';
+import type { ThreadKind, ThreadVisibility } from './session.js';
 import type { BackgroundOperationStatus } from './thread-run.js';
+
+export interface UsageDetails {
+  inputTokenCount?: number | null;
+  outputTokenCount?: number | null;
+  totalTokenCount?: number | null;
+  cachedInputTokenCount?: number | null;
+  reasoningTokenCount?: number | null;
+  inputAudioTokenCount?: number | null;
+  inputTextTokenCount?: number | null;
+  outputAudioTokenCount?: number | null;
+  outputTextTokenCount?: number | null;
+  additionalCounts?: Record<string, number> | null;
+}
 
 /**
  * Event type constants matching C# EventTypes.cs
@@ -7,7 +22,6 @@ import type { BackgroundOperationStatus } from './thread-run.js';
  */
 export const EventTypes = {
   // Input Events
-  USER_TEXT_INPUT: 'USER_TEXT_INPUT',
   USER_MESSAGES_INPUT: 'USER_MESSAGES_INPUT',
 
   // Durable Thread Events
@@ -132,6 +146,8 @@ export interface AgentMetadata {
 export interface BaseEvent {
   version?: string;
   type: string;
+  isError?: boolean;
+  errorMessage?: string | null;
   metadata?: AgentMetadata;
   eventId?: string;
   sessionId?: string;
@@ -175,6 +191,25 @@ export interface ResponseMetadata {
   capabilities?: string[];
 }
 
+export interface AgentErrorEvent extends BaseEvent {
+  isError: true;
+  errorMessage: string;
+  errorType?: string | null;
+}
+
+export interface AgentRequestEvent extends BaseEvent {
+  requestId: string;
+  sourceName: string;
+  responsePolicy?: ResponsePolicy;
+  target?: ResponderTarget | null;
+  visibility?: RequestVisibility;
+}
+
+export interface AgentResponseEvent extends BaseEvent, ResponseMetadata {
+  requestId: string;
+  sourceName?: string;
+}
+
 /**
  * Event emitted by a toolharness, middleware, or host extension that this client
  * version does not model explicitly. The raw payload is preserved so
@@ -189,20 +224,22 @@ export interface UnknownAgentEvent extends BaseEvent {
 // ============================================
 
 export interface AgentInputEvent extends BaseEvent {
+  clientInputId?: string | null;
   sessionId?: string;
   threadId?: string;
   agentId?: string;
   runConfig?: import('./run-config.js').RunConfig;
 }
 
-export interface UserTextInputEvent extends AgentInputEvent {
-  type: typeof EventTypes.USER_TEXT_INPUT;
-  text: string;
+export interface UserMessageInput {
+  role?: string;
+  contents: AIContent[];
+  additionalProperties?: Record<string, unknown>;
 }
 
 export interface UserMessagesInputEvent extends AgentInputEvent {
   type: typeof EventTypes.USER_MESSAGES_INPUT;
-  messages: Array<{ content: string; role?: string }>;
+  messages: UserMessageInput[];
 }
 
 // ============================================
@@ -216,13 +253,23 @@ export interface ThreadCreatedEvent extends BaseEvent {
   tags?: string[] | null;
   threadMetadata?: Record<string, unknown> | null;
   createdAt: string;
+  threadKind?: ThreadKind;
+  visibility?: ThreadVisibility;
+  parentSessionId?: string | null;
+  parentThreadId?: string | null;
+  subAgentName?: string | null;
+  subAgentRunId?: string | null;
+  subAgentSourceKind?: string | null;
+  parentToolCallId?: string | null;
+  sessionPolicy?: string | null;
+  threadPolicy?: string | null;
 }
 
 export interface ThreadForkedEvent extends BaseEvent {
   type: typeof EventTypes.THREAD_FORKED;
   sourceThreadId: string;
-  fromMessageId: string;
-  resolvedMessageIndex: number;
+  fromMessageId?: string | null;
+  resolvedMessageIndex?: number | null;
   ancestors?: Record<string, string> | null;
 }
 
@@ -232,18 +279,23 @@ export interface ThreadMetadataUpdatedEvent extends BaseEvent {
   description?: string | null;
   tags?: string[] | null;
   threadMetadata?: Record<string, unknown> | null;
+  threadKind?: ThreadKind;
+  visibility?: ThreadVisibility;
+  parentSessionId?: string | null;
+  parentThreadId?: string | null;
+  subAgentName?: string | null;
+  subAgentRunId?: string | null;
+  subAgentSourceKind?: string | null;
+  parentToolCallId?: string | null;
+  sessionPolicy?: string | null;
+  threadPolicy?: string | null;
 }
 
 export interface ThreadTreeUpdatedEvent extends BaseEvent {
   type: typeof EventTypes.THREAD_TREE_UPDATED;
   forkedFrom?: string | null;
+  forkedAtMessageId?: string | null;
   forkedAtMessageIndex?: number | null;
-  siblingIndex: number;
-  totalSiblings: number;
-  isOriginal: boolean;
-  originalThreadId?: string | null;
-  previousSiblingId?: string | null;
-  nextSiblingId?: string | null;
   childThreads: string[];
 }
 
@@ -253,6 +305,8 @@ export interface MessageStartedEvent extends BaseEvent {
   role: string;
   authorName?: string | null;
   createdAt?: string | null;
+  clientInputId?: string | null;
+  additionalProperties?: Record<string, unknown> | null;
 }
 
 export interface MessageCompletedEvent extends BaseEvent {
@@ -302,12 +356,19 @@ export interface MessageTurnFinishedEvent extends BaseEvent {
   conversationId: string;
   agentName: string;
   duration: string;
+  usage?: UsageDetails | null;
   timestamp: string;
 }
 
 export interface MessageTurnErrorEvent extends BaseEvent {
   type: typeof EventTypes.MESSAGE_TURN_ERROR;
-  message: string;
+  isError: true;
+  errorMessage: string;
+  errorType?: string | null;
+  messageTurnId?: string | null;
+  conversationId?: string | null;
+  agentId?: string | null;
+  agentName?: string | null;
 }
 
 // ============================================
@@ -459,6 +520,8 @@ export interface TextMessageStartEvent extends BaseEvent {
   type: typeof EventTypes.TEXT_MESSAGE_START;
   messageId: string;
   role: string;
+  clientInputId?: string | null;
+  optimistic?: boolean;
 }
 
 export interface TextDeltaEvent extends BaseEvent {
@@ -748,7 +811,6 @@ export interface clientToolHarnessesRegisteredEvent extends BaseEvent {
  */
 export type KnownAgentEvent =
   // Input Events
-  | UserTextInputEvent
   | UserMessagesInputEvent
   // Durable Thread Events
   | ThreadCreatedEvent
@@ -818,7 +880,6 @@ export type KnownAgentEvent =
 export type AgentEvent = KnownAgentEvent | UnknownAgentEvent;
 
 export type AgentRunInputEvent =
-  | UserTextInputEvent
   | UserMessagesInputEvent
   | PermissionResponseEvent
   | ContinuationResponseEvent
@@ -865,6 +926,10 @@ export function isMessageTurnErrorEvent(event: BaseEvent): event is MessageTurnE
   return event.type === EventTypes.MESSAGE_TURN_ERROR;
 }
 
+export function isErrorEvent(event: BaseEvent): event is AgentErrorEvent {
+  return event.isError === true && typeof event.errorMessage === 'string';
+}
+
 export function isClarificationRequestEvent(event: BaseEvent): event is ClarificationRequestEvent {
   return event.type === EventTypes.CLARIFICATION_REQUEST;
 }
@@ -895,5 +960,37 @@ export function isclientToolHarnessesRegisteredEvent(
   event: BaseEvent
 ): event is clientToolHarnessesRegisteredEvent {
   return event.type === EventTypes.CLIENT_TOOL_GROUPS_REGISTERED;
+}
+
+export function isAgentRequestEvent(event: BaseEvent): event is AgentRequestEvent {
+  return hasStringProperty(event, 'requestId') &&
+    hasStringProperty(event, 'sourceName') &&
+    !isRequestLifecycleEvent(event) &&
+    !isKnownResponseEvent(event);
+}
+
+export function isAgentResponseEvent(event: BaseEvent): event is AgentResponseEvent {
+  return hasStringProperty(event, 'requestId') &&
+    !isRequestLifecycleEvent(event) &&
+    isKnownResponseEvent(event);
+}
+
+function isRequestLifecycleEvent(event: BaseEvent): boolean {
+  return event.type === EventTypes.AGENT_REQUEST_STARTED ||
+    event.type === EventTypes.AGENT_REQUEST_RESOLVED ||
+    event.type === EventTypes.AGENT_REQUEST_EXPIRED ||
+    event.type === EventTypes.AGENT_REQUEST_CANCELLED ||
+    event.type === EventTypes.AGENT_RESPONSE_REJECTED;
+}
+
+function isKnownResponseEvent(event: BaseEvent): boolean {
+  return event.type === EventTypes.PERMISSION_RESPONSE ||
+    event.type === EventTypes.CONTINUATION_RESPONSE ||
+    event.type === EventTypes.CLARIFICATION_RESPONSE ||
+    event.type === EventTypes.CLIENT_TOOL_INVOKE_RESPONSE;
+}
+
+function hasStringProperty(event: BaseEvent, property: string): boolean {
+  return typeof (event as unknown as Record<string, unknown>)[property] === 'string';
 }
 

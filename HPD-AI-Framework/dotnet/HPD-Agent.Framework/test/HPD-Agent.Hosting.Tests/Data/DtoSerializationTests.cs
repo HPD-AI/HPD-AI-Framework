@@ -4,6 +4,7 @@ using HPD.Agent;
 using HPD.Agent.Hosting.Data;
 using HPD.Agent.Hosting.Serialization;
 using HPD.Agent.Serialization;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Hosting.Tests.Data;
 
@@ -80,20 +81,20 @@ public class DtoSerializationTests
     {
         // Arrange
         var original = new ThreadDto(
-            "thread-1",
-            "session-123",
-            "Main Thread",
-            "Primary conversation thread",
-            "parent-thread",
-            "message-5",
-            5,
-            DateTime.UtcNow,
-            DateTime.UtcNow.AddMinutes(10),
-            25,
-            new List<string> { "tag1", "tag2" },
-            new Dictionary<string, string> { ["0"] = "root", ["1"] = "parent-thread" },
-            0, 1, true, null, null, null, 0,
-            new Dictionary<string, object> { ["purpose"] = "draft", ["priority"] = 2 });
+            Id: "thread-1",
+            SessionId: "session-123",
+            Name: "Main Thread",
+            Description: "Primary conversation thread",
+            ForkedFrom: "parent-thread",
+            ForkedAtMessageId: "message-5",
+            ForkedAtMessageIndex: 5,
+            CreatedAt: DateTime.UtcNow,
+            LastActivity: DateTime.UtcNow.AddMinutes(10),
+            MessageCount: 25,
+            Tags: new List<string> { "tag1", "tag2" },
+            Ancestors: new Dictionary<string, string> { ["0"] = "root", ["1"] = "parent-thread" },
+            TotalForks: 0,
+            Metadata: new Dictionary<string, object> { ["purpose"] = "draft", ["priority"] = 2 });
 
         // Act
         var json = JsonSerializer.Serialize(original, _options);
@@ -121,19 +122,19 @@ public class DtoSerializationTests
     {
         // Arrange
         var original = new ThreadDto(
-            "thread-1",
-            "session-123",
-            "Main",
-            null,
-            null,
-            null,
-            null,
-            DateTime.UtcNow,
-            DateTime.UtcNow,
-            0,
-            new List<string>(),
-            new Dictionary<string, string>(),
-            0, 1, true, null, null, null, 0);
+            Id: "thread-1",
+            SessionId: "session-123",
+            Name: "Main",
+            Description: null,
+            ForkedFrom: null,
+            ForkedAtMessageId: null,
+            ForkedAtMessageIndex: null,
+            CreatedAt: DateTime.UtcNow,
+            LastActivity: DateTime.UtcNow,
+            MessageCount: 0,
+            Tags: new List<string>(),
+            Ancestors: new Dictionary<string, string>(),
+            TotalForks: 0);
 
         // Act
         var json = JsonSerializer.Serialize(original, _options);
@@ -274,10 +275,10 @@ public class DtoSerializationTests
     }
 
     [Fact]
-    public void UserTextInputEvent_SerializesAndDeserializes_WithRunConfig()
+    public void UserMessagesInputEvent_SerializesAndDeserializes_WithRunConfig()
     {
         // Arrange
-        var original = new UserTextInputEvent("Hello")
+        var original = new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "Hello")])
         {
             SessionId = "session-123",
             ThreadId = "main",
@@ -301,11 +302,12 @@ public class DtoSerializationTests
 
         // Act
         var json = AgentEventSerializer.ToJson(original);
-        var deserialized = AgentEventSerializer.FromJson(json) as UserTextInputEvent;
+        var deserialized = AgentEventSerializer.FromJson(json) as UserMessagesInputEvent;
 
         // Assert
         deserialized.Should().NotBeNull();
-        deserialized!.Text.Should().Be(original.Text);
+        deserialized!.Messages.Should().ContainSingle();
+        deserialized.Messages[0].Text.Should().Be("Hello");
         deserialized.SessionId.Should().Be(original.SessionId);
         deserialized.ThreadId.Should().Be(original.ThreadId);
         deserialized.AgentId.Should().Be(original.AgentId);

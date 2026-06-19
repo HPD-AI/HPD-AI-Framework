@@ -70,9 +70,8 @@ public interface IAgentTuiThreadRuntime
         AgentTuiThreadUpdate update,
         CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<AgentTuiThreadInfo>> GetSiblingThreadsAsync(
+    Task<AgentTuiThreadGraph> GetThreadGraphAsync(
         string sessionId,
-        string threadId,
         CancellationToken cancellationToken = default);
 
     Task DeleteThreadAsync(
@@ -109,7 +108,7 @@ public sealed record AgentTuiCreateThreadRequest(
     IReadOnlyDictionary<string, object?>? Metadata = null);
 
 public sealed record AgentTuiForkThreadRequest(
-    string FromMessageId,
+    string? FromMessageId,
     string? NewThreadId = null,
     string? Name = null,
     string? Description = null,
@@ -130,16 +129,61 @@ public sealed record AgentTuiThreadInfo(
     DateTimeOffset CreatedAt,
     DateTimeOffset LastActivity,
     int MessageCount = 0,
-    bool IsOriginal = false,
     string? ForkedFrom = null,
     string? ForkedAtMessageId = null,
     int? ForkedAtMessageIndex = null,
     int TotalForks = 0,
     IReadOnlyList<string>? Tags = null,
     IReadOnlyDictionary<string, string>? Ancestors = null,
-    int SiblingIndex = 0,
-    int TotalSiblings = 1,
-    string? OriginalThreadId = null,
-    string? PreviousSiblingId = null,
-    string? NextSiblingId = null,
+    ThreadKind Kind = ThreadKind.MainAgent,
+    ThreadVisibility Visibility = ThreadVisibility.Visible,
+    string? ParentSessionId = null,
+    string? ParentThreadId = null,
+    string? SubAgentName = null,
+    string? SubAgentRunId = null,
+    string? SubAgentSourceKind = null,
+    string? ParentToolCallId = null,
+    string? SessionPolicy = null,
+    string? ThreadPolicy = null,
     IReadOnlyDictionary<string, object?>? Metadata = null);
+
+public sealed record AgentTuiThreadGraph(
+    IReadOnlyList<AgentTuiThreadInfo> Threads,
+    IReadOnlyList<AgentTuiThreadForkGroup> ForkGroups,
+    IReadOnlyList<AgentTuiThreadRuntimeChild> RuntimeChildren);
+
+public sealed record AgentTuiThreadForkGroup(
+    string Id,
+    string SourceThreadId,
+    string? ForkedAtMessageId,
+    int? ForkedAtMessageIndex,
+    int ChoiceMessageIndex,
+    IReadOnlyList<AgentTuiThreadForkGroupMember> Members);
+
+public sealed record AgentTuiThreadForkGroupMember(
+    string ThreadId,
+    string Name,
+    int Index,
+    bool IsSource,
+    string? ChoiceMessageId,
+    int? ChoiceMessageIndex,
+    int MessageCount,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset LastActivity);
+
+public sealed record AgentTuiThreadRuntimeChild(
+    string ThreadId,
+    string ParentSessionId,
+    string ParentThreadId,
+    string Name,
+    ThreadKind Kind,
+    ThreadVisibility Visibility,
+    string? SubAgentName,
+    string? SubAgentRunId,
+    string? SubAgentSourceKind,
+    string? ParentToolCallId,
+    string? SessionPolicy,
+    string? ThreadPolicy,
+    int MessageCount,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset LastActivity);

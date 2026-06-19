@@ -10,7 +10,7 @@ internal static class DirectMode
         var agentId = options.Get("agent", "tui-direct-agent");
         var sessionId = options.Get("session", "local-session");
         var threadId = options.Get("thread", "main");
-        var model = options.Get("model", "deepseek/deepseek-v4-flash");
+        var model = options.Get("model", "qwen/qwen3.7-plus");
         var providers = ConsoleProviderContext.Create();
 
         var agent = await providers.CreateAgentBuilder()

@@ -30,6 +30,18 @@ public class HPDAgentConfig
     public ISessionStore? SessionStore { get; set; }
 
     /// <summary>
+    /// The content store used by content upload/download endpoints and agent content-reference resolution.
+    /// Defaults to <see cref="InMemoryContentStore"/> if not set.
+    /// Use <see cref="LocalFileContentStore"/> for persistence across restarts.
+    /// </summary>
+    /// <remarks>
+    /// The hosting layer owns the content store so uploaded content and model-call resolution
+    /// use the same storage instance. Do not also call WithContentStore() inside
+    /// <see cref="ConfigureAgent"/>; set this property instead.
+    /// </remarks>
+    public IContentStore? ContentStore { get; set; }
+
+    /// <summary>
     /// Whether to automatically persist conversation history after each completed turn.
     /// Only meaningful when <see cref="SessionStore"/> is a durable store (e.g. <see cref="JsonSessionStore"/>).
     /// Default: false.

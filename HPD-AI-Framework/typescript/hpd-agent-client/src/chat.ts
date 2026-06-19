@@ -1,7 +1,14 @@
 import type { AgentClient } from './client.js';
 import { EventTypes } from './types/events.js';
 import type { RunConfig } from './types/run-config.js';
-import type { ThreadEvent, CreateSessionRequest, SearchSessionsRequest, Session } from './types/session.js';
+import type {
+  AIContent,
+  ContentReference,
+  ThreadEvent,
+  CreateSessionRequest,
+  SearchSessionsRequest,
+  Session,
+} from './types/session.js';
 import type { ThreadRun } from './types/thread-run.js';
 
 export interface OpenChatOptions {
@@ -21,7 +28,12 @@ export interface ChatSessionOptions {
   threadId?: string;
 }
 
-export interface SendTextOptions {
+export interface SendMessageInput {
+  contents: AIContent[];
+  additionalProperties?: Record<string, unknown>;
+}
+
+export interface SendMessageOptions {
   runConfig?: RunConfig;
   signal?: AbortSignal;
   optimisticUserMessage?: boolean;
@@ -114,19 +126,24 @@ export class ChatSession {
     await this.client.stop();
   }
 
-  async submitText(text: string, options: SendTextOptions = {}): Promise<void> {
+  async submitMessage(input: SendMessageInput, options: SendMessageOptions = {}): Promise<void> {
+    const contents = [...input.contents];
+    if (contents.length === 0) {
+      throw new Error('submitMessage() requires at least one content item.');
+    }
+
     await this.client.submitInput({
-      type: EventTypes.USER_TEXT_INPUT,
+      type: EventTypes.USER_MESSAGES_INPUT,
       agentId: this.agentId,
       sessionId: this.sessionId,
       threadId: this.threadId,
-      text,
+      messages: [{
+        role: 'user',
+        contents,
+        additionalProperties: input.additionalProperties,
+      }],
       runConfig: options.runConfig,
     }, { signal: options.signal });
-  }
-
-  async sendText(text: string, options: SendTextOptions = {}): Promise<void> {
-    await this.submitText(text, options);
   }
 
   async cancelActiveTurn(options: CancelActiveTurnOptions = {}): Promise<void> {
@@ -149,4 +166,22 @@ export class ChatSession {
     this.sessionId = sessionId;
     this.threadId = threadId;
   }
+}
+
+export function createTextContent(text: string): AIContent {
+  return { $type: 'text', text };
+}
+
+export function contentReferenceToUriContent(reference: ContentReference): AIContent {
+  return {
+    $type: 'uri',
+    uri: `hpd-content://${reference.contentId}`,
+    mediaType: reference.contentType,
+    additionalProperties: {
+      contentId: reference.contentId,
+      version: reference.version,
+      name: reference.name,
+      sizeBytes: reference.sizeBytes,
+    },
+  };
 }

@@ -593,6 +593,7 @@ public sealed class Agent
         Session? session,
         Thread? thread,
         IEnumerable<ChatMessage> messages,
+        string? clientInputId,
         CancellationToken cancellationToken)
     {
         if (thread == null)
@@ -631,7 +632,11 @@ public sealed class Agent
 
         foreach (var message in newMessages.Where(ShouldPersistMessageSnapshotAsThreadEvents))
         {
-            foreach (var evt in ThreadMessageEventConverter.ToThreadEvents(thread.SessionId, thread.Id, message))
+            foreach (var evt in ThreadMessageEventConverter.ToThreadEvents(
+                thread.SessionId,
+                thread.Id,
+                message,
+                clientInputId: clientInputId))
             {
                 await store.AppendThreadEventAsync(
                     thread.SessionId,
@@ -855,23 +860,6 @@ public sealed class Agent
         return Task.CompletedTask;
     }
 
-    private async Task<AgentTurnResult> RunTextInputAsync(
-        UserTextInputEvent input,
-        HPD.Events.IEventCoordinator eventCoordinator,
-        CancellationToken cancellationToken)
-    {
-        var message = new ChatMessage(ChatRole.User, input.Text);
-        var messagesInput = new UserMessagesInputEvent([message])
-        {
-            SessionId = input.SessionId,
-            ThreadId = input.ThreadId,
-            AgentId = input.AgentId,
-            RunConfig = input.RunConfig
-        };
-
-        return await RunMessagesInputAsync(messagesInput, eventCoordinator, cancellationToken).ConfigureAwait(false);
-    }
-
     private async Task<AgentTurnResult> RunMessagesInputAsync(
         UserMessagesInputEvent input,
         HPD.Events.IEventCoordinator eventCoordinator,
@@ -889,6 +877,7 @@ public sealed class Agent
                 input.Thread,
                 input.RunConfig,
                 eventCoordinator,
+                input.ClientInputId,
                 cancellationToken).ConfigureAwait(false))
             {
                 result.Add(evt);
@@ -911,6 +900,7 @@ public sealed class Agent
                 thread,
                 input.RunConfig,
                 eventCoordinator,
+                input.ClientInputId,
                 cancellationToken).ConfigureAwait(false))
             {
                 result.Add(evt);
@@ -931,6 +921,7 @@ public sealed class Agent
             null,
             input.RunConfig,
             eventCoordinator,
+            input.ClientInputId,
             cancellationToken).ConfigureAwait(false))
         {
             unsessionedResult.Add(evt);
@@ -991,9 +982,6 @@ public sealed class Agent
     {
         switch (input)
         {
-            case UserTextInputEvent text:
-                return await RunTextInputAsync(text, eventCoordinator, cancellationToken).ConfigureAwait(false);
-
             case UserMessagesInputEvent messages:
                 return await RunMessagesInputAsync(messages, eventCoordinator, cancellationToken).ConfigureAwait(false);
 
@@ -1524,7 +1512,7 @@ public sealed class Agent
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userMessage);
 
-        return RunAsync(new UserTextInputEvent(userMessage)
+        return RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, userMessage)])
         {
             SessionId = sessionId,
             ThreadId = threadId,
@@ -1547,6 +1535,7 @@ public sealed class Agent
         Dictionary<string, object>? initialContextProperties = null,
         AgentRunConfig? runConfig = null,
         HPD.Events.IEventCoordinator? eventCoordinator = null,
+        string? clientInputId = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         eventCoordinator ??= _eventCoordinator;
@@ -1811,6 +1800,7 @@ public sealed class Agent
                 session,
                 thread,
                 turnHistory,
+                clientInputId,
                 effectiveCancellationToken).ConfigureAwait(false);
 
             var realtimeTranscriptTargetMessageId = ResolveRealtimeTranscriptTargetMessageId(turnHistory);
@@ -1926,6 +1916,8 @@ public sealed class Agent
                         messageCountToSend = state.CurrentMessages.Count;
                     }
 
+                    var modelVisibleMessages = messagesToSend as List<ChatMessage> ?? messagesToSend.ToList();
+
                     // ═══════════════════════════════════════════════════════════════
                     // RUNTIME TOOLS MERGE (for structured output tool mode)
                     // Must happen BEFORE BeforeIterationAsync so middleware sees the output tool
@@ -1973,7 +1965,7 @@ public sealed class Agent
 
                     // Snapshot the message set before BeforeIteration middleware runs so the
                     // observability event can report only newly injected context, not chat history.
-                    var preIterationMessages = messagesToSend.ToList();
+                    var preIterationMessages = modelVisibleMessages.ToList();
 
                     // CREATE TYPED ITERATION CONTEXT (V2)
                     // Note: Tool Collapsing is handled by ToolCollapsingMiddleware in BeforeIterationAsync
@@ -1981,7 +1973,7 @@ public sealed class Agent
                     // Pass shared message list - middleware mutations visible to all immediately
                     var beforeIterationContext = agentContext.AsBeforeIteration(
                         iteration: state.Iteration,
-                        messages: sharedMessages,  // SAME shared list, no copy
+                        messages: modelVisibleMessages,
                         options: effectiveOptions ?? new ChatOptions(),
                         runConfig: effectiveRunConfig);  // Use the SAME instance from BeforeMessageTurnAsync
 
@@ -1993,8 +1985,10 @@ public sealed class Agent
                     // V2: State updates are immediate - no GetPendingState() needed!
                     state = agentContext.State;
 
-                    // Shared reference architecture: messagesToSend already sees middleware changes
-                    // Only need to capture Options which may have been replaced
+                    // BeforeIteration middleware owns the exact model-visible list. This lets
+                    // middleware resolve durable HPD content refs for the provider request
+                    // without rewriting persisted thread history.
+                    messagesToSend = beforeIterationContext.Messages;
                     var CollapsedOptions = beforeIterationContext.Options;
 
 
@@ -2718,6 +2712,7 @@ public sealed class Agent
                                 session,
                                 thread,
                                 [historyMessage],
+                                clientInputId: null,
                                 effectiveCancellationToken).ConfigureAwait(false);
                         }
 
@@ -2841,6 +2836,7 @@ public sealed class Agent
                             session,
                             thread,
                             [toolResultMessage],
+                            clientInputId: null,
                             effectiveCancellationToken).ConfigureAwait(false);
 
                         // Build callId → toolharnessName / callType mappings for result events
@@ -2922,6 +2918,7 @@ public sealed class Agent
                                     session,
                                     thread,
                                     [finalAssistantMessage],
+                                    clientInputId: null,
                                     effectiveCancellationToken).ConfigureAwait(false);
                             }
                         }
@@ -3000,6 +2997,7 @@ public sealed class Agent
                             session,
                             thread,
                             [finalAssistantMessage],
+                            clientInputId: null,
                             effectiveCancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -3322,6 +3320,7 @@ public sealed class Agent
             historyCompletionSource,
             session: null,
             initialContextProperties: null,
+            clientInputId: null,
             cancellationToken: cancellationToken))
         {
             var outputEvent = EnrichOutputEvent(evt);
@@ -3567,6 +3566,7 @@ public sealed class Agent
             thread,
             options,
             _eventCoordinator,
+            clientInputId: null,
             cancellationToken).ConfigureAwait(false))
         {
             yield return evt;
@@ -3579,6 +3579,7 @@ public sealed class Agent
         Thread? thread,
         AgentRunConfig? options,
         HPD.Events.IEventCoordinator eventCoordinator,
+        string? clientInputId,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         // Validation
@@ -3630,6 +3631,7 @@ public sealed class Agent
             initialContextProperties: initialProperties,
             runConfig: options,
             eventCoordinator: eventCoordinator,
+            clientInputId: clientInputId,
             cancellationToken: cancellationToken);
 
         await using var enumerator = internalStream.GetAsyncEnumerator(cancellationToken);
@@ -4003,7 +4005,7 @@ public sealed class Agent
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userMessage);
 
-        return RunStructuredAsync<T>(new UserTextInputEvent(userMessage)
+        return RunStructuredAsync<T>(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, userMessage)])
         {
             SessionId = sessionId,
             ThreadId = threadId,
@@ -4046,14 +4048,6 @@ public sealed class Agent
 
         switch (input)
         {
-            case UserTextInputEvent text:
-                messages = [new ChatMessage(ChatRole.User, text.Text)];
-                options = text.RunConfig;
-                if (!string.IsNullOrWhiteSpace(text.SessionId))
-                    (session, thread) = await LoadSessionAndThreadAsync(text.SessionId, text.ThreadId, cancellationToken)
-                        .ConfigureAwait(false);
-                break;
-
             case UserMessagesInputEvent messageInput:
                 messages = messageInput.Messages;
                 options = messageInput.RunConfig;
@@ -5292,7 +5286,7 @@ public sealed class Agent
     /// </summary>
     /// <param name="sourceThread">Source thread to fork from</param>
     /// <param name="newThreadId">New thread ID</param>
-    /// <param name="fromMessageId">Message id to fork at (inclusive)</param>
+    /// <param name="fromMessageId">Message id to fork at (inclusive). Null forks from root before any messages.</param>
     /// <param name="metadata">Optional metadata to attach to the new thread.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Newly created thread with Session back-reference set</returns>
@@ -5308,7 +5302,7 @@ public sealed class Agent
     internal Task<Thread> ForkThreadAsync(
         Thread sourceThread,
         string newThreadId,
-        string fromMessageId,
+        string? fromMessageId,
         Dictionary<string, object>? metadata = null,
         CancellationToken cancellationToken = default)
         => ForkThreadAsync(
@@ -5321,65 +5315,36 @@ public sealed class Agent
     internal async Task<Thread> ForkThreadAsync(
         Thread sourceThread,
         string newThreadId,
-        string fromMessageId,
+        string? fromMessageId,
         ThreadForkOptions forkOptions,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(sourceThread);
         ArgumentNullException.ThrowIfNull(forkOptions);
         ArgumentException.ThrowIfNullOrWhiteSpace(newThreadId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(fromMessageId);
-
         var store = Config.SessionStore
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
-        var fromMessageIndex = await ResolveForkMessageIndexAsync(
-            sourceThread,
-            fromMessageId,
-            store,
-            cancellationToken).ConfigureAwait(false);
+        var fromMessageIndex = string.IsNullOrWhiteSpace(fromMessageId)
+            ? (int?)null
+            : await ResolveForkMessageIndexAsync(
+                sourceThread,
+                fromMessageId,
+                store,
+                cancellationToken).ConfigureAwait(false);
 
-        //  Get all existing siblings at this fork point.
-        // Siblings share the same ForkedFrom + ForkedAtMessageId (same preceding context).
-        var existingForkSiblings = await GetSiblingsAsync(
-            sourceThread.SessionId,
-            sourceThread.Id,  // ForkedFrom = source thread ID
-            fromMessageId,    // ForkedAtMessageId = last shared message id
-            cancellationToken);
-
-        // Sort by the persisted sibling position. Threads are projected from events, so
-        // CreatedAt is not a safe ordering source for forked threads during replay.
-        var sortedForkSiblings = existingForkSiblings
-            .OrderBy(b => b.SiblingIndex)
-            .ThenBy(b => b.Id, StringComparer.Ordinal)
-            .ToList();
-
-        //  The source thread is ALWAYS sibling #0 ("original thread = 0" per design intent).
-        // Insert it at the front if this is the first fork at this point (i.e. it hasn't been
-        // assigned sibling navigation fields yet for this fork group).
-        bool isFirstFork = sortedForkSiblings.Count == 0;
-        var sortedSiblings = new List<Thread>();
-        sortedSiblings.Add(sourceThread); // slot 0: always the source
-        sortedSiblings.AddRange(sortedForkSiblings);
-
-        // Create new thread with copied messages and thread-scoped state
+        // Create the fork thread metadata and projected read model.
+        // The durable copied history is written later by cloning the source event prefix.
         var now = DateTime.UtcNow;
         var newThread = new Thread(sourceThread.SessionId, newThreadId)
         {
             ForkedFrom = sourceThread.Id,
-            ForkedAtMessageId = fromMessageId,
+            ForkedAtMessageId = string.IsNullOrWhiteSpace(fromMessageId) ? null : fromMessageId,
             ForkedAtMessageIndex = fromMessageIndex,
             Session = sourceThread.Session, // Inherit Session back-reference
             CreatedAt = now,
             LastActivity = now,
-
-            //  Sibling metadata
-            // sortedSiblings already includes sourceThread at slot 0, so Count = correct next index
-            SiblingIndex = sortedSiblings.Count,      // Next available index (after source + existing forks)
-            TotalSiblings = sortedSiblings.Count + 1, // source + existing forks + this new thread
-            IsOriginal = false,
-            OriginalThreadId = sourceThread.Id,       // Source thread is always the original
             ChildThreads = new List<string>()
         };
 
@@ -5397,8 +5362,19 @@ public sealed class Agent
         ancestors[depth.ToString()] = sourceThread.Id;
         newThread.Ancestors = ancestors;
 
-        // Copy messages up to and including fork point
-        newThread.Messages.AddRange(sourceThread.Messages.Take(fromMessageIndex + 1).Select(CloneMessageForThread));
+        int? copyThroughMessageIndex = null;
+
+        // Populate the in-memory read model up to and including fork point.
+        // Root forks start from an empty read model.
+        // The stored fork point remains the user's requested message, but the copied
+        // event prefix may expand through the rest of the same turn/tool-call group so
+        // a fork cannot hydrate with half of a tool interaction.
+        if (fromMessageIndex is int resolvedMessageIndex)
+        {
+            var copyThroughIndex = ExpandForkCopyThroughIndex(sourceThread.Messages, resolvedMessageIndex);
+            copyThroughMessageIndex = copyThroughIndex;
+            newThread.Messages.AddRange(sourceThread.Messages.Take(copyThroughIndex + 1).Select(CloneMessageForThread));
+        }
 
         // Copy thread-scoped middleware state (session-scoped state is shared via Session object)
         foreach (var kvp in sourceThread.MiddlewareState)
@@ -5415,9 +5391,6 @@ public sealed class Agent
                 newThread.Metadata[kvp.Key] = kvp.Value;
             }
         }
-
-        // Wire newThread's PreviousSiblingId to the last existing sibling before hooks run.
-        newThread.PreviousSiblingId = sortedSiblings.Last().Id;
 
         if (!_middlewarePipeline.IsEmpty)
         {
@@ -5454,7 +5427,7 @@ public sealed class Agent
                 sourceThread,
                 newThread,
                 fromMessageIndex,
-                fromMessageId,
+                string.IsNullOrWhiteSpace(fromMessageId) ? null : fromMessageId,
                 forkOptions);
 
             await _middlewarePipeline.ExecuteBeforeThreadForkCommitAsync(
@@ -5468,40 +5441,22 @@ public sealed class Agent
             }
         }
 
-        await store.SaveInitialThreadAsync(sourceThread.SessionId, newThread, cancellationToken);
-
-        //  Update ALL existing siblings atomically.
-        // sourceThread at slot 0 is the "original" for this new group.
-        //
-        // Special case: if sourceThread itself has a parent (ForkedFrom != null), it is ALSO
-        // a member of its parent's sibling group, and that group owns its SiblingIndex/TotalSiblings/
-        // nav-pointer fields. Overwriting those fields here would corrupt its position in the parent
-        // group. In that case we only update LastActivity on sourceThread; all other metadata is
-        // preserved. The frontend reconstructs sibling groups by scanning ForkedFrom+ForkedAtMessageId
-        // so it does not rely on these pointer fields for the source thread.
-        //
-        // If sourceThread has no parent (ForkedFrom == null, e.g. "main"), it has no other group to
-        // belong to, so it is safe (and correct) to fully update its sibling fields here.
-        bool sourceThreadHasParent = sourceThread.ForkedFrom != null;
-        int totalAfterAdd = sortedSiblings.Count + 1; // +1 for newThread
-        for (int i = 0; i < sortedSiblings.Count; i++)
+        if (copyThroughMessageIndex is int copiedIndex)
         {
-            var sibling = sortedSiblings[i];
-            if (i == 0 && sourceThreadHasParent)
-            {
-                // sourceThread already belongs to its parent's sibling group — preserve its fields.
-                sibling.LastActivity = now;
-                continue;
-            }
-            sibling.SiblingIndex = i;
-            sibling.TotalSiblings = totalAfterAdd;
-            sibling.PreviousSiblingId = i > 0 ? sortedSiblings[i - 1].Id : null;
-            sibling.NextSiblingId = i < sortedSiblings.Count - 1 ? sortedSiblings[i + 1].Id : newThread.Id;
-            sibling.LastActivity = now;
-            await store.AppendThreadTreeUpdatedAsync(sibling, cancellationToken);
+            await SaveForkedThreadFromSourceEventsAsync(
+                store,
+                sourceThread,
+                newThread,
+                copiedIndex,
+                cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await store.SaveInitialThreadAsync(sourceThread.SessionId, newThread, cancellationToken)
+                .ConfigureAwait(false);
         }
 
-        //  Update source thread's ChildThreads list
+        // Update the direct lineage edge. Fork groups are projected from session graph state.
         if (!sourceThread.ChildThreads.Contains(newThread.Id))
         {
             sourceThread.ChildThreads.Add(newThread.Id);
@@ -5517,39 +5472,6 @@ public sealed class Agent
         }
 
         return newThread;
-    }
-
-    /// <summary>
-    /// Helper: Get all existing fork threads at a given fork point.
-    /// Returns threads with ForkedFrom == forkedFromThreadId AND ForkedAtMessageId == fromMessageId.
-    /// Does NOT include the source thread itself — caller inserts it at slot 0.
-    /// </summary>
-    private async Task<List<Thread>> GetSiblingsAsync(
-        string sessionId,
-        string forkedFromThreadId,
-        string fromMessageId,
-        CancellationToken ct)
-    {
-        var store = Config.SessionStore
-            ?? throw new InvalidOperationException(
-                "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
-
-        var threadIds = await store.ListThreadIdsAsync(sessionId, ct);
-        var siblings = new List<Thread>();
-
-        foreach (var threadId in threadIds)
-        {
-            var thread = await store.LoadThreadAsync(sessionId, threadId, ct);
-            if (thread == null) continue;
-
-            if (thread.ForkedFrom == forkedFromThreadId &&
-                thread.ForkedAtMessageId == fromMessageId)
-            {
-                siblings.Add(thread);
-            }
-        }
-
-        return siblings;
     }
 
     /// <summary>
@@ -5638,7 +5560,7 @@ public sealed class Agent
         string sessionId,
         string sourceThreadId,
         string newThreadId,
-        string fromMessageId,
+        string? fromMessageId,
         Dictionary<string, object>? metadata = null,
         CancellationToken cancellationToken = default)
         => await ForkThreadAsync(
@@ -5653,7 +5575,7 @@ public sealed class Agent
         string sessionId,
         string sourceThreadId,
         string newThreadId,
-        string fromMessageId,
+        string? fromMessageId,
         ThreadForkOptions forkOptions,
         CancellationToken cancellationToken = default)
     {
@@ -5661,7 +5583,6 @@ public sealed class Agent
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceThreadId);
         ArgumentException.ThrowIfNullOrWhiteSpace(newThreadId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(fromMessageId);
 
         var store = Config.SessionStore
             ?? throw new InvalidOperationException(
@@ -5746,6 +5667,257 @@ public sealed class Agent
 
         return clone;
     }
+
+    private static async Task SaveForkedThreadFromSourceEventsAsync(
+        ISessionStore store,
+        Thread sourceThread,
+        Thread newThread,
+        int copyThroughMessageIndex,
+        CancellationToken cancellationToken)
+    {
+        var sourceDocument = await store.LoadThreadDocumentAsync(
+                sourceThread.SessionId,
+                sourceThread.Id,
+                cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new InvalidOperationException(
+                $"Cannot fork thread '{sourceThread.Id}' because its event document is missing.");
+
+        var copiedMessages = sourceThread.Messages.Take(copyThroughMessageIndex + 1).ToList();
+        var copiedMessageIds = copiedMessages
+            .Select(message => message.MessageId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var copiedTurnIds = copiedMessages
+            .Select(GetMessageTurnId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var sourceEvents = sourceDocument.Events
+            .OrderBy(evt => evt.SequenceNumber)
+            .ToList();
+        var copyThroughSequence = ResolveForkCopyThroughSequence(
+            sourceEvents,
+            copiedMessageIds,
+            copiedTurnIds);
+
+        var events = new List<AgentEvent>
+        {
+            ThreadEventFactory.ThreadForked(newThread),
+            ThreadEventFactory.ThreadMetadataUpdated(newThread),
+            ThreadEventFactory.ThreadTreeUpdated(newThread)
+        };
+
+        if (copyThroughSequence is long sequenceNumber)
+        {
+            events.AddRange(sourceEvents
+                .Where(evt => evt.SequenceNumber <= sequenceNumber && !IsThreadStructuralEvent(evt))
+                .Select(evt => CloneEventForThread(evt, newThread.SessionId, newThread.Id)));
+        }
+
+        if (newThread.MiddlewareState.Count > 0)
+        {
+            events.Add(ThreadEventFactory.ThreadMiddlewareStateCommitted(
+                newThread.SessionId,
+                newThread.Id,
+                newThread.MiddlewareState));
+        }
+
+        foreach (var evt in events)
+        {
+            await store.AppendThreadEventAsync(
+                    newThread.SessionId,
+                    newThread.Id,
+                    evt,
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static AgentEvent CloneEventForThread(AgentEvent evt, string sessionId, string threadId) =>
+        evt with
+        {
+            EventId = Guid.NewGuid().ToString("N"),
+            SessionId = sessionId,
+            ThreadId = threadId,
+            SequenceNumber = 0
+        };
+
+    private static long? ResolveForkCopyThroughSequence(
+        IReadOnlyList<AgentEvent> sourceEvents,
+        IReadOnlySet<string> copiedMessageIds,
+        IReadOnlySet<string> copiedTurnIds)
+    {
+        long? copyThroughSequence = null;
+
+        foreach (var evt in sourceEvents)
+        {
+            if (EventDefinesForkCopyBoundary(evt, copiedMessageIds, copiedTurnIds))
+                copyThroughSequence = Max(copyThroughSequence, evt.SequenceNumber);
+        }
+
+        if (copyThroughSequence is not long sequenceNumber)
+            return null;
+
+        var activeRuntimeRunIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var evt in sourceEvents)
+        {
+            if (evt.SequenceNumber > sequenceNumber)
+                break;
+
+            if (evt is ThreadRunStartedEvent started)
+                activeRuntimeRunIds.Add(started.RuntimeRunId);
+            else if (evt is ThreadRunCompletedEvent completed)
+                activeRuntimeRunIds.Remove(completed.RuntimeRunId);
+        }
+
+        foreach (var evt in sourceEvents)
+        {
+            if (evt.SequenceNumber <= sequenceNumber)
+                continue;
+
+            if (evt is ThreadRunCompletedEvent completed && activeRuntimeRunIds.Contains(completed.RuntimeRunId))
+            {
+                sequenceNumber = evt.SequenceNumber;
+                activeRuntimeRunIds.Remove(completed.RuntimeRunId);
+                if (activeRuntimeRunIds.Count == 0)
+                    break;
+            }
+        }
+
+        return sequenceNumber;
+    }
+
+    private static long? Max(long? current, long value) =>
+        current is long existing && existing > value ? existing : value;
+
+    private static bool EventDefinesForkCopyBoundary(
+        AgentEvent evt,
+        IReadOnlySet<string> copiedMessageIds,
+        IReadOnlySet<string> copiedTurnIds)
+    {
+        if (IsThreadStructuralEvent(evt))
+            return false;
+
+        if (!string.IsNullOrWhiteSpace(evt.EventFlowId) && copiedTurnIds.Contains(evt.EventFlowId))
+            return true;
+
+        return evt switch
+        {
+            MessageTurnStartedEvent data => copiedTurnIds.Contains(data.MessageTurnId),
+            MessageTurnFinishedEvent data => copiedTurnIds.Contains(data.MessageTurnId),
+            MessageTurnErrorEvent data => !string.IsNullOrWhiteSpace(data.MessageTurnId) &&
+                                          copiedTurnIds.Contains(data.MessageTurnId),
+            MessageStartedEvent data => copiedMessageIds.Contains(data.MessageId),
+            MessageCompletedEvent data => copiedMessageIds.Contains(data.MessageId),
+            ContentAddedEvent data => copiedMessageIds.Contains(data.MessageId),
+            TextMessageStartEvent data => copiedMessageIds.Contains(data.MessageId),
+            TextDeltaEvent data => copiedMessageIds.Contains(data.MessageId),
+            TextMessageEndEvent data => copiedMessageIds.Contains(data.MessageId),
+            ReasoningMessageStartEvent data => copiedMessageIds.Contains(data.MessageId),
+            ReasoningDeltaEvent data => copiedMessageIds.Contains(data.MessageId),
+            ReasoningMessageEndEvent data => copiedMessageIds.Contains(data.MessageId),
+            ToolCallStartEvent data => copiedMessageIds.Contains(data.MessageId),
+            ToolCallResultEvent data => !string.IsNullOrWhiteSpace(data.MessageId) &&
+                                        copiedMessageIds.Contains(data.MessageId),
+            _ => false
+        };
+    }
+
+    private static bool IsThreadStructuralEvent(AgentEvent evt) => evt switch
+    {
+        ThreadCreatedEvent => true,
+        ThreadForkedEvent => true,
+        ThreadMetadataUpdatedEvent => true,
+        ThreadTreeUpdatedEvent => true,
+        ThreadMiddlewareStateCommittedEvent => true,
+        ThreadHistoryCompactedEvent => true,
+        _ => false
+    };
+
+    private static int ExpandForkCopyThroughIndex(IReadOnlyList<ChatMessage> messages, int requestedIndex)
+    {
+        if (requestedIndex < 0 || requestedIndex >= messages.Count)
+            return requestedIndex;
+
+        var copyThroughIndex = requestedIndex;
+        var turnIds = new HashSet<string>(StringComparer.Ordinal);
+        var toolCallIds = new HashSet<string>(StringComparer.Ordinal);
+
+        AddMessageGroupKeys(messages[requestedIndex], turnIds, toolCallIds);
+
+        var changed = true;
+        while (changed)
+        {
+            changed = false;
+
+            for (var i = 0; i < messages.Count; i++)
+            {
+                var message = messages[i];
+                if (!MessageMatchesAnyGroup(message, turnIds, toolCallIds))
+                    continue;
+
+                if (i > copyThroughIndex)
+                {
+                    copyThroughIndex = i;
+                    changed = true;
+                }
+
+                if (AddMessageGroupKeys(message, turnIds, toolCallIds))
+                    changed = true;
+            }
+        }
+
+        return copyThroughIndex;
+    }
+
+    private static bool AddMessageGroupKeys(
+        ChatMessage message,
+        HashSet<string> turnIds,
+        HashSet<string> toolCallIds)
+    {
+        var changed = false;
+
+        if (GetMessageTurnId(message) is { } turnId)
+            changed |= turnIds.Add(turnId);
+
+        foreach (var callId in GetToolCallIds(message))
+            changed |= toolCallIds.Add(callId);
+
+        return changed;
+    }
+
+    private static bool MessageMatchesAnyGroup(
+        ChatMessage message,
+        HashSet<string> turnIds,
+        HashSet<string> toolCallIds)
+    {
+        if (GetMessageTurnId(message) is { } turnId && turnIds.Contains(turnId))
+            return true;
+
+        return GetToolCallIds(message).Any(toolCallIds.Contains);
+    }
+
+    private static string? GetMessageTurnId(ChatMessage message) =>
+        message.AdditionalProperties?.TryGetValue<string>(
+            ThreadHistoryCompactionMetadata.MessageTurnIdPropertyName,
+            out var turnId) == true
+            ? turnId
+            : null;
+
+    private static IEnumerable<string> GetToolCallIds(ChatMessage message) =>
+        message.Contents
+            .Select(content => content switch
+            {
+                ToolCallContent toolCall => toolCall.CallId,
+                ToolResultContent toolResult => toolResult.CallId,
+                _ => null
+            })
+            .Where(callId => !string.IsNullOrWhiteSpace(callId))
+            .Select(callId => callId!);
 
     private static AgentEvent? CreateRealtimeTranscriptEvent(
         AgentInputTranscriptUpdate update,
@@ -5926,7 +6098,7 @@ public sealed class Agent
                 $"Delete children first: {string.Join(", ", thread.ChildThreads)}");
         }
 
-        //  Perform deletion with sibling reindexing
+        //  Perform deletion. Fork group ordering is graph-derived after deletion.
         // Note: No session locking at Agent level - locking should be done by the caller (e.g., ThreadEndpoints)
 
         // Remove from parent's ChildThreads list
@@ -5939,59 +6111,6 @@ public sealed class Agent
                 parent.LastActivity = DateTime.UtcNow;
                 await store.AppendThreadTreeUpdatedAsync(parent, cancellationToken);
             }
-        }
-
-        // Get all remaining siblings (same fork group, excluding thread being deleted).
-        // The fork group is: source thread (ForkedFrom) + all threads with ForkedFrom==thread.ForkedFrom
-        // and ForkedAtMessageId==thread.ForkedAtMessageId.
-        var threadIds = await store.ListThreadIdsAsync(sessionId, cancellationToken);
-        var remainingSiblings = new List<Thread>();
-
-        foreach (var bid in threadIds)
-        {
-            if (bid == threadId) continue; // Skip thread being deleted
-
-            var sibling = await store.LoadThreadAsync(sessionId, bid, cancellationToken);
-            if (sibling == null) continue;
-
-            // Sibling = same ForkedFrom + ForkedAtMessageId (peer forks)
-            bool isSameGroup = sibling.ForkedFrom == thread.ForkedFrom &&
-                               sibling.ForkedAtMessageId == thread.ForkedAtMessageId;
-
-            // Source thread = the thread we forked FROM (slot 0 in this fork group)
-            bool isSource = thread.ForkedFrom != null && bid == thread.ForkedFrom;
-
-            if (isSameGroup || isSource)
-            {
-                remainingSiblings.Add(sibling);
-            }
-        }
-
-        // Sort by current SiblingIndex to maintain stable order
-        remainingSiblings = remainingSiblings
-            .OrderBy(b => b.SiblingIndex)
-            .ToList();
-
-        // Reindex siblings (shift indices down)
-        for (int i = 0; i < remainingSiblings.Count; i++)
-        {
-            var sibling = remainingSiblings[i];
-
-            // Update sibling metadata
-            sibling.SiblingIndex = i;
-            sibling.TotalSiblings = remainingSiblings.Count;
-            sibling.LastActivity = DateTime.UtcNow;
-
-            // Update navigation pointers
-            sibling.PreviousSiblingId = i > 0
-                ? remainingSiblings[i - 1].Id
-                : null;
-
-            sibling.NextSiblingId = i < remainingSiblings.Count - 1
-                ? remainingSiblings[i + 1].Id
-                : null;
-
-            await store.AppendThreadTreeUpdatedAsync(sibling, cancellationToken);
         }
 
         // Delete the thread (after all updates complete)

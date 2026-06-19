@@ -17,7 +17,7 @@ internal static class ServerMode
         var agentId = options.Get("agent", "tui-console-agent");
         var sessionId = options.Get("session", "local-session");
         var threadId = options.Get("thread", "main");
-        var model = options.Get("model", "deepseek/deepseek-v4-flash");
+        var model = options.Get("model", "qwen/qwen3.7-plus");
         var dataRoot = options.Get("data", Path.Combine(Directory.GetCurrentDirectory(), ".hpd-tui-console"));
         var providers = ConsoleProviderContext.Create();
 

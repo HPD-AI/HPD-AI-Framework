@@ -288,7 +288,7 @@ public sealed class TracingObserver : IDisposable
 
         // Sanitize error message — exception messages can contain sensitive data
         // (e.g. connection strings, API responses with credentials).
-        var sanitizedMessage = _sanitizer.Sanitize(e.Message);
+        var sanitizedMessage = _sanitizer.Sanitize(e.ErrorMessage);
 
         activity.SetStatus(ActivityStatusCode.Error, sanitizedMessage);
         activity.SetTag("error.message", sanitizedMessage);

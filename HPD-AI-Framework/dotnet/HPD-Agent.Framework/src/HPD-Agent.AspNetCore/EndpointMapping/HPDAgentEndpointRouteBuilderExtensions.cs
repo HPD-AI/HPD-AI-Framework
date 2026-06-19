@@ -37,7 +37,7 @@ public static class HPDAgentEndpointRouteBuilderExtensions
     /// <remarks>
     /// Maps 20+ endpoints:
     /// - Session CRUD (Create, Search/List, Get, Update, Delete)
-    /// - Thread CRUD (List, Get, Create, Fork, Delete, Messages, Siblings)
+    /// - Thread CRUD (List, Get, Create, Fork, Delete, Messages, Thread Graph)
     /// - Content management (Upload, Download, List, Delete)
     /// - Streaming (SSE + WebSocket)
     /// - Middleware responses (Permissions, Client Tools)

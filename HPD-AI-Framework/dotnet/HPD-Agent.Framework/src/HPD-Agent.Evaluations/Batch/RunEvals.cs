@@ -403,7 +403,9 @@ public static class RunEvals
 
         using var subscription = agent.SubscribeAny(capture.HandleAsync);
 
-        await agent.RunAsync(new HPD.Agent.UserTextInputEvent(runConfig.UserMessage ?? string.Empty)
+        await agent.RunAsync(new HPD.Agent.UserMessagesInputEvent([
+            new ChatMessage(ChatRole.User, runConfig.UserMessage ?? string.Empty)
+        ])
         {
             RunConfig = runConfig,
         }, ct).ConfigureAwait(false);

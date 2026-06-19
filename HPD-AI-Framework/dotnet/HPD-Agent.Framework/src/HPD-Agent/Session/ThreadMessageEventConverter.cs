@@ -10,7 +10,8 @@ internal static class ThreadMessageEventConverter
         string threadId,
         ChatMessage message,
         string? messageTurnId = null,
-        int iteration = 0)
+        int iteration = 0,
+        string? clientInputId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
@@ -23,7 +24,7 @@ internal static class ThreadMessageEventConverter
         var role = message.Role.Value;
         var events = new List<AgentEvent>
         {
-            ThreadEventFactory.MessageStarted(sessionId, threadId, message)
+            ThreadEventFactory.MessageStarted(sessionId, threadId, message, clientInputId)
         };
 
         foreach (var content in CoalesceTextContents(message.Contents.ToList()))

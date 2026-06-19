@@ -93,17 +93,7 @@ public static class AgentBuilderExtensions
     ///         })
     ///     .Build();
     ///
-    /// // Option 6: Reasoning model with thinking enabled
-    /// var agent = new AgentBuilder()
-    ///     .WithOllama(
-    ///         model: "deepseek-r1:8b",
-    ///         configure: opts =>
-    ///         {
-    ///             opts.Think = true; // or "high", "medium", "low"
-    ///         })
-    ///     .Build();
-    ///
-    /// // Option 7: Performance tuning for GPU
+    /// // Option 6: Performance tuning for GPU
     /// var agent = new AgentBuilder()
     ///     .WithOllama(
     ///         model: "llama3:70b",

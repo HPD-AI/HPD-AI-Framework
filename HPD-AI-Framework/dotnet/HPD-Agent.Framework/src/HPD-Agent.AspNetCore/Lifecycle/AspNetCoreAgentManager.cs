@@ -18,6 +18,7 @@ internal class AspNetCoreAgentManager : AgentManager
     private readonly IOptionsMonitor<HPDAgentConfig> _optionsMonitor;
     private readonly IServiceProvider _serviceProvider;
     private readonly string _name;
+    private readonly IContentStore _contentStore;
     private readonly HostingAgentFactory? _agentFactory;
 
     internal AspNetCoreAgentManager(
@@ -26,6 +27,7 @@ internal class AspNetCoreAgentManager : AgentManager
         IOptionsMonitor<HPDAgentConfig> optionsMonitor,
         IServiceProvider serviceProvider,
         string name,
+        IContentStore contentStore,
         HostingAgentFactory? agentFactory = null)
         : base(agentStore)
     {
@@ -33,6 +35,7 @@ internal class AspNetCoreAgentManager : AgentManager
         _optionsMonitor = optionsMonitor ?? throw new ArgumentNullException(nameof(optionsMonitor));
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _name = name ?? throw new ArgumentNullException(nameof(name));
+        _contentStore = contentStore ?? throw new ArgumentNullException(nameof(contentStore));
         _agentFactory = agentFactory;
     }
 
@@ -74,7 +77,8 @@ internal class AspNetCoreAgentManager : AgentManager
             .WithServiceProvider(_serviceProvider)
             .WithAgentId(agentId)
             .WithAgentStore(AgentStore, opts.PersistAgentDefinitionsOnBuild)
-            .WithSessionStore(_sessionManager.Store, opts.PersistAfterTurn);
+            .WithSessionStore(_sessionManager.Store, opts.PersistAfterTurn)
+            .WithContentStore(_contentStore);
 
         // ConfigureAgent always runs last — server runtime enrichment for all agents.
         opts.ConfigureAgent?.Invoke(builder);

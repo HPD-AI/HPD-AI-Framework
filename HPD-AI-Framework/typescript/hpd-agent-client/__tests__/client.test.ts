@@ -111,7 +111,7 @@ describe('AgentClient', () => {
     expect(any).not.toHaveBeenCalled();
   });
 
-  it('posts USER_TEXT_INPUT events to the scoped inputs endpoint', async () => {
+  it('posts USER_MESSAGES_INPUT events to the scoped inputs endpoint', async () => {
     const client = new AgentClient('http://localhost:5135');
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
@@ -121,8 +121,11 @@ describe('AgentClient', () => {
 
     const runConfig = { providerKey: 'anthropic', modelId: 'claude-sonnet-4-6' };
     await client.submitInput({
-      type: EventTypes.USER_TEXT_INPUT,
-      text: 'Hello',
+      type: EventTypes.USER_MESSAGES_INPUT,
+      messages: [{
+        role: 'user',
+        contents: [{ $type: 'text', text: 'Hello' }],
+      }],
       sessionId: 'session-123',
       agentId: 'agent-1',
       threadId: 'main',
@@ -134,7 +137,14 @@ describe('AgentClient', () => {
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
-          text: 'Hello',
+          type: EventTypes.USER_MESSAGES_INPUT,
+          messages: [{
+            role: 'user',
+            contents: [{ $type: 'text', text: 'Hello' }],
+          }],
+          sessionId: 'session-123',
+          agentId: 'agent-1',
+          threadId: 'main',
           runConfig,
         }),
       })
@@ -154,8 +164,11 @@ describe('AgentClient', () => {
     } as Response);
 
     await client.submitInput({
-      type: EventTypes.USER_TEXT_INPUT,
-      text: 'Hello',
+      type: EventTypes.USER_MESSAGES_INPUT,
+      messages: [{
+        role: 'user',
+        contents: [{ $type: 'text', text: 'Hello' }],
+      }],
       sessionId: 'session-123',
       agentId: 'agent-1',
       threadId: 'main',
@@ -182,8 +195,11 @@ describe('AgentClient', () => {
     } as Response);
 
     await client.submitInput({
-      type: EventTypes.USER_TEXT_INPUT,
-      text: 'Hello',
+      type: EventTypes.USER_MESSAGES_INPUT,
+      messages: [{
+        role: 'user',
+        contents: [{ $type: 'text', text: 'Hello' }],
+      }],
       sessionId: 'session-123',
       agentId: 'agent-1',
       threadId: 'main',
@@ -215,7 +231,17 @@ describe('AgentClient', () => {
 
     expect(fetchSpy).toHaveBeenCalledWith(
       'http://localhost:5135/agents/agent-1/sessions/session-123/threads/main/responses',
-      expect.objectContaining({ method: 'POST' })
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          version: '1.0',
+          type: EventTypes.PERMISSION_RESPONSE,
+          permissionId: 'perm-1',
+          sourceName: 'PermissionMiddleware',
+          approved: true,
+          choice: 1,
+        }),
+      })
     );
   });
 
@@ -265,6 +291,7 @@ describe('AgentClient', () => {
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
+          version: '1.0',
           type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
           requestId: 'req-1',
           capabilities: ['client-tool:echo'],

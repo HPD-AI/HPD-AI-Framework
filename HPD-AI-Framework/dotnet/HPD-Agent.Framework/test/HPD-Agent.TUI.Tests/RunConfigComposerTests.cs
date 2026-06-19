@@ -36,7 +36,7 @@ public sealed class RunConfigComposerTests
         InvokePrivate(app, "RebuildShell", scope, "Connected.");
         InvokePrivate(app, "SubmitPrompt", "hello".AsMemory());
 
-        runtime.LastInput.Should().BeOfType<UserTextInputEvent>()
+        runtime.LastInput.Should().BeOfType<UserMessagesInputEvent>()
             .Which.RunConfig.Should().NotBeNull();
         runtime.LastInput!.RunConfig!.ProviderKey.Should().Be("openrouter");
         runtime.LastInput.RunConfig.ModelId.Should().Be("deepseek/deepseek-chat");

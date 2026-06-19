@@ -136,19 +136,6 @@ public class BedrockProviderConfig
     public string? ToolChoiceName { get; set; }
 
     //
-    // ADVANCED OPTIONS
-    //
-
-    /// <summary>
-    /// Additional model request fields to pass to Bedrock.
-    /// This is a flexible dictionary for model-specific parameters not covered
-    /// by the standard InferenceConfiguration options.
-    /// These are passed directly to the additionalModelRequestFields parameter.
-    /// </summary>
-    [JsonPropertyName("additionalModelRequestFields")]
-    public Dictionary<string, object>? AdditionalModelRequestFields { get; set; }
-
-    //
     // PROMPT CACHING (Claude 3.5+ models)
     //
 

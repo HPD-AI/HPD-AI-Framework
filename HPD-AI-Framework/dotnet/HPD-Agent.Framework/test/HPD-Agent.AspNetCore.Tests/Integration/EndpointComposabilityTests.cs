@@ -223,7 +223,7 @@ public class EndpointComposabilityTests
         public Task<AgentServiceResult<ThreadDto>> UpdateThreadAsync(string sessionId, string threadId, UpdateThreadRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult> DeleteThreadAsync(string sessionId, string threadId, bool recursive = false, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<IReadOnlyList<AgentEvent>>> GetEventsAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<IReadOnlyList<ThreadDto>>> GetSiblingsAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ThreadGraphDto>> GetThreadGraphAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class UnsupportedThreadRunService : IAgentThreadRunService
@@ -258,7 +258,7 @@ public class EndpointComposabilityTests
     private sealed class UnsupportedStreamingService : IAgentStreamingService
     {
         public Task<AgentServiceResult<AgentStreamLease>> GetAgentForThreadAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult> SubmitInputAsync(string agentId, string sessionId, string threadId, AgentInputEvent input, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<InputSubmissionDto>> SubmitInputAsync(string agentId, string sessionId, string threadId, AgentInputEvent input, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult> InterruptAsync(string agentId, string sessionId, string threadId, InterruptionRequestEvent interruption, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public AgentInputEvent ApplyRouteScope(AgentInputEvent input, string agentId, string sessionId, string threadId, string? runtimeRunId = null) => throw new NotSupportedException();
     }

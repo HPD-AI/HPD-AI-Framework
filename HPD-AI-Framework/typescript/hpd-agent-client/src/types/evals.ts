@@ -3,6 +3,8 @@
  * All types correspond to IScoreStore return types serialized from the server.
  */
 
+import type { UsageDetails } from './events.js';
+
 export interface ScoreRecord {
   id: string;
   evaluatorName: string;
@@ -26,11 +28,7 @@ export interface ScoreRecord {
   result: EvaluationResult;
 }
 
-export interface UsageDetails {
-  inputTokenCount?: number;
-  outputTokenCount?: number;
-  totalTokenCount?: number;
-}
+export type { UsageDetails };
 
 export interface EvaluationResult {
   metrics?: Record<string, EvaluationMetric>;

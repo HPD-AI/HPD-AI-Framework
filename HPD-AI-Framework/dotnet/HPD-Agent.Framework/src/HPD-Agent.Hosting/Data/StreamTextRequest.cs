@@ -8,4 +8,8 @@ namespace HPD.Agent.Hosting.Data;
 /// </summary>
 public sealed record StreamTextRequest(
     string Text,
-    AgentRunConfig? RunConfig = null);
+    AgentRunConfig? RunConfig = null,
+    string? ClientInputId = null);
+
+public sealed record InputSubmissionDto(
+    string RuntimeRunId);

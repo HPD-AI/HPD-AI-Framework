@@ -164,7 +164,9 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("                if (evt is HPD.Agent.TextDeltaEvent textDelta) textResult.Append(textDelta.Text);");
         sb.AppendLine("                return System.Threading.Tasks.ValueTask.CompletedTask;");
         sb.AppendLine("            });");
-        sb.AppendLine("            await agent.RunAsync(new HPD.Agent.UserTextInputEvent(query)");
+        sb.AppendLine("            await agent.RunAsync(new HPD.Agent.UserMessagesInputEvent([");
+        sb.AppendLine("                new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, query)");
+        sb.AppendLine("            ])");
         sb.AppendLine("            {");
         sb.AppendLine("                SessionId = route.SessionId,");
         sb.AppendLine("                ThreadId = route.ThreadId");

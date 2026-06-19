@@ -35,7 +35,7 @@ applyEvents(history);
 client.onAny((event) => applyEvent(event));
 
 await chat.subscribeLive();
-await chat.submitText('Hello', {
+await chat.submitMessage({ contents: [{ $type: 'text', text: 'Hello' }] }, {
   runConfig: {
     modelId: 'gpt-4o',
     chat: { temperature: 0.3 },
@@ -84,11 +84,14 @@ await client.start({
 });
 
 await client.run({
-  type: EventTypes.USER_TEXT_INPUT,
+  type: EventTypes.USER_MESSAGES_INPUT,
   agentId: 'assistant',
   sessionId: 'session-1',
   threadId: 'main',
-  text: 'Hello',
+  messages: [{
+    role: 'user',
+    contents: [{ $type: 'text', text: 'Hello' }],
+  }],
 });
 ```
 

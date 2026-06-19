@@ -568,7 +568,7 @@ public sealed class AgentContext
     internal BeforeThreadForkCommitContext AsBeforeThreadForkCommit(
         Thread sourceThread,
         Thread targetThread,
-        int forkedAtMessageIndex,
+        int? forkedAtMessageIndex,
         string? forkedAtMessageId,
         ThreadForkOptions? forkOptions = null)
         => new(this, sourceThread, targetThread, forkedAtMessageIndex, forkedAtMessageId, forkOptions);

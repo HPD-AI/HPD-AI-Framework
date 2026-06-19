@@ -38,6 +38,7 @@ internal sealed class HPDAgentRegistry
         ISessionStore sessionStore = options.SessionStore
             ?? (options.SessionStorePath != null ? new JsonSessionStore(options.SessionStorePath) : new InMemorySessionStore());
         IAgentStore agentStore = options.AgentStore ?? new InMemoryAgentStore();
+        IContentStore contentStore = options.ContentStore ??= new InMemoryContentStore();
 
         var agentFactory = _serviceProvider.GetService<HostingAgentFactory>();
 
@@ -48,13 +49,14 @@ internal sealed class HPDAgentRegistry
             optionsMonitor,
             _serviceProvider,
             name,
+            contentStore,
             agentFactory);
 
         var hostingServices = new HPDAgentHostingServices(
             new AgentSessionService(sessionManager),
             new AgentThreadService(sessionManager, agentManager),
             new AgentThreadRunService(sessionManager),
-            new AgentContentService(sessionManager),
+            new AgentContentService(sessionManager, contentStore),
             new AgentDefinitionService(agentManager),
             new AgentMiddlewareResponseService(sessionManager, agentManager),
             new AgentStreamingService(sessionManager, agentManager));

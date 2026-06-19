@@ -1,4 +1,5 @@
 using HPD.Agent;
+using HPD.Agent.Hosting.Data;
 
 namespace HPD.Agent.Hosting.Lifecycle;
 
@@ -10,7 +11,7 @@ public interface IAgentStreamingService
         string threadId,
         CancellationToken cancellationToken = default);
 
-    Task<AgentServiceResult> SubmitInputAsync(
+    Task<AgentServiceResult<InputSubmissionDto>> SubmitInputAsync(
         string agentId,
         string sessionId,
         string threadId,

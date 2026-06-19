@@ -451,6 +451,9 @@ internal class OpenRouterImageUrl
 {
     [JsonPropertyName("url")]
     public string Url { get; set; } = string.Empty;
+
+    [JsonPropertyName("detail")]
+    public string? Detail { get; set; }
 }
 
 internal class OpenRouterFile

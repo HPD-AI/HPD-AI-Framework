@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
 
@@ -328,6 +329,27 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
+    public async Task ForkThread_WithNullFromMessageId_ForksFromRoot()
+    {
+        var sessionId = await CreateTestSession();
+        await EnsureForkMessageAsync(sessionId);
+        var request = new ForkThreadRequest("root-fork", null, "Root Fork", null, null);
+
+        var response = await _client.PostAsJsonAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
+            request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var thread = await response.Content.ReadFromJsonAsync<ThreadDto>();
+        thread.Should().NotBeNull();
+        thread!.Id.Should().Be("root-fork");
+        thread.ForkedFrom.Should().Be("main");
+        thread.ForkedAtMessageId.Should().BeNull();
+        thread.ForkedAtMessageIndex.Should().BeNull();
+        thread.MessageCount.Should().Be(0);
+    }
+
+    [Fact]
     public async Task ForkThread_SetsForkedFromAndIndex()
     {
         // Arrange
@@ -498,56 +520,173 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
     #endregion
 
-    #region GET /sessions/{sid}/threads/{bid}/siblings
+    #region GET /sessions/{sid}/thread-graph
 
     [Fact]
-    public async Task GetSiblings_ReturnsForkedThreads()
+    public async Task GetThreadGraph_ReturnsForkGroups()
     {
         // Arrange
         var sessionId = await CreateTestSession();
         var forkMessageId = await EnsureForkMessageAsync(sessionId);
 
-        // Create sibling threads
         await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
-            new ForkThreadRequest("sibling1", forkMessageId, null, null, null));
+            new ForkThreadRequest("fork-1", forkMessageId, null, null, null));
         await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
-            new ForkThreadRequest("sibling2", forkMessageId, null, null, null));
+            new ForkThreadRequest("fork-2", forkMessageId, null, null, null));
 
         // Act
-        var response = await _client.GetAsync($"/sessions/{sessionId}/threads/sibling1/siblings");
+        var response = await _client.GetAsync($"/sessions/{sessionId}/thread-graph");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var siblings = await response.Content.ReadFromJsonAsync<List<SiblingThreadDto>>();
-        siblings.Should().NotBeNull();
-        siblings!.Should().Contain(s => s.Id == "sibling2");
+        var graph = await response.Content.ReadFromJsonAsync<ThreadGraphDto>();
+        graph.Should().NotBeNull();
+        graph!.Threads.Should().Contain(thread => thread.Id == "main");
+        graph.Threads.Should().Contain(thread => thread.Id == "fork-1");
+        graph.Threads.Should().Contain(thread => thread.Id == "fork-2");
+
+        var group = graph.ForkGroups.Should().ContainSingle().Subject;
+        group.SourceThreadId.Should().Be("main");
+        group.ForkedAtMessageId.Should().Be(forkMessageId);
+        group.Members.Select(member => member.ThreadId)
+            .Should().Equal("main", "fork-1", "fork-2");
+        group.Members[0].IsSource.Should().BeTrue();
+        graph.RuntimeChildren.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task GetSiblings_ReturnsSelf_WhenNoForks()
+    public async Task GetThreadGraph_GroupsNestedForksAtSameCopiedMessage()
     {
         // Arrange
         var sessionId = await CreateTestSession();
+        var forkMessageId = await EnsureForkMessageAsync(sessionId);
+
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
+            new ForkThreadRequest("fork-1", forkMessageId, "First fork", null, null));
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads/fork-1/fork",
+            new ForkThreadRequest("fork-2", forkMessageId, "Nested fork", null, null));
 
         // Act
-        var response = await _client.GetAsync($"/sessions/{sessionId}/threads/main/siblings");
+        var response = await _client.GetAsync($"/sessions/{sessionId}/thread-graph");
 
         // Assert
-        var siblings = await response.Content.ReadFromJsonAsync<List<SiblingThreadDto>>();
-        siblings.Should().NotBeNull();
-        siblings!.Should().HaveCount(1);
-        siblings![0].Id.Should().Be("main");
-        siblings![0].IsOriginal.Should().BeTrue();
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var graph = await response.Content.ReadFromJsonAsync<ThreadGraphDto>();
+        graph.Should().NotBeNull();
+
+        var group = graph!.ForkGroups.Should().ContainSingle().Subject;
+        group.SourceThreadId.Should().Be("main");
+        group.ForkedAtMessageId.Should().Be(forkMessageId);
+        group.Members.Select(member => member.ThreadId)
+            .Should().Equal("main", "fork-1", "fork-2");
     }
 
     [Fact]
-    public async Task GetSiblings_Returns404_WhenThreadNotFound()
+    public async Task GetThreadGraph_GroupsNestedRootForksTogether()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
+            new ForkThreadRequest("fork-1", null, "First root fork", null, null));
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads/fork-1/fork",
+            new ForkThreadRequest("fork-2", null, "Nested root fork", null, null));
+
+        // Act
+        var response = await _client.GetAsync($"/sessions/{sessionId}/thread-graph");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var graph = await response.Content.ReadFromJsonAsync<ThreadGraphDto>();
+        graph.Should().NotBeNull();
+
+        var group = graph!.ForkGroups.Should().ContainSingle().Subject;
+        group.SourceThreadId.Should().Be("main");
+        group.ForkedAtMessageId.Should().BeNull();
+        group.Members.Select(member => member.ThreadId)
+            .Should().Equal("main", "fork-1", "fork-2");
+    }
+
+    [Fact]
+    public async Task GetThreadGraph_SeparatesRuntimeChildrenFromVisibleForkGroups()
+    {
+        // Arrange
+        var sessionId = await CreateTestSession();
+        var forkMessageId = await EnsureForkMessageAsync(sessionId);
+
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
+            new ForkThreadRequest("visible-fork", forkMessageId, "Visible fork", null, null));
+        await _client.PostAsJsonAsync($"/agents/test-agent/sessions/{sessionId}/threads/main/fork",
+            new ForkThreadRequest(
+                "subagent-research",
+                forkMessageId,
+                "Research subagent",
+                null,
+                null,
+                new Dictionary<string, object>
+                {
+                    ["kind"] = "subagent",
+                    ["visibility"] = "hidden",
+                    ["parentSessionId"] = sessionId,
+                    ["parentThreadId"] = "main",
+                    ["subAgentName"] = "research",
+                    ["subAgentRunId"] = "run-1",
+                    ["subAgentSourceKind"] = "InlineConfig",
+                    ["parentToolCallId"] = "tool-1",
+                    ["sessionPolicy"] = "ParentSession",
+                    ["threadPolicy"] = "ForkFromParentThread"
+                }));
+
+        // Act
+        var response = await _client.GetAsync($"/sessions/{sessionId}/thread-graph");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var graph = await response.Content.ReadFromJsonAsync<ThreadGraphDto>();
+        graph.Should().NotBeNull();
+        graph!.Threads.Should().Contain(thread => thread.Id == "subagent-research");
+
+        var group = graph.ForkGroups.Should().ContainSingle().Subject;
+        group.Members.Select(member => member.ThreadId)
+            .Should().Equal("main", "visible-fork");
+
+        var child = graph.RuntimeChildren.Should().ContainSingle().Subject;
+        child.ThreadId.Should().Be("subagent-research");
+        child.ParentSessionId.Should().Be(sessionId);
+        child.ParentThreadId.Should().Be("main");
+        child.Kind.Should().Be(ThreadKind.SubAgent);
+        child.Visibility.Should().Be(ThreadVisibility.Hidden);
+        child.SubAgentName.Should().Be("research");
+        child.SubAgentRunId.Should().Be("run-1");
+        child.SubAgentSourceKind.Should().Be("InlineConfig");
+        child.ParentToolCallId.Should().Be("tool-1");
+        child.SessionPolicy.Should().Be("ParentSession");
+        child.ThreadPolicy.Should().Be("ForkFromParentThread");
+    }
+
+    [Fact]
+    public async Task GetThreadGraph_ReturnsEmptyForkGroups_WhenNoForks()
     {
         // Arrange
         var sessionId = await CreateTestSession();
 
         // Act
-        var response = await _client.GetAsync($"/sessions/{sessionId}/threads/nonexistent/siblings");
+        var response = await _client.GetAsync($"/sessions/{sessionId}/thread-graph");
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var graph = await response.Content.ReadFromJsonAsync<ThreadGraphDto>();
+        graph.Should().NotBeNull();
+        graph!.Threads.Should().ContainSingle(thread => thread.Id == "main");
+        graph.ForkGroups.Should().BeEmpty();
+        graph.RuntimeChildren.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetThreadGraph_Returns404_WhenSessionNotFound()
+    {
+        // Act
+        var response = await _client.GetAsync("/sessions/nonexistent/thread-graph");
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);

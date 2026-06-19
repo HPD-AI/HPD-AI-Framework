@@ -83,8 +83,8 @@ public sealed record ThreadCreatedEvent(
 
 public sealed record ThreadForkedEvent(
     string SourceThreadId,
-    string FromMessageId,
-    int ResolvedMessageIndex,
+    string? FromMessageId,
+    int? ResolvedMessageIndex,
     Dictionary<string, string>? Ancestors) : AgentEvent;
 
 public sealed record ThreadMetadataUpdatedEvent(
@@ -107,19 +107,15 @@ public sealed record ThreadTreeUpdatedEvent(
     string? ForkedFrom,
     string? ForkedAtMessageId,
     int? ForkedAtMessageIndex,
-    int SiblingIndex,
-    int TotalSiblings,
-    bool IsOriginal,
-    string? OriginalThreadId,
-    string? PreviousSiblingId,
-    string? NextSiblingId,
     List<string> ChildThreads) : AgentEvent;
 
 public sealed record MessageStartedEvent(
     string MessageId,
     string Role,
     string? AuthorName,
-    DateTimeOffset? CreatedAt) : AgentEvent;
+    DateTimeOffset? CreatedAt,
+    string? ClientInputId = null,
+    AdditionalPropertiesDictionary? AdditionalProperties = null) : AgentEvent;
 
 public sealed record MessageCompletedEvent(string MessageId) : AgentEvent;
 
@@ -166,8 +162,8 @@ public static class ThreadEventFactory
             ? ThreadCreated(thread)
             : Scope(thread.SessionId, thread.Id, new ThreadForkedEvent(
                 thread.ForkedFrom,
-                thread.ForkedAtMessageId ?? string.Empty,
-                thread.ForkedAtMessageIndex ?? 0,
+                thread.ForkedAtMessageId,
+                thread.ForkedAtMessageIndex,
                 thread.Ancestors));
 
     public static AgentEvent ThreadMetadataUpdated(Thread thread) =>
@@ -192,20 +188,18 @@ public static class ThreadEventFactory
             thread.ForkedFrom,
             thread.ForkedAtMessageId,
             thread.ForkedAtMessageIndex,
-            thread.SiblingIndex,
-            thread.TotalSiblings,
-            thread.IsOriginal,
-            thread.OriginalThreadId,
-            thread.PreviousSiblingId,
-            thread.NextSiblingId,
             thread.ChildThreads.ToList()));
 
-    public static AgentEvent MessageStarted(string sessionId, string threadId, ChatMessage message) =>
+    public static AgentEvent MessageStarted(string sessionId, string threadId, ChatMessage message, string? clientInputId = null) =>
         Scope(sessionId, threadId, new MessageStartedEvent(
             message.MessageId ?? string.Empty,
             message.Role.Value,
             message.AuthorName,
-            message.CreatedAt));
+            message.CreatedAt,
+            clientInputId,
+            message.AdditionalProperties is null
+                ? null
+                : new AdditionalPropertiesDictionary(message.AdditionalProperties)));
 
     public static AgentEvent MessageCompleted(string sessionId, string threadId, string messageId) =>
         Scope(sessionId, threadId, new MessageCompletedEvent(messageId));
@@ -436,6 +430,15 @@ public static class ThreadEventFactory
                 TerminationReason = terminationReason,
                 TurnMessageCount = turnMessageCount
             }),
+
+            TextMessageStartEvent textStarted when messageTurnId != null =>
+                Scope(sessionId, threadId, textStarted with { EventFlowId = messageTurnId }),
+
+            TextDeltaEvent textDelta when messageTurnId != null =>
+                Scope(sessionId, threadId, textDelta with { EventFlowId = messageTurnId }),
+
+            TextMessageEndEvent textCompleted when messageTurnId != null =>
+                Scope(sessionId, threadId, textCompleted with { EventFlowId = messageTurnId }),
 
             ReasoningMessageStartEvent reasoningStarted when messageTurnId != null =>
                 Scope(sessionId, threadId, reasoningStarted with { EventFlowId = messageTurnId }),

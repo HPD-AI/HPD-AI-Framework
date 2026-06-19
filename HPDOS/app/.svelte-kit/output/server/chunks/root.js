@@ -1,4 +1,4 @@
-import { r as run_all, H as HYDRATION_ERROR, C as COMMENT_NODE, a as HYDRATION_END, b as HYDRATION_START, c as HYDRATION_START_ELSE, S as STATE_SYMBOL, o as object_prototype, d as array_prototype, U as UNINITIALIZED, f as get_descriptor, h as get_prototype_of, i as is_array, j as is_extensible, k as CLASS_CACHE, A as ATTRIBUTES_CACHE, l as STYLE_CACHE, T as TEXT_CACHE, D as DESTROYED, B as BOUNDARY_EFFECT, R as REACTION_RAN, E as ERROR_VALUE, m as EFFECT, p as CONNECTED, q as CLEAN, M as MAYBE_DIRTY, s as DIRTY, t as DERIVED, W as WAS_MARKED, u as HYDRATION_START_FAILED, v as EFFECT_TRANSPARENT, w as EFFECT_PRESERVED, I as INERT, x as STALE_REACTION, n as noop, y as BLOCK_EFFECT, z as ASYNC, F as EAGER_EFFECT, G as deferred, J as RENDER_EFFECT, K as MANAGED_EFFECT, L as ROOT_EFFECT, N as THREAD_EFFECT, O as includes, P as REACTION_IS_UPDATING, Q as index_of, V as HEAD_EFFECT, X as DESTROYING, Y as USER_EFFECT, Z as define_property, _ as array_from, $ as is_passive_event, a0 as LEGACY_PROPS, a1 as render, a2 as setContext, a3 as derived } from "./index.js";
+import { r as run_all, H as HYDRATION_ERROR, C as COMMENT_NODE, a as HYDRATION_END, b as HYDRATION_START, c as HYDRATION_START_ELSE, S as STATE_SYMBOL, o as object_prototype, d as array_prototype, U as UNINITIALIZED, f as get_descriptor, h as get_prototype_of, i as is_array, j as is_extensible, k as CLASS_CACHE, A as ATTRIBUTES_CACHE, l as STYLE_CACHE, T as TEXT_CACHE, D as DESTROYED, B as BOUNDARY_EFFECT, R as REACTION_RAN, E as ERROR_VALUE, m as EFFECT, p as CONNECTED, q as CLEAN, M as MAYBE_DIRTY, s as DIRTY, t as DERIVED, W as WAS_MARKED, u as HYDRATION_START_FAILED, v as EFFECT_TRANSPARENT, w as EFFECT_PRESERVED, I as INERT, x as STALE_REACTION, n as noop, y as BLOCK_EFFECT, z as ASYNC, F as EAGER_EFFECT, G as deferred, J as RENDER_EFFECT, K as MANAGED_EFFECT, L as ROOT_EFFECT, N as BRANCH_EFFECT, O as includes, P as REACTION_IS_UPDATING, Q as index_of, V as HEAD_EFFECT, X as DESTROYING, Y as USER_EFFECT, Z as define_property, _ as array_from, $ as is_passive_event, a0 as LEGACY_PROPS, a1 as render, a2 as setContext, a3 as derived } from "./index.js";
 import { D as DEV } from "./false.js";
 function equals(value) {
   return value === this.v;
@@ -591,7 +591,7 @@ class Boundary {
   }
   #hydrate_resolved_content() {
     try {
-      this.#main_effect = thread(() => this.#children(this.#anchor));
+      this.#main_effect = branch(() => this.#children(this.#anchor));
     } catch (error) {
       this.error(error);
     }
@@ -602,7 +602,7 @@ class Boundary {
   #hydrate_failed_content(error) {
     const failed = this.#props.failed;
     if (!failed) return;
-    this.#failed_effect = thread(() => {
+    this.#failed_effect = branch(() => {
       failed(
         this.#anchor,
         () => error,
@@ -615,13 +615,13 @@ class Boundary {
     const pending = this.#props.pending;
     if (!pending) return;
     this.is_pending = true;
-    this.#pending_effect = thread(() => pending(this.#anchor));
+    this.#pending_effect = branch(() => pending(this.#anchor));
     queue_micro_task(() => {
       var fragment = this.#offscreen_fragment = document.createDocumentFragment();
       var anchor = create_text();
       fragment.append(anchor);
       this.#main_effect = this.#run(() => {
-        return thread(() => this.#children(anchor));
+        return branch(() => this.#children(anchor));
       });
       if (this.#pending_count === 0) {
         this.#anchor.before(fragment);
@@ -645,7 +645,7 @@ class Boundary {
       this.is_pending = this.has_pending_snippet();
       this.#pending_count = 0;
       this.#local_pending_count = 0;
-      this.#main_effect = thread(() => {
+      this.#main_effect = branch(() => {
         this.#children(this.#anchor);
       });
       if (this.#pending_count > 0) {
@@ -655,7 +655,7 @@ class Boundary {
           /** @type {(anchor: Node) => void} */
           this.#props.pending
         );
-        this.#pending_effect = thread(() => pending(this.#anchor));
+        this.#pending_effect = branch(() => pending(this.#anchor));
       } else {
         this.#resolve(
           /** @type {Batch} */
@@ -839,7 +839,7 @@ class Boundary {
       if (failed) {
         this.#failed_effect = this.#run(() => {
           try {
-            return thread(() => {
+            return branch(() => {
               var effect = (
                 /** @type {Effect} */
                 active_effect
@@ -1005,7 +1005,7 @@ class Batch {
    */
   previous = /* @__PURE__ */ new Map();
   /**
-   * When the batch is committed (and the DOM is updated), we need to remove old threads
+   * When the batch is committed (and the DOM is updated), we need to remove old branches
    * and append new ones by calling the functions added inside (if/each/key/etc) blocks
    * @type {Set<(batch: Batch) => void>}
    */
@@ -1051,18 +1051,18 @@ class Batch {
    */
   #maybe_dirty_effects = /* @__PURE__ */ new Set();
   /**
-   * A map of threads that still exist, but will be destroyed when this batch
+   * A map of branches that still exist, but will be destroyed when this batch
    * is committed — we skip over these during `process`.
    * The value contains child effects that were dirty/maybe_dirty before being reset,
-   * so they can be rescheduled if the thread survives.
+   * so they can be rescheduled if the branch survives.
    * @type {Map<Effect, { d: Effect[], m: Effect[] }>}
    */
-  #skipped_threads = /* @__PURE__ */ new Map();
+  #skipped_branches = /* @__PURE__ */ new Map();
   /**
-   * Inverse of #skipped_threads which we need to tell prior batches to unskip them when committing
+   * Inverse of #skipped_branches which we need to tell prior batches to unskip them when committing
    * @type {Set<Effect>}
    */
-  #unskipped_threads = /* @__PURE__ */ new Set();
+  #unskipped_branches = /* @__PURE__ */ new Set();
   is_fork = false;
   #decrement_queued = false;
   constructor() {
@@ -1080,7 +1080,7 @@ class Batch {
       var e = effect;
       var skipped = false;
       while (e.parent !== null) {
-        if (this.#skipped_threads.has(e)) {
+        if (this.#skipped_branches.has(e)) {
           skipped = true;
           break;
         }
@@ -1093,25 +1093,25 @@ class Batch {
     return false;
   }
   /**
-   * Add an effect to the #skipped_threads map and reset its children
+   * Add an effect to the #skipped_branches map and reset its children
    * @param {Effect} effect
    */
   skip_effect(effect) {
-    if (!this.#skipped_threads.has(effect)) {
-      this.#skipped_threads.set(effect, { d: [], m: [] });
+    if (!this.#skipped_branches.has(effect)) {
+      this.#skipped_branches.set(effect, { d: [], m: [] });
     }
-    this.#unskipped_threads.delete(effect);
+    this.#unskipped_branches.delete(effect);
   }
   /**
-   * Remove an effect from the #skipped_threads map and reschedule
+   * Remove an effect from the #skipped_branches map and reschedule
    * any tracked dirty/maybe_dirty child effects
    * @param {Effect} effect
    * @param {(e: Effect) => void} callback
    */
   unskip_effect(effect, callback = (e) => this.schedule(e)) {
-    var tracked = this.#skipped_threads.get(effect);
+    var tracked = this.#skipped_branches.get(effect);
     if (tracked) {
-      this.#skipped_threads.delete(effect);
+      this.#skipped_branches.delete(effect);
       for (var e of tracked.d) {
         set_signal_status(e, DIRTY);
         callback(e);
@@ -1121,7 +1121,7 @@ class Batch {
         callback(e);
       }
     }
-    this.#unskipped_threads.add(effect);
+    this.#unskipped_branches.add(effect);
   }
   #process() {
     this.#started = true;
@@ -1165,8 +1165,8 @@ class Batch {
     if (this.#is_deferred()) {
       this.#defer_effects(render_effects);
       this.#defer_effects(effects);
-      for (const [e, t] of this.#skipped_threads) {
-        reset_thread(e, t);
+      for (const [e, t] of this.#skipped_branches) {
+        reset_branch(e, t);
       }
       if (updates.length > 0) {
         /** @type {unknown} */
@@ -1222,11 +1222,11 @@ class Batch {
     var effect = root2.first;
     while (effect !== null) {
       var flags2 = effect.f;
-      var is_thread = (flags2 & (THREAD_EFFECT | ROOT_EFFECT)) !== 0;
-      var is_skippable_thread = is_thread && (flags2 & CLEAN) !== 0;
-      var skip = is_skippable_thread || (flags2 & INERT) !== 0 || this.#skipped_threads.has(effect);
+      var is_branch = (flags2 & (BRANCH_EFFECT | ROOT_EFFECT)) !== 0;
+      var is_skippable_branch = is_branch && (flags2 & CLEAN) !== 0;
+      var skip = is_skippable_branch || (flags2 & INERT) !== 0 || this.#skipped_branches.has(effect);
       if (!skip && effect.fn !== null) {
-        if (is_thread) {
+        if (is_branch) {
           effect.f ^= CLEAN;
         } else if ((flags2 & EFFECT) !== 0) {
           effects.push(effect);
@@ -1413,7 +1413,7 @@ class Batch {
         }
       } else if (sources.length > 0) {
         if (is_earlier) {
-          for (const unskipped of this.#unskipped_threads) {
+          for (const unskipped of this.#unskipped_branches) {
             batch.unskip_effect(unskipped, (e) => {
               if ((e.f & (BLOCK_EFFECT | ASYNC)) !== 0) {
                 batch.schedule(e);
@@ -1555,7 +1555,7 @@ class Batch {
           return;
         }
       }
-      if ((flags2 & (ROOT_EFFECT | THREAD_EFFECT)) !== 0) {
+      if ((flags2 & (ROOT_EFFECT | BRANCH_EFFECT)) !== 0) {
         if ((flags2 & CLEAN) === 0) {
           return;
         }
@@ -1699,8 +1699,8 @@ function depends_on(reaction, sources, checked) {
 function schedule_effect(effect) {
   current_batch.schedule(effect);
 }
-function reset_thread(effect, tracked) {
-  if ((effect.f & THREAD_EFFECT) !== 0 && (effect.f & CLEAN) !== 0) {
+function reset_branch(effect, tracked) {
+  if ((effect.f & BRANCH_EFFECT) !== 0 && (effect.f & CLEAN) !== 0) {
     return;
   }
   if ((effect.f & DIRTY) !== 0) {
@@ -1711,7 +1711,7 @@ function reset_thread(effect, tracked) {
   set_signal_status(effect, CLEAN);
   var e = effect.first;
   while (e !== null) {
-    reset_thread(e, tracked);
+    reset_branch(e, tracked);
     e = e.next;
   }
 }
@@ -1780,7 +1780,7 @@ function internal_set(source2, value, updated_during_traversal = null) {
     }
     source2.wv = increment_write_version();
     mark_reactions(source2, DIRTY, updated_during_traversal);
-    if (active_effect !== null && (active_effect.f & CLEAN) !== 0 && (active_effect.f & (THREAD_EFFECT | ROOT_EFFECT)) === 0) {
+    if (active_effect !== null && (active_effect.f & CLEAN) !== 0 && (active_effect.f & (BRANCH_EFFECT | ROOT_EFFECT)) === 0) {
       if (untracked_writes === null) {
         set_untracked_writes([source2]);
       } else {
@@ -1984,7 +1984,7 @@ function update_reaction(reaction) {
   null;
   skipped_deps = 0;
   untracked_writes = null;
-  active_reaction = (flags2 & (THREAD_EFFECT | ROOT_EFFECT)) === 0 ? reaction : null;
+  active_reaction = (flags2 & (BRANCH_EFFECT | ROOT_EFFECT)) === 0 ? reaction : null;
   current_sources = null;
   set_component_context(reaction.ctx);
   untracking = false;
@@ -2353,8 +2353,8 @@ function block(fn, flags2 = 0) {
   var effect = create_effect(BLOCK_EFFECT | flags2, fn);
   return effect;
 }
-function thread(fn) {
-  return create_effect(THREAD_EFFECT | EFFECT_PRESERVED, fn);
+function branch(fn) {
+  return create_effect(BRANCH_EFFECT | EFFECT_PRESERVED, fn);
 }
 function execute_effect_teardown(effect) {
   var teardown = effect.teardown;
@@ -2394,7 +2394,7 @@ function destroy_block_effect_children(signal) {
   var effect = signal.first;
   while (effect !== null) {
     var next2 = effect.next;
-    if ((effect.f & THREAD_EFFECT) === 0) {
+    if ((effect.f & BRANCH_EFFECT) === 0) {
       destroy_effect(effect);
     }
     effect = next2;
@@ -2478,10 +2478,10 @@ function pause_children(effect, transitions, local) {
   while (child !== null) {
     var sibling = child.next;
     if ((child.f & ROOT_EFFECT) === 0) {
-      var transparent = (child.f & EFFECT_TRANSPARENT) !== 0 || // If this is a thread effect without a block effect parent,
+      var transparent = (child.f & EFFECT_TRANSPARENT) !== 0 || // If this is a branch effect without a block effect parent,
       // it means the parent block effect was pruned. In that case,
-      // transparency information was transferred to the thread effect.
-      (child.f & THREAD_EFFECT) !== 0 && (effect.f & BLOCK_EFFECT) !== 0;
+      // transparency information was transferred to the branch effect.
+      (child.f & BRANCH_EFFECT) !== 0 && (effect.f & BLOCK_EFFECT) !== 0;
       pause_children(child, transitions, transparent ? local : false);
     }
     child = sibling;

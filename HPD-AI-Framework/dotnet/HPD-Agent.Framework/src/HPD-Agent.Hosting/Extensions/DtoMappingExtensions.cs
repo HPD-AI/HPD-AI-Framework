@@ -43,12 +43,6 @@ public static class DtoMappingExtensions
             thread.MessageCount,
             thread.Tags,
             thread.Ancestors,
-            thread.SiblingIndex,
-            thread.TotalSiblings,
-            thread.IsOriginal,
-            thread.OriginalThreadId,
-            thread.PreviousSiblingId,
-            thread.NextSiblingId,
             thread.TotalForks,
             thread.Metadata.Count > 0 ? thread.Metadata : null,
             thread.Kind,
@@ -56,7 +50,11 @@ public static class DtoMappingExtensions
             thread.ParentSessionId,
             thread.ParentThreadId,
             thread.SubAgentName,
-            thread.SubAgentRunId);
+            thread.SubAgentRunId,
+            thread.SubAgentSourceKind,
+            thread.ParentToolCallId,
+            thread.SessionPolicy,
+            thread.ThreadPolicy);
     }
 
     /// <summary>

@@ -573,11 +573,10 @@ internal static class ConsoleSessionThreadCommands
         markdown.Append("- messages: ").AppendLine(thread.MessageCount.ToString());
         markdown.Append("- forks: ").AppendLine(thread.TotalForks.ToString());
         markdown.Append("- forked from: ").AppendLine(thread.ForkedFrom is null ? "" : $"`{EscapeMarkdown(thread.ForkedFrom)}`");
-        markdown.Append("- previous sibling: ").AppendLine(thread.PreviousSiblingId is null ? "" : $"`{EscapeMarkdown(thread.PreviousSiblingId)}`");
-        markdown.Append("- next sibling: ").AppendLine(thread.NextSiblingId is null ? "" : $"`{EscapeMarkdown(thread.NextSiblingId)}`");
+        markdown.Append("- forked at message: ").AppendLine(thread.ForkedAtMessageId is null ? "" : $"`{EscapeMarkdown(thread.ForkedAtMessageId)}`");
         markdown.Append("- current: ").AppendLine(thread.Id == context.Scope.ThreadId && thread.SessionId == context.Scope.SessionId ? "yes" : "no");
         markdown.AppendLine();
-        markdown.AppendLine("Actions: `s` switch, `p` previous sibling, `n` next sibling, Esc back.");
+        markdown.AppendLine("Actions: `s` switch, Esc back.");
         return new Markdown(markdown.ToString());
     }
 
@@ -587,12 +586,6 @@ internal static class ConsoleSessionThreadCommands
         {
             case KeyCode.Character when IsCharacter(in key, 's'):
                 SwitchToSelectedThread(context);
-                return true;
-            case KeyCode.Character when IsCharacter(in key, 'p'):
-                PageState.SelectPreviousSiblingThread();
-                return true;
-            case KeyCode.Character when IsCharacter(in key, 'n'):
-                PageState.SelectNextSiblingThread();
                 return true;
             default:
                 return false;
@@ -935,28 +928,6 @@ internal static class ConsoleSessionThreadCommands
                 }
 
                 return null;
-            }
-        }
-
-        public void SelectPreviousSiblingThread()
-        {
-            lock (_gate)
-            {
-                if (_selectedThread?.PreviousSiblingId is { } previous)
-                {
-                    SelectThreadById(previous);
-                }
-            }
-        }
-
-        public void SelectNextSiblingThread()
-        {
-            lock (_gate)
-            {
-                if (_selectedThread?.NextSiblingId is { } next)
-                {
-                    SelectThreadById(next);
-                }
             }
         }
 

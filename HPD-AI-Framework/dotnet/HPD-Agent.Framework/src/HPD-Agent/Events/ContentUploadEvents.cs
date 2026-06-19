@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using HPD.Agent;
 
 namespace HPD.Agent.Middleware;
@@ -26,7 +27,11 @@ public record ContentUploadedEvent(
 /// </remarks>
 public record ContentUploadFailedEvent(
     /// <summary>Error message describing why the upload failed.</summary>
-    string Error) : AgentEvent;
+    string ErrorMessage) : AgentEvent, IErrorEvent
+{
+    [JsonIgnore]
+    public Exception? Exception => null;
+}
 
 /// <summary>
 /// Emitted when DataContent is successfully uploaded via provider's HostedFileClient
@@ -53,7 +58,11 @@ public record HostedFileUploadedEvent(
 /// </remarks>
 public record HostedFileUploadFailedEvent(
     /// <summary>Error message describing why the hosted upload failed.</summary>
-    string Error) : AgentEvent;
+    string ErrorMessage) : AgentEvent, IErrorEvent
+{
+    [JsonIgnore]
+    public Exception? Exception => null;
+}
 
 /// <summary>
 /// Describes how an internal content reference was resolved.
@@ -90,4 +99,8 @@ public record ContentReferenceResolutionFailedEvent(
     /// <summary>The hpd-content:// URI that failed to resolve.</summary>
     Uri ContentUri,
     /// <summary>Error message describing why resolution failed.</summary>
-    string Error) : AgentEvent;
+    string ErrorMessage) : AgentEvent, IErrorEvent
+{
+    [JsonIgnore]
+    public Exception? Exception => null;
+}

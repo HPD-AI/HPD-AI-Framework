@@ -1,0 +1,63 @@
+export { default as DiffViewer } from './diff-viewer.svelte';
+export { default as DiffViewerContent } from './diff-viewer-content.svelte';
+export { default as DiffViewerFile } from './diff-viewer-file.svelte';
+export { default as DiffViewerHeader } from './diff-viewer-header.svelte';
+export { default as DiffViewerLine } from './diff-viewer-line.svelte';
+export { default as DiffViewerSplitLine } from './diff-viewer-split-line.svelte';
+export { default as DiffViewerStats } from './diff-viewer-stats.svelte';
+export {
+  createDiffViewerContentChildProps,
+  createDiffViewerContentElementProps,
+  createDiffViewerElementProps,
+  createDiffViewerFileChildProps,
+  createDiffViewerFileElementProps,
+  createDiffViewerFoldChildProps,
+  createDiffViewerFoldElementProps,
+  createDiffViewerHeaderChildProps,
+  createDiffViewerHeaderElementProps,
+  createDiffViewerLineChildProps,
+  createDiffViewerLineElementProps,
+  createDiffViewerModel,
+  createDiffViewerSegmentElementProps,
+  createDiffViewerSegmentMap,
+  createDiffViewerSplitLineChildProps,
+  createDiffViewerSplitLineElementProps,
+  createDiffViewerSplitSideElementProps,
+  createDiffViewerStatsChildProps,
+  createDiffViewerStatsElementProps,
+  getDiffFileExtension,
+  getDiffLineIndicator,
+  getDiffLineNumber,
+} from './props.js';
+export type {
+  DiffViewerChildProps,
+  DiffViewerContentChildProps,
+  DiffViewerContentElementProps,
+  DiffViewerContentProps,
+  DiffViewerContext,
+  DiffViewerElementProps,
+  DiffViewerFileChildProps,
+  DiffViewerFileElementProps,
+  DiffViewerFileProps,
+  DiffViewerFoldChildProps,
+  DiffViewerFoldElementProps,
+  DiffViewerHeaderChildProps,
+  DiffViewerHeaderElementProps,
+  DiffViewerHeaderProps,
+  DiffViewerLineChildProps,
+  DiffViewerLineElementProps,
+  DiffViewerLineProps,
+  DiffViewerModel,
+  DiffViewerProps,
+  DiffViewerSegmentElementProps,
+  DiffViewerSize,
+  DiffViewerSplitLineChildProps,
+  DiffViewerSplitLineElementProps,
+  DiffViewerSplitLineProps,
+  DiffViewerSplitSideElementProps,
+  DiffViewerStatsChildProps,
+  DiffViewerStatsElementProps,
+  DiffViewerStatsProps,
+  DiffViewerVariant,
+  DiffViewerViewMode,
+} from './types.js';

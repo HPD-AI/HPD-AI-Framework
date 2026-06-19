@@ -104,12 +104,6 @@ public static class ThreadProjector
                     data.ForkedFrom,
                     data.ForkedAtMessageId,
                     data.ForkedAtMessageIndex,
-                    data.SiblingIndex,
-                    data.TotalSiblings,
-                    data.IsOriginal,
-                    data.OriginalThreadId,
-                    data.PreviousSiblingId,
-                    data.NextSiblingId,
                     data.ChildThreads.ToList());
                 thread.LastActivity = evt.Timestamp.UtcDateTime;
                 break;
@@ -126,10 +120,12 @@ public static class ThreadProjector
                     data.AuthorName,
                     data.CreatedAt);
 
+                projection.AdditionalProperties = data.AdditionalProperties?.Clone();
+
                 if (messages.TryGetValue(data.MessageId, out var existing))
                 {
                     projection.Contents.AddRange(existing.Contents);
-                    projection.AdditionalProperties = existing.AdditionalProperties?.Clone();
+                    projection.AdditionalProperties ??= existing.AdditionalProperties?.Clone();
                 }
 
                 if (!messages.ContainsKey(data.MessageId))

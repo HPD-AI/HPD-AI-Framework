@@ -1,0 +1,71 @@
+{
+  "name": "@hpd-research/hpd-agent-headless-ui-svelte",
+  "version": "0.1.0",
+  "description": "Svelte adapter for HPD Agent headless thread UI state",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "svelte": "./dist/index.js",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "npm run clean && svelte-package --input src",
+    "build-storybook": "STORYBOOK_DISABLE_TELEMETRY=1 STORYBOOK_CONFIG_DIR=.storybook storybook build",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "storybook": "STORYBOOK_DISABLE_TELEMETRY=1 STORYBOOK_CONFIG_DIR=.storybook storybook dev -p 6006",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:watch": "vitest watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "svelte",
+    "hpd-agent",
+    "agent",
+    "ai",
+    "ui",
+    "headless"
+  ],
+  "author": "HPD-AI",
+  "license": "MIT",
+  "peerDependencies": {
+    "svelte": "^5.29.0"
+  },
+  "dependencies": {
+    "@chenglou/pretext": "^0.0.8",
+    "@hpd-research/hpd-agent-headless-ui": "file:../hpd-agent-headless-ui",
+    "@humanspeak/svelte-markdown": "^1.6.0",
+    "katex": "^0.17.0",
+    "mermaid": "^11.15.0"
+  },
+  "devDependencies": {
+    "@hpd-research/hpd-agent-client": "file:../hpd-agent-client",
+    "@playwright/test": "^1.61.0",
+    "@storybook/addon-svelte-csf": "^5.1.2",
+    "@storybook/svelte-vite": "^10.4.6",
+    "@sveltejs/package": "^2.5.0",
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@types/node": "^20.0.0",
+    "jsdom": "^24.0.0",
+    "storybook": "^10.4.6",
+    "svelte": "^5.56.3",
+    "svelte-check": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^6.0.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

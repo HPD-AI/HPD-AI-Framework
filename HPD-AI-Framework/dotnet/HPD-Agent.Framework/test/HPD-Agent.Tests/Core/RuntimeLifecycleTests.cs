@@ -2123,7 +2123,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             OnBeforeStart = async (context, cancellationToken) =>
             {
                 await context.RunAsync(
-                    new UserTextInputEvent("from-before-start"),
+                    new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "from-before-start")]),
                     cancellationToken);
             }
         };
@@ -2154,7 +2154,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             {
                 context.RegisterBackgroundTask(async runtimeToken =>
                 {
-                    await context.RunAsync(new UserTextInputEvent("from-background"), runtimeToken);
+                    await context.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "from-background")]), runtimeToken);
                     enqueueReturned.TrySetResult();
                 });
 
@@ -2203,7 +2203,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         Assert.NotNull(capturedContext);
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await capturedContext!.RunAsync(
-                new UserTextInputEvent("after-stop"),
+                new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "after-stop")]),
                 TestCancellationToken));
     }
 
@@ -2602,7 +2602,7 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
-    public async Task UserTextInputEvent_IsNotAnOutputEvent_ButStillProducesOutput()
+    public async Task UserMessagesInputEvent_IsNotAnOutputEvent_ButStillProducesOutput()
     {
         var fakeClient = new FakeChatClient();
         fakeClient.EnqueueTextResponse("processed");
@@ -2612,24 +2612,9 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         using var textSubscription = agent.Subscribe<TextDeltaEvent>(_ => textOutputSeen.TrySetResult());
 
-        await agent.RunAsync(new UserTextInputEvent("hello"), TestCancellationToken);
+        await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "hello")]), TestCancellationToken);
 
         await textOutputSeen.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
-    }
-
-    [Fact]
-    public async Task UserTextInputEvent_StillUsesBeforeMessageTurn()
-    {
-        var fakeClient = new FakeChatClient();
-        fakeClient.EnqueueTextResponse("processed");
-        var middleware = new TurnCountingMiddleware();
-        var agent = CreateAgentWithMiddlewares(
-            client: fakeClient,
-            middlewares: [middleware]);
-
-        await agent.RunAsync(new UserTextInputEvent("hello"), TestCancellationToken);
-
-        Assert.Equal(1, middleware.BeforeMessageTurnCalls);
     }
 
     [Fact]

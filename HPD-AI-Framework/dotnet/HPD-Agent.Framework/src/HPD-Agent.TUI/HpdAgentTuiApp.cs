@@ -11,6 +11,7 @@ using HPD.TUI.Core;
 using HPD.TUI.Rendering;
 using HPD.TUI.Terminal;
 using HPD.TUI.Views;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.TUI;
 
@@ -190,7 +191,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _ = SetSessionTitleFromFirstMessageAsync(_scope, text, CancellationToken.None);
         _ = SubmitInputAsync(
             _scope,
-            new UserTextInputEvent(text)
+            new UserMessagesInputEvent([new ChatMessage(ChatRole.User, text)])
             {
                 AgentId = _scope.AgentId,
                 SessionId = _scope.SessionId,

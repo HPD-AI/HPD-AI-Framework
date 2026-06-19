@@ -518,12 +518,6 @@ public class ClientProviderConfig
     public Dictionary<string, string>? CustomHeaders { get; set; }
 
     /// <summary>
-    /// Family-specific provider-neutral settings that do not need dedicated
-    /// strongly typed properties in core config.
-    /// </summary>
-    public Dictionary<string, object>? AdditionalProperties { get; set; }
-
-    /// <summary>
     /// Provider-specific configuration as a JSON/YAML object.
     /// The value is deserialized using the provider's registered source-generated deserializer.
     /// </summary>
@@ -780,13 +774,6 @@ internal static class ClientProviderConfigResolver
                 target.CustomHeaders[pair.Key] = pair.Value;
         }
 
-        if (source.AdditionalProperties != null)
-        {
-            target.AdditionalProperties ??= new Dictionary<string, object>();
-            foreach (var pair in source.AdditionalProperties)
-                target.AdditionalProperties[pair.Key] = pair.Value;
-        }
-
         target.SetProviderOptionsRawJson(MergeProviderOptions(
             target.GetProviderOptionsRawJson(),
             source.GetProviderOptionsRawJson()));
@@ -839,7 +826,6 @@ internal static class ClientProviderConfigResolver
          string.IsNullOrWhiteSpace(config.Endpoint) &&
          config.DefaultChatOptions == null &&
          config.CustomHeaders == null &&
-         config.AdditionalProperties == null &&
          config.ProviderOptions is null &&
          string.IsNullOrWhiteSpace(config.HttpReferer) &&
          string.IsNullOrWhiteSpace(config.AppName) &&

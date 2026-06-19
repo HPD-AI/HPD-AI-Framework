@@ -82,7 +82,7 @@ describe('ChatSession', () => {
     chat.dispose();
   });
 
-  it('submits text through the client and leaves live output to subscriptions', async () => {
+  it('submits a user message through the client and leaves live output to subscriptions', async () => {
     const client = new AgentClient('http://localhost:5135');
     const events: unknown[] = [];
     client.onAny((event) => {
@@ -95,7 +95,7 @@ describe('ChatSession', () => {
     } as Response);
 
     const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
-    await chat.submitText('hello');
+    await chat.submitMessage({ contents: [{ $type: 'text', text: 'hello' }] });
 
     expect(fetchSpy).toHaveBeenCalledWith(
       'http://localhost:5135/agents/a1/sessions/s1/threads/main/inputs',

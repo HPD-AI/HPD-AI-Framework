@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.svelte-kit/
+storybook-static/
+test-results/
+playwright-report/
+coverage/
+.vite/
+.vitest/
+.DS_Store

@@ -119,7 +119,7 @@ describe('SseParser', () => {
   it('should parse durable thread metadata events with threadMetadata payloads', () => {
     const parser = new SseParser();
     const chunk = new TextEncoder().encode(
-      'data: {"version":"1.0","type":"THREAD_METADATA_UPDATED","name":"Reviewer","threadMetadata":{"kind":"subagent","parentThreadId":"main"}}\n\n'
+      'data: {"version":"1.0","type":"THREAD_METADATA_UPDATED","name":"Reviewer","threadKind":"SubAgent","visibility":"Hidden","parentSessionId":"session-1","parentThreadId":"main","subAgentName":"Reviewer","subAgentRunId":"run-1","subAgentSourceKind":"InlineConfig","parentToolCallId":"call-1","sessionPolicy":"ParentSession","threadPolicy":"ForkFromParentThread","threadMetadata":{"purpose":"review"}}\n\n'
     );
 
     const events = parser.processChunk(chunk);
@@ -129,9 +129,18 @@ describe('SseParser', () => {
       version: '1.0',
       type: 'THREAD_METADATA_UPDATED',
       name: 'Reviewer',
+      threadKind: 'SubAgent',
+      visibility: 'Hidden',
+      parentSessionId: 'session-1',
+      parentThreadId: 'main',
+      subAgentName: 'Reviewer',
+      subAgentRunId: 'run-1',
+      subAgentSourceKind: 'InlineConfig',
+      parentToolCallId: 'call-1',
+      sessionPolicy: 'ParentSession',
+      threadPolicy: 'ForkFromParentThread',
       threadMetadata: {
-        kind: 'subagent',
-        parentThreadId: 'main',
+        purpose: 'review',
       },
     });
   });

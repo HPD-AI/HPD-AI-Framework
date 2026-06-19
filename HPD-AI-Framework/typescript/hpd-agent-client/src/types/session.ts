@@ -45,8 +45,8 @@ export interface CreateSessionRequest {
  * Request to update session metadata.
  */
 export interface UpdateSessionRequest {
-  /** Metadata to merge with existing metadata */
-  metadata: Record<string, unknown>;
+  /** Metadata to merge with existing metadata; null removes a key */
+  metadata: Record<string, unknown | null>;
 }
 
 /**
@@ -83,6 +83,9 @@ export interface SearchSessionsRequest {
 // ============================================
 // THREAD
 // ============================================
+
+export type ThreadKind = 'MainAgent' | 'SubAgent';
+export type ThreadVisibility = 'Visible' | 'Hidden';
 
 /**
  * Thread represents a conversation path within a session.
@@ -145,55 +148,41 @@ export interface Thread {
   metadata?: Record<string, unknown>;
 
   // ==========================================
-  // Sibling metadata (V3 - for ordering)
+  // Runtime child metadata
   // ==========================================
 
-  /**
-   * Position among siblings at this fork point (0-based).
-   * Siblings are threads that forked from the same parent at the same message id.
-   * Stable ordering: original thread = 0, subsequent forks ordered chronologically.
-   */
-  siblingIndex: number;
+  /** Runtime classification for this thread */
+  kind: ThreadKind;
 
-  /**
-   * Total number of sibling threads at this fork point (including this thread).
-   * Updated atomically when siblings are added or removed.
-   */
-  totalSiblings: number;
+  /** Default list visibility for this thread */
+  visibility: ThreadVisibility;
 
-  /**
-   * True if this is the original thread (not forked from another).
-   * Equivalent to: forkedFrom == null
-   */
-  isOriginal: boolean;
+  /** Parent session for runtime child threads such as subagents */
+  parentSessionId?: string;
 
-  /**
-   * ID of the original thread in this sibling group.
-   * For original threads: null
-   * For forked threads: ID of the thread they forked from
-   */
-  originalThreadId?: string;
+  /** Parent thread for runtime child threads such as subagents */
+  parentThreadId?: string;
 
-  // ==========================================
-  // Navigation pointers (V3 - precomputed by backend)
-  // ==========================================
+  /** Subagent name when this is a subagent thread */
+  subAgentName?: string;
 
-  /**
-   * ID of the previous sibling (sibling at index - 1).
-   * Null if this is the first sibling (siblingIndex == 0).
-   * Enables O(1) previous sibling navigation without scanning.
-   */
-  previousSiblingId?: string;
+  /** Subagent run id when this is a subagent thread */
+  subAgentRunId?: string;
 
-  /**
-   * ID of the next sibling (sibling at index + 1).
-   * Null if this is the last sibling (siblingIndex == totalSiblings - 1).
-   * Enables O(1) next sibling navigation without scanning.
-   */
-  nextSiblingId?: string;
+  /** Subagent definition source kind when this is a subagent thread */
+  subAgentSourceKind?: string;
+
+  /** Parent tool call id that created this runtime child thread */
+  parentToolCallId?: string;
+
+  /** Subagent session policy captured for inspection and routing */
+  sessionPolicy?: string;
+
+  /** Subagent thread policy captured for inspection and routing */
+  threadPolicy?: string;
 
   // ==========================================
-  // Fork tree metadata (V3)
+  // Thread tree metadata
   // ==========================================
 
   /**
@@ -210,32 +199,59 @@ export interface Thread {
 }
 
 /**
- * Lightweight sibling thread metadata for navigation UI.
- * Includes only fields needed for sibling selection and display.
+ * Session-level thread graph for branch navigation.
  */
-export interface SiblingThread {
-  /** Unique identifier for this thread */
+export interface ThreadGraph {
+  threads: Thread[];
+  forkGroups: ThreadForkGroup[];
+  runtimeChildren: ThreadRuntimeChild[];
+}
+
+/**
+ * A set of branch choices that diverge from the same source thread at the same message.
+ */
+export interface ThreadForkGroup {
   id: string;
+  sourceThreadId: string;
+  forkedAtMessageId?: string;
+  forkedAtMessageIndex?: number;
+  choiceMessageIndex: number;
+  members: ThreadForkGroupMember[];
+}
 
-  /** Display name for this thread */
+/**
+ * Lightweight member metadata for branch navigation UI.
+ */
+export interface ThreadForkGroupMember {
+  threadId: string;
   name: string;
-
-  /** Position among siblings (0-based) */
-  siblingIndex: number;
-
-  /** Total number of siblings at this fork point */
-  totalSiblings: number;
-
-  /** True if this is the original thread */
-  isOriginal: boolean;
-
-  /** Number of messages in this thread */
+  index: number;
+  isSource: boolean;
+  choiceMessageId?: string;
+  choiceMessageIndex?: number;
   messageCount: number;
-
-  /** When this thread was created */
   createdAt: string; // ISO 8601
+  lastActivity: string; // ISO 8601
+}
 
-  /** Last time this thread was updated */
+/**
+ * Runtime child thread metadata, such as hidden subagent threads attached to a parent thread.
+ */
+export interface ThreadRuntimeChild {
+  threadId: string;
+  parentSessionId: string;
+  parentThreadId: string;
+  name: string;
+  kind: ThreadKind;
+  visibility: ThreadVisibility;
+  subAgentName?: string;
+  subAgentRunId?: string;
+  subAgentSourceKind?: string;
+  parentToolCallId?: string;
+  sessionPolicy?: string;
+  threadPolicy?: string;
+  messageCount: number;
+  createdAt: string; // ISO 8601
   lastActivity: string; // ISO 8601
 }
 
@@ -280,14 +296,14 @@ export interface UpdateThreadRequest {
 }
 
 /**
- * Request to fork a thread at a specific message id.
+ * Request to fork a thread at a message boundary.
  */
 export interface ForkThreadRequest {
   /** Optional new thread ID (generated if not provided) */
   newThreadId?: string;
 
-  /** Message id where fork occurs (copies messages through this message) */
-  fromMessageId: string;
+  /** Message id where fork occurs (copies messages through this message). Null forks from root before any messages. */
+  fromMessageId?: string | null;
 
   /** Optional display name for the forked thread */
   name?: string;
@@ -358,40 +374,7 @@ export interface AiErrorContent {
 export interface AiUriContent {
   $type: 'uri';
   uri: string;
-  mimeType?: string;
-  additionalProperties?: Record<string, unknown>;
-}
-
-// HPD custom content types (registered server-side via AddAIContentType)
-export interface AiHpdImageContent {
-  $type: 'hpd:image';
-  mediaType: string;
-  uri?: string;
-  data?: string;
-  additionalProperties?: Record<string, unknown>;
-}
-
-export interface AiHpdAudioContent {
-  $type: 'hpd:audio';
-  mediaType: string;
-  uri?: string;
-  data?: string;
-  additionalProperties?: Record<string, unknown>;
-}
-
-export interface AiHpdVideoContent {
-  $type: 'hpd:video';
-  mediaType: string;
-  uri?: string;
-  data?: string;
-  additionalProperties?: Record<string, unknown>;
-}
-
-export interface AiHpdDocumentContent {
-  $type: 'hpd:document';
-  mediaType: string;
-  uri?: string;
-  data?: string;
+  mediaType?: string;
   additionalProperties?: Record<string, unknown>;
 }
 
@@ -412,10 +395,6 @@ export type AIContent =
   | AiDataContent
   | AiErrorContent
   | AiUriContent
-  | AiHpdImageContent
-  | AiHpdAudioContent
-  | AiHpdVideoContent
-  | AiHpdDocumentContent
   | AiUnknownContent;
 
 /**
@@ -430,6 +409,9 @@ export interface ThreadMessage {
 
   /** Full structured contents for this message. */
   contents: AIContent[];
+
+  /** Message-level metadata/additional properties. */
+  additionalProperties?: Record<string, unknown>;
 
   /** Message timestamp as ISO 8601. */
   timestamp: string;

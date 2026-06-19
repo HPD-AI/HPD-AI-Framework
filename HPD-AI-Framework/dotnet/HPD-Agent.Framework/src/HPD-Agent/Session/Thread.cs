@@ -18,16 +18,17 @@ public enum ThreadVisibility
 
 /// <summary>
 /// Thread represents a conversation path within a session.
-/// Contains messages and thread-specific state.
-/// Multiple threads can exist in one session (for exploring alternatives).
+/// Its durable history is the thread event stream; <see cref="Messages"/> is the
+/// projected read model for middleware and application code.
 /// </summary>
 /// <remarks>
 /// <para><b>Mental Model:</b></para>
 /// <para>
 /// Think of threads like ChatGPT's message editing feature:
-/// - User edits a message → creates a new thread from that point
-/// - Each thread is an independent conversation path
-/// - All threads share the same session (metadata and session-scoped state)
+/// - User edits or retries a turn -> creates a new thread at that message boundary
+/// - The new thread receives a cloned event prefix from the source path
+/// - Each thread then continues as an independent event stream
+/// - Fork groups are derived from lineage and message boundaries, not stored neighbor pointers
 /// </para>
 ///
 /// <para><b>Relationship to Session:</b></para>
@@ -40,7 +41,7 @@ public enum ThreadVisibility
 ///
 /// <para><b>Thread-Scoped vs Session-Scoped:</b></para>
 /// <list type="bullet">
-/// <item><b>Thread-scoped:</b> Messages, plan progress, history cache (diverges per thread)</item>
+/// <item><b>Thread-scoped:</b> Event stream, projected messages, plan progress, history cache (diverges per thread)</item>
 /// <item><b>Session-scoped:</b> Permissions and user preferences (shared across threads)</item>
 /// </list>
 /// </remarks>
@@ -60,21 +61,26 @@ public class Thread
     [JsonIgnore]
     public Session? Session { get; internal set; }
 
-    /// <summary>Conversation messages in this thread</summary>
+    /// <summary>
+    /// Projected conversation messages in this thread.
+    /// Persistence is event-first; this list is rebuilt from the thread event document
+    /// when a durable store is used.
+    /// </summary>
     public List<ChatMessage> Messages { get; init; }
 
     /// <summary>Source thread ID if this was forked (null for original threads)</summary>
     public string? ForkedFrom { get; internal set; }
 
     /// <summary>
-    /// Message id of the last shared message before this thread diverges from its siblings (null for original threads).
-    /// Siblings are grouped by ForkedFrom + ForkedAtMessageId.
+    /// Message id of the requested fork boundary (null for original/root forks).
+    /// Fork groups are graph projections derived from visible lineage and this message boundary,
+    /// not direct parent alone.
     /// </summary>
     public string? ForkedAtMessageId { get; internal set; }
 
     /// <summary>
-    /// Resolved index of the last shared message when the fork was created (null for original threads).
-    /// This is diagnostic metadata only; fork identity is ForkedAtMessageId.
+    /// Resolved index of the requested fork boundary when the fork was created (null for original/root forks).
+    /// This is placement metadata; exact fork identity is <see cref="ForkedAtMessageId"/>.
     /// </summary>
     public int? ForkedAtMessageIndex { get; internal set; }
 
@@ -153,69 +159,18 @@ public class Thread
     public Dictionary<string, string>? Ancestors { get; set; }
 
     // ============================================
-    // NEW: Tree Structure Navigation (V3)
-    // ============================================
-
-    /// <summary>
-    /// Position among siblings at this fork point (0-based).
-    /// Siblings are threads that forked from the same parent at the same message id.
-    /// Stable ordering: original thread = 0, subsequent forks ordered chronologically.
-    /// </summary>
-    public int SiblingIndex { get; set; }
-
-    /// <summary>
-    /// Total number of sibling threads at this fork point (including this thread).
-    /// Updated atomically when siblings are added or removed.
-    /// </summary>
-    public int TotalSiblings { get; set; }
-
-    /// <summary>
-    /// True if this is the original thread (not forked from another).
-    /// Equivalent to: ForkedFrom == null
-    /// Denormalized for query convenience.
-    /// </summary>
-    public bool IsOriginal { get; set; }
-
-    /// <summary>
-    /// ID of the original thread in this sibling group.
-    /// For original threads: null
-    /// For forked threads: ID of the thread they forked from
-    /// </summary>
-    public string? OriginalThreadId { get; set; }
-
-    // ============================================
-    // NEW: Navigation Pointers
-    // ============================================
-
-    /// <summary>
-    /// ID of the previous sibling (sibling at index - 1).
-    /// Null if this is the first sibling (SiblingIndex == 0).
-    /// Enables O(1) previous sibling navigation without scanning.
-    /// </summary>
-    public string? PreviousSiblingId { get; set; }
-
-    /// <summary>
-    /// ID of the next sibling (sibling at index + 1).
-    /// Null if this is the last sibling (SiblingIndex == TotalSiblings - 1).
-    /// Enables O(1) next sibling navigation without scanning.
-    /// </summary>
-    public string? NextSiblingId { get; set; }
-
-    // ============================================
-    // NEW: Child Tracking
+    // Direct Lineage Tracking
     // ============================================
 
     /// <summary>
     /// IDs of threads that forked directly from this thread.
-    /// Updated when:
-    /// - A thread forks from this one (add to list)
-    /// - A child thread is deleted (remove from list)
-    /// Enables O(1) "show forks" without scanning all threads.
+    /// This is direct lineage only. User-visible fork groups are derived by
+    /// <see cref="ThreadForkGraph"/> from all visible threads in the session.
     /// </summary>
     public List<string> ChildThreads { get; set; } = new();
 
     /// <summary>
-    /// Count of direct child threads (forks from this thread).
+    /// Count of direct child threads.
     /// Computed property: ChildThreads.Count
     /// Denormalized for API convenience.
     /// </summary>
@@ -259,10 +214,6 @@ public class Thread
         CreatedAt = DateTime.UtcNow;
         LastActivity = DateTime.UtcNow;
 
-        //  Initialize tree navigation properties with safe defaults
-        SiblingIndex = 0;
-        TotalSiblings = 1;
-        IsOriginal = true;
         ChildThreads = [];
     }
 
@@ -281,10 +232,6 @@ public class Thread
         CreatedAt = DateTime.UtcNow;
         LastActivity = DateTime.UtcNow;
 
-        //  Initialize tree navigation properties with safe defaults
-        SiblingIndex = 0;
-        TotalSiblings = 1;
-        IsOriginal = true;
         ChildThreads = [];
     }
 
@@ -304,10 +251,6 @@ public class Thread
         CreatedAt = DateTime.UtcNow;
         LastActivity = DateTime.UtcNow;
 
-        //  Initialize tree navigation properties with safe defaults
-        SiblingIndex = 0;
-        TotalSiblings = 1;
-        IsOriginal = true;
         ChildThreads = [];
     }
 
@@ -330,14 +273,7 @@ public class Thread
         Dictionary<string, string>? ancestors,
         Dictionary<string, string> middlewareState,
         Dictionary<string, object>? metadata,
-        //  Tree navigation properties
-        int siblingIndex,
-        int totalSiblings,
-        bool isOriginal,
         List<string>? childThreads,
-        string? originalThreadId = null,
-        string? previousSiblingId = null,
-        string? nextSiblingId = null,
         ThreadKind kind = ThreadKind.MainAgent,
         ThreadVisibility visibility = ThreadVisibility.Visible,
         string? parentSessionId = null,
@@ -374,18 +310,6 @@ public class Thread
         Ancestors = ancestors;
         MiddlewareState = middlewareState;
 
-        //  Tree navigation properties
-        if (totalSiblings <= 0)
-            throw new JsonException("Thread JSON is missing or has invalid required tree property 'totalSiblings'.");
-        if (siblingIndex < 0 || siblingIndex >= totalSiblings)
-            throw new JsonException("Thread JSON is missing or has invalid required tree property 'siblingIndex'.");
-
-        SiblingIndex = siblingIndex;
-        TotalSiblings = totalSiblings;
-        IsOriginal = isOriginal;
-        OriginalThreadId = originalThreadId;
-        PreviousSiblingId = previousSiblingId;
-        NextSiblingId = nextSiblingId;
         ChildThreads = childThreads ?? throw new JsonException("Thread JSON is missing required tree property 'childThreads'.");
     }
 
@@ -492,8 +416,6 @@ public class Thread
         ForkedAtMessageId = forkedAtMessageId;
         ForkedAtMessageIndex = forkedAtMessageIndex;
         Ancestors = ancestors;
-        IsOriginal = forkedFrom is null;
-        OriginalThreadId = forkedFrom;
         LastActivity = DateTime.UtcNow;
     }
 
@@ -501,23 +423,11 @@ public class Thread
         string? forkedFrom,
         string? forkedAtMessageId,
         int? forkedAtMessageIndex,
-        int siblingIndex,
-        int totalSiblings,
-        bool isOriginal,
-        string? originalThreadId,
-        string? previousSiblingId,
-        string? nextSiblingId,
         List<string> childThreads)
     {
         ForkedFrom = forkedFrom;
         ForkedAtMessageId = forkedAtMessageId;
         ForkedAtMessageIndex = forkedAtMessageIndex;
-        SiblingIndex = siblingIndex;
-        TotalSiblings = totalSiblings;
-        IsOriginal = isOriginal;
-        OriginalThreadId = originalThreadId;
-        PreviousSiblingId = previousSiblingId;
-        NextSiblingId = nextSiblingId;
         ChildThreads = childThreads;
         LastActivity = DateTime.UtcNow;
     }
@@ -590,59 +500,7 @@ public class Thread
     /// <exception cref="InvalidOperationException">Thrown when tree invariants are violated</exception>
     public void ValidateTreeInvariants()
     {
-        // Invariant 1: Original threads
-        if ((ForkedFrom == null) != IsOriginal)
-        {
-            throw new InvalidOperationException(
-                $"Thread {Id}: IsOriginal={IsOriginal} but ForkedFrom={ForkedFrom ?? "null"}");
-        }
-
-        // Invariant 2: Sibling index range
-        if (SiblingIndex < 0 || SiblingIndex >= TotalSiblings)
-        {
-            throw new InvalidOperationException(
-                $"Thread {Id}: SiblingIndex={SiblingIndex} out of range [0, {TotalSiblings})");
-        }
-
-        // Invariant 3: Total siblings must be positive
-        if (TotalSiblings <= 0)
-        {
-            throw new InvalidOperationException(
-                $"Thread {Id}: TotalSiblings={TotalSiblings} must be positive");
-        }
-
-        // Invariant 4: First sibling
-        if (SiblingIndex == 0 && PreviousSiblingId != null)
-        {
-            throw new InvalidOperationException(
-                $"Thread {Id}: First sibling (index=0) has PreviousSiblingId={PreviousSiblingId}");
-        }
-
-        // Invariant 5: Last sibling
-        if (SiblingIndex == TotalSiblings - 1 && NextSiblingId != null)
-        {
-            throw new InvalidOperationException(
-                $"Thread {Id}: Last sibling (index={TotalSiblings - 1}) has NextSiblingId={NextSiblingId}");
-        }
-
-        // Invariant 6: Middle siblings must have both pointers
-        if (SiblingIndex > 0 && PreviousSiblingId == null)
-        {
-            throw new InvalidOperationException(
-                $"Thread {Id}: Middle sibling (index={SiblingIndex}) has null PreviousSiblingId");
-        }
-
-        if (SiblingIndex < TotalSiblings - 1 && NextSiblingId == null)
-        {
-            throw new InvalidOperationException(
-                $"Thread {Id}: Middle sibling (index={SiblingIndex}) has null NextSiblingId");
-        }
-
-        // Invariant 7: Original thread ID consistency
-        if (IsOriginal && OriginalThreadId != null)
-        {
-            throw new InvalidOperationException(
-                $"Thread {Id}: Original thread should have OriginalThreadId=null, but has {OriginalThreadId}");
-        }
+        if (ForkedFrom == Id)
+            throw new InvalidOperationException($"Thread {Id}: ForkedFrom cannot reference itself.");
     }
 }

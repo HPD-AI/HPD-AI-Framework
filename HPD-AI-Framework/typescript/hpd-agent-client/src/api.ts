@@ -21,20 +21,20 @@ import type {
   ContentReference,
   Thread,
   ThreadEvent,
+  ThreadGraph,
   ThreadMessage,
   CreateThreadRequest,
   CreateSessionRequest,
   ForkThreadRequest,
-  AIContent,
   ListSessionsOptions,
   SearchSessionsRequest,
   Session,
-  SiblingThread,
   UpdateSessionRequest,
   UpdateThreadRequest,
 } from './types/session.js';
 import type { ThreadRun } from './types/thread-run.js';
 import type { TransportRequestOptions } from './transports/options.js';
+import { projectThreadEventsToMessages } from './thread-messages.js';
 
 export class AgentHttpApi {
   private readonly baseUrl: string;
@@ -246,39 +246,7 @@ export class AgentHttpApi {
 
   async getThreadMessages(sessionId: string, threadId: string): Promise<ThreadMessage[]> {
     const events = await this.getThreadEvents(sessionId, threadId);
-    const byId = new Map<string, ThreadMessage>();
-
-    for (const event of events) {
-      if (event.type === 'MESSAGE_STARTED') {
-        const started = event as ThreadEvent & {
-          messageId?: string;
-          role?: string;
-          authorName?: string;
-          createdAt?: string;
-          timestamp?: string;
-        };
-        if (!started.messageId) continue;
-
-        byId.set(started.messageId, {
-          id: started.messageId,
-          role: started.role ?? 'assistant',
-          contents: [],
-          timestamp: started.createdAt ?? started.timestamp ?? new Date().toISOString(),
-          authorName: started.authorName,
-        });
-      } else if (event.type === 'CONTENT_ADDED') {
-        const added = event as ThreadEvent & {
-          messageId?: string;
-          content?: AIContent;
-        };
-        if (!added.messageId || !added.content) continue;
-
-        const message = byId.get(added.messageId);
-        if (message) message.contents.push(added.content);
-      }
-    }
-
-    return [...byId.values()];
+    return projectThreadEventsToMessages(events);
   }
 
   async getThreadRuns(agentId: string, sessionId: string, threadId: string): Promise<ThreadRun[]> {
@@ -321,22 +289,12 @@ export class AgentHttpApi {
     return this.readNullableJson(response, 'Failed to get thread run');
   }
 
-  async getThreadSiblings(sessionId: string, threadId: string): Promise<SiblingThread[]> {
-    const response = await this.fetch(this.url(`/sessions/${sessionId}/threads/${threadId}/siblings`), {
+  async getThreadGraph(sessionId: string): Promise<ThreadGraph> {
+    const response = await this.fetch(this.url(`/sessions/${sessionId}/thread-graph`), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
-    return this.readJson(response, 'Failed to get siblings');
-  }
-
-  async getNextSibling(sessionId: string, threadId: string): Promise<Thread | null> {
-    const thread = await this.getThread(sessionId, threadId);
-    return thread?.nextSiblingId ? this.getThread(sessionId, thread.nextSiblingId) : null;
-  }
-
-  async getPreviousSibling(sessionId: string, threadId: string): Promise<Thread | null> {
-    const thread = await this.getThread(sessionId, threadId);
-    return thread?.previousSiblingId ? this.getThread(sessionId, thread.previousSiblingId) : null;
+    return this.readJson(response, 'Failed to get thread graph');
   }
 
   async listAgents(): Promise<AgentSummaryDto[]> {

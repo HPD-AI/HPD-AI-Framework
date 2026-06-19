@@ -1,25 +1,53 @@
 import {
   EventTypes,
+  formatToolResultPayload,
+  isAgentRequestEvent,
+  isErrorEvent,
+  type AIContent,
   type AgentEvent,
-  type ThreadRun,
+  type AgentRequestEvent,
   type KnownAgentEvent,
+  type ThreadRun,
 } from '@hpd-research/hpd-agent-client';
-import { mapThreadMessages } from '../internal/map-thread-message.js';
-import { formatToolResultPayload } from '../internal/tool-result.js';
 import type {
+  ClientToolRequest,
+  ClarificationRequest,
+  Message,
+  MessagePlacement,
+  MessageRole,
+  PermissionRequest,
+  RuntimeRequest,
+  RuntimeRequestBase,
+  ThreadActivity,
+  ThreadContextUsage,
   ThreadProjection,
   ThreadProjectionListener,
   ThreadProjectionSnapshot,
   ThreadRunView,
   ThreadSnapshot,
-  ClientToolRequest,
-  ClarificationRequest,
-  Message,
-  MessageRole,
-  PermissionRequest,
+  ThreadTimelineItem,
+  ThreadWorkGroup,
+  ThreadWorkPart,
   ToolCall,
   Unsubscribe,
 } from './types.js';
+
+interface ProjectionContext {
+  turnId: string | null;
+  conversationId: string | null;
+  runId: string | null;
+  eventFlowId?: string;
+  sequenceNumber?: number;
+  timestamp?: string;
+}
+
+interface ProjectionEventContext {
+  eventFlowId?: string;
+  sequenceNumber?: number;
+  timestamp?: string;
+}
+
+const missingEventTimestamp = new Date(0);
 
 export function createThreadProjection(): ThreadProjection {
   return new ThreadProjectionImpl();
@@ -28,6 +56,7 @@ export function createThreadProjection(): ThreadProjection {
 class ThreadProjectionImpl implements ThreadProjection {
   private snapshot: ThreadProjectionSnapshot = createInitialSnapshot();
   private listeners = new Set<ThreadProjectionListener>();
+  private muted = false;
 
   getSnapshot(): ThreadProjectionSnapshot {
     return cloneSnapshot(this.snapshot);
@@ -44,20 +73,38 @@ class ThreadProjectionImpl implements ThreadProjection {
   rehydrate(snapshot: ThreadSnapshot): void {
     const threadRun = selectThreadRun(snapshot.activeRun, snapshot.runs);
     this.snapshot = {
-      ...this.snapshot,
+      ...createInitialSnapshot(),
       thread: snapshot.thread ?? this.snapshot.thread,
-      messages: snapshot.messages ? mapThreadMessages(snapshot.messages) : this.snapshot.messages,
-      activeTools: [],
-      pendingPermissions: [],
-      pendingClarifications: [],
-      pendingClientToolRequests: [],
       threadRun,
-      streaming: threadRun?.status === 'active',
-      reasoning: false,
-      currentTurnId: null,
-      currentConversationId: null,
+      currentRunId: threadRun?.status === 'active' ? threadRun.runtimeRunId : null,
       error: threadRun?.status === 'failed' ? threadRun.errorMessage ?? 'Thread run failed' : null,
     };
+    this.snapshot = refreshSnapshot(this.snapshot);
+
+    this.muted = true;
+    try {
+      for (const event of snapshot.events) {
+        this.project(event);
+      }
+    } finally {
+      this.muted = false;
+    }
+
+    const replayedThreadRun = selectThreadRun(snapshot.activeRun, snapshot.runs);
+    if (replayedThreadRun) {
+      const replayedRunIsActive = replayedThreadRun.status === 'active';
+      this.snapshot = refreshSnapshot({
+        ...this.snapshot,
+        threadRun: replayedThreadRun,
+        currentRunId: replayedRunIsActive
+          ? this.snapshot.currentRunId ?? replayedThreadRun.runtimeRunId
+          : this.snapshot.currentRunId,
+        error: replayedThreadRun.status === 'failed'
+          ? replayedThreadRun.errorMessage ?? 'Thread run failed'
+          : this.snapshot.error,
+      });
+    }
+
     this.emit();
   }
 
@@ -65,8 +112,17 @@ class ThreadProjectionImpl implements ThreadProjection {
     const known = event as KnownAgentEvent;
 
     switch (known.type) {
+      case EventTypes.MESSAGE_STARTED:
+        this.onMessageStarted(known, known.messageId, known.role, known.authorName ?? undefined);
+        break;
+      case EventTypes.MESSAGE_COMPLETED:
+        this.onMessageCompleted(known.messageId);
+        break;
+      case EventTypes.CONTENT_ADDED:
+        this.onContentAdded(known, known.messageId, known.content);
+        break;
       case EventTypes.TEXT_MESSAGE_START:
-        this.onTextMessageStart(known.messageId, known.role);
+        this.onTextMessageStart(known, known.messageId, known.role);
         break;
       case EventTypes.TEXT_DELTA:
         this.onTextDelta(known.messageId, known.text);
@@ -75,16 +131,16 @@ class ThreadProjectionImpl implements ThreadProjection {
         this.onTextMessageEnd(known.messageId);
         break;
       case EventTypes.REASONING_MESSAGE_START:
-        this.onReasoningMessageStart(known.messageId, known.role);
+        this.onReasoningMessageStart(known, known.messageId);
         break;
       case EventTypes.REASONING_DELTA:
-        this.onReasoningDelta(known.messageId, known.text);
+        this.onReasoningDelta(known, known.messageId, known.text);
         break;
       case EventTypes.REASONING_MESSAGE_END:
         this.onReasoningMessageEnd(known.messageId);
         break;
       case EventTypes.TOOL_CALL_START:
-        this.onToolCallStart({
+        this.onToolCallStart(known, {
           callId: known.callId,
           name: known.name,
           messageId: known.messageId,
@@ -99,7 +155,7 @@ class ThreadProjectionImpl implements ThreadProjection {
         this.onToolCallResult(known);
         break;
       case EventTypes.TOOL_CALL_END:
-        this.onToolCallEnd(known.callId);
+        this.onToolCallEnd(known);
         break;
       case EventTypes.PERMISSION_REQUEST:
         this.addPermission({
@@ -109,7 +165,7 @@ class ThreadProjectionImpl implements ThreadProjection {
           description: known.description,
           callId: known.callId,
           arguments: known.arguments,
-        });
+        }, known);
         break;
       case EventTypes.PERMISSION_APPROVED:
         this.removePermission(known.permissionId);
@@ -124,7 +180,7 @@ class ThreadProjectionImpl implements ThreadProjection {
           question: known.question,
           agentName: known.agentName,
           options: known.options,
-        });
+        }, known);
         break;
       case EventTypes.CLARIFICATION_RESPONSE:
         this.removeClarification(known.requestId);
@@ -132,11 +188,15 @@ class ThreadProjectionImpl implements ThreadProjection {
       case EventTypes.CLIENT_TOOL_INVOKE_REQUEST:
         this.addClientToolRequest({
           requestId: known.requestId,
+          sourceName: known.sourceName,
           toolName: known.toolName,
           callId: known.callId,
           arguments: known.arguments,
           description: known.description,
-        });
+          responsePolicy: known.responsePolicy,
+          target: known.target,
+          visibility: known.visibility,
+        }, known);
         break;
       case EventTypes.CLIENT_TOOL_INVOKE_RESPONSE:
         this.removeClientToolRequest(known.requestId);
@@ -146,37 +206,42 @@ class ThreadProjectionImpl implements ThreadProjection {
       case EventTypes.AGENT_REQUEST_CANCELLED:
         this.removePendingRequest(known.requestId);
         break;
+      case EventTypes.AGENT_REQUEST_STARTED:
+        this.addStartedRequest(known);
+        break;
       case EventTypes.MESSAGE_TURN_STARTED:
-        this.snapshot = {
-          ...this.snapshot,
-          currentTurnId: known.messageTurnId,
-          currentConversationId: known.conversationId,
-          streaming: true,
-          error: null,
-        };
-        this.emit();
+        this.startWorkGroup({
+          turnId: known.messageTurnId,
+          conversationId: known.conversationId,
+          runId: this.snapshot.currentRunId,
+          eventFlowId: known.eventFlowId,
+          sequenceNumber: known.sequenceNumber,
+        }, known.agentName, known.timestamp);
         break;
       case EventTypes.MESSAGE_TURN_FINISHED:
-        this.snapshot = {
+        this.finishWorkGroup(known.messageTurnId, 'worked', known.timestamp, undefined, known.usage);
+        this.snapshot = refreshSnapshot({
           ...this.snapshot,
           currentTurnId: null,
           currentConversationId: known.conversationId,
-          streaming: false,
-          reasoning: false,
-        };
+        });
         this.emit();
         break;
       case EventTypes.MESSAGE_TURN_ERROR:
-        this.snapshot = {
+        this.finishWorkGroup(
+          this.snapshot.currentTurnId ?? event.eventFlowId ?? null,
+          'failed',
+          event.timestamp,
+          known.errorMessage,
+        );
+        this.snapshot = refreshSnapshot({
           ...this.snapshot,
-          error: known.message,
-          streaming: false,
-          reasoning: false,
-        };
+          error: known.errorMessage,
+        });
         this.emit();
         break;
       case EventTypes.THREAD_RUN_STARTED:
-        this.snapshot = {
+        this.snapshot = refreshSnapshot({
           ...this.snapshot,
           threadRun: {
             runtimeRunId: known.runtimeRunId,
@@ -184,9 +249,9 @@ class ThreadProjectionImpl implements ThreadProjection {
             status: 'active',
             startedAt: known.startedAt,
           },
-          streaming: true,
+          currentRunId: known.runtimeRunId,
           error: null,
-        };
+        });
         this.emit();
         break;
       case EventTypes.THREAD_RUN_COMPLETED: {
@@ -196,35 +261,46 @@ class ThreadProjectionImpl implements ThreadProjection {
             ? 'cancelled'
             : 'completed';
         const currentRun = this.snapshot.threadRun;
-        this.snapshot = {
+        if (status === 'failed' || status === 'cancelled') {
+          this.finishWorkGroup(this.snapshot.currentTurnId, status, event.timestamp, known.errorMessage ?? null);
+        }
+        this.snapshot = refreshSnapshot({
           ...this.snapshot,
           threadRun: {
             runtimeRunId: known.runtimeRunId,
             agentId: known.agentId,
             status,
-            startedAt: currentRun?.runtimeRunId === known.runtimeRunId
+            startedAt: currentRun && currentRun.runtimeRunId === known.runtimeRunId
               ? currentRun.startedAt
               : undefined,
             errorType: known.errorType,
             errorMessage: known.errorMessage,
           },
-          streaming: false,
-          reasoning: false,
+          currentRunId: null,
           error: known.errorMessage ?? this.snapshot.error,
-        };
+        });
         this.emit();
         break;
       }
       default:
+        if (isErrorEvent(event)) {
+          this.snapshot = refreshSnapshot({
+            ...this.snapshot,
+            error: event.errorMessage,
+          });
+          this.emit();
+        } else if (isAgentRequestEvent(event)) {
+          this.addCustomRequest(event);
+        }
         break;
     }
   }
 
   clearError(): void {
-    this.snapshot = {
+    this.snapshot = refreshSnapshot({
       ...this.snapshot,
       error: null,
-    };
+    });
     this.emit();
   }
 
@@ -233,114 +309,308 @@ class ThreadProjectionImpl implements ThreadProjection {
     this.emit();
   }
 
-  private onTextMessageStart(messageId: string, role: string): void {
-    const messages = upsertMessage(this.snapshot.messages, messageId, role, (message) => ({
+  private startWorkGroup(context: ProjectionContext, agentName?: string, startedAt?: string): void {
+    const work = createWorkGroup(context, agentName, startedAt);
+    const workGroups = upsertWorkGroup(this.snapshot.workGroups, work);
+    const timeline = upsertTimelineItem(this.snapshot.timeline, createWorkTimelineItem(work));
+    this.snapshot = refreshSnapshot({
+      ...this.snapshot,
+      workGroups,
+      timeline,
+      currentTurnId: context.turnId,
+      currentConversationId: context.conversationId,
+      currentRunId: context.runId,
+      error: null,
+    });
+    this.emit();
+  }
+
+  private finishWorkGroup(
+    turnId: string | null,
+    status: ThreadWorkGroup['status'],
+    completedAt?: string,
+    error?: string | null,
+    usage?: ThreadContextUsage['usage'] | null,
+  ): void {
+    const work = findCurrentWorkGroup(this.snapshot, turnId);
+    if (!work) return;
+
+    const finalMessage = findFinalAssistantDraft(work);
+    const updatedWork: ThreadWorkGroup = {
+      ...work,
+      status,
+      openByDefault: false,
+      completedAt: completedAt ?? new Date().toISOString(),
+      error,
+      finalMessageId: finalMessage?.id ?? work.finalMessageId,
+      usage: usage ?? work.usage,
+    };
+
+    let transcriptMessages = this.snapshot.transcriptMessages;
+    let timeline = upsertTimelineItem(this.snapshot.timeline, createWorkTimelineItem(updatedWork));
+
+    if (finalMessage && status === 'worked') {
+      const promoted = {
+        ...finalMessage,
+        streaming: false,
+        thinking: false,
+        placement: 'final' as const,
+      };
+      transcriptMessages = upsertTranscriptMessage(transcriptMessages, promoted);
+      timeline = upsertTimelineItem(timeline, createMessageTimelineItem(promoted));
+    }
+
+    this.snapshot = refreshSnapshot({
+      ...this.snapshot,
+      workGroups: upsertWorkGroup(this.snapshot.workGroups, updatedWork),
+      transcriptMessages,
+      timeline,
+      contextUsage: usage
+        ? {
+            usage,
+            turnId: work.turnId,
+            conversationId: work.conversationId,
+            runId: work.runId,
+            updatedAt: completedAt,
+          }
+        : this.snapshot.contextUsage,
+    });
+  }
+
+  private onTextMessageStart(event: AgentEvent, messageId: string, role: string): void {
+    const context = this.createContext(event);
+    const clientInputId = readStringProperty(event, 'clientInputId') ?? null;
+    const placement = readBooleanProperty(event, 'optimistic')
+      ? 'optimistic'
+      : shouldPlaceMessageInTranscript(role, context)
+        ? 'transcript'
+        : 'work';
+    const message = {
+      ...createMessage(messageId, role, context, placement, clientInputId, readEventTimestamp(event)),
+      additionalProperties: readRecordProperty(event, 'additionalProperties') ?? undefined,
+    };
+    const streamingMessage = {
       ...message,
       streaming: true,
       thinking: false,
-    }));
-    this.snapshot = {
-      ...this.snapshot,
-      messages,
-      streaming: true,
-      error: null,
     };
+
+    if (placement === 'transcript' || placement === 'optimistic') {
+      const { transcriptMessages, timeline } = upsertTranscriptMessageAndTimeline(
+        this.snapshot.transcriptMessages,
+        this.snapshot.timeline,
+        streamingMessage,
+      );
+      this.snapshot = refreshSnapshot({
+        ...this.snapshot,
+        transcriptMessages,
+        timeline,
+        error: null,
+      });
+    } else {
+      this.putWorkPart(context, {
+        type: 'assistant-draft',
+        id: `draft:${messageId}`,
+        message: streamingMessage,
+      });
+      this.snapshot = refreshSnapshot({ ...this.snapshot, error: null });
+    }
+    this.emit();
+  }
+
+  private onMessageStarted(event: AgentEvent, messageId: string, role: string, authorName?: string): void {
+    if (messageExists(this.snapshot, messageId)) return;
+
+    const context = this.createContext(event);
+    const clientInputId = readStringProperty(event, 'clientInputId') ?? null;
+    const inTranscript = shouldPlaceMessageInTranscript(role, context);
+    const placement = readBooleanProperty(event, 'optimistic')
+      ? 'optimistic'
+      : inTranscript
+        ? 'transcript'
+        : 'work';
+    const message = {
+      ...createMessage(messageId, role, context, placement, clientInputId, readEventTimestamp(event)),
+      additionalProperties: readRecordProperty(event, 'additionalProperties') ?? undefined,
+      authorName,
+    };
+
+    if (placement === 'transcript' || placement === 'optimistic') {
+      const { transcriptMessages, timeline } = upsertTranscriptMessageAndTimeline(
+        this.snapshot.transcriptMessages,
+        this.snapshot.timeline,
+        message,
+      );
+      this.snapshot = refreshSnapshot({
+        ...this.snapshot,
+        transcriptMessages,
+        timeline,
+        error: null,
+      });
+    } else {
+      this.putWorkPart(context, {
+        type: 'assistant-draft',
+        id: `draft:${messageId}`,
+        message,
+      });
+      this.snapshot = refreshSnapshot({ ...this.snapshot, error: null });
+    }
+    this.emit();
+  }
+
+  private onMessageCompleted(messageId: string): void {
+    this.snapshot = refreshSnapshot(updateMessageEverywhere(this.snapshot, messageId, (message) => ({
+      ...message,
+      streaming: false,
+      thinking: false,
+    })));
+    this.emit();
+  }
+
+  private onContentAdded(event: AgentEvent, messageId: string, content: unknown): void {
+    if (!messageExists(this.snapshot, messageId)) {
+      this.onMessageStarted(event, messageId, 'assistant');
+    }
+
+    const contentType = readContentType(content);
+    if (contentType === 'text') {
+      const text = readStringProperty(content, 'text');
+      if (text) this.appendMessageText(messageId, text);
+      return;
+    }
+
+    if (contentType === 'reasoning') {
+      const text = readStringProperty(content, 'text');
+      if (text) this.appendMessageReasoning(messageId, text);
+      return;
+    }
+
+    if (isAIContent(content)) {
+      this.appendMessageContent(messageId, content);
+    }
+  }
+
+  private appendMessageText(messageId: string, text: string): void {
+    this.snapshot = refreshSnapshot(updateMessageEverywhere(this.snapshot, messageId, (message) => ({
+      ...message,
+      content: appendUniqueText(message.content, text),
+      contents: [...message.contents, { $type: 'text', text }],
+    })));
+    this.emit();
+  }
+
+  private appendMessageContent(messageId: string, content: AIContent): void {
+    this.snapshot = refreshSnapshot(updateMessageEverywhere(this.snapshot, messageId, (message) => ({
+      ...message,
+      contents: [...message.contents, content],
+    })));
+    this.emit();
+  }
+
+  private appendMessageReasoning(messageId: string, text: string): void {
+    this.snapshot = refreshSnapshot(updateMessageEverywhere(this.snapshot, messageId, (message) => ({
+      ...message,
+      reasoning: appendUniqueText(message.reasoning ?? '', text),
+      thinking: false,
+    })));
     this.emit();
   }
 
   private onTextDelta(messageId: string, text: string): void {
-    const messages = updateMessage(this.snapshot.messages, messageId, (message) => ({
+    this.snapshot = refreshSnapshot(updateMessageEverywhere(this.snapshot, messageId, (message) => ({
       ...message,
       content: message.content + text,
-    }));
-    this.snapshot = { ...this.snapshot, messages };
+      contents: [...message.contents, { $type: 'text', text }],
+    })));
     this.emit();
   }
 
   private onTextMessageEnd(messageId: string): void {
-    const messages = updateMessage(this.snapshot.messages, messageId, (message) => ({
+    this.snapshot = refreshSnapshot(updateMessageEverywhere(this.snapshot, messageId, (message) => ({
       ...message,
       streaming: false,
-    }));
-    this.snapshot = {
-      ...this.snapshot,
-      messages,
-      streaming: hasStreamingMessages(messages),
-    };
+    })));
     this.emit();
   }
 
-  private onReasoningMessageStart(messageId: string, role: string): void {
-    const messages = upsertMessage(this.snapshot.messages, messageId, role, (message) => ({
-      ...message,
-      streaming: true,
-      thinking: true,
-      reasoning: message.reasoning ?? '',
-    }));
-    this.snapshot = {
-      ...this.snapshot,
-      messages,
-      reasoning: true,
-      streaming: true,
-      error: null,
-    };
+  private onReasoningMessageStart(event: AgentEvent, messageId: string): void {
+    const context = this.createContext(event);
+    this.putWorkPart(context, {
+      type: 'reasoning',
+      id: `reasoning:${messageId}`,
+      messageId,
+      text: '',
+      status: 'streaming',
+      eventFlowId: context.eventFlowId,
+      sequenceNumber: context.sequenceNumber,
+    });
+    this.snapshot = refreshSnapshot({ ...this.snapshot, error: null });
     this.emit();
   }
 
-  private onReasoningDelta(messageId: string, text: string): void {
-    const messages = updateMessage(this.snapshot.messages, messageId, (message) => ({
-      ...message,
-      reasoning: (message.reasoning ?? '') + text,
-    }));
-    this.snapshot = { ...this.snapshot, messages };
+  private onReasoningDelta(event: AgentEvent, messageId: string, text: string): void {
+    const context = this.createContext(event);
+    this.putWorkPart(context, {
+      type: 'reasoning',
+      id: `reasoning:${messageId}`,
+      messageId,
+      text,
+      status: 'streaming',
+      eventFlowId: context.eventFlowId,
+      sequenceNumber: context.sequenceNumber,
+    }, appendReasoningPart);
     this.emit();
   }
 
   private onReasoningMessageEnd(messageId: string): void {
-    const messages = updateMessage(this.snapshot.messages, messageId, (message) => ({
-      ...message,
-      streaming: false,
-      thinking: false,
-    }));
-    this.snapshot = {
-      ...this.snapshot,
-      messages,
-      reasoning: false,
-      streaming: hasStreamingMessages(messages),
-    };
+    this.snapshot = refreshSnapshot(updateWorkPart(this.snapshot, `reasoning:${messageId}`, (part) =>
+      part.type === 'reasoning' ? { ...part, status: 'complete' } : part));
     this.emit();
   }
 
-  private onToolCallStart(input: {
+  private onToolCallStart(event: AgentEvent, input: {
     callId: string;
     name: string;
     messageId: string;
     toolharnessName?: string;
     callType?: ToolCall['callType'];
   }): void {
+    const context = this.createContext(event);
     const toolCall: ToolCall = {
       callId: input.callId,
       name: input.name,
       messageId: input.messageId,
       status: 'pending',
-      startTime: new Date(),
+      startTime: readEventTimestamp(event),
       toolharnessName: input.toolharnessName,
       callType: input.callType,
+      turnId: context.turnId,
+      conversationId: context.conversationId,
+      runId: context.runId,
+      eventFlowId: context.eventFlowId,
+      sequenceNumber: context.sequenceNumber,
+      groupKey: input.toolharnessName ?? input.callType ?? input.name,
     };
 
-    const activeTools = [
-      ...this.snapshot.activeTools.filter((tool) => tool.callId !== input.callId),
-      toolCall,
-    ];
-    const messages = upsertMessage(this.snapshot.messages, input.messageId, 'assistant', (message) => ({
+    this.snapshot = refreshSnapshot({
+      ...this.snapshot,
+      activeTools: [
+        ...this.snapshot.activeTools.filter((tool) => tool.callId !== input.callId),
+        toolCall,
+      ],
+    });
+    this.putWorkPart(context, {
+      type: 'tool',
+      id: `tool:${input.callId}`,
+      tool: toolCall,
+    });
+    this.snapshot = refreshSnapshot(updateMessageEverywhere(this.snapshot, input.messageId, (message) => ({
       ...message,
       toolCalls: [
         ...message.toolCalls.filter((tool) => tool.callId !== input.callId),
         toolCall,
       ],
-    }));
-
-    this.snapshot = { ...this.snapshot, activeTools, messages };
+    })));
     this.emit();
   }
 
@@ -371,110 +641,240 @@ class ThreadProjectionImpl implements ThreadProjection {
       result: event.result,
       resultText: formatToolResultPayload(event.result),
       status: 'complete',
-      endTime: new Date(),
+      endTime: readEventTimestamp(event),
       toolharnessName: event.toolharnessName ?? tool.toolharnessName,
       callType: event.callType ?? tool.callType,
     }));
-    this.snapshot = {
+    this.snapshot = refreshSnapshot({
       ...this.snapshot,
       activeTools: this.snapshot.activeTools.filter((tool) => tool.callId !== event.callId),
-    };
+    });
     this.emit();
   }
 
-  private onToolCallEnd(callId: string): void {
-    this.replaceToolCall(callId, (tool) => ({
+  private onToolCallEnd(event: Extract<KnownAgentEvent, { type: typeof EventTypes.TOOL_CALL_END }>): void {
+    this.replaceToolCall(event.callId, (tool) => ({
       ...tool,
       status: tool.status === 'complete' ? tool.status : 'complete',
-      endTime: tool.endTime ?? new Date(),
+      endTime: tool.endTime ?? readEventTimestamp(event),
     }));
-    this.snapshot = {
+    this.snapshot = refreshSnapshot({
       ...this.snapshot,
-      activeTools: this.snapshot.activeTools.filter((tool) => tool.callId !== callId),
-    };
+      activeTools: this.snapshot.activeTools.filter((tool) => tool.callId !== event.callId),
+    });
     this.emit();
   }
 
   private replaceToolCall(callId: string, updater: (tool: ToolCall) => ToolCall): void {
     const activeTools = this.snapshot.activeTools.map((tool) =>
       tool.callId === callId ? updater(tool) : tool);
-    const messages = this.snapshot.messages.map((message) => ({
+
+    const withMessages = updateAllMessages(this.snapshot, (message) => ({
       ...message,
       toolCalls: message.toolCalls.map((tool) =>
         tool.callId === callId ? updater(tool) : tool),
     }));
-    this.snapshot = { ...this.snapshot, activeTools, messages };
+
+    const workGroups = withMessages.workGroups.map((work) => ({
+      ...work,
+      parts: work.parts.map((part) =>
+        part.type === 'tool' && part.tool.callId === callId
+          ? { ...part, tool: updater(part.tool) }
+          : part),
+    }));
+
+    this.snapshot = refreshSnapshot({
+      ...withMessages,
+      activeTools,
+      workGroups,
+      timeline: syncWorkTimeline(withMessages.timeline, workGroups),
+    });
     this.emit();
   }
 
-  private addPermission(request: PermissionRequest): void {
-    this.snapshot = {
-      ...this.snapshot,
-      pendingPermissions: [
-        ...this.snapshot.pendingPermissions.filter((item) => item.permissionId !== request.permissionId),
-        request,
-      ],
-    };
-    this.emit();
+  private addPermission(request: PermissionRequest, event?: AgentEvent): void {
+    const base = this.createRequestBase({
+      id: request.permissionId,
+      sourceName: request.sourceName,
+      requestEventType: event?.type ?? EventTypes.PERMISSION_REQUEST,
+    });
+    this.addRuntimeRequest({
+      ...base,
+      kind: 'permission',
+      request,
+      event,
+    }, event);
   }
 
   private removePermission(permissionId: string): void {
-    this.snapshot = {
-      ...this.snapshot,
-      pendingPermissions: this.snapshot.pendingPermissions.filter((item) => item.permissionId !== permissionId),
-    };
-    this.emit();
+    this.removePendingRequest(permissionId);
   }
 
-  private addClarification(request: ClarificationRequest): void {
-    this.snapshot = {
-      ...this.snapshot,
-      pendingClarifications: [
-        ...this.snapshot.pendingClarifications.filter((item) => item.requestId !== request.requestId),
-        request,
-      ],
-    };
-    this.emit();
+  private addClarification(request: ClarificationRequest, event?: AgentEvent): void {
+    const base = this.createRequestBase({
+      id: request.requestId,
+      sourceName: request.sourceName,
+      requestEventType: event?.type ?? EventTypes.CLARIFICATION_REQUEST,
+    });
+    this.addRuntimeRequest({
+      ...base,
+      kind: 'clarification',
+      request,
+      event,
+    }, event);
   }
 
   private removeClarification(requestId: string): void {
-    this.snapshot = {
-      ...this.snapshot,
-      pendingClarifications: this.snapshot.pendingClarifications.filter((item) => item.requestId !== requestId),
-    };
-    this.emit();
+    this.removePendingRequest(requestId);
   }
 
-  private addClientToolRequest(request: ClientToolRequest): void {
-    this.snapshot = {
-      ...this.snapshot,
-      pendingClientToolRequests: [
-        ...this.snapshot.pendingClientToolRequests.filter((item) => item.requestId !== request.requestId),
-        request,
-      ],
-    };
-    this.emit();
+  private addClientToolRequest(request: ClientToolRequest, event?: AgentEvent): void {
+    const base = this.createRequestBase({
+      id: request.requestId,
+      sourceName: request.sourceName ?? 'HPD.Agent.ClientTools',
+      requestEventType: event?.type ?? EventTypes.CLIENT_TOOL_INVOKE_REQUEST,
+      responsePolicy: request.responsePolicy,
+      target: request.target,
+      visibility: request.visibility,
+    });
+    this.addRuntimeRequest({
+      ...base,
+      kind: 'client-tool',
+      request,
+      event,
+    }, event);
   }
 
   private removeClientToolRequest(requestId: string): void {
-    this.snapshot = {
+    this.removePendingRequest(requestId);
+  }
+
+  private addRuntimeRequest(request: RuntimeRequest, event?: ProjectionEventContext): void {
+    const context = this.createContext(event);
+    this.snapshot = refreshSnapshot({
       ...this.snapshot,
-      pendingClientToolRequests: this.snapshot.pendingClientToolRequests.filter((item) => item.requestId !== requestId),
-    };
+      pendingRuntimeRequests: upsertRuntimeRequest(this.snapshot.pendingRuntimeRequests, request),
+      timeline: upsertTimelineItem(this.snapshot.timeline, {
+        type: 'runtime-request',
+        id: `request:${request.id}`,
+        request,
+        turnId: context.turnId,
+        conversationId: context.conversationId,
+        runId: context.runId,
+      }),
+    });
     this.emit();
   }
 
   private removePendingRequest(requestId: string): void {
-    this.snapshot = {
+    this.snapshot = refreshSnapshot({
       ...this.snapshot,
-      pendingPermissions: this.snapshot.pendingPermissions.filter((item) => item.permissionId !== requestId),
-      pendingClarifications: this.snapshot.pendingClarifications.filter((item) => item.requestId !== requestId),
-      pendingClientToolRequests: this.snapshot.pendingClientToolRequests.filter((item) => item.requestId !== requestId),
-    };
+      pendingRuntimeRequests: this.snapshot.pendingRuntimeRequests.filter((item) => item.id !== requestId),
+      timeline: this.snapshot.timeline.filter((item) =>
+        item.type !== 'runtime-request' || item.request.id !== requestId),
+    });
     this.emit();
   }
 
+  private addStartedRequest(event: Extract<KnownAgentEvent, { type: typeof EventTypes.AGENT_REQUEST_STARTED }>): void {
+    const base = this.createRequestBase({
+      id: event.requestId,
+      sourceName: event.sourceName,
+      requestEventType: event.requestEventType,
+      expectedResponseEventType: event.expectedResponseEventType,
+      responsePolicy: event.responsePolicy,
+      target: event.target,
+      visibility: event.visibility,
+      startedAt: event.startedAt,
+    });
+
+    const existing = this.snapshot.pendingRuntimeRequests.find((item) => item.id === event.requestId);
+    const request = existing
+      ? mergeRuntimeRequestBase(existing, base)
+      : { ...base, kind: 'custom' as const };
+
+    this.addRuntimeRequest(request, event);
+  }
+
+  private addCustomRequest(event: AgentRequestEvent): void {
+    const base = this.createRequestBase({
+      id: event.requestId,
+      sourceName: event.sourceName,
+      requestEventType: event.type,
+      responsePolicy: event.responsePolicy,
+      target: event.target,
+      visibility: event.visibility,
+    });
+
+    this.addRuntimeRequest({
+      ...base,
+      kind: 'custom',
+      event,
+    }, event);
+  }
+
+  private createRequestBase(input: {
+    id: string;
+    sourceName: string;
+    requestEventType: string;
+    expectedResponseEventType?: string;
+    responsePolicy?: RuntimeRequestBase['responsePolicy'];
+    target?: RuntimeRequestBase['target'];
+    visibility?: RuntimeRequestBase['visibility'];
+    startedAt?: string;
+  }): RuntimeRequestBase {
+    const existing = this.snapshot.pendingRuntimeRequests.find((item) => item.id === input.id);
+    return {
+      id: input.id,
+      kind: existing?.kind ?? 'custom',
+      sourceName: input.sourceName,
+      requestEventType: input.requestEventType,
+      expectedResponseEventType: input.expectedResponseEventType ?? existing?.expectedResponseEventType,
+      responsePolicy: input.responsePolicy ?? existing?.responsePolicy,
+      target: input.target ?? existing?.target,
+      visibility: input.visibility ?? existing?.visibility,
+      startedAt: input.startedAt ?? existing?.startedAt,
+    };
+  }
+
+  private createContext(event?: ProjectionEventContext): ProjectionContext {
+    return {
+      turnId: event?.eventFlowId ?? this.snapshot.currentTurnId ?? null,
+      conversationId: this.snapshot.currentConversationId,
+      runId: this.snapshot.currentRunId ?? this.snapshot.threadRun?.runtimeRunId ?? null,
+      eventFlowId: event?.eventFlowId,
+      sequenceNumber: event?.sequenceNumber,
+      timestamp: event?.timestamp,
+    };
+  }
+
+  private putWorkPart(
+    context: ProjectionContext,
+    part: ThreadWorkPart,
+    merge: (existing: ThreadWorkPart, next: ThreadWorkPart) => ThreadWorkPart = (_existing, next) => next,
+  ): void {
+    const work = findCurrentWorkGroup(this.snapshot, context.turnId) ??
+      createWorkGroup(context, undefined, context.timestamp ?? missingEventTimestamp.toISOString());
+    const parts = upsertWorkPart(work.parts, part, merge);
+    const updatedWork: ThreadWorkGroup = {
+      ...work,
+      parts,
+      status: work.status === 'worked' ? 'working' : work.status,
+      openByDefault: work.status === 'working' ? work.openByDefault : true,
+    };
+    const workGroups = upsertWorkGroup(this.snapshot.workGroups, updatedWork);
+    this.snapshot = refreshSnapshot({
+      ...this.snapshot,
+      workGroups,
+      timeline: upsertTimelineItem(this.snapshot.timeline, createWorkTimelineItem(updatedWork)),
+      currentTurnId: context.turnId ?? this.snapshot.currentTurnId,
+      currentConversationId: context.conversationId ?? this.snapshot.currentConversationId,
+      currentRunId: context.runId ?? this.snapshot.currentRunId,
+    });
+  }
+
   private emit(): void {
+    if (this.muted) return;
     const snapshot = this.getSnapshot();
     for (const listener of this.listeners) {
       listener(snapshot);
@@ -483,75 +883,470 @@ class ThreadProjectionImpl implements ThreadProjection {
 }
 
 function createInitialSnapshot(): ThreadProjectionSnapshot {
-  return {
+  return refreshSnapshot({
     thread: null,
-    messages: [],
-    streaming: false,
-    reasoning: false,
+    timeline: [],
+    workGroups: [],
+    transcriptMessages: [],
     activeTools: [],
-    pendingPermissions: [],
-    pendingClarifications: [],
-    pendingClientToolRequests: [],
+    pendingRuntimeRequests: [],
+    contextUsage: null,
     threadRun: null,
+    activity: createActivity({
+      workGroups: [],
+      activeTools: [],
+      pendingRuntimeRequests: [],
+      threadRun: null,
+      error: null,
+    }),
     currentTurnId: null,
     currentConversationId: null,
+    currentRunId: null,
     error: null,
     canSend: true,
+  });
+}
+
+function refreshSnapshot(snapshot: ThreadProjectionSnapshot): ThreadProjectionSnapshot {
+  const activity = createActivity(snapshot);
+  return {
+    ...snapshot,
+    activity,
+    canSend: activity.status === 'idle' && snapshot.error === null,
+  };
+}
+
+function createActivity(snapshot: Pick<
+  ThreadProjectionSnapshot,
+  'workGroups' | 'activeTools' | 'pendingRuntimeRequests' | 'threadRun' | 'error'
+>): ThreadActivity {
+  const working = snapshot.workGroups.some((work) => work.status === 'working') ||
+    snapshot.threadRun?.status === 'active' ||
+    snapshot.activeTools.length > 0;
+  const reasoning = snapshot.workGroups.some((work) =>
+    work.parts.some((part) => part.type === 'reasoning' && part.status === 'streaming'));
+  const failed = snapshot.error !== null || snapshot.threadRun?.status === 'failed';
+  const cancelled = snapshot.threadRun?.status === 'cancelled';
+
+  return {
+    status: failed
+      ? 'failed'
+      : cancelled
+        ? 'cancelled'
+        : snapshot.pendingRuntimeRequests.length > 0
+          ? 'requesting'
+          : working
+            ? 'working'
+            : 'idle',
+    streaming: working,
+    reasoning,
+    activeToolCount: snapshot.activeTools.length,
+    pendingRequestCount: snapshot.pendingRuntimeRequests.length,
   };
 }
 
 function cloneSnapshot(snapshot: ThreadProjectionSnapshot): ThreadProjectionSnapshot {
-  return {
+  const cloned = {
     ...snapshot,
-    messages: snapshot.messages.map((message) => ({
-      ...message,
-      toolCalls: message.toolCalls.map((tool) => ({ ...tool })),
-    })),
-    activeTools: snapshot.activeTools.map((tool) => ({ ...tool })),
-    pendingPermissions: snapshot.pendingPermissions.map((item) => ({ ...item })),
-    pendingClarifications: snapshot.pendingClarifications.map((item) => ({ ...item })),
-    pendingClientToolRequests: snapshot.pendingClientToolRequests.map((item) => ({ ...item })),
-    canSend: !snapshot.streaming &&
-      snapshot.pendingPermissions.length === 0 &&
-      snapshot.pendingClarifications.length === 0 &&
-      snapshot.error === null,
+    timeline: snapshot.timeline.map(cloneTimelineItem),
+    workGroups: snapshot.workGroups.map(cloneWorkGroup),
+    transcriptMessages: snapshot.transcriptMessages.map(cloneMessage),
+    activeTools: snapshot.activeTools.map(cloneToolCall),
+    pendingRuntimeRequests: snapshot.pendingRuntimeRequests.map(cloneRuntimeRequest),
+    contextUsage: cloneContextUsage(snapshot.contextUsage),
+    activity: { ...snapshot.activity },
+  };
+  return refreshSnapshot(cloned);
+}
+
+function cloneTimelineItem(item: ThreadTimelineItem): ThreadTimelineItem {
+  if (item.type === 'message') {
+    return { ...item, message: cloneMessage(item.message) };
+  }
+  if (item.type === 'work') {
+    return { ...item, work: cloneWorkGroup(item.work) };
+  }
+  if (item.type === 'runtime-request') {
+    return { ...item, request: cloneRuntimeRequest(item.request) };
+  }
+  return { ...item };
+}
+
+function cloneWorkGroup(work: ThreadWorkGroup): ThreadWorkGroup {
+  return {
+    ...work,
+    usage: work.usage ? cloneUsageDetails(work.usage) : work.usage,
+    parts: work.parts.map(cloneWorkPart),
   };
 }
 
-function upsertMessage(
-  messages: Message[],
+function cloneContextUsage(contextUsage: ThreadContextUsage | null): ThreadContextUsage | null {
+  if (!contextUsage) return null;
+  return {
+    ...contextUsage,
+    usage: cloneUsageDetails(contextUsage.usage),
+  };
+}
+
+function cloneUsageDetails<T extends ThreadContextUsage['usage']>(usage: T): T {
+  return {
+    ...usage,
+    additionalCounts: usage.additionalCounts
+      ? { ...usage.additionalCounts }
+      : usage.additionalCounts,
+  };
+}
+
+function cloneWorkPart(part: ThreadWorkPart): ThreadWorkPart {
+  if (part.type === 'assistant-draft') {
+    return { ...part, message: cloneMessage(part.message) };
+  }
+  if (part.type === 'tool') {
+    return { ...part, tool: cloneToolCall(part.tool) };
+  }
+  if (part.type === 'tool-group') {
+    return {
+      ...part,
+      group: {
+        ...part.group,
+        tools: part.group.tools.map(cloneToolCall),
+      },
+    };
+  }
+  return { ...part };
+}
+
+function cloneMessage(message: Message): Message {
+  return {
+    ...message,
+    additionalProperties: message.additionalProperties
+      ? { ...message.additionalProperties }
+      : undefined,
+    contents: message.contents.map(cloneAIContent),
+    toolCalls: message.toolCalls.map(cloneToolCall),
+  };
+}
+
+function cloneToolCall(tool: ToolCall): ToolCall {
+  return { ...tool };
+}
+
+function cloneAIContent(content: AIContent): AIContent {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(content);
+  }
+  return JSON.parse(JSON.stringify(content)) as AIContent;
+}
+
+function createWorkGroup(context: ProjectionContext, agentName?: string, startedAt?: string): ThreadWorkGroup {
+  const id = workGroupId(context.turnId, context.runId);
+  return {
+    id,
+    turnId: context.turnId,
+    conversationId: context.conversationId,
+    runId: context.runId,
+    status: 'working',
+    label: agentName ?? 'Work',
+    openByDefault: true,
+    parts: [],
+    startedAt,
+    completedAt: null,
+  };
+}
+
+function workGroupId(turnId: string | null, runId: string | null): string {
+  if (turnId) return `turn:${turnId}`;
+  if (runId) return `run:${runId}`;
+  return 'work:current';
+}
+
+function findCurrentWorkGroup(snapshot: ThreadProjectionSnapshot, turnId: string | null): ThreadWorkGroup | null {
+  if (turnId) {
+    return snapshot.workGroups.find((work) => work.turnId === turnId) ?? null;
+  }
+  return snapshot.workGroups.find((work) => work.status === 'working') ?? null;
+}
+
+function findFinalAssistantDraft(work: ThreadWorkGroup): Message | null {
+  for (let index = work.parts.length - 1; index >= 0; index -= 1) {
+    const part = work.parts[index];
+    if (part.type === 'assistant-draft' && part.message.role === 'assistant') {
+      return part.message;
+    }
+  }
+  return null;
+}
+
+function shouldPlaceMessageInTranscript(role: string, context: ProjectionContext): boolean {
+  return role === 'user' || !context.turnId;
+}
+
+function upsertWorkGroup(workGroups: ThreadWorkGroup[], work: ThreadWorkGroup): ThreadWorkGroup[] {
+  if (workGroups.some((item) => item.id === work.id)) {
+    return workGroups.map((item) => item.id === work.id ? work : item);
+  }
+  return [...workGroups, work];
+}
+
+function upsertWorkPart(
+  parts: ThreadWorkPart[],
+  part: ThreadWorkPart,
+  merge: (existing: ThreadWorkPart, next: ThreadWorkPart) => ThreadWorkPart,
+): ThreadWorkPart[] {
+  const existing = parts.find((item) => item.id === part.id);
+  if (existing) {
+    return parts.map((item) => item.id === part.id ? merge(item, part) : item);
+  }
+  return [...parts, part];
+}
+
+function appendReasoningPart(existing: ThreadWorkPart, next: ThreadWorkPart): ThreadWorkPart {
+  if (existing.type !== 'reasoning' || next.type !== 'reasoning') return next;
+  return {
+    ...existing,
+    text: existing.text + next.text,
+    eventFlowId: next.eventFlowId ?? existing.eventFlowId,
+    sequenceNumber: next.sequenceNumber ?? existing.sequenceNumber,
+    status: next.status,
+  };
+}
+
+function upsertTimelineItem(items: ThreadTimelineItem[], item: ThreadTimelineItem): ThreadTimelineItem[] {
+  if (items.some((candidate) => candidate.id === item.id)) {
+    return items.map((candidate) => candidate.id === item.id ? item : candidate);
+  }
+  return [...items, item];
+}
+
+function createWorkTimelineItem(work: ThreadWorkGroup): ThreadTimelineItem {
+  return {
+    type: 'work',
+    id: `timeline:${work.id}`,
+    work,
+    turnId: work.turnId,
+    conversationId: work.conversationId,
+    runId: work.runId,
+  };
+}
+
+function createMessageTimelineItem(message: Message): ThreadTimelineItem {
+  return {
+    type: 'message',
+    id: `message:${message.id}`,
+    message,
+    turnId: message.turnId,
+    conversationId: message.conversationId,
+    runId: message.runId,
+    eventFlowId: message.eventFlowId,
+    sequenceNumber: message.sequenceNumber,
+  };
+}
+
+function syncWorkTimeline(timeline: ThreadTimelineItem[], workGroups: ThreadWorkGroup[]): ThreadTimelineItem[] {
+  return timeline.map((item) => {
+    if (item.type !== 'work') return item;
+    const work = workGroups.find((candidate) => `timeline:${candidate.id}` === item.id);
+    return work ? createWorkTimelineItem(work) : item;
+  });
+}
+
+function createMessage(
   messageId: string,
   role: string,
-  updater: (message: Message) => Message,
-): Message[] {
-  const existing = messages.find((message) => message.id === messageId);
-  if (existing) {
-    return messages.map((message) => message.id === messageId ? updater(message) : message);
-  }
-
-  const message: Message = {
+  context: ProjectionContext,
+  placement: MessagePlacement,
+  clientInputId: string | null = null,
+  timestamp = new Date(),
+): Message {
+  return {
     id: messageId,
     role: role as MessageRole,
     content: '',
+    contents: [],
     streaming: false,
     thinking: false,
-    timestamp: new Date(),
+    timestamp,
     toolCalls: [],
+    turnId: context.turnId,
+    conversationId: context.conversationId,
+    runId: context.runId,
+    eventFlowId: context.eventFlowId,
+    sequenceNumber: context.sequenceNumber,
+    placement,
+    clientInputId,
   };
-
-  return [...messages, updater(message)];
 }
 
-function updateMessage(
+function readEventTimestamp(event: AgentEvent): Date {
+  return event.timestamp ? new Date(event.timestamp) : new Date(missingEventTimestamp);
+}
+
+function upsertTranscriptMessage(messages: Message[], message: Message): Message[] {
+  if (messages.some((item) => item.id === message.id)) {
+    return messages.map((item) => item.id === message.id ? message : item);
+  }
+  return [...messages, message];
+}
+
+function upsertTranscriptMessageAndTimeline(
   messages: Message[],
+  timeline: ThreadTimelineItem[],
+  message: Message,
+): { transcriptMessages: Message[]; timeline: ThreadTimelineItem[] } {
+  const optimistic = message.clientInputId
+    ? messages.find((item) =>
+        item.clientInputId === message.clientInputId &&
+        item.placement === 'optimistic' &&
+        item.id !== message.id)
+    : undefined;
+
+  if (optimistic) {
+    const reconciled: Message = {
+      ...message,
+      placement: message.placement === 'optimistic' ? 'optimistic' : 'transcript',
+    };
+    return {
+      transcriptMessages: messages.map((item) => item.id === optimistic.id ? reconciled : item),
+      timeline: timeline.map((item) =>
+        item.type === 'message' && item.message.id === optimistic.id
+          ? createMessageTimelineItem(reconciled)
+          : item),
+    };
+  }
+
+  return {
+    transcriptMessages: upsertTranscriptMessage(messages, message),
+    timeline: upsertTimelineItem(timeline, createMessageTimelineItem(message)),
+  };
+}
+
+function updateMessageEverywhere(
+  snapshot: ThreadProjectionSnapshot,
   messageId: string,
   updater: (message: Message) => Message,
-): Message[] {
-  return messages.map((message) => message.id === messageId ? updater(message) : message);
+): ThreadProjectionSnapshot {
+  return updateAllMessages(snapshot, (message) => message.id === messageId ? updater(message) : message);
 }
 
-function hasStreamingMessages(messages: Message[]): boolean {
-  return messages.some((message) => message.streaming);
+function messageExists(snapshot: ThreadProjectionSnapshot, messageId: string): boolean {
+  return snapshot.transcriptMessages.some((message) => message.id === messageId) ||
+    snapshot.workGroups.some((work) =>
+      work.parts.some((part) => part.type === 'assistant-draft' && part.message.id === messageId));
+}
+
+function updateAllMessages(
+  snapshot: ThreadProjectionSnapshot,
+  updater: (message: Message) => Message,
+): ThreadProjectionSnapshot {
+  const transcriptMessages = snapshot.transcriptMessages.map(updater);
+  const workGroups = snapshot.workGroups.map((work) => ({
+    ...work,
+    parts: work.parts.map((part) =>
+      part.type === 'assistant-draft'
+        ? { ...part, message: updater(part.message) }
+        : part),
+  }));
+  const timeline = snapshot.timeline.map((item) => {
+    if (item.type === 'message') {
+      return createMessageTimelineItem(updater(item.message));
+    }
+    if (item.type === 'work') {
+      const work = workGroups.find((candidate) => candidate.id === item.work.id);
+      return work ? createWorkTimelineItem(work) : item;
+    }
+    return item;
+  });
+  return {
+    ...snapshot,
+    transcriptMessages,
+    workGroups,
+    timeline,
+  };
+}
+
+function updateWorkPart(
+  snapshot: ThreadProjectionSnapshot,
+  partId: string,
+  updater: (part: ThreadWorkPart) => ThreadWorkPart,
+): ThreadProjectionSnapshot {
+  const workGroups = snapshot.workGroups.map((work) => ({
+    ...work,
+    parts: work.parts.map((part) => part.id === partId ? updater(part) : part),
+  }));
+  return {
+    ...snapshot,
+    workGroups,
+    timeline: syncWorkTimeline(snapshot.timeline, workGroups),
+  };
+}
+
+function upsertRuntimeRequest(requests: RuntimeRequest[], request: RuntimeRequest): RuntimeRequest[] {
+  return [
+    ...requests.filter((item) => item.id !== request.id),
+    request,
+  ];
+}
+
+function readContentType(content: unknown): string | undefined {
+  if (typeof content !== 'object' || content === null) return undefined;
+  const contentType = (content as { $type?: unknown }).$type;
+  return typeof contentType === 'string' ? contentType : undefined;
+}
+
+function isAIContent(content: unknown): content is AIContent {
+  return readContentType(content) !== undefined;
+}
+
+function readStringProperty(content: unknown, key: string): string | undefined {
+  if (typeof content !== 'object' || content === null) return undefined;
+  const value = (content as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function readRecordProperty(content: unknown, key: string): Record<string, unknown> | undefined {
+  if (typeof content !== 'object' || content === null) return undefined;
+  const value = (content as Record<string, unknown>)[key];
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function readBooleanProperty(content: unknown, key: string): boolean {
+  if (typeof content !== 'object' || content === null) return false;
+  return (content as Record<string, unknown>)[key] === true;
+}
+
+function appendUniqueText(existing: string, next: string): string {
+  if (!next) return existing;
+  if (!existing) return next;
+  if (existing === next || existing.endsWith(next)) return existing;
+  return existing + next;
+}
+
+function mergeRuntimeRequestBase(request: RuntimeRequest, base: RuntimeRequestBase): RuntimeRequest {
+  if (request.kind === 'permission') {
+    return { ...request, ...base, kind: 'permission' };
+  }
+  if (request.kind === 'clarification') {
+    return { ...request, ...base, kind: 'clarification' };
+  }
+  if (request.kind === 'client-tool') {
+    return { ...request, ...base, kind: 'client-tool' };
+  }
+  return { ...request, ...base, kind: 'custom' };
+}
+
+function cloneRuntimeRequest(request: RuntimeRequest): RuntimeRequest {
+  if (request.kind === 'permission') {
+    return { ...request, request: { ...request.request } };
+  }
+  if (request.kind === 'clarification') {
+    return { ...request, request: { ...request.request } };
+  }
+  if (request.kind === 'client-tool') {
+    return { ...request, request: { ...request.request } };
+  }
+  return { ...request };
 }
 
 function selectThreadRun(activeRun?: ThreadRun | null, runs?: ThreadRun[]): ThreadRunView | null {

@@ -1,4 +1,4 @@
-import type { ThreadEvent, ThreadRun } from '@hpd-research/hpd-agent-client';
+import type { ThreadRun } from '@hpd-research/hpd-agent-client';
 import type { ThreadSnapshot, LoadThreadSnapshotOptions, RehydrateOptions } from './types.js';
 
 export async function loadThreadSnapshot(
@@ -8,10 +8,7 @@ export async function loadThreadSnapshot(
   const { client, agentId, sessionId, threadId } = options;
 
   const threadPromise = client.getThread(sessionId, threadId);
-  const messagesPromise = client.getThreadMessages(sessionId, threadId);
-  const eventsPromise = loadOptions.includeEvents
-    ? client.getThreadEvents(sessionId, threadId)
-    : Promise.resolve<ThreadEvent[]>([]);
+  const eventsPromise = client.getThreadEvents(sessionId, threadId);
   const runsPromise = loadOptions.includeRuns
     ? client.getThreadRuns(agentId, sessionId, threadId)
     : Promise.resolve<ThreadRun[]>([]);
@@ -19,9 +16,8 @@ export async function loadThreadSnapshot(
     ? client.getActiveThreadRun(agentId, sessionId, threadId)
     : Promise.resolve<ThreadRun | null>(null);
 
-  const [thread, messages, events, runs, activeRun] = await Promise.all([
+  const [thread, events, runs, activeRun] = await Promise.all([
     threadPromise,
-    messagesPromise,
     eventsPromise,
     runsPromise,
     activeRunPromise,
@@ -29,7 +25,6 @@ export async function loadThreadSnapshot(
 
   return {
     thread,
-    messages,
     events,
     runs,
     activeRun,

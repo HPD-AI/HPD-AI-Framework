@@ -42,12 +42,9 @@ public static class ThreadEventDocumentBuilder
     }
 
     private static bool HasDefaultRootTreeState(Thread thread) =>
-        thread.SiblingIndex == 0 &&
-        thread.TotalSiblings == 1 &&
-        thread.IsOriginal &&
-        thread.OriginalThreadId is null &&
-        thread.PreviousSiblingId is null &&
-        thread.NextSiblingId is null &&
+        thread.ForkedFrom is null &&
+        thread.ForkedAtMessageId is null &&
+        thread.ForkedAtMessageIndex is null &&
         thread.ChildThreads.Count == 0;
 
     public static ThreadEventDocument Create(

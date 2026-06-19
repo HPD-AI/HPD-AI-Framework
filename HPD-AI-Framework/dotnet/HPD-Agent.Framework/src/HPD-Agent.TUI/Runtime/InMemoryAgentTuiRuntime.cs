@@ -265,8 +265,8 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         }
 
         return threads
-            .OrderBy(static thread => thread.IsOriginal ? 0 : 1)
-            .ThenByDescending(static thread => thread.LastActivity)
+            .OrderByDescending(static thread => thread.LastActivity)
+            .ThenBy(static thread => thread.Id, StringComparer.Ordinal)
             .ToArray();
     }
 
@@ -370,34 +370,35 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         return ToThreadInfo(thread, sessionId);
     }
 
-    public async Task<IReadOnlyList<AgentTuiThreadInfo>> GetSiblingThreadsAsync(
+    public async Task<AgentTuiThreadGraph> GetThreadGraphAsync(
         string sessionId,
-        string threadId,
         CancellationToken cancellationToken = default)
     {
-        var store = _agent.Config?.SessionStore
-            ?? throw new InvalidOperationException("No session store configured.");
-        var target = await store.LoadThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false);
-        if (target is null)
+        var store = _agent.Config?.SessionStore;
+        if (store is null)
         {
-            return [];
+            return new AgentTuiThreadGraph([], [], []);
         }
 
         var threadIds = await store.ListThreadIdsAsync(sessionId, cancellationToken).ConfigureAwait(false);
-        var siblings = new List<AgentTuiThreadInfo>();
+        var threads = new List<Thread>(threadIds.Count);
         foreach (var id in threadIds)
         {
             var thread = await store.LoadThreadAsync(sessionId, id, cancellationToken).ConfigureAwait(false);
-            if (thread is not null && IsSiblingOf(thread, target))
+            if (thread is not null)
             {
-                siblings.Add(ToThreadInfo(thread, sessionId));
+                threads.Add(thread);
             }
         }
 
-        return siblings
-            .OrderBy(static thread => thread.SiblingIndex)
-            .ThenBy(static thread => thread.CreatedAt)
-            .ToArray();
+        return new AgentTuiThreadGraph(
+            threads
+                .Select(thread => ToThreadInfo(thread, sessionId))
+                .OrderByDescending(static thread => thread.LastActivity)
+                .ThenBy(static thread => thread.Id, StringComparer.Ordinal)
+                .ToArray(),
+            BuildForkGroups(threads),
+            BuildRuntimeChildren(threads));
     }
 
     public async Task DeleteThreadAsync(
@@ -446,7 +447,6 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             thread.CreatedAt,
             thread.LastActivity,
             thread.MessageCount,
-            thread.IsOriginal,
             thread.ForkedFrom,
             thread.ForkedAtMessageId,
             thread.ForkedAtMessageIndex,
@@ -456,15 +456,87 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
                 static pair => pair.Key,
                 static pair => pair.Value,
                 StringComparer.Ordinal),
-            thread.SiblingIndex,
-            thread.TotalSiblings,
-            thread.OriginalThreadId,
-            thread.PreviousSiblingId,
-            thread.NextSiblingId,
+            thread.Kind,
+            thread.Visibility,
+            thread.ParentSessionId,
+            thread.ParentThreadId,
+            thread.SubAgentName,
+            thread.SubAgentRunId,
+            thread.SubAgentSourceKind,
+            thread.ParentToolCallId,
+            thread.SessionPolicy,
+            thread.ThreadPolicy,
             thread.Metadata.ToDictionary(
                 static pair => pair.Key,
                 static pair => (object?)pair.Value,
                 StringComparer.Ordinal));
+
+    private static IReadOnlyList<AgentTuiThreadForkGroup> BuildForkGroups(IReadOnlyList<Thread> threads)
+    {
+        return ThreadForkGraph.BuildVisibleForkGroups(threads)
+            .Select(ToForkGroup)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<AgentTuiThreadRuntimeChild> BuildRuntimeChildren(IReadOnlyList<Thread> threads)
+    {
+        return threads
+            .Where(IsRuntimeChildThread)
+            .OrderBy(static thread => thread.ParentThreadId, StringComparer.Ordinal)
+            .ThenBy(static thread => thread.CreatedAt)
+            .ThenBy(static thread => thread.Id, StringComparer.Ordinal)
+            .Select(ToRuntimeChild)
+            .ToArray();
+    }
+
+    private static bool IsVisibleBranchThread(Thread thread) =>
+        thread.Kind == ThreadKind.MainAgent &&
+        thread.Visibility == ThreadVisibility.Visible;
+
+    private static bool IsRuntimeChildThread(Thread thread) =>
+        !string.IsNullOrWhiteSpace(thread.ParentThreadId) ||
+        thread.Kind != ThreadKind.MainAgent ||
+        thread.Visibility == ThreadVisibility.Hidden;
+
+    private static AgentTuiThreadRuntimeChild ToRuntimeChild(Thread thread)
+        => new(
+            thread.Id,
+            thread.ParentSessionId ?? thread.SessionId,
+            thread.ParentThreadId ?? thread.ForkedFrom ?? string.Empty,
+            thread.GetDisplayName(),
+            thread.Kind,
+            thread.Visibility,
+            thread.SubAgentName,
+            thread.SubAgentRunId,
+            thread.SubAgentSourceKind,
+            thread.ParentToolCallId,
+            thread.SessionPolicy,
+            thread.ThreadPolicy,
+            thread.MessageCount,
+            thread.CreatedAt,
+            thread.LastActivity);
+
+    private static AgentTuiThreadForkGroup ToForkGroup(ThreadForkGroup group)
+        => new(
+            group.Id,
+            group.SourceThreadId,
+            group.ForkedAtMessageId,
+            group.ForkedAtMessageIndex,
+            group.ChoiceMessageIndex,
+            group.Members.Select(ToForkGroupMember).ToArray());
+
+    private static AgentTuiThreadForkGroupMember ToForkGroupMember(
+        ThreadForkGroupMember member)
+        => new(
+            member.Thread.Id,
+            member.Thread.GetDisplayName(),
+            member.Index,
+            member.IsSource,
+            member.ChoiceMessageId,
+            member.ChoiceMessageIndex,
+            member.Thread.MessageCount,
+            member.Thread.CreatedAt,
+            member.Thread.LastActivity);
 
     private static string? GetMetadataString(
         IReadOnlyDictionary<string, object> metadata,
@@ -546,17 +618,6 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         }
 
         return true;
-    }
-
-    private static bool IsSiblingOf(Thread thread, Thread target)
-    {
-        if (thread.Id == target.Id)
-        {
-            return true;
-        }
-
-        return string.Equals(thread.ForkedFrom, target.ForkedFrom, StringComparison.Ordinal) &&
-               string.Equals(thread.ForkedAtMessageId, target.ForkedAtMessageId, StringComparison.Ordinal);
     }
 
     public async IAsyncEnumerable<AgentEvent> ObserveAsync(

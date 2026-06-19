@@ -38,7 +38,7 @@ describe('SseTransport runtime', () => {
     expect(events).toEqual([{ type: EventTypes.TEXT_DELTA, text: 'Hello', messageId: 'm1' }]);
   });
 
-  it('submits text input to the scoped inputs endpoint', async () => {
+  it('submits message input to the scoped inputs endpoint', async () => {
     const transport = new SseTransport('http://localhost:5135');
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
@@ -48,11 +48,14 @@ describe('SseTransport runtime', () => {
     } as Response);
 
     await transport.submitInput({
-      type: EventTypes.USER_TEXT_INPUT,
+      type: EventTypes.USER_MESSAGES_INPUT,
       sessionId: 's1',
       agentId: 'a1',
       threadId: 'main',
-      text: 'Hi',
+      messages: [{
+        role: 'user',
+        contents: [{ $type: 'text', text: 'Hi' }],
+      }],
       runConfig: { modelId: 'm' },
     });
 
@@ -60,7 +63,17 @@ describe('SseTransport runtime', () => {
       'http://localhost:5135/agents/a1/sessions/s1/threads/main/inputs',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ text: 'Hi', runConfig: { modelId: 'm' } }),
+        body: JSON.stringify({
+          type: EventTypes.USER_MESSAGES_INPUT,
+          sessionId: 's1',
+          agentId: 'a1',
+          threadId: 'main',
+          messages: [{
+            role: 'user',
+            contents: [{ $type: 'text', text: 'Hi' }],
+          }],
+          runConfig: { modelId: 'm' },
+        }),
       }),
     );
   });

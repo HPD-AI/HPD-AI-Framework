@@ -222,7 +222,9 @@ public static class AgentBuilderEvalExtensions
                 config.IsInternalEvalJudgeCall = true;
                 config.SkipTools = true;
 
-                await judgeAgent.RunAsync(new UserTextInputEvent(userMessage)
+                await judgeAgent.RunAsync(new UserMessagesInputEvent([
+                    new ChatMessage(ChatRole.User, userMessage)
+                ])
                 {
                     RunConfig = config,
                 }, ct).ConfigureAwait(false);

@@ -78,12 +78,6 @@ public class AgentEventSerializerTests
     [Fact]
     public void ToJson_UserInputEvents_UseInputDiscriminators()
     {
-        var textJson = AgentEventSerializer.ToJson(new UserTextInputEvent("hello")
-        {
-            SessionId = "s1",
-            ThreadId = "main"
-        });
-
         var messagesJson = AgentEventSerializer.ToJson(new UserMessagesInputEvent(
             [new ChatMessage(ChatRole.User, "hello")])
         {
@@ -91,25 +85,8 @@ public class AgentEventSerializerTests
             ThreadId = "main"
         });
 
-        Assert.Contains("\"type\":\"USER_TEXT_INPUT\"", textJson);
-        Assert.Contains("\"sessionId\":\"s1\"", textJson);
         Assert.Contains("\"type\":\"USER_MESSAGES_INPUT\"", messagesJson);
-    }
-
-    [Fact]
-    public void FromJson_UserTextInputEvent_RoundTrips()
-    {
-        var json = AgentEventSerializer.ToJson(new UserTextInputEvent("hello")
-        {
-            SessionId = "s1",
-            ThreadId = "main"
-        });
-
-        var result = Assert.IsType<UserTextInputEvent>(AgentEventSerializer.FromJson(json));
-
-        Assert.Equal("hello", result.Text);
-        Assert.Equal("s1", result.SessionId);
-        Assert.Equal("main", result.ThreadId);
+        Assert.Contains("\"sessionId\":\"s1\"", messagesJson);
     }
 
     [Fact]
@@ -297,7 +274,8 @@ public class AgentEventSerializerTests
         var errorEvt = new MessageTurnErrorEvent("Test error");
         var errorJson = AgentEventSerializer.ToJson(errorEvt);
         Assert.Contains("\"type\":\"MESSAGE_TURN_ERROR\"", errorJson);
-        Assert.Contains("\"message\":\"Test error\"", errorJson);
+        Assert.Contains("\"isError\":true", errorJson);
+        Assert.Contains("\"errorMessage\":\"Test error\"", errorJson);
     }
 
     [Fact]
@@ -447,6 +425,7 @@ public class AgentEventSerializerTests
         var errorEvt = new MiddlewareErrorEvent("TestMiddleware", "Something went wrong");
         var errorJson = AgentEventSerializer.ToJson(errorEvt);
         Assert.Contains("\"type\":\"MIDDLEWARE_ERROR\"", errorJson);
+        Assert.Contains("\"isError\":true", errorJson);
         Assert.Contains("\"errorMessage\":\"Something went wrong\"", errorJson);
     }
 
@@ -492,7 +471,6 @@ public class AgentEventSerializerTests
         Assert.Equal("TOOL_CALL_START", AgentEventSerializer.GetEventTypeName(typeof(ToolCallStartEvent)));
         Assert.Equal("PERMISSION_REQUEST", AgentEventSerializer.GetEventTypeName(typeof(PermissionRequestEvent)));
         Assert.Equal("MESSAGE_TURN_STARTED", AgentEventSerializer.GetEventTypeName(typeof(MessageTurnStartedEvent)));
-        Assert.Equal("USER_TEXT_INPUT", AgentEventSerializer.GetEventTypeName(typeof(UserTextInputEvent)));
         Assert.Equal("USER_MESSAGES_INPUT", AgentEventSerializer.GetEventTypeName(typeof(UserMessagesInputEvent)));
     }
 

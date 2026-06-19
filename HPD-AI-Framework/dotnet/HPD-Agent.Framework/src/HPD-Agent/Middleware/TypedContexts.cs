@@ -601,8 +601,9 @@ public sealed class BeforeThreadForkCommitContext : HookContext
 
     /// <summary>
     /// Resolved source message index where the fork occurs. The fork includes this message.
+    /// Null means the fork starts from the root before any source messages.
     /// </summary>
-    public int ForkedAtMessageIndex { get; }
+    public int? ForkedAtMessageIndex { get; }
 
     /// <summary>
     /// Stable id of the source message at the fork point, if available.
@@ -618,7 +619,7 @@ public sealed class BeforeThreadForkCommitContext : HookContext
         AgentContext baseContext,
         Thread sourceThread,
         Thread targetThread,
-        int forkedAtMessageIndex,
+        int? forkedAtMessageIndex,
         string? forkedAtMessageId,
         ThreadForkOptions? forkOptions = null)
         : base(baseContext)

@@ -369,7 +369,7 @@ public class ContentReferenceResolverMiddlewareTests
         Assert.Same(contentUri, Assert.Single(context.Messages[0].Contents));
         Assert.Contains(
             "not found",
-            (await capture.WaitForAsync<ContentReferenceResolutionFailedEvent>()).Single().Error,
+            (await capture.WaitForAsync<ContentReferenceResolutionFailedEvent>()).Single().ErrorMessage,
             StringComparison.OrdinalIgnoreCase);
     }
 
@@ -415,7 +415,7 @@ public class ContentReferenceResolverMiddlewareTests
     }
 
     [Fact]
-    public async Task RoundTrip_ContentReference_DoesNotResolveFromSiblingThreadScope()
+    public async Task RoundTrip_ContentReference_DoesNotResolveFromOtherThreadScope()
     {
         var contentStore = new InMemoryContentStore();
         var uploadMiddleware = new ContentUploadMiddleware(providerRegistry: null, contentStore);

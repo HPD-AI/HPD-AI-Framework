@@ -6,6 +6,8 @@ using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 using HPD.Agent.Hosting.Data;
+using HPD.Agent.Serialization;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.AspNetCore.Tests.Integration;
 
@@ -30,8 +32,14 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         return session!.Id;
     }
 
-    private static string CreateInputJson(string text, AgentRunConfig? runConfig = null) =>
-        JsonSerializer.Serialize(new StreamTextRequest(text, runConfig));
+    private static string CreateInputJson(string text, AgentRunConfig? runConfig = null, string? clientInputId = null) =>
+        AgentEventSerializer.ToJson(new UserMessagesInputEvent([
+            new ChatMessage(ChatRole.User, text)
+        ])
+        {
+            RunConfig = runConfig,
+            ClientInputId = clientInputId
+        });
 
     private Task<HttpResponseMessage> PostInputAsync(
         string sessionId,
@@ -51,6 +59,35 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         var response = await PostInputAsync(sessionId, "main", CreateInputJson("Hello"));
 
         response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+    }
+
+    [Fact]
+    public async Task SubmitInput_PersistsDurableMessageThroughRuntime()
+    {
+        var sessionId = await CreateTestSession();
+
+        var response = await PostInputAsync(
+            sessionId,
+            "main",
+            CreateInputJson("admit this text", clientInputId: "client-input-1"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var submission = await response.Content.ReadFromJsonAsync<InputSubmissionDto>();
+
+        submission.Should().NotBeNull();
+        submission!.RuntimeRunId.Should().NotBeNullOrWhiteSpace();
+
+        var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/threads/main/events");
+        using var events = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
+        var threadEvents = events.RootElement.EnumerateArray().ToArray();
+        threadEvents.Should().NotContain(e => e.GetProperty("type").GetString() == EventTypes.Input.USER_MESSAGES_INPUT);
+        threadEvents.Any(e =>
+            e.GetProperty("type").GetString() == ThreadEventTypes.MessageStarted &&
+            e.TryGetProperty("clientInputId", out var clientInputId) &&
+            clientInputId.GetString() == "client-input-1")
+            .Should()
+            .BeTrue();
+        threadEvents.Should().Contain(e => e.GetProperty("type").GetString() == EventTypes.Content.TEXT_DELTA);
     }
 
     [Fact]

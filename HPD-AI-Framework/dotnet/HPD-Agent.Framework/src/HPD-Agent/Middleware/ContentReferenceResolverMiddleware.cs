@@ -106,7 +106,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
             {
                 context.Emit(new ContentReferenceResolutionFailedEvent(
                     ContentUri: uriContent.Uri,
-                    Error: $"Content not found in store: {contentId}"));
+                    ErrorMessage: $"Content not found in store: {contentId}"));
                 return null;
             }
 
@@ -155,7 +155,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
         {
             context.Emit(new ContentReferenceResolutionFailedEvent(
                 ContentUri: uriContent.Uri,
-                Error: $"Resolution failed: {ex.Message}"));
+                ErrorMessage: $"Resolution failed: {ex.Message}"));
             return null;
         }
     }
@@ -194,7 +194,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
         catch (Exception ex)
         {
             context.Emit(new HostedFileUploadFailedEvent(
-                Error: $"Hosted upload from content store failed: {ex.Message}"));
+                ErrorMessage: $"Hosted upload from content store failed: {ex.Message}"));
             return null;
         }
     }

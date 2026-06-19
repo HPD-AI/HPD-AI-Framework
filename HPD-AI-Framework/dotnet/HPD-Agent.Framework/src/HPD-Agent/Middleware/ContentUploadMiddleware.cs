@@ -140,14 +140,14 @@ public class ContentUploadMiddleware : IAgentMiddleware
         if (strategy == UploadStrategy.Hosted && !canUseHosted)
         {
             context.Emit(new HostedFileUploadFailedEvent(
-                Error: "UploadStrategy.Hosted requested but current provider does not support HostedFileClient"));
+                ErrorMessage: "UploadStrategy.Hosted requested but current provider does not support HostedFileClient"));
             return data;  // Keep original
         }
 
         if (strategy == UploadStrategy.Local && !canUseLocal)
         {
             context.Emit(new ContentUploadFailedEvent(
-                Error: "UploadStrategy.Local requested but no IContentStore configured"));
+                ErrorMessage: "UploadStrategy.Local requested but no IContentStore configured"));
             return data;  // Keep original
         }
 
@@ -226,7 +226,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
         catch (Exception ex)
         {
             context.Emit(new HostedFileUploadFailedEvent(
-                Error: $"Hosted upload failed: {ex.Message}"));
+                ErrorMessage: $"Hosted upload failed: {ex.Message}"));
             return null;
         }
     }
@@ -269,7 +269,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
         catch (Exception ex)
         {
             context.Emit(new ContentUploadFailedEvent(
-                Error: $"Local upload failed: {ex.Message}"));
+                ErrorMessage: $"Local upload failed: {ex.Message}"));
             return null;
         }
     }

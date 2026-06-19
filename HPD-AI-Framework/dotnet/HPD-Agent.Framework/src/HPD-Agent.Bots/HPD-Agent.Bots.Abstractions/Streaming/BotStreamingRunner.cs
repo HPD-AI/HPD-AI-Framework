@@ -156,7 +156,9 @@ public sealed class BotStreamingRunner(
         }
         else
         {
-            await agent.RunAsync(new UserTextInputEvent(request.Text)
+            await agent.RunAsync(new UserMessagesInputEvent([
+                new ChatMessage(ChatRole.User, request.Text)
+            ])
             {
                 AgentId = request.AgentId,
                 SessionId = request.SessionId,

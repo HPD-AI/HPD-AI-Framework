@@ -377,9 +377,12 @@ public class ThreadOperationTests : AgentTestBase
         await store.SaveInitialThreadAsync("test-session", source);
 
         // Act - fork at message 3 (after "Response 2")
-        var forked = await ForkThreadViaStore(store, session, "main", "formal", source.Messages[3].MessageId!);
+        var agent = await CreateAgentWithStoreAsync(store);
+        await agent.ForkThreadAsync("test-session", "main", "formal", source.Messages[3].MessageId!);
+        var forked = await store.LoadThreadAsync("test-session", "formal");
 
         // Assert
+        Assert.NotNull(forked);
         Assert.Equal("formal", forked.Id);
         Assert.Equal("test-session", forked.SessionId);
         Assert.Equal("main", forked.ForkedFrom);
@@ -404,9 +407,12 @@ public class ThreadOperationTests : AgentTestBase
         await store.SaveInitialThreadAsync("test-session", source);
 
         // Act - fork at message 1 (after "Second")
-        var forked = await ForkThreadViaStore(store, session, "main", "alt", source.Messages[1].MessageId!);
+        var agent = await CreateAgentWithStoreAsync(store);
+        await agent.ForkThreadAsync("test-session", "main", "alt", source.Messages[1].MessageId!);
+        var forked = await store.LoadThreadAsync("test-session", "alt");
 
         // Assert - should have messages 0 and 1
+        Assert.NotNull(forked);
         Assert.Equal(2, forked.Messages.Count);
     }
 
@@ -425,9 +431,12 @@ public class ThreadOperationTests : AgentTestBase
         await store.SaveInitialThreadAsync("test-session", source);
 
         // Act
-        var forked = await ForkThreadViaStore(store, session, "main", "alt", source.Messages[0].MessageId!);
+        var agent = await CreateAgentWithStoreAsync(store);
+        await agent.ForkThreadAsync("test-session", "main", "alt", source.Messages[0].MessageId!);
+        var forked = await store.LoadThreadAsync("test-session", "alt");
 
         // Assert - thread-scoped state copied
+        Assert.NotNull(forked);
         Assert.Equal("{\"step\":3}", forked.MiddlewareState["PlanModePersistentState"]);
         Assert.Equal("{\"cached\":true}", forked.MiddlewareState["CompactionState"]);
     }
@@ -445,7 +454,10 @@ public class ThreadOperationTests : AgentTestBase
         source.AddMessage(UserMessage("Hello"));
         await store.SaveInitialThreadAsync("test-session", source);
 
-        var forked = await ForkThreadViaStore(store, session, "main", "alt", source.Messages[0].MessageId!);
+        var agent = await CreateAgentWithStoreAsync(store);
+        await agent.ForkThreadAsync("test-session", "main", "alt", source.Messages[0].MessageId!);
+        var forked = await store.LoadThreadAsync("test-session", "alt");
+        Assert.NotNull(forked);
 
         // Act - modify forked thread state
         forked.MiddlewareState["PlanModePersistentState"] = "{\"step\":5}";
@@ -678,42 +690,8 @@ public class ThreadOperationTests : AgentTestBase
     // HELPERS
     //──────────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Simulates ForkThreadAsync logic (same as Agent.ForkThreadAsync) directly on the store.
-    /// Used when we don't have a full Agent instance in tests.
-    /// </summary>
-    private static async Task<Thread> ForkThreadViaStore(
-        ISessionStore store,
-        HPD.Agent.Session session,
-        string sourceThreadId,
-        string newThreadId,
-        string fromMessageId)
-    {
-        var source = await store.LoadThreadAsync(session.Id, sourceThreadId);
-        Assert.NotNull(source);
-
-        var fromMessageIndex = source.Messages.FindIndex(message =>
-            string.Equals(message.MessageId, fromMessageId, StringComparison.Ordinal));
-        Assert.True(fromMessageIndex >= 0);
-
-        // Using internal constructor with init properties to set fork metadata
-        var newThread = new Thread(session.Id, newThreadId)
-        {
-            ForkedFrom = sourceThreadId,
-            ForkedAtMessageId = fromMessageId,
-            ForkedAtMessageIndex = fromMessageIndex
-        };
-
-        // Copy messages up to and including fork point
-        newThread.Messages.AddRange(source.Messages.Take(fromMessageIndex + 1));
-
-        // Copy thread-scoped middleware state
-        foreach (var kvp in source.MiddlewareState)
-        {
-            newThread.MiddlewareState[kvp.Key] = kvp.Value;
-        }
-
-        await store.SaveInitialThreadAsync(session.Id, newThread);
-        return newThread;
-    }
+    private static async Task<Agent> CreateAgentWithStoreAsync(ISessionStore store) =>
+        await new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
+            .WithSessionStore(store)
+            .BuildAsync(CancellationToken.None);
 }

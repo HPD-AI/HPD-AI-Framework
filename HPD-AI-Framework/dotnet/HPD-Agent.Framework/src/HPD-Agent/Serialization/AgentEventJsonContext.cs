@@ -35,7 +35,6 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(AgentEvent))]
 [JsonSerializable(typeof(AgentMetadata))]
 [JsonSerializable(typeof(AgentInputEvent))]
-[JsonSerializable(typeof(UserTextInputEvent))]
 [JsonSerializable(typeof(UserMessagesInputEvent))]
 [JsonSerializable(typeof(ThreadCreatedEvent))]
 [JsonSerializable(typeof(ThreadForkedEvent))]

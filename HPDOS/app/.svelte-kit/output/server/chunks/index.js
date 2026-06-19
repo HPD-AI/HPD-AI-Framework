@@ -5,7 +5,7 @@ const EFFECT = 1 << 2;
 const RENDER_EFFECT = 1 << 3;
 const MANAGED_EFFECT = 1 << 24;
 const BLOCK_EFFECT = 1 << 4;
-const THREAD_EFFECT = 1 << 5;
+const BRANCH_EFFECT = 1 << 5;
 const ROOT_EFFECT = 1 << 6;
 const BOUNDARY_EFFECT = 1 << 7;
 const CONNECTED = 1 << 9;
@@ -323,9 +323,6 @@ function setContext(key, context) {
   get_or_init_context_map().set(key, context);
   return context;
 }
-function hasContext(key) {
-  return get_or_init_context_map().has(key);
-}
 function get_or_init_context_map(name) {
   if (ssr_context === null) {
     lifecycle_outside_component();
@@ -435,7 +432,7 @@ class Renderer {
    */
   global;
   /**
-   * State that is local to the thread it is declared in.
+   * State that is local to the branch it is declared in.
    * It will be shallow-copied to all children.
    *
    * @type {{ select_value: string | undefined }}
@@ -1182,35 +1179,9 @@ function attributes(attrs, css_hash, classes, styles, flags = 0) {
   }
   return attr_str;
 }
-function spread_props(props) {
-  const merged_props = {};
-  let key;
-  for (let i = 0; i < props.length; i++) {
-    const obj = props[i];
-    if (obj == null) continue;
-    for (key of Object.keys(obj)) {
-      const desc = Object.getOwnPropertyDescriptor(obj, key);
-      if (desc) {
-        Object.defineProperty(merged_props, key, desc);
-      } else {
-        merged_props[key] = obj[key];
-      }
-    }
-  }
-  return merged_props;
-}
 function attr_class(value, hash, directives) {
   var result = to_class(value, hash, directives);
   return result ? ` class="${escape_html(result, true)}"` : "";
-}
-function bind_props(props_parent, props_now) {
-  for (const key of Object.keys(props_now)) {
-    const initial_value = props_parent[key];
-    const value = props_now[key];
-    if (initial_value === void 0 && value !== void 0 && Object.getOwnPropertyDescriptor(props_parent, key)?.set) {
-      props_parent[key] = value;
-    }
-  }
 }
 function ensure_array_like(array_like_or_iterator) {
   if (array_like_or_iterator) {
@@ -1229,11 +1200,6 @@ function once(get_value) {
     }
     return value;
   };
-}
-function props_id(renderer) {
-  const uid = renderer.global.uid();
-  renderer.push("<!--$" + uid + "-->");
-  return uid;
 }
 function derived(fn) {
   const get_value = ssr_context === null ? fn : once(fn);
@@ -1261,7 +1227,7 @@ export {
   MANAGED_EFFECT as K,
   ROOT_EFFECT as L,
   MAYBE_DIRTY as M,
-  THREAD_EFFECT as N,
+  BRANCH_EFFECT as N,
   includes as O,
   REACTION_IS_UPDATING as P,
   index_of as Q,
@@ -1280,15 +1246,10 @@ export {
   render as a1,
   setContext as a2,
   derived as a3,
-  hasContext as a4,
-  props_id as a5,
-  attributes as a6,
-  bind_props as a7,
-  spread_props as a8,
-  head as a9,
-  attr_class as aa,
-  attr as ab,
-  ensure_array_like as ac,
+  head as a4,
+  ensure_array_like as a5,
+  attr_class as a6,
+  attr as a7,
   HYDRATION_START as b,
   HYDRATION_START_ELSE as c,
   array_prototype as d,

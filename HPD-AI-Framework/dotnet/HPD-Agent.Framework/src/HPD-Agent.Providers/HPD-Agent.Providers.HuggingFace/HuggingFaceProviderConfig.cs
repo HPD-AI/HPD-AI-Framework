@@ -145,15 +145,4 @@ public class HuggingFaceProviderConfig
     [JsonPropertyName("waitForModel")]
     public bool? WaitForModel { get; set; }
 
-    //
-    // ADVANCED OPTIONS
-    //
-
-    /// <summary>
-    /// Additional custom parameters to pass to the model.
-    /// This is a flexible dictionary for model-specific parameters not covered
-    /// by the standard options.
-    /// </summary>
-    [JsonPropertyName("additionalProperties")]
-    public Dictionary<string, object>? AdditionalProperties { get; set; }
 }

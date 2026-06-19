@@ -251,32 +251,28 @@ public class RecursiveThreadDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
     }
 
     [Fact]
-    public async Task RecursiveDelete_SiblingsOfDeletedRoot_AreReindexedCorrectly()
+    public async Task RecursiveDelete_RemovesDeletedRootFromForkGroupLineage()
     {
-        // Arrange: main has two children fork-1 and fork-2 (siblings at same fork point)
-        // fork-1 also has a child fork-1a
+        // Arrange: main has two forks at the same fork point, and fork-1 has a child.
         var sid = await CreateSession();
         await ForkThread(sid, "main", "fork-1");
         await ForkThread(sid, "main", "fork-2");
         await ForkThread(sid, "fork-1", "fork-1a");
 
-        // Verify initial state: fork-1 and fork-2 are siblings of main ( group = [main, fork-1, fork-2] = 3 total)
         var beforeFork1 = await GetThread(sid, "fork-1");
         var beforeFork2 = await GetThread(sid, "fork-2");
-        beforeFork1!.TotalSiblings.Should().Be(3);
-        beforeFork2!.TotalSiblings.Should().Be(3);
+        beforeFork1!.ForkedFrom.Should().Be("main");
+        beforeFork2!.ForkedFrom.Should().Be("main");
+        beforeFork2.ForkedAtMessageId.Should().Be(beforeFork1.ForkedAtMessageId);
 
         // Act: delete fork-1 recursively (also deletes fork-1a)
         var response = await _client.DeleteAsync($"/sessions/{sid}/threads/fork-1?recursive=true");
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        // Assert: group is now [main, fork-2] = 2 total; fork-1a gone
         var afterFork2 = await GetThread(sid, "fork-2");
         afterFork2.Should().NotBeNull();
-        afterFork2!.TotalSiblings.Should().Be(2);
-        afterFork2.SiblingIndex.Should().Be(1);        // main=0, fork-2=1
-        afterFork2.PreviousSiblingId.Should().Be("main");
-        afterFork2.NextSiblingId.Should().BeNull();
+        afterFork2!.ForkedFrom.Should().Be("main");
+        afterFork2.ForkedAtMessageId.Should().Be(beforeFork2.ForkedAtMessageId);
 
         (await GetThread(sid, "fork-1a")).Should().BeNull();
     }
