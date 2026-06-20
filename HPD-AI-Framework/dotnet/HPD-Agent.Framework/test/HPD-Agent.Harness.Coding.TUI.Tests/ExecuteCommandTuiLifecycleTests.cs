@@ -5,6 +5,8 @@ using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.Agent.TUI.Views;
 using HPD.Agent.ToolHarness.Coding.TUI;
+using HPD.Agent.ToolHarness.Coding.TUI.Commands;
+using HPD.TUI.Components;
 using HPD.TUI.Rendering;
 using HPD.TUI.Views;
 
@@ -36,10 +38,13 @@ public sealed class ExecuteCommandTuiLifecycleTests
             "hpd.coding.background",
             "hpd.coding.output"
         ]);
-        registry.BelowEditorWidgets.Select(static widget => widget.Key).Should().Contain([
+        registry.BelowEditorWidgets.Select(static widget => widget.Key).Should().NotContain([
             "hpd.coding.active-command",
             "hpd.coding.background-commands"
         ]);
+        registry.TranscriptRenderers.TryFindRenderer<CodingCommandCell>(
+            CodingHarnessTuiTranscriptRendererKeys.Command,
+            out _).Should().BeTrue();
     }
 
     [Fact]
@@ -55,12 +60,36 @@ public sealed class ExecuteCommandTuiLifecycleTests
         var rows = ReadRows(state.Shell.Transcript);
         rows.Should().ContainSingle();
         rows[0].EntryKey.Should().Be("coding.command:cmd-1");
+        rows[0].Cell.Should().BeOfType<CodingCommandCell>()
+            .Which.DisplayCommand.Should().Be("dotnet test");
 
         var rendered = RenderTranscript(state);
         rendered.Should().Contain("• Ran dotnet test");
         rendered.Should().Contain("Determining projects to restore...");
         rendered.Should().Contain("1.8s");
         rendered.Should().Contain("exit 0");
+    }
+
+    [Fact]
+    public async Task ReplacedCommandRenderer_KeepsCommandHandlersAndState()
+    {
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .AddCodingHarnessTui()
+            .ReplaceTranscriptRenderer<CodingCommandCell>(
+                CodingHarnessTuiTranscriptRendererKeys.Command,
+                _ => new Text("custom command row"))
+            .Build();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            registry);
+
+        await state.ApplyEventAsync(Started(command: "dotnet test"));
+        await state.ApplyEventAsync(Output("restore complete\n"));
+
+        ReadRows(state.Shell.Transcript).Should().ContainSingle()
+            .Which.Cell.Should().BeOfType<CodingCommandCell>();
+        RenderTranscript(state, registry.TranscriptRenderers).Should().Contain("custom command row");
     }
 
     [Fact]
@@ -242,7 +271,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
     }
 
     [Fact]
-    public async Task BelowEditorWidget_RendersActiveCommandTail()
+    public async Task CommandOutput_RendersInTranscriptInsteadOfBelowEditorWidget()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()
@@ -258,10 +287,10 @@ public sealed class ExecuteCommandTuiLifecycleTests
         await state.ApplyEventAsync(Output("tests running\n"));
         await state.ApplyEventAsync(Progress(elapsedMilliseconds: 1_250, stdoutBytes: 42));
 
-        var rendered = RenderBelowEditorWidgets(registry, state);
+        RenderBelowEditorWidgets(registry, state).Trim().Should().BeEmpty();
+
+        var rendered = RenderTranscript(state, registry.TranscriptRenderers);
         rendered.Should().Contain("dotnet test");
-        rendered.Should().Contain("1.3s");
-        rendered.Should().Contain("stdout 42B");
         rendered.Should().Contain("restore complete");
         rendered.Should().Contain("tests running");
     }
@@ -287,7 +316,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
     }
 
     [Fact]
-    public async Task BackgroundWidget_RendersCommandStartedInBackground()
+    public async Task BackgroundCommandOutput_RendersInTranscriptInsteadOfBelowEditorWidget()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()
@@ -304,17 +333,15 @@ public sealed class ExecuteCommandTuiLifecycleTests
             command: "npm run dev",
             stdoutBytes: 37));
 
-        var rendered = RenderBelowEditorWidgets(registry, state);
-        rendered.Should().Contain("bg 1");
+        RenderBelowEditorWidgets(registry, state).Trim().Should().BeEmpty();
+
+        var rendered = RenderTranscript(state, registry.TranscriptRenderers);
         rendered.Should().Contain("npm run dev");
-        rendered.Should().Contain("/repo");
-        rendered.Should().Contain("1.5s");
-        rendered.Should().Contain("stdout 37B");
         rendered.Should().Contain("listening on http://localhost:5173");
     }
 
     [Fact]
-    public async Task BackgroundWidget_RendersAutoBackgroundedCommandAndTail()
+    public async Task AutoBackgroundedCommandOutput_RendersInTranscriptInsteadOfBelowEditorWidget()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()
@@ -329,8 +356,9 @@ public sealed class ExecuteCommandTuiLifecycleTests
         await state.ApplyEventAsync(Backgrounded());
         await state.ApplyEventAsync(Output("ready on 5173\n", command: "npm run dev"));
 
-        var rendered = RenderBelowEditorWidgets(registry, state);
-        rendered.Should().Contain("bg 1");
+        RenderBelowEditorWidgets(registry, state).Trim().Should().BeEmpty();
+
+        var rendered = RenderTranscript(state, registry.TranscriptRenderers);
         rendered.Should().Contain("npm run dev");
         rendered.Should().Contain("server starting");
         rendered.Should().Contain("ready on 5173");
@@ -463,6 +491,8 @@ public sealed class ExecuteCommandTuiLifecycleTests
         var rows = ReadRows(state.Shell.Transcript);
         rows.Should().ContainSingle();
         rows[0].EntryKey.Should().Be("coding.command:cmd-1");
+        rows[0].Cell.Should().BeOfType<CodingCommandCell>()
+            .Which.State.Should().Be(CodingCommandTranscriptState.Completed);
 
         RenderTranscript(state).Should().Contain("• Ran dotnet test");
     }
@@ -630,12 +660,23 @@ public sealed class ExecuteCommandTuiLifecycleTests
         return rows;
     }
 
-    private static string RenderTranscript(AgentTuiSessionState state, int width = 100, int height = 14)
+    private static string RenderTranscript(
+        AgentTuiSessionState state,
+        AgentTuiTranscriptRendererRegistry? renderers = null,
+        int width = 100,
+        int height = 14)
         => TuiCapture.RenderToString(
-            new TranscriptView(state.Shell.Transcript, height: 12),
+            new TranscriptView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 12),
             width: width,
             height: height,
             trimTrailingBlankLines: true);
+
+    private static AgentTuiTranscriptRendererRegistry DefaultTranscriptRenderers()
+        => new HpdAgentTuiBuilder()
+            .AddDefaultTranscriptRenderers()
+            .AddCodingHarnessTui()
+            .Build()
+            .TranscriptRenderers;
 
     private static string RenderShell(HpdAgentTuiRegistry registry, AgentTuiSessionState state)
         => TuiCapture.RenderToString(

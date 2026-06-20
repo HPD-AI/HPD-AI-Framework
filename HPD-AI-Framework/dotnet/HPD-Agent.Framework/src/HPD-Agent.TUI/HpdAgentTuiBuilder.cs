@@ -2,6 +2,7 @@ using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Interactions;
 using HPD.Agent.TUI.Models;
+using HPD.Agent.TUI.Views;
 using HPD.TUI.Components;
 using HPD.TUI.Controllers;
 using HPD.TUI.Core;
@@ -19,6 +20,7 @@ public sealed class HpdAgentTuiBuilder
     private readonly Dictionary<string, HpdAgentTuiShortcutDescriptor> _shortcuts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IAgentTuiEventHandler> _eventHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IAgentTuiInteractionHandler> _interactionHandlers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IAgentTuiTranscriptRendererAdapter> _transcriptRenderers = new(StringComparer.Ordinal);
     private readonly HashSet<KeyGesture> _shortcutGestures = [];
     private IAgentTuiShellComponent? _header;
     private IAgentTuiShellComponent? _footer;
@@ -32,6 +34,7 @@ public sealed class HpdAgentTuiBuilder
     public HpdAgentTuiBuilder AddAgentTuiDefaults()
         => AddDefaultShell()
             .AddDefaultPrompt()
+            .AddDefaultTranscriptRenderers()
             .AddDefaultCommandSupport()
             .AddDefaultShellCommands();
 
@@ -109,6 +112,132 @@ public sealed class HpdAgentTuiBuilder
             Title = "/clear",
             Description = "Clear the transcript."
         });
+        return this;
+    }
+
+    public HpdAgentTuiBuilder AddDefaultTranscriptRenderers()
+        => TryAddTranscriptRenderer(
+                AgentTuiTranscriptRendererKeys.UserMessage,
+                new UserMessageCellRenderer())
+            .TryAddTranscriptRenderer(
+                AgentTuiTranscriptRendererKeys.AssistantMessage,
+                new AssistantMessageCellRenderer())
+            .TryAddTranscriptRenderer(
+                AgentTuiTranscriptRendererKeys.ReasoningMessage,
+                new ReasoningMessageCellRenderer())
+            .TryAddTranscriptRenderer(
+                AgentTuiTranscriptRendererKeys.Notice,
+                new NoticeCellRenderer())
+            .TryAddTranscriptRenderer(
+                AgentTuiTranscriptRendererKeys.RunStatus,
+                new RunStatusCellRenderer())
+            .TryAddTranscriptRenderer(
+                AgentTuiTranscriptRendererKeys.ToolCall,
+                new ToolCallCellRenderer())
+            .TryAddTranscriptRenderer(
+                AgentTuiTranscriptRendererKeys.CustomComponent,
+                new CustomComponentCellRenderer());
+
+    public HpdAgentTuiBuilder AddTranscriptRenderer<TCell>(
+        string key,
+        IAgentTuiTranscriptRenderer<TCell> renderer)
+        where TCell : TranscriptCell
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(renderer);
+        if (_transcriptRenderers.ContainsKey(key))
+        {
+            throw new InvalidOperationException($"A transcript renderer is already registered for '{key}'.");
+        }
+
+        if (TryFindTranscriptRendererKeyForCellType(typeof(TCell), out var existingKey))
+        {
+            throw new InvalidOperationException(
+                $"A transcript renderer is already registered for cell type '{typeof(TCell).Name}' with key '{existingKey}'.");
+        }
+
+        _transcriptRenderers[key] = new AgentTuiTranscriptRendererAdapter<TCell>(key, renderer);
+        return this;
+    }
+
+    public HpdAgentTuiBuilder AddTranscriptRenderer<TCell>(
+        string key,
+        Func<AgentTuiTranscriptRenderContext<TCell>, IComponent> create)
+        where TCell : TranscriptCell
+        => AddTranscriptRenderer(key, new DelegateAgentTuiTranscriptRenderer<TCell>(create));
+
+    public HpdAgentTuiBuilder TryAddTranscriptRenderer<TCell>(
+        string key,
+        IAgentTuiTranscriptRenderer<TCell> renderer)
+        where TCell : TranscriptCell
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(renderer);
+        if (_transcriptRenderers.ContainsKey(key) ||
+            TryFindTranscriptRendererKeyForCellType(typeof(TCell), out _))
+        {
+            return this;
+        }
+
+        _transcriptRenderers[key] = new AgentTuiTranscriptRendererAdapter<TCell>(key, renderer);
+        return this;
+    }
+
+    public HpdAgentTuiBuilder TryAddTranscriptRenderer<TCell>(
+        string key,
+        Func<AgentTuiTranscriptRenderContext<TCell>, IComponent> create)
+        where TCell : TranscriptCell
+        => TryAddTranscriptRenderer(key, new DelegateAgentTuiTranscriptRenderer<TCell>(create));
+
+    public HpdAgentTuiBuilder ReplaceTranscriptRenderer<TCell>(
+        string key,
+        IAgentTuiTranscriptRenderer<TCell> renderer)
+        where TCell : TranscriptCell
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(renderer);
+        if (!_transcriptRenderers.TryGetValue(key, out var existing))
+        {
+            throw new InvalidOperationException($"Cannot replace transcript renderer '{key}' because none is registered.");
+        }
+
+        if (existing.CellType != typeof(TCell))
+        {
+            throw new InvalidOperationException(
+                $"Cannot replace transcript renderer '{key}' for '{existing.CellType.Name}' with renderer for '{typeof(TCell).Name}'.");
+        }
+
+        _transcriptRenderers[key] = new AgentTuiTranscriptRendererAdapter<TCell>(key, renderer);
+        return this;
+    }
+
+    public HpdAgentTuiBuilder ReplaceTranscriptRenderer<TCell>(
+        string key,
+        Func<AgentTuiTranscriptRenderContext<TCell>, IComponent> create)
+        where TCell : TranscriptCell
+        => ReplaceTranscriptRenderer(key, new DelegateAgentTuiTranscriptRenderer<TCell>(create));
+
+    public HpdAgentTuiBuilder DecorateTranscriptRenderer<TCell>(
+        string key,
+        Func<IAgentTuiTranscriptRenderer<TCell>, IAgentTuiTranscriptRenderer<TCell>> decorate)
+        where TCell : TranscriptCell
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(decorate);
+        if (!_transcriptRenderers.TryGetValue(key, out var existing))
+        {
+            throw new InvalidOperationException($"Cannot decorate transcript renderer '{key}' because none is registered.");
+        }
+
+        if (existing is not AgentTuiTranscriptRendererAdapter<TCell> typed)
+        {
+            throw new InvalidOperationException(
+                $"Cannot decorate transcript renderer '{key}' for '{existing.CellType.Name}' as '{typeof(TCell).Name}'.");
+        }
+
+        var decorated = decorate(typed.Renderer)
+            ?? throw new InvalidOperationException("Transcript renderer decorator returned null.");
+        _transcriptRenderers[key] = new AgentTuiTranscriptRendererAdapter<TCell>(key, decorated);
         return this;
     }
 
@@ -715,6 +844,21 @@ public sealed class HpdAgentTuiBuilder
         where THandler : AgentTuiInteractionHandler<TRequest>, new()
         => ReplaceInteractionHandler<TRequest>(key, new THandler());
 
+    private bool TryFindTranscriptRendererKeyForCellType(Type cellType, out string key)
+    {
+        foreach (var pair in _transcriptRenderers)
+        {
+            if (pair.Value.CellType == cellType)
+            {
+                key = pair.Key;
+                return true;
+            }
+        }
+
+        key = "";
+        return false;
+    }
+
     public HpdAgentTuiRegistry Build()
         => new(
             _commands.Values,
@@ -725,6 +869,7 @@ public sealed class HpdAgentTuiBuilder
             _shortcuts.Values,
             _eventHandlers,
             _interactionHandlers,
+            _transcriptRenderers.Values,
             _header,
             _footer,
             _promptFactory,

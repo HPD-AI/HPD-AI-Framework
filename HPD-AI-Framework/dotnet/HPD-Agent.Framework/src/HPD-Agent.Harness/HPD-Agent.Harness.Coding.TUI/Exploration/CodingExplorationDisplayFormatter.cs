@@ -4,12 +4,22 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration;
 
 internal static class CodingExplorationDisplayFormatter
 {
-    public static IReadOnlyList<string> BuildRows(IReadOnlyList<CodingExplorationOperation> operations)
+    private const int MaxRows = 16;
+    private const int MaxReadLabels = 8;
+
+    public static IReadOnlyList<string> BuildRows(
+        IReadOnlyList<CodingExplorationOperation> operations,
+        int omittedOperationCount = 0)
     {
         var rows = new List<string>();
         var pendingReads = new List<CodingExplorationOperation>();
         foreach (var operation in operations)
         {
+            if (rows.Count >= MaxRows)
+            {
+                break;
+            }
+
             if (string.Equals(operation.ToolName, CodingExplorationToolNames.ReadFile, StringComparison.Ordinal) &&
                 !IsFailed(operation))
             {
@@ -18,10 +28,18 @@ internal static class CodingExplorationDisplayFormatter
             }
 
             FlushReads(pendingReads, rows);
-            rows.Add(FormatOperation(operation));
+            if (rows.Count < MaxRows)
+            {
+                rows.Add(FormatOperation(operation));
+            }
         }
 
         FlushReads(pendingReads, rows);
+        if (omittedOperationCount > 0)
+        {
+            AddOmittedRow(rows, omittedOperationCount);
+        }
+
         return rows.Count == 0 ? ["Inspecting"] : rows;
     }
 
@@ -50,7 +68,7 @@ internal static class CodingExplorationDisplayFormatter
 
     private static void FlushReads(List<CodingExplorationOperation> reads, List<string> rows)
     {
-        if (reads.Count == 0)
+        if (reads.Count == 0 || rows.Count >= MaxRows)
         {
             return;
         }
@@ -68,7 +86,16 @@ internal static class CodingExplorationDisplayFormatter
             counts[label] = counts.TryGetValue(label, out var count) ? count + 1 : 1;
         }
 
-        var parts = counts.Select(static pair => pair.Value == 1 ? pair.Key : $"{pair.Key} x{pair.Value}");
+        var parts = counts
+            .Take(MaxReadLabels)
+            .Select(static pair => pair.Value == 1 ? pair.Key : $"{pair.Key} x{pair.Value}")
+            .ToList();
+        var omitted = counts.Count - parts.Count;
+        if (omitted > 0)
+        {
+            parts.Add($"+{omitted} more");
+        }
+
         var text = $"Read {string.Join(", ", parts)}";
         if (reads.Any(static read => read.Summary?.Truncated == true || read.Summary?.HasMore == true))
         {
@@ -81,6 +108,18 @@ internal static class CodingExplorationDisplayFormatter
         }
 
         return text;
+    }
+
+    private static void AddOmittedRow(List<string> rows, int omittedOperationCount)
+    {
+        var text = $"+{omittedOperationCount} more exploration operations";
+        if (rows.Count < MaxRows)
+        {
+            rows.Add(text);
+            return;
+        }
+
+        rows[^1] = text;
     }
 
     private static string FormatOperation(CodingExplorationOperation operation)

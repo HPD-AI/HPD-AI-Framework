@@ -1,5 +1,6 @@
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
+using HPD.Agent.TUI.Observability;
 using HPD.TUI.Components;
 using HPD.TUI.Core;
 using HPD.TUI.Layout;
@@ -28,7 +29,13 @@ public sealed class DefaultAgentTuiShellView : IComponent
         _state = context.State;
         _chrome = context.Chrome;
         _lastTranscriptHeight = _chrome.DefaultTranscriptHeight;
-        _transcript = new TranscriptView(_model.Transcript, _lastTranscriptHeight);
+        AgentTuiPerformanceDiagnostics.TryGetSink(_state, out var performanceSink);
+        _transcript = new TranscriptView(
+            _model.Transcript,
+            _registry.TranscriptRenderers,
+            _lastTranscriptHeight,
+            _model.Scope,
+            performanceSink);
         _shell = CreateShell();
     }
 

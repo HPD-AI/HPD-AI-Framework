@@ -26,6 +26,13 @@ public sealed record NoticeCell(
     IComponent? Body = null,
     TranscriptSeverity Severity = TranscriptSeverity.Info) : TranscriptCell;
 
+public sealed record RunStatusCell(
+    string RuntimeRunId,
+    TranscriptRunState State,
+    string? Detail = null,
+    TimeSpan? Duration = null,
+    string? Hint = null) : TranscriptCell;
+
 public sealed record ToolCallCell(
     string Name,
     TranscriptRunState State,

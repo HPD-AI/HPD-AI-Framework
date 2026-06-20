@@ -1,38 +1,37 @@
 using System.Text;
 using HPD.TUI.Core;
 using HPD.TUI.Utilities;
-using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Views;
 
-internal sealed class FileMutationTranscriptView : IComponent
+internal sealed class FileMutationCellView : IComponent
 {
     private const int MaxRenderedDiffLines = 18;
     private const int MaxDiagnostics = 4;
-    private readonly FileMutationTranscriptModel _model;
+    private readonly FileMutationCell _cell;
 
-    public FileMutationTranscriptView(FileMutationTranscriptModel model)
+    public FileMutationCellView(FileMutationCell cell)
     {
-        _model = model ?? throw new ArgumentNullException(nameof(model));
+        _cell = cell ?? throw new ArgumentNullException(nameof(cell));
     }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
     {
-        var rows = Math.Max(1, Math.Min(MaxRenderedDiffLines, CountDiffLines(_model.Mutation)));
-        if (_model.Mutation.Hunks.Count > 1)
+        var rows = Math.Max(1, Math.Min(MaxRenderedDiffLines, CountDiffLines(_cell)));
+        if (_cell.Hunks.Count > 1)
         {
-            rows += _model.Mutation.Hunks.Count - 1;
+            rows += _cell.Hunks.Count - 1;
         }
 
-        if (_model.Mutation.HunksTruncated)
+        if (_cell.HunksTruncated)
         {
             rows++;
         }
 
-        if (ShouldRenderDiagnostics(_model.Diagnostics))
+        if (ShouldRenderDiagnostics(_cell.Diagnostics, _cell.DiagnosticsTruncated))
         {
-            rows += 1 + Math.Min(MaxDiagnostics, CountVisibleDiagnostics(_model.Diagnostics!));
-            if (_model.Diagnostics!.DiagnosticsTruncated)
+            rows += 1 + Math.Min(MaxDiagnostics, CountVisibleDiagnostics(_cell.Diagnostics));
+            if (_cell.DiagnosticsTruncated)
             {
                 rows++;
             }
@@ -48,11 +47,11 @@ internal sealed class FileMutationTranscriptView : IComponent
             return;
         }
 
-        var gutterWidth = CalculateGutterWidth(_model.Mutation);
+        var gutterWidth = CalculateGutterWidth(_cell);
         var renderedLines = 0;
         var wroteAny = false;
 
-        foreach (var hunk in _model.Mutation.Hunks)
+        foreach (var hunk in _cell.Hunks)
         {
             if (wroteAny)
             {
@@ -62,7 +61,7 @@ internal sealed class FileMutationTranscriptView : IComponent
 
             var oldLine = hunk.OldStart;
             var newLine = hunk.NewStart;
-            foreach (var rawLine in hunk.Lines)
+            foreach (var line in hunk.Lines)
             {
                 if (renderedLines >= MaxRenderedDiffLines)
                 {
@@ -77,20 +76,20 @@ internal sealed class FileMutationTranscriptView : IComponent
                     output.WriteLineBreak();
                 }
 
-                var parsed = ParseLine(rawLine);
-                var number = parsed.Sign switch
+                var sign = SignFor(line.Kind);
+                var number = line.Kind switch
                 {
-                    '-' => oldLine++,
-                    '+' => newLine++,
+                    FileMutationDiffLineKind.Removed => oldLine++,
+                    FileMutationDiffLineKind.Added => newLine++,
                     _ => newLine++
                 };
 
-                if (parsed.Sign is ' ')
+                if (line.Kind is FileMutationDiffLineKind.Context)
                 {
                     oldLine++;
                 }
 
-                WriteDiffLine(number, gutterWidth, parsed.Sign, parsed.Text, in context, maxWidth, ref output);
+                WriteDiffLine(number, gutterWidth, sign, line.Text, in context, maxWidth, ref output);
                 renderedLines++;
                 wroteAny = true;
             }
@@ -101,7 +100,7 @@ internal sealed class FileMutationTranscriptView : IComponent
             output.Write("no diff available".AsSpan(), context.Theme.Border);
         }
 
-        if (_model.Mutation.HunksTruncated)
+        if (_cell.HunksTruncated)
         {
             output.WriteLineBreak();
             WriteTruncation("diff truncated", context.Theme.Border, ref output);
@@ -120,15 +119,16 @@ internal sealed class FileMutationTranscriptView : IComponent
 
     private void RenderDiagnosticsIfNeeded(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
-        if (!ShouldRenderDiagnostics(_model.Diagnostics))
+        if (!ShouldRenderDiagnostics(_cell.Diagnostics, _cell.DiagnosticsTruncated))
         {
             return;
         }
 
         output.WriteLineBreak();
         output.WriteLineBreak();
-        DiagnosticsTranscriptView.RenderDiagnosticsBody(
-            _model.Diagnostics!,
+        CodingDiagnosticsCellView.RenderDiagnosticsBody(
+            _cell.Diagnostics,
+            _cell.DiagnosticsTruncated,
             maxWidth,
             MaxDiagnostics,
             in context,
@@ -238,23 +238,18 @@ internal sealed class FileMutationTranscriptView : IComponent
         output.Write(text.AsSpan(), style);
     }
 
-    private static (char Sign, string Text) ParseLine(string rawLine)
-    {
-        if (string.IsNullOrEmpty(rawLine))
+    private static char SignFor(FileMutationDiffLineKind kind)
+        => kind switch
         {
-            return (' ', "");
-        }
+            FileMutationDiffLineKind.Added => '+',
+            FileMutationDiffLineKind.Removed => '-',
+            _ => ' '
+        };
 
-        var first = rawLine[0];
-        return first is '+' or '-' or ' '
-            ? (first, rawLine[1..])
-            : (' ', rawLine);
-    }
-
-    private static int CalculateGutterWidth(FileMutationAppliedEvent mutation)
+    private static int CalculateGutterWidth(FileMutationCell cell)
     {
         var max = 1;
-        foreach (var hunk in mutation.Hunks)
+        foreach (var hunk in cell.Hunks)
         {
             max = Math.Max(max, hunk.OldStart + Math.Max(0, hunk.OldLines - 1));
             max = Math.Max(max, hunk.NewStart + Math.Max(0, hunk.NewLines - 1));
@@ -263,14 +258,17 @@ internal sealed class FileMutationTranscriptView : IComponent
         return max.ToString().Length;
     }
 
-    private static int CountDiffLines(FileMutationAppliedEvent mutation)
-        => mutation.Hunks.Sum(static hunk => hunk.Lines.Count);
+    private static int CountDiffLines(FileMutationCell cell)
+        => cell.Hunks.Sum(static hunk => hunk.Lines.Count);
 
-    private static bool ShouldRenderDiagnostics(LanguageServerDiagnosticsReceivedEvent? diagnostics)
-        => diagnostics is not null &&
-           (diagnostics.ErrorCount > 0 || diagnostics.WarningCount > 0 || diagnostics.DiagnosticsTruncated);
+    private static bool ShouldRenderDiagnostics(
+        IReadOnlyList<CodingDiagnosticLine> diagnostics,
+        bool diagnosticsTruncated)
+        => diagnosticsTruncated ||
+           diagnostics.Any(static diagnostic =>
+               diagnostic.Severity is CodingDiagnosticSeverity.Error or CodingDiagnosticSeverity.Warning);
 
-    private static int CountVisibleDiagnostics(LanguageServerDiagnosticsReceivedEvent diagnostics)
-        => diagnostics.Diagnostics.Count(static diagnostic =>
-            diagnostic.Severity is LanguageServerDiagnosticSeverity.Error or LanguageServerDiagnosticSeverity.Warning);
+    private static int CountVisibleDiagnostics(IReadOnlyList<CodingDiagnosticLine> diagnostics)
+        => diagnostics.Count(static diagnostic =>
+            diagnostic.Severity is CodingDiagnosticSeverity.Error or CodingDiagnosticSeverity.Warning);
 }

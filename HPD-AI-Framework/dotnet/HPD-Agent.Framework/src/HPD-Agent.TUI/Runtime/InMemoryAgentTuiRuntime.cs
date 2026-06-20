@@ -651,7 +651,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             RuntimeRunId = runId
         };
 
-        SetActiveRun(new AgentTuiThreadRun(runId, scope.AgentId, scope.SessionId, scope.ThreadId, "running", startedAt));
+        SetActiveRun(new AgentTuiThreadRun(runId, scope.AgentId, scope.SessionId, scope.ThreadId, "active", startedAt));
         await PublishRuntimeEventAsync(new ThreadRunStartedEvent(runId, scope.AgentId, startedAt)
         {
             SessionId = scope.SessionId,
@@ -695,6 +695,27 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         {
             SetActiveRun(null);
         }
+    }
+
+    public async Task InterruptAsync(
+        AgentTuiRuntimeScope scope,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+
+        var interruption = new InterruptionRequestEvent(
+            eventFlowId: null,
+            Reason: string.IsNullOrWhiteSpace(reason) ? "Interrupted by TUI." : reason,
+            Source: InterruptionSource.User)
+        {
+            AgentId = scope.AgentId,
+            SessionId = scope.SessionId,
+            ThreadId = scope.ThreadId
+        };
+
+        await _agent.RunAsync(interruption, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public async Task RespondAsync(

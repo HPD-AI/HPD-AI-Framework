@@ -1,8 +1,10 @@
 using System.Text;
 using HPD.TUI.Components;
 using HPD.TUI.Core;
+using HPD.TUI.Observability;
 using HPD.TUI.Rendering;
 using HPD.TUI.Terminal;
+using HPD.Events;
 
 namespace HPD.TUI.Tests;
 
@@ -127,6 +129,55 @@ public sealed class NormalTerminalTuiRendererTests
         Assert.Equal(1, terminal.ShowCursorCount);
     }
 
+    [Fact]
+    public void Render_WhenPerformanceSinkIsConfigured_PublishesFrameEvent()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        using var renderer = new NormalTerminalTuiRenderer(terminal);
+        var sink = new RecordingSink();
+        renderer.PerformanceSink = sink;
+
+        renderer.Render(new Text("hello"), Theme.Default, virtualHeight: 8);
+
+        var evt = Assert.IsType<TuiRenderCompleted>(Assert.Single(sink.Events));
+        Assert.Equal(EventKind.Diagnostic, evt.Kind);
+        Assert.Equal(EventChannel.Streaming, evt.Channel);
+        Assert.Equal("normal-terminal", evt.Surface);
+        Assert.True(evt.RowsRendered > 0);
+        Assert.True(evt.SegmentsWritten > 0);
+    }
+
+    [Fact]
+    public void Application_PerformanceSink_ForwardsToRenderer()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        using var app = new NormalTerminalTuiApplication(terminal);
+        var sink = new RecordingSink();
+        app.PerformanceSink = sink;
+        app.SetRoot(new Text("hello"));
+
+        app.Render(size => size.Height);
+
+        Assert.IsType<TuiRenderCompleted>(Assert.Single(sink.Events));
+    }
+
+    [Fact]
+    public void TextWriterSink_FormatsFrameSummary()
+    {
+        var writer = new StringWriter();
+        var sink = new TextWriterTuiPerformanceEventSink(writer);
+
+        sink.Publish(new TuiRenderCompleted(
+            Surface: "normal-terminal",
+            Duration: TimeSpan.FromMilliseconds(4.25),
+            RowsRendered: 3,
+            SegmentsWritten: 2,
+            CacheHits: 1,
+            CacheMisses: 0));
+
+        Assert.Contains("tui frame 4.25ms surface=normal-terminal rows=3 segments=2 cache=1/0", writer.ToString());
+    }
+
     private sealed class TestTerminal : ITerminal
     {
         private readonly StringBuilder _output = new();
@@ -190,6 +241,16 @@ public sealed class NormalTerminalTuiRendererTests
 
         public void Dispose()
         {
+        }
+    }
+
+    private sealed class RecordingSink : IHpdTuiPerformanceEventSink
+    {
+        public List<Event> Events { get; } = [];
+
+        public void Publish(Event evt)
+        {
+            Events.Add(evt);
         }
     }
 

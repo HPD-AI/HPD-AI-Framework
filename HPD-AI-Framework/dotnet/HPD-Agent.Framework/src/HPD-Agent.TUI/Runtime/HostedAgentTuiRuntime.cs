@@ -591,6 +591,30 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         }
     }
 
+    public async Task InterruptAsync(
+        AgentTuiRuntimeScope scope,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+
+        var json = SerializeJson(JsonObject(
+            ("reason", JsonValue.Create(string.IsNullOrWhiteSpace(reason)
+                ? "Interrupted by TUI."
+                : reason))));
+        using var response = await PostJsonEnvelopeAsync(
+                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/interrupt",
+                json,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (response.StatusCode is not HttpStatusCode.Accepted and not HttpStatusCode.OK and not HttpStatusCode.NoContent)
+        {
+            await ThrowForUnexpectedResponseAsync(response, "interrupt run", cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
     public async Task RespondAsync(
         AgentTuiRuntimeScope scope,
         AgentEvent response,

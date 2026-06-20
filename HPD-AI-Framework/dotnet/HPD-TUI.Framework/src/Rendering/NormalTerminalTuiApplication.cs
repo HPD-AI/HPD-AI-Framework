@@ -1,5 +1,6 @@
 using HPD.TUI.Controllers;
 using HPD.TUI.Core;
+using HPD.TUI.Observability;
 using HPD.TUI.Terminal;
 
 namespace HPD.TUI.Rendering;
@@ -18,6 +19,7 @@ public sealed class NormalTerminalTuiApplication : IDisposable
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
         _renderer = new NormalTerminalTuiRenderer(terminal);
+        _renderer.PerformanceSink = TuiPerformanceDiagnostics.CreateTextWriterSinkFromEnvironment(Console.Error);
     }
 
     public Theme Theme
@@ -33,6 +35,12 @@ public sealed class NormalTerminalTuiApplication : IDisposable
     public IComponent? Focused => Focus.Focused;
 
     public Func<KeyEvent, bool>? ShortcutHandler { get; set; }
+
+    public IHpdTuiPerformanceEventSink? PerformanceSink
+    {
+        get => _renderer.PerformanceSink;
+        set => _renderer.PerformanceSink = value;
+    }
 
     public void SetRoot(IComponent root)
     {

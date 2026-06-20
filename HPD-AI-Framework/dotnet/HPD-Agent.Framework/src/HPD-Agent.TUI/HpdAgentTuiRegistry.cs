@@ -31,6 +31,7 @@ public sealed class HpdAgentTuiRegistry
         IEnumerable<HpdAgentTuiShortcutDescriptor> shortcuts,
         IReadOnlyDictionary<string, IAgentTuiEventHandler> eventHandlers,
         IReadOnlyDictionary<string, IAgentTuiInteractionHandler> interactionHandlers,
+        IEnumerable<IAgentTuiTranscriptRendererAdapter> transcriptRenderers,
         IAgentTuiShellComponent? header,
         IAgentTuiShellComponent? footer,
         IAgentTuiPromptFactory? promptFactory,
@@ -75,6 +76,7 @@ public sealed class HpdAgentTuiRegistry
         _interactionHandlers = interactionHandlers
             .Select(pair => new AgentTuiContribution<IAgentTuiInteractionHandler>(pair.Key, pair.Value))
             .ToArray();
+        TranscriptRenderers = new AgentTuiTranscriptRendererRegistry(transcriptRenderers);
         Header = header;
         Footer = footer;
         _promptFactory = promptFactory;
@@ -105,6 +107,8 @@ public sealed class HpdAgentTuiRegistry
     public Theme? Theme { get; }
 
     public AgentTuiRunConfigComposer? RunConfigComposer { get; }
+
+    public AgentTuiTranscriptRendererRegistry TranscriptRenderers { get; }
 
     public IReadOnlyList<AgentTuiContribution<IAgentTuiStatusItem>> StatusItems => _statusItems;
 

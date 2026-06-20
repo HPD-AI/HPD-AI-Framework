@@ -681,7 +681,7 @@ internal sealed class OpenRouterChatClient : IChatClient
                         Function = new OpenRouterRequestFunction
                         {
                             Name = fc.Name,
-                            Arguments = JsonSerializer.Serialize(fc.Arguments, AIJsonUtilities.DefaultOptions.GetTypeInfo(typeof(IDictionary<string, object?>)))
+                            Arguments = SerializeFunctionArguments(fc.Arguments)
                         }
                     }).ToList();
                 }
@@ -993,6 +993,13 @@ internal sealed class OpenRouterChatClient : IChatClient
 
         return request;
     }
+
+    internal static string SerializeFunctionArguments(IDictionary<string, object?>? arguments)
+        => arguments is null
+            ? "{}"
+            : JsonSerializer.Serialize(
+                arguments,
+                AIJsonUtilities.DefaultOptions.GetTypeInfo(typeof(IDictionary<string, object?>)));
 
     public object? GetService(Type serviceType, object? serviceKey = null)
     {

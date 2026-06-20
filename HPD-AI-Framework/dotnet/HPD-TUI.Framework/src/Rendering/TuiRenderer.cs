@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using HPD.TUI.Core;
+using HPD.TUI.Observability;
 using HPD.TUI.Terminal;
 
 namespace HPD.TUI.Rendering;
@@ -22,12 +23,16 @@ public sealed class TuiRenderer : IDisposable
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
     }
 
+    public IHpdTuiPerformanceEventSink? PerformanceSink { get; set; }
+
     public void Render(IComponent root, Theme? theme = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(root);
 
         var size = _terminal.GetSize();
+        var sink = PerformanceSink;
+        var startTimestamp = sink is null ? 0 : Stopwatch.GetTimestamp();
         EnsureGrid(size);
 
         var context = new RenderContext(size.Width, size.Height, theme ?? Theme.Default, elapsed: _clock.Elapsed);
@@ -35,6 +40,7 @@ public sealed class TuiRenderer : IDisposable
 
         var writer = new SegmentWriter(_currentGrid);
         root.Render(in context, size.Width, ref writer);
+        var usedLines = TuiCapture.GetUsedLineCount(_currentGrid);
 
         _output.Clear();
         if (!_hasPreviousFrame)
@@ -49,8 +55,30 @@ public sealed class TuiRenderer : IDisposable
 
         AppendCursorState(_currentGrid, _output);
         _output.FlushTo(_terminal);
+        PublishRenderCompleted(sink, "terminal-grid", startTimestamp, usedLines, writer.Count);
         (_currentGrid, _previousGrid) = (_previousGrid, _currentGrid);
         _hasPreviousFrame = true;
+    }
+
+    private static void PublishRenderCompleted(
+        IHpdTuiPerformanceEventSink? sink,
+        string surface,
+        long startTimestamp,
+        int rowsRendered,
+        int segmentsWritten)
+    {
+        if (sink is null)
+        {
+            return;
+        }
+
+        sink.Publish(new TuiRenderCompleted(
+            surface,
+            Stopwatch.GetElapsedTime(startTimestamp),
+            rowsRendered,
+            segmentsWritten,
+            CacheHits: 0,
+            CacheMisses: 0));
     }
 
     private static void AppendCursorState(TerminalGrid grid, AnsiFrameWriter output)

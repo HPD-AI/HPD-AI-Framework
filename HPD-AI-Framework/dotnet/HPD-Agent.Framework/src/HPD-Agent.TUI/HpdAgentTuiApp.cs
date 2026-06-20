@@ -3,6 +3,7 @@ using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Interactions;
 using HPD.Agent.TUI.Models;
+using HPD.Agent.TUI.Observability;
 using HPD.Agent.TUI.Runtime;
 using HPD.Agent.TUI.Views;
 using HPD.Events;
@@ -85,6 +86,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     {
         _scope = scope;
         _state = new AgentTuiSessionState(scope, _registry);
+        AgentTuiPerformanceDiagnostics.ConfigureFromEnvironment(_state.State);
         _state.Shell.Runtime = _runtime;
         _state.Shell.SwitchScopeAsync = SwitchScopeAsync;
         var autocomplete = new AutocompleteController()
@@ -238,8 +240,14 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return false;
         }
 
-        if (key.Key == KeyCode.Escape && key.Modifiers == KeyModifiers.None && TryGoBack())
+        if (key.Key == KeyCode.Escape && key.Modifiers == KeyModifiers.None)
         {
+            if (TryGoBack())
+            {
+                return true;
+            }
+
+            _ = CancelActiveRunAsync(_scope, _state);
             return true;
         }
 
@@ -266,6 +274,62 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
         return _state.Shell.Navigation.Back();
     }
+
+    private async Task CancelActiveRunAsync(
+        AgentTuiRuntimeScope scope,
+        AgentTuiSessionState state)
+    {
+        try
+        {
+            var activeRun = await _runtime.GetActiveRunAsync(scope, CancellationToken.None)
+                .ConfigureAwait(false);
+            if (activeRun is null ||
+                !string.Equals(activeRun.Status, "active", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            state.Shell.FooterText = "state: cancelling";
+            state.Shell.Transcript.Update(new TranscriptEntry(
+                Id: $"run-{activeRun.RuntimeRunId}",
+                EntryKey: $"run:{activeRun.RuntimeRunId}",
+                Cell: new RunStatusCell(
+                    activeRun.RuntimeRunId,
+                    TranscriptRunState.Cancelling,
+                    Hint: "Waiting for the runtime to stop."),
+                Metadata: new TranscriptEntryMetadata(
+                    AgentId: scope.AgentId,
+                    AgentName: "tui",
+                    AgentChain: ["tui"]),
+                VerticalSpacing: 1));
+            await _runtime.InterruptAsync(
+                    scope,
+                    "Cancelled from TUI.",
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            if (_state != state || _scope != scope)
+            {
+                return;
+            }
+
+            state.Shell.Transcript.Append(new TranscriptEntry(
+                Id: $"cancel-error-{Guid.NewGuid():N}",
+                EntryKey: null,
+                Cell: new NoticeCell(
+                    "Cancel request failed",
+                    new HPD.TUI.Components.Text(ex.Message),
+                    TranscriptSeverity.Error),
+                Metadata: new TranscriptEntryMetadata(
+                    AgentId: scope.AgentId,
+                    AgentName: "tui",
+                    AgentChain: ["tui"])));
+        }
+    }
+
+    private static string ShortId(string value) => value[..Math.Min(8, value.Length)];
 
     private async Task SubmitCommandAsync(
         string text,

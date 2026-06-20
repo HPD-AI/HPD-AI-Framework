@@ -8,7 +8,7 @@ internal sealed class CodingCommandOutputBuffer
     private const int MaxBufferedLines = 400;
     private const int MaxBufferedCharacters = 64 * 1024;
     private const int MaxLineCharacters = 4 * 1024;
-    private readonly List<CodingCommandOutputLine> _lines = [];
+    private readonly List<CodingCommandBufferedOutputLine> _lines = [];
     private string _pending = "";
     private int _discardedLineCount;
     private int _discardedCharacterCount;
@@ -70,11 +70,11 @@ internal sealed class CodingCommandOutputBuffer
         int maxVisibleRows = 5,
         int? wrapWidth = null)
     {
-        var materialized = new List<CodingCommandOutputLine>(_lines);
+        var materialized = new List<CodingCommandBufferedOutputLine>(_lines);
         if (!string.IsNullOrEmpty(_pending))
         {
             var stream = _lines.Count > 0 ? _lines[^1].Stream : ExecuteCommandStreamKind.Stdout;
-            materialized.Add(new CodingCommandOutputLine(stream, _pending));
+            materialized.Add(new CodingCommandBufferedOutputLine(stream, _pending));
         }
 
         TrimBoundaryBlankLines(materialized);
@@ -114,7 +114,7 @@ internal sealed class CodingCommandOutputBuffer
             Binary);
     }
 
-    private static void TrimBoundaryBlankLines(List<CodingCommandOutputLine> lines)
+    private static void TrimBoundaryBlankLines(List<CodingCommandBufferedOutputLine> lines)
     {
         while (lines.Count > 0 && string.IsNullOrWhiteSpace(lines[0].Text))
         {
@@ -127,11 +127,11 @@ internal sealed class CodingCommandOutputBuffer
         }
     }
 
-    private static List<CodingCommandOutputLine> WrapToVisualRows(
-        IReadOnlyList<CodingCommandOutputLine> lines,
+    private static List<CodingCommandBufferedOutputLine> WrapToVisualRows(
+        IReadOnlyList<CodingCommandBufferedOutputLine> lines,
         int width)
     {
-        var rows = new List<CodingCommandOutputLine>();
+        var rows = new List<CodingCommandBufferedOutputLine>();
         foreach (var line in lines)
         {
             AddWrappedRows(line, width, rows);
@@ -141,9 +141,9 @@ internal sealed class CodingCommandOutputBuffer
     }
 
     private static void AddWrappedRows(
-        CodingCommandOutputLine line,
+        CodingCommandBufferedOutputLine line,
         int width,
-        List<CodingCommandOutputLine> rows)
+        List<CodingCommandBufferedOutputLine> rows)
     {
         if (width <= 0 || string.IsNullOrEmpty(line.Text))
         {
@@ -159,7 +159,7 @@ internal sealed class CodingCommandOutputBuffer
             var runeWidth = Math.Max(0, UnicodeWidth.GetWidth(rune));
             if (row.Length > 0 && rowWidth + runeWidth > width)
             {
-                rows.Add(new CodingCommandOutputLine(line.Stream, row.ToString()));
+                rows.Add(new CodingCommandBufferedOutputLine(line.Stream, row.ToString()));
                 row.Clear();
                 rowWidth = 0;
             }
@@ -168,13 +168,13 @@ internal sealed class CodingCommandOutputBuffer
             rowWidth += runeWidth;
         }
 
-        rows.Add(new CodingCommandOutputLine(line.Stream, row.ToString()));
+        rows.Add(new CodingCommandBufferedOutputLine(line.Stream, row.ToString()));
     }
 
     private void AddLine(ExecuteCommandStreamKind stream, string text)
     {
         text = ClipLine(text);
-        _lines.Add(new CodingCommandOutputLine(stream, text));
+        _lines.Add(new CodingCommandBufferedOutputLine(stream, text));
         _bufferedCharacterCount += text.Length;
         while (_lines.Count > MaxBufferedLines)
         {
@@ -216,12 +216,12 @@ internal sealed class CodingCommandOutputBuffer
     }
 }
 
-internal sealed record CodingCommandOutputLine(
+internal sealed record CodingCommandBufferedOutputLine(
     ExecuteCommandStreamKind Stream,
     string Text);
 
 internal sealed record CodingCommandOutputSnapshot(
-    IReadOnlyList<CodingCommandOutputLine> Lines,
+    IReadOnlyList<CodingCommandBufferedOutputLine> Lines,
     int OmittedLineCount,
     int HeadLineCount,
     bool Truncated,

@@ -4,6 +4,7 @@ public enum TranscriptRunState
 {
     Pending,
     Running,
+    Cancelling,
     Completed,
     Failed,
     Cancelled,

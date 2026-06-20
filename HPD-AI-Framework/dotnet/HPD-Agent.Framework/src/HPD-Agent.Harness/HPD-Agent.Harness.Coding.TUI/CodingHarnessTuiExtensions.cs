@@ -1,11 +1,14 @@
 using HPD.Agent;
 using HPD.Agent.TUI;
+using HPD.Agent.ToolHarness.Coding.TUI.Commands;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands.Handlers;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands.Pages;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands.Status;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands.Widgets;
+using HPD.Agent.ToolHarness.Coding.TUI.Exploration;
 using HPD.Agent.ToolHarness.Coding.TUI.Exploration.Handlers;
 using HPD.Agent.ToolHarness.Coding.TUI.Exploration.Status;
+using HPD.Agent.ToolHarness.Coding.TUI.FileMutations;
 using HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Handlers;
 using HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Status;
 using HPD.Agent.TUI.Composition;
@@ -37,6 +40,9 @@ public static class CodingHarnessTuiExtensions
                 "hpd.coding.exploration.tool-result")
             .TryAddEventHandler<ToolCallEndEvent, CodingExplorationToolCallEndHandler>(
                 "hpd.coding.exploration.tool-end")
+            .TryAddTranscriptRenderer<CodingExplorationCell>(
+                CodingHarnessTuiTranscriptRendererKeys.Exploration,
+                new CodingExplorationCellRenderer())
             .TryAddStatusItem(
                 "hpd.coding.exploration",
                 new CodingExplorationStatusItem());
@@ -59,6 +65,9 @@ public static class CodingHarnessTuiExtensions
                 "hpd.coding.command.exited")
             .TryAddEventHandler<ExecuteCommandBackgroundListEvent, ExecuteCommandBackgroundListTuiHandler>(
                 "hpd.coding.command.background-list")
+            .TryAddTranscriptRenderer<CodingCommandCell>(
+                CodingHarnessTuiTranscriptRendererKeys.Command,
+                new CodingCommandCellRenderer())
             .TryAddPage(CodingCommandPages.CommandsPage())
             .TryAddPage(CodingCommandPages.BackgroundPage())
             .TryAddStatusItem(
@@ -69,15 +78,18 @@ public static class CodingHarnessTuiExtensions
                 new CodingBackgroundTerminalStatusItem())
             .TryAddStatusItem(
                 "hpd.coding.output",
-                new CodingCommandOutputStatusItem())
-            .TryAddWidget(
-                TuiSlot.BelowEditor,
-                "hpd.coding.active-command",
-                new CodingActiveCommandTailWidget())
-            .TryAddWidget(
-                TuiSlot.BelowEditor,
-                "hpd.coding.background-commands",
-                new CodingBackgroundCommandsWidget());
+                new CodingCommandOutputStatusItem());
+            // Command output is already represented in the transcript through
+            // CodingCommandCellRenderer, so HPD-OS does not register the
+            // below-editor tail widgets here.
+            // .TryAddWidget(
+            //     TuiSlot.BelowEditor,
+            //     "hpd.coding.active-command",
+            //     new CodingActiveCommandTailWidget())
+            // .TryAddWidget(
+            //     TuiSlot.BelowEditor,
+            //     "hpd.coding.background-commands",
+            //     new CodingBackgroundCommandsWidget());
     }
 
     public static HpdAgentTuiBuilder AddCodingFileMutationTui(this HpdAgentTuiBuilder tui)
@@ -89,6 +101,12 @@ public static class CodingHarnessTuiExtensions
                 "hpd.coding.file-mutation.applied")
             .TryAddEventHandler<LanguageServerDiagnosticsReceivedEvent, LanguageServerDiagnosticsTuiHandler>(
                 "hpd.coding.diagnostics.received")
+            .TryAddTranscriptRenderer<FileMutationCell>(
+                CodingHarnessTuiTranscriptRendererKeys.FileMutation,
+                new FileMutationCellRenderer())
+            .TryAddTranscriptRenderer<CodingDiagnosticsCell>(
+                CodingHarnessTuiTranscriptRendererKeys.Diagnostics,
+                new CodingDiagnosticsCellRenderer())
             .TryAddStatusItem(
                 "hpd.coding.files",
                 new FileMutationStatusItem())

@@ -68,14 +68,22 @@ public sealed class Markdown : IComponent
             return;
         }
 
-        var state = new RenderState(theme, maxWidth);
+        var state = new RenderState(theme, maxWidth, context.Height);
         var first = true;
 
         foreach (var block in document)
         {
+            if (output.CursorY >= context.Height)
+            {
+                break;
+            }
+
             if (!first)
             {
-                output.WriteLineBreak();
+                if (!output.WriteLineBreak())
+                {
+                    break;
+                }
             }
 
             first = false;
@@ -208,9 +216,6 @@ public sealed class Markdown : IComponent
 
         var code = GetBlockText(codeBlock, trimEnd: true);
         RenderCodeLines(code.AsSpan(), language, ref state, ref output);
-
-        output.WriteLineBreak();
-        RenderRule(ref state, ref output);
     }
 
     private void RenderCodeBlock(CodeBlock codeBlock, ref RenderState state, ref SegmentWriter output)
@@ -220,21 +225,16 @@ public sealed class Markdown : IComponent
 
         var code = GetBlockText(codeBlock, trimEnd: true);
         RenderCodeLines(code.AsSpan(), default, ref state, ref output);
-
-        output.WriteLineBreak();
-        RenderRule(ref state, ref output);
     }
 
     private static void RenderCodeHeader(ReadOnlySpan<char> language, ref RenderState state, ref SegmentWriter output)
     {
-        output.Write("╭ code", state.Theme.Border);
+        output.Write("code", state.Theme.Border);
         if (!language.IsEmpty)
         {
-            output.Write(" ", state.Theme.Border);
+            output.Write(" ", state.Theme.Text);
             output.Write(language, state.Theme.Warning);
         }
-
-        output.Write(" ╮", state.Theme.Border);
     }
 
     private static void RenderCodeLines(ReadOnlySpan<char> code, ReadOnlySpan<char> language, ref RenderState state, ref SegmentWriter output)
@@ -248,7 +248,7 @@ public sealed class Markdown : IComponent
             }
 
             first = false;
-            output.Write("│ ", state.Theme.Border);
+            output.Write("  ", state.Theme.Border);
             RenderHighlightedCode(line, language, ref state, ref output);
         }
     }
@@ -351,9 +351,10 @@ public sealed class Markdown : IComponent
         }
 
         var bodyWidth = Math.Max(1, state.MaxWidth - contentIndent);
-        using var grid = new TerminalGrid(bodyWidth, MaxInlineRenderHeight);
+        var bodyHeight = Math.Clamp(state.MaxHeight - output.CursorY, 1, MaxInlineRenderHeight);
+        using var grid = new TerminalGrid(bodyWidth, bodyHeight);
         var capture = new SegmentWriter(grid);
-        var captureState = new RenderState(state.Theme, bodyWidth);
+        var captureState = new RenderState(state.Theme, bodyWidth, bodyHeight);
         RenderInlines(container, state.Theme.Text, ref captureState, ref capture);
 
         var lineCount = TuiCapture.GetUsedLineCount(grid);
@@ -1214,15 +1215,18 @@ public sealed class Markdown : IComponent
 
     private readonly ref struct RenderState
     {
-        public RenderState(Theme theme, int maxWidth)
+        public RenderState(Theme theme, int maxWidth, int maxHeight)
         {
             Theme = theme;
             MaxWidth = maxWidth;
+            MaxHeight = maxHeight;
         }
 
         public Theme Theme { get; }
 
         public int MaxWidth { get; }
+
+        public int MaxHeight { get; }
     }
 
     private sealed record MarkdownTableModel(IReadOnlyList<MarkdownTableRow> Rows, int ColumnCount);

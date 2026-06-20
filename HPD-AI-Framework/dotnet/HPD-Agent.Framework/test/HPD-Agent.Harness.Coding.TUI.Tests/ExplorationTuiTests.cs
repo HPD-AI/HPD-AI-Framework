@@ -6,6 +6,8 @@ using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.Agent.TUI.Views;
 using HPD.Agent.ToolHarness.Coding.TUI;
+using HPD.Agent.ToolHarness.Coding.TUI.Exploration;
+using HPD.TUI.Components;
 using HPD.TUI.Rendering;
 using HPD.TUI.Views;
 
@@ -27,6 +29,9 @@ public sealed class ExplorationTuiTests
             "hpd.coding.exploration.tool-end"
         ]);
         registry.StatusItems.Select(static item => item.Key).Should().Contain("hpd.coding.exploration");
+        registry.TranscriptRenderers.TryFindRenderer<CodingExplorationCell>(
+            CodingHarnessTuiTranscriptRendererKeys.Exploration,
+            out _).Should().BeTrue();
     }
 
     [Fact]
@@ -51,11 +56,35 @@ public sealed class ExplorationTuiTests
 
         var rows = ReadRows(state.Shell.Transcript);
         rows.Should().ContainSingle();
+        rows[0].Cell.Should().BeOfType<CodingExplorationCell>()
+            .Which.IsActive.Should().BeFalse();
 
         var rendered = RenderTranscript(state);
         rendered.Should().Contain("• Explored");
         rendered.Should().Contain("Read Agent.cs, AgentEvents.cs");
         rendered.Should().NotContain("<file");
+    }
+
+    [Fact]
+    public async Task ReplacedExplorationRenderer_KeepsExplorationHandlersAndState()
+    {
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .AddCodingHarnessTui()
+            .ReplaceTranscriptRenderer<CodingExplorationCell>(
+                CodingHarnessTuiTranscriptRendererKeys.Exploration,
+                _ => new Text("custom exploration row"))
+            .Build();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            registry);
+
+        await state.ApplyEventAsync(new ToolCallStartEvent("call-read-1", "ReadFile", "msg-1"));
+
+        ReadRows(state.Shell.Transcript).Should().ContainSingle()
+            .Which.Cell.Should().BeOfType<CodingExplorationCell>();
+        RenderTranscript(state, registry.TranscriptRenderers).Should().Contain("custom exploration row");
+        RenderShell(registry, state).Should().Contain("exploring");
     }
 
     [Fact]
@@ -153,12 +182,23 @@ public sealed class ExplorationTuiTests
         return rows;
     }
 
-    private static string RenderTranscript(AgentTuiSessionState state, int width = 100, int height = 12)
+    private static string RenderTranscript(
+        AgentTuiSessionState state,
+        AgentTuiTranscriptRendererRegistry? renderers = null,
+        int width = 100,
+        int height = 12)
         => TuiCapture.RenderToString(
-            new TranscriptView(state.Shell.Transcript, height: 10),
+            new TranscriptView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 10),
             width: width,
             height: height,
             trimTrailingBlankLines: true);
+
+    private static AgentTuiTranscriptRendererRegistry DefaultTranscriptRenderers()
+        => new HpdAgentTuiBuilder()
+            .AddDefaultTranscriptRenderers()
+            .AddCodingHarnessTui()
+            .Build()
+            .TranscriptRenderers;
 
     private static string RenderShell(HpdAgentTuiRegistry registry, AgentTuiSessionState state)
         => TuiCapture.RenderToString(

@@ -1,22 +1,21 @@
 using HPD.TUI.Core;
-using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Views;
 
-internal sealed class DiagnosticsTranscriptView : IComponent
+internal sealed class CodingDiagnosticsCellView : IComponent
 {
     private const int MaxDiagnostics = 5;
-    private readonly LanguageServerDiagnosticsReceivedEvent _diagnostics;
+    private readonly CodingDiagnosticsCell _cell;
 
-    public DiagnosticsTranscriptView(LanguageServerDiagnosticsReceivedEvent diagnostics)
+    public CodingDiagnosticsCellView(CodingDiagnosticsCell cell)
     {
-        _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
+        _cell = cell ?? throw new ArgumentNullException(nameof(cell));
     }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
     {
-        var rows = 1 + VisibleDiagnostics(_diagnostics).Take(MaxDiagnostics).Count();
-        if (_diagnostics.DiagnosticsTruncated)
+        var rows = 1 + VisibleDiagnostics(_cell.Diagnostics).Take(MaxDiagnostics).Count();
+        if (_cell.Truncated)
         {
             rows++;
         }
@@ -25,7 +24,7 @@ internal sealed class DiagnosticsTranscriptView : IComponent
     }
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
-        => RenderDiagnosticsBody(_diagnostics, maxWidth, MaxDiagnostics, in context, ref output);
+        => RenderDiagnosticsBody(_cell.Diagnostics, _cell.Truncated, maxWidth, MaxDiagnostics, in context, ref output);
 
     public void HandleInput(in KeyEvent key)
     {
@@ -36,7 +35,8 @@ internal sealed class DiagnosticsTranscriptView : IComponent
     }
 
     public static void RenderDiagnosticsBody(
-        LanguageServerDiagnosticsReceivedEvent diagnostics,
+        IReadOnlyList<CodingDiagnosticLine> diagnostics,
+        bool diagnosticsTruncated,
         int maxWidth,
         int maxDiagnostics,
         in RenderContext context,
@@ -58,7 +58,7 @@ internal sealed class DiagnosticsTranscriptView : IComponent
             output.Write("  no errors or warnings".AsSpan(), context.Theme.Border);
         }
 
-        if (diagnostics.DiagnosticsTruncated)
+        if (diagnosticsTruncated)
         {
             output.WriteLineBreak();
             output.Write("  ⋮ diagnostics omitted".AsSpan(), context.Theme.Border);
@@ -66,19 +66,19 @@ internal sealed class DiagnosticsTranscriptView : IComponent
     }
 
     private static void RenderDiagnostic(
-        LanguageServerDiagnosticSummary diagnostic,
+        CodingDiagnosticLine diagnostic,
         int maxWidth,
         in RenderContext context,
         ref SegmentWriter output)
     {
         var style = diagnostic.Severity switch
         {
-            LanguageServerDiagnosticSeverity.Error => context.Theme.Error,
-            LanguageServerDiagnosticSeverity.Warning => context.Theme.Warning,
+            CodingDiagnosticSeverity.Error => context.Theme.Error,
+            CodingDiagnosticSeverity.Warning => context.Theme.Warning,
             _ => context.Theme.Border
         };
-        var marker = diagnostic.Severity == LanguageServerDiagnosticSeverity.Warning ? "⚠" : "■";
-        var code = string.IsNullOrWhiteSpace(diagnostic.Code) ? diagnostic.Source.ToString() : diagnostic.Code;
+        var marker = diagnostic.Severity == CodingDiagnosticSeverity.Warning ? "⚠" : "■";
+        var code = string.IsNullOrWhiteSpace(diagnostic.Code) ? diagnostic.Source : diagnostic.Code;
         var prefix = $"  {marker} {code} {diagnostic.Line}:{diagnostic.Character} ";
         output.Write(prefix.AsSpan(), style);
 
@@ -87,11 +87,11 @@ internal sealed class DiagnosticsTranscriptView : IComponent
         output.Write(message.AsSpan(), style);
     }
 
-    private static IEnumerable<LanguageServerDiagnosticSummary> VisibleDiagnostics(
-        LanguageServerDiagnosticsReceivedEvent diagnostics)
-        => diagnostics.Diagnostics
+    private static IEnumerable<CodingDiagnosticLine> VisibleDiagnostics(
+        IReadOnlyList<CodingDiagnosticLine> diagnostics)
+        => diagnostics
             .Where(static diagnostic =>
-                diagnostic.Severity is LanguageServerDiagnosticSeverity.Error or LanguageServerDiagnosticSeverity.Warning)
+                diagnostic.Severity is CodingDiagnosticSeverity.Error or CodingDiagnosticSeverity.Warning)
             .OrderBy(static diagnostic => diagnostic.Severity)
             .ThenBy(static diagnostic => diagnostic.Line)
             .ThenBy(static diagnostic => diagnostic.Character);

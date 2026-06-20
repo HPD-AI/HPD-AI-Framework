@@ -87,6 +87,12 @@ public sealed class RunConfigComposerTests
             return Task.CompletedTask;
         }
 
+        public Task InterruptAsync(
+            AgentTuiRuntimeScope scope,
+            string reason,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
         public Task RespondAsync(
             AgentTuiRuntimeScope scope,
             AgentEvent response,

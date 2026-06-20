@@ -5,9 +5,12 @@ using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.Agent.TUI.Views;
 using HPD.Agent.ToolHarness.Coding.TUI;
+using HPD.TUI.Components;
 using HPD.TUI.Rendering;
 using HPD.TUI.Views;
 using HPDOS.ToolHarnesses.Middleware;
+using CodingDiagnosticsTranscriptCell = HPD.Agent.ToolHarness.Coding.TUI.FileMutations.CodingDiagnosticsCell;
+using CodingFileMutationTranscriptCell = HPD.Agent.ToolHarness.Coding.TUI.FileMutations.FileMutationCell;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Tests;
 
@@ -28,6 +31,12 @@ public sealed class FileMutationTuiTests
             "hpd.coding.files",
             "hpd.coding.diagnostics"
         ]);
+        registry.TranscriptRenderers.TryFindRenderer<CodingFileMutationTranscriptCell>(
+            CodingHarnessTuiTranscriptRendererKeys.FileMutation,
+            out _).Should().BeTrue();
+        registry.TranscriptRenderers.TryFindRenderer<CodingDiagnosticsTranscriptCell>(
+            CodingHarnessTuiTranscriptRendererKeys.Diagnostics,
+            out _).Should().BeTrue();
     }
 
     [Fact]
@@ -37,11 +46,38 @@ public sealed class FileMutationTuiTests
 
         await state.ApplyEventAsync(EditMutation());
 
+        var rows = ReadRows(state.Shell.Transcript);
+        rows.Should().ContainSingle();
+        rows[0].Cell.Should().BeOfType<CodingFileMutationTranscriptCell>()
+            .Which.DisplayPath.Should().Be("src/Foo.cs");
+
         var rendered = RenderTranscript(state);
         rendered.Should().Contain("• Edited src/Foo.cs (+1 -1)");
         rendered.Should().Contain("1  public sealed class Foo");
         rendered.Should().Contain("2 -    private string _oldName;");
         rendered.Should().Contain("2 +    private string _name;");
+    }
+
+    [Fact]
+    public async Task ReplacedFileMutationRenderer_KeepsMutationHandlersAndState()
+    {
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .AddCodingHarnessTui()
+            .ReplaceTranscriptRenderer<CodingFileMutationTranscriptCell>(
+                CodingHarnessTuiTranscriptRendererKeys.FileMutation,
+                _ => new Text("custom mutation row"))
+            .Build();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            registry);
+
+        await state.ApplyEventAsync(EditMutation());
+
+        ReadRows(state.Shell.Transcript).Should().ContainSingle()
+            .Which.Cell.Should().BeOfType<CodingFileMutationTranscriptCell>();
+        RenderTranscript(state, registry.TranscriptRenderers).Should().Contain("custom mutation row");
+        RenderShell(registry, state).Should().Contain("files +1 -1");
     }
 
     [Fact]
@@ -76,6 +112,8 @@ public sealed class FileMutationTuiTests
 
         var rows = ReadRows(state.Shell.Transcript);
         rows.Should().ContainSingle();
+        rows[0].Cell.Should().BeOfType<CodingFileMutationTranscriptCell>()
+            .Which.Diagnostics.Should().ContainSingle();
 
         var rendered = RenderTranscript(state);
         rendered.Should().Contain("Diagnostics");
@@ -89,6 +127,11 @@ public sealed class FileMutationTuiTests
         var state = CreateState();
 
         await state.ApplyEventAsync(Diagnostics(path: "/repo/src/Foo.cs", displayPath: "src/Foo.cs"));
+
+        var rows = ReadRows(state.Shell.Transcript);
+        rows.Should().ContainSingle();
+        rows[0].Cell.Should().BeOfType<CodingDiagnosticsTranscriptCell>()
+            .Which.Path.Should().Be("/repo/src/Foo.cs");
 
         var rendered = RenderTranscript(state);
         rendered.Should().Contain("• Diagnostics /repo/src/Foo.cs");
@@ -239,18 +282,29 @@ public sealed class FileMutationTuiTests
         return rows;
     }
 
-    private static string RenderTranscript(AgentTuiSessionState state, int width = 100, int height = 16)
+    private static string RenderTranscript(
+        AgentTuiSessionState state,
+        AgentTuiTranscriptRendererRegistry? renderers = null,
+        int width = 100,
+        int height = 16)
         => TuiCapture.RenderToString(
-            new TranscriptView(state.Shell.Transcript, height: 14),
+            new TranscriptView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 14),
             width: width,
             height: height,
             trimTrailingBlankLines: true);
 
     private static string RenderTranscriptAnsi(AgentTuiSessionState state, int width = 100, int height = 16)
         => TuiCapture.RenderToAnsi(
-            new TranscriptView(state.Shell.Transcript, height: 14),
+            new TranscriptView(state.Shell.Transcript, DefaultTranscriptRenderers(), height: 14),
             width: width,
             height: height);
+
+    private static AgentTuiTranscriptRendererRegistry DefaultTranscriptRenderers()
+        => new HpdAgentTuiBuilder()
+            .AddDefaultTranscriptRenderers()
+            .AddCodingHarnessTui()
+            .Build()
+            .TranscriptRenderers;
 
     private static string RenderShell(HpdAgentTuiRegistry registry, AgentTuiSessionState state)
         => TuiCapture.RenderToString(

@@ -62,7 +62,7 @@ public sealed class MarkdownTests
     }
 
     [Fact]
-    public void Render_FencedCodeUsesBorderAndHighlightsKeywords()
+    public void Render_FencedCodeUsesPlainHeaderAndHighlightsKeywords()
     {
         var markdown = new HPD.TUI.Components.Markdown("""
 ```csharp
@@ -75,8 +75,8 @@ public class Demo
 
         markdown.Render(in context, 40, ref writer);
 
-        Assert.Equal(new Rune('╭'), grid.GetCell(0, 0).Rune);
-        Assert.Equal(new Rune('│'), grid.GetCell(0, 1).Rune);
+        Assert.Equal(new Rune('c'), grid.GetCell(0, 0).Rune);
+        Assert.Equal(new Rune(' '), grid.GetCell(0, 1).Rune);
         Assert.Equal(Theme.Default.Accent.Foreground, grid.GetCell(2, 1).Style.Foreground);
     }
 

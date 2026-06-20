@@ -1,26 +1,23 @@
-﻿using HPD.TUI.Core;
+﻿using System.Text;
+using HPD.TUI.Core;
 using HPD.TUI.Utilities;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration.Views;
 
-internal sealed class CodingExplorationTranscriptView : IComponent
+internal sealed class CodingExplorationCellView : IComponent
 {
-    private readonly CodingExplorationGroup _group;
-    private IReadOnlyList<CodingExplorationOperation> _capturedOperations;
+    private readonly CodingExplorationCell _cell;
 
-    public CodingExplorationTranscriptView(CodingExplorationGroup group)
+    public CodingExplorationCellView(CodingExplorationCell cell)
     {
-        _group = group ?? throw new ArgumentNullException(nameof(group));
-        _capturedOperations = group.CaptureOperations();
+        _cell = cell ?? throw new ArgumentNullException(nameof(cell));
     }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
     {
-        _capturedOperations = _group.CaptureOperations();
-        var rows = CodingExplorationDisplayFormatter.BuildRows(_capturedOperations);
-        return rows.Count == 0
+        return _cell.Rows.Count == 0
             ? new Measurement(0, 0, 0)
-            : new Measurement(1, Math.Min(maxWidth, 100), rows.Count);
+            : new Measurement(1, Math.Min(maxWidth, 100), _cell.Rows.Count);
     }
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
@@ -30,8 +27,7 @@ internal sealed class CodingExplorationTranscriptView : IComponent
             return;
         }
 
-        var rows = CodingExplorationDisplayFormatter.BuildRows(_capturedOperations);
-        for (var i = 0; i < rows.Count; i++)
+        for (var i = 0; i < _cell.Rows.Count; i++)
         {
             if (i > 0)
             {
@@ -40,7 +36,7 @@ internal sealed class CodingExplorationTranscriptView : IComponent
 
             var prefix = i == 0 ? "  └ " : "    ";
             output.Write(prefix.AsSpan(), context.Theme.Border);
-            WriteWrapped(rows[i], prefix.Length, maxWidth, context.Theme.Text, ref output);
+            WriteWrapped(_cell.Rows[i], prefix.Length, maxWidth, context.Theme.Text, ref output);
         }
     }
 
@@ -78,7 +74,7 @@ internal sealed class CodingExplorationTranscriptView : IComponent
         }
 
         var rows = new List<string>();
-        var current = "";
+        var current = new StringBuilder();
         var currentWidth = 0;
         foreach (var rune in text.EnumerateRunes())
         {
@@ -86,16 +82,16 @@ internal sealed class CodingExplorationTranscriptView : IComponent
             var runeWidth = Math.Max(0, UnicodeWidth.GetWidth(rune));
             if (current.Length > 0 && currentWidth + runeWidth > width)
             {
-                rows.Add(current);
-                current = "";
+                rows.Add(current.ToString());
+                current.Clear();
                 currentWidth = 0;
             }
 
-            current += runeText;
+            current.Append(runeText);
             currentWidth += runeWidth;
         }
 
-        rows.Add(current);
+        rows.Add(current.ToString());
         return rows;
     }
 }

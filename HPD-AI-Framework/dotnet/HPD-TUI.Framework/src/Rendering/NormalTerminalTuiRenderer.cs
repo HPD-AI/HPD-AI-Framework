@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using HPD.TUI.Core;
+using HPD.TUI.Observability;
 using HPD.TUI.Terminal;
 
 namespace HPD.TUI.Rendering;
@@ -32,12 +33,16 @@ public sealed class NormalTerminalTuiRenderer : IDisposable
 
     public bool TrackHardwareCursor { get; set; }
 
+    public IHpdTuiPerformanceEventSink? PerformanceSink { get; set; }
+
     public void Render(IComponent root, Theme? theme, int virtualHeight)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(root);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(virtualHeight);
 
+        var sink = PerformanceSink;
+        var startTimestamp = sink is null ? 0 : Stopwatch.GetTimestamp();
         var size = _terminal.GetSize();
         EnsureGrid(size.Width, virtualHeight);
 
@@ -55,6 +60,7 @@ public sealed class NormalTerminalTuiRenderer : IDisposable
         if (!_hasPreviousFrame || sizeChanged)
         {
             FullRender(size, usedLines, clearScrollback: sizeChanged);
+            PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
             return;
         }
 
@@ -63,16 +69,39 @@ public sealed class NormalTerminalTuiRenderer : IDisposable
         {
             PositionHardwareCursor(_currentGrid, usedLines);
             CommitFrame(size, virtualHeight, usedLines);
+            PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
             return;
         }
 
         if (usedLines < _previousUsedLineCount || changed.First < _previousViewportTop)
         {
             FullRender(size, usedLines);
+            PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
             return;
         }
 
         PatchChangedLines(size, changed.First, changed.Last, usedLines);
+        PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
+    }
+
+    private static void PublishRenderCompleted(
+        IHpdTuiPerformanceEventSink? sink,
+        long startTimestamp,
+        int rowsRendered,
+        int segmentsWritten)
+    {
+        if (sink is null)
+        {
+            return;
+        }
+
+        sink.Publish(new TuiRenderCompleted(
+            "normal-terminal",
+            Stopwatch.GetElapsedTime(startTimestamp),
+            rowsRendered,
+            segmentsWritten,
+            CacheHits: 0,
+            CacheMisses: 0));
     }
 
     private void FullRender(TerminalSize size, int usedLines, bool clearScrollback = false)

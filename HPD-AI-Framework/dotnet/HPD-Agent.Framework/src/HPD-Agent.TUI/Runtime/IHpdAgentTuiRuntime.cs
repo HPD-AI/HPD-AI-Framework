@@ -17,6 +17,11 @@ public interface IHpdAgentTuiRuntime
         AgentInputEvent input,
         CancellationToken cancellationToken = default);
 
+    Task InterruptAsync(
+        AgentTuiRuntimeScope scope,
+        string reason,
+        CancellationToken cancellationToken = default);
+
     Task RespondAsync(
         AgentTuiRuntimeScope scope,
         AgentEvent response,

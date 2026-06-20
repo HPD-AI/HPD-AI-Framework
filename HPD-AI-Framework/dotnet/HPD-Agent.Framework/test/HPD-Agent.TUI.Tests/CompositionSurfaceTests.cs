@@ -196,6 +196,121 @@ public sealed class CompositionSurfaceTests
     }
 
     [Fact]
+    public void AddAgentTuiDefaults_InstallsDefaultTranscriptRenderers()
+    {
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .Build();
+
+        registry.TranscriptRenderers.TryFindRenderer<RunStatusCell>(
+                AgentTuiTranscriptRendererKeys.RunStatus,
+                out var renderer)
+            .Should().BeTrue();
+        renderer.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void AddTranscriptRenderer_FailsOnDuplicateKey()
+    {
+        var builder = new HpdAgentTuiBuilder()
+            .AddTranscriptRenderer("sample.transcript", new TextTranscriptRenderer<RunStatusCell>("one"));
+
+        var act = () => builder.AddTranscriptRenderer(
+            "sample.transcript",
+            new TextTranscriptRenderer<NoticeCell>("two"));
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void AddTranscriptRenderer_FailsOnDuplicateCellType()
+    {
+        var builder = new HpdAgentTuiBuilder()
+            .AddTranscriptRenderer("sample.one", new TextTranscriptRenderer<RunStatusCell>("one"));
+
+        var act = () => builder.AddTranscriptRenderer(
+            "sample.two",
+            new TextTranscriptRenderer<RunStatusCell>("two"));
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void TryAddTranscriptRenderer_KeepsExistingRenderer()
+    {
+        var first = new TextTranscriptRenderer<RunStatusCell>("one");
+        var second = new TextTranscriptRenderer<RunStatusCell>("two");
+
+        var registry = new HpdAgentTuiBuilder()
+            .AddTranscriptRenderer("sample.run", first)
+            .TryAddTranscriptRenderer("sample.run", second)
+            .Build();
+
+        registry.TranscriptRenderers.TryFindRenderer<RunStatusCell>(
+                "sample.run",
+                out var renderer)
+            .Should().BeTrue();
+        renderer.Should().BeSameAs(first);
+    }
+
+    [Fact]
+    public void ReplaceTranscriptRenderer_ReplacesExistingRenderer()
+    {
+        var replacement = new TextTranscriptRenderer<RunStatusCell>("two");
+
+        var registry = new HpdAgentTuiBuilder()
+            .AddTranscriptRenderer("sample.run", new TextTranscriptRenderer<RunStatusCell>("one"))
+            .ReplaceTranscriptRenderer("sample.run", replacement)
+            .Build();
+
+        registry.TranscriptRenderers.TryFindRenderer<RunStatusCell>(
+                "sample.run",
+                out var renderer)
+            .Should().BeTrue();
+        renderer.Should().BeSameAs(replacement);
+    }
+
+    [Fact]
+    public void ReplaceTranscriptRenderer_RequiresExistingRenderer()
+    {
+        var builder = new HpdAgentTuiBuilder();
+
+        var act = () => builder.ReplaceTranscriptRenderer(
+            "missing",
+            new TextTranscriptRenderer<RunStatusCell>("value"));
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void DecorateTranscriptRenderer_WrapsExistingRenderer()
+    {
+        var registry = new HpdAgentTuiBuilder()
+            .AddTranscriptRenderer("sample.run", new TextTranscriptRenderer<RunStatusCell>("inner"))
+            .DecorateTranscriptRenderer<RunStatusCell>(
+                "sample.run",
+                inner => new DelegateAgentTuiTranscriptRenderer<RunStatusCell>(context =>
+                    new Stack()
+                        .Add(inner.Create(context))
+                        .Add(new Text("outer"))))
+            .Build();
+        var entry = new TranscriptEntry(
+            Id: "run",
+            EntryKey: null,
+            Cell: new RunStatusCell("run-123", TranscriptRunState.Completed),
+            Metadata: new TranscriptEntryMetadata());
+
+        var rendered = TuiCapture.RenderToString(
+            registry.TranscriptRenderers.Create(entry),
+            width: 80,
+            height: 4,
+            trimTrailingBlankLines: true);
+
+        rendered.Should().Contain("inner");
+        rendered.Should().Contain("outer");
+    }
+
+    [Fact]
     public void TryAddShellLayout_KeepsExistingLayout()
     {
         var first = new TestShellLayout("first");
@@ -544,6 +659,19 @@ public sealed class CompositionSurfaceTests
         }
 
         public IComponent Create(AgentTuiShellLayoutContext context) => new Text(_text);
+    }
+
+    private sealed class TextTranscriptRenderer<TCell> : IAgentTuiTranscriptRenderer<TCell>
+        where TCell : TranscriptCell
+    {
+        private readonly string _text;
+
+        public TextTranscriptRenderer(string text)
+        {
+            _text = text;
+        }
+
+        public IComponent Create(AgentTuiTranscriptRenderContext<TCell> context) => new Text(_text);
     }
 
     private sealed class CountingEventHandler : AgentTuiEventHandler<TextDeltaEvent>

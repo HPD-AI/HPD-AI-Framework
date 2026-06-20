@@ -1,0 +1,86 @@
+using HPD.Agent.TUI.Composition;
+using HPD.Events;
+using HPD.TUI.Observability;
+
+namespace HPD.Agent.TUI.Observability;
+
+public static class AgentTuiPerformanceDiagnostics
+{
+    public const string EnvironmentVariableName = "HPD_TUI_PERF";
+    public const string SinkStateKey = "hpd.agent-tui.performance.sink";
+
+    public static void SetSink(AgentTuiStateBag state, IHpdTuiPerformanceEventSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(sink);
+
+        state.Set(SinkStateKey, sink);
+    }
+
+    public static void SetSink(AgentTuiStateBag state, IEventPublisher publisher)
+    {
+        ArgumentNullException.ThrowIfNull(publisher);
+        SetSink(state, new EventPublisherTuiPerformanceEventSink(publisher));
+    }
+
+    public static bool RemoveSink(AgentTuiStateBag state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        return state.Remove(SinkStateKey);
+    }
+
+    public static bool TryGetSink(AgentTuiStateBag state, out IHpdTuiPerformanceEventSink sink)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        return state.TryGet(SinkStateKey, out sink);
+    }
+
+    public static bool ConfigureFromEnvironment(AgentTuiStateBag state)
+        => ConfigureFromEnvironment(
+            state,
+            global::System.Environment.GetEnvironmentVariable,
+            Console.Error);
+
+    internal static bool ConfigureFromEnvironment(
+        AgentTuiStateBag state,
+        Func<string, string?> getEnvironmentVariable,
+        TextWriter writer)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(getEnvironmentVariable);
+        ArgumentNullException.ThrowIfNull(writer);
+
+        if (!TuiPerformanceDiagnostics.IsEnabled(getEnvironmentVariable(EnvironmentVariableName)))
+        {
+            return false;
+        }
+
+        SetSink(state, new TextWriterTuiPerformanceEventSink(writer));
+        return true;
+    }
+}
+
+public abstract record AgentTuiPerformanceEvent : AgentEvent, IObservabilityEvent, IHpdTuiPerformanceSummary
+{
+    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
+
+    public override EventChannel Channel { get; init; } = EventChannel.Streaming;
+
+    public override bool ShouldPersistToThread() => false;
+
+    public virtual string FormatSummary()
+        => $"tui {GetType().Name} kind={Kind} channel={Channel}";
+}
+
+public sealed record TranscriptViewRendered(
+    string? AgentId,
+    int EntriesVisited,
+    int RowsCaptured,
+    int RowsRendered,
+    int CacheHits,
+    int CacheMisses,
+    TimeSpan Duration) : AgentTuiPerformanceEvent
+{
+    public override string FormatSummary()
+        => $"transcript render {Duration.TotalMilliseconds:0.###}ms rows={RowsRendered} captured={RowsCaptured} visited={EntriesVisited} cache={CacheHits}/{CacheMisses}";
+}
