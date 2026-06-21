@@ -68,26 +68,26 @@ jobs:
 
           PROJECTS=(
             # HPD-ML packages
-            "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.Abstractions/HPD.ML.Abstractions.csproj"
-            "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.Backends.Abstractions/HPD.ML.Backends.Abstractions.csproj"
-            "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.Core/HPD.ML.Core.csproj"
-            "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.DeepLearning/HPD.ML.DeepLearning.csproj"
-            "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.Backends/HPD.ML.Backends.csproj"
-            "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.BinaryClassification/HPD.ML.BinaryClassification.csproj"
-            "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.Clustering/HPD.ML.Clustering.csproj"
-            "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.DataSources/HPD.ML.DataSources.csproj"
-            "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.Evaluation/HPD.ML.Evaluation.csproj"
-            "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.LightGBM/HPD.ML.LightGBM.csproj"
-            "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.Regression/HPD.ML.Regression.csproj"
-            "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.Serialization.Zip/HPD.ML.Serialization.Zip.csproj"
-            "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.TimeSeries/HPD.ML.TimeSeries.csproj"
-            "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.Transforms/HPD.ML.Transforms.csproj"
+            "dotnet/HPD-ML.Framework/src/HPD.ML.Abstractions/HPD.ML.Abstractions.csproj"
+            "dotnet/HPD-ML.Framework/src/HPD.ML.Backends.Abstractions/HPD.ML.Backends.Abstractions.csproj"
+            "dotnet/HPD-ML.Framework/src/HPD.ML.Core/HPD.ML.Core.csproj"
+            "dotnet/HPD-ML.Framework/src/HPD.ML.DeepLearning/HPD.ML.DeepLearning.csproj"
+            "dotnet/HPD-ML.Framework/src/HPD.ML.Backends/HPD.ML.Backends.csproj"
+            "dotnet/HPD-ML.Framework/src/HPD.ML.BinaryClassification/HPD.ML.BinaryClassification.csproj"
+            "dotnet/HPD-ML.Framework/src/HPD.ML.Clustering/HPD.ML.Clustering.csproj"
+            "dotnet/HPD-ML.Framework/src/HPD.ML.DataSources/HPD.ML.DataSources.csproj"
+            "dotnet/HPD-ML.Framework/src/HPD.ML.Evaluation/HPD.ML.Evaluation.csproj"
+            "dotnet/HPD-ML.Framework/src/HPD.ML.LightGBM/HPD.ML.LightGBM.csproj"
+            "dotnet/HPD-ML.Framework/src/HPD.ML.Regression/HPD.ML.Regression.csproj"
+            "dotnet/HPD-ML.Framework/src/HPD.ML.Serialization.Zip/HPD.ML.Serialization.Zip.csproj"
+            "dotnet/HPD-ML.Framework/src/HPD.ML.TimeSeries/HPD.ML.TimeSeries.csproj"
+            "dotnet/HPD-ML.Framework/src/HPD.ML.Transforms/HPD.ML.Transforms.csproj"
           )
 
           VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"
           VERSION_SUFFIX="${{ needs.determine-version.outputs.version_suffix }}"
 
-          HPD-AI-Framework/dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
+          dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
 
           for PROJECT in "${PROJECTS[@]}"; do
             echo "Packing $PROJECT..."

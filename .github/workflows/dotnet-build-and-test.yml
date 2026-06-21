@@ -83,15 +83,15 @@ jobs:
         sudo apt-get install -y gcc gcc-aarch64-linux-gnu
 
     - name: Restore dependencies
-      run: dotnet restore HPD-AI-Framework/dotnet/HPD-Agent.Framework/HPD-Agent.slnx
+      run: dotnet restore dotnet/HPD-Agent.Framework/HPD-Agent.slnx
 
     - name: Build
-      run: dotnet build HPD-AI-Framework/dotnet/HPD-Agent.Framework/HPD-Agent.slnx -c ${{ matrix.configuration }} --no-restore
+      run: dotnet build dotnet/HPD-Agent.Framework/HPD-Agent.slnx -c ${{ matrix.configuration }} --no-restore
 
     - name: Run tests (with coverage)
       if: matrix.collect-coverage
       run: |
-        dotnet test HPD-AI-Framework/dotnet/HPD-Agent.Framework/HPD-Agent.slnx \
+        dotnet test dotnet/HPD-Agent.Framework/HPD-Agent.slnx \
           -f ${{ matrix.targetFramework }} \
           -c ${{ matrix.configuration }} \
           --no-build \
@@ -104,7 +104,7 @@ jobs:
       if: ${{ !matrix.collect-coverage }}
       shell: bash
       run: |
-        dotnet test HPD-AI-Framework/dotnet/HPD-Agent.Framework/HPD-Agent.slnx \
+        dotnet test dotnet/HPD-Agent.Framework/HPD-Agent.slnx \
           -f ${{ matrix.targetFramework }} \
           -c ${{ matrix.configuration }} \
           --no-build \
@@ -215,11 +215,11 @@ jobs:
 
     - name: Prepare ripgrep binaries
       run: |
-        dotnet run --file HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/Ripgrep/pack/prepare-ripgrep-binaries.cs -- \
-          --project HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj
+        dotnet run --file dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/Ripgrep/pack/prepare-ripgrep-binaries.cs -- \
+          --project dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj
 
     - name: Pack NuGet packages
-      run: dotnet pack HPD-AI-Framework/dotnet/HPD-Agent.Framework/HPD-Agent.slnx -c Release --output ./artifacts
+      run: dotnet pack dotnet/HPD-Agent.Framework/HPD-Agent.slnx -c Release --output ./artifacts
 
     - name: Verify package contents
       run: |

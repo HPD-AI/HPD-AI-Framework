@@ -35,7 +35,7 @@ jobs:
           languages: csharp
 
       - name: Build
-        run: dotnet build HPD-AI-Framework/dotnet/HPD-Agent.Framework/HPD-Agent.slnx --configuration Release
+        run: dotnet build dotnet/HPD-Agent.Framework/HPD-Agent.slnx --configuration Release
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3

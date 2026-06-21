@@ -8,9 +8,9 @@ A set of C# frameworks for building production AI applications. Use the package 
 Product documentation and websites live in their own repositories. Use the links under each architecture diagram for the canonical source and published docs when available.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/overview-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="HPD-AI-Framework/assets/svg/overview.svg">
-  <img alt="HPD AI Framework Packages" src="HPD-AI-Framework/assets/svg/overview.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/svg/overview-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/svg/overview.svg">
+  <img alt="HPD AI Framework Packages" src="assets/svg/overview.svg">
 </picture>
 
 
@@ -19,9 +19,9 @@ Product documentation and websites live in their own repositories. Use the links
 Use HPD-Agent to build production agents that can talk to models, call tools, stream events, manage sessions, hand work to sub-agents, and expose chat surfaces.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/agent-architecture-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="HPD-AI-Framework/assets/svg/agent-architecture.svg">
-  <img alt="HPD-Agent Architecture" src="HPD-AI-Framework/assets/svg/agent-architecture.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/svg/agent-architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/svg/agent-architecture.svg">
+  <img alt="HPD-Agent Architecture" src="assets/svg/agent-architecture.svg">
 </picture>
 
 [GitHub](https://github.com/HPD-AI/HPD-Agent) · [Documentation](https://hpd-ai.github.io/HPD-Agent-Framework/)
@@ -33,9 +33,9 @@ Use HPD-Agent to build production agents that can talk to models, call tools, st
 Use HPD-RAG to build retrieval systems where ingestion, storage, search, reranking, formatting, and evaluation can be replaced or removed independently.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/rag-architecture-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="HPD-AI-Framework/assets/svg/rag-architecture.svg">
-  <img alt="HPD-RAG Architecture" src="HPD-AI-Framework/assets/svg/rag-architecture.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/svg/rag-architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/svg/rag-architecture.svg">
+  <img alt="HPD-RAG Architecture" src="assets/svg/rag-architecture.svg">
 </picture>
 
 [GitHub](https://github.com/HPD-AI/HPD-RAG-Framework)
@@ -47,9 +47,9 @@ Use HPD-RAG to build retrieval systems where ingestion, storage, search, reranki
 Use HPD-Graph to run typed workflow graphs that need routing, parallel layers, checkpoint/resume, human or external waits, artifacts, partitions, and incremental execution.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/graph-architecture-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="HPD-AI-Framework/assets/svg/graph-architecture.svg">
-  <img alt="HPD-Graph Architecture" src="HPD-AI-Framework/assets/svg/graph-architecture.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/svg/graph-architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/svg/graph-architecture.svg">
+  <img alt="HPD-Graph Architecture" src="assets/svg/graph-architecture.svg">
 </picture>
 
 [GitHub](https://github.com/HPD-AI/HPD-Graph-Framework)
@@ -61,9 +61,9 @@ Use HPD-Graph to run typed workflow graphs that need routing, parallel layers, c
 Use HPD-TUI to build native AOT-friendly terminal interfaces that stay allocation-conscious while rendering retained views, prompts, trees, tables, markdown, and streaming output.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/tui-architecture-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="HPD-AI-Framework/assets/svg/tui-architecture.svg">
-  <img alt="HPD-TUI Architecture" src="HPD-AI-Framework/assets/svg/tui-architecture.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/svg/tui-architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/svg/tui-architecture.svg">
+  <img alt="HPD-TUI Architecture" src="assets/svg/tui-architecture.svg">
 </picture>
 
 [GitHub](https://github.com/HPD-AI/HPD-TUI-Framework)
@@ -75,9 +75,9 @@ Use HPD-TUI to build native AOT-friendly terminal interfaces that stay allocatio
 Use HPD-ML to build machine-learning pipelines with a common data abstraction, composable transforms, pluggable learners, evaluation, and model serialization.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/ml-architecture-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="HPD-AI-Framework/assets/svg/ml-architecture.svg">
-  <img alt="HPD-ML Architecture" src="HPD-AI-Framework/assets/svg/ml-architecture.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/svg/ml-architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/svg/ml-architecture.svg">
+  <img alt="HPD-ML Architecture" src="assets/svg/ml-architecture.svg">
 </picture>
 
 [GitHub](https://github.com/HPD-AI/HPD-ML-Framework) · [Documentation](https://hpd-ai.github.io/HPD-ML-Framework/)
@@ -89,9 +89,14 @@ Use HPD-ML to build machine-learning pipelines with a common data abstraction, c
 Use HPD-Auth when you want hosted-auth-service ergonomics inside your own ASP.NET app: identity, sessions, JWT/cookie auth, 2FA, passkeys, OAuth, admin APIs, and audit events without a separate service.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/auth-architecture-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="HPD-AI-Framework/assets/svg/auth-architecture.svg">
-  <img alt="HPD-Auth Architecture" src="HPD-AI-Framework/assets/svg/auth-architecture.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/svg/auth-architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/svg/auth-architecture.svg">
+  <img alt="HPD-Auth Architecture" src="assets/svg/auth-architecture.svg">
 </picture>
 
 [GitHub](https://github.com/HPD-AI/HPD-Auth-Framework) · [Documentation](https://hpd-ai.github.io/HPD-Auth-Framework/)
+
+
+## HPD-AI Use Discretion
+
+HPD-AI Framework is pre-1.0. Until `1.0.0`, API and persistence contracts may continue to evolve as the framework stabilizes. 

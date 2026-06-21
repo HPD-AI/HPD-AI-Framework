@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: HPD-AI-Framework/documentation/package-lock.json
+          cache-dependency-path: documentation/package-lock.json
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -35,16 +35,16 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-        working-directory: HPD-AI-Framework/documentation
+        working-directory: documentation
 
       - name: Build with VitePress
         run: npm run build
-        working-directory: HPD-AI-Framework/documentation
+        working-directory: documentation
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: HPD-AI-Framework/documentation/.vitepress/dist
+          path: documentation/.vitepress/dist
 
   deploy:
     environment:

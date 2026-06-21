@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Core/">
+    <Project Path="src/HPD.Auth/HPD.Auth.csproj" />
+    <Project Path="src/HPD.Auth.Core/HPD.Auth.Core.csproj" />
+  </Folder>
+  <Folder Name="/Modules/">
+    <Project Path="src/HPD.Auth.Admin/HPD.Auth.Admin.csproj" />
+    <Project Path="src/HPD.Auth.Audit/HPD.Auth.Audit.csproj" />
+    <Project Path="src/HPD.Auth.Authentication/HPD.Auth.Authentication.csproj" />
+    <Project Path="src/HPD.Auth.Authorization/HPD.Auth.Authorization.csproj" />
+    <Project Path="src/HPD.Auth.Infrastructure/HPD.Auth.Infrastructure.csproj" />
+    <Project Path="src/HPD.Auth.OAuth/HPD.Auth.OAuth.csproj" />
+    <Project Path="src/HPD.Auth.TwoFactor/HPD.Auth.TwoFactor.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="test/HPD.Auth.Tests/HPD.Auth.Tests.csproj" />
+    <Project Path="test/HPD.Auth.Core.Tests/HPD.Auth.Core.Tests.csproj" />
+    <Project Path="test/HPD.Auth.Admin.Tests/HPD.Auth.Admin.Tests.csproj" />
+    <Project Path="test/HPD.Auth.Audit.Tests/HPD.Auth.Audit.Tests.csproj" />
+    <Project Path="test/HPD.Auth.Authentication.Tests/HPD.Auth.Authentication.Tests.csproj" />
+    <Project Path="test/HPD.Auth.Authorization.Tests/HPD.Auth.Authorization.Tests.csproj" />
+    <Project Path="test/HPD.Auth.Infrastructure.Tests/HPD.Auth.Infrastructure.Tests.csproj" />
+    <Project Path="test/HPD.Auth.OAuth.Tests/HPD.Auth.OAuth.Tests.csproj" />
+    <Project Path="test/HPD.Auth.TwoFactor.Tests/HPD.Auth.TwoFactor.Tests.csproj" />
+  </Folder>
+</Solution>

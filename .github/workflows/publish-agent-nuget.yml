@@ -72,11 +72,11 @@ jobs:
 
       - name: Prepare ripgrep binaries
         run: |
-          dotnet run --file HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/Ripgrep/pack/prepare-ripgrep-binaries.cs -- \
-            --project HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj
+          dotnet run --file dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/Ripgrep/pack/prepare-ripgrep-binaries.cs -- \
+            --project dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj
 
       - name: Build bundled coding TUI assets
-        run: dotnet build HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.TUI/HPD-Agent.Harness.Coding.TUI.csproj --configuration Release
+        run: dotnet build dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.TUI/HPD-Agent.Harness.Coding.TUI.csproj --configuration Release
 
       - name: Pack packages
         run: |
@@ -84,73 +84,73 @@ jobs:
 
           PROJECTS=(
             # Shared foundations
-            "HPD-AI-Framework/dotnet/shared/src/HPD-Serialization/HPD-Serialization.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-Events/HPD-Events.csproj"
-            "HPD-AI-Framework/dotnet/HPD-TUI.Framework/src/HPD-TUI.csproj"
+            "dotnet/shared/src/HPD-Serialization/HPD-Serialization.csproj"
+            "dotnet/shared/src/HPD-Events/HPD-Events.csproj"
+            "dotnet/HPD-TUI.Framework/src/HPD-TUI.csproj"
             # Realtime media
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Buffers/HPD-Buffers.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Primitives/HPD-Audio.Primitives.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Codecs/HPD-Audio.Codecs.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Codecs.G711/HPD-Audio.Codecs.G711.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Codecs.Opus/HPD-Audio.Codecs.Opus.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Connections/HPD-Audio.Connections.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Diagnostics/HPD-Media.Diagnostics.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Sdp/HPD-Media.Sdp.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Transport/HPD-Media.Transport.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp/HPD-Media.Rtp.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtcp/HPD-Media.Rtcp.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtcp.Feedback/HPD-Media.Rtcp.Feedback.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtcp.Twcc/HPD-Media.Rtcp.Twcc.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp.Audio/HPD-Media.Rtp.Audio.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp.Audio.Sdp/HPD-Media.Rtp.Audio.Sdp.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp.Repair/HPD-Media.Rtp.Repair.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Srtp/HPD-Media.Srtp.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.WebRTC/HPD-Media.WebRTC.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.WebRTC/HPD-Audio.WebRTC.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Buffers/HPD-Buffers.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Primitives/HPD-Audio.Primitives.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Codecs/HPD-Audio.Codecs.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Codecs.G711/HPD-Audio.Codecs.G711.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Codecs.Opus/HPD-Audio.Codecs.Opus.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Connections/HPD-Audio.Connections.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Diagnostics/HPD-Media.Diagnostics.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Sdp/HPD-Media.Sdp.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Transport/HPD-Media.Transport.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp/HPD-Media.Rtp.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtcp/HPD-Media.Rtcp.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtcp.Feedback/HPD-Media.Rtcp.Feedback.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtcp.Twcc/HPD-Media.Rtcp.Twcc.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp.Audio/HPD-Media.Rtp.Audio.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp.Audio.Sdp/HPD-Media.Rtp.Audio.Sdp.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp.Repair/HPD-Media.Rtp.Repair.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Srtp/HPD-Media.Srtp.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.WebRTC/HPD-Media.WebRTC.csproj"
+            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.WebRTC/HPD-Audio.WebRTC.csproj"
             # Core
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent/HPD-Agent.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.FFI/HPD-Agent.FFI.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.MCP/HPD-Agent.MCP.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-TextExtract/HPD-TextExtract.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.TUI/HPD-Agent.TUI.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.ModelsDev/HPD-Agent.ModelsDev.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/HPD-OpenApi.Core/HPD-OpenApi.Core.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent/HPD-Agent.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.FFI/HPD-Agent.FFI.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.MCP/HPD-Agent.MCP.csproj"
+            "dotnet/shared/src/HPD-TextExtract/HPD-TextExtract.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Sandbox/HPD-Agent.Sandbox.Local/HPD-Agent.Sandbox.Local.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Evaluations/HPD-Agent.Evaluations.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.TUI/HPD-Agent.TUI.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.ModelsDev/HPD-Agent.ModelsDev.csproj"
+            "dotnet/shared/src/HPD-OpenApi.Core/HPD-OpenApi.Core.csproj"
             # ToolHarnesses
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.TUI/HPD-Agent.Harness.Coding.TUI.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.TUI/HPD-Agent.Harness.Coding.TUI.csproj"
             # Providers
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.OpenAI/HPD-Agent.Providers.Audio.OpenAI.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.ElevenLabs/HPD-Agent.Providers.Audio.ElevenLabs.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/HPD-Agent.Providers.Audio.Silero.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Meai/HPD-Agent.Providers.Audio.Meai.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Bedrock/HPD-Agent.Providers.Bedrock.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OnnxRuntime/HPD-Agent.Providers.OnnxRuntime.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.OpenAI/HPD-Agent.Providers.Audio.OpenAI.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.ElevenLabs/HPD-Agent.Providers.Audio.ElevenLabs.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Silero/HPD-Agent.Providers.Audio.Silero.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers.Audio/HPD-Agent.Providers.Audio.Meai/HPD-Agent.Providers.Audio.Meai.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Bedrock/HPD-Agent.Providers.Bedrock.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.Ollama/HPD-Agent.Providers.Ollama.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OnnxRuntime/HPD-Agent.Providers.OnnxRuntime.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenAI/HPD-Agent.Providers.OpenAI.csproj"
+            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.OpenRouter/HPD-Agent.Providers.OpenRouter.csproj"
             # VCS (excluded — TFM mismatch with SDK 10, needs investigation)
-            # "HPD-AI-Framework/dotnet/shared/src/HPD-VCS/HPD-VCS.csproj"
+            # "dotnet/shared/src/HPD-VCS/HPD-VCS.csproj"
           )
 
           VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"
           VERSION_SUFFIX="${{ needs.determine-version.outputs.version_suffix }}"
 
-          HPD-AI-Framework/dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
+          dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
 
           for PROJECT in "${PROJECTS[@]}"; do
             echo "Packing $PROJECT..."

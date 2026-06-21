@@ -67,22 +67,22 @@ jobs:
           mkdir -p ./nupkg-graph
 
           PROJECTS=(
-            "HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Abstractions/HPD-Graph.Abstractions.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Core/HPD-Graph.Core.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Hosting/HPD-Graph.Hosting.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.AspNetCore/HPD-Graph.AspNetCore.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.SourceGenerator/HPD-Graph.Connectors.SourceGenerator.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.Abstractions/HPD-Graph.Connectors.Abstractions.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.Core/HPD-Graph.Connectors.Core.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.AspNetCore/HPD-Graph.Connectors.AspNetCore.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.OpenApi/HPD-Graph.Connectors.OpenApi.csproj"
+            "dotnet/HPD-Graph.Framework/src/HPD-Graph.Abstractions/HPD-Graph.Abstractions.csproj"
+            "dotnet/HPD-Graph.Framework/src/HPD-Graph.SourceGenerator/HPD-Graph.SourceGenerator.csproj"
+            "dotnet/HPD-Graph.Framework/src/HPD-Graph.Core/HPD-Graph.Core.csproj"
+            "dotnet/HPD-Graph.Framework/src/HPD-Graph.Hosting/HPD-Graph.Hosting.csproj"
+            "dotnet/HPD-Graph.Framework/src/HPD-Graph.AspNetCore/HPD-Graph.AspNetCore.csproj"
+            "dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.SourceGenerator/HPD-Graph.Connectors.SourceGenerator.csproj"
+            "dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.Abstractions/HPD-Graph.Connectors.Abstractions.csproj"
+            "dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.Core/HPD-Graph.Connectors.Core.csproj"
+            "dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.AspNetCore/HPD-Graph.Connectors.AspNetCore.csproj"
+            "dotnet/HPD-Graph.Framework/src/HPD-Graph.Connectors/HPD-Graph.Connectors.OpenApi/HPD-Graph.Connectors.OpenApi.csproj"
           )
 
           VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"
           VERSION_SUFFIX="${{ needs.determine-version.outputs.version_suffix }}"
 
-          HPD-AI-Framework/dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
+          dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
 
           for PROJECT in "${PROJECTS[@]}"; do
             echo "Packing $PROJECT..."

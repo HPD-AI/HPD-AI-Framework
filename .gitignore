@@ -10,6 +10,22 @@ HPDOS/backend/artifacts/
 HPDOS/backend/wwwroot/assets/
 HPDOSBenchmarkDotNet.Artifacts/
 BenchmarkDotNet.Artifacts/
+.tmp/
+**/.tmp/
+**/node_modules/
+**/dist/
+.vitepress/cache/
+documentation/.vitepress/cache/
+documentation/.vitepress/dist/
+/target/
+**/target/
+/.nupkg/
+/Proposals/
+/Reference/
+appsettings.json
+appsettings.*.json
+**/appsettings.json
+**/appsettings.*.json
 
 # Rhodium local verification artifacts
 rhodium-verify.log
@@ -17,14 +33,33 @@ rhodium-benchmarks.log
 dispatch-benchmark-results.log
 memory-results.log
 memory-results.trx
-HPD-AI-Framework/dotnet/shared/src/Rhodium/benchmarks/vector-smoke-report.json
+dotnet/shared/src/Rhodium/benchmarks/vector-smoke-report.json
 
 # Local native/runtime artifacts
 artifacts/
-!HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Abstractions/Artifacts/
-!HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Abstractions/Artifacts/**
-!HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Core/Artifacts/
-!HPD-AI-Framework/dotnet/HPD-Graph.Framework/src/HPD-Graph.Core/Artifacts/**
+!dotnet/HPD-Graph.Framework/src/HPD-Graph.Abstractions/Artifacts/
+!dotnet/HPD-Graph.Framework/src/HPD-Graph.Abstractions/Artifacts/**
+!dotnet/HPD-Graph.Framework/src/HPD-Graph.Core/Artifacts/
+!dotnet/HPD-Graph.Framework/src/HPD-Graph.Core/Artifacts/**
+
+# Framework package/test artifacts
+**/test/AgentConsoleTest/sessions/sessions/
+**/test/AgentWebTest/sessions/sessions/
+**/test/NuGetTest/nuget-packages/
+**/test/NuGetTest/nuget-releases/**/*.nupkg
+**/test/NuGetTest/nuget-releases/**/*.snupkg
+**/test/NuGetTest/aot-tests/test-*/
+**/test/NuGetTest/aot-tests/*.txt
+
+# CrossIntelligence build artifacts
+.build/
+/native/
+dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AppleIntelligence/native/apple/CrossIntelligence.xcframework/
+dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AppleIntelligence/native/apple/macos/
+dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AppleIntelligence/native/apple/ios/
+dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AppleIntelligence/native/apple/maccatalyst/
+dotnet/HPD-Agent.Framework/src/HPD-Agent.Providers/HPD-Agent.Providers.AppleIntelligence/native/apple/HPDIntelligence/.build/
+.claude/
 
 # Apple Virtualization real-acceptance local artifacts
 **/.hpd-real-acceptance-scratch/

@@ -67,21 +67,21 @@ jobs:
           mkdir -p ./nupkg-auth
 
           PROJECTS=(
-            "HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth.Core/HPD.Auth.Core.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth.Infrastructure/HPD.Auth.Infrastructure.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth/HPD.Auth.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth.Authentication/HPD.Auth.Authentication.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth.Authorization/HPD.Auth.Authorization.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth.Audit/HPD.Auth.Audit.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth.TwoFactor/HPD.Auth.TwoFactor.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth.OAuth/HPD.Auth.OAuth.csproj"
-            "HPD-AI-Framework/dotnet/HPD-Auth.Framework/src/HPD.Auth.Admin/HPD.Auth.Admin.csproj"
+            "dotnet/HPD-Auth.Framework/src/HPD.Auth.Core/HPD.Auth.Core.csproj"
+            "dotnet/HPD-Auth.Framework/src/HPD.Auth.Infrastructure/HPD.Auth.Infrastructure.csproj"
+            "dotnet/HPD-Auth.Framework/src/HPD.Auth/HPD.Auth.csproj"
+            "dotnet/HPD-Auth.Framework/src/HPD.Auth.Authentication/HPD.Auth.Authentication.csproj"
+            "dotnet/HPD-Auth.Framework/src/HPD.Auth.Authorization/HPD.Auth.Authorization.csproj"
+            "dotnet/HPD-Auth.Framework/src/HPD.Auth.Audit/HPD.Auth.Audit.csproj"
+            "dotnet/HPD-Auth.Framework/src/HPD.Auth.TwoFactor/HPD.Auth.TwoFactor.csproj"
+            "dotnet/HPD-Auth.Framework/src/HPD.Auth.OAuth/HPD.Auth.OAuth.csproj"
+            "dotnet/HPD-Auth.Framework/src/HPD.Auth.Admin/HPD.Auth.Admin.csproj"
           )
 
           VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"
           VERSION_SUFFIX="${{ needs.determine-version.outputs.version_suffix }}"
 
-          HPD-AI-Framework/dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
+          dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
 
           for PROJECT in "${PROJECTS[@]}"; do
             echo "Packing $PROJECT..."
