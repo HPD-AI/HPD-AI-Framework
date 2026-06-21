@@ -3,7 +3,7 @@
 [![GitHub](https://img.shields.io/badge/GitHub-HPD--AI%2FHPD--AI--Framework-181717?logo=github)](https://github.com/HPD-AI/HPD-AI-Framework)
 [![NuGet](https://img.shields.io/nuget/v/HPD-Agent.Framework?label=NuGet&color=004880&logo=nuget)](https://www.nuget.org/packages/HPD-Agent.Framework)
 
-A C# framework for building production AI applications — agents, graph workflows, terminal UIs, RAG pipelines, ML pipelines, authentication, and everything in between.
+A set of C# frameworks for building production AI applications. Use the package family that matches the thing you need to build: agents, RAG, graph workflows, terminal UIs, ML pipelines, authentication, or shared runtime infrastructure.
 
 Product documentation and websites live in their own repositories. Use the links under each architecture diagram for the canonical source and published docs when available.
 
@@ -16,7 +16,7 @@ Product documentation and websites live in their own repositories. Use the links
 
 ## HPD-Agent
 
-Production-ready agent framework — tools, multi-turn conversations, middleware, sub-agents, multi-agent workflows, audio, and more. Paired with TypeScript/Svelte UI libraries for streaming chat interfaces.
+Use HPD-Agent to build production agents that can talk to models, call tools, stream events, manage sessions, hand work to sub-agents, and expose chat surfaces.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/agent-architecture-dark.svg">
@@ -30,7 +30,7 @@ Production-ready agent framework — tools, multi-turn conversations, middleware
 
 ## HPD-RAG
 
-Fully modular RAG framework — every node in every pipeline is swappable or removable. Build your own ingestion, retrieval, and evaluation pipelines by snapping blocks together.
+Use HPD-RAG to build retrieval systems where ingestion, storage, search, reranking, formatting, and evaluation can be replaced or removed independently.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/rag-architecture-dark.svg">
@@ -44,7 +44,7 @@ Fully modular RAG framework — every node in every pipeline is swappable or rem
 
 ## HPD-Graph
 
-Universal graph workflow orchestration for .NET — typed nodes, conditional routing, parallel execution, checkpoint/resume, HITL suspension, streaming events, artifacts, partitions, and incremental execution.
+Use HPD-Graph to run typed workflow graphs that need routing, parallel layers, checkpoint/resume, human or external waits, artifacts, partitions, and incremental execution.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/graph-architecture-dark.svg">
@@ -58,7 +58,7 @@ Universal graph workflow orchestration for .NET — typed nodes, conditional rou
 
 ## HPD-TUI
 
-Native AOT-friendly terminal UI framework for .NET — retained components, pooled terminal grids, model-first views, prompt flows, semantic content blocks, streaming markdown, extension hooks, and differential ANSI rendering for full-screen or normal-terminal apps.
+Use HPD-TUI to build native AOT-friendly terminal interfaces that stay allocation-conscious while rendering retained views, prompts, trees, tables, markdown, and streaming output.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/tui-architecture-dark.svg">
@@ -72,7 +72,7 @@ Native AOT-friendly terminal UI framework for .NET — retained components, pool
 
 ## HPD-ML
 
-Fully modular machine learning framework — data ingestion, feature engineering, model training, and evaluation all composable and extensible. Universal data abstraction with pluggable learners and transforms.
+Use HPD-ML to build machine-learning pipelines with a common data abstraction, composable transforms, pluggable learners, evaluation, and model serialization.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/ml-architecture-dark.svg">
@@ -86,7 +86,7 @@ Fully modular machine learning framework — data ingestion, feature engineering
 
 ## HPD-Auth
 
-Hosted-auth-service experience as an embedded .NET library. Wraps ASP.NET Core Identity and exposes a ready-made REST API — JWT + Cookie dual-auth, session management, 2FA, passkeys, OAuth, admin API, and event-driven audit logging. No separate service to run. No per-user pricing. No data leaving your infrastructure.
+Use HPD-Auth when you want hosted-auth-service ergonomics inside your own ASP.NET app: identity, sessions, JWT/cookie auth, 2FA, passkeys, OAuth, admin APIs, and audit events without a separate service.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/auth-architecture-dark.svg">
