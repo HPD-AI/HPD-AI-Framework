@@ -22,6 +22,20 @@ Production-ready agent framework — tools, multi-turn conversations, middleware
 
 ---
 
+## HPD-RAG
+
+Fully modular RAG framework — every node in every pipeline is swappable or removable. Build your own ingestion, retrieval, and evaluation pipelines by snapping blocks together.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/rag-architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="HPD-AI-Framework/assets/svg/rag-architecture.svg">
+  <img alt="HPD-RAG Architecture" src="HPD-AI-Framework/assets/svg/rag-architecture.svg">
+</picture>
+
+[GitHub](https://github.com/HPD-AI/HPD-RAG-Framework)
+
+---
+
 ## HPD-Graph
 
 Universal graph workflow orchestration for .NET — typed nodes, conditional routing, parallel execution, checkpoint/resume, HITL suspension, streaming events, artifacts, partitions, and incremental execution.
@@ -47,20 +61,6 @@ Native AOT-friendly terminal UI framework for .NET — retained components, pool
 </picture>
 
 [GitHub](https://github.com/HPD-AI/HPD-TUI-Framework)
-
----
-
-## HPD-RAG
-
-Fully modular RAG framework — every node in every pipeline is swappable or removable. Build your own ingestion, retrieval, and evaluation pipelines by snapping blocks together.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/rag-architecture-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="HPD-AI-Framework/assets/svg/rag-architecture.svg">
-  <img alt="HPD-RAG Architecture" src="HPD-AI-Framework/assets/svg/rag-architecture.svg">
-</picture>
-
-[GitHub](https://github.com/HPD-AI/HPD-RAG-Framework)
 
 ---
 
