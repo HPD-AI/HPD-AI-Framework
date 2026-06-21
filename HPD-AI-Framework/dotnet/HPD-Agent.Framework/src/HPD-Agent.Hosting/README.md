@@ -12,6 +12,12 @@ dotnet add package HPD-Agent.Hosting
 
 Use this package when you need this HPD Agent capability in an agent application.
 
+## Pre-1.0 API Evolution
+
+HPD-Agent hosting APIs are still pre-1.0. Until `1.0.0`, releases may refine
+DTOs, route names, service contracts, and persistence projections as the hosting
+surface stabilizes. The current hosting model uses sessions containing threads.
+
 ## Fork Groups
 
 Hosting DTOs expose fork groups, but hosting does not define fork semantics.
@@ -19,4 +25,4 @@ Hosting DTOs expose fork groups, but hosting does not define fork semantics.
 `ThreadForkGraph.BuildVisibleForkGroups(...)` projection from `HPD-Agent`.
 
 Use the core session projection when building custom hosts so ASP.NET, TUI,
-desktop, and tests all agree on branch navigation.
+desktop, and tests all agree on thread/fork navigation.

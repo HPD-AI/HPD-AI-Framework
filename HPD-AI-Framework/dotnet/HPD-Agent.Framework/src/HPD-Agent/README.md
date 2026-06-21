@@ -12,9 +12,16 @@ dotnet add package HPD-Agent.Framework
 
 Use this package when you need this HPD Agent capability in an agent application.
 
+## Pre-1.0 API Evolution
+
+HPD-Agent is still pre-1.0. Until `1.0.0`, minor and patch releases may refine
+public APIs, persistence shapes, and hosting contracts as the framework settles.
+The current conversation model is session-owned threads with event-sourced thread
+history.
+
 ## Session Fork Graph
 
-Use `ThreadForkGraph.BuildVisibleForkGroups(...)` when rendering branch/fork
+Use `ThreadForkGraph.BuildVisibleForkGroups(...)` when rendering thread/fork
 navigation. `Thread.ForkedFrom` is direct lineage; fork groups are semantic
 choice points derived from the shared conversation boundary.
 
