@@ -3,7 +3,7 @@
 [![GitHub](https://img.shields.io/badge/GitHub-HPD--AI%2FHPD--AI--Framework-181717?logo=github)](https://github.com/HPD-AI/HPD-AI-Framework)
 [![NuGet](https://img.shields.io/nuget/v/HPD-Agent.Framework?label=NuGet&color=004880&logo=nuget)](https://www.nuget.org/packages/HPD-Agent.Framework)
 
-A set of C# frameworks for building production AI applications. Use the package family that matches the thing you need to build: agents, RAG, graph workflows, terminal UIs, ML pipelines, authentication, or shared runtime infrastructure.
+A set of C# frameworks for building production AI applications. Use the package family that matches the thing you need to build: agents, RAG, graph workflows, terminal UIs, ML pipelines, authentication.
 
 Product documentation and websites live in their own repositories. Use the links under each architecture diagram for the canonical source and published docs when available.
 
