@@ -7,6 +7,12 @@ A C# framework for building production AI applications — agents, graph workflo
 
 Product documentation and websites live in their own repositories. Use the links under each architecture diagram for the canonical source and published docs when available.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="HPD-AI-Framework/assets/svg/overview-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="HPD-AI-Framework/assets/svg/overview.svg">
+  <img alt="HPD AI Framework Packages" src="HPD-AI-Framework/assets/svg/overview.svg">
+</picture>
+
 
 ## HPD-Agent
 

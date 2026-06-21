@@ -1,84 +1,53 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 380" width="100%" height="100%" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, 'Apple Color Emoji', Arial, sans-serif, 'Segoe UI Emoji', 'Segoe UI Symbol'; background: #0d1117;">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 520" width="100%" height="100%" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #0f141b;">
   <defs>
     <style>
-      .animate-node {
-        opacity: 0;
-        animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      .panel {
+        transition: fill 0.2s ease, stroke 0.2s ease;
       }
-      @keyframes slideUp {
-        0% { opacity: 0; transform: translateY(15px); }
-        100% { opacity: 1; transform: translateY(0); }
-      }
-      .delay-1 { animation-delay: 0.15s; }
-      .delay-2 { animation-delay: 0.35s; }
-      .delay-3 { animation-delay: 0.55s; }
-      .delay-4 { animation-delay: 0.75s; }
-      .interactive-rect {
-        transition: stroke 0.2s ease, fill 0.2s ease;
-      }
-      .node-group:hover .interactive-rect {
-        stroke: #9ca3af;
-        fill: #374151;
-        cursor: default;
-      }
-      .core-pulse {
-        animation: pulseCore 4s ease-in-out infinite;
-      }
-      @keyframes pulseCore {
-        0% { stroke: #4b5563; }
-        50% { stroke: #9ca3af; }
-        100% { stroke: #4b5563; }
+      .cluster:hover .panel {
+        fill: #182230;
+        stroke: #65a7e8;
       }
     </style>
   </defs>
 
-  <!-- Outer container -->
-  <g class="animate-node" style="animation-delay: 0s;">
-    <rect class="core-pulse" x="20" y="15" width="620" height="350" rx="10" fill="none" stroke="#4b5563" stroke-width="2" />
-    <text x="330" y="48" fill="#f3f4f6" font-size="20" font-weight="600" text-anchor="middle">HPD AI Framework</text>
+  <g>
+    <text x="60" y="74" fill="#e6edf7" font-size="26" font-weight="650">HPD AI Framework</text>
+    <text x="60" y="102" fill="#9fb0c5" font-size="14">Framework packages</text>
   </g>
 
-  <!-- HPD-Agent (top-left) -->
-  <g transform="translate(50, 70)">
-    <g class="animate-node delay-1 node-group">
-      <rect class="interactive-rect" width="260" height="110" rx="6" fill="#1f2937" stroke="#4b5563" stroke-width="1.5" />
-      <text x="130" y="32" fill="#f3f4f6" font-size="16" font-weight="600" text-anchor="middle">HPD-Agent</text>
-      <text x="130" y="52" fill="#9ca3af" font-size="11" text-anchor="middle">Agents · Tools · Middleware</text>
-      <text x="130" y="67" fill="#9ca3af" font-size="11" text-anchor="middle">Multi-Agent · Sessions · Audio</text>
-      <text x="130" y="82" fill="#9ca3af" font-size="11" text-anchor="middle">Evaluation · Streaming · Observability</text>
-    </g>
+  <g transform="translate(60, 146)" class="cluster">
+    <rect class="panel" width="250" height="94" rx="8" fill="#131a23" stroke="#2d3a49" stroke-width="1.6" />
+    <text x="125" y="57" fill="#7ad7ca" font-size="20" font-weight="700" text-anchor="middle">HPD-Agent</text>
   </g>
 
-  <!-- HPD-RAG (top-right) -->
-  <g transform="translate(350, 70)">
-    <g class="animate-node delay-2 node-group">
-      <rect class="interactive-rect" width="260" height="110" rx="6" fill="#1f2937" stroke="#4b5563" stroke-width="1.5" />
-      <text x="130" y="32" fill="#f3f4f6" font-size="16" font-weight="600" text-anchor="middle">HPD-RAG</text>
-      <text x="130" y="52" fill="#9ca3af" font-size="11" text-anchor="middle">Ingestion · Retrieval · Evaluation</text>
-      <text x="130" y="67" fill="#9ca3af" font-size="11" text-anchor="middle">Modular Pipelines · Vector &amp; Graph</text>
-      <text x="130" y="82" fill="#9ca3af" font-size="11" text-anchor="middle">Reranking · Filtering · Scoring</text>
-    </g>
+  <g transform="translate(355, 146)" class="cluster">
+    <rect class="panel" width="250" height="94" rx="8" fill="#131a23" stroke="#2d3a49" stroke-width="1.6" />
+    <text x="125" y="57" fill="#ffc27d" font-size="20" font-weight="700" text-anchor="middle">HPD-RAG</text>
   </g>
 
-  <!-- HPD-ML (bottom-left) -->
-  <g transform="translate(50, 220)">
-    <g class="animate-node delay-3 node-group">
-      <rect class="interactive-rect" width="260" height="110" rx="6" fill="#1f2937" stroke="#4b5563" stroke-width="1.5" />
-      <text x="130" y="32" fill="#f3f4f6" font-size="16" font-weight="600" text-anchor="middle">HPD-ML</text>
-      <text x="130" y="52" fill="#9ca3af" font-size="11" text-anchor="middle">Data · Transforms · Learners</text>
-      <text x="130" y="67" fill="#9ca3af" font-size="11" text-anchor="middle">Classification · Regression · Clustering</text>
-      <text x="130" y="82" fill="#9ca3af" font-size="11" text-anchor="middle">Time Series · Evaluation · Serialization</text>
-    </g>
+  <g transform="translate(650, 146)" class="cluster">
+    <rect class="panel" width="250" height="94" rx="8" fill="#131a23" stroke="#2d3a49" stroke-width="1.6" />
+    <text x="125" y="57" fill="#8fc6ff" font-size="20" font-weight="700" text-anchor="middle">HPD-Graph</text>
   </g>
 
-  <!-- HPD-Auth (bottom-right) -->
-  <g transform="translate(350, 220)">
-    <g class="animate-node delay-4 node-group">
-      <rect class="interactive-rect" width="260" height="110" rx="6" fill="#1f2937" stroke="#4b5563" stroke-width="1.5" />
-      <text x="130" y="32" fill="#f3f4f6" font-size="16" font-weight="600" text-anchor="middle">HPD-Auth</text>
-      <text x="130" y="52" fill="#9ca3af" font-size="11" text-anchor="middle">JWT · Sessions · Multi-Tenancy</text>
-      <text x="130" y="67" fill="#9ca3af" font-size="11" text-anchor="middle">2FA · Passkeys · OAuth · Admin</text>
-      <text x="130" y="82" fill="#9ca3af" font-size="11" text-anchor="middle">Audit Log · Events · Authorization</text>
-    </g>
+  <g transform="translate(60, 276)" class="cluster">
+    <rect class="panel" width="250" height="94" rx="8" fill="#131a23" stroke="#2d3a49" stroke-width="1.6" />
+    <text x="125" y="57" fill="#c6b3ff" font-size="20" font-weight="700" text-anchor="middle">HPD-TUI</text>
+  </g>
+
+  <g transform="translate(355, 276)" class="cluster">
+    <rect class="panel" width="250" height="94" rx="8" fill="#131a23" stroke="#2d3a49" stroke-width="1.6" />
+    <text x="125" y="57" fill="#8fc6ff" font-size="20" font-weight="700" text-anchor="middle">HPD-ML</text>
+  </g>
+
+  <g transform="translate(650, 276)" class="cluster">
+    <rect class="panel" width="250" height="94" rx="8" fill="#131a23" stroke="#2d3a49" stroke-width="1.6" />
+    <text x="125" y="57" fill="#ff9caf" font-size="20" font-weight="700" text-anchor="middle">HPD-Auth</text>
+  </g>
+
+  <g transform="translate(60, 406)" class="cluster">
+    <rect class="panel" width="840" height="64" rx="8" fill="#131a23" stroke="#2d3a49" stroke-width="1.6" />
+    <text x="420" y="40" fill="#9fb0c5" font-size="17" font-weight="650" text-anchor="middle">Shared Runtime Packages</text>
   </g>
 </svg>

@@ -105,11 +105,25 @@ jobs:
       - name: NuGet login
         uses: NuGet/login@v1
         id: login
+        continue-on-error: true
         with:
-          user: ${{ secrets.NUGET_USER }}
+          user: HPD-RESEARCH
 
       - name: Push HPD-Graph packages to NuGet
-        run: dotnet nuget push ./nupkg-graph/*.nupkg --source https://api.nuget.org/v3/index.json --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --skip-duplicate
+        env:
+          TRUSTED_NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+          FALLBACK_NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          NUGET_KEY="$TRUSTED_NUGET_API_KEY"
+          if [ -z "$NUGET_KEY" ]; then
+            echo "Trusted publishing did not return a key; using NUGET_API_KEY fallback."
+            NUGET_KEY="$FALLBACK_NUGET_API_KEY"
+          fi
+          if [ -z "$NUGET_KEY" ]; then
+            echo "No NuGet API key available. Configure trusted publishing or set the NUGET_API_KEY secret."
+            exit 1
+          fi
+          dotnet nuget push ./nupkg-graph/*.nupkg --source https://api.nuget.org/v3/index.json --api-key "$NUGET_KEY" --skip-duplicate
 
       - name: Summary
         run: |

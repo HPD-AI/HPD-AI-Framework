@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="100%" height="100%" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #0d1117;">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="100%" height="100%" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #0f141b;">
   <defs>
     <marker id="tui-arrow-dark" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#738091" />
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9fb0c5" />
     </marker>
     <style>
       .node {
@@ -25,8 +25,8 @@
         transition: fill 0.2s ease, stroke 0.2s ease;
       }
       .cluster:hover .panel {
-        fill: #151b23;
-        stroke: #6ca8df;
+        fill: #131a23;
+        stroke: #65a7e8;
       }
       .cursor {
         animation: blink 1.1s steps(2, start) infinite;
@@ -45,130 +45,130 @@
   </defs>
 
   <g class="node">
-    <text x="50" y="60" fill="#f0f6fc" font-size="24" font-weight="650">HPD-TUI Architecture</text>
-    <text x="50" y="90" fill="#9aa7b6" font-size="14">Retained Terminal Interfaces, Model-First Views, and Differential ANSI Rendering</text>
+    <text x="50" y="60" fill="#e6edf7" font-size="24" font-weight="650">HPD-TUI Architecture</text>
+    <text x="50" y="90" fill="#9fb0c5" font-size="14">Retained Terminal Interfaces, Model-First Views, and Differential ANSI Rendering</text>
   </g>
 
   <g>
-    <path d="M 285 205 L 405 205" class="flow" fill="none" stroke="#738091" stroke-width="2" marker-end="url(#tui-arrow-dark)" />
-    <path d="M 285 365 L 405 365" class="flow" fill="none" stroke="#738091" stroke-width="2" marker-end="url(#tui-arrow-dark)" />
-    <path d="M 580 285 L 675 285" class="flow" fill="none" stroke="#738091" stroke-width="2" marker-end="url(#tui-arrow-dark)" />
-    <path d="M 835 285 L 930 285" class="flow" fill="none" stroke="#738091" stroke-width="2" marker-end="url(#tui-arrow-dark)" />
-    <path d="M 500 565 L 405 405" class="flow-soft" fill="none" stroke="#6ca8df" stroke-width="1.6" marker-end="url(#tui-arrow-dark)" />
-    <path d="M 685 500 L 685 455 Q 685 435 705 435 L 755 435 L 755 430" class="flow-soft" fill="none" stroke="#6ca8df" stroke-width="1.6" marker-end="url(#tui-arrow-dark)" />
-    <path d="M 950 590 L 1025 430" class="flow-soft" fill="none" stroke="#6ca8df" stroke-width="1.6" marker-end="url(#tui-arrow-dark)" />
+    <path d="M 285 205 L 405 205" class="flow" fill="none" stroke="#9fb0c5" stroke-width="2" marker-end="url(#tui-arrow-dark)" />
+    <path d="M 285 365 L 405 365" class="flow" fill="none" stroke="#9fb0c5" stroke-width="2" marker-end="url(#tui-arrow-dark)" />
+    <path d="M 580 285 L 675 285" class="flow" fill="none" stroke="#9fb0c5" stroke-width="2" marker-end="url(#tui-arrow-dark)" />
+    <path d="M 835 285 L 930 285" class="flow" fill="none" stroke="#9fb0c5" stroke-width="2" marker-end="url(#tui-arrow-dark)" />
+    <path d="M 500 565 L 405 405" class="flow-soft" fill="none" stroke="#65a7e8" stroke-width="1.6" marker-end="url(#tui-arrow-dark)" />
+    <path d="M 685 500 L 685 455 Q 685 435 705 435 L 755 435 L 755 430" class="flow-soft" fill="none" stroke="#65a7e8" stroke-width="1.6" marker-end="url(#tui-arrow-dark)" />
+    <path d="M 950 590 L 1025 430" class="flow-soft" fill="none" stroke="#65a7e8" stroke-width="1.6" marker-end="url(#tui-arrow-dark)" />
   </g>
 
   <g transform="translate(70, 150)" class="node delay-1 cluster">
-    <rect class="panel" width="215" height="125" rx="8" fill="#0d1117" stroke="#303a46" stroke-width="1.5" />
-    <text x="107" y="31" fill="#f0f6fc" font-size="15" font-weight="650" text-anchor="middle">Application Runtime</text>
-    <rect x="18" y="50" width="179" height="25" rx="5" fill="#111923" stroke="#303a46" />
-    <text x="107" y="67" fill="#c9d1d9" font-size="11.5" text-anchor="middle">TuiApplication</text>
-    <rect x="18" y="82" width="179" height="25" rx="5" fill="#111923" stroke="#303a46" />
-    <text x="107" y="99" fill="#c9d1d9" font-size="11.5" text-anchor="middle">NormalTerminalTuiApplication</text>
+    <rect class="panel" width="215" height="125" rx="8" fill="#0f141b" stroke="#2d3a49" stroke-width="1.5" />
+    <text x="107" y="31" fill="#e6edf7" font-size="15" font-weight="650" text-anchor="middle">Application Runtime</text>
+    <rect x="18" y="50" width="179" height="25" rx="5" fill="#131a23" stroke="#2d3a49" />
+    <text x="107" y="67" fill="#c7d4e5" font-size="11.5" text-anchor="middle">TuiApplication</text>
+    <rect x="18" y="82" width="179" height="25" rx="5" fill="#131a23" stroke="#2d3a49" />
+    <text x="107" y="99" fill="#c7d4e5" font-size="11.5" text-anchor="middle">NormalTerminalTuiApplication</text>
   </g>
 
   <g transform="translate(70, 320)" class="node delay-2 cluster">
-    <rect class="panel" width="215" height="125" rx="8" fill="#0d1117" stroke="#303a46" stroke-width="1.5" />
-    <text x="107" y="31" fill="#f0f6fc" font-size="15" font-weight="650" text-anchor="middle">Input and Focus</text>
-    <rect x="18" y="50" width="179" height="25" rx="5" fill="#111923" stroke="#303a46" />
-    <text x="107" y="67" fill="#c9d1d9" font-size="11.5" text-anchor="middle">KeyEvent · KeyParser</text>
-    <rect x="18" y="82" width="179" height="25" rx="5" fill="#111923" stroke="#303a46" />
-    <text x="107" y="99" fill="#c9d1d9" font-size="11.5" text-anchor="middle">FocusManager · DialogHost</text>
+    <rect class="panel" width="215" height="125" rx="8" fill="#0f141b" stroke="#2d3a49" stroke-width="1.5" />
+    <text x="107" y="31" fill="#e6edf7" font-size="15" font-weight="650" text-anchor="middle">Input and Focus</text>
+    <rect x="18" y="50" width="179" height="25" rx="5" fill="#131a23" stroke="#2d3a49" />
+    <text x="107" y="67" fill="#c7d4e5" font-size="11.5" text-anchor="middle">KeyEvent · KeyParser</text>
+    <rect x="18" y="82" width="179" height="25" rx="5" fill="#131a23" stroke="#2d3a49" />
+    <text x="107" y="99" fill="#c7d4e5" font-size="11.5" text-anchor="middle">FocusManager · DialogHost</text>
   </g>
 
   <g transform="translate(405, 160)" class="node delay-3 cluster">
-    <rect class="panel" width="175" height="250" rx="8" fill="#0d1117" stroke="#405061" stroke-width="1.8" />
-    <text x="87" y="31" fill="#f0f6fc" font-size="15" font-weight="650" text-anchor="middle">Component Tree</text>
-    <text x="87" y="50" fill="#9aa7b6" font-size="11" text-anchor="middle">retained IComponent graph</text>
-    <rect x="18" y="72" width="139" height="25" rx="5" fill="#10201d" stroke="#285f57" />
-    <text x="87" y="89" fill="#8ce3d4" font-size="11.5" text-anchor="middle">Container · Stack · Grid</text>
-    <rect x="18" y="106" width="139" height="25" rx="5" fill="#10201d" stroke="#285f57" />
-    <text x="87" y="123" fill="#8ce3d4" font-size="11.5" text-anchor="middle">Frame · Separator</text>
-    <rect x="18" y="140" width="139" height="25" rx="5" fill="#10201d" stroke="#285f57" />
-    <text x="87" y="157" fill="#8ce3d4" font-size="11.5" text-anchor="middle">Text · Markdown</text>
-    <rect x="18" y="174" width="139" height="25" rx="5" fill="#10201d" stroke="#285f57" />
-    <text x="87" y="191" fill="#8ce3d4" font-size="11.5" text-anchor="middle">Viewport · Overlay</text>
-    <text x="87" y="222" fill="#9aa7b6" font-size="10.5" text-anchor="middle">measure, render, invalidate</text>
+    <rect class="panel" width="175" height="250" rx="8" fill="#0f141b" stroke="#40556b" stroke-width="1.8" />
+    <text x="87" y="31" fill="#e6edf7" font-size="15" font-weight="650" text-anchor="middle">Component Tree</text>
+    <text x="87" y="50" fill="#9fb0c5" font-size="11" text-anchor="middle">retained IComponent graph</text>
+    <rect x="18" y="72" width="139" height="25" rx="5" fill="#102c2b" stroke="#287269" />
+    <text x="87" y="89" fill="#7ad7ca" font-size="11.5" text-anchor="middle">Container · Stack · Grid</text>
+    <rect x="18" y="106" width="139" height="25" rx="5" fill="#102c2b" stroke="#287269" />
+    <text x="87" y="123" fill="#7ad7ca" font-size="11.5" text-anchor="middle">Frame · Separator</text>
+    <rect x="18" y="140" width="139" height="25" rx="5" fill="#102c2b" stroke="#287269" />
+    <text x="87" y="157" fill="#7ad7ca" font-size="11.5" text-anchor="middle">Text · Markdown</text>
+    <rect x="18" y="174" width="139" height="25" rx="5" fill="#102c2b" stroke="#287269" />
+    <text x="87" y="191" fill="#7ad7ca" font-size="11.5" text-anchor="middle">Viewport · Overlay</text>
+    <text x="87" y="222" fill="#9fb0c5" font-size="10.5" text-anchor="middle">measure, render, invalidate</text>
   </g>
 
   <g transform="translate(675, 140)" class="node delay-4 cluster">
-    <rect class="panel" width="160" height="290" rx="8" fill="#0d1117" stroke="#405061" stroke-width="1.8" />
-    <text x="80" y="31" fill="#f0f6fc" font-size="15" font-weight="650" text-anchor="middle">Model-First Views</text>
-    <text x="80" y="50" fill="#9aa7b6" font-size="11" text-anchor="middle">state, controller, view</text>
-    <rect x="17" y="72" width="126" height="24" rx="5" fill="#261b10" stroke="#7a4b1e" />
-    <text x="80" y="88" fill="#f7c581" font-size="11.2" text-anchor="middle">PromptView</text>
-    <rect x="17" y="104" width="126" height="24" rx="5" fill="#261b10" stroke="#7a4b1e" />
-    <text x="80" y="120" fill="#f7c581" font-size="11.2" text-anchor="middle">SelectionView</text>
-    <rect x="17" y="136" width="126" height="24" rx="5" fill="#261b10" stroke="#7a4b1e" />
-    <text x="80" y="152" fill="#f7c581" font-size="11.2" text-anchor="middle">TableView</text>
-    <rect x="17" y="168" width="126" height="24" rx="5" fill="#261b10" stroke="#7a4b1e" />
-    <text x="80" y="184" fill="#f7c581" font-size="11.2" text-anchor="middle">TreeView</text>
-    <rect x="17" y="200" width="126" height="24" rx="5" fill="#261b10" stroke="#7a4b1e" />
-    <text x="80" y="216" fill="#f7c581" font-size="11.2" text-anchor="middle">ActivityView</text>
-    <rect x="17" y="232" width="126" height="24" rx="5" fill="#261b10" stroke="#7a4b1e" />
-    <text x="80" y="248" fill="#f7c581" font-size="11.2" text-anchor="middle">CommandPalette</text>
-    <text x="80" y="275" fill="#9aa7b6" font-size="10.5" text-anchor="middle">keyboard navigation built in</text>
+    <rect class="panel" width="160" height="290" rx="8" fill="#0f141b" stroke="#40556b" stroke-width="1.8" />
+    <text x="80" y="31" fill="#e6edf7" font-size="15" font-weight="650" text-anchor="middle">Model-First Views</text>
+    <text x="80" y="50" fill="#9fb0c5" font-size="11" text-anchor="middle">state, controller, view</text>
+    <rect x="17" y="72" width="126" height="24" rx="5" fill="#2f2114" stroke="#a8682f" />
+    <text x="80" y="88" fill="#ffc27d" font-size="11.2" text-anchor="middle">PromptView</text>
+    <rect x="17" y="104" width="126" height="24" rx="5" fill="#2f2114" stroke="#a8682f" />
+    <text x="80" y="120" fill="#ffc27d" font-size="11.2" text-anchor="middle">SelectionView</text>
+    <rect x="17" y="136" width="126" height="24" rx="5" fill="#2f2114" stroke="#a8682f" />
+    <text x="80" y="152" fill="#ffc27d" font-size="11.2" text-anchor="middle">TableView</text>
+    <rect x="17" y="168" width="126" height="24" rx="5" fill="#2f2114" stroke="#a8682f" />
+    <text x="80" y="184" fill="#ffc27d" font-size="11.2" text-anchor="middle">TreeView</text>
+    <rect x="17" y="200" width="126" height="24" rx="5" fill="#2f2114" stroke="#a8682f" />
+    <text x="80" y="216" fill="#ffc27d" font-size="11.2" text-anchor="middle">ActivityView</text>
+    <rect x="17" y="232" width="126" height="24" rx="5" fill="#2f2114" stroke="#a8682f" />
+    <text x="80" y="248" fill="#ffc27d" font-size="11.2" text-anchor="middle">CommandPalette</text>
+    <text x="80" y="275" fill="#9fb0c5" font-size="10.5" text-anchor="middle">keyboard navigation built in</text>
   </g>
 
   <g transform="translate(930, 130)" class="node delay-5">
-    <rect width="215" height="325" rx="12" fill="#070a0f" stroke="#303a46" stroke-width="2" />
-    <rect x="13" y="16" width="189" height="270" rx="7" fill="#101820" stroke="#334150" />
-    <rect x="13" y="16" width="189" height="28" rx="7" fill="#182231" />
-    <circle cx="30" cy="30" r="4" fill="#ef7770" />
-    <circle cx="44" cy="30" r="4" fill="#f4c15d" />
+    <rect width="215" height="325" rx="12" fill="#0f141b" stroke="#2d3a49" stroke-width="2" />
+    <rect x="13" y="16" width="189" height="270" rx="7" fill="#131a23" stroke="#2d3a49" />
+    <rect x="13" y="16" width="189" height="28" rx="7" fill="#172231" />
+    <circle cx="30" cy="30" r="4" fill="#ff9caf" />
+    <circle cx="44" cy="30" r="4" fill="#ffc27d" />
     <circle cx="58" cy="30" r="4" fill="#62bf88" />
-    <text x="107" y="34" fill="#9aa7b6" font-size="10.5" text-anchor="middle">terminal</text>
+    <text x="107" y="34" fill="#9fb0c5" font-size="10.5" text-anchor="middle">terminal</text>
     <g transform="translate(31, 65)">
-      <rect width="153" height="29" rx="5" fill="#0d1117" stroke="#334150" />
-      <text x="12" y="19" fill="#f0f6fc" font-size="11">HPD-TUI</text>
-      <rect x="66" y="8" width="7" height="15" fill="#6ca8df" class="cursor" />
-      <rect y="52" width="153" height="21" rx="4" fill="#10201d" />
-      <text x="12" y="67" fill="#8ce3d4" font-size="10.5">render frame</text>
-      <rect y="82" width="118" height="21" rx="4" fill="#261b10" />
-      <text x="12" y="97" fill="#f7c581" font-size="10.5">diff cells</text>
-      <rect y="112" width="138" height="21" rx="4" fill="#111923" />
-      <text x="12" y="127" fill="#c9d1d9" font-size="10.5">write ANSI</text>
-      <rect y="142" width="96" height="21" rx="4" fill="#1e1630" />
-      <text x="12" y="157" fill="#c7a9ff" font-size="10.5">flush</text>
+      <rect width="153" height="29" rx="5" fill="#0f141b" stroke="#2d3a49" />
+      <text x="12" y="19" fill="#e6edf7" font-size="11">HPD-TUI</text>
+      <rect x="66" y="8" width="7" height="15" fill="#65a7e8" class="cursor" />
+      <rect y="52" width="153" height="21" rx="4" fill="#102c2b" />
+      <text x="12" y="67" fill="#7ad7ca" font-size="10.5">render frame</text>
+      <rect y="82" width="118" height="21" rx="4" fill="#2f2114" />
+      <text x="12" y="97" fill="#ffc27d" font-size="10.5">diff cells</text>
+      <rect y="112" width="138" height="21" rx="4" fill="#131a23" />
+      <text x="12" y="127" fill="#c7d4e5" font-size="10.5">write ANSI</text>
+      <rect y="142" width="96" height="21" rx="4" fill="#241b39" />
+      <text x="12" y="157" fill="#c6b3ff" font-size="10.5">flush</text>
     </g>
-    <rect x="13" y="52" width="189" height="3" fill="#6ca8df" class="scanline" />
-    <text x="107" y="307" fill="#c9d1d9" font-size="12" font-weight="650" text-anchor="middle">Terminal Output</text>
+    <rect x="13" y="52" width="189" height="3" fill="#65a7e8" class="scanline" />
+    <text x="107" y="307" fill="#c7d4e5" font-size="12" font-weight="650" text-anchor="middle">Terminal Output</text>
   </g>
 
   <g transform="translate(365, 500)" class="node delay-4 cluster">
-    <rect class="panel" width="200" height="145" rx="8" fill="#0d1117" stroke="#303a46" stroke-width="1.5" />
-    <text x="100" y="31" fill="#f0f6fc" font-size="15" font-weight="650" text-anchor="middle">Prompt Flows</text>
-    <text x="100" y="55" fill="#9aa7b6" font-size="10.8" text-anchor="middle">Text · Secret · Confirm</text>
-    <text x="100" y="73" fill="#9aa7b6" font-size="10.8" text-anchor="middle">Select · MultiSelect</text>
-    <rect x="22" y="93" width="156" height="28" rx="5" fill="#1e1630" stroke="#574381" />
-    <text x="100" y="111" fill="#c7a9ff" font-size="11.5" text-anchor="middle">ModalSession restores root</text>
+    <rect class="panel" width="200" height="145" rx="8" fill="#0f141b" stroke="#2d3a49" stroke-width="1.5" />
+    <text x="100" y="31" fill="#e6edf7" font-size="15" font-weight="650" text-anchor="middle">Prompt Flows</text>
+    <text x="100" y="55" fill="#9fb0c5" font-size="10.8" text-anchor="middle">Text · Secret · Confirm</text>
+    <text x="100" y="73" fill="#9fb0c5" font-size="10.8" text-anchor="middle">Select · MultiSelect</text>
+    <rect x="22" y="93" width="156" height="28" rx="5" fill="#241b39" stroke="#604a91" />
+    <text x="100" y="111" fill="#c6b3ff" font-size="11.5" text-anchor="middle">ModalSession restores root</text>
   </g>
 
   <g transform="translate(585, 500)" class="node delay-5 cluster">
-    <rect class="panel" width="200" height="145" rx="8" fill="#0d1117" stroke="#303a46" stroke-width="1.5" />
-    <text x="100" y="31" fill="#f0f6fc" font-size="15" font-weight="650" text-anchor="middle">Content Pipeline</text>
-    <text x="100" y="55" fill="#9aa7b6" font-size="10.8" text-anchor="middle">TextBlock · CodeBlock</text>
-    <text x="100" y="73" fill="#9aa7b6" font-size="10.8" text-anchor="middle">KeyValue · List · Markup</text>
-    <rect x="22" y="93" width="156" height="28" rx="5" fill="#10201d" stroke="#285f57" />
-    <text x="100" y="111" fill="#8ce3d4" font-size="11.5" text-anchor="middle">Streaming Markdown</text>
+    <rect class="panel" width="200" height="145" rx="8" fill="#0f141b" stroke="#2d3a49" stroke-width="1.5" />
+    <text x="100" y="31" fill="#e6edf7" font-size="15" font-weight="650" text-anchor="middle">Content Pipeline</text>
+    <text x="100" y="55" fill="#9fb0c5" font-size="10.8" text-anchor="middle">TextBlock · CodeBlock</text>
+    <text x="100" y="73" fill="#9fb0c5" font-size="10.8" text-anchor="middle">KeyValue · List · Markup</text>
+    <rect x="22" y="93" width="156" height="28" rx="5" fill="#102c2b" stroke="#287269" />
+    <text x="100" y="111" fill="#7ad7ca" font-size="11.5" text-anchor="middle">Streaming Markdown</text>
   </g>
 
   <g transform="translate(805, 500)" class="node delay-6 cluster">
-    <rect class="panel" width="200" height="145" rx="8" fill="#0d1117" stroke="#303a46" stroke-width="1.5" />
-    <text x="100" y="31" fill="#f0f6fc" font-size="15" font-weight="650" text-anchor="middle">Extensions</text>
-    <text x="100" y="55" fill="#9aa7b6" font-size="10.8" text-anchor="middle">content renderers</text>
-    <text x="100" y="73" fill="#9aa7b6" font-size="10.8" text-anchor="middle">tool result mappers</text>
-    <rect x="22" y="93" width="156" height="28" rx="5" fill="#111923" stroke="#334150" />
-    <text x="100" y="111" fill="#c9d1d9" font-size="11.5" text-anchor="middle">TuiExtensionRegistry</text>
+    <rect class="panel" width="200" height="145" rx="8" fill="#0f141b" stroke="#2d3a49" stroke-width="1.5" />
+    <text x="100" y="31" fill="#e6edf7" font-size="15" font-weight="650" text-anchor="middle">Extensions</text>
+    <text x="100" y="55" fill="#9fb0c5" font-size="10.8" text-anchor="middle">content renderers</text>
+    <text x="100" y="73" fill="#9fb0c5" font-size="10.8" text-anchor="middle">tool result mappers</text>
+    <rect x="22" y="93" width="156" height="28" rx="5" fill="#131a23" stroke="#2d3a49" />
+    <text x="100" y="111" fill="#c7d4e5" font-size="11.5" text-anchor="middle">TuiExtensionRegistry</text>
   </g>
 
   <g transform="translate(280, 715)" class="node delay-6">
-    <rect width="640" height="80" rx="8" fill="#111923" stroke="#303a46" />
-    <text x="28" y="31" fill="#f0f6fc" font-size="14" font-weight="650">Rendering Core</text>
-    <text x="28" y="54" fill="#9aa7b6" font-size="11.5">IComponent -> SegmentWriter -> TerminalGrid</text>
-    <text x="28" y="69" fill="#9aa7b6" font-size="11.5">differential ANSI -> ITerminal.Write -> Flush</text>
-    <text x="520" y="31" fill="#6ca8df" font-size="12" font-weight="650" text-anchor="middle">pooled grids</text>
-    <text x="520" y="60" fill="#8ce3d4" font-size="12" font-weight="650" text-anchor="middle">Native AOT friendly</text>
+    <rect width="640" height="80" rx="8" fill="#131a23" stroke="#2d3a49" />
+    <text x="28" y="31" fill="#e6edf7" font-size="14" font-weight="650">Rendering Core</text>
+    <text x="28" y="54" fill="#9fb0c5" font-size="11.5">IComponent -> SegmentWriter -> TerminalGrid</text>
+    <text x="28" y="69" fill="#9fb0c5" font-size="11.5">differential ANSI -> ITerminal.Write -> Flush</text>
+    <text x="520" y="31" fill="#65a7e8" font-size="12" font-weight="650" text-anchor="middle">pooled grids</text>
+    <text x="520" y="60" fill="#7ad7ca" font-size="12" font-weight="650" text-anchor="middle">Native AOT friendly</text>
   </g>
 </svg>
