@@ -1,13 +1,16 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Generic;
+using System.Threading;
 using Amazon;
 using Amazon.BedrockRuntime;
 using Amazon.Runtime;
 using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.ErrorHandling;
+using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.Bedrock;
 
@@ -52,8 +55,11 @@ internal class BedrockProvider : IChatClientProvider
         // Get typed config
         var bedrockConfig = config.GetProviderConfig<BedrockProviderConfig>();
 
-        // Resolve region from explicit config or the canonical environment variable.
+        var secrets = services?.GetService<ISecretResolver>();
+
+        // Resolve region from explicit config, HPD secret resolvers, or the canonical environment variable.
         string? region = bedrockConfig?.Region
+            ?? ResolveOptionalSecret(secrets, "bedrock:Region")
             ?? System.Environment.GetEnvironmentVariable("AWS_REGION");
 
         if (string.IsNullOrEmpty(region))
@@ -70,7 +76,7 @@ internal class BedrockProvider : IChatClientProvider
         }
 
         // Create the Bedrock Runtime client
-        IAmazonBedrockRuntime bedrockRuntime = CreateBedrockRuntimeClient(region, bedrockConfig);
+        IAmazonBedrockRuntime bedrockRuntime = CreateBedrockRuntimeClient(region, bedrockConfig, secrets);
 
         // Convert to IChatClient using the MEAI extension
         IChatClient chatClient = bedrockRuntime.AsIChatClient(modelName);
@@ -78,7 +84,10 @@ internal class BedrockProvider : IChatClientProvider
         return chatClient;
     }
 
-    private static IAmazonBedrockRuntime CreateBedrockRuntimeClient(string region, BedrockProviderConfig? config)
+    private static IAmazonBedrockRuntime CreateBedrockRuntimeClient(
+        string region,
+        BedrockProviderConfig? config,
+        ISecretResolver? secrets)
     {
         var regionEndpoint = RegionEndpoint.GetBySystemName(region);
 
@@ -122,20 +131,27 @@ internal class BedrockProvider : IChatClientProvider
         if (config != null)
         {
             // Priority 1: Explicit credentials in config
-            if (!string.IsNullOrEmpty(config.AccessKeyId) && !string.IsNullOrEmpty(config.SecretAccessKey))
+            var accessKeyId = config.AccessKeyId
+                ?? ResolveOptionalSecret(secrets, "bedrock:AccessKeyId");
+            var secretAccessKey = config.SecretAccessKey
+                ?? ResolveOptionalSecret(secrets, "bedrock:SecretAccessKey");
+            var sessionToken = config.SessionToken
+                ?? ResolveOptionalSecret(secrets, "bedrock:SessionToken");
+
+            if (!string.IsNullOrEmpty(accessKeyId) && !string.IsNullOrEmpty(secretAccessKey))
             {
-                if (!string.IsNullOrEmpty(config.SessionToken))
+                if (!string.IsNullOrEmpty(sessionToken))
                 {
                     // Temporary credentials with session token
                     credentials = new SessionAWSCredentials(
-                        config.AccessKeyId,
-                        config.SecretAccessKey,
-                        config.SessionToken);
+                        accessKeyId,
+                        secretAccessKey,
+                        sessionToken);
                 }
                 else
                 {
                     // Basic credentials
-                    credentials = new BasicAWSCredentials(config.AccessKeyId, config.SecretAccessKey);
+                    credentials = new BasicAWSCredentials(accessKeyId, secretAccessKey);
                 }
             }
             // Priority 2: AWS profile
@@ -284,4 +300,11 @@ internal class BedrockProvider : IChatClientProvider
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
     }
+
+    private static string? ResolveOptionalSecret(ISecretResolver? secrets, string key)
+        => secrets?.ResolveAsync(key, CancellationToken.None)
+            .AsTask()
+            .GetAwaiter()
+            .GetResult()
+            ?.Value;
 }

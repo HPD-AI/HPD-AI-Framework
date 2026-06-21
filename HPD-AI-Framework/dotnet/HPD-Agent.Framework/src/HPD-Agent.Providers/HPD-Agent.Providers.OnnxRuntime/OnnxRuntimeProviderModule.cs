@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
+using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.OnnxRuntime;
 
@@ -24,6 +25,7 @@ public static class OnnxRuntimeProviderModule
             json => JsonSerializer.Deserialize(json, OnnxRuntimeJsonContext.Default.OnnxRuntimeProviderConfig),
             config => JsonSerializer.Serialize(config, OnnxRuntimeJsonContext.Default.OnnxRuntimeProviderConfig));
 
-        // No API key registration needed - ONNX Runtime is a local inference engine
+        SecretAliasRegistry.Register("onnx-runtime:ModelPath", "ONNX_MODEL_PATH");
+        SecretAliasRegistry.Register("onnx-runtime:ModelPath", "ONNX_RUNTIME_MODEL_PATH");
     }
 }

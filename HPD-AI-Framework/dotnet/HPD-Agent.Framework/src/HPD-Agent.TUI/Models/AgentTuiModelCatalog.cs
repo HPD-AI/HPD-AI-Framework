@@ -54,31 +54,55 @@ public sealed record AgentTuiModelChoice(
     bool IsFree = false,
     bool SupportsTools = false);
 
+public sealed class AgentTuiModelSelectionOptions
+{
+    public bool RequireToolSupport { get; set; }
+}
+
 public sealed class AgentTuiModelSelectionState
 {
+    private const int MaxRecentSelections = 8;
+    private readonly List<AgentTuiSelectedModel> _recent = [];
+
     public AgentTuiSelectedModel? Current { get; private set; }
 
     public bool HasSelection => Current is not null;
 
+    public IReadOnlyList<AgentTuiSelectedModel> Recent => _recent;
+
     public void Set(
         string providerKey,
         string modelId,
-        string? displayName = null)
+        string? displayName = null,
+        bool supportsTools = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(providerKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
-        Current = new AgentTuiSelectedModel(providerKey, modelId, displayName);
+        Current = new AgentTuiSelectedModel(providerKey, modelId, displayName, supportsTools);
+        Remember(Current);
     }
 
     public void Set(AgentTuiModelChoice model)
     {
         ArgumentNullException.ThrowIfNull(model);
-        Set(model.ProviderKey, model.ModelId, model.DisplayName);
+        Set(model.ProviderKey, model.ModelId, model.DisplayName, model.SupportsTools);
     }
 
     public void Clear()
     {
         Current = null;
+    }
+
+    private void Remember(AgentTuiSelectedModel model)
+    {
+        _recent.RemoveAll(candidate =>
+            string.Equals(candidate.ProviderKey, model.ProviderKey, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(candidate.ModelId, model.ModelId, StringComparison.OrdinalIgnoreCase));
+        _recent.Insert(0, model);
+        if (_recent.Count > MaxRecentSelections)
+        {
+            _recent.RemoveRange(MaxRecentSelections, _recent.Count - MaxRecentSelections);
+        }
     }
 
     public AgentRunConfig? ToRunConfig()
@@ -94,4 +118,5 @@ public sealed class AgentTuiModelSelectionState
 public sealed record AgentTuiSelectedModel(
     string ProviderKey,
     string ModelId,
-    string? DisplayName = null);
+    string? DisplayName = null,
+    bool SupportsTools = false);

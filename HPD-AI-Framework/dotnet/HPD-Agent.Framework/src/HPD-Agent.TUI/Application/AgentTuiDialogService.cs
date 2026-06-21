@@ -105,6 +105,15 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
         return RunPromptAsync(flow, cancellationToken);
     }
 
+    public Task<string?> SecretInputAsync(
+        string title,
+        bool allowEmpty = false,
+        CancellationToken cancellationToken = default)
+    {
+        var flow = PromptFlow.Secret(title).AllowEmpty(allowEmpty);
+        return RunPromptAsync(flow, cancellationToken);
+    }
+
     private Task<T?> RunPromptAsync<T>(
         PromptFlow<T> flow,
         CancellationToken cancellationToken)

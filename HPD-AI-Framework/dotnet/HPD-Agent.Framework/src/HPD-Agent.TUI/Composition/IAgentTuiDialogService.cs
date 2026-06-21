@@ -28,4 +28,9 @@ public interface IAgentTuiDialogService
         string? defaultValue = null,
         bool allowEmpty = false,
         CancellationToken cancellationToken = default);
+
+    Task<string?> SecretInputAsync(
+        string title,
+        bool allowEmpty = false,
+        CancellationToken cancellationToken = default);
 }

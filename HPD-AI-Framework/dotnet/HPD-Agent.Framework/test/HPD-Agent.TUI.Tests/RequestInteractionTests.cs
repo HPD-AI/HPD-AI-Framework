@@ -237,6 +237,12 @@ public sealed class RequestInteractionTests
             bool allowEmpty = false,
             CancellationToken cancellationToken = default)
             => Task.FromResult<string?>(Input ?? defaultValue);
+
+        public Task<string?> SecretInputAsync(
+            string title,
+            bool allowEmpty = false,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(Input);
     }
 
     private sealed class NoopRuntime : IHpdAgentTuiRuntime

@@ -245,6 +245,12 @@ public sealed class SlashCommandTests
             bool allowEmpty = false,
             CancellationToken cancellationToken = default)
             => Task.FromResult(defaultValue);
+
+        public Task<string?> SecretInputAsync(
+            string title,
+            bool allowEmpty = false,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(null);
     }
 
     private static AutocompleteRequest CreateRequest(string text)

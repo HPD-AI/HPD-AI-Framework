@@ -1,11 +1,14 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Generic;
+using System.Threading;
 using OllamaSharp;
 using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.ErrorHandling;
+using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.Ollama;
 
@@ -35,10 +38,15 @@ internal class OllamaProvider : IChatClientProvider
     [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in provider module")]
     public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
+        var secrets = services?.GetService<ISecretResolver>();
+        var resolvedEndpoint = config.Endpoint
+            ?? ResolveOptionalSecret(secrets, "ollama:Endpoint")
+            ?? ResolveOptionalSecret(secrets, "ollama:Host");
+
         // Resolve endpoint - defaults to localhost if not provided
-        var endpoint = string.IsNullOrEmpty(config.Endpoint)
+        var endpoint = string.IsNullOrEmpty(resolvedEndpoint)
             ? new Uri("http://localhost:11434")
-            : new Uri(config.Endpoint);
+            : new Uri(resolvedEndpoint);
 
         if (string.IsNullOrEmpty(config.ModelName))
         {
@@ -185,4 +193,11 @@ internal class OllamaProvider : IChatClientProvider
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
     }
+
+    private static string? ResolveOptionalSecret(ISecretResolver? secrets, string key)
+        => secrets?.ResolveAsync(key, CancellationToken.None)
+            .AsTask()
+            .GetAwaiter()
+            .GetResult()
+            ?.Value;
 }

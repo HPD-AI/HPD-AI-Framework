@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
+using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.Ollama;
 
@@ -24,6 +25,7 @@ public static class OllamaProviderModule
             json => JsonSerializer.Deserialize(json, OllamaJsonContext.Default.OllamaProviderConfig),
             config => JsonSerializer.Serialize(config, OllamaJsonContext.Default.OllamaProviderConfig));
 
-        // No API key registration needed - Ollama runs locally and does not require authentication
+        SecretAliasRegistry.Register("ollama:Endpoint", "OLLAMA_ENDPOINT");
+        SecretAliasRegistry.Register("ollama:Host", "OLLAMA_HOST");
     }
 }

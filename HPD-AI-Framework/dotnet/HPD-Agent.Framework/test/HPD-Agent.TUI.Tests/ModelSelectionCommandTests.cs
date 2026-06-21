@@ -32,7 +32,8 @@ public sealed class ModelSelectionCommandTests
                     "openrouter",
                     "deepseek/deepseek-chat",
                     "DeepSeek Chat",
-                    IsRecommended: true)
+                    IsRecommended: true,
+                    SupportsTools: true)
             ]);
         var registry = new HpdAgentTuiBuilder()
             .AddModelSelection(catalog, selection)
@@ -87,6 +88,100 @@ public sealed class ModelSelectionCommandTests
             arguments));
 
         selection.Current.Should().BeEquivalentTo(new AgentTuiSelectedModel("openrouter", "model-a"));
+    }
+
+    [Fact]
+    public async Task ModelCommand_ByDefaultCanShowModelsWithoutToolSupport()
+    {
+        var selection = new AgentTuiModelSelectionState();
+        var catalog = new TestModelCatalog(
+            [
+                new AgentTuiProviderChoice(
+                    "openrouter",
+                    "OpenRouter",
+                    IsRegistered: true,
+                    IsAuthenticated: true)
+            ],
+            [
+                new AgentTuiModelChoice(
+                    "openrouter",
+                    "text-only",
+                    "Text Only",
+                    IsRecommended: true,
+                    SupportsTools: false),
+                new AgentTuiModelChoice(
+                    "openrouter",
+                    "tool-model",
+                    "Tool Model",
+                    SupportsTools: true)
+            ]);
+        var registry = new HpdAgentTuiBuilder()
+            .AddModelSelection(catalog, selection)
+            .Build();
+        registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var shell = new ChatShellModel(scope);
+
+        await command.ExecuteAsync(new AgentTuiCommandContext(
+            scope,
+            shell,
+            shell.Navigation,
+            new NoopRuntime(),
+            new FirstChoiceDialogs(),
+            static (_, _) => ValueTask.CompletedTask,
+            command,
+            arguments));
+
+        selection.Current.Should().NotBeNull();
+        selection.Current!.ModelId.Should().Be("text-only");
+        selection.Current.SupportsTools.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ModelCommand_WhenConfiguredOnlyShowsToolCapableCatalogModels()
+    {
+        var selection = new AgentTuiModelSelectionState();
+        var catalog = new TestModelCatalog(
+            [
+                new AgentTuiProviderChoice(
+                    "openrouter",
+                    "OpenRouter",
+                    IsRegistered: true,
+                    IsAuthenticated: true)
+            ],
+            [
+                new AgentTuiModelChoice(
+                    "openrouter",
+                    "text-only",
+                    "Text Only",
+                    IsRecommended: true,
+                    SupportsTools: false),
+                new AgentTuiModelChoice(
+                    "openrouter",
+                    "tool-model",
+                    "Tool Model",
+                    SupportsTools: true)
+            ]);
+        var registry = new HpdAgentTuiBuilder()
+            .AddModelSelection(catalog, selection, configure: static options => options.RequireToolSupport = true)
+            .Build();
+        registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var shell = new ChatShellModel(scope);
+
+        await command.ExecuteAsync(new AgentTuiCommandContext(
+            scope,
+            shell,
+            shell.Navigation,
+            new NoopRuntime(),
+            new FirstChoiceDialogs(),
+            static (_, _) => ValueTask.CompletedTask,
+            command,
+            arguments));
+
+        selection.Current.Should().NotBeNull();
+        selection.Current!.ModelId.Should().Be("tool-model");
+        selection.Current.SupportsTools.Should().BeTrue();
     }
 
     private sealed class TestModelCatalog : IAgentTuiModelCatalog
@@ -147,6 +242,12 @@ public sealed class ModelSelectionCommandTests
             bool allowEmpty = false,
             CancellationToken cancellationToken = default)
             => Task.FromResult<string?>(defaultValue ?? "manual-model");
+
+        public Task<string?> SecretInputAsync(
+            string title,
+            bool allowEmpty = false,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(null);
     }
 
     private sealed class NoopRuntime : IHpdAgentTuiRuntime

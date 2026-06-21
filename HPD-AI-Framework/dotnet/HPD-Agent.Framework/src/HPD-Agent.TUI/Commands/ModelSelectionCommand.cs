@@ -11,14 +11,16 @@ internal static class ModelSelectionCommand
     public static HpdAgentTuiCommandDescriptor Create(
         IAgentTuiModelCatalog catalog,
         AgentTuiModelSelectionState selection,
-        string commandName)
+        string commandName,
+        AgentTuiModelSelectionOptions options)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentException.ThrowIfNullOrWhiteSpace(commandName);
+        ArgumentNullException.ThrowIfNull(options);
 
         return new HpdAgentTuiCommandDescriptor(commandName, context =>
-            ExecuteAsync(catalog, selection, context))
+            ExecuteAsync(catalog, selection, options, context))
         {
             Title = $"/{commandName}",
             Description = "Choose the provider/model for future prompts."
@@ -28,6 +30,7 @@ internal static class ModelSelectionCommand
     private static async ValueTask ExecuteAsync(
         IAgentTuiModelCatalog catalog,
         AgentTuiModelSelectionState selection,
+        AgentTuiModelSelectionOptions options,
         AgentTuiCommandContext context)
     {
         var arguments = SplitArguments(context.Arguments);
@@ -78,7 +81,7 @@ internal static class ModelSelectionCommand
             return;
         }
 
-        var model = await SelectModelAsync(catalog, catalogContext, context, provider)
+        var model = await SelectModelAsync(catalog, catalogContext, context, selection, options, provider)
             .ConfigureAwait(false);
         if (model is null)
         {
@@ -92,6 +95,8 @@ internal static class ModelSelectionCommand
         IAgentTuiModelCatalog catalog,
         AgentTuiModelCatalogContext catalogContext,
         AgentTuiCommandContext context,
+        AgentTuiModelSelectionState selection,
+        AgentTuiModelSelectionOptions options,
         AgentTuiProviderChoice provider)
     {
         var models = await catalog.GetModelsAsync(
@@ -100,9 +105,10 @@ internal static class ModelSelectionCommand
                 new AgentTuiModelQuery(),
                 CancellationToken.None)
             .ConfigureAwait(false);
+        var selectableModels = ApplyModelPolicy(models, options).ToArray();
 
-        var initialModels = GetInitialModels(provider, models);
-        var choices = BuildModelChoices(provider, initialModels, models.Count > initialModels.Count);
+        var initialModels = GetInitialModels(provider, selectableModels);
+        var choices = BuildModelChoices(provider, initialModels, selection, options, selectableModels.Length > initialModels.Count);
         if (choices.Count == 0)
         {
             return await ReadManualModelAsync(context, provider.ProviderKey)
@@ -124,6 +130,8 @@ internal static class ModelSelectionCommand
         return selected.Kind switch
         {
             ModelChoiceKind.Model => selected.Model,
+            ModelChoiceKind.Recent => await SelectRecentModelAsync(context, selection, options, provider)
+                .ConfigureAwait(false),
             ModelChoiceKind.Manual => await ReadManualModelAsync(context, provider.ProviderKey)
                 .ConfigureAwait(false),
             ModelChoiceKind.SearchAll => await SearchModelsAsync(
@@ -131,6 +139,7 @@ internal static class ModelSelectionCommand
                     catalogContext,
                     context,
                     provider,
+                    options,
                     freeOnly: false)
                 .ConfigureAwait(false),
             ModelChoiceKind.SearchFree => await SearchModelsAsync(
@@ -138,10 +147,39 @@ internal static class ModelSelectionCommand
                     catalogContext,
                     context,
                     provider,
+                    options,
                     freeOnly: true)
                 .ConfigureAwait(false),
             _ => null
         };
+    }
+
+    private static async ValueTask<AgentTuiModelChoice?> SelectRecentModelAsync(
+        AgentTuiCommandContext context,
+        AgentTuiModelSelectionState selection,
+        AgentTuiModelSelectionOptions options,
+        AgentTuiProviderChoice provider)
+    {
+        var recent = selection.Recent
+            .Where(model => string.Equals(model.ProviderKey, provider.ProviderKey, StringComparison.OrdinalIgnoreCase))
+            .Where(model => !options.RequireToolSupport || model.SupportsTools)
+            .Select(static model => new AgentTuiModelChoice(
+                model.ProviderKey,
+                model.ModelId,
+                model.DisplayName,
+                SupportsTools: model.SupportsTools))
+            .ToArray();
+        if (recent.Length == 0)
+        {
+            return null;
+        }
+
+        return await context.Dialogs.SelectAsync(
+                "Recent models",
+                recent,
+                FormatModel,
+                CancellationToken.None)
+            .ConfigureAwait(false);
     }
 
     private static async ValueTask<AgentTuiModelChoice?> SearchModelsAsync(
@@ -149,6 +187,7 @@ internal static class ModelSelectionCommand
         AgentTuiModelCatalogContext catalogContext,
         AgentTuiCommandContext context,
         AgentTuiProviderChoice provider,
+        AgentTuiModelSelectionOptions options,
         bool freeOnly)
     {
         var search = await context.Dialogs.InputAsync(
@@ -172,7 +211,7 @@ internal static class ModelSelectionCommand
                 CancellationToken.None)
             .ConfigureAwait(false);
 
-        var choices = models
+        var choices = ApplyModelPolicy(models, options)
             .OrderByDescending(static model => model.IsRecommended)
             .ThenBy(static model => model.IsFree ? 0 : 1)
             .ThenBy(static model => model.DisplayName ?? model.ModelId, StringComparer.OrdinalIgnoreCase)
@@ -182,8 +221,10 @@ internal static class ModelSelectionCommand
         {
             AppendNotice(
                 context,
-                "No models found",
-                "Enter a model ID manually if you already know it.",
+                options.RequireToolSupport ? "No tool-capable models found" : "No models found",
+                options.RequireToolSupport
+                    ? "Enter a model ID manually if you already know it supports tool calls."
+                    : "Enter a model ID manually if you already know it.",
                 TranscriptSeverity.Warning);
             return await ReadManualModelAsync(context, provider.ProviderKey)
                 .ConfigureAwait(false);
@@ -215,6 +256,8 @@ internal static class ModelSelectionCommand
     private static List<ModelDialogChoice> BuildModelChoices(
         AgentTuiProviderChoice provider,
         IReadOnlyList<AgentTuiModelChoice> models,
+        AgentTuiModelSelectionState selection,
+        AgentTuiModelSelectionOptions options,
         bool hasMoreModels)
     {
         var choices = models
@@ -224,16 +267,24 @@ internal static class ModelSelectionCommand
             .Select(static model => ModelDialogChoice.ForModel(model))
             .ToList();
 
+        if (selection.Recent.Any(model =>
+                string.Equals(model.ProviderKey, provider.ProviderKey, StringComparison.OrdinalIgnoreCase) &&
+                (!options.RequireToolSupport || model.SupportsTools)))
+        {
+            choices.Add(new ModelDialogChoice(ModelChoiceKind.Recent, "Recent models", null));
+        }
+
         if (provider.SupportsLiveModelSearch)
         {
-            choices.Add(new ModelDialogChoice(
-                ModelChoiceKind.SearchAll,
-                hasMoreModels ? "Search more models" : "Search models",
-                null));
             if (provider.SupportsFreeModels)
             {
                 choices.Add(new ModelDialogChoice(ModelChoiceKind.SearchFree, "Search free models", null));
             }
+
+            choices.Add(new ModelDialogChoice(
+                ModelChoiceKind.SearchAll,
+                hasMoreModels ? "Search more models" : "Search models",
+                null));
         }
 
         choices.Add(new ModelDialogChoice(ModelChoiceKind.Manual, "Enter model ID manually", null));
@@ -263,6 +314,13 @@ internal static class ModelSelectionCommand
             ? recommended
             : ordered.Take(Math.Min(InitialModelChoiceLimit, 5)).ToArray();
     }
+
+    private static IEnumerable<AgentTuiModelChoice> ApplyModelPolicy(
+        IEnumerable<AgentTuiModelChoice> models,
+        AgentTuiModelSelectionOptions options)
+        => options.RequireToolSupport
+            ? models.Where(static model => model.SupportsTools)
+            : models;
 
     private static void ApplySelection(
         AgentTuiModelSelectionState selection,
@@ -332,6 +390,7 @@ internal static class ModelSelectionCommand
     private enum ModelChoiceKind
     {
         Model,
+        Recent,
         SearchAll,
         SearchFree,
         Manual

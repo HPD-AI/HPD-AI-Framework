@@ -7,7 +7,9 @@ using Microsoft.ML.OnnxRuntimeGenAI;
 using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.ErrorHandling;
+using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Providers.OnnxRuntime;
 
@@ -47,8 +49,12 @@ internal class OnnxRuntimeProvider : IChatClientProvider
         // Get typed config
         var onnxConfig = config.GetProviderConfig<OnnxRuntimeProviderConfig>();
 
+        var secrets = services?.GetService<ISecretResolver>();
+
         // Resolve model path
-        string? modelPath = onnxConfig?.ModelPath ?? System.Environment.GetEnvironmentVariable("ONNX_MODEL_PATH");
+        string? modelPath = onnxConfig?.ModelPath
+            ?? ResolveOptionalSecret(secrets, "onnx-runtime:ModelPath")
+            ?? System.Environment.GetEnvironmentVariable("ONNX_MODEL_PATH");
 
         if (string.IsNullOrEmpty(modelPath))
         {
@@ -411,4 +417,11 @@ internal class OnnxRuntimeProvider : IChatClientProvider
             return options;
         }
     }
+
+    private static string? ResolveOptionalSecret(ISecretResolver? secrets, string key)
+        => secrets?.ResolveAsync(key, CancellationToken.None)
+            .AsTask()
+            .GetAwaiter()
+            .GetResult()
+            ?.Value;
 }

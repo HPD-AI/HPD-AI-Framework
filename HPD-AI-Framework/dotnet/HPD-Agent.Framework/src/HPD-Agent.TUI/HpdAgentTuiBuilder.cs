@@ -421,20 +421,24 @@ public sealed class HpdAgentTuiBuilder
     public HpdAgentTuiBuilder AddModelSelectionCommand(
         IAgentTuiModelCatalog catalog,
         AgentTuiModelSelectionState selection,
-        string commandName = "model")
+        string commandName = "model",
+        Action<AgentTuiModelSelectionOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(selection);
-        return AddSlashCommand(ModelSelectionCommand.Create(catalog, selection, commandName));
+        var options = new AgentTuiModelSelectionOptions();
+        configure?.Invoke(options);
+        return AddSlashCommand(ModelSelectionCommand.Create(catalog, selection, commandName, options));
     }
 
     public HpdAgentTuiBuilder AddModelSelection(
         IAgentTuiModelCatalog catalog,
         AgentTuiModelSelectionState? selection = null,
-        string commandName = "model")
+        string commandName = "model",
+        Action<AgentTuiModelSelectionOptions>? configure = null)
     {
         selection ??= new AgentTuiModelSelectionState();
-        return AddModelSelectionCommand(catalog, selection, commandName)
+        return AddModelSelectionCommand(catalog, selection, commandName, configure)
             .UseModelSelectionRunConfig(selection);
     }
 
