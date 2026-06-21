@@ -1,3 +1,0 @@
-venue,slippage_model,bps_per_lot_size,reference_quantity,volatility_bps,taker_price_improvement_bps,maker_price_improvement_bps
-Binance,VolumeProportional,0.15,10,0,0,0.20
-Coinbase,VolumeProportional,0.20,10,0,0,0.10

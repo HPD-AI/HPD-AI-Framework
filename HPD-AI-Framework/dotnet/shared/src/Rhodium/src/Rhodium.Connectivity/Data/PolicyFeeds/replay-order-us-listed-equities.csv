@@ -1,3 +1,0 @@
-venue,allowed_order_types,allowed_tif,allow_post_only,min_qty,min_notional,currency
-NASDAQ,Market|Limit|StopMarket|StopLimit|MarketIfTouched|LimitIfTouched|MarketToLimit|TrailingStopMarket|TrailingStopLimit,DAY|IOC|FOK|GTD,true,1,1,USD
-NYSE,Market|Limit|StopMarket|StopLimit|MarketIfTouched|LimitIfTouched|MarketToLimit|TrailingStopMarket|TrailingStopLimit,DAY|IOC|FOK|GTD,true,1,1,USD

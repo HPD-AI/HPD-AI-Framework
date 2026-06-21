@@ -10,7 +10,7 @@ Configure once in `Program.cs`. Call the REST API from your frontend.
 No separate service to run. No per-user pricing. No data leaving your infrastructure.
 
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4)](https://dotnet.microsoft.com)
-[![License: MIT](https://img.shields.io/badge/License-MIT-14B8A6.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-14B8A6.svg)](../../LICENSE)
 
 [Documentation](https://hpd-ai.github.io/HPD.Auth) · [Quick Start](#quick-start) · [Packages](#packages)
 
@@ -173,4 +173,4 @@ documentation/               VitePress docs site
 
 ## License
 
-MIT © HPD
+Apache-2.0 © HPD

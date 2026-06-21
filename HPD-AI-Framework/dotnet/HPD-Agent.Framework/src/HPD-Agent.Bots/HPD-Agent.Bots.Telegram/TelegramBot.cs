@@ -583,8 +583,8 @@ public partial class TelegramBot
 
     private async Task ProcessMessageAsync(TelegramMessage message, bool runAgent, CancellationToken ct)
     {
-        var threadId = ResolveThreadId(message);
-        var parsed = ParseTelegramMessage(message, threadId);
+        var platformThreadId = ResolveThreadId(message);
+        var parsed = ParseTelegramMessage(message, platformThreadId);
         CacheMessage(parsed);
 
         if (!runAgent || !ShouldProcessMessage(message, parsed.Text))
@@ -593,7 +593,7 @@ public partial class TelegramBot
         if (_sessionMapper is null || _sessionManager is null || _agentManager is null)
             return;
 
-        var (sessionId, threadId) = await _sessionMapper.ResolveAsync(threadId, ct);
+        var (sessionId, threadId) = await _sessionMapper.ResolveAsync(platformThreadId, ct);
         _ = StreamToTelegramAsync(sessionId, threadId, parsed, CancellationToken.None);
     }
 

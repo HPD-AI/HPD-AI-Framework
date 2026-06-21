@@ -5718,6 +5718,38 @@ public sealed class Agent
                 .Select(evt => CloneEventForThread(evt, newThread.SessionId, newThread.Id)));
         }
 
+        var targetMessageIds = newThread.Messages
+            .Select(message => message.MessageId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .ToHashSet(StringComparer.Ordinal);
+        var compactedMessageIds = copiedMessageIds
+            .Where(id => !targetMessageIds.Contains(id))
+            .ToList();
+        if (compactedMessageIds.Count > 0)
+        {
+            var replacementMessages = newThread.Messages
+                .Where(message => string.IsNullOrWhiteSpace(message.MessageId) ||
+                                  !copiedMessageIds.Contains(message.MessageId!))
+                .Select(CloneMessageForThread)
+                .ToList();
+
+            events.Add(new ThreadHistoryCompactedEvent(
+                Guid.NewGuid().ToString("N"),
+                compactedMessageIds,
+                compactedMessageIds,
+                replacementMessages,
+                "ForkMiddleware",
+                "ForkTarget",
+                "ForkCommit",
+                null,
+                DateTimeOffset.UtcNow)
+            {
+                SessionId = newThread.SessionId,
+                ThreadId = newThread.Id
+            });
+        }
+
         if (newThread.MiddlewareState.Count > 0)
         {
             events.Add(ThreadEventFactory.ThreadMiddlewareStateCommitted(

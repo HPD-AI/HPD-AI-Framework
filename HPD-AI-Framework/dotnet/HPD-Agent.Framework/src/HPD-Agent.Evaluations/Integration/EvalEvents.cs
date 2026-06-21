@@ -1,5 +1,5 @@
 // Copyright 2026 Einstein Essibu
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 
 using HPD.Agent;
 using Microsoft.Extensions.AI.Evaluation;

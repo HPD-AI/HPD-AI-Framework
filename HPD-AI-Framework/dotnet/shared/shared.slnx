@@ -20,63 +20,8 @@
     <Project Path="src/HPD-VCS/HPD-VCS.csproj" />
     <Project Path="src/HPD-OpenApi.Core/HPD-OpenApi.Core.csproj" />
   </Folder>
-  <Folder Name="/Helium/">
-    <Project Path="src/Helium/src/Helium.Primitives/Helium.Primitives.csproj" />
-    <Project Path="src/Helium/src/Helium.Algebra/Helium.Algebra.csproj" />
-    <Project Path="src/Helium/src/Helium.Algorithms/Helium.Algorithms.csproj" />
-    <Project Path="src/Helium/src/Helium.Validated/Helium.Validated.csproj" />
-    <Project Path="src/Helium/src/Helium.Finance/Helium.Finance.csproj" />
-  </Folder>
-  <Folder Name="/HPD-Math/">
-    <Project Path="../HPD-Math.Framework/src/HPD.Math.Core/HPD.Math.Core.csproj" />
-    <Project Path="../HPD-Math.Framework/src/HPD.Math.Finite/HPD.Math.Finite.csproj" />
-    <Project Path="../HPD-Math.Framework/src/HPD.Math.Algebra/HPD.Math.Algebra.csproj" />
-    <Project Path="../HPD-Math.Framework/src/HPD.Math.Numerics/HPD.Math.Numerics.csproj" />
-    <Project Path="../HPD-Math.Framework/src/HPD.Math.LinearAlgebra/HPD.Math.LinearAlgebra.csproj" />
-    <Project Path="../HPD-Math.Framework/src/HPD.Math.Text/HPD.Math.Text.csproj" />
-    <Project Path="../HPD-Math.Framework/src/HPD.Math.Managed/HPD.Math.Managed.csproj" />
-    <Project Path="../HPD-Math.Framework/src/HPD.Math.Generators/HPD.Math.Generators.csproj" />
-  </Folder>
-  <Folder Name="/Rhodium/">
-    <Project Path="src/Rhodium/src/Rhodium.Analyzers/Rhodium.Analyzers.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.Connectivity/Rhodium.Connectivity.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.Core/Rhodium.Core.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.Data/Rhodium.Data.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.Simulation/Rhodium.Simulation.csproj" />
-    <Project Path="src/Rhodium/src/Rhodium.SourceGenerators/Rhodium.SourceGenerators.csproj" />
-  </Folder>
   <Folder Name="/Tests/" />
-  <Folder Name="/Tests/HeliumTests/">
-    <Project Path="src/Helium/test/Helium.Primitives.Tests/Helium.Primitives.Tests.csproj" />
-    <Project Path="src/Helium/test/Helium.Algebra.Tests/Helium.Algebra.Tests.csproj" />
-    <Project Path="src/Helium/test/Helium.Algorithms.Tests/Helium.Algorithms.Tests.csproj" />
-    <Project Path="src/Helium/test/Helium.Validated.Tests/Helium.Validated.Tests.csproj" />
-    <Project Path="src/Helium/test/Helium.Finance.Tests/Helium.Finance.Tests.csproj" />
-  </Folder>
-  <Folder Name="/Tests/HPD-MathTests/">
-    <Project Path="../HPD-Math.Framework/test/HPD.Math.Tests/HPD.Math.Tests.csproj" />
-    <Project Path="../HPD-Math.Framework/test/HPD.Math.AotSmoke/HPD.Math.AotSmoke.csproj" />
-  </Folder>
   <Folder Name="/Benchmarks/" />
-  <Folder Name="/Benchmarks/HeliumBenchmarks/">
-    <Project Path="src/Helium/benchmarks/Helium.Finance.Benchmarks/Helium.Finance.Benchmarks.csproj" />
-  </Folder>
-  <Folder Name="/Tests/RhodiumTests/">
-    <Project Path="src/Rhodium/test/Rhodium.Primitives.Tests/Rhodium.Primitives.Tests.csproj" />
-    <Project Path="src/Rhodium/test/Rhodium.Connectivity.Tests/Rhodium.Connectivity.Tests.csproj" />
-    <Project Path="src/Rhodium/test/Rhodium.Platform.Tests/Rhodium.Platform.Tests.csproj" />
-    <Project Path="src/Rhodium/test/Rhodium.Data.Tests/Rhodium.Data.Tests.csproj" />
-    <Project Path="src/Rhodium/test/Rhodium.Kernel.Tests/Rhodium.Kernel.Tests.csproj" />
-    <Project Path="src/Rhodium/test/Rhodium.Indicators.Tests/Rhodium.Indicators.Tests.csproj" />
-    <Project Path="src/Rhodium/test/Rhodium.Tensor.Tests/Rhodium.Tensor.Tests.csproj" />
-    <Project Path="src/Rhodium/test/Rhodium.Control.Tests/Rhodium.Control.Tests.csproj" />
-    <Project Path="src/Rhodium/test/Rhodium.Quant.Tests/Rhodium.Quant.Tests.csproj" />
-    <Project Path="src/Rhodium/test/Rhodium.Options.Tests/Rhodium.Options.Tests.csproj" />
-    <Project Path="src/Rhodium/test/Rhodium.Risk.Tests/Rhodium.Risk.Tests.csproj" />
-    <Project Path="src/Rhodium/test/Rhodium.Analytics.Tests/Rhodium.Analytics.Tests.csproj" />
-    <Project Path="src/Rhodium/test/Rhodium.Events.Tests/Rhodium.Events.Tests.csproj" />
-    <Project Path="src/Rhodium/test/Rhodium.HFT.Tests/Rhodium.HFT.Tests.csproj" />
-  </Folder>
   <Folder Name="/Tests/HPDCoreTests/">
     <Project Path="../HPD-Graph.Framework/test/HPD-Graph.Tests/HPD-Graph.Tests.csproj" />
     <Project Path="test/HPD-Events.Tests/HPD-Events.Tests.csproj" />

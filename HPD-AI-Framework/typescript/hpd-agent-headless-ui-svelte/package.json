@@ -38,7 +38,7 @@
     "headless"
   ],
   "author": "HPD-AI",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "peerDependencies": {
     "svelte": "^5.29.0"
   },

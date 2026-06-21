@@ -37,6 +37,15 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         return Task.CompletedTask;
     }
 
+    public Task InterruptAsync(
+        AgentTuiRuntimeScope scope,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        _activeRun = null;
+        return Task.CompletedTask;
+    }
+
     public Task RespondAsync(
         AgentTuiRuntimeScope scope,
         AgentEvent response,

@@ -67,11 +67,6 @@ jobs:
           mkdir -p ./nupkg-ml
 
           PROJECTS=(
-            # Helium dependencies used by HPD-ML packages
-            "HPD-AI-Framework/dotnet/shared/src/Helium/src/Helium.Primitives/Helium.Primitives.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/Helium/src/Helium.Validated/Helium.Validated.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/Helium/src/Helium.Algebra/Helium.Algebra.csproj"
-            "HPD-AI-Framework/dotnet/shared/src/Helium/src/Helium.Hardware/Helium.Hardware.csproj"
             # HPD-ML packages
             "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.Abstractions/HPD.ML.Abstractions.csproj"
             "HPD-AI-Framework/dotnet/HPD-ML.Framework/src/HPD.ML.Backends.Abstractions/HPD.ML.Backends.Abstractions.csproj"

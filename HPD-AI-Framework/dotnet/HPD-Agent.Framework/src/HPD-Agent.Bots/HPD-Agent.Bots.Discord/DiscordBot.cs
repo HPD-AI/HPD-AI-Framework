@@ -132,17 +132,16 @@ public partial class DiscordBot(
         if (user is null)
             return JsonResponse(new DiscordInteractionResponse(Type: 5));
 
-        var threadId = ResolveThreadId(payload.GuildId, payload.Channel, payload.ChannelId);
+        var platformThreadId = ResolveThreadId(payload.GuildId, payload.Channel, payload.ChannelId);
         var input = BuildInteractionInput(payload, user);
 
         if (sessionMapper is not null)
         {
-            var (sessionId, threadId) = await sessionMapper.ResolveAsync(threadId, ctx.CancellationToken);
+            var (sessionId, threadId) = await sessionMapper.ResolveAsync(platformThreadId, ctx.CancellationToken);
             _ = StreamToDiscordAsync(
                 sessionId,
                 threadId,
                 input,
-                threadId,
                 payload.Token,
                 sourceMessageId: null,
                 CancellationToken.None);
@@ -209,19 +208,18 @@ public partial class DiscordBot(
         if (!IsMentioned(data)) return BotAdapterResponse.Ok();
 
         var guildId = data.GuildId ?? "@me";
-        var threadId = await ResolveGatewayThreadIdAsync(guildId, data, ctx.CancellationToken);
+        var platformThreadId = await ResolveGatewayThreadIdAsync(guildId, data, ctx.CancellationToken);
         var input = BuildGatewayInput(data);
 
         if (sessionMapper is not null)
         {
-            var (sessionId, threadId) = await sessionMapper.ResolveAsync(threadId, ctx.CancellationToken);
+            var (sessionId, threadId) = await sessionMapper.ResolveAsync(platformThreadId, ctx.CancellationToken);
             var sourceMessageId = data.ChannelType is 11 or 12 ? null : data.Id;
 
             _ = StreamToDiscordAsync(
                 sessionId,
                 threadId,
                 input,
-                threadId,
                 interactionToken: null,
                 sourceMessageId,
                 CancellationToken.None);
@@ -326,7 +324,6 @@ public partial class DiscordBot(
         string sessionId,
         string threadId,
         AgentInput input,
-        string threadId,
         string? interactionToken,
         string? sourceMessageId,
         CancellationToken ct)
@@ -340,7 +337,6 @@ public partial class DiscordBot(
                 SessionId: sessionId,
                 ThreadId: threadId,
                 Input: input,
-                ThreadId: threadId,
                 InteractionToken: interactionToken,
                 SourceMessageId: sourceMessageId);
 
@@ -612,7 +608,6 @@ public partial class DiscordBot(
         string SessionId,
         string ThreadId,
         AgentInput Input,
-        string ThreadId,
         string? InteractionToken,
         string? SourceMessageId)
     {

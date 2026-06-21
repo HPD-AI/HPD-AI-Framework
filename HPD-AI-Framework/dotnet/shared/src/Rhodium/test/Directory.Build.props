@@ -1,7 +1,0 @@
-<Project>
-  <PropertyGroup>
-    <IsTestProject>true</IsTestProject>
-    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-  </PropertyGroup>
-
-</Project>

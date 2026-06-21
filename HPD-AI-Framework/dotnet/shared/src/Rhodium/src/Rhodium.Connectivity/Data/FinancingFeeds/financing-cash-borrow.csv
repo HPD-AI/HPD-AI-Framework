@@ -1,3 +1,0 @@
-charge_type,strategy_id,variant_id,effective_at,amount,currency,venue,symbol,asset_class,quantity,rate,external_reference
-CashInterestCredit,7,0,2026-05-01T21:00:00Z,1.25,USD,,,,,0.0500,broker-cash-interest
-BorrowFee,7,0,2026-05-01T21:00:00Z,-3.50,USD,NASDAQ,AAPL,Equity,10,0.0200,broker-borrow-fee

@@ -37,7 +37,7 @@
     "typescript"
   ],
   "author": "HPD-AI",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "devDependencies": {
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0",

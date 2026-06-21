@@ -24,7 +24,7 @@ internal sealed class ConsoleProviderContext
         ISecretResolver secrets,
         IProviderRegistry providerRegistry,
         IModelsDevProviderState providerState,
-        ModelsDevAgentTuiModelCatalog modelCatalog,
+        IAgentTuiModelCatalog modelCatalog,
         AgentTuiModelSelectionState modelSelection,
         IReadOnlyList<ConsoleProviderMetadata> providers)
     {
@@ -45,7 +45,7 @@ internal sealed class ConsoleProviderContext
 
     public IModelsDevProviderState ProviderState { get; }
 
-    public ModelsDevAgentTuiModelCatalog ModelCatalog { get; }
+    public IAgentTuiModelCatalog ModelCatalog { get; }
 
     public AgentTuiModelSelectionState ModelSelection { get; }
 
@@ -64,7 +64,7 @@ internal sealed class ConsoleProviderContext
             .WithAPIConfiguration(configuration);
 
         var providerState = new HpdModelsDevProviderState(registryProbe.ProviderRegistry, secrets);
-        var modelCatalog = new ModelsDevAgentTuiModelCatalog(
+        var modelCatalog = new ConsoleModelsDevModelCatalog(
             new ModelsDevStore(new HttpClient()),
             providerState,
             ModelsDevProviderMappings.Default);

@@ -1,3 +1,0 @@
-venue,allow_best,allow_sweep,allowed_tif,min_qty,min_notional,currency,max_sweep_qty
-Binance,true,true,DAY|GTC|IOC|FOK,0.000001,5,USD,
-Coinbase,true,true,DAY|GTC|IOC|FOK,0.00000001,1,USD,

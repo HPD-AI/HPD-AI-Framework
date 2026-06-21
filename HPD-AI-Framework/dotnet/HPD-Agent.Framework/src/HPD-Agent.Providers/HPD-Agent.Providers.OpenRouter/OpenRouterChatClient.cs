@@ -998,8 +998,8 @@ internal sealed class OpenRouterChatClient : IChatClient
         => arguments is null
             ? "{}"
             : JsonSerializer.Serialize(
-                arguments,
-                AIJsonUtilities.DefaultOptions.GetTypeInfo(typeof(IDictionary<string, object?>)));
+                new Dictionary<string, object?>(arguments),
+                _jsonContext.DictionaryStringObject);
 
     public object? GetService(Type serviceType, object? serviceKey = null)
     {

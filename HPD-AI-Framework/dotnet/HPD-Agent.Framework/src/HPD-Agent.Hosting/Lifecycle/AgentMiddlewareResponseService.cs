@@ -36,10 +36,7 @@ public sealed class AgentMiddlewareResponseService : IAgentMiddlewareResponseSer
 
         return result.Accepted
             ? AgentServiceResult<RespondResult>.Success(result)
-            : AgentServiceResult<RespondResult>.ConflictWith(
-                result.Status.ToString(),
-                result.Message ?? "Response was not accepted.")
-                with { Value = result };
+            : AgentServiceResult<RespondResult>.Conflict with { Value = result };
     }
 
     private async Task<bool> RouteScopeExistsAsync(

@@ -791,8 +791,7 @@ public class OllamaProviderTests
             MiroStat = 2,
             NumGpu = 35,
             KeepAlive = "10m",
-            Format = "json",
-            Think = true
+            Format = "json"
         };
 
         // Act

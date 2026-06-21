@@ -34,8 +34,8 @@
     <Company>HPD-Research</Company>
     <Product>HPD-Agent Framework</Product>
     <Copyright>Copyright © 2024 Einstein Essibu. All rights reserved.</Copyright>
-    <PackageLicenseFile>LICENSE</PackageLicenseFile>
-    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
 

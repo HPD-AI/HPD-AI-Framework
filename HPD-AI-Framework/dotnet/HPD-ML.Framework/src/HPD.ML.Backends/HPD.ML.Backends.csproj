@@ -22,7 +22,7 @@
     <ProjectReference Include="..\HPD.ML.Backends.Abstractions\HPD.ML.Backends.Abstractions.csproj" />
     <ProjectReference Include="..\HPD.ML.Abstractions\HPD.ML.Abstractions.csproj" />
     <ProjectReference Include="..\HPD.ML.DeepLearning\HPD.ML.DeepLearning.csproj" />
-    <ProjectReference Include="..\..\..\shared\src\Helium\src\Helium.Hardware\Helium.Hardware.csproj" />
+    <PackageReference Include="Helium.Hardware" Version="0.5.0" />
   </ItemGroup>
 
 </Project>

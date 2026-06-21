@@ -170,7 +170,7 @@ public partial class WhatsAppBot
     {
         var contact = value.Contacts?.FirstOrDefault(contact => contact.WaId == inbound.From)
             ?? value.Contacts?.FirstOrDefault();
-        var threadId = WhatsAppThreadId.Format(value.Metadata.PhoneNumberId, inbound.From);
+        var platformThreadId = WhatsAppThreadId.Format(value.Metadata.PhoneNumberId, inbound.From);
         var parsed = ParseWhatsAppMessage(value.Metadata.PhoneNumberId, inbound, contact);
 
         if (_api is not null)
@@ -178,7 +178,7 @@ public partial class WhatsAppBot
 
         if (_sessionMapper is not null && _sessionManager is not null && _agentManager is not null)
         {
-            var (sessionId, threadId) = await _sessionMapper.ResolveAsync(threadId, ctx.CancellationToken);
+            var (sessionId, threadId) = await _sessionMapper.ResolveAsync(platformThreadId, ctx.CancellationToken);
             _ = StreamToWhatsAppAsync(sessionId, threadId, parsed, CancellationToken.None);
         }
     }

@@ -190,60 +190,6 @@ jobs:
         echo "All test result files collected."
 
   # ============================================
-  # Rhodium unmanaged memory leak gate
-  # ============================================
-  rhodium-memory-leak:
-    needs: paths-filter
-    runs-on: ubuntu-latest
-    if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch'
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v5
-      with:
-        dotnet-version: 10.0.x
-
-    - name: Run Rhodium memory leak tests
-      run: dotnet run --file HPD-AI-Framework/dotnet/shared/src/Rhodium/eng/ci/run-memory-leak-tests.cs
-
-    - name: Upload memory leak test results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: rhodium-memory-results
-        path: |
-          memory-results.log
-          **/memory-results.trx
-
-  # ============================================
-  # Rhodium benchmark compile gate
-  # ============================================
-  rhodium-benchmarks:
-    needs: paths-filter
-    runs-on: ubuntu-latest
-    if: needs.paths-filter.outputs.dotnet-changed == 'true' || github.event_name == 'workflow_dispatch'
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v5
-      with:
-        dotnet-version: 10.0.x
-
-    - name: Build Rhodium benchmarks
-      run: dotnet run --file HPD-AI-Framework/dotnet/shared/src/Rhodium/eng/ci/build-benchmarks.cs
-
-    - name: Upload benchmark build log
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: rhodium-benchmark-build-log
-        path: rhodium-benchmarks.log
-
-  # ============================================
   # Package verification (like Microsoft does)
   # ============================================
   package-check:

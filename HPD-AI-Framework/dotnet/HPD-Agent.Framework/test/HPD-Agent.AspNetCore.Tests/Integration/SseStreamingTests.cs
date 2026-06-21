@@ -77,6 +77,16 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         submission.Should().NotBeNull();
         submission!.RuntimeRunId.Should().NotBeNullOrWhiteSpace();
 
+        await WaitUntilAsync(async () =>
+        {
+            var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/threads/main/events");
+            using var events = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
+            return events.RootElement.EnumerateArray().Any(e =>
+                e.GetProperty("type").GetString() == ThreadEventTypes.MessageStarted &&
+                e.TryGetProperty("clientInputId", out var clientInputId) &&
+                clientInputId.GetString() == "client-input-1");
+        });
+
         var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/threads/main/events");
         using var events = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
         var threadEvents = events.RootElement.EnumerateArray().ToArray();

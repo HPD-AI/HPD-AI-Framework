@@ -3,13 +3,11 @@ using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
-using HPD.Agent.Audio;
 using HPD.Agent.Audio.AgentIntegration.Thread;
 using HPD.Agent.Audio.AgentIntegration.Middleware;
 using HPD.Agent.Audio.AgentIntegration.Output;
 using HPD.Agent.Audio.Interaction;
 using HPD.Agent.Audio.Ledger;
-using HPD.Agent.Audio;
 using HPD.Agent.Audio.Runtime.Output;
 using HPD.Agent.Audio.Trace;
 using HPD.Agent.Providers;
@@ -552,9 +550,9 @@ using var realtimeTranscriptCompletedSubscription = agent.Subscribe<UserAudioTra
 });
 using var realtimeTranscriptFailedSubscription = agent.Subscribe<UserAudioTranscriptFailedEvent>(evt =>
 {
-    benchmark.RecordError(evt.Error);
+    benchmark.RecordError(evt.ErrorMessage);
     Console.ForegroundColor = ConsoleColor.Yellow;
-    Console.Error.WriteLine($"[realtime-transcript:error] {evt.Error}");
+    Console.Error.WriteLine($"[realtime-transcript:error] {evt.ErrorMessage}");
     Console.ResetColor();
 });
 using var streamStartedSubscription = agent.Subscribe<AssistantAudioOutputStreamStartedEvent>(benchmark.RecordOutputStreamStarted);

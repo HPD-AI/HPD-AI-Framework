@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
@@ -199,13 +200,31 @@ public static class ThreadEventFactory
             clientInputId,
             message.AdditionalProperties is null
                 ? null
-                : new AdditionalPropertiesDictionary(message.AdditionalProperties)));
+                : SanitizeAdditionalProperties(message.AdditionalProperties)));
 
     public static AgentEvent MessageCompleted(string sessionId, string threadId, string messageId) =>
         Scope(sessionId, threadId, new MessageCompletedEvent(messageId));
 
     public static AgentEvent ContentAdded(string sessionId, string threadId, string messageId, AIContent content) =>
         Scope(sessionId, threadId, new ContentAddedEvent(messageId, content));
+
+    private static AdditionalPropertiesDictionary SanitizeAdditionalProperties(
+        AdditionalPropertiesDictionary properties)
+    {
+        var sanitized = new AdditionalPropertiesDictionary();
+        foreach (var (key, value) in properties)
+        {
+            sanitized[key] = value switch
+            {
+                null => null,
+                string or bool or byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal => value,
+                JsonElement => value,
+                _ => JsonSerializer.SerializeToElement(value, value.GetType())
+            };
+        }
+
+        return sanitized;
+    }
 
     public static AgentEvent TextMessageStarted(
         string sessionId,

@@ -326,7 +326,7 @@ internal sealed class MultiAgentConversationRuntime : IMultiAgentConversationRun
         if (thread != null)
         {
             ApplyWorkflowMetadata(thread, context.NodeId, context.Agent);
-            await _store.SaveInitialThreadAsync(_sessionId, thread, cancellationToken).ConfigureAwait(false);
+            await _store.AppendThreadMetadataUpdatedAsync(thread, cancellationToken).ConfigureAwait(false);
         }
 
         return threadId;

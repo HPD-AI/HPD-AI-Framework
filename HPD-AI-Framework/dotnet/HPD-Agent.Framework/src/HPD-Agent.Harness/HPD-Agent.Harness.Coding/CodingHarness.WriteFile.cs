@@ -118,10 +118,25 @@ public partial class CodingToolHarness
             .Analyze(state => state.MiddlewareState.GetState<ReadFileState>(readFileStateKey))
             ?.FilesByPath.GetValueOrDefault(fullPath);
 
-        // If file was never read or was only partially read, still allow WriteFile
-        // The validation below will catch stale files (modified after last read)
         if (priorRead == null)
-            return new WriteFileValidationResult(FileWriteMode.Rewrite, RequiresFullRead: false, null, null, null);
+        {
+            return new WriteFileValidationResult(
+                FileWriteMode.Rewrite,
+                RequiresFullRead: true,
+                null,
+                WriteFileErrorKind.NotRead,
+                "Existing non-empty file must be fully read before rewriting it.");
+        }
+
+        if (priorRead.Coverage != ReadFileCoverage.FullFile)
+        {
+            return new WriteFileValidationResult(
+                FileWriteMode.Rewrite,
+                RequiresFullRead: true,
+                priorRead,
+                WriteFileErrorKind.PartialRead,
+                "Existing non-empty file was only partially read. Read the full file before rewriting it.");
+        }
 
         var compactionState = context
             .Analyze(state => state.MiddlewareState.GetState<CompactionStateData>(compactionStateKey));

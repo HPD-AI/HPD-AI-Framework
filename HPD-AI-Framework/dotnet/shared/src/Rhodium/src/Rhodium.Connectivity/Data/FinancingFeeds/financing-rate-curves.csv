@@ -1,4 +1,0 @@
-charge_type,strategy_id,variant_id,effective_at,currency,venue,symbol,asset_class,quantity,base_amount,rate,external_reference
-PerpetualFunding,7,0,2026-05-01T08:00:00Z,USD,Binance,BTCUSDT,Crypto,1.5,123400,-0.0001,binance-rate-funding-20260501-0800
-BorrowFee,7,0,2026-05-01T21:00:00Z,USD,NASDAQ,AAPL,Equity,10,1750,0.002,broker-borrow-rate-20260501
-CashInterestCredit,7,0,2026-05-01T21:00:00Z,USD,,,,,25000,0.00005,broker-interest-rate-20260501

@@ -6,6 +6,7 @@ using HPD.Agent.AspNetCore.Streaming;
 using HPD.Agent.Hosting.Data;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Serialization;
+using Microsoft.Extensions.AI;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -261,7 +262,20 @@ internal static class StreamingEndpoints
         if (request.ValueKind != JsonValueKind.Object)
             return null;
 
-        return AgentEventSerializer.FromJson(request.GetRawText()) as AgentInputEvent;
+        var envelope = AgentEventSerializer.FromJson(request.GetRawText()) as AgentInputEvent;
+        if (envelope != null)
+            return envelope;
+        if (TryGetPropertyIgnoreCase(request, "type", out _))
+            return null;
+
+        var textRequest = JsonSerializer.Deserialize<StreamTextRequest>(request.GetRawText(), CaseInsensitiveJson);
+        return string.IsNullOrWhiteSpace(textRequest?.Text)
+            ? null
+            : new UserMessagesInputEvent([new ChatMessage(ChatRole.User, textRequest.Text)])
+            {
+                RunConfig = textRequest.RunConfig,
+                ClientInputId = textRequest.ClientInputId
+            };
     }
 
     private static InterruptionRequestEvent ParseInterruptionRequest(JsonElement? request)

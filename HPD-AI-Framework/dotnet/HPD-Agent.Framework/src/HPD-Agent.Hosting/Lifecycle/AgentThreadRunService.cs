@@ -83,6 +83,23 @@ public sealed class AgentThreadRunService : IAgentThreadRunService
                 activeRuntimeRunId)
             .ToList();
 
+        if (active is not null &&
+            active.AgentId == agentId &&
+            runs.All(run => run.RuntimeRunId != active.RuntimeRunId))
+        {
+            runs.Add(new ThreadRunProjection(
+                active.RuntimeRunId,
+                active.AgentId,
+                sessionId,
+                threadId,
+                ThreadRunStatus.Active,
+                active.StartedAt,
+                null,
+                null,
+                null,
+                []));
+        }
+
         return runs.Select(ToDto).ToList();
     }
 

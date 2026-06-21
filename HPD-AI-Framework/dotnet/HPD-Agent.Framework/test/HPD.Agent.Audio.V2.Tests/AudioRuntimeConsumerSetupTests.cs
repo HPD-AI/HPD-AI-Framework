@@ -46,6 +46,7 @@ public sealed class AudioRuntimeConsumerSetupTests
         Assert.Equal("hello from assistant", result.Text);
         Assert.Equal("hello from assistant", textToSpeechClient.LastText);
 
+        await WaitUntilAsync(() => artifacts.Count == 1);
         var artifact = Assert.Single(artifacts);
         Assert.Equal("consumer-tts-session", artifact.SessionId);
         Assert.Equal("audio/mpeg", artifact.MediaType);
@@ -87,6 +88,21 @@ public sealed class AudioRuntimeConsumerSetupTests
         Assert.Contains(chatClient.LastMessages, message =>
             message.Role == ChatRole.User &&
             message.Text?.Contains("transcribed audio", StringComparison.OrdinalIgnoreCase) == true);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var i = 0; i < 50; i++)
+        {
+            if (condition())
+            {
+                return;
+            }
+
+            await Task.Delay(50);
+        }
+
+        Assert.True(condition());
     }
 
     private sealed class CapturingChatClient(string responseText) : IChatClient
