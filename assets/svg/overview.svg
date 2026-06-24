@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 520" width="100%" height="100%" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #ffffff;">
+  <defs>
+    <style>
+      .panel {
+        transition: fill 0.2s ease, stroke 0.2s ease;
+      }
+      .cluster:hover .panel {
+        fill: #fbfdff;
+        stroke: #6d9fd2;
+      }
+    </style>
+  </defs>
+
+  <g>
+    <text x="60" y="74" fill="#243244" font-size="26" font-weight="650">HPD AI Framework</text>
+    <text x="60" y="102" fill="#627084" font-size="14">Framework packages</text>
+  </g>
+
+  <g transform="translate(60, 146)" class="cluster">
+    <rect class="panel" width="250" height="94" rx="8" fill="#ffffff" stroke="#d9e3ee" stroke-width="1.6" />
+    <text x="125" y="57" fill="#17665d" font-size="20" font-weight="700" text-anchor="middle">HPD-Agent</text>
+  </g>
+
+  <g transform="translate(355, 146)" class="cluster">
+    <rect class="panel" width="250" height="94" rx="8" fill="#ffffff" stroke="#d9e3ee" stroke-width="1.6" />
+    <text x="125" y="57" fill="#8a4b16" font-size="20" font-weight="700" text-anchor="middle">HPD-RAG</text>
+  </g>
+
+  <g transform="translate(650, 146)" class="cluster">
+    <rect class="panel" width="250" height="94" rx="8" fill="#ffffff" stroke="#d9e3ee" stroke-width="1.6" />
+    <text x="125" y="57" fill="#225b8f" font-size="20" font-weight="700" text-anchor="middle">HPD-Graph</text>
+  </g>
+
+  <g transform="translate(60, 276)" class="cluster">
+    <rect class="panel" width="250" height="94" rx="8" fill="#ffffff" stroke="#d9e3ee" stroke-width="1.6" />
+    <text x="125" y="57" fill="#65479b" font-size="20" font-weight="700" text-anchor="middle">HPD-TUI</text>
+  </g>
+
+  <g transform="translate(355, 276)" class="cluster">
+    <rect class="panel" width="250" height="94" rx="8" fill="#ffffff" stroke="#d9e3ee" stroke-width="1.6" />
+    <text x="125" y="57" fill="#225b8f" font-size="20" font-weight="700" text-anchor="middle">HPD-ML</text>
+  </g>
+
+  <g transform="translate(650, 276)" class="cluster">
+    <rect class="panel" width="250" height="94" rx="8" fill="#ffffff" stroke="#d9e3ee" stroke-width="1.6" />
+    <text x="125" y="57" fill="#9c2f4b" font-size="20" font-weight="700" text-anchor="middle">HPD-Auth</text>
+  </g>
+
+  <g transform="translate(60, 406)" class="cluster">
+    <rect class="panel" width="840" height="64" rx="8" fill="#ffffff" stroke="#d9e3ee" stroke-width="1.6" />
+    <text x="420" y="40" fill="#627084" font-size="17" font-weight="650" text-anchor="middle">Shared Runtime Packages</text>
+  </g>
+</svg>

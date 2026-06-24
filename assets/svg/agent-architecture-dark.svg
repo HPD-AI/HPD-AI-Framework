@@ -1,0 +1,180 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="100%" height="100%" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #0f141b;">
+  <defs>
+    <marker id="agent-v3-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8ea1b6" />
+    </marker>
+    <style>
+      .flow {
+        stroke-dasharray: 7 7;
+        animation: flow 1.45s linear infinite;
+      }
+      .flow-soft {
+        stroke-dasharray: 4 6;
+        animation: flowSoft 1.8s linear infinite;
+      }
+      @keyframes flow {
+        to { stroke-dashoffset: -14; }
+      }
+      @keyframes flowSoft {
+        to { stroke-dashoffset: -20; }
+      }
+      .panel {
+        transition: fill 0.2s ease, stroke 0.2s ease;
+      }
+      .cluster:hover .panel {
+        fill: #182230;
+        stroke: #65a7e8;
+      }
+      .runtime-ring {
+        animation: runtimePulse 4.5s ease-in-out infinite;
+      }
+      @keyframes runtimePulse {
+        0%, 100% { stroke: #39506b; }
+        50% { stroke: #65a7e8; }
+      }
+      .status {
+        animation: statusBlink 1.8s ease-in-out infinite;
+      }
+      @keyframes statusBlink {
+        0%, 100% { opacity: 0.45; }
+        50% { opacity: 1; }
+      }
+    </style>
+  </defs>
+
+  <g>
+    <text x="50" y="60" fill="#e6edf7" font-size="24" font-weight="650">HPD-Agent Architecture</text>
+    <text x="50" y="90" fill="#9fb0c5" font-size="14">ASP.NET Hosting, Runtime Orchestration, Tools, Memory, Evaluation, and Event Streaming</text>
+  </g>
+
+  <g>
+    <path d="M 286 265 L 350 265" class="flow" fill="none" stroke="#8ea1b6" stroke-width="2" marker-end="url(#agent-v3-arrow)" />
+    <path d="M 350 305 L 286 305" class="flow" fill="none" stroke="#8ea1b6" stroke-width="2" marker-end="url(#agent-v3-arrow)" />
+    <path d="M 540 310 L 602 310" class="flow" fill="none" stroke="#8ea1b6" stroke-width="2" marker-end="url(#agent-v3-arrow)" />
+    <path d="M 602 350 L 540 350" class="flow" fill="none" stroke="#8ea1b6" stroke-width="2" marker-end="url(#agent-v3-arrow)" />
+    <path d="M 655 505 L 655 635" class="flow-soft" fill="none" stroke="#65a7e8" stroke-width="1.8" marker-end="url(#agent-v3-arrow)" />
+    <path d="M 725 635 L 725 505" class="flow-soft" fill="none" stroke="#65a7e8" stroke-width="1.8" marker-end="url(#agent-v3-arrow)" />
+    <path d="M 790 365 L 900 365" class="flow" fill="none" stroke="#8ea1b6" stroke-width="2" marker-end="url(#agent-v3-arrow)" />
+    <path d="M 790 420 L 900 520" class="flow-soft" fill="none" stroke="#65a7e8" stroke-width="1.7" marker-end="url(#agent-v3-arrow)" />
+    <path d="M 602 475 L 372 610" class="flow-soft" fill="none" stroke="#65a7e8" stroke-width="1.7" marker-end="url(#agent-v3-arrow)" />
+    <path d="M 372 650 L 602 500" class="flow-soft" fill="none" stroke="#65a7e8" stroke-width="1.7" marker-end="url(#agent-v3-arrow)" />
+    <path d="M 690 235 L 690 165" class="flow-soft" fill="none" stroke="#65a7e8" stroke-width="1.7" marker-end="url(#agent-v3-arrow)" />
+    <path d="M 256 678 L 392 766" class="flow-soft" fill="none" stroke="#65a7e8" stroke-width="1.6" marker-end="url(#agent-v3-arrow)" />
+  </g>
+
+  <g transform="translate(70, 170)" class="cluster">
+    <rect class="panel" width="216" height="250" rx="8" fill="#131a23" stroke="#2d3a49" stroke-width="1.6" />
+    <text x="108" y="32" fill="#e6edf7" font-size="15" font-weight="650" text-anchor="middle">Client Surfaces</text>
+    <text x="108" y="52" fill="#9fb0c5" font-size="11" text-anchor="middle">all user-facing adapters</text>
+    <rect x="20" y="72" width="176" height="26" rx="5" fill="#122742" stroke="#2d5f94" />
+    <text x="108" y="89" fill="#8fc6ff" font-size="11" text-anchor="middle">Web Client + Headless UI</text>
+    <rect x="20" y="106" width="176" height="26" rx="5" fill="#122742" stroke="#2d5f94" />
+    <text x="108" y="123" fill="#8fc6ff" font-size="11.5" text-anchor="middle">TUI + CLI</text>
+    <rect x="20" y="140" width="176" height="26" rx="5" fill="#122742" stroke="#2d5f94" />
+    <text x="108" y="157" fill="#8fc6ff" font-size="11.5" text-anchor="middle">Slack · Teams</text>
+    <rect x="20" y="174" width="176" height="26" rx="5" fill="#122742" stroke="#2d5f94" />
+    <text x="108" y="191" fill="#8fc6ff" font-size="11.5" text-anchor="middle">Discord · Telegram</text>
+    <rect x="20" y="208" width="176" height="26" rx="5" fill="#122742" stroke="#2d5f94" />
+    <text x="108" y="225" fill="#8fc6ff" font-size="11.5" text-anchor="middle">WhatsApp</text>
+  </g>
+
+  <g transform="translate(350, 205)" class="cluster">
+    <rect class="panel" width="190" height="246" rx="8" fill="#131a23" stroke="#2d3a49" stroke-width="1.6" />
+    <text x="95" y="31" fill="#e6edf7" font-size="15" font-weight="650" text-anchor="middle">ASP.NET Hosting</text>
+    <text x="95" y="52" fill="#9fb0c5" font-size="10.8" text-anchor="middle">embedded web API layer</text>
+    <rect x="20" y="70" width="150" height="26" rx="5" fill="#172231" stroke="#2d3a49" />
+    <text x="95" y="87" fill="#c7d4e5" font-size="11" text-anchor="middle">AddHPDAgent</text>
+    <rect x="20" y="104" width="150" height="26" rx="5" fill="#172231" stroke="#2d3a49" />
+    <text x="95" y="121" fill="#c7d4e5" font-size="11" text-anchor="middle">MapHPDAgentApi</text>
+    <rect x="20" y="138" width="150" height="26" rx="5" fill="#122742" stroke="#2d5f94" />
+    <text x="95" y="155" fill="#8fc6ff" font-size="11" text-anchor="middle">SSE + WebSocket</text>
+    <rect x="20" y="172" width="150" height="26" rx="5" fill="#122742" stroke="#2d5f94" />
+    <text x="95" y="189" fill="#8fc6ff" font-size="11" text-anchor="middle">Sessions · Threads</text>
+    <rect x="20" y="202" width="150" height="26" rx="5" fill="#122742" stroke="#2d5f94" />
+    <text x="95" y="219" fill="#8fc6ff" font-size="11" text-anchor="middle">Content · Runs · Evals</text>
+  </g>
+
+  <g transform="translate(602, 235)" class="cluster">
+    <rect class="panel runtime-ring" width="188" height="270" rx="10" fill="#131a23" stroke="#39506b" stroke-width="2" />
+    <text x="94" y="34" fill="#e6edf7" font-size="16" font-weight="700" text-anchor="middle">Agent Runtime</text>
+    <text x="94" y="54" fill="#9fb0c5" font-size="11" text-anchor="middle">turn orchestration core</text>
+    <rect x="20" y="76" width="148" height="27" rx="5" fill="#102c2b" stroke="#287269" />
+    <text x="94" y="94" fill="#7ad7ca" font-size="11.5" text-anchor="middle">Middleware Pipeline</text>
+    <rect x="20" y="112" width="148" height="27" rx="5" fill="#102c2b" stroke="#287269" />
+    <text x="94" y="130" fill="#7ad7ca" font-size="11.5" text-anchor="middle">Model Loop</text>
+    <rect x="20" y="148" width="148" height="27" rx="5" fill="#102c2b" stroke="#287269" />
+    <text x="94" y="166" fill="#7ad7ca" font-size="11.5" text-anchor="middle">Tool Planning</text>
+    <rect x="20" y="184" width="148" height="27" rx="5" fill="#102c2b" stroke="#287269" />
+    <text x="94" y="202" fill="#7ad7ca" font-size="11.5" text-anchor="middle">Event Streaming</text>
+    <rect x="20" y="224" width="148" height="28" rx="5" fill="#241b39" stroke="#604a91" />
+    <text x="94" y="242" fill="#c6b3ff" font-size="11.5" text-anchor="middle">Sub-agent Handoff</text>
+  </g>
+
+  <g transform="translate(900, 280)" class="cluster">
+    <rect class="panel" width="230" height="204" rx="8" fill="#131a23" stroke="#2d3a49" stroke-width="1.6" />
+    <text x="115" y="32" fill="#e6edf7" font-size="15" font-weight="650" text-anchor="middle">Chat + Audio Providers</text>
+    <text x="115" y="52" fill="#9fb0c5" font-size="10.8" text-anchor="middle">adapter-based inference and voice</text>
+    <rect x="22" y="72" width="186" height="26" rx="5" fill="#2f2114" stroke="#a8682f" />
+    <text x="115" y="89" fill="#ffc27d" font-size="11.5" text-anchor="middle">OpenAI · Azure · Anthropic</text>
+    <rect x="22" y="106" width="186" height="26" rx="5" fill="#2f2114" stroke="#a8682f" />
+    <text x="115" y="123" fill="#ffc27d" font-size="11.5" text-anchor="middle">Bedrock · Ollama · Local</text>
+    <rect x="22" y="140" width="186" height="26" rx="5" fill="#102c2b" stroke="#287269" />
+    <text x="115" y="157" fill="#7ad7ca" font-size="11.5" text-anchor="middle">OpenAI Audio · ElevenLabs</text>
+    <rect x="22" y="174" width="186" height="22" rx="5" fill="#102c2b" stroke="#287269" />
+    <text x="115" y="189" fill="#7ad7ca" font-size="10.5" text-anchor="middle">Silero · MEAI Speech</text>
+  </g>
+
+  <g transform="translate(595, 635)" class="cluster">
+    <rect class="panel" width="230" height="250" rx="8" fill="#131a23" stroke="#2d3a49" stroke-width="1.6" />
+    <text x="115" y="32" fill="#e6edf7" font-size="15" font-weight="650" text-anchor="middle">Tool Harness</text>
+    <text x="115" y="52" fill="#9fb0c5" font-size="10.8" text-anchor="middle">execute work safely</text>
+    <g transform="translate(24, 70)">
+      <rect width="182" height="164" rx="7" fill="#0c1219" stroke="#40556b" stroke-width="1.5" />
+      <text x="18" y="24" fill="#d8e8ff" font-size="11">tool.run</text>
+      <circle cx="150" cy="20" r="4" fill="#62bf88" class="status" />
+      <rect x="16" y="38" width="150" height="18" rx="4" fill="#1a3655" />
+      <text x="26" y="51" fill="#c7d8ec" font-size="9.5">MCP · OpenAPI · Native</text>
+      <rect x="16" y="64" width="124" height="18" rx="4" fill="#1e4024" />
+      <text x="26" y="77" fill="#a7e8a9" font-size="9.5">Sandbox Runtime</text>
+      <rect x="16" y="88" width="150" height="18" rx="4" fill="#332754" />
+      <text x="26" y="101" fill="#d9ceff" font-size="9.5">Collapsed harness</text>
+      <rect x="16" y="112" width="150" height="18" rx="4" fill="#1f4328" />
+      <text x="26" y="125" fill="#a7e8a9" font-size="9.5">Scoped Middleware</text>
+      <rect x="16" y="136" width="150" height="18" rx="4" fill="#4a2f1f" />
+      <text x="26" y="149" fill="#f0c89f" font-size="9.5">System Prompt</text>
+      <rect x="16" y="156" width="98" height="2" rx="1" fill="#65a7e8" />
+    </g>
+  </g>
+
+  <g transform="translate(140, 540)" class="cluster">
+    <rect class="panel" width="232" height="138" rx="8" fill="#131a23" stroke="#2d3a49" stroke-width="1.6" />
+    <text x="116" y="32" fill="#e6edf7" font-size="15" font-weight="650" text-anchor="middle">Session + Memory</text>
+    <text x="116" y="52" fill="#9fb0c5" font-size="10.8" text-anchor="middle">durable agent state</text>
+    <rect x="22" y="72" width="188" height="26" rx="5" fill="#172231" stroke="#2d3a49" />
+    <text x="116" y="89" fill="#c7d4e5" font-size="11.5" text-anchor="middle">sessions · threads · messages</text>
+    <rect x="22" y="106" width="188" height="26" rx="5" fill="#172231" stroke="#2d3a49" />
+    <text x="116" y="123" fill="#c7d4e5" font-size="11.5" text-anchor="middle">content · memory · artifacts</text>
+  </g>
+
+  <g transform="translate(900, 500)" class="cluster">
+    <rect class="panel" width="230" height="155" rx="8" fill="#131a23" stroke="#2d3a49" stroke-width="1.6" />
+    <text x="115" y="32" fill="#e6edf7" font-size="15" font-weight="650" text-anchor="middle">Evaluation</text>
+    <text x="115" y="52" fill="#9fb0c5" font-size="10.8" text-anchor="middle">quality gates and feedback</text>
+    <rect x="22" y="72" width="186" height="26" rx="5" fill="#321821" stroke="#8f4057" />
+    <text x="115" y="89" fill="#ff9caf" font-size="11.5" text-anchor="middle">LLM Judge · Score Store</text>
+    <rect x="22" y="106" width="186" height="26" rx="5" fill="#321821" stroke="#8f4057" />
+    <text x="115" y="123" fill="#ff9caf" font-size="11.5" text-anchor="middle">Annotation Queue</text>
+  </g>
+
+  <g transform="translate(548, 95)" class="cluster">
+    <rect class="panel" width="284" height="76" rx="8" fill="#131a23" stroke="#2d3a49" stroke-width="1.6" />
+    <text x="142" y="30" fill="#e6edf7" font-size="15" font-weight="650" text-anchor="middle">Observability</text>
+    <text x="142" y="52" fill="#9fb0c5" font-size="11" text-anchor="middle">OpenTelemetry · logs · metrics</text>
+  </g>
+
+  <g transform="translate(392, 735)">
+    <rect width="168" height="62" rx="8" fill="#121922" stroke="#2d3a49" />
+    <text x="84" y="27" fill="#e6edf7" font-size="12.5" font-weight="650" text-anchor="middle">Thread Graph</text>
+    <text x="84" y="45" fill="#9fb0c5" font-size="10.5" text-anchor="middle">forks · replay · traces</text>
+  </g>
+</svg>
