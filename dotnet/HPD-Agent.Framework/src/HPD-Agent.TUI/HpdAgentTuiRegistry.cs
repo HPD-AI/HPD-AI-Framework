@@ -42,7 +42,10 @@ public sealed class HpdAgentTuiRegistry
         AgentTuiRunConfigComposer? runConfigComposer)
     {
         _commands = commands.ToDictionary(command => command.SlashName, StringComparer.OrdinalIgnoreCase);
-        _commandList = _commands.Values.ToArray();
+        _commandList = _commands.Values
+            .OrderBy(static command => command.Order)
+            .ThenBy(static command => command.SlashName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         _pages = pages.ToDictionary(page => page.Id, StringComparer.OrdinalIgnoreCase);
         _pageList = _pages.Values.ToArray();
         _statusItems = statusItems

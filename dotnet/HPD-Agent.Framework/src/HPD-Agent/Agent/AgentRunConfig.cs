@@ -241,10 +241,12 @@ public class AgentRunConfig
     public IReadOnlyList<IAgentMiddleware>? RuntimeMiddleware { get; set; }
 
     /// <summary>
-    /// Permission overrides for this specific run.
-    /// Key = permission name, Value = approved (true) or denied (false).
-    /// Overrides agent's configured permission policies temporarily.
-    /// Example: { "delete_files": false, "external_api_calls": true }
+    /// Permission requirement overrides for this specific run.
+    /// Key = function/tool name, Value = whether permission is required.
+    /// Overrides the agent's configured permission policies temporarily.
+    /// Unknown function names are ignored because overrides are only read when
+    /// that function is invoked.
+    /// Example: { "ReadFile": false, "ExecuteCommand": true }
     /// </summary>
     public Dictionary<string, bool>? PermissionOverrides { get; set; }
 

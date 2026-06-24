@@ -48,15 +48,16 @@ public class Container : IComponent
         }
     }
 
-    public virtual void HandleInput(in KeyEvent key)
-    {
-    }
-
-    public virtual void Invalidate()
+    public virtual bool HandleInput(in TuiInputEvent key)
     {
         foreach (var child in _children)
         {
-            child.Invalidate();
+            if (child.HandleInput(in key))
+            {
+                return true;
+            }
         }
+
+        return false;
     }
 }

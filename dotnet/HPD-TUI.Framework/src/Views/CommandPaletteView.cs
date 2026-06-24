@@ -36,9 +36,7 @@ public sealed class CommandPaletteView : IFocusable
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _view.Render(in context, maxWidth, ref output);
 
-    public void HandleInput(in KeyEvent key) => _view.HandleInput(in key);
-
-    public void Invalidate() => _view.Invalidate();
+    public bool HandleInput(in TuiInputEvent key) => _view.HandleInput(in key);
 
     public static CommandPaletteView Create(IEnumerable<CommandDescriptor> commands)
     {

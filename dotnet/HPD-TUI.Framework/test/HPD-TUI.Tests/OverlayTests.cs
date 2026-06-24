@@ -111,12 +111,9 @@ public sealed class OverlayTests
         public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
             => output.Write(context.Height.ToString().AsSpan(), context.Theme.Text);
 
-        public void HandleInput(in KeyEvent key)
+        public bool HandleInput(in TuiInputEvent key)
         {
-        }
-
-        public void Invalidate()
-        {
+            return false;
         }
     }
 }

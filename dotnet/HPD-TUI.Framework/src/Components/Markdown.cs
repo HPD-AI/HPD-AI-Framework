@@ -91,12 +91,9 @@ public sealed class Markdown : IComponent
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     private MarkdownDocument? GetDocument()

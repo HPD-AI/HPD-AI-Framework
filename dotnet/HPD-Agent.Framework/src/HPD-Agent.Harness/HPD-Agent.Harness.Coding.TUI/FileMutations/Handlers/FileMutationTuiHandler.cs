@@ -23,7 +23,7 @@ internal sealed class FileMutationTuiHandler : AgentTuiEventHandler<FileMutation
             model.SetDiagnostics(latestDiagnostics);
         }
 
-        context.Shell.Transcript.Update(FileMutationTranscriptEntryFactory.Create(model, evt));
+        FileMutationTranscriptEntryFactory.Apply(context, model, evt);
         return ValueTask.CompletedTask;
     }
 }

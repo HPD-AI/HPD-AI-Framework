@@ -44,12 +44,9 @@ public sealed class KeyValueBlock : IContentBlock
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     public static KeyValueBlock Create(params KeyValueEntry[] entries)

@@ -82,7 +82,8 @@ public sealed class HpdAgentTuiBuilder
         {
             var commands = string.Join("\n", _commands.Values
                 .Where(static command => !command.Hidden)
-                .OrderBy(static command => command.SlashName, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(static command => command.Order)
+                .ThenBy(static command => command.SlashName, StringComparer.OrdinalIgnoreCase)
                 .Select(static command =>
                 {
                     var description = string.IsNullOrWhiteSpace(command.Description)
@@ -105,12 +106,14 @@ public sealed class HpdAgentTuiBuilder
         })
         {
             Title = "/help",
-            Description = "Show available shell commands."
+            Description = "Show available shell commands.",
+            Order = 600
         });
-        TryAddSlashCommand(new HpdAgentTuiCommandDescriptor("clear", context => context.Shell.Transcript.Clear())
+        TryAddSlashCommand(new HpdAgentTuiCommandDescriptor("clear", context => context.Shell.Transcript.ClearAll())
         {
             Title = "/clear",
-            Description = "Clear the transcript."
+            Description = "Clear the transcript.",
+            Order = 700
         });
         return this;
     }

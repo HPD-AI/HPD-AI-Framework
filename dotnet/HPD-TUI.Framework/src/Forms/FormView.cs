@@ -59,9 +59,9 @@ public sealed class FormView : IFocusable
         }
     }
 
-    public void HandleInput(in KeyEvent key) => _controller.HandleInput(in key);
-
-    public void Invalidate()
+    public bool HandleInput(in TuiInputEvent key)
     {
+        var keyEvent = key.KeyEvent;
+        return _controller.HandleInput(in keyEvent);
     }
 }

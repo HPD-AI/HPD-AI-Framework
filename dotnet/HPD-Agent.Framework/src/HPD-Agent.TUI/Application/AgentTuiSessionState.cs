@@ -29,8 +29,7 @@ public sealed class AgentTuiSessionState
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
 
-        Shell.Transcript.ScrollToBottom();
-        Shell.Transcript.Append(new TranscriptEntry(
+        Shell.Transcript.AddFinal(new TranscriptEntry(
             Id: $"user-{Guid.NewGuid():N}",
             EntryKey: null,
             Cell: new UserMessageCell(new Text(text)),
@@ -59,7 +58,7 @@ public sealed class AgentTuiSessionState
             }
             catch (Exception ex)
             {
-                Shell.Transcript.Append(new TranscriptEntry(
+                Shell.Transcript.AddFinal(new TranscriptEntry(
                     Id: $"event-handler-error-{Guid.NewGuid():N}",
                     EntryKey: null,
                     Cell: new NoticeCell(

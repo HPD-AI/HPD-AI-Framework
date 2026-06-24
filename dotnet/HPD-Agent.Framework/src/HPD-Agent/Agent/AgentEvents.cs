@@ -311,6 +311,21 @@ public sealed record UserMessagesInputEvent(
     public Thread? Thread { get; init; }
 }
 
+/// <summary>
+/// Runtime-generated input that wakes the model with one or more background task notifications.
+/// </summary>
+public sealed record BackgroundTaskNotificationInputEvent(
+    IReadOnlyList<BackgroundTaskNotification> Notifications) : AgentInputEvent;
+
+/// <summary>
+/// Model-visible summary of background task facts selected by notification policy.
+/// </summary>
+public sealed record BackgroundTaskNotification(
+    string NotificationId,
+    IReadOnlyList<string> TaskIds,
+    string Summary,
+    IReadOnlyDictionary<string, string>? Metadata = null);
+
 #region Message Turn Events (Entire User Interaction)
 
 /// <summary>
@@ -783,9 +798,36 @@ public sealed record ToolResultPayload(
 }
 
 /// <summary>
-/// Base event for runtime-owned background work started by a tool call.
+/// Source category for runtime-owned background work.
 /// </summary>
-public abstract record ToolCallBackgroundTaskEvent : AgentEvent
+[JsonConverter(typeof(JsonStringEnumConverter<BackgroundTaskSourceKind>))]
+public enum BackgroundTaskSourceKind
+{
+    ToolCall,
+    Command,
+    SubAgent,
+    Runtime,
+    Maintenance,
+    Other
+}
+
+/// <summary>
+/// Policy that determines whether a terminal background task event should wake the model.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<BackgroundTaskNotificationPolicy>))]
+public enum BackgroundTaskNotificationPolicy
+{
+    None,
+    OnFault,
+    OnCompletion,
+    OnCompletionOrFault,
+    Custom
+}
+
+/// <summary>
+/// Base event for runtime-owned background work.
+/// </summary>
+public abstract record BackgroundTaskEvent : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
     public override bool ShouldPersistToThread() => true;
@@ -794,39 +836,53 @@ public abstract record ToolCallBackgroundTaskEvent : AgentEvent
 
     public required string Name { get; init; }
 
-    public required FunctionInvocationSnapshot Invocation { get; init; }
+    public required BackgroundTaskSourceKind SourceKind { get; init; }
+
+    public required BackgroundTaskNotificationPolicy NotificationPolicy { get; init; }
+
+    public string? SourceId { get; init; }
+
+    public string? ParentRuntimeRunId { get; init; }
+
+    public FunctionInvocationSnapshot? Invocation { get; init; }
+
+    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
 }
 
 /// <summary>
-/// Emitted when runtime-owned background work started by a tool call begins.
+/// Emitted when runtime-owned background work begins.
 /// </summary>
-public sealed record ToolCallBackgroundTaskStartedEvent : ToolCallBackgroundTaskEvent
+public sealed record BackgroundTaskStartedEvent : BackgroundTaskEvent
 {
     public required DateTimeOffset StartedAt { get; init; }
 }
 
 /// <summary>
-/// Emitted when runtime-owned background work started by a tool call completes.
+/// Emitted when runtime-owned background work completes.
 /// </summary>
-public sealed record ToolCallBackgroundTaskCompletedEvent : ToolCallBackgroundTaskEvent
+public sealed record BackgroundTaskCompletedEvent : BackgroundTaskEvent
 {
     public required DateTimeOffset CompletedAt { get; init; }
 
     public required long DurationMilliseconds { get; init; }
+
+    public string? Summary { get; init; }
 }
 
 /// <summary>
-/// Emitted when runtime-owned background work started by a tool call observes runtime cancellation.
+/// Emitted when runtime-owned background work observes cancellation.
 /// </summary>
-public sealed record ToolCallBackgroundTaskCancelledEvent : ToolCallBackgroundTaskEvent
+public sealed record BackgroundTaskCancelledEvent : BackgroundTaskEvent
 {
     public required DateTimeOffset CancelledAt { get; init; }
+
+    public string? Reason { get; init; }
 }
 
 /// <summary>
-/// Emitted when runtime-owned background work started by a tool call faults.
+/// Emitted when runtime-owned background work faults.
 /// </summary>
-public sealed record ToolCallBackgroundTaskFaultedEvent : ToolCallBackgroundTaskEvent, IErrorEvent
+public sealed record BackgroundTaskFaultedEvent : BackgroundTaskEvent, IErrorEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 
@@ -838,6 +894,58 @@ public sealed record ToolCallBackgroundTaskFaultedEvent : ToolCallBackgroundTask
 
     [JsonIgnore]
     public Exception? Exception => null;
+}
+
+/// <summary>
+/// Emitted when background task policy selects one or more terminal task facts for model delivery.
+/// </summary>
+public sealed record BackgroundTaskNotificationQueuedEvent : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override EventChannel Channel { get; init; } = EventChannel.Control;
+    public override bool ShouldPersistToThread() => true;
+
+    public required string NotificationId { get; init; }
+
+    public required IReadOnlyList<string> TaskIds { get; init; }
+
+    public required DateTimeOffset QueuedAt { get; init; }
+
+    public required string Reason { get; init; }
+}
+
+/// <summary>
+/// Emitted after a queued background task notification has been delivered to a model turn.
+/// </summary>
+public sealed record BackgroundTaskNotificationDeliveredEvent : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override EventChannel Channel { get; init; } = EventChannel.Control;
+    public override bool ShouldPersistToThread() => true;
+
+    public required string NotificationId { get; init; }
+
+    public required DateTimeOffset DeliveredAt { get; init; }
+
+    public string? RuntimeRunId { get; init; }
+}
+
+/// <summary>
+/// Emitted when background task policy explicitly decides not to wake the model.
+/// </summary>
+public sealed record BackgroundTaskNotificationSuppressedEvent : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override EventChannel Channel { get; init; } = EventChannel.Control;
+    public override bool ShouldPersistToThread() => true;
+
+    public required string NotificationId { get; init; }
+
+    public required IReadOnlyList<string> TaskIds { get; init; }
+
+    public required DateTimeOffset SuppressedAt { get; init; }
+
+    public required string Reason { get; init; }
 }
 
 #endregion

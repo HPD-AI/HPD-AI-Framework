@@ -507,6 +507,7 @@ internal sealed class OpenRouterChatClient : IChatClient
     private OpenRouterChatRequest BuildRequestBody(IEnumerable<ChatMessage> messages, ChatOptions? options, bool stream)
     {
         var requestMessages = new List<OpenRouterRequestMessage>();
+        var emittedToolCallIds = new HashSet<string>(StringComparer.Ordinal);
         bool hasPdfContent = false; // ✨ PERFORMANCE: Track PDF content during iteration
 
         // ✨ FIX: Add system instructions from ChatOptions.Instructions as first message
@@ -532,6 +533,11 @@ internal sealed class OpenRouterChatClient : IChatClient
                     // Create separate OpenRouter message for each function result
                     foreach (var frc in functionResults)
                     {
+                        if (!emittedToolCallIds.Contains(frc.CallId))
+                        {
+                            continue;
+                        }
+
                         requestMessages.Add(new OpenRouterRequestMessage
                         {
                             Role = "tool",
@@ -684,6 +690,11 @@ internal sealed class OpenRouterChatClient : IChatClient
                             Arguments = SerializeFunctionArguments(fc.Arguments)
                         }
                     }).ToList();
+
+                    foreach (var toolCall in toolCalls)
+                    {
+                        emittedToolCallIds.Add(toolCall.CallId);
+                    }
                 }
 
                 requestMessages.Add(msg);

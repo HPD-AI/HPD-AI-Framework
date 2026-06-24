@@ -87,7 +87,7 @@ internal static class CodingCommandTranscriptEntryFactory
                 $"{artifact.Kind}:{artifact.Path}:{artifact.ContentId}:{artifact.ByteLength?.ToString(CultureInfo.InvariantCulture)}"));
         return string.Join(
             "\u001f",
-            VerbFor(cell.State),
+            LabelFor(cell),
             cell.DisplayCommand,
             lines,
             cell.OutputWindow.OmittedLineCount.ToString(CultureInfo.InvariantCulture),
@@ -110,6 +110,24 @@ internal static class CodingCommandTranscriptEntryFactory
             CodingCommandTranscriptState.TimedOut => "Timed out",
             _ => "Exited"
         };
+
+    public static string LabelFor(CodingCommandCell cell)
+    {
+        if (!cell.IsBackground)
+        {
+            return VerbFor(cell.State);
+        }
+
+        return cell.State switch
+        {
+            CodingCommandTranscriptState.Completed => "Background command completed",
+            CodingCommandTranscriptState.Failed => "Background command failed",
+            CodingCommandTranscriptState.Cancelled => "Background command cancelled",
+            CodingCommandTranscriptState.TimedOut => "Background command timed out",
+            CodingCommandTranscriptState.Exited => "Background command exited",
+            _ => VerbFor(cell.State)
+        };
+    }
 
     private static CodingCommandTranscriptState MapState(CodingCommandDisplayState state)
         => state switch

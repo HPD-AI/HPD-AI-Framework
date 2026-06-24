@@ -8,9 +8,13 @@ internal sealed class FileMutationTuiState
     private const int MaxRecent = 50;
 
     private readonly List<FileMutationTranscriptModel> _recent = [];
+    private readonly Dictionary<string, FileMutationTranscriptModel> _byEntryKey = new(StringComparer.Ordinal);
     private readonly Dictionary<string, FileMutationTranscriptModel> _latestByPath = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _changedPaths = new(StringComparer.Ordinal);
 
     public int MutationCount { get; private set; }
+
+    public int ChangedPathCount => _changedPaths.Count;
 
     public int AddedLines { get; private set; }
 
@@ -23,10 +27,17 @@ internal sealed class FileMutationTuiState
     public FileMutationTranscriptModel Add(FileMutationAppliedEvent evt)
     {
         var model = new FileMutationTranscriptModel(evt);
+        if (_byEntryKey.TryGetValue(model.EntryKey, out var existing))
+        {
+            return existing;
+        }
+
+        _byEntryKey[model.EntryKey] = model;
         MutationCount++;
         AddedLines += evt.DiffStat.AddedLines;
         RemovedLines += evt.DiffStat.RemovedLines;
         LatestPath = evt.DisplayPath;
+        _changedPaths.Add(NormalizePath(evt.Path));
 
         _recent.Insert(0, model);
         while (_recent.Count > MaxRecent)

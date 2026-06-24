@@ -123,6 +123,9 @@ public sealed class AgentThreadRunService : IAgentThreadRunService
             run.BackgroundTasks.Select(task => new ThreadRunBackgroundTaskDto(
                 task.TaskId,
                 task.Name,
+                task.SourceKind,
+                task.SourceId,
+                task.NotificationPolicy,
                 task.Status,
                 task.StartedAt,
                 task.CompletedAt,

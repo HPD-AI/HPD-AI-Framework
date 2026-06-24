@@ -75,11 +75,11 @@ public sealed class TableView<T> : IFocusable
         WriteCaption(in context, maxWidth, ref output);
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
         if (!EnableCellNavigation)
         {
-            return;
+            return false;
         }
 
         switch (key.Key)
@@ -108,11 +108,11 @@ public sealed class TableView<T> : IFocusable
             case KeyCode.PageDown:
                 Navigation.PageRows(1, 10);
                 break;
+            default:
+                return false;
         }
-    }
 
-    public void Invalidate()
-    {
+        return true;
     }
 
     public static TableView<T> Create(IEnumerable<T> rows, Action<TableModel<T>> configure)

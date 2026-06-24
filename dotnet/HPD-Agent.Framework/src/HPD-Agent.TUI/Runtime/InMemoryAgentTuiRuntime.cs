@@ -31,12 +31,31 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
     public bool CanSwitchAgents => false;
 
-    public async Task<AgentTuiRuntimeScope> EnsureScopeAsync(
+    public async Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
         AgentTuiRuntimeScope? requested,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var scope = requested ?? _defaultScope;
+        var store = _agent.Config?.SessionStore;
+        if (store is not null &&
+            await store.LoadSessionAsync(scope.SessionId, cancellationToken).ConfigureAwait(false) is not null)
+        {
+            return new AgentTuiScopeResolution(scope, IsDurable: true);
+        }
+
+        return requested is null
+            ? new AgentTuiScopeResolution(
+                await EnsureDurableScopeAsync(scope, cancellationToken).ConfigureAwait(false),
+                IsDurable: true)
+            : new AgentTuiScopeResolution(scope, IsDurable: store is null);
+    }
+
+    public async Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
+        AgentTuiRuntimeScope scope,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         var store = _agent.Config?.SessionStore;
         if (store is not null &&
             await store.LoadSessionAsync(scope.SessionId, cancellationToken).ConfigureAwait(false) is null)

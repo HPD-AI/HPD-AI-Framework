@@ -6,9 +6,7 @@ public interface IComponent
 
     void Render(in RenderContext context, int maxWidth, ref SegmentWriter output);
 
-    void HandleInput(in KeyEvent key);
-
-    void Invalidate();
+    bool HandleInput(in TuiInputEvent input);
 }
 
 public interface IFocusable : IComponent

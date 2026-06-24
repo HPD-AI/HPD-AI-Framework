@@ -75,12 +75,17 @@ public sealed class StatusItemsView : IComponent
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-    }
+        foreach (var component in _components)
+        {
+            if (component.HandleInput(in key))
+            {
+                return true;
+            }
+        }
 
-    public void Invalidate()
-    {
+        return false;
     }
 
     private static IComponent CreateItem(

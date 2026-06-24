@@ -114,6 +114,40 @@ public sealed class EnvironmentContextMiddlewareTests
     }
 
     [Fact]
+    public void SerializeToXml_UsesSelectedWorkspaceAsPrimaryCwd()
+    {
+        var context = new EnvironmentContext
+        {
+            Cwd = "/tmp/source-host",
+            WorkspaceRoot = "/tmp/source-host",
+            Shell = "zsh",
+            ShellExecutable = "/bin/zsh",
+            ShellKind = "posix",
+            ShellCommandArgumentsPrefix = ["-lc"],
+            AvailableShells = [],
+            CurrentDate = "2026-05-11",
+            Timezone = "America/Chicago",
+            OperatingSystem = "darwin",
+            OsVersion = "Darwin 25.3.0",
+            DirectorySeparator = "/",
+            AltDirectorySeparator = "/",
+            PathSeparator = ":",
+            TempDirectory = "/tmp/"
+        };
+        var workspace = new AgentWorkspace(
+            "default",
+            "/tmp/selected-workspace",
+            [new AgentWorkspaceRoot("default", "/tmp/selected-workspace")]);
+
+        var xml = context.SerializeToXml(workspace);
+
+        xml.Should().Contain("<cwd>/tmp/selected-workspace</cwd>");
+        xml.Should().Contain("<workspace_root>/tmp/selected-workspace</workspace_root>");
+        xml.Should().Contain("<host_process_cwd>/tmp/source-host</host_process_cwd>");
+        xml.Should().Contain("<default_root_path>/tmp/selected-workspace</default_root_path>");
+    }
+
+    [Fact]
     public void CreateCurrent_UsesShellOverride()
     {
         var context = EnvironmentContext.CreateCurrent(new EnvironmentContextConfig
@@ -179,6 +213,50 @@ public sealed class EnvironmentContextMiddlewareTests
         messages[2].Text.Should().Be("hello");
         context.Options.Instructions.Should().Contain("<environment_context>");
         context.Options.Instructions.Should().Contain("<cwd>");
+    }
+
+    [Fact]
+    public async Task BeforeIterationAsync_UsesRunConfigWorkspaceAsPrimaryCwd()
+    {
+        var originalCwd = Directory.GetCurrentDirectory();
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"hpd-coding-workspace-context-{Guid.NewGuid():N}");
+        var sourceDirectory = Path.Combine(tempRoot, "source");
+        var selectedWorkspace = Path.Combine(tempRoot, "workspace");
+
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(selectedWorkspace);
+
+        try
+        {
+            Directory.SetCurrentDirectory(sourceDirectory);
+            var hostProcessCwd = Directory.GetCurrentDirectory();
+            var middleware = new EnvironmentContextMiddleware();
+            var messages = new List<ChatMessage> { new(ChatRole.User, "hello") };
+            var context = CreateBeforeIterationContext(
+                CreateAgentContext(),
+                messages,
+                new AgentRunConfig
+                {
+                    ContextOverrides = new Dictionary<string, object>
+                    {
+                        [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                            "default",
+                            selectedWorkspace,
+                            [new AgentWorkspaceRoot("default", selectedWorkspace)])
+                    }
+                });
+
+            await middleware.BeforeIterationAsync(context, CancellationToken.None);
+
+            context.Options.Instructions.Should().Contain($"<cwd>{selectedWorkspace}</cwd>");
+            context.Options.Instructions.Should().Contain($"<workspace_root>{selectedWorkspace}</workspace_root>");
+            context.Options.Instructions.Should().Contain($"<host_process_cwd>{hostProcessCwd}</host_process_cwd>");
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalCwd);
+            Directory.Delete(tempRoot, recursive: true);
+        }
     }
 
     [Fact]
@@ -259,11 +337,17 @@ public sealed class EnvironmentContextMiddlewareTests
         => CreateBeforeIterationContext(CreateAgentContext(), messages);
 
     private static BeforeIterationContext CreateBeforeIterationContext(AgentContext agentContext, List<ChatMessage> messages)
+        => CreateBeforeIterationContext(agentContext, messages, new AgentRunConfig());
+
+    private static BeforeIterationContext CreateBeforeIterationContext(
+        AgentContext agentContext,
+        List<ChatMessage> messages,
+        AgentRunConfig runConfig)
         => agentContext.AsBeforeIteration(
             iteration: 0,
             messages,
             new ChatOptions(),
-            new AgentRunConfig());
+            runConfig);
 
     private static AgentContext CreateAgentContext()
     {

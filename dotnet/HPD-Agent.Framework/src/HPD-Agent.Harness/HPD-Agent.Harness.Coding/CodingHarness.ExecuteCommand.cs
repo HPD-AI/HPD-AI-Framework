@@ -22,6 +22,7 @@ public partial class CodingToolHarness
     private const int MaxInlineStreamChars = 15_000;
     private const int DefaultExecuteCommandProgressAfterMilliseconds = 2_000;
     private const int DefaultExecuteCommandAutoBackgroundAfterMilliseconds = 15_000;
+    private const int DefaultExecuteCommandBackgroundStartSettleMilliseconds = 750;
     private const int MaxExecuteCommandReadOutputDelayMilliseconds = 10_000;
     private const int DefaultExecuteCommandMaxOutputChunkEventChars = 8_000;
     private const int DefaultExecuteCommandMaxOutputChunkEventsPerSecond = 8;
@@ -30,16 +31,15 @@ public partial class CodingToolHarness
     private static readonly ConcurrentDictionary<string, ExecuteCommandBackgroundProcess> ExecuteCommandBackgroundProcesses = new(StringComparer.Ordinal);
 
     [AIFunction]
-    [RequiresPermission]
         [Description("Runs, lists, inspects, or stops shell commands for the coding workspace. Use Run for builds, tests, project scripts, package managers, git inspection, code generation, formatters, linters, and local servers. Use ListBackground, ReadOutput, or Stop only for background commands previously started by this function.")]
     public async Task<object> ExecuteCommand(
-        [Description("Operation to perform. Use Run to start a command, ListBackground to recover active/recent background command ids, ReadOutput to inspect a background command, and Stop to terminate a background command.")]
+        [Description("Operation to perform as a string enum. Omit this for normal command runs, or pass Run, ListBackground, ReadOutput, or Stop. Do not pass an object for action.")]
         ExecuteCommandAction action = ExecuteCommandAction.Run,
-        [Description("The shell command to execute. Required when action is Run. Do not use for ListBackground, ReadOutput, or Stop.")]
+        [Description("The shell command to execute. Required when action is Run. For normal commands use this top-level argument. Do not nest command under action. Do not use for ListBackground, ReadOutput, or Stop.")]
         string? command = null,
         [Description("Background task id returned by a previous background Run. Required when action is ReadOutput or Stop. Do not use for Run or ListBackground.")]
         string? backgroundTaskId = null,
-        [Description("Optional working directory for Run only. Relative paths are resolved from the process current working directory shown in environment_context.")]
+        [Description("Optional working directory for Run only. Relative paths are resolved from the selected workspace root shown as cwd in environment_context.")]
         string? workingDirectory = null,
         [Description("Optional timeout in milliseconds for Run only. Defaults to 120000.")]
         int timeoutMilliseconds = DefaultExecuteCommandTimeoutMilliseconds,
@@ -93,7 +93,8 @@ public partial class CodingToolHarness
     private async Task<string> RunExecuteCommandBackgroundAsync(
         ExecuteCommandRequest request,
         FunctionExecutionContext context,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowSandboxCapabilityRetry = true)
     {
         if (string.IsNullOrWhiteSpace(context.SessionId))
         {
@@ -132,7 +133,8 @@ public partial class CodingToolHarness
             [.. environmentContext.ShellCommandArgumentsPrefix, request.Command],
             request.WorkingDirectory,
             request.Environment,
-            request.Timeout);
+            request.Timeout,
+            request.Isolation);
 
         ExecuteCommandOutputStoreSession? outputStore = null;
         IProcessInvocationHandle? handle = null;
@@ -189,6 +191,69 @@ public partial class CodingToolHarness
                 TimeoutMilliseconds = (int)request.Timeout.TotalMilliseconds
             });
 
+            var completionTask = handle.WaitAsync(CancellationToken.None).AsTask();
+            var completed = await Task.WhenAny(
+                    completionTask,
+                    Task.Delay(_executeCommandOptions.BackgroundStartSettleDelay, cancellationToken))
+                .ConfigureAwait(false);
+
+            if (completed == completionTask)
+            {
+                var result = await completionTask.ConfigureAwait(false);
+                if (allowSandboxCapabilityRetry &&
+                    TryClassifySandboxCapabilityDenial(request, result, out var capability, out var amendment, out var failureSummary) &&
+                    await RequestSandboxCapabilityAsync(
+                        request,
+                        context,
+                        capability,
+                        amendment,
+                        failureSummary,
+                        cancellationToken).ConfigureAwait(false))
+                {
+                    await CleanupFailedBackgroundStartAsync(handle, outputStore, cancellationToken).ConfigureAwait(false);
+                    handle = null;
+                    outputStore = null;
+                    var amended = request with
+                    {
+                        CommandId = $"cmd_{Guid.NewGuid():N}",
+                        Isolation = ApplySandboxAmendment(request.Isolation, amendment)
+                    };
+                    return await RunExecuteCommandBackgroundAsync(
+                        amended,
+                        context,
+                        cancellationToken,
+                        allowSandboxCapabilityRetry: false).ConfigureAwait(false);
+                }
+
+                var duration = DateTimeOffset.UtcNow - background.StartedAt;
+                var outputMetadata = await outputStore.CompleteAsync(
+                    result,
+                    environmentContext.ShellExecutable,
+                    cancellationToken).ConfigureAwait(false);
+                EmitExecuteCommandProcessExitedEvent(
+                    context,
+                    request,
+                    baseCommand,
+                    category,
+                    result,
+                    outputMetadata,
+                    duration);
+
+                await handle.DisposeAsync().ConfigureAwait(false);
+                await outputStore.DisposeAsync().ConfigureAwait(false);
+                handle = null;
+                outputStore = null;
+
+                return FormatExecuteCommandResult(
+                    request,
+                    environmentContext.ShellExecutable,
+                    category,
+                    baseCommand,
+                    result,
+                    outputMetadata,
+                    duration);
+            }
+
             RegisterBackgroundProcess(context, background);
 
             return FormatExecuteCommandBackgroundStarted(request, background.OutputStore.CombinedPath);
@@ -216,7 +281,8 @@ public partial class CodingToolHarness
     private async Task<string> RunExecuteCommandForegroundAsync(
         ExecuteCommandRequest request,
         FunctionExecutionContext context,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowSandboxCapabilityRetry = true)
     {
         var environmentContext = EnvironmentContext.CreateCurrent();
         var baseCommand = GetBaseCommand(request.Command);
@@ -226,7 +292,8 @@ public partial class CodingToolHarness
             [.. environmentContext.ShellCommandArgumentsPrefix, request.Command],
             request.WorkingDirectory,
             request.Environment,
-            request.Timeout);
+            request.Timeout,
+            request.Isolation);
 
         var stopwatch = Stopwatch.StartNew();
         ExecuteCommandOutputStoreSession? outputStore = null;
@@ -336,6 +403,28 @@ public partial class CodingToolHarness
 
             var result = await handle.WaitAsync(cancellationToken).ConfigureAwait(false);
             stopwatch.Stop();
+            if (allowSandboxCapabilityRetry &&
+                TryClassifySandboxCapabilityDenial(request, result, out var capability, out var amendment, out var failureSummary) &&
+                await RequestSandboxCapabilityAsync(
+                    request,
+                    context,
+                    capability,
+                    amendment,
+                    failureSummary,
+                    cancellationToken).ConfigureAwait(false))
+            {
+                var amended = request with
+                {
+                    CommandId = $"cmd_{Guid.NewGuid():N}",
+                    Isolation = ApplySandboxAmendment(request.Isolation, amendment)
+                };
+                return await RunExecuteCommandForegroundAsync(
+                    amended,
+                    context,
+                    cancellationToken,
+                    allowSandboxCapabilityRetry: false).ConfigureAwait(false);
+            }
+
             var outputMetadata = await outputStore.CompleteAsync(
                 result,
                 environmentContext.ShellExecutable,
@@ -397,7 +486,121 @@ public partial class CodingToolHarness
         }
     }
 
-    private static ExecuteCommandNormalizationResult NormalizeExecuteCommandRequest(
+    private static bool TryClassifySandboxCapabilityDenial(
+        ExecuteCommandRequest request,
+        ProcessInvocationResult result,
+        out ExecuteCommandSandboxCapabilityKind capability,
+        out ExecuteCommandSandboxAmendment amendment,
+        out string failureSummary)
+    {
+        capability = default;
+        amendment = null!;
+        failureSummary = "";
+
+        if (request.Isolation.Mode != ProcessIsolationMode.Isolated)
+            return false;
+
+        if (request.Isolation.Interactive.AllowLocalBinding)
+            return false;
+
+        var combined = GetCapturedText(result);
+        if (string.IsNullOrWhiteSpace(combined))
+            return false;
+
+        var text = combined.ToLowerInvariant();
+        var hasPermissionDenial = text.Contains("operation not permitted", StringComparison.Ordinal) ||
+                                  text.Contains("permission denied", StringComparison.Ordinal) ||
+                                  text.Contains("eperm", StringComparison.Ordinal) ||
+                                  text.Contains("eacces", StringComparison.Ordinal);
+        var hasBindSignal = text.Contains("listen", StringComparison.Ordinal) ||
+                            text.Contains("bind", StringComparison.Ordinal) ||
+                            text.Contains("localhost", StringComparison.Ordinal) ||
+                            text.Contains("127.0.0.1", StringComparison.Ordinal) ||
+                            text.Contains("0.0.0.0", StringComparison.Ordinal);
+
+        if (!hasPermissionDenial || !hasBindSignal)
+            return false;
+
+        capability = ExecuteCommandSandboxCapabilityKind.LocalBinding;
+        amendment = new AllowLocalBindingAmendment();
+        failureSummary = "The command failed while trying to bind a local port under the sandbox.";
+        return true;
+    }
+
+    private static string GetCapturedText(ProcessInvocationResult result)
+    {
+        var stdout = DecodeCapturedText(result.Output.Stdout.CapturedBytes);
+        var stderr = DecodeCapturedText(result.Output.Stderr.CapturedBytes);
+        return string.Concat(stdout, "\n", stderr);
+    }
+
+    private static string DecodeCapturedText(ReadOnlyMemory<byte> bytes)
+        => bytes.IsEmpty ? "" : Encoding.UTF8.GetString(bytes.Span);
+
+    private static async Task<bool> RequestSandboxCapabilityAsync(
+        ExecuteCommandRequest request,
+        FunctionExecutionContext context,
+        ExecuteCommandSandboxCapabilityKind capability,
+        ExecuteCommandSandboxAmendment amendment,
+        string failureSummary,
+        CancellationToken cancellationToken)
+    {
+        var requestId = Guid.NewGuid().ToString("N");
+        try
+        {
+            var response = await context.RequestAsync<ExecuteCommandSandboxCapabilityRequestEvent, ExecuteCommandSandboxCapabilityResponseEvent>(
+                    new ExecuteCommandSandboxCapabilityRequestEvent(
+                        requestId,
+                        nameof(ExecuteCommandPermissionMiddleware),
+                        context.FunctionCallId,
+                        request.CommandId,
+                        request.Command,
+                        request.WorkingDirectory,
+                        capability,
+                        amendment,
+                        failureSummary),
+                    timeout: null)
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
+            return response.Approved;
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
+    private static ProcessIsolationPolicy ApplySandboxAmendment(
+        ProcessIsolationPolicy policy,
+        ExecuteCommandSandboxAmendment amendment)
+        => amendment switch
+        {
+            AllowLocalBindingAmendment => policy with
+            {
+                Interactive = policy.Interactive with { AllowLocalBinding = true }
+            },
+            AllowNetworkModeAmendment network => policy with
+            {
+                Network = policy.Network with
+                {
+                    Mode = network.Mode switch
+                    {
+                        ExecuteCommandNetworkMode.Blocked => NetworkEgressMode.Blocked,
+                        ExecuteCommandNetworkMode.Filtered => NetworkEgressMode.Filtered,
+                        ExecuteCommandNetworkMode.Unrestricted => NetworkEgressMode.Unrestricted,
+                        _ => policy.Network.Mode
+                    }
+                }
+            },
+            DisableIsolationAmendment => policy with { Mode = ProcessIsolationMode.Disabled },
+            _ => policy
+        };
+
+    internal static ExecuteCommandNormalizationResult NormalizeExecuteCommandRequest(
         ExecuteCommandAction action,
         string? command,
         string? backgroundTaskId,
@@ -408,6 +611,31 @@ public partial class CodingToolHarness
         int delayMilliseconds,
         IReadOnlyDictionary<string, string>? environment,
         FunctionExecutionContext context,
+        ExecuteCommandOptions options)
+        => NormalizeExecuteCommandRequest(
+            action,
+            command,
+            backgroundTaskId,
+            workingDirectory,
+            timeoutMilliseconds,
+            runInBackground,
+            tailLines,
+            delayMilliseconds,
+            environment,
+            context.RunConfig,
+            options);
+
+    internal static ExecuteCommandNormalizationResult NormalizeExecuteCommandRequest(
+        ExecuteCommandAction action,
+        string? command,
+        string? backgroundTaskId,
+        string? workingDirectory,
+        int timeoutMilliseconds,
+        bool runInBackground,
+        int tailLines,
+        int delayMilliseconds,
+        IReadOnlyDictionary<string, string>? environment,
+        AgentRunConfig runConfig,
         ExecuteCommandOptions options)
     {
         if (timeoutMilliseconds <= 0)
@@ -446,7 +674,7 @@ public partial class CodingToolHarness
         if (argumentError is not null)
             return InvalidArguments(command, workingDirectory, argumentError);
 
-        var cwd = ResolveExecuteCommandWorkingDirectory(workingDirectory, context);
+        var cwd = ResolveExecuteCommandWorkingDirectory(workingDirectory, runConfig);
         if (cwd.Error is { } cwdError)
         {
             return new ExecuteCommandNormalizationResult(null, cwdError with
@@ -454,6 +682,16 @@ public partial class CodingToolHarness
                 Command = command,
                 WorkingDirectory = cwd.WorkingDirectory
             });
+        }
+
+        ExecuteCommandSandboxPolicy sandbox;
+        try
+        {
+            sandbox = ExecuteCommandSandboxPolicy.FromRunConfig(runConfig);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or JsonException)
+        {
+            return InvalidArguments(command, cwd.WorkingDirectory, ex.Message);
         }
 
         var effectiveEnvironment = BuildExecuteCommandEnvironment(environment, options);
@@ -469,7 +707,8 @@ public partial class CodingToolHarness
                 runInBackground,
                 tailLines,
                 TimeSpan.FromMilliseconds(delayMilliseconds),
-                effectiveEnvironment),
+                effectiveEnvironment,
+                sandbox.ToProcessIsolationPolicy(cwd.WorkingDirectory!)),
             null);
     }
 
@@ -520,11 +759,16 @@ public partial class CodingToolHarness
     private static ExecuteCommandWorkingDirectoryResult ResolveExecuteCommandWorkingDirectory(
         string? workingDirectory,
         FunctionExecutionContext context)
+        => ResolveExecuteCommandWorkingDirectory(workingDirectory, context.RunConfig);
+
+    private static ExecuteCommandWorkingDirectoryResult ResolveExecuteCommandWorkingDirectory(
+        string? workingDirectory,
+        AgentRunConfig runConfig)
     {
         string fullPath;
         try
         {
-            var workspace = AgentWorkspace.From(context.RunConfig);
+            var workspace = AgentWorkspace.From(runConfig);
             fullPath = workspace.ResolveDirectory(workingDirectory);
         }
         catch (AgentWorkspaceException ex)
@@ -670,6 +914,10 @@ public partial class CodingToolHarness
             writer.WriteAttributeString("auto_backgrounded", "true");
         writer.WriteAttributeString("background_task_id", request.CommandId);
         writer.WriteAttributeString("output_path", outputPath);
+        writer.WriteAttributeString("startup_status", "launched_not_verified");
+        writer.WriteStartElement("verification_hint");
+        writer.WriteString("Background start only means the process launched. Use ExecuteCommand with action=\"ReadOutput\", backgroundTaskId, and delayMilliseconds to verify server readiness before telling the user it is running.");
+        writer.WriteEndElement();
         writer.WriteEndElement();
         writer.Flush();
         return builder.ToString();
@@ -725,8 +973,22 @@ public partial class CodingToolHarness
 
         try
         {
-            context.RegisterBackgroundTask(
-                $"ExecuteCommand:{background.CommandId}",
+            context.BackgroundTasks!.RegisterBackgroundTask(
+                new BackgroundTaskDescriptor
+                {
+                    Name = "ExecuteCommand",
+                    SourceKind = BackgroundTaskSourceKind.Command,
+                    SourceId = background.CommandId,
+                    Invocation = context.InvocationSnapshot,
+                    NotificationPolicy = BackgroundTaskNotificationPolicy.OnCompletionOrFault,
+                    Metadata = new Dictionary<string, string>
+                    {
+                        ["command"] = background.Request.Command,
+                        ["cwd"] = background.Request.WorkingDirectory,
+                        ["baseCommand"] = background.BaseCommand,
+                        ["category"] = background.Category.ToString()
+                    }
+                },
                 (backgroundContext, runtimeToken) => background.ObserveCompletionAsync(backgroundContext, runtimeToken));
         }
         catch
@@ -1291,7 +1553,8 @@ public partial class CodingToolHarness
         IReadOnlyList<string> arguments,
         string? workingDirectory,
         IReadOnlyDictionary<string, string>? environment,
-        TimeSpan timeout) =>
+        TimeSpan timeout,
+        ProcessIsolationPolicy isolation) =>
         new()
         {
             Target = CreateLocalExecutionUnitHandle(),
@@ -1322,7 +1585,7 @@ public partial class CodingToolHarness
                 Timeout = timeout,
                 OutputDrainTimeout = TimeSpan.FromSeconds(2),
             },
-            Isolation = ProcessIsolationPolicy.Default,
+            Isolation = isolation,
         };
 
     private static IReadOnlyDictionary<string, string?> BuildProcessEnvironment(IReadOnlyDictionary<string, string>? environment)
@@ -1369,6 +1632,9 @@ public sealed record ExecuteCommandOptions
     public TimeSpan? AutoBackgroundAfter { get; init; } =
         TimeSpan.FromMilliseconds(CodingToolHarnessDefaultExecuteCommandOptions.AutoBackgroundAfterMilliseconds);
 
+    public TimeSpan BackgroundStartSettleDelay { get; init; } =
+        TimeSpan.FromMilliseconds(CodingToolHarnessDefaultExecuteCommandOptions.BackgroundStartSettleMilliseconds);
+
     public TimeSpan? InactivityTimeout { get; init; } =
         TimeSpan.FromMilliseconds(CodingToolHarnessDefaultExecuteCommandOptions.InactivityTimeoutMilliseconds);
 
@@ -1400,6 +1666,7 @@ internal static class CodingToolHarnessDefaultExecuteCommandOptions
     public const int MaxTimeoutMilliseconds = 30 * 60 * 1000;
     public const int ProgressAfterMilliseconds = 2_000;
     public const int AutoBackgroundAfterMilliseconds = 15_000;
+    public const int BackgroundStartSettleMilliseconds = 750;
     public const int InactivityTimeoutMilliseconds = 10 * 60 * 1000;
     public const int MaxReadOutputDelayMilliseconds = 10_000;
     public const int MaxInlineCommandOutputChars = 30_000;
@@ -1419,7 +1686,386 @@ internal sealed record ExecuteCommandRequest(
     bool RunInBackground,
     int TailLines,
     TimeSpan Delay,
-    IReadOnlyDictionary<string, string?> Environment);
+    IReadOnlyDictionary<string, string?> Environment,
+    ProcessIsolationPolicy Isolation);
+
+public sealed record ExecuteCommandSandboxPolicy
+{
+    public const string ContextKey = "executeCommandSandbox";
+
+    public int Version { get; init; } = 1;
+
+    public ExecuteCommandIsolationMode Mode { get; init; } = ExecuteCommandIsolationMode.Isolated;
+
+    public IReadOnlyList<ExecuteCommandPathGrant> Filesystem { get; init; } = [];
+
+    public ExecuteCommandNetworkGrant Network { get; init; } = ExecuteCommandNetworkGrant.Blocked;
+
+    public ExecuteCommandInteractiveGrant Interactive { get; init; } = new();
+
+    public ProcessIsolationPolicy ToProcessIsolationPolicy(string workingDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
+
+        return ProcessIsolationPolicy.Default with
+        {
+            Mode = Mode switch
+            {
+                ExecuteCommandIsolationMode.Isolated => ProcessIsolationMode.Isolated,
+                ExecuteCommandIsolationMode.Disabled => ProcessIsolationMode.Disabled,
+                _ => throw new InvalidOperationException($"ExecuteCommand sandbox mode '{Mode}' is not supported.")
+            },
+            Filesystem = new FilesystemAccessPolicy
+            {
+                Rules = Filesystem.Select(grant => grant.ToPathAccessRule(workingDirectory)).ToArray()
+            },
+            Network = Network.ToNetworkEgressPolicy(),
+            Interactive = Interactive.ToProcessInteractivePolicy()
+        };
+    }
+
+    public static ExecuteCommandSandboxPolicy FromRunConfig(AgentRunConfig runConfig)
+    {
+        ArgumentNullException.ThrowIfNull(runConfig);
+
+        if (runConfig.ContextOverrides is null ||
+            !runConfig.ContextOverrides.TryGetValue(ContextKey, out var raw) ||
+            raw is null)
+        {
+            return new ExecuteCommandSandboxPolicy();
+        }
+
+        return raw switch
+        {
+            ExecuteCommandSandboxPolicy typed => typed.Validate(),
+            JsonElement element => ParseJsonElement(element),
+            _ => throw new InvalidOperationException("ExecuteCommand sandbox policy must be an ExecuteCommandSandboxPolicy object.")
+        };
+    }
+
+    private static ExecuteCommandSandboxPolicy ParseJsonElement(JsonElement element)
+        => element.ValueKind == JsonValueKind.Object
+            ? ParseJsonObject(element)
+            : throw new InvalidOperationException("ExecuteCommand sandbox policy must be an object.");
+
+    private static ExecuteCommandSandboxPolicy ParseJsonObject(JsonElement element)
+    {
+        if (element.TryGetProperty("version", out var versionElement) &&
+            versionElement.ValueKind != JsonValueKind.Undefined &&
+            versionElement.GetInt32() != 1)
+        {
+            throw new InvalidOperationException($"ExecuteCommand sandbox policy version '{versionElement.GetInt32()}' is not supported.");
+        }
+
+        var policy = new ExecuteCommandSandboxPolicy();
+
+        if (element.TryGetProperty("mode", out var modeElement))
+            policy = policy with { Mode = ParseIsolationMode(modeElement) };
+
+        if (element.TryGetProperty("filesystem", out var filesystemElement))
+            policy = policy with { Filesystem = ParseFilesystem(filesystemElement) };
+
+        if (element.TryGetProperty("network", out var networkElement))
+            policy = policy with { Network = ExecuteCommandNetworkGrant.ParseJsonElement(networkElement) };
+
+        if (element.TryGetProperty("interactive", out var interactiveElement))
+            policy = policy with { Interactive = ExecuteCommandInteractiveGrant.ParseJsonElement(interactiveElement) };
+
+        return policy.Validate();
+    }
+
+    private ExecuteCommandSandboxPolicy Validate()
+    {
+        if (Version != 1)
+            throw new InvalidOperationException($"ExecuteCommand sandbox policy version '{Version}' is not supported.");
+
+        if (!Enum.IsDefined(Mode))
+            throw new InvalidOperationException($"ExecuteCommand sandbox mode '{Mode}' is not supported.");
+
+        foreach (var grant in Filesystem)
+            grant.Validate();
+
+        Network.Validate();
+        Interactive.Validate();
+        return this;
+    }
+
+    private static ExecuteCommandIsolationMode ParseIsolationMode(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.String)
+            throw new InvalidOperationException("ExecuteCommand sandbox policy mode must be a string.");
+
+        return element.GetString() switch
+        {
+            "isolated" or "Isolated" => ExecuteCommandIsolationMode.Isolated,
+            "disabled" or "Disabled" => ExecuteCommandIsolationMode.Disabled,
+            var mode => throw new InvalidOperationException($"ExecuteCommand sandbox mode '{mode}' is not supported.")
+        };
+    }
+
+    private static IReadOnlyList<ExecuteCommandPathGrant> ParseFilesystem(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("ExecuteCommand sandbox policy filesystem must be an array.");
+
+        var grants = new List<ExecuteCommandPathGrant>();
+        foreach (var item in element.EnumerateArray())
+            grants.Add(ExecuteCommandPathGrant.ParseJsonElement(item));
+
+        return grants;
+    }
+}
+
+public enum ExecuteCommandIsolationMode
+{
+    Isolated,
+    Disabled
+}
+
+public sealed record ExecuteCommandPathGrant
+{
+    public required ExecuteCommandPathGrantKind Kind { get; init; }
+
+    public required string Path { get; init; }
+
+    internal PathAccessRule ToPathAccessRule(string workingDirectory)
+    {
+        Validate();
+        var path = System.IO.Path.IsPathFullyQualified(Path)
+            ? System.IO.Path.GetFullPath(Path)
+            : System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDirectory, Path));
+
+        return new PathAccessRule
+        {
+            Kind = Kind switch
+            {
+                ExecuteCommandPathGrantKind.Read => PathAccessRuleKind.AllowRead,
+                ExecuteCommandPathGrantKind.Write => PathAccessRuleKind.AllowWrite,
+                _ => throw new InvalidOperationException($"ExecuteCommand filesystem grant kind '{Kind}' is not supported.")
+            },
+            Path = new HostPath(path),
+            Reason = "ExecuteCommand sandbox policy"
+        };
+    }
+
+    internal void Validate()
+    {
+        if (!Enum.IsDefined(Kind))
+            throw new InvalidOperationException($"ExecuteCommand filesystem grant kind '{Kind}' is not supported.");
+
+        if (string.IsNullOrWhiteSpace(Path))
+            throw new InvalidOperationException("ExecuteCommand filesystem grant path must not be empty.");
+    }
+
+    internal static ExecuteCommandPathGrant ParseJsonElement(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("ExecuteCommand filesystem grant must be an object.");
+
+        if (!element.TryGetProperty("kind", out var kindElement) || kindElement.ValueKind != JsonValueKind.String)
+            throw new InvalidOperationException("ExecuteCommand filesystem grant kind must be a string.");
+
+        if (!element.TryGetProperty("path", out var pathElement) || pathElement.ValueKind != JsonValueKind.String)
+            throw new InvalidOperationException("ExecuteCommand filesystem grant path must be a string.");
+
+        var kind = kindElement.GetString() switch
+        {
+            "read" or "Read" => ExecuteCommandPathGrantKind.Read,
+            "write" or "Write" => ExecuteCommandPathGrantKind.Write,
+            var raw => throw new InvalidOperationException($"ExecuteCommand filesystem grant kind '{raw}' is not supported.")
+        };
+
+        return new ExecuteCommandPathGrant
+        {
+            Kind = kind,
+            Path = pathElement.GetString()!
+        };
+    }
+}
+
+public enum ExecuteCommandPathGrantKind
+{
+    Read,
+    Write
+}
+
+public sealed record ExecuteCommandNetworkGrant
+{
+    public static ExecuteCommandNetworkGrant Blocked { get; } = new();
+
+    public ExecuteCommandNetworkMode Mode { get; init; } = ExecuteCommandNetworkMode.Blocked;
+
+    public IReadOnlyList<string> AllowedDomains { get; init; } = [];
+
+    public IReadOnlyList<string> DeniedDomains { get; init; } = [];
+
+    internal NetworkEgressPolicy ToNetworkEgressPolicy()
+    {
+        Validate();
+        return new NetworkEgressPolicy
+        {
+            Mode = Mode switch
+            {
+                ExecuteCommandNetworkMode.Blocked => NetworkEgressMode.Blocked,
+                ExecuteCommandNetworkMode.Filtered => NetworkEgressMode.Filtered,
+                ExecuteCommandNetworkMode.Unrestricted => NetworkEgressMode.Unrestricted,
+                _ => throw new InvalidOperationException($"ExecuteCommand network mode '{Mode}' is not supported.")
+            },
+            AllowedDomains = AllowedDomains.Select(ToDomainRule).ToArray(),
+            DeniedDomains = DeniedDomains.Select(ToDomainRule).ToArray()
+        };
+    }
+
+    internal void Validate()
+    {
+        if (!Enum.IsDefined(Mode))
+            throw new InvalidOperationException($"ExecuteCommand network mode '{Mode}' is not supported.");
+
+        foreach (var domain in AllowedDomains.Concat(DeniedDomains))
+        {
+            if (string.IsNullOrWhiteSpace(domain))
+                throw new InvalidOperationException("ExecuteCommand network domain must not be empty.");
+        }
+    }
+
+    internal static ExecuteCommandNetworkGrant ParseJsonElement(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("ExecuteCommand network grant must be an object.");
+
+        var grant = new ExecuteCommandNetworkGrant();
+
+        if (element.TryGetProperty("mode", out var modeElement))
+            grant = grant with { Mode = ParseNetworkMode(modeElement) };
+
+        if (element.TryGetProperty("allowedDomains", out var allowedDomainsElement))
+            grant = grant with { AllowedDomains = ParseStringArray(allowedDomainsElement, "allowedDomains") };
+
+        if (element.TryGetProperty("deniedDomains", out var deniedDomainsElement))
+            grant = grant with { DeniedDomains = ParseStringArray(deniedDomainsElement, "deniedDomains") };
+
+        return grant;
+    }
+
+    private static ExecuteCommandNetworkMode ParseNetworkMode(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.String)
+            throw new InvalidOperationException("ExecuteCommand network mode must be a string.");
+
+        return element.GetString() switch
+        {
+            "blocked" or "Blocked" => ExecuteCommandNetworkMode.Blocked,
+            "filtered" or "Filtered" => ExecuteCommandNetworkMode.Filtered,
+            "unrestricted" or "Unrestricted" => ExecuteCommandNetworkMode.Unrestricted,
+            var mode => throw new InvalidOperationException($"ExecuteCommand network mode '{mode}' is not supported.")
+        };
+    }
+
+    private static IReadOnlyList<string> ParseStringArray(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException($"ExecuteCommand network {propertyName} must be an array.");
+
+        var values = new List<string>();
+        foreach (var item in element.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+                throw new InvalidOperationException($"ExecuteCommand network {propertyName} entries must be strings.");
+
+            values.Add(item.GetString()!);
+        }
+
+        return values;
+    }
+
+    private static DomainRule ToDomainRule(string pattern)
+        => new()
+        {
+            Pattern = pattern,
+            Kind = DomainRuleKind.ProviderValidate,
+            Reason = "ExecuteCommand sandbox policy"
+        };
+}
+
+public enum ExecuteCommandNetworkMode
+{
+    Blocked,
+    Filtered,
+    Unrestricted
+}
+
+public sealed record ExecuteCommandInteractiveGrant
+{
+    public bool AllowPty { get; init; }
+
+    public bool AllowLocalBinding { get; init; }
+
+    public IReadOnlyList<string> AllowedMachLookups { get; init; } = [];
+
+    internal ProcessInteractivePolicy ToProcessInteractivePolicy()
+    {
+        Validate();
+        return new ProcessInteractivePolicy
+        {
+            AllowPty = AllowPty,
+            AllowLocalBinding = AllowLocalBinding,
+            AllowedMachLookups = AllowedMachLookups.ToArray()
+        };
+    }
+
+    internal void Validate()
+    {
+        foreach (var lookup in AllowedMachLookups)
+        {
+            if (string.IsNullOrWhiteSpace(lookup))
+                throw new InvalidOperationException("ExecuteCommand interactive mach lookup must not be empty.");
+        }
+    }
+
+    internal static ExecuteCommandInteractiveGrant ParseJsonElement(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("ExecuteCommand interactive grant must be an object.");
+
+        var grant = new ExecuteCommandInteractiveGrant();
+
+        if (element.TryGetProperty("allowPty", out var allowPtyElement))
+            grant = grant with { AllowPty = ParseBoolean(allowPtyElement, "allowPty") };
+
+        if (element.TryGetProperty("allowLocalBinding", out var allowLocalBindingElement))
+            grant = grant with { AllowLocalBinding = ParseBoolean(allowLocalBindingElement, "allowLocalBinding") };
+
+        if (element.TryGetProperty("allowedMachLookups", out var allowedMachLookupsElement))
+            grant = grant with { AllowedMachLookups = ParseStringArray(allowedMachLookupsElement) };
+
+        return grant;
+    }
+
+    private static bool ParseBoolean(JsonElement element, string propertyName)
+        => element.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => throw new InvalidOperationException($"ExecuteCommand interactive {propertyName} must be a boolean.")
+        };
+
+    private static IReadOnlyList<string> ParseStringArray(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("ExecuteCommand interactive allowedMachLookups must be an array.");
+
+        var values = new List<string>();
+        foreach (var item in element.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+                throw new InvalidOperationException("ExecuteCommand interactive allowedMachLookups entries must be strings.");
+
+            values.Add(item.GetString()!);
+        }
+
+        return values;
+    }
+}
 
 internal sealed record ExecuteCommandNormalizationResult(
     ExecuteCommandRequest? Request,
@@ -1534,7 +2180,7 @@ internal sealed class ExecuteCommandBackgroundProcess
     public ExecuteCommandOutputStoreMetadata? OutputMetadata { get; private set; }
 
     public async Task ObserveCompletionAsync(
-        FunctionBackgroundContext backgroundContext,
+        BackgroundTaskContext backgroundContext,
         CancellationToken runtimeToken)
     {
         using var stopRegistration = runtimeToken.Register(static state =>
@@ -1624,6 +2270,8 @@ internal sealed class ExecuteCommandBackgroundProcess
         {
             ToolCallId = _invocation.FunctionCallId,
             FunctionName = _invocation.FunctionName,
+            SessionId = _invocation.SessionId,
+            ThreadId = _invocation.ThreadId,
             TraceId = _invocation.TraceId,
             EventFlowId = CommandId,
             CommandId = CommandId,

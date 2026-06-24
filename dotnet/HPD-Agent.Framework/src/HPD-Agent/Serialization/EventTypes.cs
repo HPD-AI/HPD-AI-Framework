@@ -18,6 +18,7 @@ public static partial class EventTypes
     public static class Input
     {
         public const string USER_MESSAGES_INPUT = "USER_MESSAGES_INPUT";
+        public const string BACKGROUND_TASK_NOTIFICATION_INPUT = "BACKGROUND_TASK_NOTIFICATION_INPUT";
     }
 
     #endregion
@@ -94,10 +95,24 @@ public static partial class EventTypes
         public const string TOOL_CALL_ARGS = "TOOL_CALL_ARGS";
         public const string TOOL_CALL_END = "TOOL_CALL_END";
         public const string TOOL_CALL_RESULT = "TOOL_CALL_RESULT";
-        public const string TOOL_CALL_BACKGROUND_TASK_STARTED = "TOOL_CALL_BACKGROUND_TASK_STARTED";
-        public const string TOOL_CALL_BACKGROUND_TASK_COMPLETED = "TOOL_CALL_BACKGROUND_TASK_COMPLETED";
-        public const string TOOL_CALL_BACKGROUND_TASK_CANCELLED = "TOOL_CALL_BACKGROUND_TASK_CANCELLED";
-        public const string TOOL_CALL_BACKGROUND_TASK_FAULTED = "TOOL_CALL_BACKGROUND_TASK_FAULTED";
+    }
+
+    #endregion
+
+    #region Background Task Events
+
+    /// <summary>
+    /// Runtime-owned background work lifecycle and notification events.
+    /// </summary>
+    public static class BackgroundTask
+    {
+        public const string BACKGROUND_TASK_STARTED = "BACKGROUND_TASK_STARTED";
+        public const string BACKGROUND_TASK_COMPLETED = "BACKGROUND_TASK_COMPLETED";
+        public const string BACKGROUND_TASK_CANCELLED = "BACKGROUND_TASK_CANCELLED";
+        public const string BACKGROUND_TASK_FAULTED = "BACKGROUND_TASK_FAULTED";
+        public const string BACKGROUND_TASK_NOTIFICATION_QUEUED = "BACKGROUND_TASK_NOTIFICATION_QUEUED";
+        public const string BACKGROUND_TASK_NOTIFICATION_DELIVERED = "BACKGROUND_TASK_NOTIFICATION_DELIVERED";
+        public const string BACKGROUND_TASK_NOTIFICATION_SUPPRESSED = "BACKGROUND_TASK_NOTIFICATION_SUPPRESSED";
     }
 
     #endregion

@@ -18,7 +18,7 @@ public sealed class DefaultAgentTuiShellLayoutTests
             HeaderText = "test header",
             FooterText = "test footer"
         };
-        model.Transcript.Append(Row("row-1", "assistant", "hello"));
+        model.Transcript.AddFinal(Row("row-1", "assistant", "hello"));
         model.AboveEditor.Add(new Text("above widget"));
         model.BelowEditor.Add(new Text("below widget"));
 
@@ -54,7 +54,7 @@ public sealed class DefaultAgentTuiShellLayoutTests
         var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
         for (var i = 1; i <= 18; i++)
         {
-            model.Transcript.Append(Row($"row-{i}", "assistant", $"message {i:00}"));
+            model.Transcript.AddFinal(Row($"row-{i}", "assistant", $"message {i:00}"));
         }
 
         var shell = CreateShell(model);
@@ -74,7 +74,7 @@ public sealed class DefaultAgentTuiShellLayoutTests
         var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
         for (var i = 1; i <= 20; i++)
         {
-            model.Transcript.Append(Row($"row-{i}", "assistant", $"message {i:00}"));
+            model.Transcript.AddFinal(Row($"row-{i}", "assistant", $"message {i:00}"));
         }
 
         var registry = new HpdAgentTuiBuilder()
@@ -92,7 +92,7 @@ public sealed class DefaultAgentTuiShellLayoutTests
     public void Render_UsesConfiguredShellChrome()
     {
         var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
-        model.Transcript.Append(Row("row-1", "assistant", "hello"));
+        model.Transcript.AddFinal(Row("row-1", "assistant", "hello"));
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()
             .ConfigureShellChrome(chrome =>

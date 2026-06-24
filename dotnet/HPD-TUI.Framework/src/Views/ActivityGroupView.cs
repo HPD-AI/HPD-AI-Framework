@@ -70,12 +70,9 @@ public sealed class ActivityGroupView : IComponent
         RenderDetailed(activities, in context, maxWidth, ref output);
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     private void RenderDetailed(IReadOnlyList<ActivityModel> activities, in RenderContext context, int maxWidth, ref SegmentWriter output)

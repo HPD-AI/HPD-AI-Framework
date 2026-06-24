@@ -31,6 +31,34 @@ internal static class CodingToolHarnessEventSerialization
             typeof(ExecuteCommandBackgroundListEvent),
             "EXECUTE_COMMAND_BACKGROUND_LIST",
             CodingToolHarnessJsonContext.Default.ExecuteCommandBackgroundListEvent);
+        AgentEventSerializer.RegisterEventType(
+            typeof(ExecuteCommandPermissionRequestEvent),
+            "EXECUTE_COMMAND_PERMISSION_REQUEST",
+            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionRequestEvent);
+        AgentEventSerializer.RegisterEventType(
+            typeof(ExecuteCommandPermissionResponseEvent),
+            "EXECUTE_COMMAND_PERMISSION_RESPONSE",
+            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionResponseEvent);
+        AgentEventSerializer.RegisterEventType(
+            typeof(ExecuteCommandPermissionApprovedEvent),
+            "EXECUTE_COMMAND_PERMISSION_APPROVED",
+            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionApprovedEvent);
+        AgentEventSerializer.RegisterEventType(
+            typeof(ExecuteCommandPermissionDeniedEvent),
+            "EXECUTE_COMMAND_PERMISSION_DENIED",
+            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionDeniedEvent);
+        AgentEventSerializer.RegisterEventType(
+            typeof(ExecuteCommandSandboxCapabilityRequestEvent),
+            "EXECUTE_COMMAND_SANDBOX_CAPABILITY_REQUEST",
+            CodingToolHarnessJsonContext.Default.ExecuteCommandSandboxCapabilityRequestEvent);
+        AgentEventSerializer.RegisterEventType(
+            typeof(ExecuteCommandSandboxCapabilityResponseEvent),
+            "EXECUTE_COMMAND_SANDBOX_CAPABILITY_RESPONSE",
+            CodingToolHarnessJsonContext.Default.ExecuteCommandSandboxCapabilityResponseEvent);
+        AgentEventSerializer.RegisterEventType(
+            typeof(ExecuteCommandPermissionRulePersistedEvent),
+            "EXECUTE_COMMAND_PERMISSION_RULE_PERSISTED",
+            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionRulePersistedEvent);
 
         AgentEventSerializer.RegisterEventType(
             typeof(FileEditAppliedEvent),

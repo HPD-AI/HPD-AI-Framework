@@ -2,17 +2,6 @@ using HPD.TUI.Core;
 
 namespace HPD.TUI.Terminal;
 
-public interface ITerminal : IDisposable
+public interface ITerminal : ITerminalSession
 {
-    TerminalSize GetSize();
-
-    void Write(ReadOnlySpan<char> text);
-
-    void Flush();
-
-    bool TryReadKey(out KeyEvent key);
-
-    void HideCursor();
-
-    void ShowCursor();
 }

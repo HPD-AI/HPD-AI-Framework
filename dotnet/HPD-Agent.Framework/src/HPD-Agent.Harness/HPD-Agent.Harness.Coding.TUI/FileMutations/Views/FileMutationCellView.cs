@@ -109,12 +109,9 @@ internal sealed class FileMutationCellView : IComponent
         RenderDiagnosticsIfNeeded(in context, maxWidth, ref output);
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent input)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     private void RenderDiagnosticsIfNeeded(in RenderContext context, int maxWidth, ref SegmentWriter output)

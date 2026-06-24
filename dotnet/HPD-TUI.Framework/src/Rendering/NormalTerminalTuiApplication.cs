@@ -2,6 +2,7 @@ using HPD.TUI.Controllers;
 using HPD.TUI.Core;
 using HPD.TUI.Observability;
 using HPD.TUI.Terminal;
+using HPD.Events.Signals;
 
 namespace HPD.TUI.Rendering;
 
@@ -13,6 +14,8 @@ public sealed class NormalTerminalTuiApplication : IDisposable
     private readonly NormalTerminalTuiRenderer _renderer;
     private IComponent? _root;
     private Theme _theme = Theme.Default;
+    private EventLoopMailbox<TuiLoopEvent>? _mailbox;
+    private bool _stopRequested;
     private bool _disposed;
 
     public NormalTerminalTuiApplication(ITerminal terminal)
@@ -25,7 +28,11 @@ public sealed class NormalTerminalTuiApplication : IDisposable
     public Theme Theme
     {
         get => _theme;
-        set => _theme = value ?? throw new ArgumentNullException(nameof(value));
+        set
+        {
+            _theme = value ?? throw new ArgumentNullException(nameof(value));
+            RequestRender();
+        }
     }
 
     public IComponent? Root => _root;
@@ -46,6 +53,7 @@ public sealed class NormalTerminalTuiApplication : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _root = root ?? throw new ArgumentNullException(nameof(root));
+        RequestRender();
     }
 
     public void ClearRoot()
@@ -53,66 +61,44 @@ public sealed class NormalTerminalTuiApplication : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         _root = null;
         Focus.Clear();
+        RequestRender();
     }
 
     public void SetFocus(IComponent? component)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         Focus.SetFocus(component);
-    }
-
-    public void Render(Func<TerminalSize, int> getVirtualHeight)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentNullException.ThrowIfNull(getVirtualHeight);
-
-        if (_root is null)
-        {
-            return;
-        }
-
-        var size = _terminal.GetSize();
-        var virtualHeight = Math.Max(size.Height, getVirtualHeight(size));
-        _renderer.Render(_root, _theme, virtualHeight);
-    }
-
-    public async Task RunAsync(Func<TerminalSize, int> getVirtualHeight, CancellationToken cancellationToken = default)
-    {
-        await RunAsync(getVirtualHeight, DefaultFrameInterval, cancellationToken).ConfigureAwait(false);
+        RequestRender();
     }
 
     public async Task RunAsync(
-        Func<TerminalSize, int> getVirtualHeight,
-        TimeSpan frameInterval,
+        NormalTerminalRunOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentNullException.ThrowIfNull(getVirtualHeight);
-        if (frameInterval <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(frameInterval), "Frame interval must be positive.");
-        }
+        options ??= new NormalTerminalRunOptions();
 
         _terminal.HideCursor();
 
+        using var mailbox = CreateMailbox(options);
+        using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _mailbox = mailbox;
+        _stopRequested = false;
+        var inputPump = PumpInputAsync(mailbox, loopCts.Token);
+
         try
         {
-            using var timer = new PeriodicTimer(frameInterval);
-            Render(getVirtualHeight);
-
-            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            var dirty = options.RenderOnStart;
+            while (!loopCts.IsCancellationRequested && !_stopRequested)
             {
-                while (_terminal.TryReadKey(out var key))
+                if (dirty)
                 {
-                    if (key.Key == KeyCode.Escape && key.Modifiers == KeyModifiers.Ctrl)
-                    {
-                        return;
-                    }
-
-                    HandleInput(in key);
+                    Render(options);
+                    dirty = false;
                 }
 
-                Render(getVirtualHeight);
+                await mailbox.WaitToReadAsync(loopCts.Token).ConfigureAwait(false);
+                dirty |= DrainEvents(mailbox);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -120,24 +106,125 @@ public sealed class NormalTerminalTuiApplication : IDisposable
         }
         finally
         {
+            _mailbox = null;
+            await loopCts.CancelAsync().ConfigureAwait(false);
+            await inputPump.ConfigureAwait(false);
             _terminal.ShowCursor();
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public void Render(NormalTerminalRunOptions options)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (ShortcutHandler?.Invoke(key) == true)
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (_root is null)
         {
             return;
+        }
+
+        var size = _terminal.GetSize();
+        _renderer.Render(_root, _theme, options.Bounds);
+    }
+
+    public bool HandleInput(in TuiInputEvent key)
+        => HandleInput(in key, requestRender: true);
+
+    private bool HandleInput(in TuiInputEvent key, bool requestRender)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (ShortcutHandler?.Invoke(key.KeyEvent) == true)
+        {
+            if (requestRender)
+            {
+                RequestRender();
+            }
+
+            return true;
         }
 
         if (Focus.HandleInput(in key))
         {
-            return;
+            if (requestRender)
+            {
+                RequestRender();
+            }
+
+            return true;
         }
 
-        _root?.HandleInput(in key);
+        var handled = _root?.HandleInput(in key) == true;
+        if (handled && requestRender)
+        {
+            RequestRender();
+        }
+
+        return handled;
+    }
+
+    public void RequestRender()
+    {
+        _mailbox?.TryWrite(new TuiLoopEvent(TuiLoopEventKind.RenderRequested));
+    }
+
+    private static EventLoopMailbox<TuiLoopEvent> CreateMailbox(TuiRunOptions options) =>
+        new(new EventLoopMailboxOptions
+        {
+            Capacity = options.InputMailboxCapacity,
+            OverflowMode = options.InputOverflowMode
+        });
+
+    private async Task PumpInputAsync(
+        EventLoopMailbox<TuiLoopEvent> mailbox,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var input = await _terminal.Input.ReadAsync(cancellationToken).ConfigureAwait(false);
+                if (!mailbox.TryWrite(new TuiLoopEvent(TuiLoopEventKind.Input, input)))
+                {
+                    await Task.Delay(1, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private bool DrainEvents(EventLoopMailbox<TuiLoopEvent> mailbox)
+    {
+        var dirty = false;
+        var events = new TuiLoopEvent[64];
+        int count;
+        do
+        {
+            count = mailbox.Drain(events);
+            for (var i = 0; i < count; i++)
+            {
+                var evt = events[i];
+                if (evt.Kind == TuiLoopEventKind.RenderRequested)
+                {
+                    dirty = true;
+                }
+                else if (evt.Kind == TuiLoopEventKind.Input)
+                {
+                    var input = new TuiInputEvent(evt.Input);
+                    if (input.Key == KeyCode.Escape && input.Modifiers == KeyModifiers.Ctrl)
+                    {
+                        _stopRequested = true;
+                        return false;
+                    }
+
+                    dirty |= HandleInput(in input, requestRender: false);
+                }
+            }
+        }
+        while (count == events.Length);
+
+        return dirty;
     }
 
     public void Dispose()

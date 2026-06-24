@@ -251,9 +251,13 @@ public sealed record EnvironmentContext
     public string SerializeToXml(AgentWorkspace? workspace = null)
     {
         var builder = new StringBuilder();
+        var effectiveCwd = workspace?.DefaultRootPath ?? Cwd;
+        var effectiveWorkspaceRoot = workspace?.DefaultRootPath ?? WorkspaceRoot;
 
         builder.AppendLine("  <environment_context>");
-        builder.AppendLine($"    <cwd>{EscapeXml(Cwd)}</cwd>");
+        builder.AppendLine($"    <cwd>{EscapeXml(effectiveCwd)}</cwd>");
+        if (workspace is not null && !string.Equals(Cwd, effectiveCwd, StringComparison.Ordinal))
+            builder.AppendLine($"    <host_process_cwd>{EscapeXml(Cwd)}</host_process_cwd>");
         builder.AppendLine($"    <shell>{EscapeXml(Shell)}</shell>");
         builder.AppendLine($"    <shell_executable>{EscapeXml(ShellExecutable)}</shell_executable>");
         builder.AppendLine($"    <shell_kind>{EscapeXml(ShellKind)}</shell_kind>");
@@ -270,7 +274,7 @@ public sealed record EnvironmentContext
         builder.AppendLine($"    <alt_directory_separator>{EscapeXml(AltDirectorySeparator)}</alt_directory_separator>");
         builder.AppendLine($"    <path_separator>{EscapeXml(PathSeparator)}</path_separator>");
         builder.AppendLine($"    <is_git_repository>{IsGitRepository.ToString().ToLowerInvariant()}</is_git_repository>");
-        builder.AppendLine($"    <workspace_root>{EscapeXml(WorkspaceRoot)}</workspace_root>");
+        builder.AppendLine($"    <workspace_root>{EscapeXml(effectiveWorkspaceRoot)}</workspace_root>");
         if (workspace is not null)
         {
             builder.AppendLine("    <selected_workspace>");

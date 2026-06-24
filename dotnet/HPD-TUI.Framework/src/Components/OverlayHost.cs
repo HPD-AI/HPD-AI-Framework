@@ -47,23 +47,13 @@ public sealed class OverlayHost : IComponent
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
         if (_overlays.Count > 0)
         {
-            _overlays[^1].HandleInput(in key);
-            return;
+            return _overlays[^1].HandleInput(in key);
         }
 
-        _content.HandleInput(in key);
-    }
-
-    public void Invalidate()
-    {
-        _content.Invalidate();
-        foreach (var overlay in _overlays)
-        {
-            overlay.Invalidate();
-        }
+        return _content.HandleInput(in key);
     }
 }

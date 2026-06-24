@@ -83,12 +83,9 @@ public sealed class CodeBlock : IContentBlock
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     public static CodeBlock Create(string code, string? language = null) => new(code, language);

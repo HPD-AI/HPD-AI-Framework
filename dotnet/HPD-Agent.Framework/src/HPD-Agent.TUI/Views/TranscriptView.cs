@@ -56,13 +56,8 @@ public sealed class TranscriptView : IComponent
         RenderRows(in context, maxWidth, ref output);
     }
 
-    public void HandleInput(in KeyEvent key)
-    {
-    }
-
-    public void Invalidate()
-    {
-    }
+    public bool HandleInput(in TuiInputEvent key)
+        => false;
 
     private void RenderRows(
         in RenderContext context,
@@ -86,11 +81,7 @@ public sealed class TranscriptView : IComponent
             return;
         }
 
-        BuildVisibleRowsFromBottom(in context, maxWidth, _model.ViewOffsetRowsFromBottom, ref diagnostics);
-        if (_visibleRows.Count < Height && _model.ViewOffsetRowsFromBottom > 0)
-        {
-            BuildVisibleRowsFromTop(in context, maxWidth, ref diagnostics);
-        }
+        BuildVisibleRowsFromBottom(in context, maxWidth, ref diagnostics);
 
         for (var i = 0; i < _visibleRows.Count; i++)
         {
@@ -165,7 +156,9 @@ public sealed class TranscriptView : IComponent
             _renderedEntries.Clear();
         }
 
-        _model.CopyTo(_entries);
+        var snapshot = _model.Snapshot();
+        _entries.Clear();
+        _entries.AddRange(snapshot.Entries);
         for (var i = 0; i < _entries.Count; i++)
         {
             if (i >= _renderedEntries.Count)
@@ -199,23 +192,15 @@ public sealed class TranscriptView : IComponent
     private void BuildVisibleRowsFromBottom(
         in RenderContext context,
         int maxWidth,
-        int offsetRowsFromBottom,
         ref TranscriptViewDiagnosticsBuilder diagnostics)
     {
         _visibleRows.Clear();
-        var skip = Math.Max(0, offsetRowsFromBottom);
 
         for (var index = _entries.Count - 1; index >= 0 && _visibleRows.Count < Height; index--)
         {
             var entry = GetRenderedEntry(index, in context, maxWidth, ref diagnostics);
             for (var line = entry.LineCount - 1; line >= 0 && _visibleRows.Count < Height; line--)
             {
-                if (skip > 0)
-                {
-                    skip--;
-                    continue;
-                }
-
                 _visibleRows.Add(new VisibleTranscriptRow(index, line));
             }
 
@@ -225,44 +210,12 @@ public sealed class TranscriptView : IComponent
                      spacing < _entries[index - 1].VerticalSpacing && _visibleRows.Count < Height;
                      spacing++)
                 {
-                    if (skip > 0)
-                    {
-                        skip--;
-                        continue;
-                    }
-
                     _visibleRows.Add(VisibleTranscriptRow.Blank);
                 }
             }
         }
 
         _visibleRows.Reverse();
-    }
-
-    private void BuildVisibleRowsFromTop(
-        in RenderContext context,
-        int maxWidth,
-        ref TranscriptViewDiagnosticsBuilder diagnostics)
-    {
-        _visibleRows.Clear();
-        for (var index = 0; index < _entries.Count && _visibleRows.Count < Height; index++)
-        {
-            var entry = GetRenderedEntry(index, in context, maxWidth, ref diagnostics);
-            for (var line = 0; line < entry.LineCount && _visibleRows.Count < Height; line++)
-            {
-                _visibleRows.Add(new VisibleTranscriptRow(index, line));
-            }
-
-            if (index < _entries.Count - 1)
-            {
-                for (var spacing = 0;
-                     spacing < _entries[index].VerticalSpacing && _visibleRows.Count < Height;
-                     spacing++)
-                {
-                    _visibleRows.Add(VisibleTranscriptRow.Blank);
-                }
-            }
-        }
     }
 
     private RenderedTranscriptEntry GetRenderedEntry(

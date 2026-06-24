@@ -5,7 +5,9 @@ public sealed record TranscriptEntry(
     string? EntryKey,
     TranscriptCell Cell,
     TranscriptEntryMetadata Metadata,
-    int VerticalSpacing = 2)
+    int VerticalSpacing = 2,
+    TranscriptEntryState State = TranscriptEntryState.Final,
+    TranscriptCommitPolicy CommitPolicy = TranscriptCommitPolicy.Immediate)
 {
     public static TranscriptEntry FromEvent(
         AgentEvent evt,
@@ -24,4 +26,31 @@ public sealed record TranscriptEntry(
             TranscriptEntryMetadata.FromEvent(evt),
             verticalSpacing);
     }
+
+    public TranscriptEntry AsLive(TranscriptCommitPolicy commitPolicy = TranscriptCommitPolicy.WhenFinal)
+        => this with
+        {
+            State = TranscriptEntryState.Live,
+            CommitPolicy = commitPolicy
+        };
+
+    public TranscriptEntry AsFinal(TranscriptCommitPolicy commitPolicy = TranscriptCommitPolicy.Immediate)
+        => this with
+        {
+            State = TranscriptEntryState.Final,
+            CommitPolicy = commitPolicy
+        };
+}
+
+public enum TranscriptEntryState
+{
+    Live,
+    Final
+}
+
+public enum TranscriptCommitPolicy
+{
+    Never,
+    Immediate,
+    WhenFinal
 }

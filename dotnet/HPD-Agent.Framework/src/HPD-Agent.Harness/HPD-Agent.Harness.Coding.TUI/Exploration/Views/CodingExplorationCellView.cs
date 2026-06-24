@@ -40,12 +40,9 @@ internal sealed class CodingExplorationCellView : IComponent
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent input)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     private static void WriteWrapped(

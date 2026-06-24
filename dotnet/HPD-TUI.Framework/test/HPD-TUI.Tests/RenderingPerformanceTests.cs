@@ -43,7 +43,7 @@ public sealed class RenderingPerformanceTests
         Assert.Equal(before, after);
     }
 
-    private sealed class NoOpTerminal : ITerminal
+    private sealed class NoOpTerminal : ITerminal, ITerminalInput
     {
         private readonly TerminalSize _size;
 
@@ -51,6 +51,8 @@ public sealed class RenderingPerformanceTests
         {
             _size = new TerminalSize(width, height);
         }
+
+        public ITerminalInput Input => this;
 
         public TerminalSize GetSize() => _size;
 
@@ -62,11 +64,8 @@ public sealed class RenderingPerformanceTests
         {
         }
 
-        public bool TryReadKey(out KeyEvent key)
-        {
-            key = default;
-            return false;
-        }
+        public ValueTask<TerminalInputEvent> ReadAsync(CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(TerminalInputEvent.Stop);
 
         public void HideCursor()
         {
@@ -79,5 +78,7 @@ public sealed class RenderingPerformanceTests
         public void Dispose()
         {
         }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

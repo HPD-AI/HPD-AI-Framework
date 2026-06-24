@@ -1,4 +1,5 @@
 ﻿using HPD.Agent;
+using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration;
@@ -18,6 +19,19 @@ internal static class CodingExplorationTranscriptEntryFactory
             EntryKey: EntryKey(group),
             Cell: CreateCell(group),
             Metadata: TranscriptEntryMetadata.FromEvent(evt));
+
+    public static void Apply(AgentTuiEventContext context, CodingExplorationGroup group, AgentEvent evt)
+    {
+        var entry = Create(group, evt);
+        if (group.CaptureIsActive())
+        {
+            context.Shell.Transcript.UpsertLive(entry.AsLive());
+        }
+        else
+        {
+            context.Shell.Transcript.FinalizeLive(EntryKey(group), entry.AsFinal());
+        }
+    }
 
     public static CodingExplorationCell CreateCell(CodingExplorationGroup group)
     {

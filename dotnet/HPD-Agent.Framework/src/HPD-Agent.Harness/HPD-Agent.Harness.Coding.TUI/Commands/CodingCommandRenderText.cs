@@ -16,6 +16,7 @@ internal static class CodingCommandRenderText
 
     public static bool ShouldRenderSummary(CodingCommandExecutionState state)
         => state.DisplayState != CodingCommandDisplayState.Running ||
+            state.Output.TotalLineCount > 5 ||
             state.OutputTruncated ||
             state.OutputEventsSuppressed ||
             state.BinaryOutputObserved ||
@@ -34,6 +35,8 @@ internal static class CodingCommandRenderText
         {
             parts.Add(FormatDuration(duration));
         }
+
+        AddOutputStats(state, parts);
 
         if (state.ExitCode is { } exitCode)
         {
@@ -65,6 +68,23 @@ internal static class CodingCommandRenderText
         }
 
         return parts.Count == 0 ? "running" : string.Join(" | ", parts);
+    }
+
+    private static void AddOutputStats(CodingCommandExecutionState state, List<string> parts)
+    {
+        var lineCount = state.Output.TotalLineCount;
+        if (lineCount > 0)
+        {
+            parts.Add(lineCount == 1 ? "1 line" : $"{lineCount} lines");
+        }
+
+        var bytes = state.CombinedOutputBytes > 0
+            ? state.CombinedOutputBytes
+            : state.StdoutBytes + state.StderrBytes;
+        if (bytes > 0)
+        {
+            parts.Add(CodingCommandPanelText.FormatBytes(bytes));
+        }
     }
 
     public static string FormatDuration(long milliseconds)

@@ -658,11 +658,11 @@ internal static class ConsoleSessionThreadCommands
     {
         if (entry.EntryKey is null)
         {
-            context.Shell.Transcript.Append(entry);
+            context.Shell.Transcript.AddFinal(entry);
             return;
         }
 
-        context.Shell.Transcript.Update(entry);
+        context.Shell.Transcript.FinalizeLive(entry.EntryKey!, entry.AsFinal());
     }
 
     private static TranscriptEntryMetadata Metadata(AgentTuiCommandContext context)

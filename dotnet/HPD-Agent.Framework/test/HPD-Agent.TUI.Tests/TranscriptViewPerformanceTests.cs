@@ -7,7 +7,6 @@ using HPD.Agent.TUI.Runtime;
 using HPD.Agent.TUI.Views;
 using HPD.Events;
 using HPD.TUI.Controllers;
-using HPD.TUI.Core;
 using HPD.TUI.Models;
 using HPD.TUI.Observability;
 using HPD.TUI.Rendering;
@@ -17,7 +16,7 @@ namespace HPD.Agent.TUI.Tests;
 public sealed class TranscriptViewPerformanceTests
 {
     [Fact]
-    public void TranscriptView_LargeTranscript_RendersVisibleWindowOnly()
+    public void TranscriptView_LargeLiveSet_RendersVisibleWindowOnly()
     {
         var model = CreateTranscript(1_000);
         var view = CreateView(model, height: 12);
@@ -30,28 +29,13 @@ public sealed class TranscriptViewPerformanceTests
     }
 
     [Fact]
-    public void TranscriptView_AppendOneEntry_DoesNotRecaptureAllRows()
+    public void TranscriptView_UpsertOneEntry_DoesNotRecaptureAllRows()
     {
         var model = CreateTranscript(1_000);
         var view = CreateView(model, height: 12);
         Render(view);
 
-        model.Append(Row(1_000));
-        Render(view);
-
-        view.LastDiagnostics.RowsCaptured.Should().Be(1);
-        view.LastDiagnostics.CacheHits.Should().BeGreaterThanOrEqualTo(11);
-        view.LastDiagnostics.EntriesVisited.Should().BeLessThanOrEqualTo(12);
-    }
-
-    [Fact]
-    public void TranscriptView_UpdateOneKeyedEntry_InvalidatesOnlyThatEntry()
-    {
-        var model = CreateTranscript(100);
-        var view = CreateView(model, height: 12);
-        Render(view);
-
-        model.Update(Row(95, text: "updated visible row"));
+        model.UpsertLive(Row(999, text: "updated visible row"));
         Render(view);
 
         view.LastDiagnostics.RowsCaptured.Should().Be(1);
@@ -72,21 +56,6 @@ public sealed class TranscriptViewPerformanceTests
         view.LastDiagnostics.CacheMisses.Should().Be(0);
         view.LastDiagnostics.CacheHits.Should().BeGreaterThanOrEqualTo(12);
         view.LastDiagnostics.RenderedRows.Should().Be(12);
-    }
-
-    [Fact]
-    public void TranscriptView_ScrollLargeTranscript_IsBounded()
-    {
-        var model = CreateTranscript(1_000);
-        var view = CreateView(model, height: 12);
-        Render(view);
-
-        model.ScrollUp(5);
-        Render(view);
-
-        view.LastDiagnostics.RenderedRows.Should().Be(12);
-        view.LastDiagnostics.EntriesVisited.Should().BeLessThanOrEqualTo(17);
-        view.LastDiagnostics.RowsCaptured.Should().BeLessThanOrEqualTo(17);
     }
 
     [Fact]
@@ -141,7 +110,7 @@ public sealed class TranscriptViewPerformanceTests
             registry);
         for (var i = 0; i < 100; i++)
         {
-            state.Shell.Transcript.Append(Row(i));
+            state.Shell.Transcript.UpsertLive(Row(i));
         }
 
         var sink = new RecordingSink();
@@ -175,7 +144,7 @@ public sealed class TranscriptViewPerformanceTests
         var model = new TranscriptModel();
         for (var i = 0; i < count; i++)
         {
-            model.Append(Row(i));
+            model.UpsertLive(Row(i));
         }
 
         return model;

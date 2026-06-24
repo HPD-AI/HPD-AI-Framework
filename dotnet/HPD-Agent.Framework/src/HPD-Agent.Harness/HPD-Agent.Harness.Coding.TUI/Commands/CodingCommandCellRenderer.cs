@@ -8,7 +8,7 @@ internal sealed class CodingCommandCellRenderer : IAgentTuiTranscriptRenderer<Co
 {
     public IComponent Create(AgentTuiTranscriptRenderContext<CodingCommandCell> context)
         => new CodingTranscriptLabeledComponent(
-            $"• {CodingCommandTranscriptEntryFactory.VerbFor(context.Cell.State)} {context.Cell.DisplayCommand}",
+            $"• {CodingCommandTranscriptEntryFactory.LabelFor(context.Cell)} {context.Cell.DisplayCommand}",
             context.DepthIndent,
             new CodingCommandCellView(context.Cell),
             context.Services);

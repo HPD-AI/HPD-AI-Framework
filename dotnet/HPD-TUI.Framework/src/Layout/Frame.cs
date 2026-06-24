@@ -163,14 +163,9 @@ public sealed class Frame : IComponent
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-        _child.HandleInput(in key);
-    }
-
-    public void Invalidate()
-    {
-        _child.Invalidate();
+        return _child.HandleInput(in key);
     }
 
     private int ResolveWidth(int maxWidth)

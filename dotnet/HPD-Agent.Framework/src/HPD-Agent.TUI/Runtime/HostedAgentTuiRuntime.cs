@@ -51,24 +51,30 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
     public bool CanSwitchAgents => true;
 
-    public async Task<AgentTuiRuntimeScope> EnsureScopeAsync(
+    public async Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
         AgentTuiRuntimeScope? requested,
         CancellationToken cancellationToken = default)
     {
         var scope = requested ?? _defaultScope;
-        var sessionPath = $"sessions/{Escape(scope.SessionId)}";
-
-        using var get = await _http.GetAsync(sessionPath, cancellationToken)
-            .ConfigureAwait(false);
-        if (get.StatusCode == HttpStatusCode.OK)
+        if (await SessionExistsAsync(scope.SessionId, cancellationToken).ConfigureAwait(false))
         {
-            return scope;
+            return new AgentTuiScopeResolution(scope, IsDurable: true);
         }
 
-        if (get.StatusCode != HttpStatusCode.NotFound)
+        return requested is null
+            ? new AgentTuiScopeResolution(
+                await EnsureDurableScopeAsync(scope, cancellationToken).ConfigureAwait(false),
+                IsDurable: true)
+            : new AgentTuiScopeResolution(scope, IsDurable: false);
+    }
+
+    public async Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
+        AgentTuiRuntimeScope scope,
+        CancellationToken cancellationToken = default)
+    {
+        if (await SessionExistsAsync(scope.SessionId, cancellationToken).ConfigureAwait(false))
         {
-            await ThrowForUnexpectedResponseAsync(get, "load session", cancellationToken)
-                .ConfigureAwait(false);
+            return scope;
         }
 
         var createJson = $$"""{"sessionId":{{JsonString(scope.SessionId)}}}""";
@@ -84,6 +90,28 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         }
 
         return scope;
+    }
+
+    private async Task<bool> SessionExistsAsync(
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        var sessionPath = $"sessions/{Escape(sessionId)}";
+
+        using var get = await _http.GetAsync(sessionPath, cancellationToken)
+            .ConfigureAwait(false);
+        if (get.StatusCode == HttpStatusCode.OK)
+        {
+            return true;
+        }
+
+        if (get.StatusCode != HttpStatusCode.NotFound)
+        {
+            await ThrowForUnexpectedResponseAsync(get, "load session", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return false;
     }
 
     public async Task<IReadOnlyList<AgentTuiAgentInfo>> ListAgentsAsync(

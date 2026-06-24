@@ -1,5 +1,4 @@
 using HPD.Agent.TUI.Composition;
-using HPD.Agent.ToolHarness.Coding.TUI.Commands.Widgets;
 using HPD.TUI.Core;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Pages;
@@ -37,12 +36,9 @@ internal abstract class CodingCommandPageComponentBase : IComponent
 
     public abstract void Render(in RenderContext context, int maxWidth, ref SegmentWriter output);
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent input)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     protected bool TryGetStore(out CodingCommandExecutionStore store)
@@ -56,10 +52,79 @@ internal abstract class CodingCommandPageComponentBase : IComponent
         ref SegmentWriter output)
     {
         var title = $"{CodingCommandRenderText.VerbFor(command)} {command.DisplayCommand}";
-        CodingCommandWidgetText.WriteClipped(title, maxWidth, context.Theme.Accent, ref output);
+        CodingCommandPanelText.WriteClipped(title, maxWidth, context.Theme.Accent, ref output);
 
         WriteMetadataLine(command, maxWidth, in context, ref output);
         WriteOutputTail(command, maxWidth, tailRows, in context, ref output);
+    }
+
+    protected static void WriteBackgroundCommandBlock(
+        CodingCommandExecutionState command,
+        int maxWidth,
+        int tailRows,
+        in RenderContext context,
+        ref SegmentWriter output)
+    {
+        CodingCommandPanelText.WriteClipped($"• {command.DisplayCommand}", maxWidth, context.Theme.Accent, ref output);
+        WriteBackgroundDetail("task", command.BackgroundTaskId ?? command.CommandId, maxWidth, in context, ref output);
+        if (!string.IsNullOrWhiteSpace(command.WorkingDirectory))
+        {
+            WriteBackgroundDetail("cwd", command.WorkingDirectory, maxWidth, in context, ref output);
+        }
+
+        WriteBackgroundDetail("state", BuildBackgroundStateText(command), maxWidth, in context, ref output);
+        WriteOutputTail(command, maxWidth, tailRows, in context, ref output);
+    }
+
+    private static void WriteBackgroundDetail(
+        string label,
+        string value,
+        int maxWidth,
+        in RenderContext context,
+        ref SegmentWriter output)
+    {
+        output.WriteLineBreak();
+        output.Write($"  {label} ".AsSpan(), context.Theme.Border);
+        CodingCommandPanelText.WriteClipped(value, Math.Max(0, maxWidth - label.Length - 3), context.Theme.Border, ref output);
+    }
+
+    private static string BuildBackgroundStateText(CodingCommandExecutionState command)
+    {
+        if (!command.IsActive)
+        {
+            return command.ExitCode is { } exitCode
+                ? $"{command.DisplayState.ToString().ToLowerInvariant()} exit {exitCode}"
+                : command.DisplayState.ToString().ToLowerInvariant();
+        }
+
+        var started = command.BackgroundedAt ?? command.StartedAt;
+        if (started is null)
+        {
+            return "running";
+        }
+
+        var elapsed = DateTimeOffset.UtcNow - started.Value;
+        return $"running {FormatAge(elapsed)}";
+    }
+
+    private static string FormatAge(TimeSpan elapsed)
+    {
+        if (elapsed < TimeSpan.Zero)
+        {
+            elapsed = TimeSpan.Zero;
+        }
+
+        if (elapsed.TotalSeconds < 60)
+        {
+            return $"{Math.Max(0, (int)elapsed.TotalSeconds)}s";
+        }
+
+        if (elapsed.TotalMinutes < 60)
+        {
+            return $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds:D2}s";
+        }
+
+        return $"{(int)elapsed.TotalHours}h {elapsed.Minutes:D2}m";
     }
 
     private static void WriteMetadataLine(
@@ -89,11 +154,11 @@ internal abstract class CodingCommandPageComponentBase : IComponent
             parts.Add(completion.ToString());
         }
 
-        parts.Add(CodingCommandWidgetText.BuildMetadata(command, includeWorkingDirectory: false));
+        parts.Add(CodingCommandPanelText.BuildMetadata(command, includeWorkingDirectory: false));
 
         output.WriteLineBreak();
         output.Write("  ".AsSpan(), context.Theme.Border);
-        CodingCommandWidgetText.WriteClipped(
+        CodingCommandPanelText.WriteClipped(
             string.Join("  ", parts.Where(static part => !string.IsNullOrWhiteSpace(part))),
             Math.Max(0, maxWidth - 2),
             context.Theme.Border,
@@ -127,7 +192,7 @@ internal abstract class CodingCommandPageComponentBase : IComponent
             var style = line.Stream == ExecuteCommandStreamKind.Stderr
                 ? context.Theme.Warning
                 : context.Theme.Border;
-            CodingCommandWidgetText.WriteClipped(line.Text, outputWidth, style, ref output);
+            CodingCommandPanelText.WriteClipped(line.Text, outputWidth, style, ref output);
         }
 
         if (snapshot.OmittedLineCount > 0)
@@ -199,7 +264,7 @@ internal sealed class CodingBackgroundCommandsPageComponent : CodingCommandPageC
         {
             output.WriteLineBreak();
             output.WriteLineBreak();
-            WriteCommandBlock(command, maxWidth, tailRows: 8, in context, ref output);
+            WriteBackgroundCommandBlock(command, maxWidth, tailRows: 8, in context, ref output);
         }
     }
 }

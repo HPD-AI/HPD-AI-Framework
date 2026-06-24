@@ -40,11 +40,10 @@ public sealed class MarkdownBlock : IContentBlock
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _component.Render(in context, maxWidth, ref output);
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
+        return false;
     }
-
-    public void Invalidate() => _component.Invalidate();
 
     public static MarkdownBlock Create(string source, Theme? theme = null) => new(source, theme);
 }

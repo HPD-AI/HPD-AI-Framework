@@ -5,12 +5,7 @@ namespace HPD.Agent.Middleware;
 /// </summary>
 public interface IAgentBackgroundTaskRegistry
 {
-    void RegisterBackgroundTask(Task task);
-
-    void RegisterBackgroundTask(Func<CancellationToken, Task> taskFactory);
-
     void RegisterBackgroundTask(
-        string name,
-        FunctionInvocationSnapshot invocation,
-        Func<FunctionBackgroundContext, CancellationToken, Task> taskFactory);
+        BackgroundTaskDescriptor descriptor,
+        Func<BackgroundTaskContext, CancellationToken, Task> taskFactory);
 }

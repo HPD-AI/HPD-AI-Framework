@@ -57,6 +57,8 @@ public sealed record AgentTuiModelChoice(
 public sealed class AgentTuiModelSelectionOptions
 {
     public bool RequireToolSupport { get; set; }
+
+    public int Order { get; set; } = Commands.HpdAgentTuiCommandDescriptor.DefaultOrder;
 }
 
 public sealed class AgentTuiModelSelectionState

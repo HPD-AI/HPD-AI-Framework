@@ -87,12 +87,6 @@ internal class OpenRouterProvider : IChatClientProvider
     {
         // Note: API key validation is now deferred to CreateChatClient where ISecretResolver is available
         // This method only validates config structure, not secret resolution
-        if (string.IsNullOrEmpty(config.ApiKey))
-        {
-            return ProviderValidationResult.Failure("API key is required for OpenRouter. " +
-                "Set it via the apiKey parameter, OPENROUTER_API_KEY environment variable, or configuration.");
-        }
-
         if (string.IsNullOrEmpty(config.ModelName))
             return ProviderValidationResult.Failure("Model name is required");
 

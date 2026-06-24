@@ -164,7 +164,7 @@ public sealed class CompositionSurfaceTests
             .AddWidget(TuiSlot.BelowEditor, "sample.below", new TextWidget("below contribution"))
             .Build();
         var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
-        model.Transcript.Append(new TranscriptEntry(
+        model.Transcript.AddFinal(new TranscriptEntry(
             Id: "row",
             EntryKey: null,
             new AssistantMessageCell("assistant", new Markdown("hello")),

@@ -112,7 +112,7 @@ public sealed class FunctionExecutionContext
         if (EventCoordinator is null)
             throw new InvalidOperationException("Function execution context does not have an event coordinator.");
 
-        EventCoordinator.Emit(WithTraceId(evt));
+        EventCoordinator.Emit(WithInvocationScope(evt));
     }
 
     public bool TryEmit(AgentEvent evt)
@@ -122,7 +122,7 @@ public sealed class FunctionExecutionContext
         if (EventCoordinator is null)
             return false;
 
-        EventCoordinator.Emit(WithTraceId(evt));
+        EventCoordinator.Emit(WithInvocationScope(evt));
         return true;
     }
 
@@ -137,7 +137,7 @@ public sealed class FunctionExecutionContext
         if (EventCoordinator is null)
             throw new InvalidOperationException("Function execution context does not have an event coordinator.");
 
-        var tracedRequest = WithTraceId(request);
+        var tracedRequest = WithInvocationScope(request);
         var effectiveTimeout = timeout ?? TimeSpan.FromMinutes(5);
         return await EventCoordinator.RequestAsync<TRequest, TResponse>(
             tracedRequest,
@@ -166,21 +166,42 @@ public sealed class FunctionExecutionContext
 
     public void RegisterBackgroundTask(
         string name,
-        Func<FunctionBackgroundContext, CancellationToken, Task> taskFactory)
+        BackgroundTaskNotificationPolicy notificationPolicy,
+        Func<BackgroundTaskContext, CancellationToken, Task> taskFactory)
     {
         if (BackgroundTasks is null)
             throw new InvalidOperationException(
                 "Function background task registration requires an active agent runtime.");
 
-        BackgroundTasks.RegisterBackgroundTask(name, InvocationSnapshot, taskFactory);
+        BackgroundTasks.RegisterBackgroundTask(
+            new BackgroundTaskDescriptor
+            {
+                Name = name,
+                SourceKind = BackgroundTaskSourceKind.ToolCall,
+                SourceId = FunctionCallId,
+                SessionId = InvocationSnapshot.SessionId,
+                ThreadId = InvocationSnapshot.ThreadId,
+                Invocation = InvocationSnapshot,
+                NotificationPolicy = notificationPolicy
+            },
+            taskFactory);
     }
 
-    private TEvent WithTraceId<TEvent>(TEvent evt)
+    private TEvent WithInvocationScope<TEvent>(TEvent evt)
         where TEvent : AgentEvent
     {
-        if (TraceId is not null && evt.TraceId is null)
-            return (TEvent)(evt with { TraceId = TraceId });
+        if ((TraceId is null || evt.TraceId is not null) &&
+            (SessionId is null || evt.SessionId is not null) &&
+            (ThreadId is null || evt.ThreadId is not null))
+        {
+            return evt;
+        }
 
-        return evt;
+        return (TEvent)(evt with
+        {
+            TraceId = evt.TraceId ?? TraceId,
+            SessionId = evt.SessionId ?? SessionId,
+            ThreadId = evt.ThreadId ?? ThreadId
+        });
     }
 }

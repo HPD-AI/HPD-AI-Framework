@@ -37,6 +37,7 @@ public static partial class AgentEventSerializer
     {
         // Input Events
         [typeof(UserMessagesInputEvent)] = EventTypes.Input.USER_MESSAGES_INPUT,
+        [typeof(BackgroundTaskNotificationInputEvent)] = EventTypes.Input.BACKGROUND_TASK_NOTIFICATION_INPUT,
 
         // Thread Events
         [typeof(ThreadCreatedEvent)] = ThreadEventTypes.ThreadCreated,
@@ -79,10 +80,15 @@ public static partial class AgentEventSerializer
         [typeof(ToolCallArgsEvent)] = EventTypes.Tool.TOOL_CALL_ARGS,
         [typeof(ToolCallEndEvent)] = EventTypes.Tool.TOOL_CALL_END,
         [typeof(ToolCallResultEvent)] = EventTypes.Tool.TOOL_CALL_RESULT,
-        [typeof(ToolCallBackgroundTaskStartedEvent)] = EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_STARTED,
-        [typeof(ToolCallBackgroundTaskCompletedEvent)] = EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_COMPLETED,
-        [typeof(ToolCallBackgroundTaskCancelledEvent)] = EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_CANCELLED,
-        [typeof(ToolCallBackgroundTaskFaultedEvent)] = EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_FAULTED,
+
+        // Background Task Events
+        [typeof(BackgroundTaskStartedEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_STARTED,
+        [typeof(BackgroundTaskCompletedEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_COMPLETED,
+        [typeof(BackgroundTaskCancelledEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_CANCELLED,
+        [typeof(BackgroundTaskFaultedEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_FAULTED,
+        [typeof(BackgroundTaskNotificationQueuedEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_NOTIFICATION_QUEUED,
+        [typeof(BackgroundTaskNotificationDeliveredEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_NOTIFICATION_DELIVERED,
+        [typeof(BackgroundTaskNotificationSuppressedEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_NOTIFICATION_SUPPRESSED,
 
         // Permission Events
         [typeof(PermissionRequestEvent)] = EventTypes.Permission.PERMISSION_REQUEST,

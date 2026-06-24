@@ -5,7 +5,11 @@ public sealed record TranscriptEntryMetadata(
     string? AgentName = null,
     string? ParentAgentId = null,
     IReadOnlyList<string>? AgentChain = null,
-    int AgentDepth = 0)
+    int AgentDepth = 0,
+    string? SessionId = null,
+    string? ThreadId = null,
+    string? MessageId = null,
+    string? MessageRole = null)
 {
     public IReadOnlyList<string> AgentChainValue => AgentChain ?? [];
 
@@ -18,6 +22,8 @@ public sealed record TranscriptEntryMetadata(
             evt.Metadata?.AgentName,
             evt.Metadata?.ParentAgentId,
             evt.Metadata?.AgentChain,
-            evt.Metadata?.Depth ?? 0);
+            evt.Metadata?.Depth ?? 0,
+            evt.SessionId,
+            evt.ThreadId);
     }
 }

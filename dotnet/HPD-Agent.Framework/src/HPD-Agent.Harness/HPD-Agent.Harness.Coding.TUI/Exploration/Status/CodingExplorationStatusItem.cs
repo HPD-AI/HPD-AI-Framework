@@ -37,12 +37,9 @@ internal sealed class CodingExplorationStatusComponent : IComponent
         output.Write(Clip(text, maxWidth).AsSpan(), context.Theme.Border);
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent input)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     private string BuildText()

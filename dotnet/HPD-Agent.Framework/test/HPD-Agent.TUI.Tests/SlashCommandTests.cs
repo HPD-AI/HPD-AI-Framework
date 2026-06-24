@@ -23,6 +23,23 @@ public sealed class SlashCommandTests
     }
 
     [Fact]
+    public void Build_OrdersSlashCommandsByDescriptorOrder()
+    {
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .AddSlashCommand(new HpdAgentTuiCommandDescriptor("first", _ => { })
+            {
+                Order = 100
+            })
+            .AddSlashCommand(new HpdAgentTuiCommandDescriptor("middle", _ => { }))
+            .Build();
+
+        registry.Commands.Select(static command => command.SlashName)
+            .Should()
+            .ContainInOrder("first", "middle", "help", "clear");
+    }
+
+    [Fact]
     public void AddSlashCommand_FailsOnDuplicate()
     {
         var builder = new HpdAgentTuiBuilder()
@@ -107,7 +124,7 @@ public sealed class SlashCommandTests
             .AddAgentTuiDefaults()
             .Build();
         var shell = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
-        shell.Transcript.Append(new TranscriptEntry(
+        shell.Transcript.AddFinal(new TranscriptEntry(
             Id: "row",
             EntryKey: null,
             new NoticeCell("test", new Text("hello")),
@@ -170,10 +187,17 @@ public sealed class SlashCommandTests
 
     private sealed class NoopRuntime : IHpdAgentTuiRuntime
     {
-        public Task<AgentTuiRuntimeScope> EnsureScopeAsync(
+        public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
             AgentTuiRuntimeScope? requested,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(requested ?? new AgentTuiRuntimeScope("agent", "session", "main"));
+            => Task.FromResult(new AgentTuiScopeResolution(
+                requested ?? new AgentTuiRuntimeScope("agent", "session", "main"),
+                IsDurable: true));
+
+        public Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
+            AgentTuiRuntimeScope scope,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(scope);
 
         public async IAsyncEnumerable<AgentEvent> ObserveAsync(
             AgentTuiRuntimeScope scope,
@@ -218,9 +242,11 @@ public sealed class SlashCommandTests
 
         public bool HasOpenDialog => false;
 
-        public void Show(string key, HPD.TUI.Core.IComponent component)
-        {
-        }
+        public Task<TResult?> ShowAsync<TResult>(
+            string key,
+            Func<HPD.Agent.TUI.Composition.AgentTuiDialogContext<TResult>, HPD.TUI.Core.IComponent> componentFactory,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<TResult?>(default);
 
         public bool Close(string key) => false;
 

@@ -55,12 +55,9 @@ public sealed class ListBlock : IContentBlock
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     public static ListBlock Create(IEnumerable<string> items, bool ordered = false)

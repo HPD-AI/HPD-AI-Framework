@@ -49,12 +49,9 @@ internal abstract class CodingCommandStatusComponentBase : IComponent
         output.Write(Clip(text, maxWidth).AsSpan(), context.Theme.Border);
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent input)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     protected bool TryGetStore(out CodingCommandExecutionStore store)
@@ -107,6 +104,18 @@ internal sealed class CodingCommandStatusComponent : CodingCommandStatusComponen
             return "";
         }
 
+        if (latest.IsBackground)
+        {
+            return latest.DisplayState switch
+            {
+                CodingCommandDisplayState.Completed => $"bg completed {latest.DisplayCommand}",
+                CodingCommandDisplayState.Failed => $"bg failed {latest.DisplayCommand}",
+                CodingCommandDisplayState.Cancelled => $"bg cancelled {latest.DisplayCommand}",
+                CodingCommandDisplayState.TimedOut => $"bg timed out {latest.DisplayCommand}",
+                _ => ""
+            };
+        }
+
         return latest.DisplayState switch
         {
             CodingCommandDisplayState.Completed => $"cmd ok {latest.DisplayCommand}",
@@ -136,8 +145,8 @@ internal sealed class CodingBackgroundTerminalStatusComponent : CodingCommandSta
         return active.Count switch
         {
             0 => "",
-            1 => $"bg 1 {active[0].DisplayCommand}",
-            _ => $"bg {active.Count}"
+            1 => $"bg 1 {active[0].DisplayCommand} · /background",
+            _ => $"bg {active.Count} · /background"
         };
     }
 }

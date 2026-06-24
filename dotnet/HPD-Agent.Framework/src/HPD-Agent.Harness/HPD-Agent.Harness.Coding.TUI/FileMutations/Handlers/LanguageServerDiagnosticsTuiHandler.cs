@@ -21,11 +21,11 @@ internal sealed class LanguageServerDiagnosticsTuiHandler : AgentTuiEventHandler
         if (mutationState.TryGetLatestByPath(evt.Path, out var mutation))
         {
             mutation.SetDiagnostics(evt);
-            context.Shell.Transcript.Update(FileMutationTranscriptEntryFactory.Create(mutation, evt));
+            FileMutationTranscriptEntryFactory.Apply(context, mutation, evt);
         }
         else if (evt.ErrorCount > 0 || evt.WarningCount > 0 || evt.DiagnosticsTruncated)
         {
-            context.Shell.Transcript.Update(FileMutationTranscriptEntryFactory.CreateStandaloneDiagnostics(evt));
+            FileMutationTranscriptEntryFactory.ApplyStandaloneDiagnostics(context, evt);
         }
 
         return ValueTask.CompletedTask;

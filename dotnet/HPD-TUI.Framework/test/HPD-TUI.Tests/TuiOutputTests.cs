@@ -53,11 +53,13 @@ public sealed class TuiOutputTests
         Assert.Equal("ok  ", terminal.Output);
     }
 
-    private sealed class TestTerminal : ITerminal
+    private sealed class TestTerminal : ITerminal, ITerminalInput
     {
         private readonly StringBuilder _output = new();
 
         public string Output => _output.ToString();
+
+        public ITerminalInput Input => this;
 
         public TerminalSize GetSize() => new(10, 3);
 
@@ -70,11 +72,8 @@ public sealed class TuiOutputTests
         {
         }
 
-        public bool TryReadKey(out KeyEvent key)
-        {
-            key = default;
-            return false;
-        }
+        public ValueTask<TerminalInputEvent> ReadAsync(CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(TerminalInputEvent.Stop);
 
         public void HideCursor()
         {
@@ -87,5 +86,7 @@ public sealed class TuiOutputTests
         public void Dispose()
         {
         }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

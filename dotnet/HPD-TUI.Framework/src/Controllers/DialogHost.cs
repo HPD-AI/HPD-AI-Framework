@@ -73,30 +73,20 @@ public sealed class DialogHost : IComponent
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
         if (_layers.Count > 0)
         {
             if (key.Key == KeyCode.Escape)
             {
                 Pop();
-                return;
+                return true;
             }
 
-            _focus.HandleInput(in key);
-            return;
+            return _focus.HandleInput(in key);
         }
 
-        _content.HandleInput(in key);
-    }
-
-    public void Invalidate()
-    {
-        _content.Invalidate();
-        foreach (var layer in _layers)
-        {
-            layer.Overlay?.Invalidate();
-        }
+        return _content.HandleInput(in key);
     }
 }
 

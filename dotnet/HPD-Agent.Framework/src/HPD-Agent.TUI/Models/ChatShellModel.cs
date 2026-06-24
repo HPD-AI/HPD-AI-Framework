@@ -20,6 +20,8 @@ public sealed class ChatShellModel
 
     public Func<AgentTuiRuntimeScope, CancellationToken, ValueTask>? SwitchScopeAsync { get; set; }
 
+    public Func<string, CancellationToken, ValueTask>? SetPromptDraftAsync { get; set; }
+
     public AgentTuiNavigationModel Navigation { get; } = new();
 
     public TranscriptModel Transcript { get; } = new();

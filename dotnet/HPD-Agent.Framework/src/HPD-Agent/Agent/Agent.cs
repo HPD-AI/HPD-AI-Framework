@@ -60,6 +60,7 @@ public sealed class Agent
     private Middleware.AgentRuntimeContext? _runtimeContext;
     private HPD.Events.IEventCoordinator? _runtimeEventCoordinator;
     private StructEventHub? _runtimeStructEvents;
+    private BackgroundTaskNotificationDispatcher? _runtimeNotificationDispatcher;
     private bool _runtimeStarting;
     private bool _runtimeStopping;
     private readonly List<CancellationTokenSource> _activeRuntimeTurnCts = new();
@@ -985,6 +986,12 @@ public sealed class Agent
             case UserMessagesInputEvent messages:
                 return await RunMessagesInputAsync(messages, eventCoordinator, cancellationToken).ConfigureAwait(false);
 
+            case BackgroundTaskNotificationInputEvent notification:
+                return await RunMessagesInputAsync(
+                    BackgroundTaskNotificationDispatcher.ToUserMessagesInput(notification),
+                    eventCoordinator,
+                    cancellationToken).ConfigureAwait(false);
+
             case InterruptionRequestEvent interruption:
                 await HandleInterruptionAsync(interruption, cancellationToken).ConfigureAwait(false);
                 return AgentTurnResult.Empty;
@@ -1014,7 +1021,10 @@ public sealed class Agent
 
                 try
                 {
+                    await PublishRuntimeInputStartedAsync(input).ConfigureAwait(false);
                     await RunInputDirectAsync(input, eventCoordinator, activeTurnCts.Token).ConfigureAwait(false);
+                    if (input is BackgroundTaskNotificationInputEvent notificationInput)
+                        await PublishBackgroundTaskNotificationDeliveredAsync(notificationInput).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -1047,6 +1057,44 @@ public sealed class Agent
         {
             // Cooperative runtime shutdown.
         }
+    }
+
+    private async Task PublishRuntimeInputStartedAsync(AgentInputEvent input)
+    {
+        if (string.IsNullOrWhiteSpace(input.RuntimeRunId) ||
+            string.IsNullOrWhiteSpace(input.SessionId) ||
+            string.IsNullOrWhiteSpace(input.ThreadId))
+        {
+            return;
+        }
+
+        var evt = new ThreadRunStartedEvent(
+            input.RuntimeRunId!,
+            input.AgentId ?? _name,
+            DateTimeOffset.UtcNow)
+        {
+            SessionId = input.SessionId,
+            ThreadId = input.ThreadId
+        };
+
+        var store = Config?.SessionStore;
+        if (store != null)
+        {
+            try
+            {
+                await store.AppendThreadEventAsync(
+                    input.SessionId!,
+                    input.ThreadId!,
+                    evt,
+                    cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                // The live event still lets hosting observe run state.
+            }
+        }
+
+        PublishOutputEvent(evt);
     }
 
     private async Task PublishRuntimeInputCompletedAsync(
@@ -1092,6 +1140,52 @@ public sealed class Agent
         PublishOutputEvent(evt);
     }
 
+    private async Task PublishBackgroundTaskNotificationDeliveredAsync(
+        BackgroundTaskNotificationInputEvent input)
+    {
+        if (string.IsNullOrWhiteSpace(input.SessionId) ||
+            string.IsNullOrWhiteSpace(input.ThreadId))
+        {
+            return;
+        }
+
+        foreach (var notification in input.Notifications)
+        {
+            await PublishRuntimeControlEventAsync(new BackgroundTaskNotificationDeliveredEvent
+            {
+                NotificationId = notification.NotificationId,
+                DeliveredAt = DateTimeOffset.UtcNow,
+                RuntimeRunId = input.RuntimeRunId,
+                SessionId = input.SessionId,
+                ThreadId = input.ThreadId
+            }).ConfigureAwait(false);
+        }
+    }
+
+    private async Task PublishRuntimeControlEventAsync(AgentEvent evt)
+    {
+        if (evt.ShouldPersistToThread() &&
+            !string.IsNullOrWhiteSpace(evt.SessionId) &&
+            !string.IsNullOrWhiteSpace(evt.ThreadId) &&
+            Config?.SessionStore is { } store)
+        {
+            try
+            {
+                await store.AppendThreadEventAsync(
+                    evt.SessionId!,
+                    evt.ThreadId!,
+                    evt,
+                    cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Live emission still gives observers a chance to react.
+            }
+        }
+
+        PublishOutputEvent(evt);
+    }
+
     /// <summary>
     /// Starts the agent's continuous runtime input loop.
     /// </summary>
@@ -1104,11 +1198,15 @@ public sealed class Agent
         StructEventHub runtimeStructEvents;
         CancellationTokenSource runtimeCts;
         Channel<AgentInputEvent> runtimeInbox;
+        BackgroundTaskNotificationDispatcher runtimeNotificationDispatcher;
 
         lock (_runtimeLock)
         {
             if (_runtimeStarting || (!_runtimeStopping && _runtimeLoopTask is { IsCompleted: false }))
+            {
+                _runtimeNotificationDispatcher?.UpdateRunConfig(runConfig);
                 return;
+            }
 
             _runtimeStarting = true;
             _runtimeCts?.Dispose();
@@ -1145,11 +1243,18 @@ public sealed class Agent
                     _functionExecutionCore,
                     runtimeContext,
                     runtimeCoordinator));
+            runtimeNotificationDispatcher = new BackgroundTaskNotificationDispatcher(
+                _name,
+                runtimeCoordinator,
+                runtimeInbox.Writer,
+                runConfig,
+                PublishRuntimeControlEventAsync);
 
             _runtimeCts = runtimeCts;
             _runtimeEventCoordinator = runtimeCoordinator;
             _runtimeStructEvents = runtimeStructEvents;
             _runtimeContext = runtimeContext;
+            _runtimeNotificationDispatcher = runtimeNotificationDispatcher;
             _runtimeInbox = null;
             _runtimeStopping = false;
         }
@@ -1246,6 +1351,7 @@ public sealed class Agent
         CancellationToken cancellationToken)
     {
         Task? runtimeTask;
+        BackgroundTaskNotificationDispatcher? runtimeNotificationDispatcher;
         var drainPendingInputs = true;
         TimeSpan? drainTimeout = null;
         Exception? stopError = null;
@@ -1274,7 +1380,29 @@ public sealed class Agent
         lock (_runtimeLock)
         {
             runtimeTask = _runtimeLoopTask;
+            runtimeNotificationDispatcher = _runtimeNotificationDispatcher;
             _runtimeStopping = true;
+        }
+
+        if (runtimeNotificationDispatcher is not null)
+        {
+            if (drainPendingInputs)
+            {
+                try
+                {
+                    await runtimeNotificationDispatcher.CompleteAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    stopError ??= ex;
+                    exceptions ??= new List<Exception>();
+                    exceptions.Add(ex);
+                }
+            }
+            else
+            {
+                runtimeNotificationDispatcher.Dispose();
+            }
         }
 
         runtimeContext.CompleteInputWriter();
@@ -1351,14 +1479,20 @@ public sealed class Agent
         {
             if (ReferenceEquals(_runtimeContext, runtimeContext))
             {
+                runtimeNotificationDispatcher = _runtimeNotificationDispatcher;
                 _runtimeInbox = null;
                 _runtimeLoopTask = null;
                 _runtimeCts = null;
                 _runtimeContext = null;
                 _runtimeEventCoordinator = null;
                 _runtimeStructEvents = null;
+                _runtimeNotificationDispatcher = null;
                 _runtimeStarting = false;
                 _runtimeStopping = false;
+            }
+            else
+            {
+                runtimeNotificationDispatcher = null;
             }
         }
 
@@ -1420,6 +1554,7 @@ public sealed class Agent
 
             lock (_runtimeLock)
             {
+                _runtimeNotificationDispatcher?.UpdateRunConfig(input.RunConfig);
                 runtimeTransitioning = _runtimeStarting || _runtimeStopping;
                 runtimeWriter = !_runtimeStopping &&
                     _runtimeInbox != null &&

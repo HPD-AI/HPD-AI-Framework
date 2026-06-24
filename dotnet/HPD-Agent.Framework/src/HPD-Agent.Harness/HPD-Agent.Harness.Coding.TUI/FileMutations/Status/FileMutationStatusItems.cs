@@ -43,12 +43,9 @@ internal abstract class CodingFileStatusComponentBase : IComponent
         output.Write(Clip(text, maxWidth).AsSpan(), context.Theme.Border);
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent input)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     protected abstract string BuildText();
@@ -84,9 +81,9 @@ internal sealed class FileMutationStatusComponent : CodingFileStatusComponentBas
             return "";
         }
 
-        return state.MutationCount == 1
+        return state.ChangedPathCount <= 1
             ? $"files +{state.AddedLines} -{state.RemovedLines}"
-            : $"changed {state.MutationCount} files +{state.AddedLines} -{state.RemovedLines}";
+            : $"changed {state.ChangedPathCount} files +{state.AddedLines} -{state.RemovedLines}";
     }
 }
 

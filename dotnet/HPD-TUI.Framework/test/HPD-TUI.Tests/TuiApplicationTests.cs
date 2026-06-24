@@ -45,7 +45,7 @@ public sealed class TuiApplicationTests
         terminal.Enqueue(new KeyEvent(KeyCode.Character, new Rune('z')));
         app.SetRoot(prompt);
         app.SetFocus(prompt);
-        await app.RunAsync(TimeSpan.FromMilliseconds(1), cts.Token);
+        await app.RunAsync(cancellationToken: cts.Token);
 
         Assert.Equal("z", prompt.Model.Value);
         Assert.True(terminal.WriteCount > 0);
@@ -63,13 +63,13 @@ public sealed class TuiApplicationTests
 
         terminal.Enqueue(new KeyEvent(KeyCode.Escape, default, KeyModifiers.Ctrl));
         app.SetRoot(new Text("hello"));
-        await app.RunAsync(TimeSpan.FromMilliseconds(1));
+        await app.RunAsync();
 
         Assert.True(terminal.CursorShown);
         Assert.Contains("\x1b[?1049l", terminal.Output);
     }
 
-    private sealed class TestTerminal : ITerminal
+    private sealed class TestTerminal : ITerminal, ITerminalInput
     {
         private readonly Queue<KeyEvent> _keys = new();
         private readonly StringBuilder _output = new();
@@ -81,6 +81,8 @@ public sealed class TuiApplicationTests
         public bool CursorHidden { get; private set; }
 
         public bool CursorShown { get; private set; }
+
+        public ITerminalInput Input => this;
 
         public void Enqueue(KeyEvent key) => _keys.Enqueue(key);
 
@@ -96,16 +98,14 @@ public sealed class TuiApplicationTests
         {
         }
 
-        public bool TryReadKey(out KeyEvent key)
+        public ValueTask<TerminalInputEvent> ReadAsync(CancellationToken cancellationToken = default)
         {
-            if (_keys.Count == 0)
+            if (_keys.TryDequeue(out var key))
             {
-                key = default;
-                return false;
+                return ValueTask.FromResult(TerminalInputEvent.FromKey(key));
             }
 
-            key = _keys.Dequeue();
-            return true;
+            return WaitAsync(cancellationToken);
         }
 
         public void HideCursor()
@@ -120,6 +120,14 @@ public sealed class TuiApplicationTests
 
         public void Dispose()
         {
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        private static async ValueTask<TerminalInputEvent> WaitAsync(CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+            return TerminalInputEvent.Stop;
         }
     }
 }

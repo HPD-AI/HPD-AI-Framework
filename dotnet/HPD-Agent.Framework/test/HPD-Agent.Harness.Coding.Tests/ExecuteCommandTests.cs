@@ -6,6 +6,7 @@ using HPD.Agent.Middleware;
 using HPD.Environment.Contracts;
 using HPD.Events;
 using HPD.Events.Core;
+using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
@@ -38,10 +39,17 @@ public sealed class ExecuteCommandTests : IDisposable
         method!.GetCustomAttributes(typeof(AIFunctionAttribute), inherit: false)
             .Should().ContainSingle();
         method.GetCustomAttributes(typeof(RequiresPermissionAttribute), inherit: false)
-            .Should().ContainSingle();
+            .Should().BeEmpty("ExecuteCommand is guarded by ExecuteCommandPermissionMiddleware, not generic function-level permission");
         method.GetCustomAttributes(inherit: false)
             .Select(attribute => attribute.GetType().Name)
             .Should().NotContain(name => name.Contains("Sandbox", StringComparison.Ordinal));
+
+        var collapse = typeof(CodingToolHarness)
+            .GetCustomAttributes(typeof(CollapseAttribute), inherit: false)
+            .Should().ContainSingle()
+            .Subject as CollapseAttribute;
+
+        collapse!.Middlewares.Should().Contain(typeof(ExecuteCommandPermissionMiddleware));
     }
 
     [Fact]
@@ -85,6 +93,155 @@ public sealed class ExecuteCommandTests : IDisposable
         roundTrip!.CommandId.Should().Be("cmd_1");
         roundTrip.Category.Should().Be(ExecuteCommandCategory.Test);
         roundTrip.EventFlowId.Should().Be("cmd_1");
+    }
+
+    [Fact]
+    public void CodingToolHarnessJsonContext_RoundTripsExecuteCommandPermissionRequestEvent()
+    {
+        var sandbox = new ExecuteCommandSandboxPolicy();
+        var workspace = new ExecuteCommandPermissionWorkspaceScope
+        {
+            RootId = "default",
+            RootPath = _tempRoot,
+            RelativeWorkingDirectory = "."
+        };
+        var shell = new ExecuteCommandShellScope
+        {
+            Executable = "/bin/zsh",
+            Family = ExecuteCommandShellFamily.Zsh
+        };
+        var rule = new ExecuteCommandPermissionRule
+        {
+            Id = "rule-1",
+            RuleSchemaVersion = ExecuteCommandPermissionAnalyzerVersions.RuleSchema,
+            AnalyzerVersion = ExecuteCommandPermissionAnalyzerVersions.Analyzer,
+            NormalizationVersion = ExecuteCommandPermissionAnalyzerVersions.Normalization,
+            Behavior = ExecuteCommandPermissionBehavior.Allow,
+            MatchKind = ExecuteCommandPermissionMatchKind.Prefix,
+            Pattern = "git status",
+            Shell = shell,
+            RequestedSandboxFingerprint = sandbox.Canonicalize(_tempRoot),
+            Workspace = workspace,
+            MinimumTrustLevel = ExecuteCommandAnalysisTrustLevel.Simple
+        };
+        var proposal = new PrefixAllowRuleProposal
+        {
+            Rule = rule,
+            UserLabel = "Always allow similar commands",
+            Prefix = new SafeCommandPrefix("git status")
+        };
+        var plan = new SimpleCommandPermissionPlan
+        {
+            AnalyzerVersion = ExecuteCommandPermissionAnalyzerVersions.Analyzer,
+            NormalizationVersion = ExecuteCommandPermissionAnalyzerVersions.Normalization,
+            Fingerprint = new PermissionFingerprint("fp"),
+            Action = ExecuteCommandAction.Run,
+            Command = new RawCommandText("git status -sb"),
+            NormalizedCommand = new NormalizedCommandText("git status -sb"),
+            Shell = shell,
+            WorkingDirectory = _tempRoot,
+            Workspace = workspace,
+            RequestedSandbox = sandbox,
+            FilesystemEffects = [],
+            NetworkEffects = [],
+            RunInBackground = false,
+            Risk = ExecuteCommandPermissionRisk.None,
+            CommandPlan = new ExecuteCommandSubcommandPlan
+            {
+                Text = "git status -sb",
+                Argv = ["git", "status", "-sb"],
+                BaseCommand = "git",
+                SafePrefix = "git status",
+                Risk = ExecuteCommandPermissionRisk.None,
+                TrustLevel = ExecuteCommandAnalysisTrustLevel.Simple,
+                Readiness = ExecuteCommandPolicyReadiness.PrefixAllowAllowed
+            },
+            ExactAllowRule = new ExactAllowRuleProposal
+            {
+                Rule = rule with { MatchKind = ExecuteCommandPermissionMatchKind.Exact, Pattern = "git status -sb" },
+                UserLabel = "Always allow this exact command"
+            },
+            PrefixAllowRule = proposal,
+            SuggestedRules = [proposal]
+        };
+        var evt = new ExecuteCommandPermissionRequestEvent(
+            "perm-1",
+            "ExecuteCommandPermissionMiddleware",
+            "call-1",
+            plan,
+            [],
+            new ExecuteCommandPermissionRuleDiagnostics(null, null, [], [], []),
+            [
+                new AllowOnceChoice
+                {
+                    Id = "allow_once",
+                    Label = "Allow once"
+                },
+                new PersistRuleChoice
+                {
+                    Id = "allow_similar",
+                    Label = "Always allow similar commands",
+                    Proposal = proposal
+                }
+            ]);
+
+        var json = JsonSerializer.Serialize(
+            evt,
+            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionRequestEvent);
+        var roundTrip = JsonSerializer.Deserialize(
+            json,
+            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionRequestEvent);
+
+        roundTrip.Should().NotBeNull();
+        roundTrip!.Plan.Should().BeOfType<SimpleCommandPermissionPlan>();
+        roundTrip.AvailableChoices.Should().Contain(choice => choice is PersistRuleChoice);
+    }
+
+    [Fact]
+    public void CodingToolHarnessJsonContext_RoundTripsExecuteCommandPermissionLifecycleAuditEvent()
+    {
+        var details = new ExecuteCommandPermissionAuditDetails
+        {
+            AnalyzerVersion = ExecuteCommandPermissionAnalyzerVersions.Analyzer,
+            NormalizationVersion = ExecuteCommandPermissionAnalyzerVersions.Normalization,
+            RuleSchemaVersion = ExecuteCommandPermissionAnalyzerVersions.RuleSchema,
+            Shell = new ExecuteCommandShellScope
+            {
+                Executable = "/bin/zsh",
+                Family = ExecuteCommandShellFamily.Zsh
+            },
+            Workspace = new ExecuteCommandPermissionWorkspaceScope
+            {
+                RootId = "default",
+                RootPath = _tempRoot,
+                RelativeWorkingDirectory = "."
+            },
+            MatchedRuleId = "rule-1",
+            MatchedRuleSchemaVersion = ExecuteCommandPermissionAnalyzerVersions.RuleSchema,
+            Decision = "approved_by_rule",
+            TrustLevel = ExecuteCommandAnalysisTrustLevel.Simple,
+            Risk = ExecuteCommandPermissionRisk.NetworkLikely,
+            UnsupportedShellFeatures = [],
+            PersistedRuleIds = ["rule-1"]
+        };
+        var evt = new ExecuteCommandPermissionApprovedEvent(
+            "perm-1",
+            "ExecuteCommandPermissionMiddleware",
+            "call-1",
+            "fingerprint",
+            "rule-1",
+            details);
+
+        var json = JsonSerializer.Serialize(
+            evt,
+            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionApprovedEvent);
+        var roundTrip = JsonSerializer.Deserialize(
+            json,
+            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionApprovedEvent);
+
+        roundTrip.Should().NotBeNull();
+        roundTrip!.Details.Decision.Should().Be("approved_by_rule");
+        roundTrip.Details.PersistedRuleIds.Should().ContainSingle().Which.Should().Be("rule-1");
     }
 
     [Fact]
@@ -168,6 +325,249 @@ public sealed class ExecuteCommandTests : IDisposable
 
         runner.LastSpec.Should().NotBeNull();
         runner.LastSpec!.Command.WorkingDirectory.Should().Be(Path.GetFullPath(_tempRoot));
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_DefaultSandboxConfig_UsesIsolatedProcessMode()
+    {
+        var runner = new FakeProcessProvider();
+
+        await new CodingToolHarness().ExecuteCommand(
+            context: CreateContext(runner),
+            command: "dotnet test");
+
+        runner.LastSpec.Should().NotBeNull();
+        runner.LastSpec!.Isolation.Mode.Should().Be(ProcessIsolationMode.Isolated);
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_RunConfigSandboxDisabled_DisablesProcessIsolation()
+    {
+        var runner = new FakeProcessProvider();
+        var runConfig = CreateWorkspaceRunConfig();
+        runConfig.ContextOverrides![ExecuteCommandSandboxPolicy.ContextKey] = new ExecuteCommandSandboxPolicy
+        {
+            Mode = ExecuteCommandIsolationMode.Disabled
+        };
+
+        await new CodingToolHarness().ExecuteCommand(
+            context: CreateContext(runner, runConfig: runConfig),
+            command: "dotnet test");
+
+        runner.LastSpec.Should().NotBeNull();
+        runner.LastSpec!.Isolation.Mode.Should().Be(ProcessIsolationMode.Disabled);
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_RunConfigSandboxBooleanFalse_ReturnsValidationError()
+    {
+        var runner = new FakeProcessProvider();
+        var runConfig = CreateWorkspaceRunConfig();
+        runConfig.ContextOverrides![ExecuteCommandSandboxPolicy.ContextKey] = false;
+
+        var result = await new CodingToolHarness().ExecuteCommand(
+            context: CreateContext(runner, runConfig: runConfig),
+            command: "dotnet test");
+
+        result.ToString().Should().Contain("kind=\"invalid_arguments\"");
+        result.ToString().Should().Contain("ExecuteCommand sandbox policy must be an ExecuteCommandSandboxPolicy object.");
+        runner.LastSpec.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_RunConfigSandboxPolicy_CompilesGrantsIntoProcessIsolationPolicy()
+    {
+        var runner = new FakeProcessProvider();
+        var runConfig = CreateWorkspaceRunConfig();
+        runConfig.ContextOverrides![ExecuteCommandSandboxPolicy.ContextKey] = new ExecuteCommandSandboxPolicy
+        {
+            Filesystem =
+            [
+                new ExecuteCommandPathGrant { Kind = ExecuteCommandPathGrantKind.Read, Path = "readonly" },
+                new ExecuteCommandPathGrant { Kind = ExecuteCommandPathGrantKind.Write, Path = "/tmp/hpd-write" }
+            ],
+            Network = new ExecuteCommandNetworkGrant
+            {
+                Mode = ExecuteCommandNetworkMode.Filtered,
+                AllowedDomains = ["registry.npmjs.org"],
+                DeniedDomains = ["169.254.169.254"]
+            },
+            Interactive = new ExecuteCommandInteractiveGrant
+            {
+                AllowPty = true,
+                AllowLocalBinding = true,
+                AllowedMachLookups = ["com.apple.securityd"]
+            }
+        };
+
+        await new CodingToolHarness().ExecuteCommand(
+            context: CreateContext(runner, runConfig: runConfig),
+            command: "npm install");
+
+        runner.LastSpec.Should().NotBeNull();
+        var expectedReadPath = Path.GetFullPath(Path.Combine(runner.LastSpec!.Command.WorkingDirectory!, "readonly"));
+        runner.LastSpec!.Isolation.Mode.Should().Be(ProcessIsolationMode.Isolated);
+        runner.LastSpec.Isolation.Filesystem.Rules.Should().Contain(rule =>
+            rule.Kind == PathAccessRuleKind.AllowRead &&
+            rule.Path.Value == expectedReadPath);
+        runner.LastSpec.Isolation.Filesystem.Rules.Should().Contain(rule =>
+            rule.Kind == PathAccessRuleKind.AllowWrite &&
+            rule.Path.Value == "/tmp/hpd-write");
+        runner.LastSpec.Isolation.Network.Mode.Should().Be(NetworkEgressMode.Filtered);
+        runner.LastSpec.Isolation.Network.AllowedDomains.Should().ContainSingle(rule => rule.Pattern == "registry.npmjs.org");
+        runner.LastSpec.Isolation.Network.DeniedDomains.Should().ContainSingle(rule => rule.Pattern == "169.254.169.254");
+        runner.LastSpec.Isolation.Interactive.AllowPty.Should().BeTrue();
+        runner.LastSpec.Isolation.Interactive.AllowLocalBinding.Should().BeTrue();
+        runner.LastSpec.Isolation.Interactive.AllowedMachLookups.Should().ContainSingle("com.apple.securityd");
+    }
+
+    [Fact]
+    public async Task ExecuteCommandPermissionBoundary_DeniedCommandDoesNotReachProcessProvider()
+    {
+        var runner = new FakeProcessProvider();
+
+        var result = await InvokeExecuteCommandThroughPermissionBoundaryAsync(
+            runner,
+            "git status -sb",
+            _ => "deny");
+
+        result.ToString().Should().Contain("<execute_command_permission_denied");
+        runner.StartCalls.Should().Be(0);
+        runner.LastSpec.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ExecuteCommandPermissionBoundary_AllowOnceReachesProcessProvider()
+    {
+        var runner = new FakeProcessProvider();
+
+        var result = await InvokeExecuteCommandThroughPermissionBoundaryAsync(
+            runner,
+            "git status -sb",
+            _ => "allow_once");
+
+        result.ToString().Should().Contain("<execute_command");
+        runner.StartCalls.Should().Be(1);
+        runner.LastSpec.Should().NotBeNull();
+        runner.LastSpec!.Command.Arguments.Should().Contain("git status -sb");
+    }
+
+    [Fact]
+    public async Task ExecuteCommandPermissionBoundary_LocalBindingSandboxApprovalRetriesWithLocalBinding()
+    {
+        var runner = new FakeProcessProvider
+        {
+            Results =
+            [
+                CreateResult(
+                    stderr: "Error: listen EPERM: operation not permitted 127.0.0.1:3000",
+                    exitCode: 1),
+                CreateResult(stdout: "Server running")
+            ]
+        };
+
+        var coordinator = new EventCoordinator();
+        using var permissionSubscription = RespondToPermissionRequests(coordinator, _ => "allow_once");
+        using var sandboxSubscription = coordinator.Subscribe<ExecuteCommandSandboxCapabilityRequestEvent>(request =>
+        {
+            request.Capability.Should().Be(ExecuteCommandSandboxCapabilityKind.LocalBinding);
+            request.Amendment.Should().BeOfType<AllowLocalBindingAmendment>();
+            var result = coordinator.Respond(new ExecuteCommandSandboxCapabilityResponseEvent(
+                request.RequestId,
+                request.SourceName,
+                true));
+            result.Accepted.Should().BeTrue(result.Message);
+            return ValueTask.CompletedTask;
+        });
+
+        var function = CreateExecuteCommandFunction();
+        var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
+        var session = new Session("session-1");
+        var thread = new Thread("session-1") { Id = "thread-1" };
+        var agentContext = new AgentContext(
+            "AgentA",
+            "conversation-1",
+            state,
+            coordinator,
+            session,
+            thread,
+            CancellationToken.None);
+        agentContext.RuntimeCapabilities.Set<IProcessProvider>(runner);
+        var runConfig = CreateWorkspaceRunConfig();
+        var arguments = new Dictionary<string, object?> { ["command"] = "node server.js" };
+        var beforeContext = agentContext.AsBeforeFunction(
+            function,
+            "call-1",
+            arguments,
+            runConfig,
+            toolharnessName: nameof(CodingToolHarness),
+            skillName: null);
+
+        await new ExecuteCommandPermissionMiddleware()
+            .BeforeFunctionAsync(beforeContext, CancellationToken.None)
+            .ConfigureAwait(false);
+
+        var request = new FunctionRequest
+        {
+            Function = function,
+            CallId = "call-1",
+            Arguments = arguments,
+            State = agentContext.State,
+            RunConfig = runConfig,
+            ResultMetadata = new ToolResultMetadata(),
+            EventCoordinator = coordinator
+        };
+        var executionContext = new FunctionExecutionContext(beforeContext, request);
+
+        var result = await new CodingToolHarness()
+            .ExecuteCommand(context: executionContext, command: "node server.js")
+            .ConfigureAwait(false);
+
+        result.ToString().Should().Contain("Server running");
+        runner.StartCalls.Should().Be(2);
+        runner.LastSpec.Should().NotBeNull();
+        runner.LastSpec!.Isolation.Interactive.AllowLocalBinding.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ExecuteCommandPermissionBoundary_SandboxModeChangesPermissionFingerprint()
+    {
+        var sandboxed = ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
+            new Dictionary<string, object?> { ["command"] = "npm install" },
+            CreateWorkspaceRunConfig(),
+            new ExecuteCommandOptions(),
+            new ExecuteCommandShellScope { Executable = "zsh", Family = ExecuteCommandShellFamily.Zsh });
+        var unsandboxedConfig = CreateWorkspaceRunConfig();
+        unsandboxedConfig.ContextOverrides![ExecuteCommandSandboxPolicy.ContextKey] = new ExecuteCommandSandboxPolicy
+        {
+            Mode = ExecuteCommandIsolationMode.Disabled
+        };
+        var unsandboxed = ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
+            new Dictionary<string, object?> { ["command"] = "npm install" },
+            unsandboxedConfig,
+            new ExecuteCommandOptions(),
+            new ExecuteCommandShellScope { Executable = "zsh", Family = ExecuteCommandShellFamily.Zsh });
+
+        sandboxed.Fingerprint.Should().NotBe(unsandboxed.Fingerprint);
+        sandboxed.Risk.Should().NotHaveFlag(ExecuteCommandPermissionRisk.Unsandboxed);
+        unsandboxed.Risk.Should().HaveFlag(ExecuteCommandPermissionRisk.Unsandboxed);
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_RunConfigSandboxDictionary_ReturnsValidationError()
+    {
+        var runConfig = CreateWorkspaceRunConfig();
+        runConfig.ContextOverrides![ExecuteCommandSandboxPolicy.ContextKey] = new Dictionary<string, object?>
+        {
+            ["mode"] = "disabled"
+        };
+
+        var result = await new CodingToolHarness().ExecuteCommand(
+            context: CreateContext(new FakeProcessProvider(), runConfig: runConfig),
+            command: "dotnet test");
+
+        result.ToString().Should().Contain("kind=\"invalid_arguments\"");
+        result.ToString().Should().Contain("ExecuteCommand sandbox policy must be an ExecuteCommandSandboxPolicy object.");
     }
 
     [Fact]
@@ -508,12 +908,16 @@ public sealed class ExecuteCommandTests : IDisposable
     public async Task ExecuteCommand_BackgroundRun_ListAndRead_AreSessionScoped()
     {
         var sessionId = $"session-{Guid.NewGuid():N}";
+        var completion = new TaskCompletionSource<ProcessInvocationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var runner = new FakeProcessProvider
         {
-            Result = CreateResult(stdout: "server ready\n", exitCode: 0)
+            Completion = completion.Task
         };
         var registry = new TestBackgroundTaskRegistry();
-        var toolharness = new CodingToolHarness();
+        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        {
+            BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
+        });
 
         var start = await toolharness.ExecuteCommand(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId),
@@ -523,9 +927,10 @@ public sealed class ExecuteCommandTests : IDisposable
 
         startXml.Should().Contain("background=\"true\"");
         startXml.Should().Contain("background_task_id=\"");
+        startXml.Should().Contain("startup_status=\"launched_not_verified\"");
+        startXml.Should().Contain("Background start only means the process launched.");
+        startXml.Should().Contain("action=\"ReadOutput\"");
         var taskId = ExtractAttribute(startXml!, "background_task_id");
-
-        await registry.WhenIdleAsync();
 
         var list = await toolharness.ExecuteCommand(
             action: ExecuteCommandAction.ListBackground,
@@ -539,6 +944,9 @@ public sealed class ExecuteCommandTests : IDisposable
             context: CreateContext(runner, backgroundTasks: registry, sessionId: $"other-{Guid.NewGuid():N}"));
         otherSessionList.ToString().Should().Contain("count=\"0\"");
 
+        completion.SetResult(CreateResult(stdout: "server ready\n", exitCode: 0));
+        await registry.WhenIdleAsync();
+
         var read = await toolharness.ExecuteCommand(
             action: ExecuteCommandAction.ReadOutput,
             backgroundTaskId: taskId,
@@ -546,6 +954,241 @@ public sealed class ExecuteCommandTests : IDisposable
         var readXml = read.ToString();
         readXml.Should().Contain("server ready");
         readXml.Should().Contain("status=\"completed\"");
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_BackgroundRun_ImmediateExitReturnsCommandResult()
+    {
+        var sessionId = $"session-{Guid.NewGuid():N}";
+        var runner = new FakeProcessProvider
+        {
+            Result = CreateResult(
+                stderr: "PermissionError: [Errno 1] Operation not permitted\n",
+                exitCode: 1)
+        };
+        var registry = new TestBackgroundTaskRegistry();
+        var context = CreateContext(runner, backgroundTasks: registry, sessionId: sessionId);
+        var exited = new List<ExecuteCommandProcessExitedEvent>();
+        using var exitedSub = context.EventCoordinator!.Subscribe<ExecuteCommandProcessExitedEvent>(evt =>
+        {
+            exited.Add(evt);
+            return ValueTask.CompletedTask;
+        });
+        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        {
+            BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
+        });
+
+        var result = await toolharness.ExecuteCommand(
+            context: context,
+            command: "python3 -m http.server 8080",
+            runInBackground: true);
+        var xml = result.ToString();
+
+        xml.Should().NotContain("background_task_id=\"");
+        xml.Should().Contain("exit_code=\"1\"");
+        xml.Should().Contain("PermissionError");
+        xml.Should().Contain("Command failed with exit code 1.");
+        exited.Should().ContainSingle()
+            .Which.ExitCode.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_BackgroundRun_LocalBindingSandboxApprovalRetriesAsBackground()
+    {
+        var sessionId = $"session-{Guid.NewGuid():N}";
+        var serverCompletion = new TaskCompletionSource<ProcessInvocationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runner = new FakeProcessProvider
+        {
+            Completions =
+            [
+                Task.FromResult(CreateResult(
+                    stderr: "PermissionError: [Errno 1] Operation not permitted\n  self.socket.bind(self.server_address)\n",
+                    exitCode: 1)),
+                serverCompletion.Task
+            ]
+        };
+        var registry = new TestBackgroundTaskRegistry();
+        var coordinator = new EventCoordinator();
+        using var sandboxSubscription = coordinator.Subscribe<ExecuteCommandSandboxCapabilityRequestEvent>(request =>
+        {
+            request.Capability.Should().Be(ExecuteCommandSandboxCapabilityKind.LocalBinding);
+            var result = coordinator.Respond(new ExecuteCommandSandboxCapabilityResponseEvent(
+                request.RequestId,
+                request.SourceName,
+                true));
+            result.Accepted.Should().BeTrue(result.Message);
+            return ValueTask.CompletedTask;
+        });
+        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        {
+            BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
+        });
+
+        var start = await toolharness.ExecuteCommand(
+            context: CreateContext(runner, backgroundTasks: registry, eventCoordinator: coordinator, sessionId: sessionId),
+            command: "python3 -m http.server 8000",
+            runInBackground: true);
+        var startXml = start.ToString();
+
+        startXml.Should().Contain("background=\"true\"");
+        startXml.Should().Contain("background_task_id=\"");
+        runner.StartCalls.Should().Be(2);
+        runner.LastSpec.Should().NotBeNull();
+        runner.LastSpec!.Isolation.Interactive.AllowLocalBinding.Should().BeTrue();
+
+        serverCompletion.SetResult(CreateResult(stdout: "serving\n", exitCode: 0));
+        await registry.WhenIdleAsync();
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_ReadOutput_RequiresSameSessionBackgroundOwnership()
+    {
+        var ownerSessionId = $"session-{Guid.NewGuid():N}";
+        var otherSessionId = $"session-{Guid.NewGuid():N}";
+        var completion = new TaskCompletionSource<ProcessInvocationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runner = new FakeProcessProvider
+        {
+            Completion = completion.Task
+        };
+        var registry = new TestBackgroundTaskRegistry();
+        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        {
+            BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
+        });
+
+        var start = await toolharness.ExecuteCommand(
+            context: CreateContext(runner, backgroundTasks: registry, sessionId: ownerSessionId),
+            command: "npm run dev",
+            runInBackground: true);
+        var taskId = ExtractAttribute(start.ToString()!, "background_task_id");
+
+        completion.SetResult(CreateResult(stdout: "private output\n", exitCode: 0));
+        await registry.WhenIdleAsync();
+
+        var otherSessionRead = await toolharness.ExecuteCommand(
+            action: ExecuteCommandAction.ReadOutput,
+            backgroundTaskId: taskId,
+            context: CreateContext(runner, backgroundTasks: registry, sessionId: otherSessionId));
+        var ownerRead = await toolharness.ExecuteCommand(
+            action: ExecuteCommandAction.ReadOutput,
+            backgroundTaskId: taskId,
+            context: CreateContext(runner, backgroundTasks: registry, sessionId: ownerSessionId));
+
+        otherSessionRead.ToString().Should().Contain("kind=\"background_task_not_found\"");
+        otherSessionRead.ToString().Should().Contain("Background command was not found for this session.");
+        ownerRead.ToString().Should().Contain("private output");
+        runner.StartCalls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_Stop_RequiresSameSessionBackgroundOwnership()
+    {
+        var ownerSessionId = $"session-{Guid.NewGuid():N}";
+        var otherSessionId = $"session-{Guid.NewGuid():N}";
+        var completion = new TaskCompletionSource<ProcessInvocationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runner = new FakeProcessProvider
+        {
+            Completion = completion.Task
+        };
+        var registry = new TestBackgroundTaskRegistry(startTasks: false);
+        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        {
+            BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
+        });
+
+        var start = await toolharness.ExecuteCommand(
+            context: CreateContext(runner, backgroundTasks: registry, sessionId: ownerSessionId),
+            command: "npm run dev",
+            runInBackground: true);
+        var taskId = ExtractAttribute(start.ToString()!, "background_task_id");
+
+        var otherSessionStop = await toolharness.ExecuteCommand(
+            action: ExecuteCommandAction.Stop,
+            backgroundTaskId: taskId,
+            context: CreateContext(runner, backgroundTasks: registry, sessionId: otherSessionId));
+
+        otherSessionStop.ToString().Should().Contain("kind=\"background_task_not_found\"");
+        runner.LastHandle.Should().NotBeNull();
+        runner.LastHandle!.StopCalls.Should().Be(0);
+
+        completion.SetResult(CreateResult(stdout: "stopped\n", exitCode: null, completionKind: ProcessCompletionKind.Stopped));
+        var ownerStop = await toolharness.ExecuteCommand(
+            action: ExecuteCommandAction.Stop,
+            backgroundTaskId: taskId,
+            context: CreateContext(runner, backgroundTasks: registry, sessionId: ownerSessionId));
+
+        ownerStop.ToString().Should().Contain("completion_kind=\"stopped\"");
+        runner.LastHandle.StopCalls.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(ExecuteCommandAction.ListBackground, null)]
+    [InlineData(ExecuteCommandAction.ReadOutput, "cmd_missing")]
+    [InlineData(ExecuteCommandAction.Stop, "cmd_missing")]
+    public async Task ExecuteCommandPermissionBoundary_NonRunActionsDoNotPromptOrStartNewProcess(
+        ExecuteCommandAction action,
+        string? backgroundTaskId)
+    {
+        var runner = new FakeProcessProvider();
+        var promptCount = 0;
+        var coordinator = new EventCoordinator();
+        using var subscription = coordinator.Subscribe<ExecuteCommandPermissionRequestEvent>(_ =>
+        {
+            promptCount++;
+            return ValueTask.CompletedTask;
+        });
+        var function = CreateExecuteCommandFunction();
+        var runConfig = CreateWorkspaceRunConfig();
+        var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
+        var agentContext = new AgentContext(
+            "AgentA",
+            "conversation-1",
+            state,
+            coordinator,
+            new Session("session-1"),
+            new Thread("session-1") { Id = "thread-1" },
+            CancellationToken.None);
+        agentContext.RuntimeCapabilities.Set<IProcessProvider>(runner);
+        var arguments = new Dictionary<string, object?> { ["action"] = action };
+        if (backgroundTaskId is not null)
+            arguments["backgroundTaskId"] = backgroundTaskId;
+
+        var beforeContext = agentContext.AsBeforeFunction(
+            function,
+            "call-1",
+            arguments,
+            runConfig,
+            toolharnessName: nameof(CodingToolHarness),
+            skillName: null);
+        await new ExecuteCommandPermissionMiddleware()
+            .BeforeFunctionAsync(beforeContext, CancellationToken.None)
+            .ConfigureAwait(false);
+
+        beforeContext.BlockExecution.Should().BeFalse();
+        promptCount.Should().Be(0);
+        var executionContext = new FunctionExecutionContext(
+            beforeContext,
+            new FunctionRequest
+            {
+                Function = function,
+                CallId = "call-1",
+                Arguments = arguments,
+                State = agentContext.State,
+                RunConfig = runConfig,
+                ResultMetadata = new ToolResultMetadata(),
+                EventCoordinator = coordinator
+            });
+
+        var result = await new CodingToolHarness()
+            .ExecuteCommand(
+                action: action,
+                backgroundTaskId: backgroundTaskId,
+                context: executionContext)
+            .ConfigureAwait(false);
+
+        result.ToString().Should().NotContain("<execute_command_permission_denied");
+        runner.StartCalls.Should().Be(0);
     }
 
     [Fact]
@@ -560,7 +1203,8 @@ public sealed class ExecuteCommandTests : IDisposable
         var registry = new TestBackgroundTaskRegistry(startTasks: false);
         var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
-            MaxActiveBackgroundCommands = 1
+            MaxActiveBackgroundCommands = 1,
+            BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
 
         var first = await toolharness.ExecuteCommand(
@@ -583,12 +1227,16 @@ public sealed class ExecuteCommandTests : IDisposable
     public async Task ExecuteCommand_StopBackgroundCommand_CallsProcessStop()
     {
         var sessionId = $"session-{Guid.NewGuid():N}";
+        var completion = new TaskCompletionSource<ProcessInvocationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var runner = new FakeProcessProvider
         {
-            Result = CreateResult(stdout: "stopped\n", exitCode: null, completionKind: ProcessCompletionKind.Stopped)
+            Completion = completion.Task
         };
         var registry = new TestBackgroundTaskRegistry(startTasks: false);
-        var toolharness = new CodingToolHarness();
+        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        {
+            BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
+        });
 
         var start = await toolharness.ExecuteCommand(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId),
@@ -596,6 +1244,7 @@ public sealed class ExecuteCommandTests : IDisposable
             runInBackground: true);
         var taskId = ExtractAttribute(start.ToString()!, "background_task_id");
 
+        completion.SetResult(CreateResult(stdout: "stopped\n", exitCode: null, completionKind: ProcessCompletionKind.Stopped));
         var stop = await toolharness.ExecuteCommand(
             action: ExecuteCommandAction.Stop,
             backgroundTaskId: taskId,
@@ -792,7 +1441,8 @@ public sealed class ExecuteCommandTests : IDisposable
         IAgentBackgroundTaskRegistry? backgroundTasks = null,
         string sessionId = "session-1",
         AgentRunConfig? runConfig = null,
-        IContentStore? contentStore = null)
+        IContentStore? contentStore = null,
+        EventCoordinator? eventCoordinator = null)
     {
         var function = AIFunctionFactory.Create(
             () => "ok",
@@ -805,7 +1455,7 @@ public sealed class ExecuteCommandTests : IDisposable
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
         var session = new Session(sessionId) { Store = sessionStore };
         var thread = new Thread(sessionId) { Id = "thread-1" };
-        var eventCoordinator = new EventCoordinator();
+        eventCoordinator ??= new EventCoordinator();
         var agentContext = new AgentContext(
             "AgentA",
             "conversation-1",
@@ -841,6 +1491,85 @@ public sealed class ExecuteCommandTests : IDisposable
 
         return new FunctionExecutionContext(beforeContext, request);
     }
+
+    private async Task<object> InvokeExecuteCommandThroughPermissionBoundaryAsync(
+        FakeProcessProvider runner,
+        string command,
+        Func<ExecuteCommandPermissionRequestEvent, string> choiceSelector,
+        AgentRunConfig? runConfig = null)
+    {
+        runConfig ??= CreateWorkspaceRunConfig();
+        var coordinator = new EventCoordinator();
+        using var subscription = RespondToPermissionRequests(coordinator, choiceSelector);
+        var function = CreateExecuteCommandFunction();
+        var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
+        var session = new Session("session-1");
+        var thread = new Thread("session-1") { Id = "thread-1" };
+        var agentContext = new AgentContext(
+            "AgentA",
+            "conversation-1",
+            state,
+            coordinator,
+            session,
+            thread,
+            CancellationToken.None);
+        agentContext.RuntimeCapabilities.Set<IProcessProvider>(runner);
+
+        var arguments = new Dictionary<string, object?> { ["command"] = command };
+        var beforeContext = agentContext.AsBeforeFunction(
+            function,
+            "call-1",
+            arguments,
+            runConfig,
+            toolharnessName: nameof(CodingToolHarness),
+            skillName: null);
+        await new ExecuteCommandPermissionMiddleware()
+            .BeforeFunctionAsync(beforeContext, CancellationToken.None)
+            .ConfigureAwait(false);
+
+        if (beforeContext.BlockExecution)
+            return beforeContext.OverrideResult!;
+
+        var request = new FunctionRequest
+        {
+            Function = function,
+            CallId = "call-1",
+            Arguments = arguments,
+            State = agentContext.State,
+            RunConfig = runConfig,
+            ResultMetadata = new ToolResultMetadata(),
+            EventCoordinator = coordinator
+        };
+        var executionContext = new FunctionExecutionContext(beforeContext, request);
+
+        return await new CodingToolHarness()
+            .ExecuteCommand(context: executionContext, command: command)
+            .ConfigureAwait(false);
+    }
+
+    private static AIFunction CreateExecuteCommandFunction()
+        => AIFunctionFactory.Create(
+            () => "ok",
+            new AIFunctionFactoryOptions
+            {
+                Name = nameof(CodingToolHarness.ExecuteCommand),
+                Description = "Test ExecuteCommand function"
+            });
+
+    private static IDisposable RespondToPermissionRequests(
+        EventCoordinator coordinator,
+        Func<ExecuteCommandPermissionRequestEvent, string> choiceSelector)
+        => coordinator.Subscribe<ExecuteCommandPermissionRequestEvent>(request =>
+        {
+            var choiceId = choiceSelector(request);
+            request.AvailableChoices.Should().Contain(choice => choice.Id == choiceId);
+            var result = coordinator.Respond(new ExecuteCommandPermissionResponseEvent(
+                request.PermissionId,
+                request.SourceName,
+                choiceId));
+            result.Accepted.Should().BeTrue(result.Message);
+            return ValueTask.CompletedTask;
+        });
 
     private static AgentRunConfig CreateWorkspaceRunConfig(string? defaultRoot = null, string? docsRoot = null)
     {
@@ -967,7 +1696,9 @@ public sealed class ExecuteCommandTests : IDisposable
         public FakeProcessHandle? LastHandle { get; private set; }
         public int StartCalls { get; private set; }
         public ProcessInvocationResult Result { get; init; } = CreateResult(stdout: "");
+        public IReadOnlyList<ProcessInvocationResult>? Results { get; init; }
         public Task<ProcessInvocationResult>? Completion { get; init; }
+        public IReadOnlyList<Task<ProcessInvocationResult>>? Completions { get; init; }
         public bool EmitOutputEvents { get; init; }
         public IReadOnlyList<string> OutputChunks { get; init; } = [];
 
@@ -979,7 +1710,13 @@ public sealed class ExecuteCommandTests : IDisposable
             StartCalls++;
             LastSpec = spec;
             LastOutputSink = output;
-            LastHandle = new FakeProcessHandle(spec, Completion ?? Task.FromResult(Result));
+            var result = Results is { Count: > 0 }
+                ? Results[Math.Min(StartCalls - 1, Results.Count - 1)]
+                : Result;
+            var completion = Completions is { Count: > 0 }
+                ? Completions[Math.Min(StartCalls - 1, Completions.Count - 1)]
+                : Completion ?? Task.FromResult(result);
+            LastHandle = new FakeProcessHandle(spec, completion);
             if (EmitOutputEvents && output is not null)
             {
                 foreach (var chunk in OutputChunks)
@@ -1052,30 +1789,17 @@ public sealed class ExecuteCommandTests : IDisposable
     {
         private readonly List<Task> _tasks = [];
 
-        public void RegisterBackgroundTask(Task task)
-        {
-            _tasks.Add(task);
-        }
-
-        public void RegisterBackgroundTask(Func<CancellationToken, Task> taskFactory)
-        {
-            if (startTasks)
-                _tasks.Add(taskFactory(CancellationToken.None));
-        }
-
         public void RegisterBackgroundTask(
-            string name,
-            FunctionInvocationSnapshot invocation,
-            Func<FunctionBackgroundContext, CancellationToken, Task> taskFactory)
+            BackgroundTaskDescriptor descriptor,
+            Func<BackgroundTaskContext, CancellationToken, Task> taskFactory)
         {
             if (!startTasks)
                 return;
 
-            var backgroundContext = new FunctionBackgroundContext
+            var backgroundContext = new BackgroundTaskContext
             {
                 TaskId = Guid.NewGuid().ToString("N"),
-                Name = name,
-                Invocation = invocation,
+                Descriptor = descriptor,
                 EventCoordinator = new EventCoordinator()
             };
             _tasks.Add(taskFactory(backgroundContext, CancellationToken.None));

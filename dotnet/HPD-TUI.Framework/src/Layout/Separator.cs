@@ -45,12 +45,9 @@ public sealed class Separator : IComponent
         output.Write(buffer, style);
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     public static Separator Create(string? title = null) => new(title);

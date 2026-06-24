@@ -52,12 +52,6 @@ public sealed class AgentStreamingService : IAgentStreamingService
         var agent = lease.Value!.Agent;
         input = ApplyRouteScope(input, agentId, sessionId, threadId, run.RuntimeRunId);
 
-        var startedEvent = new ThreadRunStartedEvent(run.RuntimeRunId, agentId, run.StartedAt)
-        {
-            SessionId = sessionId,
-            ThreadId = threadId
-        };
-
         IDisposable? completionSubscription = null;
         completionSubscription = agent.SubscribeAny(evt =>
         {
@@ -73,43 +67,13 @@ public sealed class AgentStreamingService : IAgentStreamingService
 
         try
         {
-            await _sessionManager.Store.AppendThreadEventAsync(
-                sessionId,
-                threadId,
-                startedEvent,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            await agent.StartAsync(cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            await agent.StartAsync(input.RunConfig, CancellationToken.None).ConfigureAwait(false);
             await agent.RunAsync(input, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch
         {
             completionSubscription.Dispose();
             _sessionManager.CompleteThreadRun(sessionId, threadId, run.RuntimeRunId);
-            var completedEvent = new ThreadRunCompletedEvent(
-                run.RuntimeRunId,
-                agentId,
-                ex is OperationCanceledException,
-                ex.GetType().Name,
-                ex.Message)
-            {
-                SessionId = sessionId,
-                ThreadId = threadId
-            };
-
-            try
-            {
-                await _sessionManager.Store.AppendThreadEventAsync(
-                    sessionId,
-                    threadId,
-                    completedEvent,
-                    cancellationToken: CancellationToken.None).ConfigureAwait(false);
-            }
-            catch
-            {
-                // Preserve the original submission failure.
-            }
-
             throw;
         }
 
@@ -164,14 +128,25 @@ public sealed class AgentStreamingService : IAgentStreamingService
                 AgentId = agentId,
                 SessionId = sessionId,
                 ThreadId = threadId,
-                RuntimeRunId = runtimeRunId ?? messages.RuntimeRunId
+                RuntimeRunId = runtimeRunId ?? messages.RuntimeRunId,
+                RunConfig = messages.RunConfig
             },
             InterruptionRequestEvent interruption => interruption with
             {
                 AgentId = agentId,
                 SessionId = sessionId,
                 ThreadId = threadId,
-                RuntimeRunId = runtimeRunId ?? interruption.RuntimeRunId
+                RuntimeRunId = runtimeRunId ?? interruption.RuntimeRunId,
+                RunConfig = interruption.RunConfig
+            },
+            BackgroundTaskNotificationInputEvent notification => notification with
+            {
+                ClientInputId = notification.ClientInputId,
+                AgentId = agentId,
+                SessionId = sessionId,
+                ThreadId = threadId,
+                RuntimeRunId = runtimeRunId ?? notification.RuntimeRunId,
+                RunConfig = notification.RunConfig
             },
             _ => input
         };

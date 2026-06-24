@@ -176,14 +176,13 @@ public sealed class FileMutationTuiPerformanceTests
 
     private static List<TranscriptEntry> ReadRows(TranscriptModel model)
     {
-        var rows = new List<TranscriptEntry>();
-        model.CopyTo(rows);
+        var rows = model.Snapshot().Entries.ToList();
         return rows;
     }
 
     private static string RenderTranscript(AgentTuiSessionState state, int width = 100, int height = 24)
         => TuiCapture.RenderToString(
-            new TranscriptView(state.Shell.Transcript, DefaultTranscriptRenderers(), height: height - 2),
+            new TranscriptHistoryView(state.Shell.Transcript, DefaultTranscriptRenderers(), height: height - 2),
             width: width,
             height: height,
             trimTrailingBlankLines: true);

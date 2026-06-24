@@ -201,12 +201,9 @@ public sealed class AgentTuiTranscriptRenderServices
             _body.Render(in context, bodyWidth, ref prefixedOutput);
         }
 
-        public void HandleInput(in KeyEvent key)
+        public bool HandleInput(in TuiInputEvent key)
         {
-        }
-
-        public void Invalidate()
-        {
+            return _body.HandleInput(in key);
         }
     }
 
@@ -248,12 +245,9 @@ public sealed class AgentTuiTranscriptRenderServices
             WriteWrappedText(_text, bodyWidth, GetTextStyle(_textStyle, context.Theme), ref prefixedOutput);
         }
 
-        public void HandleInput(in KeyEvent key)
+        public bool HandleInput(in TuiInputEvent key)
         {
-        }
-
-        public void Invalidate()
-        {
+            return false;
         }
     }
 

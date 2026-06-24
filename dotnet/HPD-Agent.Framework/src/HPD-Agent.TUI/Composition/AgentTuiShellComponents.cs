@@ -52,11 +52,8 @@ internal sealed class ShellText : IComponent
         output.Write(value.AsSpan(0, Math.Min(value.Length, maxWidth)), context.Theme.Text);
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 }

@@ -7,45 +7,47 @@ namespace HPD.Agent.TUI.Tests;
 public sealed class TranscriptModelTests
 {
     [Fact]
-    public void Update_ReplacesExistingKeyedRow()
+    public void UpsertLive_ReplacesExistingKeyedLiveEntry()
     {
         var model = new TranscriptModel();
-        model.Append(Row("1", "tool:1", "running"));
+        model.UpsertLive(Row("1", "tool:1", "running"));
 
-        model.Update(Row("2", "tool:1", "completed"));
+        model.UpsertLive(Row("2", "tool:1", "still running"));
 
-        var rows = new List<TranscriptEntry>();
-        model.CopyTo(rows);
+        var rows = model.Snapshot().Entries;
         rows.Should().ContainSingle();
         rows[0].Id.Should().Be("2");
+        rows[0].State.Should().Be(TranscriptEntryState.Live);
         rows[0].Cell.Should().BeOfType<NoticeCell>()
-            .Which.Title.Should().Be("completed");
+            .Which.Title.Should().Be("still running");
     }
 
     [Fact]
-    public void Append_WhenScrolledUp_PreservesCurrentScrollbackPosition()
+    public void FinalizeLive_ReplacesLiveEntryWithFinalEntry()
     {
         var model = new TranscriptModel();
-        model.Append(Row("1", null, "first"));
-        model.Append(Row("2", null, "second"));
-        model.ScrollUp(1);
+        model.UpsertLive(Row("1", "tool:1", "running"));
 
-        model.Append(Row("3", null, "third"));
+        model.FinalizeLive("tool:1", Row("2", "tool:1", "completed"));
 
-        model.ViewOffsetRowsFromBottom.Should().Be(2);
+        var rows = model.Snapshot().Entries;
+        rows.Should().ContainSingle();
+        rows[0].Id.Should().Be("2");
+        rows[0].State.Should().Be(TranscriptEntryState.Final);
+        rows[0].CommitPolicy.Should().Be(TranscriptCommitPolicy.Immediate);
     }
 
     [Fact]
-    public void ScrollToBottom_ClearsScrollbackOffset()
+    public void ClearAll_IncrementsHistoryEpoch()
     {
         var model = new TranscriptModel();
-        model.Append(Row("1", null, "first"));
-        model.Append(Row("2", null, "second"));
-        model.ScrollUp(10);
+        model.AddFinal(Row("1", null, "first"));
+        var before = model.HistoryEpoch;
 
-        model.ScrollToBottom();
+        model.ClearAll();
 
-        model.ViewOffsetRowsFromBottom.Should().Be(0);
+        model.Snapshot().Entries.Should().BeEmpty();
+        model.HistoryEpoch.Should().Be(before + 1);
     }
 
     [Fact]

@@ -46,20 +46,17 @@ public sealed class Stack : IComponent
         RenderHorizontal(in context, maxWidth, ref output);
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
         foreach (var child in _children)
         {
-            child.HandleInput(in key);
+            if (child.HandleInput(in key))
+            {
+                return true;
+            }
         }
-    }
 
-    public void Invalidate()
-    {
-        foreach (var child in _children)
-        {
-            child.Invalidate();
-        }
+        return false;
     }
 
     private Measurement MeasureVertical(in RenderContext context, int maxWidth)

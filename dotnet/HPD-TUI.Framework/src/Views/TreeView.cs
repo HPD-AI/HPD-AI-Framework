@@ -73,13 +73,10 @@ public sealed class TreeView<T> : IFocusable
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-        _controller.HandleInput(in key);
-    }
-
-    public void Invalidate()
-    {
+        var keyEvent = key.KeyEvent;
+        return _controller.HandleInput(in keyEvent);
     }
 
     public static TreeView<T> Create(IEnumerable<TreeNode<T>> roots)

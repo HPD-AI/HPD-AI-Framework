@@ -34,6 +34,9 @@ public sealed record ThreadRunProjectionBackgroundOperation(
 public sealed record ThreadRunProjectionBackgroundTask(
     string TaskId,
     string Name,
+    string SourceKind,
+    string? SourceId,
+    string NotificationPolicy,
     string Status,
     DateTimeOffset? StartedAt,
     DateTimeOffset? CompletedAt,
@@ -88,24 +91,24 @@ public static class ThreadRunProjector
                     current?.SetBackgroundOperationStatus(status);
                     break;
 
-                case ToolCallBackgroundTaskStartedEvent started:
+                case BackgroundTaskStartedEvent started:
                     current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadRunStatus.Active);
-                    current?.SetTask(started.TaskId, started.Name, "started", started.StartedAt);
+                    current?.SetTask(started.TaskId, started.Name, started.SourceKind, started.SourceId, started.NotificationPolicy, "started", started.StartedAt);
                     break;
 
-                case ToolCallBackgroundTaskCompletedEvent completed:
+                case BackgroundTaskCompletedEvent completed:
                     current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadRunStatus.Active);
-                    current?.SetTask(completed.TaskId, completed.Name, "completed", completed.CompletedAt);
+                    current?.SetTask(completed.TaskId, completed.Name, completed.SourceKind, completed.SourceId, completed.NotificationPolicy, "completed", completed.CompletedAt);
                     break;
 
-                case ToolCallBackgroundTaskCancelledEvent cancelled:
+                case BackgroundTaskCancelledEvent cancelled:
                     current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadRunStatus.Active);
-                    current?.SetTask(cancelled.TaskId, cancelled.Name, "cancelled", cancelled.CancelledAt);
+                    current?.SetTask(cancelled.TaskId, cancelled.Name, cancelled.SourceKind, cancelled.SourceId, cancelled.NotificationPolicy, "cancelled", cancelled.CancelledAt);
                     break;
 
-                case ToolCallBackgroundTaskFaultedEvent faulted:
+                case BackgroundTaskFaultedEvent faulted:
                     current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadRunStatus.Active);
-                    current?.SetTask(faulted.TaskId, faulted.Name, "faulted", faulted.FaultedAt, faulted.ExceptionType, faulted.ErrorMessage);
+                    current?.SetTask(faulted.TaskId, faulted.Name, faulted.SourceKind, faulted.SourceId, faulted.NotificationPolicy, "faulted", faulted.FaultedAt, faulted.ExceptionType, faulted.ErrorMessage);
                     break;
             }
         }
@@ -187,6 +190,9 @@ public static class ThreadRunProjector
         public void SetTask(
             string taskId,
             string name,
+            BackgroundTaskSourceKind sourceKind,
+            string? sourceId,
+            BackgroundTaskNotificationPolicy notificationPolicy,
             string status,
             DateTimeOffset timestamp,
             string? errorType = null,
@@ -194,10 +200,13 @@ public static class ThreadRunProjector
         {
             if (!_tasks.TryGetValue(taskId, out var task))
             {
-                task = new ThreadRunProjectionBackgroundTaskBuilder(taskId, name);
+                task = new ThreadRunProjectionBackgroundTaskBuilder(taskId, name, sourceKind, sourceId, notificationPolicy);
                 _tasks[taskId] = task;
             }
 
+            task.SourceKind = sourceKind;
+            task.SourceId = sourceId;
+            task.NotificationPolicy = notificationPolicy;
             task.Status = status;
             task.ErrorType = errorType;
             task.ErrorMessage = errorMessage;
@@ -221,13 +230,29 @@ public static class ThreadRunProjector
     private sealed class ThreadRunProjectionBackgroundTaskBuilder
     {
         public ThreadRunProjectionBackgroundTaskBuilder(string taskId, string name)
+            : this(taskId, name, BackgroundTaskSourceKind.Other, null, BackgroundTaskNotificationPolicy.None)
+        {
+        }
+
+        public ThreadRunProjectionBackgroundTaskBuilder(
+            string taskId,
+            string name,
+            BackgroundTaskSourceKind sourceKind,
+            string? sourceId,
+            BackgroundTaskNotificationPolicy notificationPolicy)
         {
             TaskId = taskId;
             Name = name;
+            SourceKind = sourceKind;
+            SourceId = sourceId;
+            NotificationPolicy = notificationPolicy;
         }
 
         public string TaskId { get; }
         public string Name { get; }
+        public BackgroundTaskSourceKind SourceKind { get; set; }
+        public string? SourceId { get; set; }
+        public BackgroundTaskNotificationPolicy NotificationPolicy { get; set; }
         public string Status { get; set; } = "started";
         public DateTimeOffset? StartedAt { get; private set; }
         public DateTimeOffset? CompletedAt { get; private set; }
@@ -249,6 +274,18 @@ public static class ThreadRunProjector
         }
 
         public ThreadRunProjectionBackgroundTask ToProjection() =>
-            new(TaskId, Name, Status, StartedAt, CompletedAt, CancelledAt, FaultedAt, ErrorType, ErrorMessage);
+            new(
+                TaskId,
+                Name,
+                SourceKind.ToString(),
+                SourceId,
+                NotificationPolicy.ToString(),
+                Status,
+                StartedAt,
+                CompletedAt,
+                CancelledAt,
+                FaultedAt,
+                ErrorType,
+                ErrorMessage);
     }
 }

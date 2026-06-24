@@ -19,7 +19,7 @@ public sealed class AgentTuiPerformanceDiagnosticsTests
     public void TranscriptView_WhenSinkIsConfigured_PublishesDiagnosticEvent()
     {
         var model = new TranscriptModel();
-        model.Append(Row("latest"));
+        model.AddFinal(Row("latest"));
         var sink = new RecordingSink();
         var scope = new AgentTuiRuntimeScope("agent-1", "session-1", "thread-1");
 
@@ -52,7 +52,7 @@ public sealed class AgentTuiPerformanceDiagnosticsTests
             .Build();
         var scope = new AgentTuiRuntimeScope("agent-1", "session-1", "thread-1");
         var shell = new ChatShellModel(scope);
-        shell.Transcript.Append(Row("from shell"));
+        shell.Transcript.AddFinal(Row("from shell"));
         var state = new AgentTuiStateBag();
         var sink = new RecordingSink();
         AgentTuiPerformanceDiagnostics.SetSink(state, sink);
@@ -145,7 +145,7 @@ public sealed class AgentTuiPerformanceDiagnosticsTests
             writer);
         var scope = new AgentTuiRuntimeScope("agent-1", "session-1", "thread-1");
         var shell = new ChatShellModel(scope);
-        shell.Transcript.Append(Row("from shell"));
+        shell.Transcript.AddFinal(Row("from shell"));
 
         var view = registry.ShellLayout.Create(new AgentTuiShellLayoutContext(
             shell,

@@ -10,8 +10,6 @@ public sealed class NormalTerminalTuiRenderer : IDisposable
     private static readonly char[] BeginSynchronizedOutput = ['\x1b', '[', '?', '2', '0', '2', '6', 'h'];
     private static readonly char[] EndSynchronizedOutput = ['\x1b', '[', '?', '2', '0', '2', '6', 'l'];
     private static readonly char[] ClearScreenAndCursorHome = ['\x1b', '[', '2', 'J', '\x1b', '[', 'H'];
-    private static readonly char[] ClearScrollbackScreenAndCursorHome = ['\x1b', '[', '3', 'J', '\x1b', '[', '2', 'J', '\x1b', '[', 'H'];
-
     private readonly ITerminal _terminal;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly AnsiFrameWriter _output = new();
@@ -35,15 +33,15 @@ public sealed class NormalTerminalTuiRenderer : IDisposable
 
     public IHpdTuiPerformanceEventSink? PerformanceSink { get; set; }
 
-    public void Render(IComponent root, Theme? theme, int virtualHeight)
+    public void Render(IComponent root, Theme? theme, NormalTerminalRenderBounds bounds)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(root);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(virtualHeight);
 
         var sink = PerformanceSink;
         var startTimestamp = sink is null ? 0 : Stopwatch.GetTimestamp();
         var size = _terminal.GetSize();
+        var virtualHeight = bounds.ResolveRows(size);
         EnsureGrid(size.Width, virtualHeight);
 
         _currentGrid!.Clear();
@@ -59,7 +57,7 @@ public sealed class NormalTerminalTuiRenderer : IDisposable
             _previousVirtualHeight != virtualHeight);
         if (!_hasPreviousFrame || sizeChanged)
         {
-            FullRender(size, usedLines, clearScrollback: sizeChanged);
+            FullRender(size, usedLines);
             PublishRenderCompleted(sink, startTimestamp, usedLines, writer.Count);
             return;
         }
@@ -104,11 +102,12 @@ public sealed class NormalTerminalTuiRenderer : IDisposable
             CacheMisses: 0));
     }
 
-    private void FullRender(TerminalSize size, int usedLines, bool clearScrollback = false)
+    private void FullRender(TerminalSize size, int usedLines)
     {
+        var viewportTop = GetViewportTop(usedLines, size.Height);
         WriteFrame(BuildFullFrame);
 
-        _previousViewportTop = GetViewportTop(usedLines, size.Height);
+        _previousViewportTop = viewportTop;
         _hardwareCursorRow = Math.Max(0, usedLines - 1);
         CommitFrame(size, _currentGrid!.Height, usedLines);
         PositionHardwareCursor(_previousGrid!, usedLines);
@@ -116,8 +115,8 @@ public sealed class NormalTerminalTuiRenderer : IDisposable
         void BuildFullFrame(AnsiFrameWriter output)
         {
             output.Write(BeginSynchronizedOutput);
-            output.Write(clearScrollback ? ClearScrollbackScreenAndCursorHome : ClearScreenAndCursorHome);
-            WriteLines(output, _currentGrid!, 0, usedLines - 1);
+            output.Write(ClearScreenAndCursorHome);
+            WriteLines(output, _currentGrid!, viewportTop, usedLines - 1);
             output.Write(EndSynchronizedOutput);
         }
     }

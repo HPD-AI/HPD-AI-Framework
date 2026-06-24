@@ -35,7 +35,7 @@ internal static class SampleContributions
         ChatShellModel shell,
         string text)
     {
-        shell.Transcript.Append(new TranscriptEntry(
+        shell.Transcript.AddFinal(new TranscriptEntry(
             Id: $"sample-tui-{Guid.NewGuid():N}",
             EntryKey: null,
             Cell: new NoticeCell("demo", new Text(text)),

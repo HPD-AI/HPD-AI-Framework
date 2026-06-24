@@ -133,6 +133,39 @@ public sealed class CommandAndPromptTests
     }
 
     [Fact]
+    public void PromptController_PasteDisplaysSummaryAndSubmitsOriginalText()
+    {
+        ReadOnlyMemory<char> submitted = default;
+        var model = new PromptModel();
+        var controller = new PromptController(model) { Submitted = value => submitted = value };
+
+        controller.HandleInput(new KeyEvent(KeyCode.Paste, Text: "alpha beta\ngamma"));
+
+        Assert.Equal("(pasted 3 words)", model.Value);
+        Assert.Equal("alpha beta\ngamma", model.SubmittedValue);
+
+        controller.HandleInput(new KeyEvent(KeyCode.Enter));
+
+        Assert.Equal("alpha beta\ngamma", submitted.ToString());
+        Assert.Equal("", model.Value);
+    }
+
+    [Fact]
+    public void PromptController_PasteMarkerEditsAsAtomicPart()
+    {
+        var model = new PromptModel();
+        var controller = new PromptController(model);
+
+        controller.HandleInput(new KeyEvent(KeyCode.Paste, Text: "alpha beta"));
+        controller.HandleInput(new KeyEvent(KeyCode.LeftArrow));
+        controller.HandleInput(new KeyEvent(KeyCode.RightArrow));
+        controller.HandleInput(new KeyEvent(KeyCode.Backspace));
+
+        Assert.Equal("", model.Value);
+        Assert.Equal("", model.SubmittedValue);
+    }
+
+    [Fact]
     public void SlashCommandAutocompleteProvider_CompletesCommandName()
     {
         var model = new PromptModel();
@@ -229,6 +262,28 @@ public sealed class CommandAndPromptTests
         view.Render(in context, 8, ref writer);
 
         Assert.Equal("he|llo  ", ReadLine(grid, 0));
+    }
+
+    [Fact]
+    public void PromptView_WrapsLongInputAtBoundary()
+    {
+        var model = new PromptModel();
+        model.SetText("abcdefghijkl");
+        var controller = new PromptController(model);
+        var view = new PromptView(model, controller) { IsFocused = true };
+        var context = new RenderContext(5, 3, Theme.Default);
+        using var grid = new TerminalGrid(5, 3);
+        var writer = new SegmentWriter(grid);
+
+        var measurement = view.Measure(in context, 5);
+        view.Render(in context, 5, ref writer);
+
+        Assert.Equal(3, measurement.Height);
+        Assert.Equal("abcde", ReadLine(grid, 0));
+        Assert.Equal("fghij", ReadLine(grid, 1));
+        Assert.Equal("kl   ", ReadLine(grid, 2));
+        Assert.Equal(2, grid.TerminalCursorX);
+        Assert.Equal(2, grid.TerminalCursorY);
     }
 
     [Fact]

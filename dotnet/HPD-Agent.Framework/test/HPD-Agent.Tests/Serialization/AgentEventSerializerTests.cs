@@ -638,37 +638,45 @@ public class AgentEventSerializerTests
     }
 
     [Fact]
-    public void ToolCallBackgroundTaskEvents_UseToolDiscriminators()
+    public void BackgroundTaskEvents_UseBackgroundTaskDiscriminators()
     {
         var invocation = CreateInvocationSnapshot();
         var events = new AgentEvent[]
         {
-            new ToolCallBackgroundTaskStartedEvent
+            new BackgroundTaskStartedEvent
             {
                 TaskId = "task-1",
                 Name = "work",
+                SourceKind = BackgroundTaskSourceKind.ToolCall,
+                NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault,
                 Invocation = invocation,
                 StartedAt = DateTimeOffset.UnixEpoch
             },
-            new ToolCallBackgroundTaskCompletedEvent
+            new BackgroundTaskCompletedEvent
             {
                 TaskId = "task-1",
                 Name = "work",
+                SourceKind = BackgroundTaskSourceKind.ToolCall,
+                NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault,
                 Invocation = invocation,
                 CompletedAt = DateTimeOffset.UnixEpoch.AddMilliseconds(12),
                 DurationMilliseconds = 12
             },
-            new ToolCallBackgroundTaskCancelledEvent
+            new BackgroundTaskCancelledEvent
             {
                 TaskId = "task-1",
                 Name = "work",
+                SourceKind = BackgroundTaskSourceKind.ToolCall,
+                NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault,
                 Invocation = invocation,
                 CancelledAt = DateTimeOffset.UnixEpoch
             },
-            new ToolCallBackgroundTaskFaultedEvent
+            new BackgroundTaskFaultedEvent
             {
                 TaskId = "task-1",
                 Name = "work",
+                SourceKind = BackgroundTaskSourceKind.ToolCall,
+                NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault,
                 Invocation = invocation,
                 FaultedAt = DateTimeOffset.UnixEpoch,
                 ExceptionType = "System.InvalidOperationException",
@@ -678,10 +686,10 @@ public class AgentEventSerializerTests
 
         var expectedTypes = new[]
         {
-            EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_STARTED,
-            EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_COMPLETED,
-            EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_CANCELLED,
-            EventTypes.Tool.TOOL_CALL_BACKGROUND_TASK_FAULTED
+            EventTypes.BackgroundTask.BACKGROUND_TASK_STARTED,
+            EventTypes.BackgroundTask.BACKGROUND_TASK_COMPLETED,
+            EventTypes.BackgroundTask.BACKGROUND_TASK_CANCELLED,
+            EventTypes.BackgroundTask.BACKGROUND_TASK_FAULTED
         };
 
         for (var i = 0; i < events.Length; i++)
@@ -693,23 +701,28 @@ public class AgentEventSerializerTests
     }
 
     [Fact]
-    public void ToolCallBackgroundTaskStartedEvent_RoundTrips()
+    public void BackgroundTaskStartedEvent_RoundTrips()
     {
-        var evt = new ToolCallBackgroundTaskStartedEvent
+        var evt = new BackgroundTaskStartedEvent
         {
             TaskId = "task-1",
             Name = "work",
+            SourceKind = BackgroundTaskSourceKind.ToolCall,
+            NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault,
             Invocation = CreateInvocationSnapshot(),
             StartedAt = DateTimeOffset.UnixEpoch
         };
 
         var json = AgentEventSerializer.ToJson(evt);
-        var result = Assert.IsType<ToolCallBackgroundTaskStartedEvent>(
+        var result = Assert.IsType<BackgroundTaskStartedEvent>(
             AgentEventSerializer.FromEventJson(json));
 
         Assert.Equal(evt.TaskId, result.TaskId);
         Assert.Equal(evt.Name, result.Name);
-        Assert.Equal(evt.Invocation.BatchId, result.Invocation.BatchId);
+        Assert.Equal(evt.SourceKind, result.SourceKind);
+        Assert.Equal(evt.NotificationPolicy, result.NotificationPolicy);
+        Assert.NotNull(result.Invocation);
+        Assert.Equal(evt.Invocation.BatchId, result.Invocation!.BatchId);
         Assert.Equal(evt.Invocation.ToolCallIndex, result.Invocation.ToolCallIndex);
     }
 

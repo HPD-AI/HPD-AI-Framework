@@ -42,15 +42,14 @@ public sealed class FocusManager
         SetFocusedCore(null);
     }
 
-    public bool HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
         if (_focused is null)
         {
             return false;
         }
 
-        _focused.HandleInput(in key);
-        return true;
+        return _focused.HandleInput(in key);
     }
 
     private void SetFocusedCore(IComponent? component)

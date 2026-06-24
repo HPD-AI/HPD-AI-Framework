@@ -46,23 +46,27 @@ public class AgentThreadRunServiceTests : IDisposable
             SessionId = "session-1",
             ThreadId = "main"
         });
-        await _store.AppendThreadEventAsync("session-1", "main", new ToolCallBackgroundTaskStartedEvent
+        await _store.AppendThreadEventAsync("session-1", "main", new BackgroundTaskStartedEvent
         {
             EventId = "evt-task-started",
             SessionId = "session-1",
             ThreadId = "main",
             TaskId = "task-1",
             Name = "compile",
+            SourceKind = BackgroundTaskSourceKind.ToolCall,
+            NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault,
             Invocation = Invocation(),
             StartedAt = DateTimeOffset.Parse("2026-05-28T10:00:01Z")
         });
-        await _store.AppendThreadEventAsync("session-1", "main", new ToolCallBackgroundTaskCompletedEvent
+        await _store.AppendThreadEventAsync("session-1", "main", new BackgroundTaskCompletedEvent
         {
             EventId = "evt-task-completed",
             SessionId = "session-1",
             ThreadId = "main",
             TaskId = "task-1",
             Name = "compile",
+            SourceKind = BackgroundTaskSourceKind.ToolCall,
+            NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault,
             Invocation = Invocation(),
             CompletedAt = DateTimeOffset.Parse("2026-05-28T10:00:02Z"),
             DurationMilliseconds = 1000

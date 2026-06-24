@@ -26,7 +26,7 @@ public sealed class ModalSession<T>
         TuiApplication app,
         IComponent component,
         IComponent? initialFocus = null,
-        TimeSpan? frameInterval = null,
+        TuiRunOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(app);
@@ -63,7 +63,7 @@ public sealed class ModalSession<T>
 
         try
         {
-            var runTask = app.RunAsync(frameInterval ?? TuiApplication.DefaultFrameInterval, sessionCts.Token);
+            var runTask = app.RunAsync(options, sessionCts.Token);
             await Task.WhenAny(_completion.Task, runTask).ConfigureAwait(false);
             if (!_completion.Task.IsCompleted)
             {

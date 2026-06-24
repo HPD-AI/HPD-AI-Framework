@@ -103,6 +103,28 @@ public sealed class FileMutationTuiTests
     }
 
     [Fact]
+    public async Task FileMutationReplay_DoesNotDoubleCountStatus()
+    {
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .AddCodingHarnessTui()
+            .Build();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            registry);
+        var mutation = WriteMutation(FileWriteMode.Create);
+
+        await state.ApplyEventAsync(mutation);
+        await state.ApplyEventAsync(mutation);
+
+        ReadRows(state.Shell.Transcript).Should().ContainSingle();
+        var rendered = RenderShell(registry, state);
+        rendered.Should().Contain("files +2 -0");
+        rendered.Should().NotContain("changed 2 files");
+        rendered.Should().NotContain("+4 -0");
+    }
+
+    [Fact]
     public async Task Diagnostics_UpdateLatestMutationRowForSamePath()
     {
         var state = CreateState();
@@ -277,8 +299,7 @@ public sealed class FileMutationTuiTests
 
     private static List<TranscriptEntry> ReadRows(TranscriptModel model)
     {
-        var rows = new List<TranscriptEntry>();
-        model.CopyTo(rows);
+        var rows = model.Snapshot().Entries.ToList();
         return rows;
     }
 
@@ -288,14 +309,14 @@ public sealed class FileMutationTuiTests
         int width = 100,
         int height = 16)
         => TuiCapture.RenderToString(
-            new TranscriptView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 14),
+            new TranscriptHistoryView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 14),
             width: width,
             height: height,
             trimTrailingBlankLines: true);
 
     private static string RenderTranscriptAnsi(AgentTuiSessionState state, int width = 100, int height = 16)
         => TuiCapture.RenderToAnsi(
-            new TranscriptView(state.Shell.Transcript, DefaultTranscriptRenderers(), height: 14),
+            new TranscriptHistoryView(state.Shell.Transcript, DefaultTranscriptRenderers(), height: 14),
             width: width,
             height: height);
 

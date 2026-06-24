@@ -49,10 +49,14 @@ public class CodingToolHarnessAgentBuilderTests
     public void CodingToolHarnessPrompt_IncludesExecuteCommandGuidance()
     {
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Use ExecuteCommand for builds, tests, project scripts");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("pass only `command`");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Never pass `action` as an object");
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Prefer the workingDirectory argument over cd");
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Use runInBackground for long-running servers or watchers.");
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Use ListBackground if you need to recover ids");
-        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("ReadOutput delayMilliseconds");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("background Run result means the process launched");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("top-level action: ReadOutput");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("delayMilliseconds instead of running a separate sleep command");
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("content IDs returned by ExecuteCommand");
     }
 

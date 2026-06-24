@@ -23,6 +23,9 @@ export interface ThreadRunBackgroundOperation {
 export interface ThreadRunBackgroundTask {
   taskId: string;
   name: string;
+  sourceKind: string;
+  sourceId?: string | null;
+  notificationPolicy: string;
   status: "started" | "completed" | "cancelled" | "faulted" | string;
   startedAt?: string | null;
   completedAt?: string | null;

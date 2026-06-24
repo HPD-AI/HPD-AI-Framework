@@ -25,6 +25,9 @@ public sealed record ThreadRunBackgroundOperationDto(
 public sealed record ThreadRunBackgroundTaskDto(
     string TaskId,
     string Name,
+    string SourceKind,
+    string? SourceId,
+    string NotificationPolicy,
     string Status,
     DateTimeOffset? StartedAt,
     DateTimeOffset? CompletedAt,

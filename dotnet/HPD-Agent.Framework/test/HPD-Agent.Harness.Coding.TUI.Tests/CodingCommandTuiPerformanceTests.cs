@@ -274,14 +274,13 @@ public sealed class CodingCommandTuiPerformanceTests
 
     private static List<TranscriptEntry> ReadRows(TranscriptModel model)
     {
-        var rows = new List<TranscriptEntry>();
-        model.CopyTo(rows);
+        var rows = model.Snapshot().Entries.ToList();
         return rows;
     }
 
     private static string RenderTranscript(AgentTuiSessionState state, int width = 100, int height = 14)
         => TuiCapture.RenderToString(
-            new TranscriptView(state.Shell.Transcript, DefaultTranscriptRenderers(), height: 12),
+            new TranscriptHistoryView(state.Shell.Transcript, DefaultTranscriptRenderers(), height: 12),
             width: width,
             height: height,
             trimTrailingBlankLines: true);

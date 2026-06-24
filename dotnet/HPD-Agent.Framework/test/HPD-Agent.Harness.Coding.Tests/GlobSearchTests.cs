@@ -1,5 +1,9 @@
+using HPD.Agent;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
+using HPD.Events.Core;
 using HPDOS.ToolHarnesses.Middleware;
+using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
 
@@ -108,6 +112,59 @@ public sealed class GlobSearchTests : IDisposable
         result.Should().Contain($"path=\"{Directory.GetCurrentDirectory()}");
         result.Should().Contain("path=\"Root.cs\"");
         result.Should().Contain("path=\"src/Nested.cs\"");
+    }
+
+    [Fact]
+    public async Task GlobSearch_UsesRunConfigWorkspaceWhenContextIsProvided()
+    {
+        var workspaceRoot = Path.Combine(_tempRoot, "workspace-root");
+        Directory.CreateDirectory(workspaceRoot);
+        Directory.CreateDirectory(Path.Combine(workspaceRoot, "src"));
+        await File.WriteAllTextAsync(Path.Combine(workspaceRoot, "src", "Workspace.cs"), "class Workspace {}\n");
+        await File.WriteAllTextAsync(Path.Combine(_tempRoot, "Cwd.cs"), "class Cwd {}\n");
+
+        var result = await new CodingToolHarness().GlobSearch(
+            "**/*.cs",
+            context: CreateFunctionContext(CreateWorkspaceRunConfig(workspaceRoot)));
+
+        result.Should().Contain($"path=\"{workspaceRoot}");
+        result.Should().Contain("path=\"src/Workspace.cs\"");
+        result.Should().NotContain("Cwd.cs");
+    }
+
+    [Fact]
+    public async Task GlobSearch_ResolvesRelativePathFromRunConfigWorkspace()
+    {
+        var workspaceRoot = Path.Combine(_tempRoot, "workspace-root");
+        Directory.CreateDirectory(Path.Combine(workspaceRoot, "src"));
+        await File.WriteAllTextAsync(Path.Combine(workspaceRoot, "src", "App.cs"), "class App {}\n");
+        await File.WriteAllTextAsync(Path.Combine(workspaceRoot, "Root.cs"), "class Root {}\n");
+
+        var result = await new CodingToolHarness().GlobSearch(
+            "**/*.cs",
+            path: "src",
+            context: CreateFunctionContext(CreateWorkspaceRunConfig(workspaceRoot)));
+
+        result.Should().Contain($"path=\"{Path.Combine(workspaceRoot, "src")}");
+        result.Should().Contain("path=\"App.cs\"");
+        result.Should().NotContain("Root.cs");
+    }
+
+    [Fact]
+    public async Task GlobSearch_RejectsAbsolutePatternOutsideRunConfigWorkspace()
+    {
+        var workspaceRoot = Path.Combine(_tempRoot, "workspace-root");
+        var outsideRoot = Path.Combine(_tempRoot, "outside-root");
+        Directory.CreateDirectory(workspaceRoot);
+        Directory.CreateDirectory(outsideRoot);
+        var outsidePattern = Path.Combine(outsideRoot, "*.cs");
+
+        var result = await new CodingToolHarness().GlobSearch(
+            outsidePattern,
+            context: CreateFunctionContext(CreateWorkspaceRunConfig(workspaceRoot)));
+
+        result.Should().Contain("<error tool=\"GlobSearch\"");
+        result.Should().Contain("Path is outside the configured workspace.");
     }
 
     [Fact]
@@ -717,9 +774,61 @@ public sealed class GlobSearchTests : IDisposable
             .Should().NotContain(name => name.Contains("cache", StringComparison.OrdinalIgnoreCase));
     }
 
+    private static FunctionExecutionContext CreateFunctionContext(AgentRunConfig runConfig)
+    {
+        var function = AIFunctionFactory.Create(
+            () => "ok",
+            new AIFunctionFactoryOptions
+            {
+                Name = "GlobSearch",
+                Description = "Test function"
+            });
+        var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
+        var agentContext = new AgentContext(
+            "AgentA",
+            "conversation-1",
+            state,
+            new EventCoordinator(),
+            new Session("session-1"),
+            new Thread("session-1"),
+            CancellationToken.None);
+        var beforeContext = agentContext.AsBeforeFunction(
+            function,
+            "call-1",
+            new Dictionary<string, object?>(),
+            runConfig,
+            toolharnessName: "CodingToolHarness");
+        var request = new FunctionRequest
+        {
+            Function = function,
+            CallId = "call-1",
+            Arguments = new Dictionary<string, object?>(),
+            State = state,
+            RunConfig = runConfig
+        };
+
+        return new FunctionExecutionContext(beforeContext, request);
+    }
+
+    private static AgentRunConfig CreateWorkspaceRunConfig(string defaultRoot)
+    {
+        var fullRoot = Path.GetFullPath(defaultRoot);
+        return new AgentRunConfig
+        {
+            ContextOverrides = new()
+            {
+                [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                    "default",
+                    fullRoot,
+                    [new AgentWorkspaceRoot("default", fullRoot)])
+            }
+        };
+    }
+
     private sealed class FakeGlobSearchPathResolver(ResolvedGlobSearch resolved) : IGlobSearchPathResolver
     {
         public ValueTask<ResolvedGlobSearch?> TryResolveAsync(
+            AgentWorkspace workspace,
             string path,
             string pattern,
             CancellationToken cancellationToken)

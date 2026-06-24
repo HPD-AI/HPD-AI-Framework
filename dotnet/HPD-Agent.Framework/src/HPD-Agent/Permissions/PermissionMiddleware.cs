@@ -18,7 +18,7 @@ namespace HPD.Agent.Permissions;
 ///
 /// <para><b>Permission Checking Order:</b></para>
 /// <list type="number">
-/// <item>Check if function has [RequiresPermission] attribute (or runtime override)</item>
+/// <item>Check if function has a run-config override, builder override, or [RequiresPermission] attribute</item>
 /// <item>Check conversation-Collapsed stored permission (if available)</item>
 /// <item>Check global stored permission (fallback)</item>
 /// <item>If no stored permission, emit PermissionRequestEvent and wait for response</item>
@@ -107,13 +107,14 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             var function = funcInfo.Function;
             var functionName = funcInfo.FunctionName;
 
-            // Check if permission is required (attribute + overrides)
+            // Check if permission is required (run config + builder override + attribute)
             var attributeRequiresPermission = function is HPDAIFunctionFactory.HPDAIFunction hpdFunction
                 && hpdFunction.HPDOptions.RequiresPermission;
 
-            var effectiveRequiresPermission = _overrideRegistry?.GetEffectivePermissionRequirement(
-                functionName, attributeRequiresPermission)
-                ?? attributeRequiresPermission;
+            var effectiveRequiresPermission = GetEffectivePermissionRequirement(
+                context.RunConfig,
+                functionName,
+                attributeRequiresPermission);
 
             // No permission required - auto-approve
             if (!effectiveRequiresPermission)
@@ -165,13 +166,14 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         
         var functionName = function.Name;
 
-        // Check if permission is required (attribute + overrides)
+        // Check if permission is required (run config + builder override + attribute)
         var attributeRequiresPermission = function is HPDAIFunctionFactory.HPDAIFunction hpdFunction
             && hpdFunction.HPDOptions.RequiresPermission;
 
-        var effectiveRequiresPermission = _overrideRegistry?.GetEffectivePermissionRequirement(
-            functionName, attributeRequiresPermission)
-            ?? attributeRequiresPermission;
+        var effectiveRequiresPermission = GetEffectivePermissionRequirement(
+            context.RunConfig,
+            functionName,
+            attributeRequiresPermission);
 
         // No permission required - allow execution
         if (!effectiveRequiresPermission)
@@ -464,5 +466,19 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
 
             return (false, denialReason);
         }
+    }
+
+    private bool GetEffectivePermissionRequirement(
+        AgentRunConfig runConfig,
+        string functionName,
+        bool attributeRequiresPermission)
+    {
+        if (runConfig.PermissionOverrides?.TryGetValue(functionName, out var runOverride) == true)
+            return runOverride;
+
+        return _overrideRegistry?.GetEffectivePermissionRequirement(
+            functionName,
+            attributeRequiresPermission)
+            ?? attributeRequiresPermission;
     }
 }

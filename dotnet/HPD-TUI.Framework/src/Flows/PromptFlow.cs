@@ -8,7 +8,7 @@ public abstract class PromptFlow<T>
 {
     public async Task<PromptResult<T>> RunAsync(
         TuiApplication app,
-        TimeSpan? frameInterval = null,
+        TuiRunOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(app);
@@ -17,7 +17,7 @@ public abstract class PromptFlow<T>
         var context = new PromptFlowContext<T>(session.Complete);
         var component = CreateComponent(context);
         var focus = GetInitialFocus(component);
-        return await session.RunAsync(app, component, focus, frameInterval, cancellationToken).ConfigureAwait(false);
+        return await session.RunAsync(app, component, focus, options, cancellationToken).ConfigureAwait(false);
     }
 
     public IComponent CreateComponentForTesting(Action<PromptResult<T>> complete)

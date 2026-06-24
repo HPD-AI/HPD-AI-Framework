@@ -51,12 +51,9 @@ public sealed class ActivityView : IComponent
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     public static ActivityView Spinner(string label) => new(new ActivityModel(label));

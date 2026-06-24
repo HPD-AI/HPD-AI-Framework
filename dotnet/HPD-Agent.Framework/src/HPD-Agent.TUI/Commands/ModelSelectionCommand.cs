@@ -5,7 +5,7 @@ namespace HPD.Agent.TUI.Commands;
 
 internal static class ModelSelectionCommand
 {
-    private const int InitialModelChoiceLimit = 12;
+    private const int InitialModelChoiceLimit = 28;
     private const int SearchModelChoiceLimit = 30;
 
     public static HpdAgentTuiCommandDescriptor Create(
@@ -23,7 +23,8 @@ internal static class ModelSelectionCommand
             ExecuteAsync(catalog, selection, options, context))
         {
             Title = $"/{commandName}",
-            Description = "Choose the provider/model for future prompts."
+            Description = "Choose the provider/model for future prompts.",
+            Order = options.Order
         };
     }
 
@@ -261,9 +262,6 @@ internal static class ModelSelectionCommand
         bool hasMoreModels)
     {
         var choices = models
-            .OrderByDescending(static model => model.IsRecommended)
-            .ThenBy(static model => model.IsFree ? 0 : 1)
-            .ThenBy(static model => model.DisplayName ?? model.ModelId, StringComparer.OrdinalIgnoreCase)
             .Select(static model => ModelDialogChoice.ForModel(model))
             .ToList();
 
@@ -295,24 +293,19 @@ internal static class ModelSelectionCommand
         AgentTuiProviderChoice provider,
         IReadOnlyList<AgentTuiModelChoice> models)
     {
-        var ordered = models
-            .OrderByDescending(static model => model.IsRecommended)
-            .ThenBy(static model => model.IsFree ? 0 : 1)
-            .ThenBy(static model => model.DisplayName ?? model.ModelId, StringComparer.OrdinalIgnoreCase);
-
         if (!provider.SupportsLiveModelSearch)
         {
-            return ordered.Take(InitialModelChoiceLimit).ToArray();
+            return models.Take(InitialModelChoiceLimit).ToArray();
         }
 
-        var recommended = ordered
+        var recommended = models
             .Where(static model => model.IsRecommended)
             .Take(InitialModelChoiceLimit)
             .ToArray();
 
         return recommended.Length > 0
             ? recommended
-            : ordered.Take(Math.Min(InitialModelChoiceLimit, 5)).ToArray();
+            : models.Take(Math.Min(InitialModelChoiceLimit, 5)).ToArray();
     }
 
     private static IEnumerable<AgentTuiModelChoice> ApplyModelPolicy(
@@ -355,7 +348,7 @@ internal static class ModelSelectionCommand
         string body,
         TranscriptSeverity severity)
     {
-        context.Shell.Transcript.Append(new TranscriptEntry(
+        context.Shell.Transcript.AddFinal(new TranscriptEntry(
             Id: $"model-command-{Guid.NewGuid():N}",
             EntryKey: null,
             Cell: new NoticeCell(title, new Text(body), severity),

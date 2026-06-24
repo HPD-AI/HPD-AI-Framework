@@ -4,7 +4,6 @@ using HPD.Agent.ToolHarness.Coding.TUI.Commands;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands.Handlers;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands.Pages;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands.Status;
-using HPD.Agent.ToolHarness.Coding.TUI.Commands.Widgets;
 using HPD.Agent.ToolHarness.Coding.TUI.Exploration;
 using HPD.Agent.ToolHarness.Coding.TUI.Exploration.Handlers;
 using HPD.Agent.ToolHarness.Coding.TUI.Exploration.Status;
@@ -65,6 +64,10 @@ public static class CodingHarnessTuiExtensions
                 "hpd.coding.command.exited")
             .TryAddEventHandler<ExecuteCommandBackgroundListEvent, ExecuteCommandBackgroundListTuiHandler>(
                 "hpd.coding.command.background-list")
+            .TryAddInteractionHandler<ExecuteCommandPermissionRequestEvent, ExecuteCommandPermissionRequestTuiHandler>(
+                "hpd.coding.command.permission")
+            .TryAddInteractionHandler<ExecuteCommandSandboxCapabilityRequestEvent, ExecuteCommandSandboxCapabilityRequestTuiHandler>(
+                "hpd.coding.command.sandbox-capability")
             .TryAddTranscriptRenderer<CodingCommandCell>(
                 CodingHarnessTuiTranscriptRendererKeys.Command,
                 new CodingCommandCellRenderer())
@@ -79,17 +82,6 @@ public static class CodingHarnessTuiExtensions
             .TryAddStatusItem(
                 "hpd.coding.output",
                 new CodingCommandOutputStatusItem());
-            // Command output is already represented in the transcript through
-            // CodingCommandCellRenderer, so HPD-OS does not register the
-            // below-editor tail widgets here.
-            // .TryAddWidget(
-            //     TuiSlot.BelowEditor,
-            //     "hpd.coding.active-command",
-            //     new CodingActiveCommandTailWidget())
-            // .TryAddWidget(
-            //     TuiSlot.BelowEditor,
-            //     "hpd.coding.background-commands",
-            //     new CodingBackgroundCommandsWidget());
     }
 
     public static HpdAgentTuiBuilder AddCodingFileMutationTui(this HpdAgentTuiBuilder tui)

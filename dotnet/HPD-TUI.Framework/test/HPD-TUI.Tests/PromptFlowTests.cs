@@ -39,7 +39,7 @@ public sealed class PromptFlowTests
         terminal.Enqueue(new KeyEvent(KeyCode.Character, new Rune('k')));
         terminal.Enqueue(new KeyEvent(KeyCode.Enter));
 
-        var result = await PromptFlow.Text("Name").RunAsync(app, TimeSpan.FromMilliseconds(1));
+        var result = await PromptFlow.Text("Name").RunAsync(app);
 
         Assert.True(result.IsSubmitted);
         Assert.Equal("ok", result.Value);
@@ -58,7 +58,7 @@ public sealed class PromptFlowTests
         app.SetFocus(focused);
         terminal.Enqueue(new KeyEvent(KeyCode.Enter));
 
-        var result = await PromptFlow.Text("Name").AllowEmpty().RunAsync(app, TimeSpan.FromMilliseconds(1));
+        var result = await PromptFlow.Text("Name").AllowEmpty().RunAsync(app);
 
         Assert.True(result.IsSubmitted);
         Assert.Same(root, app.Root);
@@ -80,7 +80,7 @@ public sealed class PromptFlowTests
         app.SetFocus(focused);
         terminal.Enqueue(new KeyEvent(KeyCode.Enter));
 
-        var result = await session.RunAsync(app, component, component, TimeSpan.FromMilliseconds(1));
+        var result = await session.RunAsync(app, component, component);
 
         Assert.True(result.IsSubmitted);
         Assert.Equal("done", result.Value);
@@ -105,16 +105,15 @@ public sealed class PromptFlowTests
         {
         }
 
-        public void HandleInput(in KeyEvent key)
+        public bool HandleInput(in TuiInputEvent key)
         {
             if (key.Key == KeyCode.Enter)
             {
                 _submit();
+                return true;
             }
-        }
 
-        public void Invalidate()
-        {
+            return false;
         }
     }
 
@@ -128,20 +127,19 @@ public sealed class PromptFlowTests
         {
         }
 
-        public void HandleInput(in KeyEvent key)
+        public bool HandleInput(in TuiInputEvent key)
         {
-        }
-
-        public void Invalidate()
-        {
+            return false;
         }
     }
 
-    private sealed class TestTerminal : ITerminal
+    private sealed class TestTerminal : ITerminal, ITerminalInput
     {
         private readonly Queue<KeyEvent> _keys = new();
 
         public bool CursorShown { get; private set; }
+
+        public ITerminalInput Input => this;
 
         public void Enqueue(KeyEvent key) => _keys.Enqueue(key);
 
@@ -155,16 +153,14 @@ public sealed class PromptFlowTests
         {
         }
 
-        public bool TryReadKey(out KeyEvent key)
+        public ValueTask<TerminalInputEvent> ReadAsync(CancellationToken cancellationToken = default)
         {
-            if (_keys.Count == 0)
+            if (_keys.TryDequeue(out var key))
             {
-                key = default;
-                return false;
+                return ValueTask.FromResult(TerminalInputEvent.FromKey(key));
             }
 
-            key = _keys.Dequeue();
-            return true;
+            return WaitAsync(cancellationToken);
         }
 
         public void HideCursor()
@@ -178,6 +174,14 @@ public sealed class PromptFlowTests
 
         public void Dispose()
         {
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        private static async ValueTask<TerminalInputEvent> WaitAsync(CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+            return TerminalInputEvent.Stop;
         }
     }
 }

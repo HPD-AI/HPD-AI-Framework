@@ -44,8 +44,7 @@ public sealed class HpdAgentTuiAppCancelTests
         runtime.InterruptReason.Should().Be("Cancelled from TUI.");
 
         var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
-        var entries = new List<TranscriptEntry>();
-        state.Shell.Transcript.CopyTo(entries);
+        var entries = state.Shell.Transcript.Snapshot().Entries;
         var runCell = entries
             .Select(static entry => entry.Cell)
             .OfType<RunStatusCell>()
@@ -78,8 +77,7 @@ public sealed class HpdAgentTuiAppCancelTests
         runtime.Interrupted.Task.IsCompleted.Should().BeFalse();
 
         var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
-        var entries = new List<TranscriptEntry>();
-        state.Shell.Transcript.CopyTo(entries);
+        var entries = state.Shell.Transcript.Snapshot().Entries;
         entries.Select(static entry => entry.Cell).OfType<RunStatusCell>().Should().BeEmpty();
     }
 
@@ -130,10 +128,15 @@ public sealed class HpdAgentTuiAppCancelTests
         public TaskCompletionSource Interrupted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public Task<AgentTuiRuntimeScope> EnsureScopeAsync(
+        public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
             AgentTuiRuntimeScope? requested,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(requested ?? _scope);
+            => Task.FromResult(new AgentTuiScopeResolution(requested ?? _scope, IsDurable: true));
+
+        public Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
+            AgentTuiRuntimeScope scope,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(scope);
 
         public async IAsyncEnumerable<AgentEvent> ObserveAsync(
             AgentTuiRuntimeScope scope,
@@ -179,7 +182,7 @@ public sealed class HpdAgentTuiAppCancelTests
         }
     }
 
-    private sealed class TestTerminal : ITerminal
+    private sealed class TestTerminal : ITerminal, ITerminalInput
     {
         private readonly StringBuilder _output = new();
         private TerminalSize _size;
@@ -200,11 +203,10 @@ public sealed class HpdAgentTuiAppCancelTests
         {
         }
 
-        public bool TryReadKey(out KeyEvent key)
-        {
-            key = default;
-            return false;
-        }
+        public ITerminalInput Input => this;
+
+        public ValueTask<TerminalInputEvent> ReadAsync(CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(TerminalInputEvent.Stop);
 
         public void HideCursor()
         {
@@ -217,5 +219,7 @@ public sealed class HpdAgentTuiAppCancelTests
         public void Dispose()
         {
         }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

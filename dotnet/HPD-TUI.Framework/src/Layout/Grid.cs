@@ -121,26 +121,20 @@ public sealed class Grid : IComponent
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
         foreach (var row in _rows)
         {
             foreach (var cell in row.Cells)
             {
-                cell.HandleInput(in key);
+                if (cell.HandleInput(in key))
+                {
+                    return true;
+                }
             }
         }
-    }
 
-    public void Invalidate()
-    {
-        foreach (var row in _rows)
-        {
-            foreach (var cell in row.Cells)
-            {
-                cell.Invalidate();
-            }
-        }
+        return false;
     }
 
     internal void CalculateColumnWidths(in RenderContext context, int maxWidth, Span<int> destination)

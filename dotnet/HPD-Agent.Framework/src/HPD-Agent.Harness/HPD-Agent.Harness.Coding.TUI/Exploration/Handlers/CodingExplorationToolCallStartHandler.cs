@@ -30,5 +30,5 @@ internal sealed class CodingExplorationToolCallStartHandler : AgentTuiEventHandl
         CodingExplorationGroup group,
         AgentEvent evt,
         AgentTuiEventContext context)
-        => context.Shell.Transcript.Update(CodingExplorationTranscriptEntryFactory.Create(group, evt));
+        => CodingExplorationTranscriptEntryFactory.Apply(context, group, evt);
 }

@@ -177,8 +177,7 @@ public sealed class ExplorationTuiTests
 
     private static List<TranscriptEntry> ReadRows(TranscriptModel model)
     {
-        var rows = new List<TranscriptEntry>();
-        model.CopyTo(rows);
+        var rows = model.Snapshot().Entries.ToList();
         return rows;
     }
 
@@ -188,7 +187,7 @@ public sealed class ExplorationTuiTests
         int width = 100,
         int height = 12)
         => TuiCapture.RenderToString(
-            new TranscriptView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 10),
+            new TranscriptHistoryView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 10),
             width: width,
             height: height,
             trimTrailingBlankLines: true);

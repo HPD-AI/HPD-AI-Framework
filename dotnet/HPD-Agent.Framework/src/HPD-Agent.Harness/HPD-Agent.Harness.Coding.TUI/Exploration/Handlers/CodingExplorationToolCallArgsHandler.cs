@@ -21,7 +21,7 @@ internal sealed class CodingExplorationToolCallArgsHandler : AgentTuiEventHandle
         operation.ArgsJson = evt.ArgsJson;
         operation.Status = CodingExplorationOperationStatus.Running;
         group.Touch();
-        context.Shell.Transcript.Update(CodingExplorationTranscriptEntryFactory.Create(group, evt));
+        CodingExplorationTranscriptEntryFactory.Apply(context, group, evt);
         return ValueTask.CompletedTask;
     }
 }

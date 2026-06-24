@@ -13,10 +13,17 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
     private readonly object _gate = new();
     private AgentTuiThreadRun? _activeRun;
 
-    public Task<AgentTuiRuntimeScope> EnsureScopeAsync(
+    public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
         AgentTuiRuntimeScope? requested,
         CancellationToken cancellationToken = default)
-        => Task.FromResult(requested ?? new AgentTuiRuntimeScope("sample-agent", "local-session", "main"));
+        => Task.FromResult(new AgentTuiScopeResolution(
+            requested ?? new AgentTuiRuntimeScope("sample-agent", "local-session", "main"),
+            IsDurable: true));
+
+    public Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
+        AgentTuiRuntimeScope scope,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(scope);
 
     public async IAsyncEnumerable<AgentEvent> ObserveAsync(
         AgentTuiRuntimeScope scope,

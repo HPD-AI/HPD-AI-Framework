@@ -11,7 +11,11 @@ using HPDOS.ToolHarnesses.Middleware;
 [Collapse(
     "Contains tools for coding operations: file operations, code search, shell execution, and code analysis.",
     SystemPrompt = CodingToolHarnessPrompts.SystemPrompt,
-    Middlewares = [typeof(EnvironmentContextMiddleware), typeof(CodingLanguageServerMiddleware)])]
+    Middlewares = [
+        typeof(EnvironmentContextMiddleware),
+        typeof(CodingLanguageServerMiddleware),
+        typeof(ExecuteCommandPermissionMiddleware)
+    ])]
 public partial class CodingToolHarness
 {
     private static readonly HashSet<string> BuiltInRecursiveSkips = new(StringComparer.OrdinalIgnoreCase)
@@ -44,6 +48,21 @@ public partial class CodingToolHarness
     static CodingToolHarness()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        ValidateExecuteCommandPermissionMiddlewareRegistration();
+    }
+
+    private static void ValidateExecuteCommandPermissionMiddlewareRegistration()
+    {
+        var collapse = typeof(CodingToolHarness)
+            .GetCustomAttributes(typeof(CollapseAttribute), inherit: false)
+            .OfType<CollapseAttribute>()
+            .SingleOrDefault();
+
+        if (collapse?.Middlewares?.Contains(typeof(ExecuteCommandPermissionMiddleware)) == true)
+            return;
+
+        throw new InvalidOperationException(
+            $"{nameof(CodingToolHarness)} exposes {nameof(ExecuteCommand)} without {nameof(ExecuteCommandPermissionMiddleware)}.");
     }
 
     /// <summary>

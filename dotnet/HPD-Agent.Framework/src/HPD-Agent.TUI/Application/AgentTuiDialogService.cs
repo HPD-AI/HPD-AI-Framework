@@ -13,37 +13,92 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
     private readonly DialogHost _host;
     private readonly AgentTuiDialogChrome _chrome;
     private readonly WidgetSlotModel _inlineSlot;
+    private readonly AgentTuiNavigationModel _navigation;
+    private readonly Action _requestRender;
     private readonly Dictionary<string, int> _keys = new(StringComparer.Ordinal);
 
     public AgentTuiDialogService(
         DialogHost host,
         AgentTuiDialogChrome chrome,
-        WidgetSlotModel inlineSlot)
+        WidgetSlotModel inlineSlot,
+        AgentTuiNavigationModel navigation,
+        Action? requestRender = null)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _chrome = chrome ?? throw new ArgumentNullException(nameof(chrome));
         _inlineSlot = inlineSlot ?? throw new ArgumentNullException(nameof(inlineSlot));
+        _navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
+        _requestRender = requestRender ?? (() => { });
     }
 
     public bool HasOpenDialog => _host.HasOpenDialog;
 
-    public void Show(string key, IComponent component)
+    public Task<TResult?> ShowAsync<TResult>(
+        string key,
+        Func<AgentTuiDialogContext<TResult>, IComponent> componentFactory,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
-        ArgumentNullException.ThrowIfNull(component);
+        ArgumentNullException.ThrowIfNull(componentFactory);
         if (_keys.ContainsKey(key))
         {
             throw new InvalidOperationException($"A dialog is already open for '{key}'.");
         }
 
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<TResult?>(cancellationToken);
+        }
+
+        var completion = new TaskCompletionSource<TResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var layerIndex = _host.Count;
+        var completed = 0;
+
+        void Complete(TResult? result)
+        {
+            if (Interlocked.Exchange(ref completed, 1) != 0)
+            {
+                return;
+            }
+
+            completion.TrySetResult(result);
+            PopTo(layerIndex);
+        }
+
+        var dialogContext = new AgentTuiDialogContext<TResult>(key, _navigation, Complete);
+        var component = componentFactory(dialogContext);
         var card = CreateDialogCard(component);
-        _keys[key] = _host.Count;
+        var registration = cancellationToken.Register(() =>
+        {
+            if (Interlocked.Exchange(ref completed, 1) != 0)
+            {
+                return;
+            }
+
+            completion.TrySetCanceled(cancellationToken);
+            PopTo(layerIndex);
+        });
+        completion.Task.ContinueWith(
+            _ => registration.Dispose(),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        _keys[key] = layerIndex;
         _inlineSlot.Add(card);
         _host.PushInline(card, component, () =>
         {
             _inlineSlot.Remove(card);
             _keys.Remove(key);
+            _requestRender();
+            if (Interlocked.Exchange(ref completed, 1) == 0)
+            {
+                completion.TrySetResult(default);
+            }
         });
+        _requestRender();
+
+        return completion.Task;
     }
 
     public bool Close(string key)
@@ -151,8 +206,10 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
         _host.PushInline(card, component, () =>
         {
             _inlineSlot.Remove(card);
+            _requestRender();
             completion.TrySetResult(default);
         });
+        _requestRender();
 
         return completion.Task;
     }
@@ -161,7 +218,7 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
         => Frame.Create(component)
             .WithBorder(BorderSpec.Rounded)
             .WithPadding(new Thickness(0, 1))
-            .WithSize(_chrome.Width, _chrome.Height);
+            .WithSize(_chrome.Width > 0 ? _chrome.Width : int.MaxValue);
 
     private void PopTo(int initialCount)
     {
@@ -169,5 +226,6 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
         {
             _host.Pop();
         }
+        _requestRender();
     }
 }

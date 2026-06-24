@@ -171,12 +171,9 @@ internal sealed class CodingCommandCellView : IComponent
         output.Write((continuation ? "  " : "└ ").AsSpan(), style);
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent input)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     private Style StyleForState(in RenderContext context)

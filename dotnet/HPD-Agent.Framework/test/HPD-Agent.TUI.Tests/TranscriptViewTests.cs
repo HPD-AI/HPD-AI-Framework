@@ -11,92 +11,55 @@ namespace HPD.Agent.TUI.Tests;
 public sealed class TranscriptViewTests
 {
     [Fact]
-    public void Render_ScrollsByRenderedHeightSoLatestRowsAreVisible()
+    public void Render_ShowsTranscriptTailEntries()
     {
         var model = new TranscriptModel();
-        model.Append(Row("old-user", "user", "first message"));
-        model.Append(Row("old-assistant", "assistant", "line one\nline two\nline three"));
-        model.Append(Row("middle-user", "user", "second message"));
-        model.Append(Row("middle-assistant", "assistant", "line one\nline two\nline three"));
-        model.Append(Row("latest-user", "user", "third message"));
-        model.Append(Row("latest-assistant", "assistant", "latest response"));
+        model.AddFinal(Row("final-user", "user", "already committed"));
+        model.UpsertLive(Row("live-assistant", "assistant:live", "still streaming"));
 
         var view = CreateView(model, height: 6);
 
         var rendered = TuiCapture.RenderToString(view, width: 80, height: 8, trimTrailingBlankLines: true);
 
-        rendered.Should().Contain("third message");
-        rendered.Should().Contain("latest response");
-        rendered.Should().Contain("assistant");
-        rendered.Should().NotContain("first message");
+        rendered.Should().Contain("still streaming");
+        rendered.Should().Contain("already committed");
     }
 
     [Fact]
-    public void Render_WhenScrolledUp_ShowsOlderRows()
+    public void Render_UsesLatestLiveEntryVersion()
     {
         var model = new TranscriptModel();
-        model.Append(Row("old-user", "user", "first message"));
-        model.Append(Row("old-assistant", "assistant", "first response"));
-        model.Append(Row("latest-user", "user", "latest message"));
-        model.Append(Row("latest-assistant", "assistant", "latest response"));
-        model.ScrollUp(6);
+        model.UpsertLive(Row("assistant-1", "assistant:1", "first draft"));
+        model.UpsertLive(Row("assistant-2", "assistant:1", "second draft"));
 
         var view = CreateView(model, height: 6);
 
         var rendered = TuiCapture.RenderToString(view, width: 80, height: 8, trimTrailingBlankLines: true);
 
-        rendered.Should().Contain("first message");
-        rendered.Should().Contain("first response");
-        rendered.Should().NotContain("latest response");
+        rendered.Should().Contain("second draft");
+        rendered.Should().NotContain("first draft");
     }
 
     [Fact]
-    public void Render_WhenLatestEntryIsLong_CanScrollUpToPreviousMessages()
+    public void Render_FinalizedLiveEntryStaysInTailViewport()
     {
         var model = new TranscriptModel();
-        model.Append(Row("old-user", "user", "first message"));
-        model.Append(Row("old-assistant", "assistant", "first response"));
-        model.Append(Row("latest-user", "user", "latest request"));
-        model.Append(Row(
-            "latest-assistant",
-            "assistant",
-            string.Join('\n', Enumerable.Range(1, 40).Select(static i => $"latest response line {i}"))));
-
-        model.ScrollUp(42);
-
-        var view = CreateView(model, height: 8);
-
-        var rendered = TuiCapture.RenderToString(view, width: 80, height: 10, trimTrailingBlankLines: true);
-
-        rendered.Should().Contain("first message");
-        rendered.Should().Contain("first response");
-    }
-
-    [Fact]
-    public void Render_AfterScrollToBottom_ShowsLatestRows()
-    {
-        var model = new TranscriptModel();
-        model.Append(Row("old-user", "user", "first message"));
-        model.Append(Row("old-assistant", "assistant", "first response"));
-        model.Append(Row("latest-user", "user", "latest message"));
-        model.Append(Row("latest-assistant", "assistant", "latest response"));
-        model.ScrollUp(3);
-        model.ScrollToBottom();
+        model.UpsertLive(Row("assistant-1", "assistant:1", "streaming"));
+        model.FinalizeLive("assistant:1", Row("assistant-1", "assistant:1", "done"));
 
         var view = CreateView(model, height: 6);
 
         var rendered = TuiCapture.RenderToString(view, width: 80, height: 8, trimTrailingBlankLines: true);
 
-        rendered.Should().Contain("latest message");
-        rendered.Should().Contain("latest response");
-        rendered.Should().NotContain("first message");
+        rendered.Should().NotContain("streaming");
+        rendered.Should().Contain("done");
     }
 
     [Fact]
     public void Render_RunStatusCell_ShowsStateAndDuration()
     {
         var model = new TranscriptModel();
-        model.Append(new TranscriptEntry(
+        model.UpsertLive(new TranscriptEntry(
             Id: "run-run-123456789",
             EntryKey: "run:run-123456789",
             Cell: new RunStatusCell(
@@ -124,7 +87,7 @@ public sealed class TranscriptViewTests
                 context => new Text($"run {context.Cell.RuntimeRunId}"))
             .Build();
         var model = new TranscriptModel();
-        model.Append(new TranscriptEntry(
+        model.UpsertLive(new TranscriptEntry(
             Id: "run-run-123456789",
             EntryKey: "run:run-123456789",
             Cell: new RunStatusCell("run-123456789", TranscriptRunState.Completed),
@@ -141,7 +104,7 @@ public sealed class TranscriptViewTests
     public void Render_RunStatusCell_CompletedUsesMutedStyle()
     {
         var model = new TranscriptModel();
-        model.Append(new TranscriptEntry(
+        model.UpsertLive(new TranscriptEntry(
             Id: "run-run-123456789",
             EntryKey: "run:run-123456789",
             Cell: new RunStatusCell("run-123456789", TranscriptRunState.Completed),
@@ -158,9 +121,9 @@ public sealed class TranscriptViewTests
     public void Render_UnknownTranscriptCell_UsesGracefulFallback()
     {
         var model = new TranscriptModel();
-        model.Append(new TranscriptEntry(
+        model.UpsertLive(new TranscriptEntry(
             Id: "unknown",
-            EntryKey: null,
+            EntryKey: "unknown:1",
             Cell: new UnknownTranscriptCell(),
             Metadata: new TranscriptEntryMetadata()));
 
@@ -180,13 +143,13 @@ public sealed class TranscriptViewTests
                 .TranscriptRenderers,
             height);
 
-    private static TranscriptEntry Row(string id, string label, string text)
+    private static TranscriptEntry Row(string id, string? entryKey, string text)
         => new(
             id,
-            EntryKey: null,
-            label == "user"
+            entryKey,
+            id.Contains("user", StringComparison.Ordinal)
                 ? new UserMessageCell(new Markdown(text))
-                : new AssistantMessageCell(label, new Markdown(text)),
+                : new AssistantMessageCell("assistant", new Markdown(text)),
             new TranscriptEntryMetadata());
 
     private sealed record UnknownTranscriptCell : TranscriptCell;

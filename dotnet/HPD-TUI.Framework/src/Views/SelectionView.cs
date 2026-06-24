@@ -37,9 +37,7 @@ public sealed class SelectionView<T> : IFocusable
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _list.Render(in context, maxWidth, ref output);
 
-    public void HandleInput(in KeyEvent key) => _list.HandleInput(in key);
-
-    public void Invalidate() => _list.Invalidate();
+    public bool HandleInput(in TuiInputEvent key) => _list.HandleInput(in key);
 
     public static SelectionView<T> Create(IEnumerable<T> values, Func<T, string> titleSelector)
     {

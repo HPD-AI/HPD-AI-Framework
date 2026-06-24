@@ -123,17 +123,7 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
         }
     }
 
-    public void RegisterBackgroundTask(Task task)
-    {
-        ArgumentNullException.ThrowIfNull(task);
-        lock (_lock)
-        {
-            ThrowIfBackgroundRegistrationClosed();
-            _backgroundTasks.Add(task);
-        }
-    }
-
-    public void RegisterBackgroundTask(Func<CancellationToken, Task> taskFactory)
+    private void RegisterBackgroundTaskCore(Func<CancellationToken, Task> taskFactory)
     {
         ArgumentNullException.ThrowIfNull(taskFactory);
 
@@ -147,31 +137,36 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
     }
 
     public void RegisterBackgroundTask(
-        string name,
-        FunctionInvocationSnapshot invocation,
-        Func<FunctionBackgroundContext, CancellationToken, Task> taskFactory)
+        BackgroundTaskDescriptor descriptor,
+        Func<BackgroundTaskContext, CancellationToken, Task> taskFactory)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentNullException.ThrowIfNull(invocation);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentException.ThrowIfNullOrWhiteSpace(descriptor.Name);
         ArgumentNullException.ThrowIfNull(taskFactory);
 
-        var backgroundContext = new FunctionBackgroundContext
+        var backgroundContext = new BackgroundTaskContext
         {
             TaskId = Guid.NewGuid().ToString("N"),
-            Name = name,
-            Invocation = invocation,
+            Descriptor = descriptor,
             EventCoordinator = EventCoordinator,
             Services = Services,
             StartedAt = DateTimeOffset.UtcNow
         };
 
-        RegisterBackgroundTask(async runtimeToken =>
+        RegisterBackgroundTaskCore(async runtimeToken =>
         {
-            Emit(new ToolCallBackgroundTaskStartedEvent
+            Emit(new BackgroundTaskStartedEvent
             {
                 TaskId = backgroundContext.TaskId,
                 Name = backgroundContext.Name,
+                SourceKind = backgroundContext.SourceKind,
+                SourceId = backgroundContext.SourceId,
+                ParentRuntimeRunId = backgroundContext.ParentRuntimeRunId,
+                SessionId = backgroundContext.SessionId ?? backgroundContext.Invocation?.SessionId,
+                ThreadId = backgroundContext.ThreadId ?? backgroundContext.Invocation?.ThreadId,
+                NotificationPolicy = backgroundContext.NotificationPolicy,
                 Invocation = backgroundContext.Invocation,
+                Metadata = backgroundContext.Metadata,
                 StartedAt = backgroundContext.StartedAt
             });
 
@@ -180,33 +175,55 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
                 await taskFactory(backgroundContext, runtimeToken).ConfigureAwait(false);
 
                 var completedAt = DateTimeOffset.UtcNow;
-                Emit(new ToolCallBackgroundTaskCompletedEvent
+                Emit(new BackgroundTaskCompletedEvent
                 {
                     TaskId = backgroundContext.TaskId,
                     Name = backgroundContext.Name,
+                    SourceKind = backgroundContext.SourceKind,
+                    SourceId = backgroundContext.SourceId,
+                    ParentRuntimeRunId = backgroundContext.ParentRuntimeRunId,
+                    SessionId = backgroundContext.SessionId ?? backgroundContext.Invocation?.SessionId,
+                    ThreadId = backgroundContext.ThreadId ?? backgroundContext.Invocation?.ThreadId,
+                    NotificationPolicy = backgroundContext.NotificationPolicy,
                     Invocation = backgroundContext.Invocation,
+                    Metadata = backgroundContext.Metadata,
                     CompletedAt = completedAt,
                     DurationMilliseconds = Math.Max(0, (long)(completedAt - backgroundContext.StartedAt).TotalMilliseconds)
                 });
             }
             catch (OperationCanceledException) when (runtimeToken.IsCancellationRequested)
             {
-                Emit(new ToolCallBackgroundTaskCancelledEvent
+                Emit(new BackgroundTaskCancelledEvent
                 {
                     TaskId = backgroundContext.TaskId,
                     Name = backgroundContext.Name,
+                    SourceKind = backgroundContext.SourceKind,
+                    SourceId = backgroundContext.SourceId,
+                    ParentRuntimeRunId = backgroundContext.ParentRuntimeRunId,
+                    SessionId = backgroundContext.SessionId ?? backgroundContext.Invocation?.SessionId,
+                    ThreadId = backgroundContext.ThreadId ?? backgroundContext.Invocation?.ThreadId,
+                    NotificationPolicy = backgroundContext.NotificationPolicy,
                     Invocation = backgroundContext.Invocation,
-                    CancelledAt = DateTimeOffset.UtcNow
+                    Metadata = backgroundContext.Metadata,
+                    CancelledAt = DateTimeOffset.UtcNow,
+                    Reason = runtimeToken.IsCancellationRequested ? "runtime-stopping" : null
                 });
                 throw;
             }
             catch (Exception ex)
             {
-                Emit(new ToolCallBackgroundTaskFaultedEvent
+                Emit(new BackgroundTaskFaultedEvent
                 {
                     TaskId = backgroundContext.TaskId,
                     Name = backgroundContext.Name,
+                    SourceKind = backgroundContext.SourceKind,
+                    SourceId = backgroundContext.SourceId,
+                    ParentRuntimeRunId = backgroundContext.ParentRuntimeRunId,
+                    SessionId = backgroundContext.SessionId ?? backgroundContext.Invocation?.SessionId,
+                    ThreadId = backgroundContext.ThreadId ?? backgroundContext.Invocation?.ThreadId,
+                    NotificationPolicy = backgroundContext.NotificationPolicy,
                     Invocation = backgroundContext.Invocation,
+                    Metadata = backgroundContext.Metadata,
                     FaultedAt = DateTimeOffset.UtcNow,
                     ExceptionType = ex.GetType().FullName ?? ex.GetType().Name,
                     ErrorMessage = ex.Message
@@ -384,8 +401,7 @@ public abstract class RuntimeHookContext
     /// </remarks>
     public ValueTask RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default) =>
         Base.RunAsync(input, cancellationToken);
-    public void RegisterBackgroundTask(Task task) => Base.RegisterBackgroundTask(task);
-    public void RegisterBackgroundTask(Func<CancellationToken, Task> taskFactory) => Base.RegisterBackgroundTask(taskFactory);
+    public void RegisterBackgroundTask(BackgroundTaskDescriptor descriptor, Func<BackgroundTaskContext, CancellationToken, Task> taskFactory) => Base.RegisterBackgroundTask(descriptor, taskFactory);
     public void RegisterDisposable(IDisposable disposable) => Base.RegisterDisposable(disposable);
     public void RegisterAsyncDisposable(IAsyncDisposable disposable) => Base.RegisterAsyncDisposable(disposable);
 

@@ -5,7 +5,7 @@ public sealed class TranscriptModel
     private readonly object _gate = new();
     private readonly List<TranscriptEntry> _entries = [];
     private readonly Dictionary<string, int> _entryKeys = new(StringComparer.Ordinal);
-    private int _viewOffsetRowsFromBottom;
+    private int _historyEpoch;
     private int _version;
 
     public int Count
@@ -19,13 +19,13 @@ public sealed class TranscriptModel
         }
     }
 
-    public int ViewOffsetRowsFromBottom
+    public int HistoryEpoch
     {
         get
         {
             lock (_gate)
             {
-                return _viewOffsetRowsFromBottom;
+                return _historyEpoch;
             }
         }
     }
@@ -41,52 +41,60 @@ public sealed class TranscriptModel
         }
     }
 
-    public void Append(TranscriptEntry entry)
+    public void AddFinal(TranscriptEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
 
         lock (_gate)
         {
-            var wasPinnedToBottom = _viewOffsetRowsFromBottom == 0;
-            _entries.Add(entry);
+            AddEntry(entry.AsFinal());
             _version++;
-            if (entry.EntryKey is not null)
-            {
-                _entryKeys[entry.EntryKey] = _entries.Count - 1;
-            }
-
-            _viewOffsetRowsFromBottom = wasPinnedToBottom ? 0 : ClampViewOffset(_viewOffsetRowsFromBottom + 1);
         }
     }
 
-    public void Update(TranscriptEntry entry)
+    public void UpsertLive(TranscriptEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-
         if (entry.EntryKey is null)
         {
-            Append(entry);
-            return;
+            throw new ArgumentException("Live transcript entries require an entry key.", nameof(entry));
         }
 
         lock (_gate)
         {
             if (_entryKeys.TryGetValue(entry.EntryKey, out var index))
             {
-                _entries[index] = entry;
+                _entries[index] = entry.AsLive();
                 _version++;
                 return;
             }
 
-            var wasPinnedToBottom = _viewOffsetRowsFromBottom == 0;
-            _entries.Add(entry);
-            _entryKeys[entry.EntryKey] = _entries.Count - 1;
+            AddEntry(entry.AsLive());
             _version++;
-            _viewOffsetRowsFromBottom = wasPinnedToBottom ? 0 : ClampViewOffset(_viewOffsetRowsFromBottom + 1);
         }
     }
 
-    public bool Remove(string entryKey)
+    public void FinalizeLive(string entryKey, TranscriptEntry finalEntry)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(entryKey);
+        ArgumentNullException.ThrowIfNull(finalEntry);
+
+        lock (_gate)
+        {
+            var committed = finalEntry with { EntryKey = entryKey };
+            if (_entryKeys.TryGetValue(entryKey, out var index))
+            {
+                _entries[index] = committed.AsFinal();
+                _version++;
+                return;
+            }
+
+            AddEntry(committed.AsFinal());
+            _version++;
+        }
+    }
+
+    public bool RemoveLive(string entryKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(entryKey);
 
@@ -97,58 +105,26 @@ public sealed class TranscriptModel
                 return false;
             }
 
+            if (_entries[index].State != TranscriptEntryState.Live)
+            {
+                return false;
+            }
+
             _entries.RemoveAt(index);
             RebuildEntryKeyIndex();
             _version++;
-            _viewOffsetRowsFromBottom = ClampViewOffset(_viewOffsetRowsFromBottom);
             return true;
         }
     }
 
-    public void Clear()
+    public void ClearAll()
     {
         lock (_gate)
         {
             _entries.Clear();
             _entryKeys.Clear();
+            _historyEpoch++;
             _version++;
-            _viewOffsetRowsFromBottom = 0;
-        }
-    }
-
-    public void ScrollUp(int rows)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(rows);
-
-        lock (_gate)
-        {
-            _viewOffsetRowsFromBottom = ClampViewOffset(_viewOffsetRowsFromBottom + rows);
-        }
-    }
-
-    public void ScrollDown(int rows)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(rows);
-
-        lock (_gate)
-        {
-            _viewOffsetRowsFromBottom = ClampViewOffset(_viewOffsetRowsFromBottom - rows);
-        }
-    }
-
-    public void ScrollToTop()
-    {
-        lock (_gate)
-        {
-            _viewOffsetRowsFromBottom = ClampViewOffset(int.MaxValue);
-        }
-    }
-
-    public void ScrollToBottom()
-    {
-        lock (_gate)
-        {
-            _viewOffsetRowsFromBottom = 0;
         }
     }
 
@@ -160,14 +136,28 @@ public sealed class TranscriptModel
         }
     }
 
-    public void CopyTo(List<TranscriptEntry> target)
+    public TranscriptSnapshot Snapshot()
+        => Snapshot(entry => true);
+
+    public TranscriptSnapshot Snapshot(Func<TranscriptEntry, bool> predicate)
     {
-        ArgumentNullException.ThrowIfNull(target);
+        ArgumentNullException.ThrowIfNull(predicate);
 
         lock (_gate)
         {
-            target.Clear();
-            target.AddRange(_entries);
+            return new TranscriptSnapshot(
+                _entries.Where(predicate).ToArray(),
+                _version,
+                _historyEpoch);
+        }
+    }
+
+    private void AddEntry(TranscriptEntry entry)
+    {
+        _entries.Add(entry);
+        if (entry.EntryKey is not null)
+        {
+            _entryKeys[entry.EntryKey] = _entries.Count - 1;
         }
     }
 
@@ -183,6 +173,9 @@ public sealed class TranscriptModel
         }
     }
 
-    private static int ClampViewOffset(int value)
-        => Math.Clamp(value, 0, 1_000_000);
 }
+
+public sealed record TranscriptSnapshot(
+    IReadOnlyList<TranscriptEntry> Entries,
+    int Version,
+    int HistoryEpoch);

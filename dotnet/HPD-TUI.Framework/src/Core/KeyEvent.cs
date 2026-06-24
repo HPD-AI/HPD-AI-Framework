@@ -1,6 +1,10 @@
 namespace HPD.TUI.Core;
 
-public readonly record struct KeyEvent(KeyCode Key, Rune Character = default, KeyModifiers Modifiers = KeyModifiers.None);
+public readonly record struct KeyEvent(
+    KeyCode Key,
+    Rune Character = default,
+    KeyModifiers Modifiers = KeyModifiers.None,
+    string? Text = null);
 
 public enum KeyCode
 {
@@ -18,7 +22,8 @@ public enum KeyCode
     UpArrow = 11,
     DownArrow = 12,
     LeftArrow = 13,
-    RightArrow = 14
+    RightArrow = 14,
+    Paste = 15
 }
 
 [Flags]

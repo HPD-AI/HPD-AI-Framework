@@ -51,45 +51,19 @@ public sealed class DefaultAgentTuiShellView : IComponent
         _shell.Render(in context, maxWidth, ref output);
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
         if (IsPageActive())
         {
             if (TryHandleActivePageInput(in key))
             {
-                return;
+                return true;
             }
 
-            _prompt.HandleInput(in key);
-            return;
+            return _prompt.HandleInput(in key);
         }
 
-        switch (key.Key)
-        {
-            case KeyCode.PageUp:
-                _model.Transcript.ScrollUp(_lastTranscriptHeight);
-                return;
-
-            case KeyCode.PageDown:
-                _model.Transcript.ScrollDown(_lastTranscriptHeight);
-                return;
-
-            case KeyCode.Home:
-                _model.Transcript.ScrollToTop();
-                return;
-
-            case KeyCode.End:
-                _model.Transcript.ScrollToBottom();
-                return;
-
-            default:
-                _prompt.HandleInput(in key);
-                return;
-        }
-    }
-
-    public void Invalidate()
-    {
+        return _prompt.HandleInput(in key);
     }
 
     private RetainedShellStack CreateShell()
@@ -174,7 +148,7 @@ public sealed class DefaultAgentTuiShellView : IComponent
         => !string.IsNullOrWhiteSpace(_model.Navigation.ActivePageId) &&
            _registry.TryFindPage(_model.Navigation.ActivePageId, out _);
 
-    private bool TryHandleActivePageInput(in KeyEvent key)
+    private bool TryHandleActivePageInput(in TuiInputEvent key)
     {
         if (string.IsNullOrWhiteSpace(_model.Navigation.ActivePageId) ||
             !_registry.TryFindPage(_model.Navigation.ActivePageId, out var page) ||
@@ -183,6 +157,7 @@ public sealed class DefaultAgentTuiShellView : IComponent
             return false;
         }
 
+        var keyEvent = key.KeyEvent;
         return page.HandleInput(new AgentTuiPageContext(
             _model.Scope,
             _model,
@@ -190,7 +165,7 @@ public sealed class DefaultAgentTuiShellView : IComponent
             _registry,
             page,
             _lastTranscriptHeight,
-            _state), key);
+            _state), keyEvent);
     }
 
     private IComponent BuildWidgetSection(
@@ -304,11 +279,8 @@ public sealed class DefaultAgentTuiShellView : IComponent
         public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
             => Resolve().Render(in context, maxWidth, ref output);
 
-        public void HandleInput(in KeyEvent key)
+        public bool HandleInput(in TuiInputEvent key)
             => Resolve().HandleInput(in key);
-
-        public void Invalidate()
-            => Resolve().Invalidate();
 
         private IComponent Resolve()
         {
@@ -399,23 +371,18 @@ public sealed class DefaultAgentTuiShellView : IComponent
             }
         }
 
-        public void HandleInput(in KeyEvent key)
+        public bool HandleInput(in TuiInputEvent key)
         {
+            var handled = false;
             foreach (var section in _sections)
             {
                 if (section.IsVisible)
                 {
-                    section.Component.HandleInput(in key);
+                    handled |= section.Component.HandleInput(in key);
                 }
             }
-        }
 
-        public void Invalidate()
-        {
-            foreach (var section in _sections)
-            {
-                section.Component.Invalidate();
-            }
+            return handled;
         }
     }
 

@@ -52,7 +52,7 @@ public sealed class TuiRendererTests
         Assert.Contains("Hi", terminal.Output);
     }
 
-    private sealed class TestTerminal : ITerminal
+    private sealed class TestTerminal : ITerminal, ITerminalInput
     {
         private readonly StringBuilder _output = new();
         private TerminalSize _size;
@@ -63,6 +63,8 @@ public sealed class TuiRendererTests
         }
 
         public string Output => _output.ToString();
+
+        public ITerminalInput Input => this;
 
         public void ClearOutput() => _output.Clear();
 
@@ -82,11 +84,8 @@ public sealed class TuiRendererTests
         {
         }
 
-        public bool TryReadKey(out KeyEvent key)
-        {
-            key = default;
-            return false;
-        }
+        public ValueTask<TerminalInputEvent> ReadAsync(CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(TerminalInputEvent.Stop);
 
         public void HideCursor()
         {
@@ -99,5 +98,7 @@ public sealed class TuiRendererTests
         public void Dispose()
         {
         }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

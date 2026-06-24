@@ -60,7 +60,7 @@ public sealed class TextMessageStreamHandler : IAgentTuiEventHandler
     {
         if (string.Equals(role, "user", StringComparison.OrdinalIgnoreCase))
         {
-            context.Shell.Transcript.Update(new TranscriptEntry(
+            context.Shell.Transcript.UpsertLive(new TranscriptEntry(
                 Id: $"user-{messageId}",
                 EntryKey: $"user:{messageId}",
                 Cell: new UserMessageCell(new Text(markdown)),
@@ -70,7 +70,7 @@ public sealed class TextMessageStreamHandler : IAgentTuiEventHandler
             return;
         }
 
-        context.Shell.Transcript.Update(new TranscriptEntry(
+        context.Shell.Transcript.UpsertLive(new TranscriptEntry(
             Id: $"assistant-{messageId}",
             EntryKey: $"assistant:{messageId}",
             Cell: new AssistantMessageCell(
@@ -125,7 +125,7 @@ public sealed class ReasoningStreamHandler : IAgentTuiEventHandler
         string markdown,
         AgentEvent evt)
     {
-        context.Shell.Transcript.Update(new TranscriptEntry(
+        context.Shell.Transcript.UpsertLive(new TranscriptEntry(
             Id: $"reasoning-{messageId}",
             EntryKey: $"reasoning:{messageId}",
             Cell: new ReasoningMessageCell(
@@ -190,7 +190,7 @@ public sealed class ToolLifecycleHandler : IAgentTuiEventHandler
             ? null
             : $"\n\nresult: `{row.ResultSummary}`";
 
-        context.Shell.Transcript.Update(new TranscriptEntry(
+        context.Shell.Transcript.UpsertLive(new TranscriptEntry(
             Id: $"tool-{callId}",
             EntryKey: $"tool:{callId}",
             Cell: new ToolCallCell(

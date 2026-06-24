@@ -59,12 +59,18 @@ public sealed class WidgetSlotView : IComponent
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-    }
+        RefreshComponents();
+        foreach (var component in _components)
+        {
+            if (component.HandleInput(in key))
+            {
+                return true;
+            }
+        }
 
-    public void Invalidate()
-    {
+        return false;
     }
 
     private void RefreshComponents()

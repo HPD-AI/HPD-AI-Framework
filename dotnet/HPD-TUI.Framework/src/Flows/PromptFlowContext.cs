@@ -70,14 +70,9 @@ internal sealed class PromptFlowComponent<T> : IComponent
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-        _inner.HandleInput(in key);
-    }
-
-    public void Invalidate()
-    {
-        _inner.Invalidate();
+        return _inner.HandleInput(in key);
     }
 }
 
@@ -98,9 +93,8 @@ internal sealed class PromptFlowShell<T> : IComponent, IPromptFlowFocusProvider
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _inner.Render(in context, maxWidth, ref output);
 
-    public void HandleInput(in KeyEvent key) => _inner.HandleInput(in key);
+    public bool HandleInput(in TuiInputEvent key) => _inner.HandleInput(in key);
 
-    public void Invalidate() => _inner.Invalidate();
 }
 
 internal interface IPromptFlowFocusProvider

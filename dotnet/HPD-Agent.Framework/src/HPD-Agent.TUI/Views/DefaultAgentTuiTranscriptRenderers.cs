@@ -188,12 +188,9 @@ internal sealed class TranscriptRenderComponent : IComponent
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
         => _render(in context, maxWidth, ref output);
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 }
 
@@ -201,4 +198,3 @@ internal delegate void RenderTranscriptComponent(
     in RenderContext context,
     int maxWidth,
     ref SegmentWriter output);
-

@@ -55,32 +55,30 @@ public sealed class Viewport : IComponent
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
         switch (key.Key)
         {
             case KeyCode.UpArrow:
                 ScrollBy(-1);
-                break;
+                return true;
             case KeyCode.DownArrow:
                 ScrollBy(1);
-                break;
+                return true;
             case KeyCode.PageUp:
                 ScrollBy(-Height);
-                break;
+                return true;
             case KeyCode.PageDown:
                 ScrollBy(Height);
-                break;
+                return true;
             case KeyCode.Home:
                 ScrollOffset = 0;
-                break;
+                return true;
             case KeyCode.End:
                 ScrollOffset = Math.Max(0, _lines.Count - Height);
-                break;
+                return true;
+            default:
+                return false;
         }
-    }
-
-    public void Invalidate()
-    {
     }
 }

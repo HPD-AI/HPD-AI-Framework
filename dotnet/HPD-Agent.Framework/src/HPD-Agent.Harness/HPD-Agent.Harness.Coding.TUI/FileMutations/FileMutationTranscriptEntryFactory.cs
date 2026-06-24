@@ -1,3 +1,4 @@
+using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 using HPDOS.ToolHarnesses.Middleware;
 using MiddlewareFileMutationHunk = HPDOS.ToolHarnesses.Middleware.FileMutationHunk;
@@ -28,6 +29,12 @@ internal static class FileMutationTranscriptEntryFactory
             Cell: CreateCell(model),
             Metadata: TranscriptEntryMetadata.FromEvent(evt));
 
+    public static void Apply(AgentTuiEventContext context, FileMutationTranscriptModel model, AgentEvent evt)
+    {
+        var entry = Create(model, evt).AsFinal();
+        context.Shell.Transcript.FinalizeLive(model.EntryKey, entry);
+    }
+
     public static TranscriptEntry CreateStandaloneDiagnostics(LanguageServerDiagnosticsReceivedEvent diagnostics)
     {
         var key = $"hpd.coding.diagnostics:{FileMutationTuiState.NormalizePath(diagnostics.Path)}";
@@ -36,6 +43,14 @@ internal static class FileMutationTranscriptEntryFactory
             EntryKey: key,
             Cell: CreateCell(diagnostics),
             Metadata: TranscriptEntryMetadata.FromEvent(diagnostics));
+    }
+
+    public static void ApplyStandaloneDiagnostics(
+        AgentTuiEventContext context,
+        LanguageServerDiagnosticsReceivedEvent diagnostics)
+    {
+        var entry = CreateStandaloneDiagnostics(diagnostics).AsFinal();
+        context.Shell.Transcript.FinalizeLive(entry.EntryKey!, entry);
     }
 
     public static FileMutationCell CreateCell(FileMutationTranscriptModel model)

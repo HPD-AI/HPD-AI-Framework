@@ -1,14 +1,19 @@
 using HPD.Agent.TUI;
 using HPD.Agent.TUI.Application;
 using HPD.Agent.TUI.Composition;
+using HPD.Agent.TUI.Interactions;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.Agent.TUI.Views;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ToolHarness.Coding.TUI;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands;
+using HPD.Agent.ToolHarness.Coding.TUI.Commands.Handlers;
 using HPD.TUI.Components;
+using HPD.TUI.Core;
 using HPD.TUI.Rendering;
 using HPD.TUI.Views;
+using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Tests;
 
@@ -29,6 +34,9 @@ public sealed class ExecuteCommandTuiLifecycleTests
             "hpd.coding.command.exited",
             "hpd.coding.command.background-list"
         ]);
+        registry.InteractionHandlers.Select(static handler => handler.Key)
+            .Should()
+            .Contain(["hpd.coding.command.permission", "hpd.coding.command.sandbox-capability"]);
         registry.Pages.Select(static page => page.Id).Should().Contain([
             "hpd.coding.commands",
             "hpd.coding.background"
@@ -38,13 +46,135 @@ public sealed class ExecuteCommandTuiLifecycleTests
             "hpd.coding.background",
             "hpd.coding.output"
         ]);
-        registry.BelowEditorWidgets.Select(static widget => widget.Key).Should().NotContain([
-            "hpd.coding.active-command",
-            "hpd.coding.background-commands"
-        ]);
+        registry.BelowEditorWidgets.Should().BeEmpty();
         registry.TranscriptRenderers.TryFindRenderer<CodingCommandCell>(
             CodingHarnessTuiTranscriptRendererKeys.Command,
             out _).Should().BeTrue();
+        registry.TryFindInteractionHandler(CreatePermissionRequest(), out var interaction)
+            .Should().BeTrue();
+        interaction.Key.Should().Be("hpd.coding.command.permission");
+    }
+
+    [Fact]
+    public async Task PermissionRequestHandler_ReturnsDialogChoice()
+    {
+        var request = CreatePermissionRequest();
+        var dialogs = new TestDialogService
+        {
+            ShowResult = new ExecuteCommandPermissionResponseEvent(
+                "permission-1",
+                "ExecuteCommandPermissionMiddleware",
+                "allow_exact")
+        };
+        var handler = new ExecuteCommandPermissionRequestTuiHandler();
+
+        var response = await handler.HandleAsync(
+            CreateInteractionContext(dialogs, request),
+            CancellationToken.None);
+
+        response.Should().BeOfType<ExecuteCommandPermissionResponseEvent>()
+            .Which.Should().Match<ExecuteCommandPermissionResponseEvent>(evt =>
+                evt.PermissionId == "permission-1" &&
+                evt.SourceName == "ExecuteCommandPermissionMiddleware" &&
+                evt.ChoiceId == "allow_exact" &&
+                evt.FeedbackText == null);
+        dialogs.LastShowKey.Should().Be("execute-command-permission:permission-1");
+        dialogs.ShowPromptCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PermissionRequestHandler_DeniesWhenDialogClosesWithoutResult()
+    {
+        var request = CreatePermissionRequest();
+        var dialogs = new TestDialogService { RenderDialog = false };
+        var handler = new ExecuteCommandPermissionRequestTuiHandler();
+
+        var response = await handler.HandleAsync(
+            CreateInteractionContext(dialogs, request),
+            CancellationToken.None);
+
+        response.Should().BeOfType<ExecuteCommandPermissionResponseEvent>()
+            .Which.Should().Match<ExecuteCommandPermissionResponseEvent>(evt =>
+                evt.PermissionId == "permission-1" &&
+                evt.ChoiceId == "deny" &&
+                evt.FeedbackText == null);
+        dialogs.ShowPromptCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task PermissionDialog_RendersCommandDetailsAndBackendChoices()
+    {
+        var request = CreatePermissionRequest();
+        var dialogs = new TestDialogService();
+        var handler = new ExecuteCommandPermissionRequestTuiHandler();
+
+        await handler.HandleAsync(
+            CreateInteractionContext(dialogs, request),
+            CancellationToken.None);
+
+        dialogs.RenderedDialog.Should().Contain("Approve command?");
+        dialogs.RenderedDialog.Should().Contain("Reason: run a shell command");
+        dialogs.RenderedDialog.Should().Contain("$ git status -sb");
+        dialogs.RenderedDialog.Should().Contain("cwd: /repo");
+        dialogs.RenderedDialog.Should().Contain("Security review");
+        dialogs.RenderedDialog.Should().Contain("sandbox:");
+        dialogs.RenderedDialog.Should().Contain("effects: no filesystem or network effects detected");
+        dialogs.RenderedDialog.Should().Contain("risk: none");
+        dialogs.RenderedDialog.Should().Contain("rule: no saved rule matched");
+        dialogs.RenderedDialog.Should().Contain("Allow once");
+        dialogs.RenderedDialog.Should().Contain("Always allow this exact command");
+        dialogs.RenderedDialog.Should().Contain("Tell agent what to do instead");
+    }
+
+    [Fact]
+    public async Task PermissionDialog_SubmitsSelectedBackendChoice()
+    {
+        var request = CreatePermissionRequest();
+        var dialogs = new TestDialogService
+        {
+            DialogKeys =
+            [
+                new KeyEvent(KeyCode.DownArrow),
+                new KeyEvent(KeyCode.Enter)
+            ]
+        };
+        var handler = new ExecuteCommandPermissionRequestTuiHandler();
+
+        var response = await handler.HandleAsync(
+            CreateInteractionContext(dialogs, request),
+            CancellationToken.None);
+
+        response.Should().BeOfType<ExecuteCommandPermissionResponseEvent>()
+            .Which.Should().Match<ExecuteCommandPermissionResponseEvent>(evt =>
+                evt.ChoiceId == "allow_exact" &&
+                evt.FeedbackText == null);
+    }
+
+    [Fact]
+    public async Task PermissionDialog_CapturesFeedbackInSameDialog()
+    {
+        var request = CreatePermissionRequest();
+        var dialogs = new TestDialogService
+        {
+            DialogKeys =
+            [
+                new KeyEvent(KeyCode.DownArrow),
+                new KeyEvent(KeyCode.DownArrow),
+                new KeyEvent(KeyCode.Enter),
+                new KeyEvent(KeyCode.Paste, Text: "Use git status without shell wrappers."),
+                new KeyEvent(KeyCode.Enter)
+            ]
+        };
+        var handler = new ExecuteCommandPermissionRequestTuiHandler();
+
+        var response = await handler.HandleAsync(
+            CreateInteractionContext(dialogs, request),
+            CancellationToken.None);
+
+        response.Should().BeOfType<ExecuteCommandPermissionResponseEvent>()
+            .Which.Should().Match<ExecuteCommandPermissionResponseEvent>(evt =>
+                evt.ChoiceId == "feedback" &&
+                evt.FeedbackText == "Use git status without shell wrappers.");
     }
 
     [Fact]
@@ -124,7 +254,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         rows.Should().ContainSingle();
 
         var rendered = RenderTranscript(state);
-        rendered.Should().Contain("• Ran npm run dev");
+        rendered.Should().Contain("• Background command completed npm run dev");
         rendered.Should().Contain("listening on http://localhost:5173");
         rendered.Should().Contain("3.3s");
         rendered.Should().Contain("exit 0");
@@ -267,11 +397,12 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
         var rendered = RenderShell(registry, state);
         rendered.Should().Contain("bg 1 npm run dev");
+        rendered.Should().Contain("/background");
         rendered.Should().Contain("output truncated");
     }
 
     [Fact]
-    public async Task CommandOutput_RendersInTranscriptInsteadOfBelowEditorWidget()
+    public async Task CommandOutput_RendersInTranscript()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()
@@ -287,8 +418,6 @@ public sealed class ExecuteCommandTuiLifecycleTests
         await state.ApplyEventAsync(Output("tests running\n"));
         await state.ApplyEventAsync(Progress(elapsedMilliseconds: 1_250, stdoutBytes: 42));
 
-        RenderBelowEditorWidgets(registry, state).Trim().Should().BeEmpty();
-
         var rendered = RenderTranscript(state, registry.TranscriptRenderers);
         rendered.Should().Contain("dotnet test");
         rendered.Should().Contain("restore complete");
@@ -296,27 +425,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
     }
 
     [Fact]
-    public async Task BelowEditorWidget_ClearsAfterCommandExit()
-    {
-        var registry = new HpdAgentTuiBuilder()
-            .AddAgentTuiDefaults()
-            .AddCodingHarnessTui()
-            .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
-
-        await state.ApplyEventAsync(Started(command: "dotnet test"));
-        await state.ApplyEventAsync(Output("tests running\n"));
-        await state.ApplyEventAsync(Exited(exitCode: 0, durationMilliseconds: 900));
-
-        var rendered = RenderBelowEditorWidgets(registry, state);
-        rendered.Should().NotContain("tests running");
-        rendered.Trim().Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task BackgroundCommandOutput_RendersInTranscriptInsteadOfBelowEditorWidget()
+    public async Task BackgroundCommandOutput_RendersInTranscript()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()
@@ -333,15 +442,13 @@ public sealed class ExecuteCommandTuiLifecycleTests
             command: "npm run dev",
             stdoutBytes: 37));
 
-        RenderBelowEditorWidgets(registry, state).Trim().Should().BeEmpty();
-
         var rendered = RenderTranscript(state, registry.TranscriptRenderers);
         rendered.Should().Contain("npm run dev");
         rendered.Should().Contain("listening on http://localhost:5173");
     }
 
     [Fact]
-    public async Task AutoBackgroundedCommandOutput_RendersInTranscriptInsteadOfBelowEditorWidget()
+    public async Task AutoBackgroundedCommandOutput_RendersInTranscript()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()
@@ -356,8 +463,6 @@ public sealed class ExecuteCommandTuiLifecycleTests
         await state.ApplyEventAsync(Backgrounded());
         await state.ApplyEventAsync(Output("ready on 5173\n", command: "npm run dev"));
 
-        RenderBelowEditorWidgets(registry, state).Trim().Should().BeEmpty();
-
         var rendered = RenderTranscript(state, registry.TranscriptRenderers);
         rendered.Should().Contain("npm run dev");
         rendered.Should().Contain("server starting");
@@ -365,7 +470,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
     }
 
     [Fact]
-    public async Task BackgroundWidget_RemovesCommandAfterExit()
+    public async Task BackgroundStatus_ShowsCompletedBackgroundResultAfterExit()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()
@@ -379,9 +484,10 @@ public sealed class ExecuteCommandTuiLifecycleTests
         await state.ApplyEventAsync(Output("ready on 5173\n", command: "npm run dev"));
         await state.ApplyEventAsync(Exited(command: "npm run dev", exitCode: 0, durationMilliseconds: 2_000));
 
-        var rendered = RenderBelowEditorWidgets(registry, state);
-        rendered.Should().NotContain("ready on 5173");
-        rendered.Trim().Should().BeEmpty();
+        var rendered = RenderShell(registry, state);
+        rendered.Should().Contain("bg completed npm run dev");
+        rendered.Should().NotContain("bg 1 npm run dev");
+        rendered.Should().NotContain("/background");
     }
 
     [Fact]
@@ -426,7 +532,10 @@ public sealed class ExecuteCommandTuiLifecycleTests
         var rendered = RenderShell(registry, state);
 
         rendered.Should().Contain("Background commands");
-        rendered.Should().Contain("Backgrounded npm run dev");
+        rendered.Should().Contain("• npm run dev");
+        rendered.Should().Contain("task cmd-1");
+        rendered.Should().Contain("cwd /repo");
+        rendered.Should().Contain("state running");
         rendered.Should().Contain("ready on 5173");
     }
 
@@ -510,6 +619,115 @@ public sealed class ExecuteCommandTuiLifecycleTests
         rendered.Should().Contain("• Ran dotnet test");
         rendered.Should().Contain("exit 0");
         rendered.Should().NotContain("exit 1");
+    }
+
+    private static ExecuteCommandPermissionRequestEvent CreatePermissionRequest()
+    {
+        var sandbox = new ExecuteCommandSandboxPolicy();
+        var workspace = new ExecuteCommandPermissionWorkspaceScope
+        {
+            RootId = "default",
+            RootPath = "/repo",
+            RelativeWorkingDirectory = "."
+        };
+        var shell = new ExecuteCommandShellScope
+        {
+            Executable = "/bin/zsh",
+            Family = ExecuteCommandShellFamily.Zsh
+        };
+        var exactRule = new ExecuteCommandPermissionRule
+        {
+            Id = "rule-exact",
+            RuleSchemaVersion = 1,
+            AnalyzerVersion = 1,
+            NormalizationVersion = 1,
+            Behavior = ExecuteCommandPermissionBehavior.Allow,
+            MatchKind = ExecuteCommandPermissionMatchKind.Exact,
+            Pattern = "git status -sb",
+            Shell = shell,
+            RequestedSandboxFingerprint = sandbox.Canonicalize("/repo"),
+            Workspace = workspace,
+            Risk = ExecuteCommandPermissionRisk.None,
+            MinimumTrustLevel = ExecuteCommandAnalysisTrustLevel.Simple
+        };
+        var exactProposal = new ExactAllowRuleProposal
+        {
+            Rule = exactRule,
+            UserLabel = "Always allow this exact command"
+        };
+        var plan = new SimpleCommandPermissionPlan
+        {
+            AnalyzerVersion = 1,
+            NormalizationVersion = 1,
+            Fingerprint = new PermissionFingerprint("fingerprint-1"),
+            Action = ExecuteCommandAction.Run,
+            Command = new RawCommandText("git status -sb"),
+            NormalizedCommand = new NormalizedCommandText("git status -sb"),
+            Shell = shell,
+            WorkingDirectory = "/repo",
+            Workspace = workspace,
+            RequestedSandbox = sandbox,
+            FilesystemEffects = [],
+            NetworkEffects = [],
+            RunInBackground = false,
+            Risk = ExecuteCommandPermissionRisk.None,
+            CommandPlan = new ExecuteCommandSubcommandPlan
+            {
+                Text = "git status -sb",
+                Argv = ["git", "status", "-sb"],
+                BaseCommand = "git",
+                SafePrefix = "git status",
+                Risk = ExecuteCommandPermissionRisk.None,
+                TrustLevel = ExecuteCommandAnalysisTrustLevel.Simple,
+                Readiness = ExecuteCommandPolicyReadiness.PrefixAllowAllowed
+            },
+            ExactAllowRule = exactProposal,
+            PrefixAllowRule = null,
+            SuggestedRules = [exactProposal]
+        };
+        var choices = new ExecuteCommandPermissionChoice[]
+        {
+            new AllowOnceChoice
+            {
+                Id = "allow_once",
+                Label = "Allow once"
+            },
+            new PersistRuleChoice
+            {
+                Id = "allow_exact",
+                Label = "Always allow this exact command",
+                Proposal = exactProposal
+            },
+            new FeedbackChoice
+            {
+                Id = "feedback",
+                Label = "Tell agent what to do instead"
+            }
+        };
+
+        return new ExecuteCommandPermissionRequestEvent(
+            "permission-1",
+            "ExecuteCommandPermissionMiddleware",
+            "call-1",
+            plan,
+            [],
+            new ExecuteCommandPermissionRuleDiagnostics(null, null, [], [], []),
+            choices);
+    }
+
+    private static AgentTuiInteractionContext CreateInteractionContext(
+        IAgentTuiDialogService dialogs,
+        AgentEvent request)
+    {
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var shell = new ChatShellModel(scope);
+        return new AgentTuiInteractionContext(
+            scope,
+            shell,
+            shell.Navigation,
+            new NoopRuntime(),
+            dialogs,
+            request);
     }
 
     private static AgentTuiSessionState CreateState()
@@ -655,8 +873,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
     private static List<TranscriptEntry> ReadRows(TranscriptModel model)
     {
-        var rows = new List<TranscriptEntry>();
-        model.CopyTo(rows);
+        var rows = model.Snapshot().Entries.ToList();
         return rows;
     }
 
@@ -666,7 +883,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         int width = 100,
         int height = 14)
         => TuiCapture.RenderToString(
-            new TranscriptView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 12),
+            new TranscriptHistoryView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 12),
             width: width,
             height: height,
             trimTrailingBlankLines: true);
@@ -690,14 +907,132 @@ public sealed class ExecuteCommandTuiLifecycleTests
             height: 24,
             trimTrailingBlankLines: true);
 
-    private static string RenderBelowEditorWidgets(HpdAgentTuiRegistry registry, AgentTuiSessionState state)
-        => TuiCapture.RenderToString(
-            new ContributionWidgetSlotView(
-                TuiSlot.BelowEditor,
-                state.Shell,
-                state.State,
-                registry.BelowEditorWidgets),
-            width: 100,
-            height: 8,
-            trimTrailingBlankLines: true);
+    private sealed class TestDialogService : IAgentTuiDialogService
+    {
+        public ExecuteCommandPermissionResponseEvent? ShowResult { get; init; }
+        public IReadOnlyList<KeyEvent> DialogKeys { get; init; } = [];
+        public bool RenderDialog { get; init; } = true;
+        public string LastShowKey { get; private set; } = "";
+        public string RenderedDialog { get; private set; } = "";
+        public int ShowPromptCount { get; private set; }
+        public bool HasOpenDialog => false;
+
+        public Task<TResult?> ShowAsync<TResult>(
+            string key,
+            Func<AgentTuiDialogContext<TResult>, IComponent> componentFactory,
+            CancellationToken cancellationToken = default)
+        {
+            LastShowKey = key;
+            ShowPromptCount++;
+            if (ShowResult is not null)
+                return Task.FromResult((TResult?)(object?)ShowResult);
+
+            if (!RenderDialog && DialogKeys.Count == 0)
+                return Task.FromResult<TResult?>(default);
+
+            TResult? result = default;
+            var shell = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
+            var dialog = new AgentTuiDialogContext<TResult>(
+                key,
+                shell.Navigation,
+                value => result = value);
+            var component = componentFactory(dialog);
+            if (RenderDialog)
+            {
+                RenderedDialog = TuiCapture.RenderToString(
+                    component,
+                    width: 100,
+                    height: 24,
+                    trimTrailingBlankLines: true);
+            }
+
+            foreach (var keyEvent in DialogKeys)
+            {
+                component.HandleInput(keyEvent);
+            }
+
+            return Task.FromResult(result);
+        }
+
+        public bool Close(string key) => true;
+
+        public bool CloseTop() => true;
+
+        public Task<bool?> ConfirmAsync(
+            string title,
+            bool? defaultValue = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<bool?>(defaultValue ?? true);
+
+        public Task<T?> SelectAsync<T>(
+            string title,
+            IReadOnlyList<T> options,
+            Func<T, string> titleSelector,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("ExecuteCommand permission TUI must use ShowAsync.");
+
+        public Task<string?> InputAsync(
+            string title,
+            string? defaultValue = null,
+            bool allowEmpty = false,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("ExecuteCommand permission TUI must use ShowAsync.");
+
+        public Task<string?> SecretInputAsync(
+            string title,
+            bool allowEmpty = false,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(null);
+    }
+
+    private sealed class NoopRuntime : IHpdAgentTuiRuntime
+    {
+        public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
+            AgentTuiRuntimeScope? requested,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new AgentTuiScopeResolution(
+                requested ?? new AgentTuiRuntimeScope("agent", "session", "main"),
+                IsDurable: true));
+
+        public Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
+            AgentTuiRuntimeScope scope,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(scope);
+
+        public async IAsyncEnumerable<AgentEvent> ObserveAsync(
+            AgentTuiRuntimeScope scope,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+
+        public Task SubmitInputAsync(
+            AgentTuiRuntimeScope scope,
+            AgentInputEvent input,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task InterruptAsync(
+            AgentTuiRuntimeScope scope,
+            string reason,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task RespondAsync(
+            AgentTuiRuntimeScope scope,
+            AgentEvent response,
+            CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<IReadOnlyList<AgentEvent>> GetThreadEventsAsync(
+            AgentTuiRuntimeScope scope,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<AgentEvent>>([]);
+
+        public Task<AgentTuiThreadRun?> GetActiveRunAsync(
+            AgentTuiRuntimeScope scope,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<AgentTuiThreadRun?>(null);
+    }
 }

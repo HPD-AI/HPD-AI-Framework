@@ -23,13 +23,13 @@ public sealed class PromptView : IFocusable
 
     public Measurement Measure(in RenderContext context, int maxWidth)
     {
-        var width = _model.Text.Length == 0 ? _model.Placeholder.Length : _model.Text.Length;
+        var width = _model.Text.Length == 0 ? _model.Placeholder.Length : Math.Min(maxWidth, LongestRenderedLine(maxWidth));
         if (_model.ShowVisualCursor && IsFocused)
         {
-            width++;
+            width = Math.Min(maxWidth, width + 1);
         }
 
-        var height = 1;
+        var height = Math.Max(1, CountRenderedLines(maxWidth));
         if (_controller.Autocomplete is { SuggestionCount: > 0 } autocomplete)
         {
             height += autocomplete.SuggestionCount;
@@ -47,39 +47,45 @@ public sealed class PromptView : IFocusable
 
         var startX = output.CursorX;
         var startY = output.CursorY;
-        var visibleStart = Math.Max(0, _model.Cursor - maxWidth + 1);
         var visualCursor = _model.ShowVisualCursor && IsFocused;
-        var availableWidth = visualCursor ? Math.Max(0, maxWidth - 1) : maxWidth;
-        var visibleLength = Math.Min(availableWidth, _model.Text.Length - visibleStart);
+        var cursorSet = false;
 
-        if (visualCursor)
+        if (_model.Text.Length == 0)
         {
-            RenderWithVisualCursor(in context, maxWidth, visibleStart, ref output);
-        }
-        else if (_model.Text.Length == 0 && _model.Placeholder.Length > 0)
-        {
-            WriteClipped(_model.Placeholder, maxWidth, context.Theme.Border, ref output);
-        }
-        else if (visibleLength > 0 && _model.MaskCharacter is { } mask)
-        {
-            WriteRepeated(mask, visibleLength, context.Theme.Text, ref output);
-        }
-        else if (visibleLength > 0)
-        {
-            output.Write(_model.Text, visibleStart, visibleLength, context.Theme.Text);
-        }
+            var used = 0;
+            if (visualCursor)
+            {
+                output.Write(_model.VisualCursorCharacter, context.Theme.Accent);
+                output.SetTerminalCursor(startX, startY);
+                cursorSet = true;
+                used++;
+            }
 
-        if (!visualCursor)
-        {
-            var used = _model.Text.Length == 0 && _model.Placeholder.Length > 0
-                ? Math.Min(maxWidth, _model.Placeholder.Length)
-                : visibleLength;
+            if (_model.Placeholder.Length > 0 && used < maxWidth)
+            {
+                var length = Math.Min(maxWidth - used, _model.Placeholder.Length);
+                output.Write(_model.Placeholder.AsSpan(0, length), context.Theme.Border);
+                used += length;
+            }
+
             WriteSpaces(maxWidth - used, context.Theme.Text, ref output);
         }
-
-        if (IsFocused)
+        else
         {
-            output.SetTerminalCursor(startX + Math.Clamp(_model.Cursor - visibleStart, 0, Math.Max(0, maxWidth - 1)), startY);
+            RenderWrappedText(
+                in context,
+                maxWidth,
+                startX,
+                startY,
+                visualCursor,
+                ref cursorSet,
+                ref output);
+        }
+
+        if (IsFocused && !cursorSet)
+        {
+            var cursor = GetCursorPoint(maxWidth);
+            output.SetTerminalCursor(startX + cursor.X, startY + cursor.Y);
         }
 
         if (_controller.Autocomplete is { SuggestionCount: > 0 } autocomplete)
@@ -107,68 +113,81 @@ public sealed class PromptView : IFocusable
         }
     }
 
-    private void RenderWithVisualCursor(in RenderContext context, int maxWidth, int visibleStart, ref SegmentWriter output)
+    private void RenderWrappedText(
+        in RenderContext context,
+        int maxWidth,
+        int startX,
+        int startY,
+        bool visualCursor,
+        ref bool cursorSet,
+        ref SegmentWriter output)
     {
-        var used = 0;
-        var cursorColumn = Math.Clamp(_model.Cursor - visibleStart, 0, Math.Max(0, maxWidth - 1));
-
-        if (_model.Text.Length == 0)
+        var column = 0;
+        var line = 0;
+        var partIndex = 0;
+        for (var i = 0; i <= _model.Text.Length; i++)
         {
-            output.Write(_model.VisualCursorCharacter, context.Theme.Accent);
-            used++;
-            if (_model.Placeholder.Length > 0 && used < maxWidth)
+            if (visualCursor && i == _model.Cursor)
             {
-                var length = Math.Min(maxWidth - used, _model.Placeholder.Length);
-                output.Write(_model.Placeholder.AsSpan(0, length), context.Theme.Border);
-                used += length;
+                if (column == maxWidth)
+                {
+                    WriteSpaces(0, context.Theme.Text, ref output);
+                    output.WriteLineBreak();
+                    column = 0;
+                    line++;
+                }
+
+                output.Write(_model.VisualCursorCharacter, context.Theme.Accent);
+                output.SetTerminalCursor(startX + column, startY + line);
+                cursorSet = true;
+                column++;
             }
 
-            WriteSpaces(maxWidth - used, context.Theme.Text, ref output);
-            return;
+            if (i == _model.Text.Length)
+            {
+                break;
+            }
+
+            var ch = _model.Text[i];
+            if (ch == '\n')
+            {
+                WriteSpaces(maxWidth - column, context.Theme.Text, ref output);
+                output.WriteLineBreak();
+                column = 0;
+                line++;
+                continue;
+            }
+
+            if (column == maxWidth)
+            {
+                output.WriteLineBreak();
+                column = 0;
+                line++;
+            }
+
+            WritePromptCharacter(i, ref partIndex, in context, ref output);
+            column++;
         }
 
-        var beforeLength = Math.Min(cursorColumn, Math.Max(0, _model.Text.Length - visibleStart));
-        if (beforeLength > 0)
-        {
-            WritePromptText(visibleStart, beforeLength, in context, ref output);
-            used += beforeLength;
-        }
-
-        if (used < maxWidth)
-        {
-            output.Write(_model.VisualCursorCharacter, context.Theme.Accent);
-            used++;
-        }
-
-        var afterStart = visibleStart + beforeLength;
-        var afterLength = Math.Min(maxWidth - used, Math.Max(0, _model.Text.Length - afterStart));
-        if (afterLength > 0)
-        {
-            WritePromptText(afterStart, afterLength, in context, ref output);
-            used += afterLength;
-        }
-
-        WriteSpaces(maxWidth - used, context.Theme.Text, ref output);
+        WriteSpaces(maxWidth - column, context.Theme.Text, ref output);
     }
 
-    private void WritePromptText(int start, int length, in RenderContext context, ref SegmentWriter output)
+    private void WritePromptCharacter(int index, ref int partIndex, in RenderContext context, ref SegmentWriter output)
     {
         if (_model.MaskCharacter is { } mask)
         {
-            WriteRepeated(mask, length, context.Theme.Text, ref output);
+            output.Write(mask, context.Theme.Text);
             return;
         }
 
-        output.Write(_model.Text, start, length, context.Theme.Text);
+        var style = GetStyle(index, ref partIndex, in context);
+        output.Write(_model.Text[index], style);
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-        _controller.HandleInput(in key);
-    }
-
-    public void Invalidate()
-    {
+        var keyEvent = key.KeyEvent;
+        return _controller.HandleInput(in keyEvent);
     }
 
     public static PromptView Create(
@@ -194,10 +213,119 @@ public sealed class PromptView : IFocusable
         return new PromptView(model, controller);
     }
 
-    private static void WriteClipped(string value, int maxWidth, Style style, ref SegmentWriter output)
+    private Style GetStyle(int index, ref int partIndex, in RenderContext context)
     {
-        var length = Math.Min(value.Length, maxWidth);
-        output.Write(value.AsSpan(0, length), style);
+        while (partIndex < _model.Parts.Count &&
+               index >= _model.Parts[partIndex].Start + _model.Parts[partIndex].Length)
+        {
+            partIndex++;
+        }
+
+        if (partIndex < _model.Parts.Count)
+        {
+            var part = _model.Parts[partIndex];
+            if (index >= part.Start && index < part.Start + part.Length)
+                return part.Kind == PromptPartKind.PastedBlock
+                    ? context.Theme.Border
+                    : context.Theme.Accent;
+        }
+
+        return context.Theme.Text;
+    }
+
+    private int CountRenderedLines(int maxWidth)
+    {
+        if (maxWidth <= 0 || _model.Text.Length == 0)
+        {
+            return 1;
+        }
+
+        var lines = 1;
+        var column = 0;
+        var extraCursor = _model.ShowVisualCursor && IsFocused ? 1 : 0;
+        for (var i = 0; i < _model.Text.Length + extraCursor; i++)
+        {
+            var isCursor = extraCursor == 1 && i == _model.Cursor;
+            var ch = isCursor ? _model.VisualCursorCharacter : _model.Text[i > _model.Cursor && extraCursor == 1 ? i - 1 : i];
+            if (ch == '\n')
+            {
+                lines++;
+                column = 0;
+                continue;
+            }
+
+            if (column == maxWidth)
+            {
+                lines++;
+                column = 0;
+            }
+
+            column++;
+        }
+
+        return lines;
+    }
+
+    private int LongestRenderedLine(int maxWidth)
+    {
+        if (maxWidth <= 0)
+        {
+            return 0;
+        }
+
+        var longest = 0;
+        var column = 0;
+        for (var i = 0; i < _model.Text.Length; i++)
+        {
+            var ch = _model.Text[i];
+            if (ch == '\n')
+            {
+                longest = Math.Max(longest, column);
+                column = 0;
+                continue;
+            }
+
+            if (column == maxWidth)
+            {
+                longest = Math.Max(longest, column);
+                column = 0;
+            }
+
+            column++;
+        }
+
+        return Math.Max(longest, column);
+    }
+
+    private (int X, int Y) GetCursorPoint(int maxWidth)
+    {
+        var column = 0;
+        var line = 0;
+        for (var i = 0; i < _model.Cursor && i < _model.Text.Length; i++)
+        {
+            if (_model.Text[i] == '\n')
+            {
+                column = 0;
+                line++;
+                continue;
+            }
+
+            if (column == maxWidth)
+            {
+                column = 0;
+                line++;
+            }
+
+            column++;
+        }
+
+        if (column == maxWidth)
+        {
+            column = 0;
+            line++;
+        }
+
+        return (column, line);
     }
 
     private static void WriteSpaces(int count, Style style, ref SegmentWriter output)

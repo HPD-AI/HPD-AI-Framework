@@ -4,8 +4,12 @@ namespace HPD.Agent.TUI.Runtime;
 
 public interface IHpdAgentTuiRuntime
 {
-    Task<AgentTuiRuntimeScope> EnsureScopeAsync(
+    Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
         AgentTuiRuntimeScope? requested,
+        CancellationToken cancellationToken = default);
+
+    Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
+        AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default);
 
     IAsyncEnumerable<AgentEvent> ObserveAsync(
@@ -35,3 +39,7 @@ public interface IHpdAgentTuiRuntime
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default);
 }
+
+public readonly record struct AgentTuiScopeResolution(
+    AgentTuiRuntimeScope Scope,
+    bool IsDurable);

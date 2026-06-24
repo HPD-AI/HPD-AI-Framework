@@ -19,7 +19,7 @@ public sealed class NormalTerminalTuiRendererTests
 
         app.SetRoot(new Text("hello"));
 
-        await app.RunAsync(size => size.Height, TimeSpan.FromMilliseconds(1), cancellation.Token);
+        await app.RunAsync(cancellationToken: cancellation.Token);
 
         Assert.DoesNotContain("\x1b[?1049h", terminal.Output);
         Assert.DoesNotContain("\x1b[?1049l", terminal.Output);
@@ -34,7 +34,7 @@ public sealed class NormalTerminalTuiRendererTests
         terminal.EnqueueKey(new KeyEvent(KeyCode.Escape, Modifiers: KeyModifiers.Ctrl));
         app.SetRoot(new Text("hello"));
 
-        await app.RunAsync(size => size.Height, TimeSpan.FromMilliseconds(1));
+        await app.RunAsync();
 
         Assert.DoesNotContain("\x1b[?1049h", terminal.Output);
         Assert.DoesNotContain("\x1b[?1049l", terminal.Output);
@@ -46,7 +46,7 @@ public sealed class NormalTerminalTuiRendererTests
         using var terminal = new TestTerminal(40, 8);
         using var renderer = new NormalTerminalTuiRenderer(terminal);
 
-        renderer.Render(new Text("hello"), Theme.Default, virtualHeight: 8);
+        renderer.Render(new Text("hello"), Theme.Default, NormalTerminalRenderBounds.ViewportAnchored());
 
         Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
         Assert.DoesNotContain("\x1b[3J", terminal.Output);
@@ -54,18 +54,19 @@ public sealed class NormalTerminalTuiRendererTests
     }
 
     [Fact]
-    public void Render_AfterResize_ClearsTerminalScrollbackBeforeRedraw()
+    public void Render_AfterResize_RedrawsWithoutClearingTerminalScrollback()
     {
         using var terminal = new TestTerminal(40, 8);
         using var renderer = new NormalTerminalTuiRenderer(terminal);
 
-        renderer.Render(new Text("hello"), Theme.Default, virtualHeight: 8);
+        renderer.Render(new Text("hello"), Theme.Default, NormalTerminalRenderBounds.ViewportAnchored());
         terminal.ClearOutput();
         terminal.SetSize(24, 8);
 
-        renderer.Render(new Text("hello"), Theme.Default, virtualHeight: 8);
+        renderer.Render(new Text("hello"), Theme.Default, NormalTerminalRenderBounds.ViewportAnchored());
 
-        Assert.Contains("\x1b[3J\x1b[2J\x1b[H", terminal.Output);
+        Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
+        Assert.DoesNotContain("\x1b[3J", terminal.Output);
         Assert.DoesNotContain("\x1b[?1049h", terminal.Output);
     }
 
@@ -75,10 +76,10 @@ public sealed class NormalTerminalTuiRendererTests
         using var terminal = new TestTerminal(40, 8);
         using var renderer = new NormalTerminalTuiRenderer(terminal);
 
-        renderer.Render(new Text("hello"), Theme.Default, virtualHeight: 8);
+        renderer.Render(new Text("hello"), Theme.Default, NormalTerminalRenderBounds.ViewportAnchored());
         terminal.ClearOutput();
 
-        renderer.Render(new Text("hello world"), Theme.Default, virtualHeight: 8);
+        renderer.Render(new Text("hello world"), Theme.Default, NormalTerminalRenderBounds.ViewportAnchored());
 
         Assert.DoesNotContain("\x1b[2J\x1b[H", terminal.Output);
         Assert.Contains("\x1b[2K", terminal.Output);
@@ -91,14 +92,32 @@ public sealed class NormalTerminalTuiRendererTests
         using var terminal = new TestTerminal(40, 8);
         using var renderer = new NormalTerminalTuiRenderer(terminal);
 
-        renderer.Render(new LinesComponent("one"), Theme.Default, virtualHeight: 8);
+        renderer.Render(new LinesComponent("one"), Theme.Default, NormalTerminalRenderBounds.ViewportAnchored());
         terminal.ClearOutput();
 
-        renderer.Render(new LinesComponent("one", "two"), Theme.Default, virtualHeight: 8);
+        renderer.Render(new LinesComponent("one", "two"), Theme.Default, NormalTerminalRenderBounds.ViewportAnchored());
 
         Assert.DoesNotContain("\x1b[2J\x1b[H", terminal.Output);
         Assert.Contains("\r\n", terminal.Output);
         Assert.Contains("two", terminal.Output);
+    }
+
+    [Fact]
+    public void Render_FullRenderWithVirtualHeight_WritesOnlyVisibleViewport()
+    {
+        using var terminal = new TestTerminal(40, 3);
+        using var renderer = new NormalTerminalTuiRenderer(terminal);
+
+        renderer.Render(
+            new LinesComponent("one", "two", "three", "four", "five"),
+            Theme.Default,
+            NormalTerminalRenderBounds.ViewportAnchored(maxRows: 16));
+
+        Assert.DoesNotContain("one", terminal.Output);
+        Assert.DoesNotContain("two", terminal.Output);
+        Assert.Contains("three", terminal.Output);
+        Assert.Contains("four", terminal.Output);
+        Assert.Contains("five", terminal.Output);
     }
 
     [Fact]
@@ -107,7 +126,7 @@ public sealed class NormalTerminalTuiRendererTests
         using var terminal = new TestTerminal(40, 8);
         using var renderer = new NormalTerminalTuiRenderer(terminal);
 
-        renderer.Render(new CursorComponent(), Theme.Default, virtualHeight: 8);
+        renderer.Render(new CursorComponent(), Theme.Default, NormalTerminalRenderBounds.ViewportAnchored());
 
         Assert.DoesNotContain("\x1b[4G", terminal.Output);
         Assert.Equal(0, terminal.ShowCursorCount);
@@ -123,7 +142,7 @@ public sealed class NormalTerminalTuiRendererTests
             TrackHardwareCursor = true
         };
 
-        renderer.Render(new CursorComponent(), Theme.Default, virtualHeight: 8);
+        renderer.Render(new CursorComponent(), Theme.Default, NormalTerminalRenderBounds.ViewportAnchored());
 
         Assert.Contains("\x1b[4G", terminal.Output);
         Assert.Equal(1, terminal.ShowCursorCount);
@@ -137,7 +156,7 @@ public sealed class NormalTerminalTuiRendererTests
         var sink = new RecordingSink();
         renderer.PerformanceSink = sink;
 
-        renderer.Render(new Text("hello"), Theme.Default, virtualHeight: 8);
+        renderer.Render(new Text("hello"), Theme.Default, NormalTerminalRenderBounds.ViewportAnchored());
 
         var evt = Assert.IsType<TuiRenderCompleted>(Assert.Single(sink.Events));
         Assert.Equal(EventKind.Diagnostic, evt.Kind);
@@ -156,9 +175,27 @@ public sealed class NormalTerminalTuiRendererTests
         app.PerformanceSink = sink;
         app.SetRoot(new Text("hello"));
 
-        app.Render(size => size.Height);
+        app.Render(new NormalTerminalRunOptions());
 
         Assert.IsType<TuiRenderCompleted>(Assert.Single(sink.Events));
+    }
+
+    [Fact]
+    public async Task Application_InputEvent_RendersOnceAfterHandledInput()
+    {
+        using var terminal = new TestTerminal(40, 8);
+        using var app = new NormalTerminalTuiApplication(terminal);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(80));
+        var sink = new RecordingSink();
+        var component = new InputCountingComponent();
+        app.PerformanceSink = sink;
+        app.SetRoot(component);
+        terminal.EnqueueKey(new KeyEvent(KeyCode.Character, new Rune('x')));
+
+        await app.RunAsync(cancellationToken: cancellation.Token);
+
+        Assert.Equal(1, component.InputCount);
+        Assert.Equal(2, sink.Events.OfType<TuiRenderCompleted>().Count());
     }
 
     [Fact]
@@ -178,7 +215,7 @@ public sealed class NormalTerminalTuiRendererTests
         Assert.Contains("tui frame 4.25ms surface=normal-terminal rows=3 segments=2 cache=1/0", writer.ToString());
     }
 
-    private sealed class TestTerminal : ITerminal
+    private sealed class TestTerminal : ITerminal, ITerminalInput
     {
         private readonly StringBuilder _output = new();
         private readonly Queue<KeyEvent> _keys = new();
@@ -194,6 +231,8 @@ public sealed class NormalTerminalTuiRendererTests
         public int HideCursorCount { get; private set; }
 
         public int ShowCursorCount { get; private set; }
+
+        public ITerminalInput Input => this;
 
         public TerminalSize GetSize() => _size;
 
@@ -218,15 +257,14 @@ public sealed class NormalTerminalTuiRendererTests
         {
         }
 
-        public bool TryReadKey(out KeyEvent key)
+        public ValueTask<TerminalInputEvent> ReadAsync(CancellationToken cancellationToken = default)
         {
-            if (_keys.TryDequeue(out key))
+            if (_keys.TryDequeue(out var key))
             {
-                return true;
+                return ValueTask.FromResult(TerminalInputEvent.FromKey(key));
             }
 
-            key = default;
-            return false;
+            return WaitAsync(cancellationToken);
         }
 
         public void HideCursor()
@@ -241,6 +279,14 @@ public sealed class NormalTerminalTuiRendererTests
 
         public void Dispose()
         {
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        private static async ValueTask<TerminalInputEvent> WaitAsync(CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+            return TerminalInputEvent.Stop;
         }
     }
 
@@ -278,12 +324,9 @@ public sealed class NormalTerminalTuiRendererTests
             }
         }
 
-        public void HandleInput(in KeyEvent key)
+        public bool HandleInput(in TuiInputEvent key)
         {
-        }
-
-        public void Invalidate()
-        {
+            return false;
         }
     }
 
@@ -297,12 +340,27 @@ public sealed class NormalTerminalTuiRendererTests
             output.SetTerminalCursor(3, 0);
         }
 
-        public void HandleInput(in KeyEvent key)
+        public bool HandleInput(in TuiInputEvent key)
         {
+            return false;
+        }
+    }
+
+    private sealed class InputCountingComponent : IComponent
+    {
+        public int InputCount { get; private set; }
+
+        public Measurement Measure(in RenderContext context, int maxWidth) => new(1, 1);
+
+        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        {
+            output.Write(InputCount.ToString(), context.Theme.Text);
         }
 
-        public void Invalidate()
+        public bool HandleInput(in TuiInputEvent key)
         {
+            InputCount++;
+            return true;
         }
     }
 }

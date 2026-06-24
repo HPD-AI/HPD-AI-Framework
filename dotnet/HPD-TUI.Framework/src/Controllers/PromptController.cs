@@ -22,6 +22,13 @@ public sealed class PromptController
 
     public Action? Canceled { get; set; }
 
+    public void SetDraft(string value)
+    {
+        _model.SetText(value);
+        _historyIndex = _history.Count;
+        RefreshAutocomplete();
+    }
+
     public bool HandleInput(in KeyEvent key)
     {
         if (Autocomplete is { SuggestionCount: > 0 })
@@ -53,21 +60,37 @@ public sealed class PromptController
             case KeyCode.Character:
                 Insert(key.Character);
                 return true;
+            case KeyCode.Paste when key.Text is { Length: > 0 } text:
+                InsertPaste(text);
+                return true;
             case KeyCode.Backspace when _model.Cursor > 0:
-                _model.Text.Remove(_model.Cursor - 1, 1);
-                _model.Cursor--;
+                if (TryRemovePartBeforeCursor())
+                {
+                    RefreshAutocomplete();
+                    return true;
+                }
+
+                var backspaceStart = _model.Cursor - 1;
+                _model.RemoveText(backspaceStart, 1);
+                _model.Cursor = backspaceStart;
                 RefreshAutocomplete();
                 return true;
             case KeyCode.Delete when _model.Cursor < _model.Text.Length:
-                _model.Text.Remove(_model.Cursor, 1);
+                if (TryRemovePartAfterCursor())
+                {
+                    RefreshAutocomplete();
+                    return true;
+                }
+
+                _model.RemoveText(_model.Cursor, 1);
                 RefreshAutocomplete();
                 return true;
             case KeyCode.LeftArrow when _model.Cursor > 0:
-                _model.Cursor--;
+                _model.Cursor = GetPreviousCursor(_model.Cursor);
                 RefreshAutocomplete();
                 return true;
             case KeyCode.RightArrow when _model.Cursor < _model.Text.Length:
-                _model.Cursor++;
+                _model.Cursor = GetNextCursor(_model.Cursor);
                 RefreshAutocomplete();
                 return true;
             case KeyCode.Home:
@@ -100,7 +123,7 @@ public sealed class PromptController
 
     public void Submit()
     {
-        var value = _model.Value;
+        var value = _model.SubmittedValue;
         if (value.Length > 0)
         {
             _history.Add(value);
@@ -115,6 +138,7 @@ public sealed class PromptController
 
         Submitted?.Invoke(memory);
         _model.Text.Clear();
+        _model.ClearParts();
         _model.Cursor = 0;
         RefreshAutocomplete();
     }
@@ -127,10 +151,100 @@ public sealed class PromptController
             return;
         }
 
-        _model.Text.Insert(_model.Cursor, buffer[..written]);
-        _model.Cursor += written;
+        _model.InsertText(_model.Cursor, buffer[..written]);
         _historyIndex = _history.Count;
         RefreshAutocomplete();
+    }
+
+    private void InsertPaste(string text)
+    {
+        var wordCount = CountWords(text);
+        var display = wordCount == 1
+            ? "(pasted 1 word)"
+            : $"(pasted {wordCount} words)";
+        _model.InsertPart(_model.Cursor, display, PromptPartKind.PastedBlock, text);
+        _historyIndex = _history.Count;
+        RefreshAutocomplete();
+    }
+
+    private static int CountWords(string text)
+    {
+        var count = 0;
+        var inWord = false;
+        foreach (var ch in text)
+        {
+            if (char.IsWhiteSpace(ch))
+            {
+                inWord = false;
+                continue;
+            }
+
+            if (inWord)
+            {
+                continue;
+            }
+
+            count++;
+            inWord = true;
+        }
+
+        return count;
+    }
+
+    private bool TryRemovePartBeforeCursor()
+    {
+        foreach (var part in _model.Parts)
+        {
+            if (_model.Cursor == part.Start + part.Length)
+            {
+                _model.RemoveText(part.Start, part.Length);
+                _model.Cursor = part.Start;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryRemovePartAfterCursor()
+    {
+        foreach (var part in _model.Parts)
+        {
+            if (_model.Cursor == part.Start)
+            {
+                _model.RemoveText(part.Start, part.Length);
+                _model.Cursor = part.Start;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private int GetPreviousCursor(int cursor)
+    {
+        foreach (var part in _model.Parts)
+        {
+            if (cursor > part.Start && cursor <= part.Start + part.Length)
+            {
+                return part.Start;
+            }
+        }
+
+        return cursor - 1;
+    }
+
+    private int GetNextCursor(int cursor)
+    {
+        foreach (var part in _model.Parts)
+        {
+            if (cursor >= part.Start && cursor < part.Start + part.Length)
+            {
+                return part.Start + part.Length;
+            }
+        }
+
+        return cursor + 1;
     }
 
     private void NavigateHistory(int delta)

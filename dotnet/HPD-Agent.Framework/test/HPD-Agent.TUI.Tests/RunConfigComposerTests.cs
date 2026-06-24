@@ -65,10 +65,15 @@ public sealed class RunConfigComposerTests
 
         public AgentInputEvent? LastInput { get; private set; }
 
-        public Task<AgentTuiRuntimeScope> EnsureScopeAsync(
+        public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
             AgentTuiRuntimeScope? requested,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(requested ?? _scope);
+            => Task.FromResult(new AgentTuiScopeResolution(requested ?? _scope, IsDurable: true));
+
+        public Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
+            AgentTuiRuntimeScope scope,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(scope);
 
         public async IAsyncEnumerable<AgentEvent> ObserveAsync(
             AgentTuiRuntimeScope scope,
@@ -110,7 +115,7 @@ public sealed class RunConfigComposerTests
             => Task.FromResult<AgentTuiThreadRun?>(null);
     }
 
-    private sealed class TestTerminal : ITerminal
+    private sealed class TestTerminal : ITerminal, ITerminalInput
     {
         private readonly StringBuilder _output = new();
         private TerminalSize _size;
@@ -131,11 +136,10 @@ public sealed class RunConfigComposerTests
         {
         }
 
-        public bool TryReadKey(out KeyEvent key)
-        {
-            key = default;
-            return false;
-        }
+        public ITerminalInput Input => this;
+
+        public ValueTask<TerminalInputEvent> ReadAsync(CancellationToken cancellationToken = default)
+            => ValueTask.FromResult(TerminalInputEvent.Stop);
 
         public void HideCursor()
         {
@@ -148,5 +152,7 @@ public sealed class RunConfigComposerTests
         public void Dispose()
         {
         }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

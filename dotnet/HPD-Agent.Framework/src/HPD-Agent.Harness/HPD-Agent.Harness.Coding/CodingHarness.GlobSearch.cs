@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Xml;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
@@ -25,7 +26,7 @@ public partial class CodingToolHarness
     [Description("Finds files or directories whose paths match a glob pattern. Use this when you know a filename or path shape such as **/*.cs, src/**/*.json, or **/*Tests.cs. Use ListDirectory to inspect a known folder, Grep to search file contents, and ReadFile to read a specific file. When exploring and several filename shapes are plausible, run multiple useful GlobSearch calls in parallel rather than serially guessing one pattern at a time.")]
     public async Task<string> GlobSearch(
         [Description("The glob pattern to match. It may be relative to path or absolute. Bare filenames search recursively.")] string pattern,
-        [Description("The search root. Relative paths are resolved from the current working directory.")] string path = ".",
+        [Description("The search root. Relative paths are resolved from the configured workspace.")] string path = ".",
         [Description("The 1-based match number to start returning after filtering and sorting.")] int offset = 1,
         [Description("The maximum number of matches to return. Maximum: 1000.")] int limit = DefaultMatchLimit,
         [Description("Whether glob matching should be case-sensitive.")] bool caseSensitive = false,
@@ -33,7 +34,8 @@ public partial class CodingToolHarness
         [Description("Whether to respect ignore files such as .gitignore.")] bool respectIgnoreFiles = true,
         [Description("Filters matches by kind.")] GlobEntryKindFilter kind = GlobEntryKindFilter.Files,
         [Description("Controls match ordering.")] GlobSortBy sortBy = GlobSortBy.Path,
-        [Description("Controls ascending or descending sort order.")] SortDirection sortDirection = SortDirection.Ascending)
+        [Description("Controls ascending or descending sort order.")] SortDirection sortDirection = SortDirection.Ascending,
+        FunctionExecutionContext context = null!)
     {
         try
         {
@@ -41,8 +43,14 @@ public partial class CodingToolHarness
             if (argumentError != null)
                 return FormatGlobSearchError(path ?? string.Empty, argumentError);
 
-            var resolved = await TryResolveGlobSearchWithHostAsync(path, pattern, CancellationToken.None).ConfigureAwait(false)
-                ?? ResolveGlobSearch(path, pattern);
+            var workspace = context is null
+                ? CreateDirectCallWorkspace()
+                : AgentWorkspace.From(context.RunConfig);
+            var enforceWorkspaceScope = context is not null;
+            var hostResolved = await TryResolveGlobSearchWithHostAsync(workspace, path, pattern, CancellationToken.None).ConfigureAwait(false);
+            var resolved = hostResolved is null
+                ? ResolveGlobSearch(workspace, path, pattern, enforceWorkspaceScope)
+                : EnsureWorkspaceScoped(workspace, enforceWorkspaceScope, hostResolved);
 
             if (IsBlockedSearchPath(resolved.InputPath) ||
                 IsBlockedSearchPath(resolved.OriginalPattern) ||
@@ -84,6 +92,10 @@ public partial class CodingToolHarness
         {
             return FormatGlobSearchError(path ?? string.Empty, $"Unable to search files: {ex.Message}");
         }
+        catch (AgentWorkspaceException ex)
+        {
+            return FormatGlobSearchError(path ?? string.Empty, $"Unable to search files: {ex.Message}");
+        }
         catch (IOException ex)
         {
             return FormatGlobSearchError(path ?? string.Empty, $"Unable to search files: {ex.Message}");
@@ -95,13 +107,14 @@ public partial class CodingToolHarness
     }
 
     private async Task<ResolvedGlobSearch?> TryResolveGlobSearchWithHostAsync(
+        AgentWorkspace workspace,
         string path,
         string pattern,
         CancellationToken cancellationToken)
     {
         foreach (var resolver in _globSearchPathResolvers)
         {
-            var result = await resolver.TryResolveAsync(path, pattern, cancellationToken).ConfigureAwait(false);
+            var result = await resolver.TryResolveAsync(workspace, path, pattern, cancellationToken).ConfigureAwait(false);
             if (result != null)
                 return result;
         }
@@ -136,30 +149,55 @@ public partial class CodingToolHarness
         return null;
     }
 
-    private static ResolvedGlobSearch ResolveGlobSearch(string path, string pattern)
+    private static ResolvedGlobSearch ResolveGlobSearch(
+        AgentWorkspace workspace,
+        string path,
+        string pattern,
+        bool enforceWorkspaceScope)
     {
         var trimmedPath = path.Trim();
         var trimmedPattern = NormalizePatternSeparators(pattern.Trim());
-        var fullPath = Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
+        var fullPath = enforceWorkspaceScope
+            ? workspace.ResolveDirectory(trimmedPath)
+            : Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
         var originalPattern = trimmedPattern;
 
         if (IsTrailingDirectoryPattern(trimmedPattern))
         {
-            return new ResolvedGlobSearch(
-                trimmedPath,
-                originalPattern,
-                fullPath,
-                fullPath,
-                NormalizeModelFriendlyPattern(trimmedPattern));
+            return EnsureWorkspaceScoped(
+                workspace,
+                enforceWorkspaceScope,
+                new ResolvedGlobSearch(
+                    trimmedPath,
+                    originalPattern,
+                    fullPath,
+                    fullPath,
+                    NormalizeModelFriendlyPattern(trimmedPattern)));
         }
 
         var normalizedPattern = NormalizeModelFriendlyPattern(trimmedPattern);
         var literalFullPath = TryGetLiteralFullPath(fullPath, normalizedPattern);
 
-        if (Path.IsPathFullyQualified(normalizedPattern))
-            return ExtractStaticBaseDirectory(trimmedPath, originalPattern, fullPath, normalizedPattern, literalFullPath);
+        return EnsureWorkspaceScoped(
+            workspace,
+            enforceWorkspaceScope,
+            ExtractStaticBaseDirectory(trimmedPath, originalPattern, fullPath, normalizedPattern, literalFullPath));
+    }
 
-        return ExtractStaticBaseDirectory(trimmedPath, originalPattern, fullPath, normalizedPattern, literalFullPath);
+    private static ResolvedGlobSearch EnsureWorkspaceScoped(
+        AgentWorkspace workspace,
+        bool enforceWorkspaceScope,
+        ResolvedGlobSearch resolved)
+    {
+        if (!enforceWorkspaceScope)
+            return resolved;
+
+        workspace.ThrowIfPathIsOutsideWorkspace(resolved.FullPath);
+        workspace.ThrowIfPathIsOutsideWorkspace(resolved.EffectiveFullPath);
+        if (resolved.LiteralFullPath is not null)
+            workspace.ThrowIfPathIsOutsideWorkspace(resolved.LiteralFullPath);
+
+        return resolved;
     }
 
     private static string NormalizeModelFriendlyPattern(string pattern)
@@ -713,6 +751,7 @@ public interface IGlobSearchPathResolver
     /// Returns a resolved glob search, or null when the resolver does not own the path/pattern.
     /// </summary>
     ValueTask<ResolvedGlobSearch?> TryResolveAsync(
+        AgentWorkspace workspace,
         string path,
         string pattern,
         CancellationToken cancellationToken);

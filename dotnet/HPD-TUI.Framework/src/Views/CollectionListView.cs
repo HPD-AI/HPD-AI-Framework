@@ -110,13 +110,9 @@ public sealed class CollectionListView<T> : IFocusable
         }
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
-        _handleInput?.Invoke(key);
-    }
-
-    public void Invalidate()
-    {
+        return _handleInput?.Invoke(key.KeyEvent) == true;
     }
 
     private void RenderItem(in RenderContext context, ref SegmentWriter output, int sourceIndex, CollectionItem<T> item)

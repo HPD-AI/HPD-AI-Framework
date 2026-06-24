@@ -169,6 +169,33 @@ public sealed class FunctionExecutionContextTests
 
         var evt = await observed.Task.WaitAsync(TimeSpan.FromSeconds(5));
         evt.TraceId.Should().Be("trace-1");
+        evt.SessionId.Should().Be("session-1");
+        evt.ThreadId.Should().Be("thread-1");
+    }
+
+    [Fact]
+    public async Task FunctionExecutionContext_Emit_PreservesExplicitEventScope()
+    {
+        var coordinator = new EventCoordinator();
+        var observed = new TaskCompletionSource<TestAgentEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var subscription = coordinator.Subscribe<TestAgentEvent>(evt =>
+        {
+            observed.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+        var context = CreateContext(eventCoordinator: coordinator, traceId: "trace-1");
+
+        context.Emit(new TestAgentEvent
+        {
+            SessionId = "explicit-session",
+            ThreadId = "explicit-thread",
+            TraceId = "explicit-trace"
+        });
+
+        var evt = await observed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        evt.TraceId.Should().Be("explicit-trace");
+        evt.SessionId.Should().Be("explicit-session");
+        evt.ThreadId.Should().Be("explicit-thread");
     }
 
     [Fact]
@@ -208,6 +235,7 @@ public sealed class FunctionExecutionContextTests
 
         var act = () => context.RegisterBackgroundTask(
             "work",
+            BackgroundTaskNotificationPolicy.OnFault,
             (_, _) => Task.CompletedTask);
 
         act.Should().Throw<InvalidOperationException>()
@@ -228,19 +256,24 @@ public sealed class FunctionExecutionContextTests
 
         context.RegisterBackgroundTask(
             "work",
+            BackgroundTaskNotificationPolicy.OnFault,
             (_, _) => Task.CompletedTask);
 
-        registry.Name.Should().Be("work");
-        registry.Invocation.Should().BeSameAs(context.InvocationSnapshot);
-        registry.Invocation!.BatchId.Should().Be("batch-1");
-        registry.Invocation.ToolCallIndex.Should().Be(3);
+        registry.Descriptor.Should().NotBeNull();
+        registry.Descriptor!.Name.Should().Be("work");
+        registry.Descriptor.SourceKind.Should().Be(BackgroundTaskSourceKind.ToolCall);
+        registry.Descriptor.SourceId.Should().Be("call-1");
+        registry.Descriptor.NotificationPolicy.Should().Be(BackgroundTaskNotificationPolicy.OnFault);
+        registry.Descriptor.Invocation.Should().BeSameAs(context.InvocationSnapshot);
+        registry.Descriptor.Invocation!.BatchId.Should().Be("batch-1");
+        registry.Descriptor.Invocation.ToolCallIndex.Should().Be(3);
         registry.TaskFactory.Should().NotBeNull();
     }
 
     [Fact]
-    public void FunctionBackgroundContext_PublicApi_DoesNotExposeLiveStateOrResultMetadata()
+    public void BackgroundTaskContext_PublicApi_DoesNotExposeLiveStateOrResultMetadata()
     {
-        var type = typeof(FunctionBackgroundContext);
+        var type = typeof(BackgroundTaskContext);
 
         type.GetMethod("UpdateState").Should().BeNull();
         type.GetMethod("UpdateMiddlewareState").Should().BeNull();
@@ -334,25 +367,14 @@ public sealed class FunctionExecutionContextTests
 
     private sealed class CapturingBackgroundTaskRegistry : IAgentBackgroundTaskRegistry
     {
-        public string? Name { get; private set; }
-        public FunctionInvocationSnapshot? Invocation { get; private set; }
-        public Func<FunctionBackgroundContext, CancellationToken, Task>? TaskFactory { get; private set; }
-
-        public void RegisterBackgroundTask(Task task)
-        {
-        }
-
-        public void RegisterBackgroundTask(Func<CancellationToken, Task> taskFactory)
-        {
-        }
+        public BackgroundTaskDescriptor? Descriptor { get; private set; }
+        public Func<BackgroundTaskContext, CancellationToken, Task>? TaskFactory { get; private set; }
 
         public void RegisterBackgroundTask(
-            string name,
-            FunctionInvocationSnapshot invocation,
-            Func<FunctionBackgroundContext, CancellationToken, Task> taskFactory)
+            BackgroundTaskDescriptor descriptor,
+            Func<BackgroundTaskContext, CancellationToken, Task> taskFactory)
         {
-            Name = name;
-            Invocation = invocation;
+            Descriptor = descriptor;
             TaskFactory = taskFactory;
         }
     }

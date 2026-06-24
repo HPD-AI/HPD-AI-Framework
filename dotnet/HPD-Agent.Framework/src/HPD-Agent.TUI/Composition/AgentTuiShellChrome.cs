@@ -52,7 +52,7 @@ public sealed class AgentTuiDialogChrome
 
     public int Y { get; set; } = 6;
 
-    public int Width { get; set; } = 80;
+    public int Width { get; set; }
 
     public int Height { get; set; } = 14;
 

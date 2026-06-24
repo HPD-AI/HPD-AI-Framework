@@ -215,9 +215,11 @@ public sealed class ModelSelectionCommandTests
     {
         public bool HasOpenDialog => false;
 
-        public void Show(string key, IComponent component)
-        {
-        }
+        public Task<TResult?> ShowAsync<TResult>(
+            string key,
+            Func<AgentTuiDialogContext<TResult>, IComponent> componentFactory,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<TResult?>(default);
 
         public bool Close(string key) => false;
 
@@ -252,10 +254,17 @@ public sealed class ModelSelectionCommandTests
 
     private sealed class NoopRuntime : IHpdAgentTuiRuntime
     {
-        public Task<AgentTuiRuntimeScope> EnsureScopeAsync(
+        public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
             AgentTuiRuntimeScope? requested,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(requested ?? new AgentTuiRuntimeScope("agent", "session", "main"));
+            => Task.FromResult(new AgentTuiScopeResolution(
+                requested ?? new AgentTuiRuntimeScope("agent", "session", "main"),
+                IsDurable: true));
+
+        public Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
+            AgentTuiRuntimeScope scope,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(scope);
 
         public async IAsyncEnumerable<AgentEvent> ObserveAsync(
             AgentTuiRuntimeScope scope,

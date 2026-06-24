@@ -21,11 +21,10 @@ public sealed class SeparatorBlock : IContentBlock
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output) => _separator.Render(in context, maxWidth, ref output);
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent key)
     {
+        return false;
     }
-
-    public void Invalidate() => _separator.Invalidate();
 
     public static SeparatorBlock Create(string? title = null) => new(title);
 }

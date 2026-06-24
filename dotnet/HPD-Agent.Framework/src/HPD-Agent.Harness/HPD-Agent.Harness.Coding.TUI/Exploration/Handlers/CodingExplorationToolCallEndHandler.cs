@@ -25,7 +25,7 @@ internal sealed class CodingExplorationToolCallEndHandler : AgentTuiEventHandler
         }
 
         group.Touch();
-        context.Shell.Transcript.Update(CodingExplorationTranscriptEntryFactory.Create(group, evt));
+        CodingExplorationTranscriptEntryFactory.Apply(context, group, evt);
         return ValueTask.CompletedTask;
     }
 }

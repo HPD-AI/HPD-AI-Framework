@@ -26,12 +26,9 @@ internal sealed class CodingDiagnosticsCellView : IComponent
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
         => RenderDiagnosticsBody(_cell.Diagnostics, _cell.Truncated, maxWidth, MaxDiagnostics, in context, ref output);
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent input)
     {
-    }
-
-    public void Invalidate()
-    {
+        return false;
     }
 
     public static void RenderDiagnosticsBody(

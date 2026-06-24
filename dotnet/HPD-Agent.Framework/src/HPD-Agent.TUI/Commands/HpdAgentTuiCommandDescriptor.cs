@@ -5,6 +5,8 @@ namespace HPD.Agent.TUI.Commands;
 
 public sealed class HpdAgentTuiCommandDescriptor
 {
+    public const int DefaultOrder = 550;
+
     public HpdAgentTuiCommandDescriptor(
         string name,
         Action<AgentTuiCommandContext> execute)
@@ -44,6 +46,8 @@ public sealed class HpdAgentTuiCommandDescriptor
     public string? Description { get; init; }
 
     public bool Hidden { get; init; }
+
+    public int Order { get; init; } = DefaultOrder;
 
     public Func<AgentTuiCommandCompletionContext, ValueTask>? CompleteArgumentsAsync { get; init; }
 

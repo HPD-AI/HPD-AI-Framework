@@ -1,8 +1,8 @@
 using HPD.TUI.Core;
 
-namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Widgets;
+namespace HPD.Agent.ToolHarness.Coding.TUI.Commands;
 
-internal static class CodingCommandWidgetText
+internal static class CodingCommandPanelText
 {
     public static string BuildMetadata(CodingCommandExecutionState command, bool includeWorkingDirectory)
     {

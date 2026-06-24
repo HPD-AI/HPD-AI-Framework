@@ -31,7 +31,7 @@ internal sealed class CodingExplorationToolCallResultHandler : AgentTuiEventHand
             : CodingExplorationOperationStatus.Completed;
         operation.CompletedAt = DateTimeOffset.UtcNow;
         group.Touch();
-        context.Shell.Transcript.Update(CodingExplorationTranscriptEntryFactory.Create(group, evt));
+        CodingExplorationTranscriptEntryFactory.Apply(context, group, evt);
         return ValueTask.CompletedTask;
     }
 

@@ -106,9 +106,7 @@ public sealed class AgentTuiSessionStateTests
 
     private static List<TranscriptEntry> ReadRows(TranscriptModel model)
     {
-        var rows = new List<TranscriptEntry>();
-        model.CopyTo(rows);
-        return rows;
+        return model.Snapshot().Entries.ToList();
     }
 
     private sealed class TestTextMessageHandler : IAgentTuiEventHandler
@@ -127,30 +125,29 @@ public sealed class AgentTuiSessionStateTests
             {
                 case TextMessageStartEvent start:
                     _buffers[start.MessageId] = "";
-                    UpdateAssistantRow(context, start.MessageId, "");
+                    UpsertAssistantRow(context, start.MessageId, "");
                     break;
 
                 case TextDeltaEvent delta:
                     _buffers.TryGetValue(delta.MessageId, out var current);
                     current += delta.Text;
                     _buffers[delta.MessageId] = current;
-                    UpdateAssistantRow(context, delta.MessageId, current);
+                    UpsertAssistantRow(context, delta.MessageId, current);
                     break;
 
                 case TextMessageEndEvent end when _buffers.TryGetValue(end.MessageId, out var final):
-                    UpdateAssistantRow(context, end.MessageId, final);
+                    FinalizeAssistantRow(context, end.MessageId, final);
                     break;
             }
 
             return ValueTask.CompletedTask;
         }
 
-        private static void UpdateAssistantRow(
+        private static TranscriptEntry AssistantEntry(
             AgentTuiEventContext context,
             string messageId,
             string markdown)
-        {
-            context.Shell.Transcript.Update(new TranscriptEntry(
+            => new(
                 Id: $"assistant-{messageId}",
                 EntryKey: $"assistant:{messageId}",
                 new AssistantMessageCell("assistant", new Markdown(string.IsNullOrWhiteSpace(markdown) ? "_thinking..._" : markdown)),
@@ -159,8 +156,19 @@ public sealed class AgentTuiSessionStateTests
                     AgentName: "assistant",
                     ParentAgentId: null,
                     AgentChain: ["assistant"],
-                    AgentDepth: 0)));
-        }
+                    AgentDepth: 0));
+
+        private static void UpsertAssistantRow(
+            AgentTuiEventContext context,
+            string messageId,
+            string markdown)
+            => context.Shell.Transcript.UpsertLive(AssistantEntry(context, messageId, markdown));
+
+        private static void FinalizeAssistantRow(
+            AgentTuiEventContext context,
+            string messageId,
+            string markdown)
+            => context.Shell.Transcript.FinalizeLive($"assistant:{messageId}", AssistantEntry(context, messageId, markdown));
     }
 
     private sealed class TestToolHandler : IAgentTuiEventHandler
@@ -183,7 +191,7 @@ public sealed class AgentTuiSessionStateTests
 
             if (callId is not null)
             {
-                context.Shell.Transcript.Update(new TranscriptEntry(
+                context.Shell.Transcript.UpsertLive(new TranscriptEntry(
                     Id: $"tool-{callId}",
                     EntryKey: $"tool:{callId}",
                     new ToolCallCell("tool", TranscriptRunState.Running, Summary: new Text(callId)),

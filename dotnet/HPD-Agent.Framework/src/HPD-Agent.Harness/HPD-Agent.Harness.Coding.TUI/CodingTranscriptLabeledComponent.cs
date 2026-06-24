@@ -42,11 +42,8 @@ internal sealed class CodingTranscriptLabeledComponent : IComponent
             .Render(in context, maxWidth, ref output);
     }
 
-    public void HandleInput(in KeyEvent key)
+    public bool HandleInput(in TuiInputEvent input)
     {
-    }
-
-    public void Invalidate()
-    {
+        return _body.HandleInput(in input);
     }
 }

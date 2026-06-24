@@ -20,6 +20,8 @@ internal sealed class CodingCommandOutputBuffer
 
     public bool Truncated { get; private set; }
 
+    public int TotalLineCount => _discardedLineCount + _lines.Count + (string.IsNullOrEmpty(_pending) ? 0 : 1);
+
     public void Append(ExecuteCommandStreamKind stream, string text, bool suppressed, bool binary, bool truncated)
     {
         Suppressed |= suppressed;
