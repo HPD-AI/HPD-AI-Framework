@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+
+    <PackageId>HPD-Agent.Providers.Nebius</PackageId>
+    <Title>HPD-Agent Nebius Provider</Title>
+    <Description>Nebius Token Factory OpenAI-compatible chat-completions provider for HPD-Agent</Description>
+    <PackageTags>ai;agent;nebius;openai-compatible;llm</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Agent.Providers.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../src/HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../HPD-Agent.Providers.OpenAICompatible/HPD-Agent.Providers.OpenAICompatible.csproj" />
+  </ItemGroup>
+</Project>

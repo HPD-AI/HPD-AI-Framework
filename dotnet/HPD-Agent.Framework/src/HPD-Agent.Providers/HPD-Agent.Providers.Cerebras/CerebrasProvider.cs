@@ -1,0 +1,37 @@
+using HPD.Agent.ErrorHandling;
+using HPD.Agent.Providers.OpenAICompatible;
+using System;
+using System.Collections.Generic;
+
+namespace HPD.Agent.Providers.Cerebras;
+
+internal sealed class CerebrasProvider : OpenAICompatibleChatProviderBase<CerebrasProviderConfig>
+{
+    internal static readonly Uri DefaultEndpoint = new("https://api.cerebras.ai/v1/");
+    internal const string DefaultChatModel = "gpt-oss-120b";
+
+    private static readonly OpenAICompatibleProviderDefinition ProviderDefinition = new()
+    {
+        ProviderKey = "cerebras",
+        DisplayName = "Cerebras",
+        DefaultEndpoint = DefaultEndpoint,
+        DefaultModelId = DefaultChatModel,
+        ApiKeySecretKey = "cerebras:ApiKey",
+        EndpointSecretKey = "cerebras:Endpoint",
+        ProviderUri = new Uri("https://cerebras.ai/"),
+        DocumentationUri = new Uri("https://inference-docs.cerebras.ai/resources/openai"),
+        Capabilities = new Dictionary<string, object?>
+        {
+            ["SupportsStreaming"] = true,
+            ["SupportsFunctionCalling"] = true,
+            ["SupportsJsonResponseFormat"] = true,
+            ["SupportsSeed"] = true,
+            ["OpenAICompatibleEndpoint"] = "https://api.cerebras.ai/v1/"
+        }
+    };
+
+    protected override OpenAICompatibleProviderDefinition Definition => ProviderDefinition;
+
+    public override IProviderErrorHandler CreateErrorHandler()
+        => new OpenAICompatibleErrorHandler(DisplayName);
+}

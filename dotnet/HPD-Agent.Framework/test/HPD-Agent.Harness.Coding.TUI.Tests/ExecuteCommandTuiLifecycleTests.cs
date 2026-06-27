@@ -883,7 +883,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         int width = 100,
         int height = 14)
         => TuiCapture.RenderToString(
-            new TranscriptHistoryView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 12),
+            new TranscriptView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 12),
             width: width,
             height: height,
             trimTrailingBlankLines: true);

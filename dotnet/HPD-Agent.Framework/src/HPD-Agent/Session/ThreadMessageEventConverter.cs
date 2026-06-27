@@ -110,7 +110,10 @@ internal static class ThreadMessageEventConverter
                         threadId,
                         messageTurnId,
                         call.CallId,
-                        iteration));
+                        iteration,
+                        messageId,
+                        call.Name,
+                        argsJson));
                     break;
 
                 case FunctionResultContent result:

@@ -55,8 +55,10 @@ public sealed record ThreadEventStreamMetadata
 
 public sealed record ThreadProjectionCache
 {
+    public const int CurrentVersion = 2;
+
     public string Schema { get; init; } = "hpd.agent.thread.projection-cache";
-    public int Version { get; init; } = 1;
+    public int Version { get; init; } = CurrentVersion;
     public required string SessionId { get; init; }
     public required string ThreadId { get; init; }
     public required long LastSequenceNumber { get; init; }
@@ -417,8 +419,11 @@ public static class ThreadEventFactory
         string threadId,
         string? messageTurnId,
         string callId,
-        int iteration) =>
-        Scope(sessionId, threadId, new ToolCallEndEvent(callId)
+        int iteration,
+        string messageId,
+        string name,
+        string argsJson) =>
+        Scope(sessionId, threadId, new ToolCallEndEvent(callId, messageId, name, argsJson)
         {
             EventFlowId = messageTurnId
         });

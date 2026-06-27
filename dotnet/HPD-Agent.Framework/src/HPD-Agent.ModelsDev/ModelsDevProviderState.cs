@@ -107,6 +107,8 @@ public sealed class HpdModelsDevProviderState : IModelsDevProviderState
             ["mistral"] = ["mistral:ApiKey"],
             ["openrouter"] = ["openrouter:ApiKey"],
             ["huggingface"] = ["huggingface:ApiKey"],
+            ["xai"] = ["xai:ApiKey"],
+            ["moonshot"] = ["moonshot:ApiKey"],
             ["bedrock"] = ["bedrock:AccessKeyId", "bedrock:SecretAccessKey"],
             ["ollama"] = []
         });

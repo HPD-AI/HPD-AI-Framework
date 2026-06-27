@@ -61,6 +61,29 @@ internal static class AutoDiscovery
         // 2. Initialize provider packages
         TryInitializeByTypeName("HPD.Agent.Providers.OpenAI.OpenAIProviderModule, HPD-Agent.Providers.OpenAI");
         TryInitializeByTypeName("HPD.Agent.Providers.Anthropic.AnthropicProviderModule, HPD-Agent.Providers.Anthropic");
+        TryInitializeByTypeName("HPD.Agent.Providers.Cohere.CohereProviderModule, HPD-Agent.Providers.Cohere");
+        TryInitializeByTypeName("HPD.Agent.Providers.DashScope.DashScopeProviderModule, HPD-Agent.Providers.DashScope");
+        TryInitializeByTypeName("HPD.Agent.Providers.Cerebras.CerebrasProviderModule, HPD-Agent.Providers.Cerebras");
+        TryInitializeByTypeName("HPD.Agent.Providers.DeepSeek.DeepSeekProviderModule, HPD-Agent.Providers.DeepSeek");
+        TryInitializeByTypeName("HPD.Agent.Providers.DeepInfra.DeepInfraProviderModule, HPD-Agent.Providers.DeepInfra");
+        TryInitializeByTypeName("HPD.Agent.Providers.Fireworks.FireworksProviderModule, HPD-Agent.Providers.Fireworks");
+        TryInitializeByTypeName("HPD.Agent.Providers.SambaNova.SambaNovaProviderModule, HPD-Agent.Providers.SambaNova");
+        TryInitializeByTypeName("HPD.Agent.Providers.Hyperbolic.HyperbolicProviderModule, HPD-Agent.Providers.Hyperbolic");
+        TryInitializeByTypeName("HPD.Agent.Providers.OVHcloud.OVHcloudProviderModule, HPD-Agent.Providers.OVHcloud");
+        TryInitializeByTypeName("HPD.Agent.Providers.Nscale.NscaleProviderModule, HPD-Agent.Providers.Nscale");
+        TryInitializeByTypeName("HPD.Agent.Providers.Venice.VeniceProviderModule, HPD-Agent.Providers.Venice");
+        TryInitializeByTypeName("HPD.Agent.Providers.Perplexity.PerplexityProviderModule, HPD-Agent.Providers.Perplexity");
+        TryInitializeByTypeName("HPD.Agent.Providers.LMStudio.LMStudioProviderModule, HPD-Agent.Providers.LMStudio");
+        TryInitializeByTypeName("HPD.Agent.Providers.Nebius.NebiusProviderModule, HPD-Agent.Providers.Nebius");
+        TryInitializeByTypeName("HPD.Agent.Providers.NvidiaNim.NvidiaNimProviderModule, HPD-Agent.Providers.NvidiaNim");
+        TryInitializeByTypeName("HPD.Agent.Providers.SiliconFlow.SiliconFlowProviderModule, HPD-Agent.Providers.SiliconFlow");
+        TryInitializeByTypeName("HPD.Agent.Providers.Scaleway.ScalewayProviderModule, HPD-Agent.Providers.Scaleway");
+        TryInitializeByTypeName("HPD.Agent.Providers.Zai.ZaiProviderModule, HPD-Agent.Providers.Zai");
+        TryInitializeByTypeName("HPD.Agent.Providers.MiniMax.MiniMaxProviderModule, HPD-Agent.Providers.MiniMax");
+        TryInitializeByTypeName("HPD.Agent.Providers.Together.TogetherProviderModule, HPD-Agent.Providers.Together");
+        TryInitializeByTypeName("HPD.Agent.Providers.Xai.XaiProviderModule, HPD-Agent.Providers.Xai");
+        TryInitializeByTypeName("HPD.Agent.Providers.Groq.GroqProviderModule, HPD-Agent.Providers.Groq");
+        TryInitializeByTypeName("HPD.Agent.Providers.Moonshot.MoonshotProviderModule, HPD-Agent.Providers.Moonshot");
         TryInitializeByTypeName("HPD.Agent.Providers.GoogleAI.GoogleAIProviderModule, HPD-Agent.Providers.GoogleAI");
         TryInitializeByTypeName("HPD.Agent.Providers.Bedrock.BedrockProviderModule, HPD-Agent.Providers.Bedrock");
         TryInitializeByTypeName("HPD.Agent.Providers.Ollama.OllamaProviderModule, HPD-Agent.Providers.Ollama");
@@ -80,6 +103,29 @@ internal static class AutoDiscovery
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Audio.AgentIntegration.AudioAgentFeatureActivator", "HPD.Agent.Audio")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.OpenAI.OpenAIProviderModule", "HPD-Agent.Providers.OpenAI")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Anthropic.AnthropicProviderModule", "HPD-Agent.Providers.Anthropic")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Cohere.CohereProviderModule", "HPD-Agent.Providers.Cohere")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.DashScope.DashScopeProviderModule", "HPD-Agent.Providers.DashScope")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Cerebras.CerebrasProviderModule", "HPD-Agent.Providers.Cerebras")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.DeepSeek.DeepSeekProviderModule", "HPD-Agent.Providers.DeepSeek")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.DeepInfra.DeepInfraProviderModule", "HPD-Agent.Providers.DeepInfra")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Fireworks.FireworksProviderModule", "HPD-Agent.Providers.Fireworks")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.SambaNova.SambaNovaProviderModule", "HPD-Agent.Providers.SambaNova")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Hyperbolic.HyperbolicProviderModule", "HPD-Agent.Providers.Hyperbolic")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.OVHcloud.OVHcloudProviderModule", "HPD-Agent.Providers.OVHcloud")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Nscale.NscaleProviderModule", "HPD-Agent.Providers.Nscale")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Venice.VeniceProviderModule", "HPD-Agent.Providers.Venice")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Perplexity.PerplexityProviderModule", "HPD-Agent.Providers.Perplexity")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.LMStudio.LMStudioProviderModule", "HPD-Agent.Providers.LMStudio")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Nebius.NebiusProviderModule", "HPD-Agent.Providers.Nebius")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.NvidiaNim.NvidiaNimProviderModule", "HPD-Agent.Providers.NvidiaNim")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.SiliconFlow.SiliconFlowProviderModule", "HPD-Agent.Providers.SiliconFlow")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Scaleway.ScalewayProviderModule", "HPD-Agent.Providers.Scaleway")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Zai.ZaiProviderModule", "HPD-Agent.Providers.Zai")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.MiniMax.MiniMaxProviderModule", "HPD-Agent.Providers.MiniMax")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Together.TogetherProviderModule", "HPD-Agent.Providers.Together")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Xai.XaiProviderModule", "HPD-Agent.Providers.Xai")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Groq.GroqProviderModule", "HPD-Agent.Providers.Groq")]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Moonshot.MoonshotProviderModule", "HPD-Agent.Providers.Moonshot")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.GoogleAI.GoogleAIProviderModule", "HPD-Agent.Providers.GoogleAI")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Bedrock.BedrockProviderModule", "HPD-Agent.Providers.Bedrock")]
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, "HPD.Agent.Providers.Ollama.OllamaProviderModule", "HPD-Agent.Providers.Ollama")]

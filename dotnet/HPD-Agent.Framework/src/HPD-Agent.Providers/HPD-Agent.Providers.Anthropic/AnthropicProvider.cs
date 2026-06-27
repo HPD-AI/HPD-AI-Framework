@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using Anthropic;
-using Anthropic.Models.Messages;
+using Anthropic.Core;
 using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.ErrorHandling;
@@ -18,7 +17,6 @@ internal class AnthropicProvider : IChatClientProvider
     public string ProviderKey => "anthropic";
     public string DisplayName => "Anthropic (Claude)";
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in AnthropicProviderModule")]
     public IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
         // Get secret resolver from services
@@ -35,32 +33,22 @@ internal class AnthropicProvider : IChatClientProvider
         string apiKey = apiKeyTask.GetAwaiter().GetResult();
 
         // Create the official Anthropic client
-        var anthropicClient = new AnthropicClient
+        var anthropicClient = new AnthropicClient(new ClientOptions
         {
             ApiKey = apiKey,
             BaseUrl = config.Endpoint ?? "https://api.anthropic.com"
-        };
+        });
 
         // Get config for max tokens
         var anthropicConfig = config.GetProviderConfig<AnthropicProviderConfig>();
         var maxTokens = anthropicConfig?.MaxTokens ?? 4096;
-
-        // Use the SDK's built-in AsIChatClient extension method
-        IChatClient chatClient = anthropicClient.AsIChatClient(config.ModelName, maxTokens);
-
-        // Wrap with schema-fixing client to work around Anthropic SDK bug
-        // The SDK has a bug where tool schemas are malformed (properties at top level
-        // instead of nested under "properties" key). Our wrapper intercepts tools and
-        // creates properly formatted Tool objects that bypass the buggy transformation.
-        // See AnthropicSchemaFixingChatClient.cs for details.
-        chatClient = new AnthropicSchemaFixingChatClient(chatClient);
 
         // Note: Most configuration (temperature, topP, thinking, etc.) is applied
         // via ChatOptions when calling CompleteAsync/CompleteChatAsync.
         // The AnthropicProviderConfig is stored and can be accessed to build ChatOptions
         // with RawRepresentationFactory for advanced features.
 
-        return chatClient;
+        return anthropicClient.AsIChatClient(config.ModelName, maxTokens);
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -92,7 +80,6 @@ internal class AnthropicProvider : IChatClientProvider
         };
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "Provider properly registers AOT-compatible deserializer in AnthropicProviderModule")]
     public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         // Note: API key validation is now deferred to CreateChatClient where ISecretResolver is available

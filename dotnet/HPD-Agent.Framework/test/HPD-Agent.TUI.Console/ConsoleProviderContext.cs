@@ -5,6 +5,7 @@ using HPD.Agent.Providers;
 using HPD.Agent.Providers.Anthropic;
 using HPD.Agent.Providers.AzureAI;
 using HPD.Agent.Providers.Bedrock;
+using HPD.Agent.Providers.DashScope;
 using HPD.Agent.Providers.GoogleAI;
 using HPD.Agent.Providers.HuggingFace;
 using HPD.Agent.Providers.Mistral;
@@ -115,6 +116,7 @@ internal sealed class ConsoleProviderContext
         LoadProviderModule(typeof(AnthropicProviderModule));
         LoadProviderModule(typeof(AzureAIProviderModule));
         LoadProviderModule(typeof(BedrockProviderModule));
+        LoadProviderModule(typeof(DashScopeProviderModule));
         LoadProviderModule(typeof(GoogleAIProviderModule));
         LoadProviderModule(typeof(HuggingFaceProviderModule));
         LoadProviderModule(typeof(MistralProviderModule));
@@ -132,6 +134,7 @@ internal sealed class ConsoleProviderContext
         new("azure-openai", "Azure OpenAI", ["azure-openai:ApiKey", "azure-openai:Endpoint"]),
         new("azure-ai", "Azure AI", ["azure-ai:ApiKey", "azure-ai:Endpoint"]),
         new("bedrock", "Amazon Bedrock", ["bedrock:AccessKeyId", "bedrock:SecretAccessKey"]),
+        new("dashscope", "DashScope", ["dashscope:ApiKey"]),
         new("google-ai", "Google AI", ["google-ai:ApiKey"]),
         new("huggingface", "Hugging Face", ["huggingface:ApiKey"]),
         new("mistral", "Mistral", ["mistral:ApiKey"]),

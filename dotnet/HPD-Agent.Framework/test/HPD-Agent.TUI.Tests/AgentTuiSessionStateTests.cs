@@ -31,7 +31,7 @@ public sealed class AgentTuiSessionStateTests
 
         await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "sample.inspect", "m1"));
         await state.ApplyEventAsync(new ToolCallArgsEvent("call-1", """{"path":"Program.cs"}"""));
-        await state.ApplyEventAsync(new ToolCallEndEvent("call-1"));
+        await state.ApplyEventAsync(new ToolCallEndEvent("call-1", "m1", "sample.inspect", """{"path":"Program.cs"}"""));
 
         var rows = ReadRows(state.Shell.Transcript);
         rows.Should().ContainSingle(row => row.EntryKey == "tool:call-1");

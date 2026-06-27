@@ -2233,9 +2233,7 @@ public sealed class Agent
 
                                     if (functionCall.Arguments != null && functionCall.Arguments.Count > 0)
                                     {
-                                        var argsJson = JsonSerializer.Serialize(
-                                            functionCall.Arguments,
-                                            HPDJsonContext.Default.DictionaryStringObject);
+                                        var argsJson = SerializeFunctionArgumentsForEvent(functionCall);
                                         yield return new ToolCallArgsEvent(functionCall.CallId, argsJson) { TraceId = traceId };
                                     }
                                 }
@@ -2578,9 +2576,7 @@ public sealed class Agent
 
                                     if (functionCall.Arguments != null && functionCall.Arguments.Count > 0)
                                     {
-                                        var argsJson = JsonSerializer.Serialize(
-                                            functionCall.Arguments,
-                                            HPDJsonContext.Default.DictionaryStringObject);
+                                        var argsJson = SerializeFunctionArgumentsForEvent(functionCall);
 
                                         yield return new ToolCallArgsEvent(functionCall.CallId, argsJson) { TraceId = traceId };
                                     }
@@ -2742,9 +2738,7 @@ public sealed class Agent
 
                                             if (functionCall.Arguments != null && functionCall.Arguments.Count > 0)
                                             {
-                                                var argsJson = JsonSerializer.Serialize(
-                                                    functionCall.Arguments,
-                                                     HPDJsonContext.Default.DictionaryStringObject);
+                                                var argsJson = SerializeFunctionArgumentsForEvent(functionCall);
 
                                                 yield return new ToolCallArgsEvent(functionCall.CallId, argsJson) { TraceId = traceId };
                                             }
@@ -2910,7 +2904,12 @@ public sealed class Agent
                             {
                                 if (functionCallProcessor.IsOutputToolByName(toolRequest.Name, effectiveOptionsForTools?.Tools))
                                 {
-                                    yield return new ToolCallEndEvent(toolRequest.CallId) { TraceId = traceId };
+                                    yield return new ToolCallEndEvent(
+                                        toolRequest.CallId,
+                                        assistantMessageId,
+                                        toolRequest.Name,
+                                        SerializeFunctionArgumentsForEvent(toolRequest))
+                                    { TraceId = traceId };
                                 }
                             }
                             state = state.Terminate("Output tool called - structured output complete");
@@ -2981,26 +2980,36 @@ public sealed class Agent
                         var callIdToCallType = toolRequests.ToDictionary(
                             tr => tr.CallId,
                             tr => LookupCallType(tr.Name));
-                        var callIdToName = toolRequests.ToDictionary(
+                        var callIdToToolRequest = toolRequests.ToDictionary(
                             tr => tr.CallId,
-                            tr => tr.Name);
+                            tr => tr);
 
                         // EMIT TOOL RESULT EVENTS
                         foreach (var content in toolResultMessage.Contents)
                         {
                             if (content is FunctionResultContent result)
                             {
-                                yield return new ToolCallEndEvent(result.CallId) { TraceId = traceId };
+                                if (!callIdToToolRequest.TryGetValue(result.CallId, out var toolRequest))
+                                {
+                                    throw new InvalidOperationException(
+                                        $"Tool result '{result.CallId}' does not match any pending tool request.");
+                                }
+
+                                yield return new ToolCallEndEvent(
+                                    result.CallId,
+                                    assistantMessageId,
+                                    toolRequest.Name,
+                                    SerializeFunctionArgumentsForEvent(toolRequest))
+                                { TraceId = traceId };
                                 callIdToToolHarness.TryGetValue(result.CallId, out var toolharnessName);
                                 callIdToCallType.TryGetValue(result.CallId, out var callType);
-                                callIdToName.TryGetValue(result.CallId, out var toolName);
                                 if (!executionResult.ResultPayloads.TryGetValue(result.CallId, out var resultPayload))
                                 {
                                     throw new InvalidOperationException(
                                         $"Missing normalized tool result payload for call '{result.CallId}'.");
                                 }
 
-                                yield return new ToolCallResultEvent(result.CallId, resultPayload, toolharnessName, callType, toolName) { TraceId = traceId };
+                                yield return new ToolCallResultEvent(result.CallId, resultPayload, toolharnessName, callType, toolRequest.Name) { TraceId = traceId };
                             }
                         }
                         // Shared reference: state.CurrentMessages already sees the changes via MessagesRef
@@ -3314,13 +3323,25 @@ public sealed class Agent
         return ThreadMessageEventConverter.CoalesceTextContents(contents);
     }
 
+    private static string SerializeFunctionArgumentsForEvent(FunctionCallContent functionCall)
+    {
+        return functionCall.Arguments is { Count: > 0 }
+            ? JsonSerializer.Serialize(
+                functionCall.Arguments,
+                HPDJsonContext.Default.DictionaryStringObject)
+            : "{}";
+    }
+
     private static List<ChatMessage> ProjectMessagesForModelHistory(
         IEnumerable<ChatMessage> messages,
         bool includeReasoningInModelHistory)
     {
         var source = messages.ToList();
         if (includeReasoningInModelHistory)
+        {
+            ValidateFunctionCallHistory(source);
             return source;
+        }
 
         var projected = new List<ChatMessage>(source.Count);
         foreach (var message in source)
@@ -3350,7 +3371,32 @@ public sealed class Agent
             projected.Add(clone);
         }
 
+        ValidateFunctionCallHistory(projected);
         return projected;
+    }
+
+    private static void ValidateFunctionCallHistory(IReadOnlyList<ChatMessage> messages)
+    {
+        var seenCallIds = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var message in messages)
+        {
+            foreach (var content in message.Contents)
+            {
+                if (content is FunctionCallContent call)
+                {
+                    seenCallIds.Add(call.CallId);
+                    continue;
+                }
+
+                if (content is FunctionResultContent result &&
+                    !seenCallIds.Contains(result.CallId))
+                {
+                    throw new InvalidOperationException(
+                        $"Model history contains tool result '{result.CallId}' without an earlier matching function call.");
+                }
+            }
+        }
     }
 
     /// <summary>

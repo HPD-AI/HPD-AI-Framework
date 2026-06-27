@@ -182,7 +182,7 @@ public sealed class FileMutationTuiPerformanceTests
 
     private static string RenderTranscript(AgentTuiSessionState state, int width = 100, int height = 24)
         => TuiCapture.RenderToString(
-            new TranscriptHistoryView(state.Shell.Transcript, DefaultTranscriptRenderers(), height: height - 2),
+            new TranscriptView(state.Shell.Transcript, DefaultTranscriptRenderers(), height: height - 2),
             width: width,
             height: height,
             trimTrailingBlankLines: true);

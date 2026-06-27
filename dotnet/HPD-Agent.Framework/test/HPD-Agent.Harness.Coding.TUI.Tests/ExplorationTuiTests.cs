@@ -172,7 +172,7 @@ public sealed class ExplorationTuiTests
         {
             MessageId = messageId
         });
-        await state.ApplyEventAsync(new ToolCallEndEvent(callId));
+        await state.ApplyEventAsync(new ToolCallEndEvent(callId, messageId, name, argsJson));
     }
 
     private static List<TranscriptEntry> ReadRows(TranscriptModel model)
@@ -187,7 +187,7 @@ public sealed class ExplorationTuiTests
         int width = 100,
         int height = 12)
         => TuiCapture.RenderToString(
-            new TranscriptHistoryView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 10),
+            new TranscriptView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 10),
             width: width,
             height: height,
             trimTrailingBlankLines: true);

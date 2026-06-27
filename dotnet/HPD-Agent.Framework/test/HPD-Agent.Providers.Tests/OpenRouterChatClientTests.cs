@@ -29,16 +29,16 @@ public sealed class OpenRouterChatClientTests
     }
 
     [Fact]
-    public void BuildRequestBody_WithOrphanFunctionResult_DropsToolMessage()
+    public void BuildRequestBody_WithFunctionResult_EmitsToolMessage()
     {
         var request = BuildRequest([
             new ChatMessage(ChatRole.User, "hello"),
-            new ChatMessage(ChatRole.Tool, [new FunctionResultContent("call-orphan", "result")]),
+            new ChatMessage(ChatRole.Tool, [new FunctionResultContent("call-1", "result")]),
             new ChatMessage(ChatRole.User, "next")
         ]);
 
-        request.Messages.Should().HaveCount(2);
-        request.Messages.Should().NotContain(message => message.Role == "tool");
+        request.Messages.Should().ContainSingle(message => message.Role == "tool")
+            .Which.ToolCallId.Should().Be("call-1");
     }
 
     [Fact]

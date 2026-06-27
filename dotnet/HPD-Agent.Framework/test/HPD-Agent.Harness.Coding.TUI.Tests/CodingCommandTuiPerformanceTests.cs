@@ -280,7 +280,7 @@ public sealed class CodingCommandTuiPerformanceTests
 
     private static string RenderTranscript(AgentTuiSessionState state, int width = 100, int height = 14)
         => TuiCapture.RenderToString(
-            new TranscriptHistoryView(state.Shell.Transcript, DefaultTranscriptRenderers(), height: 12),
+            new TranscriptView(state.Shell.Transcript, DefaultTranscriptRenderers(), height: 12),
             width: width,
             height: height,
             trimTrailingBlankLines: true);

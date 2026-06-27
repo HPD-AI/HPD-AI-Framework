@@ -28,7 +28,6 @@ public static class ThreadProjector
 
         var messages = new Dictionary<string, MessageProjection>(StringComparer.Ordinal);
         var messageOrder = new List<string>();
-        var toolCalls = new Dictionary<string, ToolCallProjection>(StringComparer.Ordinal);
 
         foreach (var message in thread.Messages)
         {
@@ -40,7 +39,7 @@ public static class ThreadProjector
 
         foreach (var evt in events.OrderBy(e => e.SequenceNumber))
         {
-            Apply(thread, evt, messages, messageOrder, toolCalls);
+            Apply(thread, evt, messages, messageOrder);
         }
 
         thread.Messages.Clear();
@@ -57,8 +56,7 @@ public static class ThreadProjector
         Thread thread,
         AgentEvent evt,
         Dictionary<string, MessageProjection> messages,
-        List<string> messageOrder,
-        Dictionary<string, ToolCallProjection> toolCalls)
+        List<string> messageOrder)
     {
         switch (evt)
         {
@@ -184,25 +182,19 @@ public static class ThreadProjector
             {
                 GetMessage(messages, messageOrder, data.MessageId, ChatRole.Assistant)
                     .SetMessageTurnId(evt.EventFlowId);
-                toolCalls[data.CallId] = new ToolCallProjection(data.MessageId, data.Name);
                 break;
             }
 
             case ToolCallArgsEvent data:
             {
-                if (toolCalls.TryGetValue(data.CallId, out var call))
-                    call.ArgsJson = data.ArgsJson;
                 break;
             }
 
             case ToolCallEndEvent data:
             {
-                if (!toolCalls.TryGetValue(data.CallId, out var call))
-                    return;
-
-                var args = DeserializeArguments(call.ArgsJson);
-                GetMessage(messages, messageOrder, call.MessageId, ChatRole.Assistant)
-                    .Contents.Add(new FunctionCallContent(data.CallId, call.Name, args));
+                var args = DeserializeArguments(data.ArgsJson);
+                GetMessage(messages, messageOrder, data.MessageId, ChatRole.Assistant)
+                    .Contents.Add(new FunctionCallContent(data.CallId, data.Name, args));
                 thread.LastActivity = evt.Timestamp.UtcDateTime;
                 break;
             }
@@ -353,11 +345,6 @@ public static class ThreadProjector
             return json.Clone();
 
         return payload.Text;
-    }
-
-    private sealed record ToolCallProjection(string MessageId, string Name)
-    {
-        public string? ArgsJson { get; set; }
     }
 
     private sealed record MessageProjection(

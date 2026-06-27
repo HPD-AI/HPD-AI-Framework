@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+
+    <PackageId>HPD-Agent.Providers.Groq</PackageId>
+    <Title>HPD-Agent Groq Provider</Title>
+    <Description>Groq OpenAI-compatible chat completions provider for HPD-Agent</Description>
+    <PackageTags>ai;agent;groq;llm;openai-compatible</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Agent.Providers.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../src/HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../HPD-Agent.Providers.OpenAICompatible/HPD-Agent.Providers.OpenAICompatible.csproj" />
+  </ItemGroup>
+</Project>

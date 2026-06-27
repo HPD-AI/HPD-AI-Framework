@@ -22,6 +22,7 @@
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Anthropic/HPD-Agent.Providers.Anthropic.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.AzureAI/HPD-Agent.Providers.AzureAI.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Bedrock/HPD-Agent.Providers.Bedrock.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.DashScope/HPD-Agent.Providers.DashScope.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.GoogleAI/HPD-Agent.Providers.GoogleAI.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.HuggingFace/HPD-Agent.Providers.HuggingFace.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.Providers/HPD-Agent.Providers.Mistral/HPD-Agent.Providers.Mistral.csproj" />

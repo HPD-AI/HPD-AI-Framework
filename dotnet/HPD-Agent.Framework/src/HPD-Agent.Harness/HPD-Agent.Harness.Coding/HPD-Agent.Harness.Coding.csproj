@@ -45,6 +45,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.TUI.Tests" />
   </ItemGroup>
 
   <!-- Pack coding source generator as analyzer in the Coding NuGet package. -->

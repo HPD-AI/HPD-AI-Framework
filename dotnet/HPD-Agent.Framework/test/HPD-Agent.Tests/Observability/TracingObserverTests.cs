@@ -88,7 +88,7 @@ public class TracingObserverTests : IDisposable
         };
 
     private static ToolCallEndEvent ToolEnded(string callId = ToolCallId) =>
-        new ToolCallEndEvent(callId)
+        new ToolCallEndEvent(callId, "msg-1", "MyTool", "{}")
         {
             TraceId = TraceId
         };

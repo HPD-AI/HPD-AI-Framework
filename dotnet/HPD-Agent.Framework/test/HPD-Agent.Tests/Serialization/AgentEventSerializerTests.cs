@@ -323,9 +323,15 @@ public class AgentEventSerializerTests
         Assert.Contains("\"type\":\"TOOL_CALL_ARGS\"", argsJson);
 
         // ToolCallEndEvent
-        var endEvt = new ToolCallEndEvent("call-1");
+        var endEvt = new ToolCallEndEvent("call-1", "msg-1", "Calculator", "{\"x\":1,\"y\":2}");
         var endJson = AgentEventSerializer.ToJson(endEvt);
         Assert.Contains("\"type\":\"TOOL_CALL_END\"", endJson);
+        Assert.Contains("\"messageId\":\"msg-1\"", endJson);
+        Assert.Contains("\"name\":\"Calculator\"", endJson);
+        using (var endDocument = JsonDocument.Parse(endJson))
+        {
+            Assert.Equal("{\"x\":1,\"y\":2}", endDocument.RootElement.GetProperty("argsJson").GetString());
+        }
 
         // ToolCallResultEvent — minimal
         var resultEvt = new ToolCallResultEvent("call-1", new ToolResultPayload(Text: "3"));

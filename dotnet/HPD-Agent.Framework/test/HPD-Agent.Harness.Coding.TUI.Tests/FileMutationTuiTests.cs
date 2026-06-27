@@ -309,14 +309,14 @@ public sealed class FileMutationTuiTests
         int width = 100,
         int height = 16)
         => TuiCapture.RenderToString(
-            new TranscriptHistoryView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 14),
+            new TranscriptView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 14),
             width: width,
             height: height,
             trimTrailingBlankLines: true);
 
     private static string RenderTranscriptAnsi(AgentTuiSessionState state, int width = 100, int height = 16)
         => TuiCapture.RenderToAnsi(
-            new TranscriptHistoryView(state.Shell.Transcript, DefaultTranscriptRenderers(), height: 14),
+            new TranscriptView(state.Shell.Transcript, DefaultTranscriptRenderers(), height: 14),
             width: width,
             height: height);
 

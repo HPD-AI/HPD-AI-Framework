@@ -124,7 +124,8 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         }, cancellationToken);
 
         await Delay(cancellationToken);
-        await PublishAsync(new ToolCallArgsEvent(callId, JsonSerializer.Serialize(new { path = "Program.cs" }))
+        var argsJson = JsonSerializer.Serialize(new { path = "Program.cs" });
+        await PublishAsync(new ToolCallArgsEvent(callId, argsJson)
         {
             SessionId = scope.SessionId,
             ThreadId = scope.ThreadId,
@@ -132,7 +133,7 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         }, cancellationToken);
 
         await Delay(cancellationToken);
-        await PublishAsync(new ToolCallEndEvent(callId)
+        await PublishAsync(new ToolCallEndEvent(callId, messageId, toolName, argsJson)
         {
             SessionId = scope.SessionId,
             ThreadId = scope.ThreadId,

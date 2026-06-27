@@ -663,9 +663,13 @@ public record ToolCallArgsEvent(string CallId, string ArgsJson) : AgentEvent
 }
 
 /// <summary>
-/// Emitted when a tool call completes execution
+/// Emitted when a tool call completes execution and the assistant function call is complete.
 /// </summary>
-public record ToolCallEndEvent(string CallId) : AgentEvent
+public record ToolCallEndEvent(
+    string CallId,
+    string MessageId,
+    string Name,
+    string ArgsJson) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
     public override bool ShouldPersistToThread() => true;

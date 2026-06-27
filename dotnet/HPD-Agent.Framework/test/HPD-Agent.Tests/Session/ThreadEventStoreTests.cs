@@ -130,6 +130,69 @@ public class ThreadEventStoreTests : AgentTestBase
     }
 
     [Fact]
+    public void ThreadProjector_ProjectsSelfContainedToolCallEndIntoMeaiHistory()
+    {
+        var thread = new Thread("session-1", "main");
+        var assistant = new ChatMessage(ChatRole.Assistant, []) { MessageId = "assistant-1" };
+        var tool = new ChatMessage(ChatRole.Tool, []) { MessageId = "tool-1" };
+
+        var document = ThreadEventDocumentBuilder.Create(
+            "session-1",
+            "main",
+            [
+                ThreadEventFactory.ThreadCreated(thread),
+                ThreadEventFactory.MessageStarted("session-1", "main", assistant),
+                ThreadEventFactory.ToolCallStarted(
+                    "session-1",
+                    "main",
+                    "turn-1",
+                    "call-1",
+                    "ListDirectory",
+                    "assistant-1",
+                    null,
+                    null,
+                    0),
+                ThreadEventFactory.ToolCallArgs("session-1", "main", "turn-1", "call-1", """{"path":"/workspace"}""", 0),
+                ThreadEventFactory.ToolCallCompleted(
+                    "session-1",
+                    "main",
+                    "turn-1",
+                    "call-1",
+                    0,
+                    "assistant-1",
+                    "ListDirectory",
+                    """{"path":"/workspace"}"""),
+                ThreadEventFactory.MessageCompleted("session-1", "main", "assistant-1"),
+                ThreadEventFactory.MessageStarted("session-1", "main", tool),
+                ThreadEventFactory.ToolCallResult(
+                    "session-1",
+                    "main",
+                    "turn-1",
+                    "call-1",
+                    "tool-1",
+                    new ToolResultPayload(Text: "workspace files"),
+                    null,
+                    null,
+                    0,
+                    "ListDirectory"),
+                ThreadEventFactory.MessageCompleted("session-1", "main", "tool-1")
+            ]);
+
+        var projected = ThreadProjector.Project(document);
+
+        var assistantMessage = Assert.Single(projected.Messages.Where(m => m.Role == ChatRole.Assistant));
+        var call = Assert.Single(assistantMessage.Contents.OfType<FunctionCallContent>());
+        Assert.Equal("call-1", call.CallId);
+        Assert.Equal("ListDirectory", call.Name);
+        AssertArgument(call.Arguments, "path", "/workspace");
+
+        var toolMessage = Assert.Single(projected.Messages.Where(m => m.Role == ChatRole.Tool));
+        var result = Assert.Single(toolMessage.Contents.OfType<FunctionResultContent>());
+        Assert.Equal("call-1", result.CallId);
+        AssertNoOrphanFunctionResults(projected.Messages);
+    }
+
+    [Fact]
     public void ThreadRunProjector_ProjectsPersistedOpenRunAsInterrupted_WhenRuntimeIsNotLive()
     {
         var startedAt = DateTimeOffset.UtcNow;
@@ -331,10 +394,102 @@ public class ThreadEventStoreTests : AgentTestBase
 
             using var projection = JsonDocument.Parse(await File.ReadAllTextAsync(projectionPath));
             Assert.Equal("hpd.agent.thread.projection-cache", projection.RootElement.GetProperty("schema").GetString());
+            Assert.Equal(ThreadProjectionCache.CurrentVersion, projection.RootElement.GetProperty("version").GetInt32());
             Assert.Equal(2, projection.RootElement.GetProperty("lastSequenceNumber").GetInt64());
 
             foreach (var eventDocument in eventDocuments)
                 eventDocument.Dispose();
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task JsonSessionStore_IncrementalProjection_PreservesToolCallWhenCacheSplitsToolEvents()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-thread-tool-cache-{Guid.NewGuid():N}");
+
+        try
+        {
+            var store = new JsonSessionStore(tempDir);
+            var session = new HPD.Agent.Session("session-1");
+            var thread = session.CreateThread("main");
+            var assistant = new ChatMessage(ChatRole.Assistant, []) { MessageId = "assistant-1" };
+            var tool = new ChatMessage(ChatRole.Tool, []) { MessageId = "tool-1" };
+
+            await store.SaveSessionAsync(session);
+            await store.SaveInitialThreadAsync(session.Id, thread);
+            await store.AppendThreadEventAsync(session.Id, thread.Id, ThreadEventFactory.MessageStarted(session.Id, thread.Id, assistant));
+            await store.AppendThreadEventAsync(
+                session.Id,
+                thread.Id,
+                ThreadEventFactory.ToolCallStarted(
+                    session.Id,
+                    thread.Id,
+                    "turn-1",
+                    "call-1",
+                    "ReadFile",
+                    "assistant-1",
+                    null,
+                    null,
+                    0));
+            await store.AppendThreadEventAsync(
+                session.Id,
+                thread.Id,
+                ThreadEventFactory.ToolCallArgs(session.Id, thread.Id, "turn-1", "call-1", """{"path":"README.md"}""", 0));
+
+            var cachedBeforeEnd = await store.LoadThreadAsync(session.Id, thread.Id, TestCancellationToken);
+            Assert.NotNull(cachedBeforeEnd);
+            Assert.DoesNotContain(
+                cachedBeforeEnd.Messages.SelectMany(message => message.Contents),
+                content => content is FunctionCallContent);
+
+            await store.AppendThreadEventAsync(
+                session.Id,
+                thread.Id,
+                ThreadEventFactory.ToolCallCompleted(
+                    session.Id,
+                    thread.Id,
+                    "turn-1",
+                    "call-1",
+                    0,
+                    "assistant-1",
+                    "ReadFile",
+                    """{"path":"README.md"}"""));
+            await store.AppendThreadEventAsync(session.Id, thread.Id, ThreadEventFactory.MessageCompleted(session.Id, thread.Id, "assistant-1"));
+            await store.AppendThreadEventAsync(session.Id, thread.Id, ThreadEventFactory.MessageStarted(session.Id, thread.Id, tool));
+            await store.AppendThreadEventAsync(
+                session.Id,
+                thread.Id,
+                ThreadEventFactory.ToolCallResult(
+                    session.Id,
+                    thread.Id,
+                    "turn-1",
+                    "call-1",
+                    "tool-1",
+                    new ToolResultPayload(Text: "contents"),
+                    null,
+                    null,
+                    0,
+                    "ReadFile"));
+            await store.AppendThreadEventAsync(session.Id, thread.Id, ThreadEventFactory.MessageCompleted(session.Id, thread.Id, "tool-1"));
+
+            var loaded = await store.LoadThreadAsync(session.Id, thread.Id, TestCancellationToken);
+
+            Assert.NotNull(loaded);
+            var assistantMessage = Assert.Single(loaded.Messages.Where(m => m.Role == ChatRole.Assistant));
+            var call = Assert.Single(assistantMessage.Contents.OfType<FunctionCallContent>());
+            Assert.Equal("call-1", call.CallId);
+            Assert.Equal("ReadFile", call.Name);
+            AssertArgument(call.Arguments, "path", "README.md");
+
+            var toolMessage = Assert.Single(loaded.Messages.Where(m => m.Role == ChatRole.Tool));
+            var result = Assert.Single(toolMessage.Contents.OfType<FunctionResultContent>());
+            Assert.Equal("call-1", result.CallId);
+            AssertNoOrphanFunctionResults(loaded.Messages);
         }
         finally
         {
@@ -716,5 +871,41 @@ public class ThreadEventStoreTests : AgentTestBase
             document.Events.Single(e => EventType(e) == EventTypes.Tool.TOOL_CALL_START));
         Assert.Equal("call-1", started.CallId);
         Assert.Equal("Calculator", started.Name);
+
+        var completed = Assert.IsType<ToolCallEndEvent>(
+            document.Events.Single(e => EventType(e) == EventTypes.Tool.TOOL_CALL_END));
+        Assert.Equal("call-1", completed.CallId);
+        Assert.NotNull(completed.MessageId);
+        Assert.Equal("Calculator", completed.Name);
+        using var completedArgs = JsonDocument.Parse(completed.ArgsJson!);
+        Assert.Equal("2+2", completedArgs.RootElement.GetProperty("expression").GetString());
+    }
+
+    private static void AssertArgument(IDictionary<string, object?>? arguments, string name, string expected)
+    {
+        Assert.NotNull(arguments);
+        Assert.True(arguments!.TryGetValue(name, out var value), $"Expected argument '{name}'.");
+
+        var actual = value switch
+        {
+            JsonElement element when element.ValueKind == JsonValueKind.String => element.GetString(),
+            JsonElement element => element.ToString(),
+            _ => value?.ToString()
+        };
+
+        Assert.Equal(expected, actual);
+    }
+
+    private static void AssertNoOrphanFunctionResults(IEnumerable<ChatMessage> messages)
+    {
+        var seenCalls = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var content in messages.SelectMany(message => message.Contents))
+        {
+            if (content is FunctionCallContent call)
+                seenCalls.Add(call.CallId);
+            else if (content is FunctionResultContent result)
+                Assert.Contains(result.CallId, seenCalls);
+        }
     }
 }

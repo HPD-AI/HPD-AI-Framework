@@ -501,6 +501,9 @@ public class JsonSessionStore : ISessionStore
             SessionJsonContext.Combined.ThreadProjectionCache)
             ?? throw new InvalidDataException($"Thread projection cache '{projectionPath}' is empty.");
 
+        if (projection.Version != ThreadProjectionCache.CurrentVersion)
+            return null;
+
         if (!StringComparer.Ordinal.Equals(projection.SessionId, sessionId))
         {
             throw new InvalidDataException(

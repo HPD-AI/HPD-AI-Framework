@@ -541,7 +541,15 @@ public class ThreadTreeV3Tests : AgentTestBase
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.ToolCallArgs(sessionId, threadId, turnId, "call-1", """{"path":"/workspace"}""", 0));
         await store.AppendThreadEventAsync(sessionId, threadId,
-            ThreadEventFactory.ToolCallCompleted(sessionId, threadId, turnId, "call-1", 0));
+            ThreadEventFactory.ToolCallCompleted(
+                sessionId,
+                threadId,
+                turnId,
+                "call-1",
+                0,
+                "assistant-tool-call",
+                "ListDirectory",
+                """{"path":"/workspace"}"""));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.MessageCompleted(sessionId, threadId, "assistant-tool-call"));
 
