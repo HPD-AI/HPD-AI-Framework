@@ -31,7 +31,7 @@ public class AgentClientConfigTests
                 {
                     ProviderKey = "openai",
                     ModelName = "gpt-agent",
-                    ProviderOptions = JsonDocument.Parse("""{"reasoningEffortLevel":"medium"}""").RootElement.Clone()
+                    ProviderOptions = JsonDocument.Parse("""{"providerFeature":"agent-default"}""").RootElement.Clone()
                 }
             }
         };
@@ -49,7 +49,7 @@ public class AgentClientConfigTests
             Chat = new ClientProviderConfig
             {
                 ModelName = "gpt-run",
-                ProviderOptions = JsonDocument.Parse("""{"temperatureProfile":"creative"}""").RootElement.Clone()
+                ProviderOptions = JsonDocument.Parse("""{"requestProfile":"interactive"}""").RootElement.Clone()
             }
         };
 
@@ -65,8 +65,8 @@ public class AgentClientConfigTests
         var root = json.RootElement;
         root.GetProperty("organizationId").GetString().Should().Be("org_1");
         root.GetProperty("projectId").GetString().Should().Be("proj_run");
-        root.GetProperty("reasoningEffortLevel").GetString().Should().Be("medium");
-        root.GetProperty("temperatureProfile").GetString().Should().Be("creative");
+        root.GetProperty("providerFeature").GetString().Should().Be("agent-default");
+        root.GetProperty("requestProfile").GetString().Should().Be("interactive");
     }
 
     [Fact]

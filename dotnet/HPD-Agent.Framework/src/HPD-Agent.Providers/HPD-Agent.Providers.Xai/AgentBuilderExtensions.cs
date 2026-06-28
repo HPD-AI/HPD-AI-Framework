@@ -15,17 +15,12 @@ public static class AgentBuilderExtensions
         this AgentBuilder builder,
         string model = XaiProvider.DefaultChatModel,
         string? apiKey = null,
-        string? endpoint = null,
-        Action<XaiProviderConfig>? configure = null)
+        string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for xAI provider.", nameof(model));
-
-        var providerConfig = new XaiProviderConfig();
-        configure?.Invoke(providerConfig);
-        ValidateProviderConfig(providerConfig, configure);
 
         var chatConfig = new ClientProviderConfig
         {
@@ -36,17 +31,7 @@ public static class AgentBuilderExtensions
         };
 
         builder.Config.SetChatClientConfig(chatConfig);
-        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
-    }
-
-    private static void ValidateProviderConfig(XaiProviderConfig config, Action<XaiProviderConfig>? configure)
-    {
-        var errors = new List<string>();
-        XaiProvider.ValidateProviderOptions(config, errors);
-
-        if (errors.Count > 0)
-            throw new ArgumentException(string.Join("; ", errors), nameof(configure));
     }
 }

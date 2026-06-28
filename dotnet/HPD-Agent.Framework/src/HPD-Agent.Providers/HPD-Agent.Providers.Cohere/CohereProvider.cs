@@ -32,9 +32,8 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
         }
 
         var client = CreateCohereClient(config, services);
-        var cohereConfig = config.GetProviderConfig<CohereProviderConfig>();
 
-        return new CohereConfiguredChatClient(client, config.ModelName, cohereConfig);
+        return new CohereConfiguredChatClient(client, config.ModelName);
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in CohereProviderModule.")]
@@ -114,10 +113,14 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
             errors.Add("Endpoint must be a valid, absolute URI");
         }
 
-        var cohereConfig = config.GetProviderConfig<CohereProviderConfig>(family);
-        if (cohereConfig is not null)
+        if (family == ProviderClientFamily.Embeddings)
         {
-            ValidateProviderOptions(cohereConfig, errors);
+            var cohereConfig = config.GetProviderConfig<CohereProviderConfig>(family)
+                ?? config.GetProviderConfig<CohereProviderConfig>();
+            if (cohereConfig is not null)
+            {
+                ValidateProviderOptions(cohereConfig, errors);
+            }
         }
 
         return errors.Count > 0
@@ -127,30 +130,6 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
 
     internal static void ValidateProviderOptions(CohereProviderConfig config, List<string> errors)
     {
-        if (config.Temperature.HasValue && (config.Temperature.Value < 0 || config.Temperature.Value > 5))
-            errors.Add("Temperature must be between 0 and 5");
-
-        if (config.TopP.HasValue && (config.TopP.Value < 0 || config.TopP.Value > 1))
-            errors.Add("TopP must be between 0 and 1");
-
-        if (config.TopK.HasValue && config.TopK.Value <= 0)
-            errors.Add("TopK must be greater than 0");
-
-        if (config.MaxOutputTokens.HasValue && config.MaxOutputTokens.Value <= 0)
-            errors.Add("MaxOutputTokens must be greater than 0");
-
-        if (config.Seed.HasValue && config.Seed.Value < 0)
-            errors.Add("Seed must be greater than or equal to 0");
-
-        if (config.StopSequences is { Count: > 0 })
-        {
-            foreach (var stopSequence in config.StopSequences)
-            {
-                if (string.IsNullOrEmpty(stopSequence))
-                    errors.Add("StopSequences cannot contain empty values");
-            }
-        }
-
         if (config.EmbeddingModelId is { Length: 0 })
             errors.Add("EmbeddingModelId cannot be empty");
     }
@@ -179,14 +158,12 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
     {
         private readonly Meai.IChatClient _innerClient;
         private readonly string _modelName;
-        private readonly CohereProviderConfig? _config;
         private Meai.ChatClientMetadata? _metadata;
 
-        public CohereConfiguredChatClient(Meai.IChatClient innerClient, string modelName, CohereProviderConfig? config)
+        public CohereConfiguredChatClient(Meai.IChatClient innerClient, string modelName)
         {
             _innerClient = innerClient ?? throw new ArgumentNullException(nameof(innerClient));
             _modelName = modelName ?? throw new ArgumentNullException(nameof(modelName));
-            _config = config;
         }
 
         public Meai.ChatClientMetadata Metadata =>
@@ -216,43 +193,14 @@ internal class CohereProvider : IChatClientProvider, IEmbeddingGeneratorProvider
 
         private Meai.ChatOptions ApplyDefaults(Meai.ChatOptions? options)
         {
-            if (options is null)
-            {
-                return CreateDefaultOptions();
-            }
+            var merged = options?.Clone() ?? new Meai.ChatOptions();
+            if (string.IsNullOrWhiteSpace(merged.ModelId))
+                merged.ModelId = _modelName;
 
-            return new Meai.ChatOptions
-            {
-                ModelId = string.IsNullOrWhiteSpace(options.ModelId) ? _modelName : options.ModelId,
-                Instructions = options.Instructions,
-                Tools = options.Tools,
-                MaxOutputTokens = options.MaxOutputTokens ?? _config?.MaxOutputTokens,
-                Temperature = options.Temperature ?? ToSingle(_config?.Temperature),
-                TopP = options.TopP ?? ToSingle(_config?.TopP),
-                TopK = options.TopK ?? _config?.TopK,
-                FrequencyPenalty = options.FrequencyPenalty,
-                PresencePenalty = options.PresencePenalty,
-                StopSequences = options.StopSequences ?? _config?.StopSequences,
-                ResponseFormat = options.ResponseFormat,
-                Seed = options.Seed ?? _config?.Seed,
-                ToolMode = options.ToolMode,
-                AdditionalProperties = options.AdditionalProperties,
-                RawRepresentationFactory = options.RawRepresentationFactory
-            };
+            CohereChatRequestOptionKeys.ApplyRawRequestOptions(merged);
+
+            return merged;
         }
-
-        private Meai.ChatOptions CreateDefaultOptions() => new()
-        {
-            ModelId = _modelName,
-            MaxOutputTokens = _config?.MaxOutputTokens,
-            Temperature = ToSingle(_config?.Temperature),
-            TopP = ToSingle(_config?.TopP),
-            TopK = _config?.TopK,
-            Seed = _config?.Seed,
-            StopSequences = _config?.StopSequences
-        };
-
-        private static float? ToSingle(double? value) => value.HasValue ? (float)value.Value : null;
     }
 
     private sealed class CohereConfiguredEmbeddingGenerator : Meai.IEmbeddingGenerator

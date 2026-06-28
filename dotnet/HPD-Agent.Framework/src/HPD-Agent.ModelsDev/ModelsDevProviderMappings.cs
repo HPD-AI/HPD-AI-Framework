@@ -31,7 +31,23 @@ public sealed class ModelsDevProviderMappings
         new("openrouter", "openrouter"),
         new("huggingface", "huggingface"),
         new("amazon-bedrock", "bedrock"),
-        new("ollama", "ollama")
+        new("ollama", "ollama"),
+        new("cerebras", "cerebras"),
+        new("cohere", "cohere"),
+        new("deepinfra", "deepinfra"),
+        new("deepseek", "deepseek"),
+        new("fireworks", "fireworks"),
+        new("groq", "groq"),
+        new("minimax", "minimax"),
+        new("moonshot", "moonshot"),
+        new("nebius", "nebius"),
+        new("nvidia", "nvidia-nim"),
+        new("perplexity", "perplexity"),
+        new("replicate", "replicate"),
+        new("sambanova", "sambanova"),
+        new("together", "together"),
+        new("xai", "xai"),
+        new("z-ai", "zai")
     ]);
 
     public IReadOnlyDictionary<string, string> ModelsDevToHpd => _modelsDevToHpd;

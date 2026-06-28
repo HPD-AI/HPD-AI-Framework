@@ -30,7 +30,6 @@ internal class DeepInfraProvider : IChatClientProvider
             throw new InvalidOperationException("For DeepInfra, the ModelName must be configured.");
         }
 
-        var deepInfraConfig = config.GetProviderConfig<DeepInfraProviderConfig>();
         var secrets = services?.GetService<ISecretResolver>();
         if (secrets is null)
         {
@@ -63,7 +62,7 @@ internal class DeepInfraProvider : IChatClientProvider
                 IncludeStreamingUsage = true
             });
 
-        return new DeepInfraConfiguredChatClient(client, config.ModelName, deepInfraConfig);
+        return new DeepInfraConfiguredChatClient(client, config.ModelName);
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -121,54 +120,9 @@ internal class DeepInfraProvider : IChatClientProvider
             errors.Add("Endpoint must be a valid, absolute URI");
         }
 
-        var deepInfraConfig = config.GetProviderConfig<DeepInfraProviderConfig>(family);
-        if (deepInfraConfig is not null)
-        {
-            ValidateProviderOptions(deepInfraConfig, errors);
-        }
-
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
-    }
-
-    internal static void ValidateProviderOptions(DeepInfraProviderConfig config, List<string> errors)
-    {
-        if (config.Temperature.HasValue && (config.Temperature.Value < 0 || config.Temperature.Value > 2))
-            errors.Add("Temperature must be between 0 and 2");
-
-        if (config.TopP.HasValue && (config.TopP.Value < 0 || config.TopP.Value > 1))
-            errors.Add("TopP must be between 0 and 1");
-
-        if (config.MaxOutputTokens.HasValue && config.MaxOutputTokens.Value <= 0)
-            errors.Add("MaxOutputTokens must be greater than 0");
-
-        if (config.Seed.HasValue && config.Seed.Value is < int.MinValue or > int.MaxValue)
-            errors.Add("Seed must fit in a 32-bit signed integer");
-
-        if (config.StopSequences is { Count: > 0 })
-        {
-            foreach (var stopSequence in config.StopSequences)
-            {
-                if (string.IsNullOrEmpty(stopSequence))
-                    errors.Add("StopSequences cannot contain empty values");
-            }
-        }
-
-        if (config.ResponseFormat is { Length: > 0 } responseFormat &&
-            !string.Equals(responseFormat, "text", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(responseFormat, "json_object", StringComparison.OrdinalIgnoreCase))
-        {
-            errors.Add("ResponseFormat must be one of: text, json_object");
-        }
-
-        if (config.ToolChoice is { Length: > 0 } toolChoice &&
-            !string.Equals(toolChoice, "auto", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(toolChoice, "none", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(toolChoice, "required", StringComparison.OrdinalIgnoreCase))
-        {
-            errors.Add("ToolChoice must be one of: auto, none, required");
-        }
     }
 
     private static Uri EnsureTrailingSlash(Uri uri)
@@ -181,14 +135,12 @@ internal class DeepInfraProvider : IChatClientProvider
     {
         private readonly Meai.IChatClient _innerClient;
         private readonly string _modelName;
-        private readonly DeepInfraProviderConfig? _config;
         private Meai.ChatClientMetadata? _metadata;
 
-        public DeepInfraConfiguredChatClient(Meai.IChatClient innerClient, string modelName, DeepInfraProviderConfig? config)
+        public DeepInfraConfiguredChatClient(Meai.IChatClient innerClient, string modelName)
         {
             _innerClient = innerClient ?? throw new ArgumentNullException(nameof(innerClient));
             _modelName = modelName ?? throw new ArgumentNullException(nameof(modelName));
-            _config = config;
         }
 
         public Meai.ChatClientMetadata Metadata =>
@@ -218,62 +170,11 @@ internal class DeepInfraProvider : IChatClientProvider
 
         private Meai.ChatOptions ApplyDefaults(Meai.ChatOptions? options)
         {
-            if (options is null)
-            {
-                return CreateDefaultOptions();
-            }
+            var merged = options?.Clone() ?? new Meai.ChatOptions();
+            if (string.IsNullOrWhiteSpace(merged.ModelId))
+                merged.ModelId = _modelName;
 
-            return new Meai.ChatOptions
-            {
-                ModelId = string.IsNullOrWhiteSpace(options.ModelId) ? _modelName : options.ModelId,
-                Instructions = options.Instructions,
-                Tools = options.Tools,
-                AllowMultipleToolCalls = options.AllowMultipleToolCalls,
-                MaxOutputTokens = options.MaxOutputTokens ?? _config?.MaxOutputTokens,
-                Temperature = options.Temperature ?? ToSingle(_config?.Temperature),
-                TopP = options.TopP ?? ToSingle(_config?.TopP),
-                TopK = options.TopK,
-                FrequencyPenalty = options.FrequencyPenalty,
-                PresencePenalty = options.PresencePenalty,
-                StopSequences = options.StopSequences ?? _config?.StopSequences,
-                ResponseFormat = options.ResponseFormat ?? CreateResponseFormat(_config?.ResponseFormat),
-                Seed = options.Seed ?? _config?.Seed,
-                ToolMode = options.ToolMode ?? CreateToolMode(_config?.ToolChoice),
-                Reasoning = options.Reasoning,
-                AdditionalProperties = options.AdditionalProperties,
-                RawRepresentationFactory = options.RawRepresentationFactory
-            };
+            return merged;
         }
-
-        private Meai.ChatOptions CreateDefaultOptions() => new()
-        {
-            ModelId = _modelName,
-            MaxOutputTokens = _config?.MaxOutputTokens,
-            Temperature = ToSingle(_config?.Temperature),
-            TopP = ToSingle(_config?.TopP),
-            Seed = _config?.Seed,
-            StopSequences = _config?.StopSequences,
-            ResponseFormat = CreateResponseFormat(_config?.ResponseFormat),
-            ToolMode = CreateToolMode(_config?.ToolChoice)
-        };
-
-        private static float? ToSingle(double? value) => value.HasValue ? (float)value.Value : null;
-
-        private static Meai.ChatResponseFormat? CreateResponseFormat(string? responseFormat)
-            => responseFormat?.ToLowerInvariant() switch
-            {
-                "text" => Meai.ChatResponseFormat.Text,
-                "json_object" => Meai.ChatResponseFormat.Json,
-                _ => null
-            };
-
-        private static Meai.ChatToolMode? CreateToolMode(string? toolChoice)
-            => toolChoice?.ToLowerInvariant() switch
-            {
-                "auto" => Meai.ChatToolMode.Auto,
-                "none" => Meai.ChatToolMode.None,
-                "required" => Meai.ChatToolMode.RequireAny,
-                _ => null
-            };
     }
 }

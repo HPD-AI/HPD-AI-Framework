@@ -68,7 +68,6 @@ internal sealed class GroqProvider : IChatClientProvider
             }
         }
 
-        var groqConfig = config.GetProviderConfig<GroqProviderConfig>();
         var options = new OpenAICompatibleChatClientOptions
         {
             ProviderKey = ProviderKey,
@@ -78,7 +77,7 @@ internal sealed class GroqProvider : IChatClientProvider
             ChatCompletionsPath = "chat/completions"
         };
 
-        return new GroqConfiguredChatClient(new OpenAICompatibleChatClient(httpClient, options), groqConfig);
+        return new GroqConfiguredChatClient(new OpenAICompatibleChatClient(httpClient, options));
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -141,58 +140,9 @@ internal sealed class GroqProvider : IChatClientProvider
             errors.Add("Endpoint must be a valid, absolute URI");
         }
 
-        var groqConfig = config.GetProviderConfig<GroqProviderConfig>(family);
-        if (groqConfig is not null)
-        {
-            ValidateProviderOptions(groqConfig, errors);
-        }
-
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
-    }
-
-    internal static void ValidateProviderOptions(GroqProviderConfig config, List<string> errors)
-    {
-        if (config.Temperature.HasValue && (config.Temperature.Value < 0 || config.Temperature.Value > 2))
-            errors.Add("Temperature must be between 0 and 2");
-
-        if (config.TopP.HasValue && (config.TopP.Value < 0 || config.TopP.Value > 1))
-            errors.Add("TopP must be between 0 and 1");
-
-        if (config.MaxOutputTokens.HasValue && config.MaxOutputTokens.Value <= 0)
-            errors.Add("MaxOutputTokens must be greater than 0");
-
-        if (config.Seed.HasValue && config.Seed.Value is < int.MinValue or > int.MaxValue)
-            errors.Add("Seed must fit in a 32-bit signed integer");
-
-        if (config.StopSequences is { Count: > 0 })
-        {
-            foreach (var stopSequence in config.StopSequences)
-            {
-                if (string.IsNullOrEmpty(stopSequence))
-                    errors.Add("StopSequences cannot contain empty values");
-            }
-        }
-
-        if (config.ResponseFormat is { Length: > 0 } responseFormat)
-        {
-            if (!string.Equals(responseFormat, "text", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(responseFormat, "json_object", StringComparison.OrdinalIgnoreCase))
-            {
-                errors.Add("ResponseFormat must be one of: text, json_object");
-            }
-        }
-
-        if (config.ToolChoice is { Length: > 0 } toolChoice)
-        {
-            if (!string.Equals(toolChoice, "auto", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(toolChoice, "none", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(toolChoice, "required", StringComparison.OrdinalIgnoreCase))
-            {
-                errors.Add("ToolChoice must be one of: auto, none, required");
-            }
-        }
     }
 
     private static Uri EnsureTrailingSlash(Uri endpoint)
@@ -205,26 +155,19 @@ internal sealed class GroqProvider : IChatClientProvider
         return new Uri(endpoint.AbsoluteUri + "/", UriKind.Absolute);
     }
 
-    private sealed class GroqConfiguredChatClient : Meai.IChatClient
+        private sealed class GroqConfiguredChatClient : Meai.IChatClient
     {
         private readonly OpenAICompatibleChatClient _innerClient;
-        private readonly GroqProviderConfig? _config;
 
-        public GroqConfiguredChatClient(
-            OpenAICompatibleChatClient innerClient,
-            GroqProviderConfig? config)
+        public GroqConfiguredChatClient(OpenAICompatibleChatClient innerClient)
         {
             _innerClient = innerClient ?? throw new ArgumentNullException(nameof(innerClient));
-            _config = config;
         }
 
         public void Dispose() => _innerClient.Dispose();
 
         public object? GetService(Type serviceType, object? serviceKey = null)
         {
-            if (serviceType == typeof(GroqProviderConfig))
-                return _config;
-
             return _innerClient.GetService(serviceType, serviceKey);
         }
 
@@ -240,64 +183,9 @@ internal sealed class GroqProvider : IChatClientProvider
             CancellationToken cancellationToken = default)
             => _innerClient.GetStreamingResponseAsync(messages, ApplyDefaults(options), cancellationToken);
 
-        private Meai.ChatOptions? ApplyDefaults(Meai.ChatOptions? options)
+        private Meai.ChatOptions ApplyDefaults(Meai.ChatOptions? options)
         {
-            if (_config is null)
-            {
-                return options;
-            }
-
-            if (options is null)
-            {
-                return CreateDefaultOptions();
-            }
-
-            return new Meai.ChatOptions
-            {
-                ModelId = options.ModelId,
-                Instructions = options.Instructions,
-                Tools = options.Tools,
-                MaxOutputTokens = options.MaxOutputTokens ?? _config.MaxOutputTokens,
-                Temperature = options.Temperature ?? ToSingle(_config.Temperature),
-                TopP = options.TopP ?? ToSingle(_config.TopP),
-                TopK = options.TopK,
-                FrequencyPenalty = options.FrequencyPenalty,
-                PresencePenalty = options.PresencePenalty,
-                StopSequences = options.StopSequences ?? _config.StopSequences,
-                ResponseFormat = options.ResponseFormat ?? CreateResponseFormat(_config.ResponseFormat),
-                Seed = options.Seed ?? _config.Seed,
-                ToolMode = options.ToolMode ?? CreateToolMode(_config.ToolChoice),
-                AdditionalProperties = options.AdditionalProperties,
-                RawRepresentationFactory = options.RawRepresentationFactory
-            };
+            return options?.Clone() ?? new Meai.ChatOptions();
         }
-
-        private Meai.ChatOptions CreateDefaultOptions() => new()
-        {
-            MaxOutputTokens = _config?.MaxOutputTokens,
-            Temperature = ToSingle(_config?.Temperature),
-            TopP = ToSingle(_config?.TopP),
-            Seed = _config?.Seed,
-            StopSequences = _config?.StopSequences,
-            ResponseFormat = CreateResponseFormat(_config?.ResponseFormat),
-            ToolMode = CreateToolMode(_config?.ToolChoice)
-        };
-
-        private static Meai.ChatResponseFormat? CreateResponseFormat(string? responseFormat)
-            => string.Equals(responseFormat, "json_object", StringComparison.OrdinalIgnoreCase)
-                ? Meai.ChatResponseFormat.Json
-                : string.Equals(responseFormat, "text", StringComparison.OrdinalIgnoreCase)
-                    ? Meai.ChatResponseFormat.Text
-                    : null;
-
-        private static Meai.ChatToolMode? CreateToolMode(string? toolChoice)
-            => toolChoice?.ToLowerInvariant() switch
-            {
-                "none" => Meai.ChatToolMode.None,
-                "required" => Meai.ChatToolMode.RequireAny,
-                _ => null
-            };
-
-        private static float? ToSingle(double? value) => value.HasValue ? (float)value.Value : null;
     }
 }

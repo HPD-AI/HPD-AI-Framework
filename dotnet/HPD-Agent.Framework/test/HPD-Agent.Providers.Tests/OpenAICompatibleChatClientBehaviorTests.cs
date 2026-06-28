@@ -1,17 +1,16 @@
-using FluentAssertions;
-using HPD.Agent;
-using HPD.Agent.ErrorHandling;
-using HPD.Agent.Providers;
-using HPD.Agent.Providers.OpenAICompatible;
-using Microsoft.Extensions.AI;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using FluentAssertions;
+using HPD.Agent.ErrorHandling;
+using HPD.Agent.Providers;
+using HPD.Agent.Providers.OpenAICompatible;
+using Microsoft.Extensions.AI;
 
-namespace HPD.Agent.Tests.Providers;
+namespace HPD.Agent.Providers.Tests;
 
-public sealed class OpenAICompatibleChatClientTests
+public sealed class OpenAICompatibleChatClientBehaviorTests
 {
     [Fact]
     public async Task GetResponseAsync_SerializesMessagesToolsOptionsAndResponseFormat()
@@ -23,9 +22,7 @@ public sealed class OpenAICompatibleChatClientTests
         var schema = JsonDocument.Parse("""{"type":"object","properties":{"answer":{"type":"string"}}}""").RootElement;
 
         var response = await client.GetResponseAsync(
-            [
-                new ChatMessage(ChatRole.User, "hello")
-            ],
+            [new ChatMessage(ChatRole.User, "hello")],
             new ChatOptions
             {
                 Instructions = "be useful",
@@ -49,32 +46,6 @@ public sealed class OpenAICompatibleChatClientTests
         request.RootElement.GetProperty("tools")[0].GetProperty("function").GetProperty("name").GetString().Should().Be("lookup");
         request.RootElement.GetProperty("response_format").GetProperty("type").GetString().Should().Be("json_schema");
         request.RootElement.GetProperty("response_format").GetProperty("json_schema").GetProperty("name").GetString().Should().Be("answer_shape");
-    }
-
-    [Fact]
-    public async Task GetResponseAsync_WithPerplexityStyleMetadata_IgnoresUnknownFieldsAndPreservesUsage()
-    {
-        var handler = new CapturingHandler("""
-            {
-              "id":"chatcmpl-perplexity",
-              "model":"sonar-pro",
-              "created":10,
-              "choices":[{"index":0,"message":{"role":"assistant","content":"grounded answer"},"finish_reason":"stop"}],
-              "usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150,"num_search_queries":2},
-              "citations":["https://example.test/source"],
-              "search_results":[{"title":"Source","url":"https://example.test/source"}],
-              "num_search_queries":2
-            }
-            """);
-        using var client = CreateClient(handler, defaultModelId: "sonar-pro");
-
-        var response = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "search this")]);
-
-        response.Text.Should().Be("grounded answer");
-        response.Usage?.InputTokenCount.Should().Be(100);
-        response.Usage?.OutputTokenCount.Should().Be(50);
-        response.Usage?.TotalTokenCount.Should().Be(150);
-        response.Usage?.AdditionalCounts.Should().ContainKey("num_search_queries").WhoseValue.Should().Be(2);
     }
 
     [Fact]
@@ -177,26 +148,6 @@ public sealed class OpenAICompatibleChatClientTests
         var tool = request.Messages.Single(message => message.Role == "tool");
         tool.ToolCallId.Should().Be("call-1");
         tool.Content?.GetString().Should().Be("contents");
-    }
-
-    [Fact]
-    public void BuildRequestBody_WithStructuredToolResult_SerializesResultAsJsonString()
-    {
-        using var client = CreateInspectableClient();
-
-        var request = client.Build([
-            new ChatMessage(ChatRole.Tool, [
-                new FunctionResultContent("call-1", new Dictionary<string, object?>
-                {
-                    ["ok"] = true,
-                    ["count"] = 2
-                })
-            ])
-        ]);
-
-        var tool = request.Messages.Single();
-        tool.Role.Should().Be("tool");
-        tool.Content?.GetString().Should().Be("""{"ok":true,"count":2}""");
     }
 
     [Fact]
@@ -377,28 +328,12 @@ public sealed class OpenAICompatibleChatClientTests
     }
 
     [Fact]
-    public void BuildRequestBody_WithoutOptionModel_UsesDefaultModel()
-    {
-        using var client = CreateInspectableClient(defaultModelId: "default-model");
-
-        var request = client.Build([new ChatMessage(ChatRole.User, "hello")]);
-
-        request.Model.Should().Be("default-model");
-    }
-
-    [Fact]
-    public async Task ProviderBase_CreateChatClient_ConfiguresEndpointAuthAndDefaults()
+    public async Task ProviderBase_CreateChatClient_ConfiguresEndpointAndAuth()
     {
         var handler = new CapturingHandler("""
             {"id":"chatcmpl-1","model":"default-model","created":10,"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}
             """);
-        var provider = new TestProvider(handler, new TestProviderConfig
-        {
-            Temperature = 0.4f,
-            MaxOutputTokens = 12,
-            ResponseFormat = "json_object",
-            ToolChoice = "required"
-        });
+        var provider = new TestProvider(handler);
 
         using var client = provider.CreateChatClient(
             new ClientProviderConfig
@@ -413,26 +348,12 @@ public sealed class OpenAICompatibleChatClientTests
 
         provider.CapturedBaseAddress.Should().Be(new Uri("https://override.test/v1/"));
         provider.CapturedAuthorization.Should().Be(new AuthenticationHeaderValue("Bearer", "test-key"));
-
-        using var request = JsonDocument.Parse(handler.RequestBody);
-        request.RootElement.GetProperty("temperature").GetDouble().Should().BeApproximately(0.4, 0.001);
-        request.RootElement.GetProperty("max_tokens").GetInt32().Should().Be(12);
-        request.RootElement.GetProperty("response_format").GetProperty("type").GetString().Should().Be("json_object");
-        request.RootElement.GetProperty("tool_choice").GetString().Should().Be("required");
     }
 
     [Fact]
-    public void ProviderBase_ValidateConfiguration_AppliesCommonRules()
+    public void ProviderBase_ValidateConfiguration_AppliesCommonConstructionRules()
     {
-        var provider = new TestProvider(new CapturingHandler("{}"), new TestProviderConfig
-        {
-            Temperature = 3,
-            TopP = 2,
-            MaxOutputTokens = 0,
-            StopSequences = [""],
-            ResponseFormat = "xml",
-            ToolChoice = "sometimes"
-        });
+        var provider = new TestProvider(new CapturingHandler("{}"));
 
         var result = provider.ValidateConfiguration(
             new ClientProviderConfig
@@ -447,12 +368,6 @@ public sealed class OpenAICompatibleChatClientTests
         result.Errors.Should().Contain(error => error.Contains("Model name", StringComparison.OrdinalIgnoreCase));
         result.Errors.Should().Contain(error => error.Contains("API key", StringComparison.OrdinalIgnoreCase));
         result.Errors.Should().Contain(error => error.Contains("Endpoint", StringComparison.OrdinalIgnoreCase));
-        result.Errors.Should().Contain(error => error.Contains("Temperature", StringComparison.OrdinalIgnoreCase));
-        result.Errors.Should().Contain(error => error.Contains("TopP", StringComparison.OrdinalIgnoreCase));
-        result.Errors.Should().Contain(error => error.Contains("MaxOutputTokens", StringComparison.OrdinalIgnoreCase));
-        result.Errors.Should().Contain(error => error.Contains("StopSequences", StringComparison.OrdinalIgnoreCase));
-        result.Errors.Should().Contain(error => error.Contains("ResponseFormat", StringComparison.OrdinalIgnoreCase));
-        result.Errors.Should().Contain(error => error.Contains("ToolChoice", StringComparison.OrdinalIgnoreCase));
     }
 
     private static TestChatClient CreateInspectableClient(string defaultModelId = "test-model")
@@ -484,10 +399,8 @@ public sealed class OpenAICompatibleChatClientTests
         public override JsonElement JsonSchema { get; } = JsonDocument.Parse("""{"type":"object","properties":{"q":{"type":"string"}}}""").RootElement;
     }
 
-    private sealed class TestProvider(
-        CapturingHandler handler,
-        TestProviderConfig? providerConfig)
-        : OpenAICompatibleChatProviderBase<TestProviderConfig>
+    private sealed class TestProvider(CapturingHandler handler)
+        : OpenAICompatibleChatProviderBase<OpenAICompatibleProviderConfig>
     {
         private static readonly OpenAICompatibleProviderDefinition TestDefinition = new()
         {
@@ -504,12 +417,10 @@ public sealed class OpenAICompatibleChatClientTests
         protected override OpenAICompatibleProviderDefinition Definition => TestDefinition;
 
         public Uri? CapturedBaseAddress { get; private set; }
+
         public AuthenticationHeaderValue? CapturedAuthorization { get; private set; }
 
         public override IProviderErrorHandler CreateErrorHandler() => new GenericErrorHandler();
-
-        protected override TestProviderConfig? ResolveProviderConfig(ClientProviderConfig config)
-            => providerConfig;
 
         protected override IChatClient CreateOpenAICompatibleChatClient(
             HttpClient httpClient,
@@ -525,14 +436,13 @@ public sealed class OpenAICompatibleChatClientTests
         }
     }
 
-    private sealed class TestProviderConfig : OpenAICompatibleProviderConfig;
-
     private sealed class CapturingHandler(
         string responseBody,
         HttpStatusCode statusCode = HttpStatusCode.OK,
         string mediaType = "application/json") : HttpMessageHandler
     {
         public string RequestBody { get; private set; } = string.Empty;
+
         public Uri? RequestUri { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

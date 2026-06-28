@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <IsPackable>true</IsPackable>
-    <!-- Inherits TargetFrameworks from Directory.Build.props: net10.0;net9.0;net8.0 -->
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
 
@@ -25,6 +25,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="HuggingFace" Version="0.4.1-dev.23" />
+    <PackageReference Include="HuggingFace" Version="0.4.2" />
   </ItemGroup>
 </Project>

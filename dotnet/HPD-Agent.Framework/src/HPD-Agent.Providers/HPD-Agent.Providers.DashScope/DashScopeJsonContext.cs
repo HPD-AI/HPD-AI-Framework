@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace HPD.Agent.Providers.DashScope;
@@ -12,6 +13,11 @@ namespace HPD.Agent.Providers.DashScope;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(DashScopeProviderConfig))]
+[JsonSerializable(typeof(DashScopeChatRequestOptions))]
+[JsonSerializable(typeof(DashScopeSearchRequestOptions))]
+[JsonSerializable(typeof(DashScopeTranslationRequestOptions))]
+[JsonSerializable(typeof(DashScopeCacheControlRequestOptions))]
+[JsonSerializable(typeof(Dictionary<string, int>))]
 internal partial class DashScopeJsonContext : JsonSerializerContext
 {
 }

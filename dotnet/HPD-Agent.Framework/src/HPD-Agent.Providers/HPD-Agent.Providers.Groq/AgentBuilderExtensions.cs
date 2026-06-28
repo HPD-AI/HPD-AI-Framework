@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using HPD.Agent;
 using HPD.Agent.Providers;
 
@@ -17,17 +15,12 @@ public static class AgentBuilderExtensions
         this AgentBuilder builder,
         string model = "llama-3.3-70b-versatile",
         string? apiKey = null,
-        string? endpoint = null,
-        Action<GroqProviderConfig>? configure = null)
+        string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for Groq provider.", nameof(model));
-
-        var providerConfig = new GroqProviderConfig();
-        configure?.Invoke(providerConfig);
-        ValidateProviderConfig(providerConfig, configure);
 
         var chatConfig = new ClientProviderConfig
         {
@@ -38,17 +31,7 @@ public static class AgentBuilderExtensions
         };
 
         builder.Config.SetChatClientConfig(chatConfig);
-        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
-    }
-
-    private static void ValidateProviderConfig(GroqProviderConfig config, Action<GroqProviderConfig>? configure)
-    {
-        var errors = new List<string>();
-        GroqProvider.ValidateProviderOptions(config, errors);
-
-        if (errors.Count > 0)
-            throw new ArgumentException(string.Join("; ", errors), nameof(configure));
     }
 }

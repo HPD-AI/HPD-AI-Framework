@@ -9,8 +9,10 @@ namespace HPD.Agent.Providers.Moonshot;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     WriteIndented = false,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+    UseStringEnumConverter = true)]
 [JsonSerializable(typeof(MoonshotProviderConfig))]
+[JsonSerializable(typeof(MoonshotChatRequestOptions))]
 internal partial class MoonshotJsonContext : JsonSerializerContext
 {
 }

@@ -238,7 +238,7 @@ public class AgentBuilderWithToolTests
                 {
                     ProviderKey = "test",
                     ModelName = "test-model",
-                    DefaultChatOptions = new ChatOptions
+                    DefaultMicrosoftChatOptions = new ChatOptions
                     {
                         Tools = [subAgentFunction]
                     }

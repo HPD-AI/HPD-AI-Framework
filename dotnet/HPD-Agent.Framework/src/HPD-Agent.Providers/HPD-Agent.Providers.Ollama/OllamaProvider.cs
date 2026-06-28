@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Generic;
+using System.Net.Http;
 using System.Threading;
 using OllamaSharp;
 using HPD.Agent;
@@ -53,12 +54,25 @@ internal class OllamaProvider : IChatClientProvider
             throw new InvalidOperationException("Model name is required for Ollama provider.");
         }
 
-        // Create the base Ollama client
-        var client = new OllamaApiClient(endpoint, config.ModelName);
+        var providerConfig = config.GetProviderConfig<OllamaProviderConfig>();
 
-        // Apply client factory middleware if provided
-        IChatClient chatClient = client;
-        return chatClient;
+        var httpClient = new HttpClient { BaseAddress = endpoint };
+        if (providerConfig?.TimeoutMs is { } timeoutMs)
+        {
+            httpClient.Timeout = TimeSpan.FromMilliseconds(timeoutMs);
+        }
+
+        var client = new OllamaApiClient(httpClient, config.ModelName);
+
+        if (config.CustomHeaders is not null)
+        {
+            foreach (var header in config.CustomHeaders)
+            {
+                client.DefaultRequestHeaders[header.Key] = header.Value;
+            }
+        }
+
+        return new OllamaConfiguredChatClient(client, config.ModelName, endpoint, providerConfig);
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -100,94 +114,9 @@ internal class OllamaProvider : IChatClientProvider
         if (!string.IsNullOrEmpty(config.Endpoint) && !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
             errors.Add("Endpoint must be a valid, absolute URI");
 
-        // Validate Ollama-specific config if present
-        var ollamaConfig = config.GetProviderConfig<OllamaProviderConfig>();
-        if (ollamaConfig != null)
-        {
-            // Validate Temperature range
-            if (ollamaConfig.Temperature.HasValue && (ollamaConfig.Temperature.Value < 0 || ollamaConfig.Temperature.Value > 2))
-            {
-                errors.Add("Temperature must be between 0 and 2");
-            }
-
-            // Validate TopP range
-            if (ollamaConfig.TopP.HasValue && (ollamaConfig.TopP.Value < 0 || ollamaConfig.TopP.Value > 1))
-            {
-                errors.Add("TopP must be between 0 and 1");
-            }
-
-            // Validate MinP range
-            if (ollamaConfig.MinP.HasValue && (ollamaConfig.MinP.Value < 0 || ollamaConfig.MinP.Value > 1))
-            {
-                errors.Add("MinP must be between 0 and 1");
-            }
-
-            // Validate TypicalP range
-            if (ollamaConfig.TypicalP.HasValue && (ollamaConfig.TypicalP.Value < 0 || ollamaConfig.TypicalP.Value > 1))
-            {
-                errors.Add("TypicalP must be between 0 and 1");
-            }
-
-            // Validate TfsZ
-            if (ollamaConfig.TfsZ.HasValue && ollamaConfig.TfsZ.Value < 0)
-            {
-                errors.Add("TfsZ must be greater than or equal to 0");
-            }
-
-            // Validate RepeatPenalty
-            if (ollamaConfig.RepeatPenalty.HasValue && ollamaConfig.RepeatPenalty.Value < 0)
-            {
-                errors.Add("RepeatPenalty must be greater than or equal to 0");
-            }
-
-            // Validate PresencePenalty range
-            if (ollamaConfig.PresencePenalty.HasValue && (ollamaConfig.PresencePenalty.Value < 0 || ollamaConfig.PresencePenalty.Value > 2))
-            {
-                errors.Add("PresencePenalty must be between 0 and 2");
-            }
-
-            // Validate FrequencyPenalty range
-            if (ollamaConfig.FrequencyPenalty.HasValue && (ollamaConfig.FrequencyPenalty.Value < 0 || ollamaConfig.FrequencyPenalty.Value > 2))
-            {
-                errors.Add("FrequencyPenalty must be between 0 and 2");
-            }
-
-            // Validate MiroStat
-            if (ollamaConfig.MiroStat.HasValue && (ollamaConfig.MiroStat.Value < 0 || ollamaConfig.MiroStat.Value > 2))
-            {
-                errors.Add("MiroStat must be 0 (disabled), 1 (Mirostat), or 2 (Mirostat 2.0)");
-            }
-
-            // Validate MiroStatEta
-            if (ollamaConfig.MiroStatEta.HasValue && ollamaConfig.MiroStatEta.Value < 0)
-            {
-                errors.Add("MiroStatEta must be greater than or equal to 0");
-            }
-
-            // Validate MiroStatTau
-            if (ollamaConfig.MiroStatTau.HasValue && ollamaConfig.MiroStatTau.Value < 0)
-            {
-                errors.Add("MiroStatTau must be greater than or equal to 0");
-            }
-
-            // Validate NumPredict
-            if (ollamaConfig.NumPredict.HasValue && ollamaConfig.NumPredict.Value < -2)
-            {
-                errors.Add("NumPredict must be greater than or equal to -2 (-2 = fill context, -1 = infinite, 0+ = specific count)");
-            }
-
-            // Validate NumCtx
-            if (ollamaConfig.NumCtx.HasValue && ollamaConfig.NumCtx.Value < 1)
-            {
-                errors.Add("NumCtx must be greater than 0");
-            }
-
-            // Validate TopK
-            if (ollamaConfig.TopK.HasValue && ollamaConfig.TopK.Value < 1)
-            {
-                errors.Add("TopK must be greater than 0");
-            }
-        }
+        var providerConfig = config.GetProviderConfig<OllamaProviderConfig>();
+        if (providerConfig?.TimeoutMs is <= 0)
+            errors.Add("TimeoutMs must be greater than zero when specified.");
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())

@@ -66,7 +66,24 @@ internal sealed class ConsoleModelsDevModelCatalog(
                 pair.Value.Name,
                 IsRecommended(pair.Value),
                 IsFree(pair.Value),
-                SupportsTools: pair.Value.ToolCall))
+                Capabilities: new AgentTuiModelCapabilities(
+                    SupportsTools: pair.Value.ToolCall,
+                    SupportsReasoning: pair.Value.Reasoning,
+                    SupportsTemperature: pair.Value.Temperature,
+                    SupportsAttachments: pair.Value.Attachment,
+                    ContextWindow: pair.Value.Limit?.Context,
+                    InputTokenLimit: pair.Value.Limit?.Input,
+                    OutputTokenLimit: pair.Value.Limit?.Output,
+                    InputModalities: pair.Value.Modalities?.Input.ToArray(),
+                    OutputModalities: pair.Value.Modalities?.Output.ToArray(),
+                    InputCost: pair.Value.Cost?.Input,
+                    OutputCost: pair.Value.Cost?.Output,
+                    CacheReadCost: pair.Value.Cost?.CacheRead,
+                    CacheWriteCost: pair.Value.Cost?.CacheWrite,
+                    IsOpenWeights: pair.Value.OpenWeights,
+                    Family: pair.Value.Family,
+                    ReleaseDate: pair.Value.ReleaseDate,
+                    Status: pair.Value.Status)))
             .ToArray();
     }
 

@@ -20,17 +20,16 @@ public static class OpenAIProviderModule
         ProviderDiscovery.RegisterProviderFactory(() => new OpenAIProvider());
         ProviderDiscovery.RegisterProviderFactory(() => new AzureOpenAIProvider());
 
-        // Register config type for FFI/JSON serialization (AOT-compatible)
-        // Both OpenAI and Azure OpenAI use the same config type
+        // Register config types for FFI/JSON serialization (AOT-compatible)
         ProviderDiscovery.RegisterProviderConfigType<OpenAIProviderConfig>(
             "openai",
             json => JsonSerializer.Deserialize(json, OpenAIJsonContext.Default.OpenAIProviderConfig),
             config => JsonSerializer.Serialize(config, OpenAIJsonContext.Default.OpenAIProviderConfig));
 
-        ProviderDiscovery.RegisterProviderConfigType<OpenAIProviderConfig>(
+        ProviderDiscovery.RegisterProviderConfigType<AzureOpenAIProviderConfig>(
             "azure-openai",
-            json => JsonSerializer.Deserialize(json, OpenAIJsonContext.Default.OpenAIProviderConfig),
-            config => JsonSerializer.Serialize(config, OpenAIJsonContext.Default.OpenAIProviderConfig));
+            json => JsonSerializer.Deserialize(json, OpenAIJsonContext.Default.AzureOpenAIProviderConfig),
+            config => JsonSerializer.Serialize(config, OpenAIJsonContext.Default.AzureOpenAIProviderConfig));
 
         // Register environment variable aliases for unified secret resolution
         SecretAliasRegistry.Register("openai:ApiKey", "OPENAI_API_KEY");

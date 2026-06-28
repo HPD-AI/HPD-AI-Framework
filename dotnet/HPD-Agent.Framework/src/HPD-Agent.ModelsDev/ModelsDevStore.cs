@@ -1,6 +1,5 @@
 using System.Net;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 
 namespace HPD.Agent.ModelsDev;
 
@@ -91,7 +90,7 @@ public sealed partial class ModelsDevStore
             return modelId;
         }
 
-        if (DateSuffixRegex().IsMatch(modelId))
+        if (ModelsDevModelId.HasDateSuffix(modelId))
         {
             return modelId;
         }
@@ -112,7 +111,7 @@ public sealed partial class ModelsDevStore
                 || pair.Value.Name is null
                 || pair.Value.Name.Contains("(latest)", StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(pair.Value.Name, baseName, StringComparison.Ordinal)
-                || !DateSuffixRegex().IsMatch(pair.Key))
+                || !ModelsDevModelId.HasDateSuffix(pair.Key))
             {
                 continue;
             }
@@ -293,7 +292,4 @@ public sealed partial class ModelsDevStore
         stripped = modelId[(separator + 1)..];
         return true;
     }
-
-    [GeneratedRegex(@"-\d{4}-?\d{2}-?\d{2}$", RegexOptions.CultureInvariant)]
-    private static partial Regex DateSuffixRegex();
 }

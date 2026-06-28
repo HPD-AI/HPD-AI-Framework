@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.Together;
 
@@ -9,8 +10,12 @@ namespace HPD.Agent.Providers.Together;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     WriteIndented = false,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+    UseStringEnumConverter = true)]
 [JsonSerializable(typeof(TogetherProviderConfig))]
+[JsonSerializable(typeof(TogetherChatRequestOptions))]
+[JsonSerializable(typeof(Dictionary<string, float>))]
+[JsonSerializable(typeof(Dictionary<string, object>))]
 internal partial class TogetherJsonContext : JsonSerializerContext
 {
 }

@@ -1,4 +1,5 @@
 using HPD.Agent;
+using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 
@@ -52,13 +53,41 @@ public sealed record AgentTuiModelChoice(
     string? DisplayName = null,
     bool IsRecommended = false,
     bool IsFree = false,
-    bool SupportsTools = false);
+    AgentTuiModelCapabilities? Capabilities = null);
+
+public sealed record AgentTuiModelCapabilities(
+    bool SupportsTools = false,
+    bool SupportsReasoning = false,
+    bool SupportsTemperature = false,
+    bool SupportsAttachments = false,
+    int? ContextWindow = null,
+    int? InputTokenLimit = null,
+    int? OutputTokenLimit = null,
+    IReadOnlyList<string>? InputModalities = null,
+    IReadOnlyList<string>? OutputModalities = null,
+    decimal? InputCost = null,
+    decimal? OutputCost = null,
+    decimal? CacheReadCost = null,
+    decimal? CacheWriteCost = null,
+    bool IsOpenWeights = false,
+    string? Family = null,
+    string? ReleaseDate = null,
+    string? Status = null)
+{
+    public static AgentTuiModelCapabilities None { get; } = new();
+
+    public bool HasKnownContextWindow => ContextWindow is > 0;
+}
 
 public sealed class AgentTuiModelSelectionOptions
 {
     public bool RequireToolSupport { get; set; }
 
     public int Order { get; set; } = Commands.HpdAgentTuiCommandDescriptor.DefaultOrder;
+
+    public Func<AgentTuiCommandContext, AgentTuiSelectedModel, ValueTask<AgentTuiSelectedModel>>? ConfigureSelection { get; set; }
+
+    public Func<AgentTuiCommandContext, AgentTuiSelectedModel, ValueTask>? SelectionCommitted { get; set; }
 }
 
 public sealed class AgentTuiModelSelectionState
@@ -76,18 +105,29 @@ public sealed class AgentTuiModelSelectionState
         string providerKey,
         string modelId,
         string? displayName = null,
-        bool supportsTools = false)
+        AgentTuiModelCapabilities? capabilities = null,
+        ChatRunConfig? chat = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(providerKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
-        Current = new AgentTuiSelectedModel(providerKey, modelId, displayName, supportsTools);
+        Current = new AgentTuiSelectedModel(
+            providerKey,
+            modelId,
+            displayName,
+            capabilities ?? AgentTuiModelCapabilities.None,
+            CloneChat(chat));
         Remember(Current);
     }
 
-    public void Set(AgentTuiModelChoice model)
+    public void Set(AgentTuiSelectedModel model)
     {
         ArgumentNullException.ThrowIfNull(model);
-        Set(model.ProviderKey, model.ModelId, model.DisplayName, model.SupportsTools);
+        Set(
+            model.ProviderKey,
+            model.ModelId,
+            model.DisplayName,
+            model.Capabilities,
+            model.Chat);
     }
 
     public void Clear()
@@ -113,7 +153,29 @@ public sealed class AgentTuiModelSelectionState
             : new AgentRunConfig
             {
                 ProviderKey = Current.ProviderKey,
-                ModelId = Current.ModelId
+                ModelId = Current.ModelId,
+                Chat = CloneChat(Current.Chat)
+            };
+
+    private static ChatRunConfig? CloneChat(ChatRunConfig? source)
+        => source is null
+            ? null
+            : new ChatRunConfig
+            {
+                Temperature = source.Temperature,
+                TopP = source.TopP,
+                TopK = source.TopK,
+                MaxOutputTokens = source.MaxOutputTokens,
+                FrequencyPenalty = source.FrequencyPenalty,
+                PresencePenalty = source.PresencePenalty,
+                Seed = source.Seed,
+                ModelId = source.ModelId,
+                StopSequences = source.StopSequences?.ToArray(),
+                AdditionalProperties = source.AdditionalProperties is null
+                    ? null
+                    : new Dictionary<string, object>(source.AdditionalProperties),
+                Reasoning = source.Reasoning?.Clone(),
+                ResponseFormat = source.ResponseFormat
             };
 }
 
@@ -121,4 +183,5 @@ public sealed record AgentTuiSelectedModel(
     string ProviderKey,
     string ModelId,
     string? DisplayName = null,
-    bool SupportsTools = false);
+    AgentTuiModelCapabilities? Capabilities = null,
+    ChatRunConfig? Chat = null);

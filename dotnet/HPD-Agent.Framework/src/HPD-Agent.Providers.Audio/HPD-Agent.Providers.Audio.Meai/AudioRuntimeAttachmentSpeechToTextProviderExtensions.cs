@@ -116,7 +116,8 @@ public static class AudioRuntimeAttachmentSpeechToTextProviderExtensions
             ModelName = source.ModelName,
             ApiKey = source.ApiKey,
             Endpoint = source.Endpoint,
-            DefaultChatOptions = source.DefaultChatOptions,
+            ChatDefaults = source.ChatDefaults,
+            DefaultMicrosoftChatOptions = source.DefaultMicrosoftChatOptions,
             CustomHeaders = source.CustomHeaders is null
                 ? null
                 : new Dictionary<string, string>(source.CustomHeaders, StringComparer.OrdinalIgnoreCase),

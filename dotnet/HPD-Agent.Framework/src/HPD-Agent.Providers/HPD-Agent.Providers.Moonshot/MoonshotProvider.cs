@@ -58,8 +58,7 @@ internal sealed class MoonshotProvider : IChatClientProvider
                 DisplayName = DisplayName,
                 ProviderUri = endpoint,
                 DefaultModelId = modelName
-            },
-            config.GetProviderConfig<MoonshotProviderConfig>());
+            });
     }
 
     public IProviderErrorHandler CreateErrorHandler() => new MoonshotErrorHandler();
@@ -115,12 +114,6 @@ internal sealed class MoonshotProvider : IChatClientProvider
             errors.Add("Endpoint must be a valid, absolute URI");
         }
 
-        var moonshotConfig = config.GetProviderConfig<MoonshotProviderConfig>();
-        if (moonshotConfig is not null)
-        {
-            ValidateProviderOptions(moonshotConfig, errors);
-        }
-
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
@@ -128,54 +121,6 @@ internal sealed class MoonshotProvider : IChatClientProvider
 
     internal static void ValidateProviderOptions(MoonshotProviderConfig config, List<string> errors)
     {
-        if (config.Temperature.HasValue && (config.Temperature.Value < 0 || config.Temperature.Value > 2))
-            errors.Add("Temperature must be between 0 and 2");
-
-        if (config.TopP.HasValue && (config.TopP.Value < 0 || config.TopP.Value > 1))
-            errors.Add("TopP must be between 0 and 1");
-
-        if (config.MaxOutputTokens.HasValue && config.MaxOutputTokens.Value <= 0)
-            errors.Add("MaxOutputTokens must be greater than 0");
-
-        if (config.Seed.HasValue && config.Seed.Value is < int.MinValue or > int.MaxValue)
-            errors.Add("Seed must fit in a 32-bit signed integer");
-
-        if (config.StopSequences is { Count: > 0 })
-        {
-            foreach (var stopSequence in config.StopSequences)
-            {
-                if (string.IsNullOrEmpty(stopSequence))
-                    errors.Add("StopSequences cannot contain empty values");
-            }
-        }
-
-        if (config.ResponseFormat is { Length: > 0 } responseFormat &&
-            !string.Equals(responseFormat, "text", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(responseFormat, "json_object", StringComparison.OrdinalIgnoreCase))
-        {
-            errors.Add("ResponseFormat must be one of: text, json_object");
-        }
-
-        if (config.ToolChoice is { Length: > 0 } toolChoice &&
-            !string.Equals(toolChoice, "auto", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(toolChoice, "none", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(toolChoice, "required", StringComparison.OrdinalIgnoreCase))
-        {
-            errors.Add("ToolChoice must be one of: auto, none, required");
-        }
-
-        if (config.ThinkingType is { Length: > 0 } thinkingType &&
-            !string.Equals(thinkingType, "enabled", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(thinkingType, "disabled", StringComparison.OrdinalIgnoreCase))
-        {
-            errors.Add("ThinkingType must be one of: enabled, disabled");
-        }
-
-        if (config.ThinkingKeep is { Length: > 0 } thinkingKeep &&
-            !string.Equals(thinkingKeep, "all", StringComparison.OrdinalIgnoreCase))
-        {
-            errors.Add("ThinkingKeep must be: all");
-        }
     }
 
     private static Uri EnsureTrailingSlash(Uri endpoint)

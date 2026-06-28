@@ -697,35 +697,9 @@ internal sealed class OpenRouterChatClient : IChatClient
             Stream = stream
         };
 
-        // Enable reasoning when: model natively supports it, ChatOptions.Reasoning is set, or
-        // AdditionalProperties["reasoning_effort"] is set. Map M.E.AI ReasoningEffort enum → string.
-        var meaiEffort = options?.Reasoning?.Effort;
-        var meaiOutput = options?.Reasoning?.Output;
-        bool reasoningRequested = meaiEffort != null && meaiEffort != Microsoft.Extensions.AI.ReasoningEffort.None;
-        if (SupportsReasoning(_modelName) || reasoningRequested ||
-            (options?.AdditionalProperties?.TryGetValue("reasoning_effort", out _) == true))
+        if (ToOpenRouterReasoningConfig(options?.Reasoning) is { } reasoning)
         {
-            var effortStr = meaiEffort switch
-            {
-                Microsoft.Extensions.AI.ReasoningEffort.Low => "low",
-                Microsoft.Extensions.AI.ReasoningEffort.Medium => "medium",
-                Microsoft.Extensions.AI.ReasoningEffort.High => "high",
-                Microsoft.Extensions.AI.ReasoningEffort.ExtraHigh => "xhigh",
-                _ => null
-            };
-            var summaryStr = meaiOutput switch
-            {
-                Microsoft.Extensions.AI.ReasoningOutput.Summary => "concise",
-                Microsoft.Extensions.AI.ReasoningOutput.Full => "detailed",
-                _ => null
-            };
-            request.Reasoning = new OpenRouterReasoningConfig
-            {
-                Enabled = true,
-                Effort = effortStr,
-                Summary = summaryStr,
-                Exclude = meaiOutput == Microsoft.Extensions.AI.ReasoningOutput.None
-            };
+            request.Reasoning = reasoning;
         }
 
         // ✨ PERFORMANCE: Add stream options if streaming
@@ -915,11 +889,12 @@ internal sealed class OpenRouterChatClient : IChatClient
                     }
                 }
 
-                // Support reasoning configuration via AdditionalProperties (overrides ChatOptions.Reasoning effort)
-                if (options.AdditionalProperties.TryGetValue("reasoning_effort", out var effort) && effort is string effortVal && SupportsReasoning(_modelName))
+                // Support reasoning configuration via AdditionalProperties (overrides ChatOptions.Reasoning effort).
+                if (options.AdditionalProperties.TryGetValue("reasoning_effort", out var effort) && effort is string effortVal)
                 {
                     request.Reasoning ??= new OpenRouterReasoningConfig { Enabled = true, Exclude = false };
                     request.Reasoning.Effort = effortVal;
+                    request.Reasoning.Enabled = !string.Equals(effortVal, "none", StringComparison.OrdinalIgnoreCase);
                 }
 
                 // Support PDF engine configuration
@@ -1012,23 +987,33 @@ internal sealed class OpenRouterChatClient : IChatClient
         };
     }
 
-    /// <summary>
-    /// ✨ FIX: Determines if a model supports the reasoning parameter.
-    /// Only certain models like o1, o3, and extended thinking models support reasoning.
-    /// Sending reasoning to models that don't support it causes errors.
-    /// </summary>
-    private static bool SupportsReasoning(string modelName)
+    private static OpenRouterReasoningConfig? ToOpenRouterReasoningConfig(Microsoft.Extensions.AI.ReasoningOptions? reasoning)
     {
-        // Normalize model name for comparison
-        var lower = modelName.ToLowerInvariant();
-        
-        // List of reasoning-capable models
-        return lower.Contains("o1") || 
-               lower.Contains("o3") || 
-               lower.Contains("reasoning") ||
-               lower.Contains("thinking") ||
-               lower.Contains("r1") ||
-               lower.Contains("ext");
+        if (reasoning is null)
+            return null;
+
+        var effort = reasoning.Effort switch
+        {
+            Microsoft.Extensions.AI.ReasoningEffort.None => "none",
+            Microsoft.Extensions.AI.ReasoningEffort.Low => "low",
+            Microsoft.Extensions.AI.ReasoningEffort.Medium => "medium",
+            Microsoft.Extensions.AI.ReasoningEffort.High => "high",
+            Microsoft.Extensions.AI.ReasoningEffort.ExtraHigh => "xhigh",
+            _ => null
+        };
+        var summary = reasoning.Output switch
+        {
+            Microsoft.Extensions.AI.ReasoningOutput.Summary => "concise",
+            Microsoft.Extensions.AI.ReasoningOutput.Full => "detailed",
+            _ => null
+        };
+
+        return new OpenRouterReasoningConfig
+        {
+            Effort = effort,
+            Summary = summary,
+            Exclude = reasoning.Output == Microsoft.Extensions.AI.ReasoningOutput.None
+        };
     }
 
     public void Dispose()

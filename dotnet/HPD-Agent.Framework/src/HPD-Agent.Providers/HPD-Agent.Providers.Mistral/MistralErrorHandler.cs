@@ -23,7 +23,7 @@ internal partial class MistralErrorHandler : IProviderErrorHandler
 
     public ProviderErrorDetails? ParseError(Exception exception)
     {
-        // Handle HttpRequestException from Mistral SDK
+        // Handle HTTP failures from the Mistral client.
         if (exception is HttpRequestException httpEx)
         {
             var message = httpEx.Message;
@@ -41,7 +41,7 @@ internal partial class MistralErrorHandler : IProviderErrorHandler
             };
         }
 
-        // Handle AuthenticationException from Mistral SDK (401 errors)
+        // Handle authentication failures from the Mistral client.
         if (exception is AuthenticationException authEx)
         {
             return new ProviderErrorDetails
@@ -230,4 +230,3 @@ internal partial class MistralErrorHandler : IProviderErrorHandler
         return ErrorCategory.Unknown;
     }
 }
-

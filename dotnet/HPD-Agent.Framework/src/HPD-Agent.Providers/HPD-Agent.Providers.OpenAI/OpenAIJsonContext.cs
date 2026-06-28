@@ -12,6 +12,7 @@ namespace HPD.Agent.Providers.OpenAI;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(OpenAIProviderConfig))]
+[JsonSerializable(typeof(AzureOpenAIProviderConfig))]
 internal partial class OpenAIJsonContext : JsonSerializerContext
 {
 }

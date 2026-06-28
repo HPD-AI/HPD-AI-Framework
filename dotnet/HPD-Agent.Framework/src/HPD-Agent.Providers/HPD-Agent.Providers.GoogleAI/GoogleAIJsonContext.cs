@@ -12,7 +12,6 @@ namespace HPD.Agent.Providers.GoogleAI;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(GoogleAIProviderConfig))]
-[JsonSerializable(typeof(SafetySettingConfig))]
 internal partial class GoogleAIJsonContext : JsonSerializerContext
 {
 }

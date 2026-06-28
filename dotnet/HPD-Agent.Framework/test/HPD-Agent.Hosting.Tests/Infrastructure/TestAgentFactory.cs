@@ -35,8 +35,8 @@ public static class TestAgentFactory
         if (tools.Length > 0)
         {
             config.EnsureChatClientConfig();
-            config.EnsureChatClientConfig().DefaultChatOptions ??= new Microsoft.Extensions.AI.ChatOptions();
-            config.EnsureChatClientConfig().DefaultChatOptions.Tools = tools.Cast<Microsoft.Extensions.AI.AITool>().ToList();
+            config.EnsureChatClientConfig().DefaultMicrosoftChatOptions ??= new Microsoft.Extensions.AI.ChatOptions();
+            config.EnsureChatClientConfig().DefaultMicrosoftChatOptions.Tools = tools.Cast<Microsoft.Extensions.AI.AITool>().ToList();
         }
 
         // Register standard iteration middlewares for loop protection

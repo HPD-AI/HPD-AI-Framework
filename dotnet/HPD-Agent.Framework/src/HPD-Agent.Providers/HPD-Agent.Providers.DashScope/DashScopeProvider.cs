@@ -36,9 +36,9 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
 
         var dashScopeConfig = config.GetProviderConfig<DashScopeProviderConfig>();
         var client = CreateDashScopeClient(config, dashScopeConfig, services);
-        var chatClient = client.AsChatClient(config.ModelName, dashScopeConfig?.UseVl);
+        var chatClient = client.AsChatClient(config.ModelName, dashScopeConfig?.DefaultUseVl);
 
-        return new DashScopeConfiguredChatClient(chatClient, config.ModelName, dashScopeConfig);
+        return new DashScopeConfiguredChatClient(chatClient, config.ModelName, dashScopeConfig?.DefaultUseVl);
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in DashScopeProviderModule.")]
@@ -84,7 +84,7 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
                         ["SupportsFunctionCalling"] = true,
                         ["SupportsReasoning"] = true,
                         ["SupportsVision"] = true,
-                        ["VisionRequiresUseVl"] = "Auto-detected for qwen-vl/qwen3-vl/qwen3-omni/gui-plus models, or set DashScopeProviderConfig.UseVl."
+                        ["VisionRequiresUseVl"] = "Auto-detected for qwen-vl/qwen3-vl/qwen3-omni/gui-plus models, or set DashScopeProviderConfig.DefaultUseVl."
                     }
                 },
                 [ProviderClientFamily.Embeddings] = new()
@@ -147,30 +147,6 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
         if (config.TimeoutSeconds.HasValue && config.TimeoutSeconds.Value <= 0)
             errors.Add("TimeoutSeconds must be greater than 0");
 
-        if (config.Temperature.HasValue && (config.Temperature.Value < 0 || config.Temperature.Value > 2))
-            errors.Add("Temperature must be between 0 and 2");
-
-        if (config.TopP.HasValue && (config.TopP.Value < 0 || config.TopP.Value > 1))
-            errors.Add("TopP must be between 0 and 1");
-
-        if (config.TopK.HasValue && config.TopK.Value <= 0)
-            errors.Add("TopK must be greater than 0");
-
-        if (config.MaxOutputTokens.HasValue && config.MaxOutputTokens.Value <= 0)
-            errors.Add("MaxOutputTokens must be greater than 0");
-
-        if (config.Seed.HasValue && config.Seed.Value < 0)
-            errors.Add("Seed must be greater than or equal to 0");
-
-        if (config.StopSequences is { Count: > 0 })
-        {
-            foreach (var stopSequence in config.StopSequences)
-            {
-                if (string.IsNullOrEmpty(stopSequence))
-                    errors.Add("StopSequences cannot contain empty values");
-            }
-        }
-
         if (config.EmbeddingModelId is { Length: 0 })
             errors.Add("EmbeddingModelId cannot be empty");
 
@@ -229,14 +205,14 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
     {
         private readonly Meai.IChatClient _innerClient;
         private readonly string _modelName;
-        private readonly DashScopeProviderConfig? _config;
+        private readonly bool? _useVl;
         private Meai.ChatClientMetadata? _metadata;
 
-        public DashScopeConfiguredChatClient(Meai.IChatClient innerClient, string modelName, DashScopeProviderConfig? config)
+        public DashScopeConfiguredChatClient(Meai.IChatClient innerClient, string modelName, bool? useVl)
         {
             _innerClient = innerClient ?? throw new ArgumentNullException(nameof(innerClient));
             _modelName = modelName ?? throw new ArgumentNullException(nameof(modelName));
-            _config = config;
+            _useVl = useVl;
         }
 
         public Meai.ChatClientMetadata Metadata =>
@@ -266,45 +242,14 @@ internal class DashScopeProvider : IChatClientProvider, IEmbeddingGeneratorProvi
 
         private Meai.ChatOptions ApplyDefaults(Meai.ChatOptions? options)
         {
-            if (options is null)
-            {
-                return CreateDefaultOptions();
-            }
+            var merged = options?.Clone() ?? new Meai.ChatOptions();
+            if (string.IsNullOrWhiteSpace(merged.ModelId))
+                merged.ModelId = _modelName;
 
-            return new Meai.ChatOptions
-            {
-                ModelId = string.IsNullOrWhiteSpace(options.ModelId) ? _modelName : options.ModelId,
-                Instructions = options.Instructions,
-                Tools = options.Tools,
-                AllowMultipleToolCalls = options.AllowMultipleToolCalls,
-                MaxOutputTokens = options.MaxOutputTokens ?? _config?.MaxOutputTokens,
-                Temperature = options.Temperature ?? ToSingle(_config?.Temperature),
-                TopP = options.TopP ?? ToSingle(_config?.TopP),
-                TopK = options.TopK ?? _config?.TopK,
-                FrequencyPenalty = options.FrequencyPenalty,
-                PresencePenalty = options.PresencePenalty,
-                StopSequences = options.StopSequences ?? _config?.StopSequences,
-                ResponseFormat = options.ResponseFormat,
-                Seed = options.Seed ?? _config?.Seed,
-                ToolMode = options.ToolMode,
-                Reasoning = options.Reasoning,
-                AdditionalProperties = options.AdditionalProperties,
-                RawRepresentationFactory = options.RawRepresentationFactory
-            };
+            DashScopeChatRequestOptionKeys.ApplyRawParameters(merged, _modelName, _useVl);
+
+            return merged;
         }
-
-        private Meai.ChatOptions CreateDefaultOptions() => new()
-        {
-            ModelId = _modelName,
-            MaxOutputTokens = _config?.MaxOutputTokens,
-            Temperature = ToSingle(_config?.Temperature),
-            TopP = ToSingle(_config?.TopP),
-            TopK = _config?.TopK,
-            Seed = _config?.Seed,
-            StopSequences = _config?.StopSequences
-        };
-
-        private static float? ToSingle(double? value) => value.HasValue ? (float)value.Value : null;
     }
 
     private sealed class DashScopeConfiguredEmbeddingGenerator : Meai.IEmbeddingGenerator

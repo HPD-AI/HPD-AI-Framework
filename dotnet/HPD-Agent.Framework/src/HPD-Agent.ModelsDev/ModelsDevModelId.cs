@@ -1,6 +1,8 @@
+using System.Text.RegularExpressions;
+
 namespace HPD.Agent.ModelsDev;
 
-public readonly record struct ModelsDevModelId(string Provider, string Model)
+public readonly partial record struct ModelsDevModelId(string Provider, string Model)
 {
     public bool IsZero => string.IsNullOrEmpty(Provider) && string.IsNullOrEmpty(Model);
 
@@ -43,4 +45,16 @@ public readonly record struct ModelsDevModelId(string Provider, string Model)
         id = new ModelsDevModelId(provider, model);
         return true;
     }
+
+    public static bool HasDateSuffix(string modelId)
+        => !string.IsNullOrWhiteSpace(modelId)
+            && DateSuffixRegex().IsMatch(modelId);
+
+    public static string StripDateSuffix(string modelId)
+        => HasDateSuffix(modelId)
+            ? DateSuffixRegex().Replace(modelId, string.Empty)
+            : modelId;
+
+    [GeneratedRegex(@"-\d{4}-?\d{2}-?\d{2}$", RegexOptions.CultureInvariant)]
+    private static partial Regex DateSuffixRegex();
 }

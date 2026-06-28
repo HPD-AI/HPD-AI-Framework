@@ -223,7 +223,7 @@ public sealed class Agent
         // Plan mode instructions now injected by AgentPlanAgentMiddleware (middleware-based)
         _messageProcessor = new MessageProcessor(
             config.SystemInstructions, // Use base instructions; middleware adds plan mode guidance
-            mergedOptions ?? chatConfig?.DefaultChatOptions);
+            mergedOptions ?? chatConfig?.BuildEffectiveChatOptions());
         _functionExecutionCore = new FunctionExecutionCore(
             _middlewarePipeline,
             config.ErrorHandling,
@@ -282,7 +282,7 @@ public sealed class Agent
     /// <summary>
     /// Default chat options
     /// </summary>
-    public ChatOptions? DefaultOptions => Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat)?.DefaultChatOptions ?? _messageProcessor.DefaultOptions;
+    public ChatOptions? DefaultOptions => Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat)?.BuildEffectiveChatOptions() ?? _messageProcessor.DefaultOptions;
 
     /// <summary>
     /// Gets whether this agent currently has a continuous runtime input loop.
@@ -3777,13 +3777,7 @@ public sealed class Agent
         }
 
         // Resolve chat options from AgentRunConfig and apply system instruction overrides.
-        // Apply DefaultReasoning from AgentConfig as the base if no run-level reasoning is set.
-        var baseDefaultOptions = Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat)?.DefaultChatOptions;
-        if (Config?.DefaultReasoning != null && (options?.Chat?.Reasoning == null))
-        {
-            baseDefaultOptions ??= new ChatOptions();
-            baseDefaultOptions.Reasoning = Config.DefaultReasoning.ToMicrosoftReasoningOptions();
-        }
+        var baseDefaultOptions = Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat)?.BuildEffectiveChatOptions();
         var chatOptions = options?.Chat?.MergeWith(baseDefaultOptions) ?? baseDefaultOptions;
         chatOptions = ApplySystemInstructionOverrides(chatOptions, options);
 
@@ -4855,38 +4849,8 @@ public sealed class Agent
         if (string.IsNullOrEmpty(resolvedInstructions))
             return chatOptions;
 
-        // Create new options with resolved instructions
-        chatOptions ??= new ChatOptions();
-
-        // Clone options to avoid mutating shared instances
-        var newOptions = new ChatOptions
-        {
-            Temperature = chatOptions.Temperature,
-            TopP = chatOptions.TopP,
-            TopK = chatOptions.TopK,
-            MaxOutputTokens = chatOptions.MaxOutputTokens,
-            FrequencyPenalty = chatOptions.FrequencyPenalty,
-            PresencePenalty = chatOptions.PresencePenalty,
-            ModelId = chatOptions.ModelId,
-            StopSequences = chatOptions.StopSequences,
-            Seed = chatOptions.Seed,
-            ResponseFormat = chatOptions.ResponseFormat,
-            Tools = chatOptions.Tools,
-            ToolMode = chatOptions.ToolMode,
-            // Override instructions with resolved value
-            Instructions = resolvedInstructions
-        };
-
-        // Copy additional properties
-        if (chatOptions.AdditionalProperties?.Count > 0)
-        {
-            newOptions.AdditionalProperties ??= new AdditionalPropertiesDictionary();
-            foreach (var kvp in chatOptions.AdditionalProperties)
-            {
-                newOptions.AdditionalProperties[kvp.Key] = kvp.Value;
-            }
-        }
-
+        var newOptions = chatOptions?.Clone() ?? new ChatOptions();
+        newOptions.Instructions = resolvedInstructions;
         return newOptions;
     }
 
@@ -4947,37 +4911,7 @@ public sealed class Agent
         bool allowBackground,
         ResponseContinuationToken? continuationToken)
     {
-        // Create new options or clone existing to avoid mutation
-        var newOptions = chatOptions != null
-            ? new ChatOptions
-            {
-                Temperature = chatOptions.Temperature,
-                TopP = chatOptions.TopP,
-                TopK = chatOptions.TopK,
-                MaxOutputTokens = chatOptions.MaxOutputTokens,
-                FrequencyPenalty = chatOptions.FrequencyPenalty,
-                PresencePenalty = chatOptions.PresencePenalty,
-                ModelId = chatOptions.ModelId,
-                StopSequences = chatOptions.StopSequences,
-                Seed = chatOptions.Seed,
-                ResponseFormat = chatOptions.ResponseFormat,
-                Tools = chatOptions.Tools,
-                ToolMode = chatOptions.ToolMode,
-                Instructions = chatOptions.Instructions
-            }
-            : new ChatOptions();
-
-        // Copy additional properties from base options
-        if (chatOptions?.AdditionalProperties?.Count > 0)
-        {
-            newOptions.AdditionalProperties ??= new AdditionalPropertiesDictionary();
-            foreach (var kvp in chatOptions.AdditionalProperties)
-            {
-                newOptions.AdditionalProperties[kvp.Key] = kvp.Value;
-            }
-        }
-
-        // Apply background responses settings
+        var newOptions = chatOptions?.Clone() ?? new ChatOptions();
         newOptions.AllowBackgroundResponses = allowBackground;
         newOptions.ContinuationToken = continuationToken;
 
@@ -8183,27 +8117,30 @@ internal class MessageProcessor
         if (providedOptions == null)
             return _defaultOptions;
 
-        // Merge options - provided options take precedence
-        return new ChatOptions
-        {
-            // Fix: Proper tools merging - keep defaults when provided list is null or empty
-            Tools = (providedOptions.Tools is { Count: > 0 })
-                ? providedOptions.Tools
-                : _defaultOptions.Tools,
-            ToolMode = providedOptions.ToolMode ?? _defaultOptions.ToolMode,
-            AllowMultipleToolCalls = providedOptions.AllowMultipleToolCalls ?? _defaultOptions.AllowMultipleToolCalls,
-            MaxOutputTokens = providedOptions.MaxOutputTokens ?? _defaultOptions.MaxOutputTokens,
-            Temperature = providedOptions.Temperature ?? _defaultOptions.Temperature,
-            TopP = providedOptions.TopP ?? _defaultOptions.TopP,
-            FrequencyPenalty = providedOptions.FrequencyPenalty ?? _defaultOptions.FrequencyPenalty,
-            PresencePenalty = providedOptions.PresencePenalty ?? _defaultOptions.PresencePenalty,
-            ResponseFormat = providedOptions.ResponseFormat ?? _defaultOptions.ResponseFormat,
-            Seed = providedOptions.Seed ?? _defaultOptions.Seed,
-            StopSequences = providedOptions.StopSequences ?? _defaultOptions.StopSequences,
-            ModelId = providedOptions.ModelId ?? _defaultOptions.ModelId,
-            Instructions = providedOptions.Instructions ?? _defaultOptions.Instructions,
-            AdditionalProperties = MergeDictionaries(_defaultOptions.AdditionalProperties, providedOptions.AdditionalProperties)
-        };
+        var merged = _defaultOptions.Clone();
+        merged.Tools = (providedOptions.Tools is { Count: > 0 })
+            ? providedOptions.Tools
+            : _defaultOptions.Tools;
+        merged.ToolMode = providedOptions.ToolMode ?? _defaultOptions.ToolMode;
+        merged.AllowMultipleToolCalls = providedOptions.AllowMultipleToolCalls ?? _defaultOptions.AllowMultipleToolCalls;
+        merged.MaxOutputTokens = providedOptions.MaxOutputTokens ?? _defaultOptions.MaxOutputTokens;
+        merged.Temperature = providedOptions.Temperature ?? _defaultOptions.Temperature;
+        merged.TopP = providedOptions.TopP ?? _defaultOptions.TopP;
+        merged.TopK = providedOptions.TopK ?? _defaultOptions.TopK;
+        merged.FrequencyPenalty = providedOptions.FrequencyPenalty ?? _defaultOptions.FrequencyPenalty;
+        merged.PresencePenalty = providedOptions.PresencePenalty ?? _defaultOptions.PresencePenalty;
+        merged.ResponseFormat = providedOptions.ResponseFormat ?? _defaultOptions.ResponseFormat;
+        merged.Reasoning = providedOptions.Reasoning ?? _defaultOptions.Reasoning;
+        merged.Seed = providedOptions.Seed ?? _defaultOptions.Seed;
+        merged.StopSequences = providedOptions.StopSequences ?? _defaultOptions.StopSequences;
+        merged.ModelId = providedOptions.ModelId ?? _defaultOptions.ModelId;
+        merged.Instructions = providedOptions.Instructions ?? _defaultOptions.Instructions;
+        merged.ConversationId = providedOptions.ConversationId ?? _defaultOptions.ConversationId;
+        merged.AllowBackgroundResponses = providedOptions.AllowBackgroundResponses ?? _defaultOptions.AllowBackgroundResponses;
+        merged.ContinuationToken = providedOptions.ContinuationToken ?? _defaultOptions.ContinuationToken;
+        merged.RawRepresentationFactory = providedOptions.RawRepresentationFactory ?? _defaultOptions.RawRepresentationFactory;
+        merged.AdditionalProperties = MergeDictionaries(_defaultOptions.AdditionalProperties, providedOptions.AdditionalProperties);
+        return merged;
     }
 
     /// <summary>

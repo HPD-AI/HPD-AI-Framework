@@ -688,6 +688,7 @@ public class ChatRunConfig
         MaxOutputTokens = options.MaxOutputTokens;
         FrequencyPenalty = options.FrequencyPenalty.HasValue ? (double)options.FrequencyPenalty.Value : null;
         PresencePenalty = options.PresencePenalty.HasValue ? (double)options.PresencePenalty.Value : null;
+        Seed = options.Seed;
         ModelId = options.ModelId;
         StopSequences = options.StopSequences as IReadOnlyList<string>;
         Reasoning = ReasoningOptions.FromMicrosoftReasoningOptions(options.Reasoning);
@@ -746,6 +747,13 @@ public class ChatRunConfig
     public double? PresencePenalty { get; set; }
 
     /// <summary>
+    /// Random seed for deterministic generation where supported.
+    /// Null = use config default.
+    /// </summary>
+    [JsonPropertyName("seed")]
+    public long? Seed { get; set; }
+
+    /// <summary>
     /// Model ID to use (e.g., "gpt-4-turbo").
     /// Note: Prefer using ProviderKey/ModelId in AgentRunConfig for provider switching.
     /// This is for fine-tuning within a provider.
@@ -797,6 +805,7 @@ public class ChatRunConfig
     {
         if (Temperature == null && TopP == null && TopK == null && MaxOutputTokens == null &&
             FrequencyPenalty == null && PresencePenalty == null &&
+            Seed == null &&
             string.IsNullOrEmpty(ModelId) && StopSequences == null &&
             ResponseFormat == null && Reasoning == null &&
             (AdditionalProperties == null || AdditionalProperties.Count == 0))
@@ -818,6 +827,8 @@ public class ChatRunConfig
             options.FrequencyPenalty = (float)FrequencyPenalty.Value;
         if (PresencePenalty.HasValue)
             options.PresencePenalty = (float)PresencePenalty.Value;
+        if (Seed.HasValue)
+            options.Seed = Seed.Value;
         if (!string.IsNullOrEmpty(ModelId))
             options.ModelId = ModelId;
 
@@ -863,23 +874,20 @@ public class ChatRunConfig
         if (baseOptions == null)
             return thisOptions;
 
-        // Merge: this options take precedence
-        var merged = new ChatOptions
-        {
-            Temperature = thisOptions.Temperature ?? baseOptions.Temperature,
-            TopP = thisOptions.TopP ?? baseOptions.TopP,
-            TopK = thisOptions.TopK ?? baseOptions.TopK,
-            MaxOutputTokens = thisOptions.MaxOutputTokens ?? baseOptions.MaxOutputTokens,
-            FrequencyPenalty = thisOptions.FrequencyPenalty ?? baseOptions.FrequencyPenalty,
-            PresencePenalty = thisOptions.PresencePenalty ?? baseOptions.PresencePenalty,
-            ModelId = thisOptions.ModelId ?? baseOptions.ModelId,
-            StopSequences = thisOptions.StopSequences ?? baseOptions.StopSequences,
-            Tools = baseOptions.Tools,  // Always from base (tools are agent-level)
-            ToolMode = baseOptions.ToolMode,
-            ResponseFormat = thisOptions.ResponseFormat ?? baseOptions.ResponseFormat,
-            Reasoning = thisOptions.Reasoning ?? baseOptions.Reasoning,
-            Seed = baseOptions.Seed
-        };
+        var merged = baseOptions.Clone();
+        merged.Temperature = thisOptions.Temperature ?? baseOptions.Temperature;
+        merged.TopP = thisOptions.TopP ?? baseOptions.TopP;
+        merged.TopK = thisOptions.TopK ?? baseOptions.TopK;
+        merged.MaxOutputTokens = thisOptions.MaxOutputTokens ?? baseOptions.MaxOutputTokens;
+        merged.FrequencyPenalty = thisOptions.FrequencyPenalty ?? baseOptions.FrequencyPenalty;
+        merged.PresencePenalty = thisOptions.PresencePenalty ?? baseOptions.PresencePenalty;
+        merged.ModelId = thisOptions.ModelId ?? baseOptions.ModelId;
+        merged.StopSequences = thisOptions.StopSequences ?? baseOptions.StopSequences;
+        merged.Tools = baseOptions.Tools;  // Always from base (tools are agent-level)
+        merged.ToolMode = baseOptions.ToolMode;
+        merged.ResponseFormat = thisOptions.ResponseFormat ?? baseOptions.ResponseFormat;
+        merged.Reasoning = thisOptions.Reasoning ?? baseOptions.Reasoning;
+        merged.Seed = thisOptions.Seed ?? baseOptions.Seed;
 
         // Merge additional properties
         if (baseOptions.AdditionalProperties?.Count > 0 || thisOptions.AdditionalProperties?.Count > 0)

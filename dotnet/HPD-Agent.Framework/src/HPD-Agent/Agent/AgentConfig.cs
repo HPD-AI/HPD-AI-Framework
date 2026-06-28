@@ -236,28 +236,6 @@ public class AgentConfig
     }
 
     /// <summary>
-    /// Default reasoning options applied to every LLM call made by this agent.
-    /// Controls reasoning effort and output exposure for the underlying model.
-    /// Can be overridden per-run via <see cref="AgentRunConfig.Chat"/>'s <see cref="ChatRunConfig.Reasoning"/>.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Effort:</b> None, Low, Medium, High, ExtraHigh — how much thinking the model applies.
-    /// </para>
-    /// <para>
-    /// <b>Output:</b> None, Summary, Full — whether reasoning content is returned in the response
-    /// and therefore visible during streaming, recorded in thread events, and optionally included in
-    /// model history when <see cref="IncludeReasoningInModelHistory"/> is true.
-    /// </para>
-    /// <para>
-    /// <b>Provider support:</b> Anthropic (extended thinking via ThinkingBudgetTokens),
-    /// OpenAI o-series (native), DeepSeek-R1, Google Gemini thinking models.
-    /// Providers that do not support reasoning ignore this setting.
-    /// </para>
-    /// </remarks>
-    public ReasoningOptions? DefaultReasoning { get; set; }
-
-    /// <summary>
     /// When true, coalesces streaming text and reasoning deltas into single complete events.
     /// - Without: Emits multiple TextDeltaEvent for each chunk ("Hello", " ", "world")
     /// - With: Emits single TextDeltaEvent with complete text ("Hello world")
@@ -508,8 +486,19 @@ public class ClientProviderConfig
     public string ModelName { get; set; } = string.Empty;
     public string? ApiKey { get; set; }
     public string? Endpoint { get; set; }
-    [JsonIgnore] // ChatOptions contains non-serializable types (tools, response format, etc.)
-    public ChatOptions? DefaultChatOptions { get; set; }
+
+    /// <summary>
+    /// Serializable default chat run options for this provider.
+    /// Per-run values from AgentRunConfig.Chat override these defaults.
+    /// </summary>
+    public ChatRunConfig? ChatDefaults { get; set; }
+
+    /// <summary>
+    /// Runtime-only MEAI chat options for advanced in-process scenarios such as tools.
+    /// Prefer ChatDefaults for serializable configuration.
+    /// </summary>
+    [JsonIgnore]
+    public ChatOptions? DefaultMicrosoftChatOptions { get; set; }
 
     /// <summary>
     /// Custom HTTP headers to include in all requests to this provider.
@@ -538,6 +527,14 @@ public class ClientProviderConfig
     /// </summary>
     [JsonIgnore]
     public Func<IEnumerable<ChatMessage>, ChatOptions?, string>? PromptFormatter { get; set; }
+
+    internal ChatOptions? BuildEffectiveChatOptions()
+        => ChatDefaults?.MergeWith(DefaultMicrosoftChatOptions) ?? DefaultMicrosoftChatOptions;
+
+    internal void SetDefaultMicrosoftChatOptions(ChatOptions? options)
+    {
+        DefaultMicrosoftChatOptions = options;
+    }
 
     // Cache for deserialized provider config (avoids repeated deserialization)
     [System.Text.Json.Serialization.JsonIgnore]
@@ -762,7 +759,8 @@ internal static class ClientProviderConfigResolver
 
         target.ApiKey = source.ApiKey ?? target.ApiKey;
         target.Endpoint = source.Endpoint ?? target.Endpoint;
-        target.DefaultChatOptions = source.DefaultChatOptions ?? target.DefaultChatOptions;
+        target.ChatDefaults = source.ChatDefaults ?? target.ChatDefaults;
+        target.DefaultMicrosoftChatOptions = source.DefaultMicrosoftChatOptions ?? target.DefaultMicrosoftChatOptions;
         target.HttpReferer = source.HttpReferer ?? target.HttpReferer;
         target.AppName = source.AppName ?? target.AppName;
         target.PromptFormatter = source.PromptFormatter ?? target.PromptFormatter;
@@ -824,7 +822,8 @@ internal static class ClientProviderConfigResolver
          string.IsNullOrWhiteSpace(config.ModelName) &&
          string.IsNullOrWhiteSpace(config.ApiKey) &&
          string.IsNullOrWhiteSpace(config.Endpoint) &&
-         config.DefaultChatOptions == null &&
+         config.ChatDefaults == null &&
+         config.DefaultMicrosoftChatOptions == null &&
          config.CustomHeaders == null &&
          config.ProviderOptions is null &&
          string.IsNullOrWhiteSpace(config.HttpReferer) &&

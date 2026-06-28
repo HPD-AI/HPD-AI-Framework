@@ -840,7 +840,7 @@ public sealed class RunEvalsTests
                     Clients = new AgentClientConfig { Chat = new ClientProviderConfig {
                         ProviderKey = "openai",
                         ModelName = "gpt-test",
-                        DefaultChatOptions = options,
+                        DefaultMicrosoftChatOptions = options,
                     } },
                 },
                 _chatClient,

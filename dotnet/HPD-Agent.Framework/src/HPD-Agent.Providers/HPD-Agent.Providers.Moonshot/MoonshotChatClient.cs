@@ -7,8 +7,7 @@ namespace HPD.Agent.Providers.Moonshot;
 
 internal sealed class MoonshotChatClient(
     HttpClient httpClient,
-    OpenAICompatibleChatClientOptions options,
-    MoonshotProviderConfig? config)
+    OpenAICompatibleChatClientOptions options)
     : OpenAICompatibleChatClient(httpClient, options)
 {
     protected override OpenAICompatibleChatRequest BuildRequestBody(
@@ -22,86 +21,61 @@ internal sealed class MoonshotChatClient(
 
     protected override void ConfigureRequest(OpenAICompatibleChatRequest request, ChatOptions? options, bool stream)
     {
-        if (!string.IsNullOrWhiteSpace(config?.ThinkingType) || !string.IsNullOrWhiteSpace(config?.ThinkingKeep))
+        var thinkingType = CreateThinkingType(options?.Reasoning?.Effort);
+        var thinkingKeep = GetThinkingKeep(options);
+        if (!string.IsNullOrWhiteSpace(thinkingType) || !string.IsNullOrWhiteSpace(thinkingKeep))
         {
             request.ExtraFields ??= [];
-            request.ExtraFields["thinking"] = CreateThinkingJsonElement(config);
+            request.ExtraFields["thinking"] = CreateThinkingJsonElement(thinkingType, thinkingKeep);
         }
     }
 
-    private ChatOptions? ApplyDefaults(ChatOptions? options)
+    private ChatOptions ApplyDefaults(ChatOptions? options)
     {
-        if (config is null)
+        return options?.Clone() ?? new ChatOptions();
+    }
+
+    private static string? CreateThinkingType(Microsoft.Extensions.AI.ReasoningEffort? effort)
+        => effort switch
         {
-            return options;
+            Microsoft.Extensions.AI.ReasoningEffort.None => "disabled",
+            Microsoft.Extensions.AI.ReasoningEffort.Low => "enabled",
+            Microsoft.Extensions.AI.ReasoningEffort.Medium => "enabled",
+            Microsoft.Extensions.AI.ReasoningEffort.High => "enabled",
+            Microsoft.Extensions.AI.ReasoningEffort.ExtraHigh => "enabled",
+            _ => null
+        };
+
+    private static string? GetThinkingKeep(ChatOptions? options)
+    {
+        if (options?.AdditionalProperties is null ||
+            !options.AdditionalProperties.TryGetValue(MoonshotChatRequestOptionKeys.ThinkingKeep, out var value))
+        {
+            return null;
         }
 
-        if (options is null)
+        return value switch
         {
-            return new ChatOptions
-            {
-                Temperature = config.Temperature,
-                TopP = config.TopP,
-                MaxOutputTokens = config.MaxOutputTokens,
-                StopSequences = config.StopSequences,
-                Seed = config.Seed,
-                ResponseFormat = CreateResponseFormat(config.ResponseFormat),
-                ToolMode = CreateToolMode(config.ToolChoice)
-            };
-        }
-
-        return new ChatOptions
-        {
-            ModelId = options.ModelId,
-            Instructions = options.Instructions,
-            Tools = options.Tools,
-            AllowMultipleToolCalls = options.AllowMultipleToolCalls,
-            MaxOutputTokens = options.MaxOutputTokens ?? config.MaxOutputTokens,
-            Temperature = options.Temperature ?? config.Temperature,
-            TopP = options.TopP ?? config.TopP,
-            TopK = options.TopK,
-            FrequencyPenalty = options.FrequencyPenalty,
-            PresencePenalty = options.PresencePenalty,
-            StopSequences = options.StopSequences ?? config.StopSequences,
-            ResponseFormat = options.ResponseFormat ?? CreateResponseFormat(config.ResponseFormat),
-            Seed = options.Seed ?? config.Seed,
-            ToolMode = options.ToolMode ?? CreateToolMode(config.ToolChoice),
-            Reasoning = options.Reasoning,
-            AdditionalProperties = options.AdditionalProperties,
-            RawRepresentationFactory = options.RawRepresentationFactory
+            string text => text,
+            JsonElement { ValueKind: JsonValueKind.String } json => json.GetString(),
+            _ => null
         };
     }
 
-    private static ChatResponseFormat? CreateResponseFormat(string? responseFormat)
-        => responseFormat?.ToLowerInvariant() switch
-        {
-            "text" => ChatResponseFormat.Text,
-            "json_object" => ChatResponseFormat.Json,
-            _ => null
-        };
-
-    private static ChatToolMode? CreateToolMode(string? toolChoice)
-        => toolChoice?.ToLowerInvariant() switch
-        {
-            "none" => ChatToolMode.None,
-            "required" => ChatToolMode.RequireAny,
-            _ => null
-        };
-
-    private static JsonElement CreateThinkingJsonElement(MoonshotProviderConfig config)
+    private static JsonElement CreateThinkingJsonElement(string? thinkingType, string? thinkingKeep)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
         {
             writer.WriteStartObject();
-            if (!string.IsNullOrWhiteSpace(config.ThinkingType))
+            if (!string.IsNullOrWhiteSpace(thinkingType))
             {
-                writer.WriteString("type", config.ThinkingType);
+                writer.WriteString("type", thinkingType);
             }
 
-            if (!string.IsNullOrWhiteSpace(config.ThinkingKeep))
+            if (!string.IsNullOrWhiteSpace(thinkingKeep))
             {
-                writer.WriteString("keep", config.ThinkingKeep);
+                writer.WriteString("keep", thinkingKeep);
             }
 
             writer.WriteEndObject();

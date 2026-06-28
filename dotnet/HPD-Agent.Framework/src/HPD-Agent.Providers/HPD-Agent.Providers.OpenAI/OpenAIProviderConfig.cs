@@ -4,313 +4,168 @@ using System.Text.Json.Serialization;
 namespace HPD.Agent.Providers.OpenAI;
 
 /// <summary>
+/// Selects which OpenAI chat API backs the provider-created chat client.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<OpenAIChatApi>))]
+public enum OpenAIChatApi
+{
+    /// <summary>
+    /// Use OpenAI's Responses API via Microsoft.Extensions.AI.
+    /// </summary>
+    Responses = 0,
+
+    /// <summary>
+    /// Use OpenAI's chat completions API via Microsoft.Extensions.AI.
+    /// </summary>
+    ChatCompletions = 1
+}
+
+/// <summary>
+/// Azure OpenAI service API version used by AzureOpenAIClientOptions.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<AzureOpenAIServiceVersion>))]
+public enum AzureOpenAIServiceVersion
+{
+    /// <summary>
+    /// Azure OpenAI API version 2024-06-01.
+    /// </summary>
+    V2024_06_01 = 0,
+
+    /// <summary>
+    /// Azure OpenAI API version 2024-08-01-preview.
+    /// </summary>
+    V2024_08_01_Preview = 1,
+
+    /// <summary>
+    /// Azure OpenAI API version 2024-09-01-preview.
+    /// </summary>
+    V2024_09_01_Preview = 2,
+
+    /// <summary>
+    /// Azure OpenAI API version 2024-10-01-preview.
+    /// </summary>
+    V2024_10_01_Preview = 3,
+
+    /// <summary>
+    /// Azure OpenAI API version 2024-10-21.
+    /// </summary>
+    V2024_10_21 = 4,
+
+    /// <summary>
+    /// Azure OpenAI API version 2024-12-01-preview.
+    /// </summary>
+    V2024_12_01_Preview = 5,
+
+    /// <summary>
+    /// Azure OpenAI API version 2025-01-01-preview.
+    /// </summary>
+    V2025_01_01_Preview = 6,
+
+    /// <summary>
+    /// Azure OpenAI API version 2025-03-01-preview.
+    /// </summary>
+    V2025_03_01_Preview = 8,
+
+    /// <summary>
+    /// Azure OpenAI API version 2025-04-01-preview.
+    /// </summary>
+    V2025_04_01_Preview = 9
+}
+
+/// <summary>
 /// OpenAI-specific provider configuration options.
-/// These options map to CreateResponseOptions in the OpenAI .NET SDK (Responses API).
-///
-/// JSON Example:
-/// <code>
-/// {
-///   "Provider": {
-///     "ProviderKey": "openai",
-///     "ModelName": "gpt-4o",
-///     "ApiKey": "sk-...",
-///     "ProviderOptions": { "maxOutputTokenCount": 4096, "temperature": 0.7 }
-///   }
-/// }
-/// </code>
 /// </summary>
 public class OpenAIProviderConfig
 {
-    //
-    // CORE PARAMETERS
-    //
+    /// <summary>
+    /// Selects the OpenAI chat API used to construct chat clients.
+    /// Runtime model-call behavior belongs in ChatRunConfig.
+    /// </summary>
+    [JsonPropertyName("chatApi")]
+    public OpenAIChatApi ChatApi { get; set; } = OpenAIChatApi.Responses;
 
     /// <summary>
-    /// An upper bound for the number of tokens that can be generated for a completion,
-    /// including visible output tokens and, on applicable models, reasoning tokens.
-    /// Maps to CreateResponseOptions.MaxOutputTokenCount.
+    /// Optional OpenAI organization id applied to the SDK client.
     /// </summary>
-    [JsonPropertyName("maxOutputTokenCount")]
-    public int? MaxOutputTokenCount { get; set; }
-
-    //
-    // SAMPLING PARAMETERS
-    //
+    [JsonPropertyName("organizationId")]
+    public string? OrganizationId { get; set; }
 
     /// <summary>
-    /// Amount of randomness injected into the response.
-    /// Ranges from 0.0 to 2.0. Higher values increase creativity.
-    /// Use temperature closer to 0.0 for analytical tasks, and closer to 1.0+ for creative tasks.
-    /// Maps to CreateResponseOptions.Temperature.
+    /// Optional OpenAI project id applied to the SDK client.
     /// </summary>
-    [JsonPropertyName("temperature")]
-    public float? Temperature { get; set; }
+    [JsonPropertyName("projectId")]
+    public string? ProjectId { get; set; }
 
     /// <summary>
-    /// Use nucleus sampling (Top-P). Compute the cumulative distribution over all options
-    /// for each subsequent token in decreasing probability order and cut it off
-    /// once it reaches a particular probability specified by top_p.
-    /// Ranges from 0.0 to 1.0.
-    /// You should either alter temperature or topP, but not both.
-    /// Maps to CreateResponseOptions.TopP.
+    /// Optional application id appended to the SDK user agent.
     /// </summary>
-    [JsonPropertyName("topP")]
-    public float? TopP { get; set; }
+    [JsonPropertyName("userAgentApplicationId")]
+    public string? UserAgentApplicationId { get; set; }
 
     /// <summary>
-    /// Frequency penalty reduces the likelihood of repeating the same token.
-    /// Ranges from -2.0 to 2.0.
-    /// Positive values penalize tokens based on their frequency in the text so far.
-    /// Maps to CreateResponseOptions.FrequencyPenalty.
+    /// Network timeout in milliseconds for the SDK pipeline.
     /// </summary>
-    [JsonPropertyName("frequencyPenalty")]
-    public float? FrequencyPenalty { get; set; }
+    [JsonPropertyName("networkTimeoutMs")]
+    public int? NetworkTimeoutMs { get; set; }
 
     /// <summary>
-    /// Presence penalty reduces the likelihood of repeating any token that has appeared.
-    /// Ranges from -2.0 to 2.0.
-    /// Positive values penalize tokens that have already appeared in the text.
-    /// Maps to CreateResponseOptions.PresencePenalty.
+    /// Enables or disables distributed tracing in the SDK pipeline.
     /// </summary>
-    [JsonPropertyName("presencePenalty")]
-    public float? PresencePenalty { get; set; }
+    [JsonPropertyName("enableDistributedTracing")]
+    public bool? EnableDistributedTracing { get; set; }
+}
+
+/// <summary>
+/// Azure OpenAI-specific provider configuration options.
+/// </summary>
+public class AzureOpenAIProviderConfig
+{
+    /// <summary>
+    /// Selects the Azure OpenAI chat API used to construct chat clients.
+    /// Runtime model-call behavior belongs in ChatRunConfig.
+    /// </summary>
+    [JsonPropertyName("chatApi")]
+    public OpenAIChatApi ChatApi { get; set; } = OpenAIChatApi.Responses;
 
     /// <summary>
-    /// Custom text sequences that will cause the model to stop generating.
-    /// If the model encounters one of these sequences, generation stops.
-    /// Up to 4 sequences allowed.
-    /// Maps to CreateResponseOptions.StopSequences.
+    /// Azure OpenAI service API version used by AzureOpenAIClientOptions.
     /// </summary>
-    [JsonPropertyName("stopSequences")]
-    public List<string>? StopSequences { get; set; }
-
-    //
-    // DETERMINISM
-    //
+    [JsonPropertyName("serviceVersion")]
+    public AzureOpenAIServiceVersion? ServiceVersion { get; set; }
 
     /// <summary>
-    /// Seed for deterministic generation. Setting a seed will make the model
-    /// attempt to generate the same output for the same input.
-    /// Note: This is best-effort determinism and may vary across different
-    /// model versions or infrastructure.
-    /// Maps to CreateResponseOptions.Seed.
+    /// Optional Entra authentication audience/scope, for example AzureOpenAIAudience.AzureGovernment.ToString().
     /// </summary>
-    [JsonPropertyName("seed")]
-    public long? Seed { get; set; }
-
-    //
-    // RESPONSE FORMAT
-    //
+    [JsonPropertyName("audience")]
+    public string? Audience { get; set; }
 
     /// <summary>
-    /// Output format specification. Options:
-    /// - "text" (default): Plain text response
-    /// - "json_object": Loose JSON mode (model generates valid JSON)
-    /// - "json_schema": Structured output with strict schema validation
-    ///
-    /// For json_schema mode, use JsonSchemaName and JsonSchema properties.
-    /// Maps to CreateResponseOptions.ResponseFormat.
+    /// Default request headers applied by AzureOpenAIClientOptions.
     /// </summary>
-    [JsonPropertyName("responseFormat")]
-    public string? ResponseFormat { get; set; }
+    [JsonPropertyName("defaultHeaders")]
+    public Dictionary<string, string>? DefaultHeaders { get; set; }
 
     /// <summary>
-    /// Name of the JSON schema when using json_schema response format.
-    /// Required when ResponseFormat is "json_schema".
+    /// Default query parameters applied by AzureOpenAIClientOptions.
     /// </summary>
-    [JsonPropertyName("jsonSchemaName")]
-    public string? JsonSchemaName { get; set; }
+    [JsonPropertyName("defaultQueryParameters")]
+    public Dictionary<string, string>? DefaultQueryParameters { get; set; }
 
     /// <summary>
-    /// JSON schema definition as a JSON string when using json_schema response format.
-    /// Required when ResponseFormat is "json_schema".
-    /// Example: "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}}}"
+    /// Optional application id appended to the SDK user agent.
     /// </summary>
-    [JsonPropertyName("jsonSchema")]
-    public string? JsonSchema { get; set; }
+    [JsonPropertyName("userAgentApplicationId")]
+    public string? UserAgentApplicationId { get; set; }
 
     /// <summary>
-    /// Optional description for the JSON schema.
-    /// Only used when ResponseFormat is "json_schema".
+    /// Network timeout in milliseconds for the SDK pipeline.
     /// </summary>
-    [JsonPropertyName("jsonSchemaDescription")]
-    public string? JsonSchemaDescription { get; set; }
+    [JsonPropertyName("networkTimeoutMs")]
+    public int? NetworkTimeoutMs { get; set; }
 
     /// <summary>
-    /// Whether to enforce strict schema adherence for structured outputs.
-    /// Default: true when using json_schema response format.
-    /// Only used when ResponseFormat is "json_schema".
+    /// Enables or disables distributed tracing in the SDK pipeline.
     /// </summary>
-    [JsonPropertyName("jsonSchemaIsStrict")]
-    public bool? JsonSchemaIsStrict { get; set; }
-
-    //
-    // TOOL/FUNCTION CALLING
-    //
-
-    /// <summary>
-    /// Tool choice behavior control. Options:
-    /// - "auto" (default): Model decides whether to call tools
-    /// - "none": Model will not call any tools
-    /// - "required": Model must call at least one tool
-    ///
-    /// Maps to CreateResponseOptions.ToolChoice.
-    /// Note: Tools are defined at the request level, not in config.
-    /// </summary>
-    [JsonPropertyName("toolChoice")]
-    public string? ToolChoice { get; set; }
-
-    /// <summary>
-    /// Whether to enable parallel function calling during tool use.
-    /// Maps to CreateResponseOptions.AllowParallelToolCalls.
-    /// Assumed true if not otherwise specified.
-    /// </summary>
-    [JsonPropertyName("allowParallelToolCalls")]
-    public bool? AllowParallelToolCalls { get; set; }
-
-    //
-    // LOG PROBABILITIES
-    //
-
-    /// <summary>
-    /// Whether to return log probabilities of the output tokens or not.
-    /// If true, returns the log probabilities of each output token returned in the message content.
-    /// Maps to CreateResponseOptions.IncludeLogProbabilities.
-    /// </summary>
-    [JsonPropertyName("includeLogProbabilities")]
-    public bool? IncludeLogProbabilities { get; set; }
-
-    /// <summary>
-    /// An integer between 0 and 20 specifying the number of most likely tokens to return
-    /// at each token position, each with an associated log probability.
-    /// IncludeLogProbabilities must be set to true if this property is used.
-    /// Maps to CreateResponseOptions.TopLogProbabilityCount.
-    /// </summary>
-    [JsonPropertyName("topLogProbabilityCount")]
-    public int? TopLogProbabilityCount { get; set; }
-
-    //
-    // LOGIT BIASES
-    //
-
-    /// <summary>
-    /// Modifies the likelihood of specified tokens appearing in the completion.
-    /// Maps tokens (specified by their token ID in the tokenizer) to an associated bias value from -100 to 100.
-    /// Mathematically, the bias is added to the logits generated by the model prior to sampling.
-    /// Values between -1 and 1 should decrease or increase likelihood of selection;
-    /// values like -100 or 100 should result in a ban or exclusive selection of the relevant token.
-    /// Maps to CreateResponseOptions.LogitBiases.
-    /// JSON format: { "tokenId": biasValue }
-    /// </summary>
-    [JsonPropertyName("logitBiases")]
-    public Dictionary<int, int>? LogitBiases { get; set; }
-
-    //
-    // REASONING (O1 MODELS)
-    //
-
-    /// <summary>
-    /// (o1 and newer reasoning models only) Constrains effort on reasoning for reasoning models.
-    /// Currently supported values: "low", "medium", "high", "minimal".
-    /// Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning.
-    /// Maps to CreateResponseOptions.ReasoningEffortLevel.
-    /// </summary>
-    [JsonPropertyName("reasoningEffortLevel")]
-    public string? ReasoningEffortLevel { get; set; }
-
-    //
-    // AUDIO (GPT-4O-AUDIO-PREVIEW)
-    //
-
-    /// <summary>
-    /// Specifies the content types that the model should generate in its responses.
-    /// Options: "text", "audio", or both as a comma-separated string "text,audio".
-    /// Most models can generate text by default.
-    /// Some models like gpt-4o-audio-preview can also generate audio.
-    /// Maps to CreateResponseOptions.ResponseModalities.
-    /// </summary>
-    [JsonPropertyName("responseModalities")]
-    public string? ResponseModalities { get; set; }
-
-    /// <summary>
-    /// Audio output voice selection when audio modality is enabled.
-    /// Options: "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse".
-    /// Maps to CreateResponseOptions.AudioOptions.Voice.
-    /// </summary>
-    [JsonPropertyName("audioVoice")]
-    public string? AudioVoice { get; set; }
-
-    /// <summary>
-    /// Audio output format when audio modality is enabled.
-    /// Options: "wav", "mp3", "flac", "opus", "pcm16".
-    /// Maps to CreateResponseOptions.AudioOptions.Format.
-    /// </summary>
-    [JsonPropertyName("audioFormat")]
-    public string? AudioFormat { get; set; }
-
-    //
-    // SERVICE TIER
-    //
-
-    /// <summary>
-    /// Configures the policy that the server will use to process the request
-    /// in terms of pricing, performance, etc.
-    /// Options: "auto" (default), "default".
-    /// Maps to CreateResponseOptions.ServiceTier.
-    /// </summary>
-    [JsonPropertyName("serviceTier")]
-    public string? ServiceTier { get; set; }
-
-    //
-    // USER TRACKING & SAFETY
-    //
-
-    /// <summary>
-    /// A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse.
-    /// Learn more: https://platform.openai.com/docs/guides/safety-best-practices/end-user-ids
-    /// Maps to CreateResponseOptions.EndUserId.
-    /// </summary>
-    [JsonPropertyName("endUserId")]
-    public string? EndUserId { get; set; }
-
-    /// <summary>
-    /// A stable identifier that can be used to help detect end-users of your application
-    /// that may be violating OpenAI's usage policies.
-    /// Maps to CreateResponseOptions.SafetyIdentifier.
-    /// </summary>
-    [JsonPropertyName("safetyIdentifier")]
-    public string? SafetyIdentifier { get; set; }
-
-    //
-    // STORAGE & METADATA
-    //
-
-    /// <summary>
-    /// Indicates whether to store the output of this chat completion request for use in
-    /// model distillation or evals.
-    /// Maps to CreateResponseOptions.StoredOutputEnabled.
-    /// </summary>
-    [JsonPropertyName("storedOutputEnabled")]
-    public bool? StoredOutputEnabled { get; set; }
-
-    /// <summary>
-    /// Developer-defined tags and values used for filtering completions in the
-    /// OpenAI Platform dashboard.
-    /// Maps to CreateResponseOptions.Metadata.
-    /// JSON format: { "key": "value" }
-    /// </summary>
-    [JsonPropertyName("metadata")]
-    public Dictionary<string, string>? Metadata { get; set; }
-
-    //
-    // WEB SEARCH (EXPERIMENTAL)
-    //
-
-    /// <summary>
-    /// Enable web search for the model. Set to true to enable.
-    /// Maps to CreateResponseOptions.WebSearchOptions.
-    /// </summary>
-    [JsonPropertyName("webSearchEnabled")]
-    public bool? WebSearchEnabled { get; set; }
-
+    [JsonPropertyName("enableDistributedTracing")]
+    public bool? EnableDistributedTracing { get; set; }
 }

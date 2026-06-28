@@ -6,8 +6,7 @@ namespace HPD.Agent.Providers.Xai;
 
 internal sealed class XaiChatClient(
     HttpClient httpClient,
-    OpenAICompatibleChatClientOptions options,
-    XaiProviderConfig? config)
+    OpenAICompatibleChatClientOptions options)
     : OpenAICompatibleChatClient(httpClient, options)
 {
     protected override OpenAICompatibleChatRequest BuildRequestBody(
@@ -21,67 +20,27 @@ internal sealed class XaiChatClient(
 
     protected override void ConfigureRequest(OpenAICompatibleChatRequest request, ChatOptions? options, bool stream)
     {
-        if (!string.IsNullOrWhiteSpace(config?.ReasoningEffort))
+        var reasoningEffort = CreateReasoningEffort(options?.Reasoning?.Effort);
+        if (!string.IsNullOrWhiteSpace(reasoningEffort))
         {
             request.ExtraFields ??= [];
-            request.ExtraFields["reasoning_effort"] = CreateStringJsonElement(config.ReasoningEffort);
+            request.ExtraFields["reasoning_effort"] = CreateStringJsonElement(reasoningEffort);
         }
     }
 
-    private ChatOptions? ApplyDefaults(ChatOptions? options)
+    private ChatOptions ApplyDefaults(ChatOptions? options)
     {
-        if (config is null)
-        {
-            return options;
-        }
-
-        if (options is null)
-        {
-            return new ChatOptions
-            {
-                Temperature = config.Temperature,
-                TopP = config.TopP,
-                MaxOutputTokens = config.MaxOutputTokens,
-                StopSequences = config.StopSequences,
-                Seed = config.Seed,
-                ResponseFormat = CreateResponseFormat(config.ResponseFormat),
-                ToolMode = CreateToolMode(config.ToolChoice)
-            };
-        }
-
-        return new ChatOptions
-        {
-            ModelId = options.ModelId,
-            Instructions = options.Instructions,
-            Tools = options.Tools,
-            MaxOutputTokens = options.MaxOutputTokens ?? config.MaxOutputTokens,
-            Temperature = options.Temperature ?? config.Temperature,
-            TopP = options.TopP ?? config.TopP,
-            TopK = options.TopK,
-            FrequencyPenalty = options.FrequencyPenalty,
-            PresencePenalty = options.PresencePenalty,
-            StopSequences = options.StopSequences ?? config.StopSequences,
-            ResponseFormat = options.ResponseFormat ?? CreateResponseFormat(config.ResponseFormat),
-            Seed = options.Seed ?? config.Seed,
-            ToolMode = options.ToolMode ?? CreateToolMode(config.ToolChoice),
-            AdditionalProperties = options.AdditionalProperties,
-            RawRepresentationFactory = options.RawRepresentationFactory
-        };
+        return options?.Clone() ?? new ChatOptions();
     }
 
-    private static ChatResponseFormat? CreateResponseFormat(string? responseFormat)
-        => responseFormat?.ToLowerInvariant() switch
+    private static string? CreateReasoningEffort(Microsoft.Extensions.AI.ReasoningEffort? effort)
+        => effort switch
         {
-            "text" => ChatResponseFormat.Text,
-            "json_object" => ChatResponseFormat.Json,
-            _ => null
-        };
-
-    private static ChatToolMode? CreateToolMode(string? toolChoice)
-        => toolChoice?.ToLowerInvariant() switch
-        {
-            "none" => ChatToolMode.None,
-            "required" => ChatToolMode.RequireAny,
+            Microsoft.Extensions.AI.ReasoningEffort.None => "none",
+            Microsoft.Extensions.AI.ReasoningEffort.Low => "low",
+            Microsoft.Extensions.AI.ReasoningEffort.Medium => "medium",
+            Microsoft.Extensions.AI.ReasoningEffort.High => "high",
+            Microsoft.Extensions.AI.ReasoningEffort.ExtraHigh => "xhigh",
             _ => null
         };
 

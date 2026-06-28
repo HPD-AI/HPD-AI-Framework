@@ -1,8 +1,6 @@
 using HPD.Agent.Providers;
 using HPD.Agent.Providers.MiniMax;
-using HPD.Agent.Providers.OpenAICompatible;
 using System;
-using System.Collections.Generic;
 
 namespace HPD.Agent;
 
@@ -12,8 +10,7 @@ public static class MiniMaxAgentBuilderExtensions
         this AgentBuilder builder,
         string model = MiniMaxProvider.DefaultChatModel,
         string? apiKey = null,
-        string? endpoint = null,
-        Action<MiniMaxProviderConfig>? configure = null)
+        string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -21,10 +18,6 @@ public static class MiniMaxAgentBuilderExtensions
         {
             throw new ArgumentException("Model is required for MiniMax provider.", nameof(model));
         }
-
-        var providerConfig = new MiniMaxProviderConfig();
-        configure?.Invoke(providerConfig);
-        ValidateProviderConfig(providerConfig, configure);
 
         var chatConfig = new ClientProviderConfig
         {
@@ -35,19 +28,7 @@ public static class MiniMaxAgentBuilderExtensions
         };
 
         builder.Config.SetChatClientConfig(chatConfig);
-        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
-    }
-
-    private static void ValidateProviderConfig(MiniMaxProviderConfig config, Action<MiniMaxProviderConfig>? configure)
-    {
-        var errors = new List<string>();
-        OpenAICompatibleChatOptionsDefaults.Validate(config, errors);
-
-        if (errors.Count > 0)
-        {
-            throw new ArgumentException(string.Join("; ", errors), nameof(configure));
-        }
     }
 }

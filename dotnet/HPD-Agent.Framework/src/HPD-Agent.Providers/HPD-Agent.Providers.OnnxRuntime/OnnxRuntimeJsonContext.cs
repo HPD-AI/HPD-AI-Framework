@@ -12,6 +12,7 @@ namespace HPD.Agent.Providers.OnnxRuntime;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(OnnxRuntimeProviderConfig))]
+[JsonSerializable(typeof(OnnxRuntimeChatRequestOptions))]
 internal partial class OnnxRuntimeJsonContext : JsonSerializerContext
 {
 }

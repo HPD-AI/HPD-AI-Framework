@@ -1,6 +1,4 @@
-using System.Collections.Generic;
 using HPD.Agent;
-using HPD.Agent.Providers;
 
 namespace HPD.Agent.Providers.Moonshot;
 
@@ -16,17 +14,12 @@ public static class AgentBuilderExtensions
         this AgentBuilder builder,
         string model = MoonshotProvider.DefaultChatModel,
         string? apiKey = null,
-        string? endpoint = null,
-        Action<MoonshotProviderConfig>? configure = null)
+        string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for Moonshot provider.", nameof(model));
-
-        var providerConfig = new MoonshotProviderConfig();
-        configure?.Invoke(providerConfig);
-        ValidateProviderConfig(providerConfig, configure);
 
         var chatConfig = new ClientProviderConfig
         {
@@ -37,17 +30,38 @@ public static class AgentBuilderExtensions
         };
 
         builder.Config.SetChatClientConfig(chatConfig);
-        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
     }
 
-    private static void ValidateProviderConfig(MoonshotProviderConfig config, Action<MoonshotProviderConfig>? configure)
+    /// <summary>
+    /// Adds Moonshot/Kimi-specific runtime chat request options to the chat defaults.
+    /// </summary>
+    public static AgentBuilder WithMoonshotChatRequestOptions(
+        this AgentBuilder builder,
+        MoonshotChatRequestOptions options)
     {
-        var errors = new List<string>();
-        MoonshotProvider.ValidateProviderOptions(config, errors);
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(options);
 
-        if (errors.Count > 0)
-            throw new ArgumentException(string.Join("; ", errors), nameof(configure));
+        var chatConfig = builder.Config.EnsureChatClientConfig();
+        chatConfig.ChatDefaults ??= new ChatRunConfig();
+        options.ApplyTo(chatConfig.ChatDefaults);
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Adds Moonshot/Kimi-specific runtime chat request options to the chat defaults.
+    /// </summary>
+    public static AgentBuilder WithMoonshotChatRequestOptions(
+        this AgentBuilder builder,
+        Action<MoonshotChatRequestOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+
+        var options = new MoonshotChatRequestOptions();
+        configure(options);
+        return builder.WithMoonshotChatRequestOptions(options);
     }
 }

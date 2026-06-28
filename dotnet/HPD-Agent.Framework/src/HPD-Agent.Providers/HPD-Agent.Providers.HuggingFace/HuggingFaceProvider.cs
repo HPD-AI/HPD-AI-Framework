@@ -1,9 +1,9 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using HuggingFace;
 using HPD.Agent;
 using HPD.Agent.Providers;
 using HPD.Agent.ErrorHandling;
@@ -39,6 +39,8 @@ namespace HPD.Agent.Providers.HuggingFace;
 /// </remarks>
 internal class HuggingFaceProvider : IChatClientProvider
 {
+    private static readonly Uri DefaultEndpoint = new("https://router.huggingface.co/");
+
     public string ProviderKey => "huggingface";
     public string DisplayName => "Hugging Face";
 
@@ -64,14 +66,12 @@ internal class HuggingFaceProvider : IChatClientProvider
             throw new InvalidOperationException("For HuggingFace, the ModelName (repository ID) must be configured.");
         }
 
-        // Create the HuggingFace client
-        var client = new HuggingFaceClient(apiKey);
+        var endpoint = string.IsNullOrWhiteSpace(config.Endpoint)
+            ? DefaultEndpoint
+            : new Uri(config.Endpoint, UriKind.Absolute);
 
-        // Get typed config for advanced options
-        var hfConfig = config.GetProviderConfig<HuggingFaceProviderConfig>();
-
-        // Wrap the client to apply configuration options
-        return new HuggingFaceConfiguredChatClient(client, modelName, hfConfig);
+        var client = new global::HuggingFace.HuggingFaceInferenceClient(apiKey, baseUri: endpoint);
+        return new HuggingFaceConfiguredChatClient(client, modelName);
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -118,51 +118,10 @@ internal class HuggingFaceProvider : IChatClientProvider
         if (string.IsNullOrEmpty(config.ModelName))
             errors.Add("Model name (repository ID like 'meta-llama/Meta-Llama-3-8B-Instruct') is required");
 
-        // Validate HuggingFace-specific config if present
-        var hfConfig = config.GetProviderConfig<HuggingFaceProviderConfig>();
-        if (hfConfig != null)
+        if (!string.IsNullOrWhiteSpace(config.Endpoint) &&
+            !Uri.IsWellFormedUriString(config.Endpoint, UriKind.Absolute))
         {
-            // Validate Temperature range
-            if (hfConfig.Temperature.HasValue && (hfConfig.Temperature.Value < 0 || hfConfig.Temperature.Value > 100))
-            {
-                errors.Add("Temperature must be between 0 and 100");
-            }
-
-            // Validate TopP range
-            if (hfConfig.TopP.HasValue && (hfConfig.TopP.Value < 0 || hfConfig.TopP.Value > 1))
-            {
-                errors.Add("TopP must be between 0 and 1");
-            }
-
-            // Validate TopK
-            if (hfConfig.TopK.HasValue && hfConfig.TopK.Value < 0)
-            {
-                errors.Add("TopK must be a positive integer");
-            }
-
-            // Validate RepetitionPenalty
-            if (hfConfig.RepetitionPenalty.HasValue && hfConfig.RepetitionPenalty.Value < 0)
-            {
-                errors.Add("RepetitionPenalty must be a positive number");
-            }
-
-            // Validate MaxNewTokens
-            if (hfConfig.MaxNewTokens.HasValue && hfConfig.MaxNewTokens.Value < 1)
-            {
-                errors.Add("MaxNewTokens must be at least 1");
-            }
-
-            // Validate NumReturnSequences
-            if (hfConfig.NumReturnSequences.HasValue && hfConfig.NumReturnSequences.Value < 1)
-            {
-                errors.Add("NumReturnSequences must be at least 1");
-            }
-
-            // Validate MaxTime
-            if (hfConfig.MaxTime.HasValue && hfConfig.MaxTime.Value <= 0)
-            {
-                errors.Add("MaxTime must be a positive number (seconds)");
-            }
+            errors.Add("Endpoint must be a valid, absolute URI");
         }
 
         return errors.Count > 0
@@ -175,19 +134,16 @@ internal class HuggingFaceProvider : IChatClientProvider
     /// </summary>
     private class HuggingFaceConfiguredChatClient : IChatClient
     {
-        private readonly HuggingFaceClient _client;
+        private readonly global::HuggingFace.HuggingFaceInferenceClient _client;
         private readonly string _modelName;
-        private readonly HuggingFaceProviderConfig? _config;
         private ChatClientMetadata? _metadata;
 
         public HuggingFaceConfiguredChatClient(
-            HuggingFaceClient client,
-            string modelName,
-            HuggingFaceProviderConfig? config)
+            global::HuggingFace.HuggingFaceInferenceClient client,
+            string modelName)
         {
             _client = client;
             _modelName = modelName;
-            _config = config;
         }
 
         public void Dispose()
@@ -200,7 +156,7 @@ internal class HuggingFaceProvider : IChatClientProvider
         {
             return
                 serviceKey is not null ? null :
-                serviceType == typeof(ChatClientMetadata) ? (_metadata ??= new(nameof(HuggingFaceClient), _client.BaseUri, _modelName)) :
+                serviceType == typeof(ChatClientMetadata) ? (_metadata ??= new("huggingface", _client.BaseUri, _modelName)) :
                 serviceType?.IsInstanceOfType(_client) is true ? _client :
                 null;
         }
@@ -210,88 +166,168 @@ internal class HuggingFaceProvider : IChatClientProvider
             ChatOptions? options = null,
             CancellationToken cancellationToken = default)
         {
-            // Set model name in options
-            options ??= new ChatOptions();
-            options.ModelId = _modelName;
+            var effectiveOptions = options?.Clone() ?? new ChatOptions();
+            if (string.IsNullOrWhiteSpace(effectiveOptions.ModelId))
+                effectiveOptions.ModelId = _modelName;
 
-            // Apply configuration through RawRepresentationFactory
-            if (_config != null)
-            {
-                options.RawRepresentationFactory = _ => CreateConfiguredRequest();
-            }
-
-            return await ((IChatClient)_client).GetResponseAsync(messages, options, cancellationToken);
+            var request = HuggingFaceChatRequestOptionKeys.BuildRequest(messages, effectiveOptions, _modelName, stream: false);
+            var response = await _client.ChatCompletionsAsync(request, cancellationToken: cancellationToken).ConfigureAwait(false);
+            return ToChatResponse(response);
         }
 
-        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
             IEnumerable<ChatMessage> messages,
             ChatOptions? options = null,
-            CancellationToken cancellationToken = default)
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            // Set model name in options
-            options ??= new ChatOptions();
-            options.ModelId = _modelName;
+            var effectiveOptions = options?.Clone() ?? new ChatOptions();
+            if (string.IsNullOrWhiteSpace(effectiveOptions.ModelId))
+                effectiveOptions.ModelId = _modelName;
 
-            // Apply configuration through RawRepresentationFactory
-            if (_config != null)
+            var request = HuggingFaceChatRequestOptionKeys.BuildRequest(messages, effectiveOptions, _modelName, stream: true);
+            await foreach (var chunk in _client.ChatCompletionsAsStreamAsync(request, cancellationToken: cancellationToken).ConfigureAwait(false))
             {
-                options.RawRepresentationFactory = _ => CreateConfiguredRequest();
+                yield return ToChatResponseUpdate(chunk);
             }
-
-            return ((IChatClient)_client).GetStreamingResponseAsync(messages, options, cancellationToken);
         }
 
-        private GenerateTextRequest CreateConfiguredRequest()
+        private static ChatResponse ToChatResponse(global::HuggingFace.ChatCompletion response)
         {
-            var request = new GenerateTextRequest { Inputs = string.Empty };
-            var parameters = new GenerateTextRequestParameters();
-            var requestOptions = new GenerateTextRequestOptions();
-
-            // Apply configuration
-            if (_config != null)
+            var choice = response.Choices.Count > 0 ? response.Choices[0] : null;
+            var message = new ChatMessage
             {
-                // Sampling parameters
-                if (_config.Temperature.HasValue)
-                    parameters.Temperature = _config.Temperature.Value;
+                Role = ChatRole.Assistant,
+                RawRepresentation = response
+            };
 
-                if (_config.TopP.HasValue)
-                    parameters.TopP = _config.TopP.Value;
-
-                if (_config.TopK.HasValue)
-                    parameters.TopK = _config.TopK.Value;
-
-                if (_config.RepetitionPenalty.HasValue)
-                    parameters.RepetitionPenalty = _config.RepetitionPenalty.Value;
-
-                // Generation control
-                if (_config.MaxNewTokens.HasValue)
-                    parameters.MaxNewTokens = _config.MaxNewTokens.Value;
-
-                if (_config.DoSample.HasValue)
-                    parameters.DoSample = _config.DoSample.Value;
-
-                if (_config.NumReturnSequences.HasValue)
-                    parameters.NumReturnSequences = _config.NumReturnSequences.Value;
-
-                if (_config.ReturnFullText.HasValue)
-                    parameters.ReturnFullText = _config.ReturnFullText.Value;
-
-                // Timing
-                if (_config.MaxTime.HasValue)
-                    parameters.MaxTime = _config.MaxTime.Value;
-
-                // API options
-                if (_config.UseCache.HasValue)
-                    requestOptions.UseCache = _config.UseCache.Value;
-
-                if (_config.WaitForModel.HasValue)
-                    requestOptions.WaitForModel = _config.WaitForModel.Value;
+            if (choice?.Message.IsText is true && choice.Message.Text is { } text)
+            {
+                message.Contents.Add(new TextContent(text.Content) { RawRepresentation = text });
+            }
+            else if (choice?.Message.IsToolCall is true && choice.Message.ToolCall is { } toolCall)
+            {
+                foreach (var call in toolCall.ToolCalls)
+                {
+                    message.Contents.Add(new FunctionCallContent(
+                        call.Id,
+                        call.Function.Name,
+                        ParseArguments(call.Function.Arguments))
+                    {
+                        RawRepresentation = call
+                    });
+                }
             }
 
-            request.Parameters = parameters;
-            request.Options = requestOptions;
+            var chatResponse = new ChatResponse(message)
+            {
+                RawRepresentation = response,
+                ResponseId = response.Id,
+                ModelId = response.Model,
+                FinishReason = ToFinishReason(choice?.FinishReason)
+            };
 
-            return request;
+            chatResponse.Usage = new UsageDetails
+            {
+                InputTokenCount = response.Usage.PromptTokens,
+                OutputTokenCount = response.Usage.CompletionTokens,
+                TotalTokenCount = response.Usage.TotalTokens
+            };
+
+            return chatResponse;
+        }
+
+        private static ChatResponseUpdate ToChatResponseUpdate(global::HuggingFace.ChatCompletionChunk chunk)
+        {
+            var choice = chunk.Choices.Count > 0 ? chunk.Choices[0] : null;
+            var update = new ChatResponseUpdate
+            {
+                RawRepresentation = chunk,
+                ResponseId = chunk.Id,
+                ModelId = chunk.Model,
+                Role = ChatRole.Assistant,
+                FinishReason = ToFinishReason(choice?.FinishReason)
+            };
+
+            if (choice?.Delta.IsTextMessage is true && choice.Delta.TextMessage is { } text)
+            {
+                update.Contents.Add(new TextContent(text.Content) { RawRepresentation = text });
+            }
+            else if (choice?.Delta.IsToolCall is true && choice.Delta.ToolCall is { } toolCall)
+            {
+                foreach (var call in toolCall.ToolCalls)
+                {
+                    update.Contents.Add(new FunctionCallContent(
+                        call.Id,
+                        call.Function.Name ?? string.Empty,
+                        ParseArguments(call.Function.Arguments))
+                    {
+                        RawRepresentation = call
+                    });
+                }
+            }
+
+            if (chunk.Usage is { } usage)
+            {
+                update.Contents.Add(new UsageContent(new UsageDetails
+                {
+                    InputTokenCount = usage.PromptTokens,
+                    OutputTokenCount = usage.CompletionTokens,
+                    TotalTokenCount = usage.TotalTokens
+                }));
+            }
+
+            return update;
+        }
+
+        private static ChatFinishReason? ToFinishReason(string? finishReason)
+            => finishReason switch
+            {
+                null => null,
+                "stop" => ChatFinishReason.Stop,
+                "length" => ChatFinishReason.Length,
+                "tool_calls" => ChatFinishReason.ToolCalls,
+                _ => new ChatFinishReason(finishReason)
+            };
+
+        private static IDictionary<string, object?>? ParseArguments(object? arguments)
+        {
+            if (arguments is null)
+                return null;
+
+            if (arguments is IDictionary<string, object?> dictionary)
+                return dictionary;
+
+            if (arguments is JsonElement element)
+                return ParseArguments(element);
+
+            if (arguments is string json)
+            {
+                try
+                {
+                    using var document = JsonDocument.Parse(json);
+                    return ParseArguments(document.RootElement);
+                }
+                catch (JsonException)
+                {
+                    return null;
+                }
+            }
+
+            return null;
+        }
+
+        private static IDictionary<string, object?>? ParseArguments(JsonElement element)
+        {
+            if (element.ValueKind != JsonValueKind.Object)
+                return null;
+
+            var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var property in element.EnumerateObject())
+            {
+                result[property.Name] = property.Value.Clone();
+            }
+
+            return result;
         }
     }
 }

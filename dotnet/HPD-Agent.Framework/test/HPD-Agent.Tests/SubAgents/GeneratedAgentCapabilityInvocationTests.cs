@@ -24,7 +24,7 @@ public sealed class GeneratedAgentCapabilityInvocationTests
         var subAgentFunction = CreateGeneratedShapeSubAgentFunction();
         var multiAgentFunction = CreateGeneratedShapeMultiAgentFunction();
         var config = DefaultConfig();
-        config.EnsureChatClientConfig().DefaultChatOptions = new ChatOptions
+        config.EnsureChatClientConfig().DefaultMicrosoftChatOptions = new ChatOptions
         {
             Tools = [subAgentFunction, multiAgentFunction],
         };

@@ -12,6 +12,7 @@ namespace HPD.Agent.Providers.Ollama;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(OllamaProviderConfig))]
+[JsonSerializable(typeof(OllamaChatRequestOptions))]
 internal partial class OllamaJsonContext : JsonSerializerContext
 {
 }

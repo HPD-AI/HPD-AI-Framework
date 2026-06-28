@@ -1,8 +1,6 @@
 using HPD.Agent.Providers;
 using HPD.Agent.Providers.DeepSeek;
-using HPD.Agent.Providers.OpenAICompatible;
 using System;
-using System.Collections.Generic;
 
 namespace HPD.Agent;
 
@@ -12,8 +10,7 @@ public static class DeepSeekAgentBuilderExtensions
         this AgentBuilder builder,
         string model = DeepSeekProvider.DefaultChatModel,
         string? apiKey = null,
-        string? endpoint = null,
-        Action<DeepSeekProviderConfig>? configure = null)
+        string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
@@ -21,10 +18,6 @@ public static class DeepSeekAgentBuilderExtensions
         {
             throw new ArgumentException("Model is required for DeepSeek provider.", nameof(model));
         }
-
-        var providerConfig = new DeepSeekProviderConfig();
-        configure?.Invoke(providerConfig);
-        ValidateProviderConfig(providerConfig, configure);
 
         var chatConfig = new ClientProviderConfig
         {
@@ -35,19 +28,7 @@ public static class DeepSeekAgentBuilderExtensions
         };
 
         builder.Config.SetChatClientConfig(chatConfig);
-        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
-    }
-
-    private static void ValidateProviderConfig(DeepSeekProviderConfig config, Action<DeepSeekProviderConfig>? configure)
-    {
-        var errors = new List<string>();
-        OpenAICompatibleChatOptionsDefaults.Validate(config, errors);
-
-        if (errors.Count > 0)
-        {
-            throw new ArgumentException(string.Join("; ", errors), nameof(configure));
-        }
     }
 }

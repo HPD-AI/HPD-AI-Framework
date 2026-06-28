@@ -2,6 +2,8 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Generic;
 using System.Threading;
+using GenerativeAI;
+using GenerativeAI.Core;
 using GenerativeAI.Microsoft;
 using HPD.Agent;
 using HPD.Agent.Providers;
@@ -44,8 +46,8 @@ internal class GoogleAIProvider : IChatClientProvider
                 "Ensure the agent builder is properly configured with secret resolution.");
         }
 
-        var apiKeyTask = secrets.RequireAsync("google-ai:ApiKey", "Google AI", config.ApiKey, CancellationToken.None);
-        var apiKey = apiKeyTask.GetAwaiter().GetResult();
+        var googleConfig = config.GetProviderConfig<GoogleAIProviderConfig>() ?? new GoogleAIProviderConfig();
+        var apiKey = ResolveApiKey(secrets, config, googleConfig);
 
         string? modelName = config.ModelName;
         if (string.IsNullOrEmpty(modelName))
@@ -53,16 +55,65 @@ internal class GoogleAIProvider : IChatClientProvider
             throw new InvalidOperationException("For Google AI, the ModelName must be configured.");
         }
 
-        // Create the chat client
-        // Note: The GenerativeAIChatClient constructor handles the configuration internally
-        // We store the GoogleAIProviderConfig for future use, but the Google_GenerativeAI SDK
-        // doesn't currently expose all configuration options in a way that's compatible with
-        // our provider model. This is a limitation of the SDK.
-        var chatClient = new GenerativeAIChatClient(apiKey, modelName);
+        var chatClient = new GenerativeAIChatClient(
+            CreatePlatformAdapter(apiKey, googleConfig),
+            modelName,
+            autoCallFunction: true);
 
         IChatClient finalClient = chatClient;
 
         return finalClient;
+    }
+
+    private static string? ResolveApiKey(
+        ISecretResolver secrets,
+        ClientProviderConfig config,
+        GoogleAIProviderConfig googleConfig)
+    {
+        if (RequiresApiKey(googleConfig))
+        {
+            var apiKeyTask = secrets.RequireAsync(
+                "google-ai:ApiKey",
+                "Google AI",
+                config.ApiKey,
+                CancellationToken.None);
+            return apiKeyTask.GetAwaiter().GetResult();
+        }
+
+        var optionalApiKeyTask = secrets.ResolveOrDefaultAsync(
+            "google-ai:ApiKey",
+            config.ApiKey,
+            CancellationToken.None);
+        return optionalApiKeyTask.GetAwaiter().GetResult();
+    }
+
+    private static bool RequiresApiKey(GoogleAIProviderConfig googleConfig)
+        => googleConfig.Platform == GoogleAIPlatform.GeminiDeveloperApi ||
+           googleConfig.ExpressMode;
+
+    private static IPlatformAdapter CreatePlatformAdapter(
+        string? apiKey,
+        GoogleAIProviderConfig googleConfig)
+    {
+        return googleConfig.Platform switch
+        {
+            GoogleAIPlatform.GeminiDeveloperApi => new GoogleAIPlatformAdapter(
+                apiKey,
+                apiVersion: googleConfig.ApiVersion ?? ApiVersions.v1Beta,
+                validateAccessToken: googleConfig.ValidateAccessToken),
+
+            GoogleAIPlatform.VertexAI => new VertextPlatformAdapter(
+                projectId: googleConfig.ProjectId,
+                region: googleConfig.Region,
+                expressMode: googleConfig.ExpressMode,
+                apiKey: apiKey,
+                apiVersion: googleConfig.ApiVersion ?? ApiVersions.v1Beta1,
+                credentialsFile: googleConfig.CredentialsFile,
+                validateAccessToken: googleConfig.ValidateAccessToken),
+
+            _ => throw new InvalidOperationException(
+                $"Unsupported Google AI platform '{googleConfig.Platform}'.")
+        };
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -97,62 +148,16 @@ internal class GoogleAIProvider : IChatClientProvider
     public ProviderValidationResult ValidateConfiguration(ClientProviderConfig config, ProviderClientFamily family)
     {
         var errors = new List<string>();
+        var googleConfig = config.GetProviderConfig<GoogleAIProviderConfig>() ?? new GoogleAIProviderConfig();
 
-        // Note: API key validation is now deferred to CreateChatClient where ISecretResolver is available
-        // This method only validates config structure, not secret resolution
-        if (string.IsNullOrEmpty(config.ApiKey))
-        {
-            errors.Add("API key is required for Google AI. " +
-                      "Set it via the apiKey parameter, GOOGLE_AI_API_KEY environment variable, or configuration.");
-        }
+        // API key validation is deferred to CreateChatClient where ISecretResolver is available.
+        // This method only validates config structure, not secret resolution.
 
         if (string.IsNullOrEmpty(config.ModelName))
             errors.Add("Model name is required");
 
-        // Validate Google-specific config if present
-        var googleConfig = config.GetProviderConfig<GoogleAIProviderConfig>();
-        if (googleConfig != null)
-        {
-            // Validate Temperature range
-            if (googleConfig.Temperature.HasValue &&
-                (googleConfig.Temperature.Value < 0 || googleConfig.Temperature.Value > 2))
-            {
-                errors.Add("Temperature must be between 0 and 2");
-            }
-
-            // Validate TopP range
-            if (googleConfig.TopP.HasValue &&
-                (googleConfig.TopP.Value < 0 || googleConfig.TopP.Value > 1))
-            {
-                errors.Add("TopP must be between 0 and 1");
-            }
-
-            // Validate TopK
-            if (googleConfig.TopK.HasValue && googleConfig.TopK.Value < 0)
-            {
-                errors.Add("TopK must be a positive integer");
-            }
-
-            // Validate CandidateCount
-            if (googleConfig.CandidateCount.HasValue && googleConfig.CandidateCount.Value != 1)
-            {
-                errors.Add("CandidateCount currently only supports a value of 1");
-            }
-
-            // Validate ResponseMimeType with ResponseSchema
-            if (!string.IsNullOrEmpty(googleConfig.ResponseSchema) &&
-                googleConfig.ResponseMimeType != "application/json")
-            {
-                errors.Add("When ResponseSchema is set, ResponseMimeType must be 'application/json'");
-            }
-
-            // Validate mutual exclusivity of ResponseSchema and ResponseJsonSchema
-            if (!string.IsNullOrEmpty(googleConfig.ResponseSchema) &&
-                !string.IsNullOrEmpty(googleConfig.ResponseJsonSchema))
-            {
-                errors.Add("ResponseSchema and ResponseJsonSchema cannot both be set");
-            }
-        }
+        if (!Enum.IsDefined(googleConfig.Platform))
+            errors.Add($"Unsupported Google AI platform '{googleConfig.Platform}'.");
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())

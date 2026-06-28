@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using HPD.Agent;
 using HPD.Agent.Providers;
@@ -17,28 +16,55 @@ public static class AgentBuilderExtensions
         this AgentBuilder builder,
         string model = "command-r-plus",
         string? apiKey = null,
-        Action<CohereProviderConfig>? configure = null)
+        string? endpoint = null)
     {
         ArgumentNullException.ThrowIfNull(builder);
 
         if (string.IsNullOrWhiteSpace(model))
             throw new ArgumentException("Model is required for Cohere provider.", nameof(model));
 
-        var providerConfig = new CohereProviderConfig();
-        configure?.Invoke(providerConfig);
-        ValidateProviderConfig(providerConfig, configure);
-
         var chatConfig = new ClientProviderConfig
         {
             ProviderKey = "cohere",
             ApiKey = apiKey,
+            Endpoint = endpoint,
             ModelName = model
         };
 
         builder.Config.SetChatClientConfig(chatConfig);
-        chatConfig.SetProviderConfig(providerConfig);
 
         return builder;
+    }
+
+    /// <summary>
+    /// Adds Cohere-specific runtime chat request options to the chat defaults.
+    /// </summary>
+    public static AgentBuilder WithCohereChatRequestOptions(
+        this AgentBuilder builder,
+        CohereChatRequestOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(options);
+
+        var chatConfig = builder.Config.EnsureChatClientConfig();
+        chatConfig.ChatDefaults ??= new ChatRunConfig();
+        options.ApplyTo(chatConfig.ChatDefaults);
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Adds Cohere-specific runtime chat request options to the chat defaults.
+    /// </summary>
+    public static AgentBuilder WithCohereChatRequestOptions(
+        this AgentBuilder builder,
+        Action<CohereChatRequestOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+
+        var options = new CohereChatRequestOptions();
+        configure(options);
+        return builder.WithCohereChatRequestOptions(options);
     }
 
     /// <summary>

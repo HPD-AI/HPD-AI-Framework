@@ -26,10 +26,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="AWSSDK.BedrockRuntime" Version="4.0.20.4" />
-    <PackageReference Include="AWSSDK.Core" Version="4.0.8.1" />
+    <PackageReference Include="AWSSDK.BedrockRuntime" Version="4.0.21.3" />
+    <PackageReference Include="AWSSDK.Core" Version="4.0.9.7" />
     <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
-    <PackageReference Include="AWSSDK.Extensions.Bedrock.MEAI" Version="4.0.8.8" />
+    <PackageReference Include="AWSSDK.Extensions.Bedrock.MEAI" Version="4.0.8.14" />
   </ItemGroup>
 </Project>

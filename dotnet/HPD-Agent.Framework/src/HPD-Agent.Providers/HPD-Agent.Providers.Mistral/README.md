@@ -1,6 +1,6 @@
 # HPD-Agent.Providers.Mistral
 
-Mistral provider for HPD-Agent.
+Mistral provider for HPD-Agent using the generated Mistral SDK and Microsoft.Extensions.AI.
 
 ## Install
 
@@ -11,3 +11,5 @@ dotnet add package HPD-Agent.Providers.Mistral
 ## Use When
 
 Use this package when you need the Mistral model provider in HPD Agent applications.
+
+Runtime model-call behavior is configured through `ChatRunConfig`. Mistral-only per-request fields are configured with `MistralChatRequestOptions`.

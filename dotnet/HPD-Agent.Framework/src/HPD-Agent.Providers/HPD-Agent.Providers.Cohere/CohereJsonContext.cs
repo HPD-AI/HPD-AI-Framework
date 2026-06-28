@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.Cohere;
 
@@ -10,8 +11,13 @@ namespace HPD.Agent.Providers.Cohere;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     WriteIndented = false,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
+    UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+    UseStringEnumConverter = true)]
 [JsonSerializable(typeof(CohereProviderConfig))]
+[JsonSerializable(typeof(CohereChatRequestOptions))]
+[JsonSerializable(typeof(CohereChatDocument))]
+[JsonSerializable(typeof(List<CohereChatDocument>))]
+[JsonSerializable(typeof(Dictionary<string, object>))]
 internal partial class CohereJsonContext : JsonSerializerContext
 {
 }

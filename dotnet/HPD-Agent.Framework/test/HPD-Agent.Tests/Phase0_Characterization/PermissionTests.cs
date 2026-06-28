@@ -23,8 +23,8 @@ public class PermissionTests : AgentTestBase
         config.EnsureChatClientConfig();
         config.EnsureChatClientConfig().ProviderKey = "test";
         config.EnsureChatClientConfig().ModelName = "test-model";
-        config.EnsureChatClientConfig().DefaultChatOptions ??= new ChatOptions();
-        config.EnsureChatClientConfig().DefaultChatOptions.Tools = tools.Cast<AITool>().ToList();
+        config.EnsureChatClientConfig().DefaultMicrosoftChatOptions ??= new ChatOptions();
+        config.EnsureChatClientConfig().DefaultMicrosoftChatOptions.Tools = tools.Cast<AITool>().ToList();
 
         var builder = new AgentBuilder(config, new TestProviderRegistry(client));
         builder.WithPermissions(); // Enable permission filtering

@@ -29,6 +29,6 @@ public static class BedrockProviderModule
         SecretAliasRegistry.Register("bedrock:AccessKeyId", "AWS_ACCESS_KEY_ID");
         SecretAliasRegistry.Register("bedrock:SecretAccessKey", "AWS_SECRET_ACCESS_KEY");
         SecretAliasRegistry.Register("bedrock:SessionToken", "AWS_SESSION_TOKEN");
-        SecretAliasRegistry.Register("bedrock:Region", "AWS_REGION");
+        SecretAliasRegistry.Register("bedrock:Region", "AWS_REGION", "AWS_DEFAULT_REGION");
     }
 }

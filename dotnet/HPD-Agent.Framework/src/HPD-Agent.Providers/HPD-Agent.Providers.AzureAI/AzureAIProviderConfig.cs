@@ -4,176 +4,160 @@ using System.Text.Json.Serialization;
 namespace HPD.Agent.Providers.AzureAI;
 
 /// <summary>
-/// Azure AI Projects-specific provider configuration using the Azure.AI.Projects SDK.
-/// These options map to Azure OpenAI chat completion options.
-///
-/// JSON Example:
-/// <code>
-/// {
-///   "Provider": {
-///     "ProviderKey": "azure-ai",
-///     "ModelName": "gpt-4",
-///     "Endpoint": "https://your-project.services.ai.azure.com",
-///     "ProviderOptions": { "maxTokens": 4096, "temperature": 0.7 }
-///   }
-/// }
-/// </code>
+/// Authentication strategy for Azure AI provider client construction.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<AzureAIAuthMode>))]
+public enum AzureAIAuthMode
+{
+    /// <summary>
+    /// Use API key authentication when an API key is configured; otherwise use DefaultAzureCredential.
+    /// </summary>
+    Auto = 0,
+
+    /// <summary>
+    /// Use API key authentication. Only supported for direct Azure OpenAI-compatible endpoints.
+    /// </summary>
+    ApiKey = 1,
+
+    /// <summary>
+    /// Use DefaultAzureCredential.
+    /// </summary>
+    DefaultAzureCredential = 2
+}
+
+/// <summary>
+/// Azure AI Projects service API version used by AIProjectClientOptions.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<AzureAIProjectServiceVersion>))]
+public enum AzureAIProjectServiceVersion
+{
+    /// <summary>
+    /// Azure AI Projects API version 2025-05-01.
+    /// </summary>
+    V2025_05_01 = 1,
+
+    /// <summary>
+    /// Stable Azure AI Projects API version.
+    /// </summary>
+    V1 = 2
+}
+
+/// <summary>
+/// Azure OpenAI service API version used by the downstream AzureOpenAIClientOptions.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<AzureAIOpenAIServiceVersion>))]
+public enum AzureAIOpenAIServiceVersion
+{
+    /// <summary>
+    /// Azure OpenAI API version 2024-06-01.
+    /// </summary>
+    V2024_06_01 = 0,
+
+    /// <summary>
+    /// Azure OpenAI API version 2024-08-01-preview.
+    /// </summary>
+    V2024_08_01_Preview = 1,
+
+    /// <summary>
+    /// Azure OpenAI API version 2024-09-01-preview.
+    /// </summary>
+    V2024_09_01_Preview = 2,
+
+    /// <summary>
+    /// Azure OpenAI API version 2024-10-01-preview.
+    /// </summary>
+    V2024_10_01_Preview = 3,
+
+    /// <summary>
+    /// Azure OpenAI API version 2024-10-21.
+    /// </summary>
+    V2024_10_21 = 4,
+
+    /// <summary>
+    /// Azure OpenAI API version 2024-12-01-preview.
+    /// </summary>
+    V2024_12_01_Preview = 5,
+
+    /// <summary>
+    /// Azure OpenAI API version 2025-01-01-preview.
+    /// </summary>
+    V2025_01_01_Preview = 6,
+
+    /// <summary>
+    /// Azure OpenAI API version 2025-03-01-preview.
+    /// </summary>
+    V2025_03_01_Preview = 8,
+
+    /// <summary>
+    /// Azure OpenAI API version 2025-04-01-preview.
+    /// </summary>
+    V2025_04_01_Preview = 9
+}
+
+/// <summary>
+/// Azure AI Projects-specific provider configuration.
 /// </summary>
 public class AzureAIProviderConfig
 {
-    //
-    // CORE PARAMETERS
-    //
+    /// <summary>
+    /// Authentication strategy used by the provider.
+    /// </summary>
+    [JsonPropertyName("authMode")]
+    public AzureAIAuthMode AuthMode { get; set; } = AzureAIAuthMode.Auto;
 
     /// <summary>
-    /// Maximum number of tokens to generate. Default: 4096.
-    /// Maps to ChatCompletionOptions.MaxOutputTokenCount.
+    /// Azure AI Projects service API version used by AIProjectClientOptions.
     /// </summary>
-    [JsonPropertyName("maxTokens")]
-    public int? MaxTokens { get; set; }
-
-    //
-    // SAMPLING PARAMETERS
-    //
+    [JsonPropertyName("projectServiceVersion")]
+    public AzureAIProjectServiceVersion? ProjectServiceVersion { get; set; }
 
     /// <summary>
-    /// Amount of randomness injected into the response.
-    /// Ranges from 0.0 to 2.0. Higher values increase creativity.
-    /// Use temperature closer to 0.0 for analytical tasks, and closer to 1.0+ for creative tasks.
-    /// Maps to ChatCompletionOptions.Temperature.
+    /// Azure OpenAI service API version used for the downstream AzureOpenAIClient.
     /// </summary>
-    [JsonPropertyName("temperature")]
-    public float? Temperature { get; set; }
+    [JsonPropertyName("openAIServiceVersion")]
+    public AzureAIOpenAIServiceVersion? OpenAIServiceVersion { get; set; }
 
     /// <summary>
-    /// Use nucleus sampling (Top-P). Compute the cumulative distribution over all options
-    /// for each subsequent token in decreasing probability order and cut it off
-    /// once it reaches a particular probability specified by top_p.
-    /// Ranges from 0.0 to 1.0.
-    /// You should either alter temperature or topP, but not both.
-    /// Maps to ChatCompletionOptions.TopP.
+    /// Azure OpenAI connection id looked up from the Azure AI project.
     /// </summary>
-    [JsonPropertyName("topP")]
-    public float? TopP { get; set; }
+    [JsonPropertyName("openAIConnectionId")]
+    public string? OpenAIConnectionId { get; set; }
 
     /// <summary>
-    /// Frequency penalty reduces the likelihood of repeating the same token.
-    /// Ranges from -2.0 to 2.0.
-    /// Positive values penalize tokens based on their frequency in the text so far.
-    /// Maps to ChatCompletionOptions.FrequencyPenalty.
+    /// Optional Entra authentication audience/scope used by the downstream Azure OpenAI client.
     /// </summary>
-    [JsonPropertyName("frequencyPenalty")]
-    public float? FrequencyPenalty { get; set; }
+    [JsonPropertyName("openAIAudience")]
+    public string? OpenAIAudience { get; set; }
 
     /// <summary>
-    /// Presence penalty reduces the likelihood of repeating any token that has appeared.
-    /// Ranges from -2.0 to 2.0.
-    /// Positive values penalize tokens that have already appeared in the text.
-    /// Maps to ChatCompletionOptions.PresencePenalty.
+    /// Default request headers applied by the downstream AzureOpenAIClientOptions.
     /// </summary>
-    [JsonPropertyName("presencePenalty")]
-    public float? PresencePenalty { get; set; }
+    [JsonPropertyName("openAIDefaultHeaders")]
+    public Dictionary<string, string>? OpenAIDefaultHeaders { get; set; }
 
     /// <summary>
-    /// Custom text sequences that will cause the model to stop generating.
-    /// If the model encounters one of these sequences, generation stops.
-    /// Maps to ChatCompletionOptions.StopSequences.
+    /// Advanced default query parameters applied by the downstream AzureOpenAIClientOptions.
+    /// Prefer OpenAIServiceVersion for normal API version selection.
     /// </summary>
-    [JsonPropertyName("stopSequences")]
-    public List<string>? StopSequences { get; set; }
-
-    //
-    // DETERMINISM
-    //
+    [JsonPropertyName("openAIDefaultQueryParameters")]
+    public Dictionary<string, string>? OpenAIDefaultQueryParameters { get; set; }
 
     /// <summary>
-    /// Seed for deterministic generation. Setting a seed will make the model
-    /// attempt to generate the same output for the same input.
-    /// Note: This is best-effort determinism and may vary across different
-    /// model versions or infrastructure.
-    /// Maps to ChatCompletionOptions.Seed.
+    /// Optional application id appended to Azure SDK user agents.
     /// </summary>
-    [JsonPropertyName("seed")]
-    public long? Seed { get; set; }
-
-    //
-    // RESPONSE FORMAT
-    //
+    [JsonPropertyName("userAgentApplicationId")]
+    public string? UserAgentApplicationId { get; set; }
 
     /// <summary>
-    /// Output format specification. Options:
-    /// - "text" (default): Plain text response
-    /// - "json_object": Loose JSON mode (model generates valid JSON)
-    /// - "json_schema": Structured output with strict schema validation
-    ///
-    /// For json_schema mode, use JsonSchemaName and JsonSchema properties.
-    /// Maps to ChatCompletionOptions.ResponseFormat.
+    /// Network timeout in milliseconds for Azure SDK pipelines.
     /// </summary>
-    [JsonPropertyName("responseFormat")]
-    public string? ResponseFormat { get; set; }
+    [JsonPropertyName("networkTimeoutMs")]
+    public int? NetworkTimeoutMs { get; set; }
 
     /// <summary>
-    /// Name of the JSON schema when using json_schema response format.
-    /// Required when ResponseFormat is "json_schema".
+    /// Enables or disables distributed tracing in Azure SDK pipelines.
     /// </summary>
-    [JsonPropertyName("jsonSchemaName")]
-    public string? JsonSchemaName { get; set; }
+    [JsonPropertyName("enableDistributedTracing")]
+    public bool? EnableDistributedTracing { get; set; }
 
-    /// <summary>
-    /// JSON schema definition as a JSON string when using json_schema response format.
-    /// Required when ResponseFormat is "json_schema".
-    /// Example: "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}}}"
-    /// </summary>
-    [JsonPropertyName("jsonSchema")]
-    public string? JsonSchema { get; set; }
-
-    /// <summary>
-    /// Optional description for the JSON schema.
-    /// Only used when ResponseFormat is "json_schema".
-    /// </summary>
-    [JsonPropertyName("jsonSchemaDescription")]
-    public string? JsonSchemaDescription { get; set; }
-
-    /// <summary>
-    /// Whether to enforce strict schema adherence for structured outputs.
-    /// Default: true when using json_schema response format.
-    /// Only used when ResponseFormat is "json_schema".
-    /// </summary>
-    [JsonPropertyName("jsonSchemaIsStrict")]
-    public bool? JsonSchemaIsStrict { get; set; }
-
-    //
-    // TOOL/FUNCTION CALLING
-    //
-
-    /// <summary>
-    /// Tool choice behavior control. Options:
-    /// - "auto" (default): Model decides whether to call tools
-    /// - "none": Model will not call any tools
-    /// - "required": Model must call at least one tool
-    ///
-    /// Maps to ChatCompletionOptions.ToolChoice.
-    /// Note: Tools are defined at the request level, not in config.
-    /// </summary>
-    [JsonPropertyName("toolChoice")]
-    public string? ToolChoice { get; set; }
-
-    //
-    // AZURE AI PROJECTS SPECIFIC
-    //
-
-    /// <summary>
-    /// Azure AI Project ID/Name. If not provided, will be extracted from the endpoint URL.
-    /// Format: The project name portion of https://account.services.ai.azure.com/api/projects/PROJECT_NAME
-    /// </summary>
-    [JsonPropertyName("projectId")]
-    public string? ProjectId { get; set; }
-
-    /// <summary>
-    /// Whether to use DefaultAzureCredential for OAuth/Entra ID authentication.
-    /// Default: false (uses API key if provided).
-    /// When true, ignores ApiKey and uses Azure Identity for authentication.
-    /// </summary>
-    [JsonPropertyName("useDefaultAzureCredential")]
-    public bool UseDefaultAzureCredential { get; set; }
 }

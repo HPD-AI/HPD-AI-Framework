@@ -1,11 +1,9 @@
-using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace HPD.Agent.Providers.DashScope;
 
 /// <summary>
 /// DashScope-specific provider configuration.
-/// These options map to Microsoft.Extensions.AI options supported by the Cnblogs DashScope adapter.
 /// </summary>
 public class DashScopeProviderConfig
 {
@@ -43,44 +41,8 @@ public class DashScopeProviderConfig
     /// Forces use of DashScope multimodal generation endpoints.
     /// If null, the adapter infers this from the model id.
     /// </summary>
-    [JsonPropertyName("useVl")]
-    public bool? UseVl { get; set; }
-
-    /// <summary>
-    /// Controls randomness. Valid range: 0.0 to 2.0.
-    /// </summary>
-    [JsonPropertyName("temperature")]
-    public double? Temperature { get; set; }
-
-    /// <summary>
-    /// Nucleus sampling probability mass. Valid range: 0.0 to 1.0.
-    /// </summary>
-    [JsonPropertyName("topP")]
-    public double? TopP { get; set; }
-
-    /// <summary>
-    /// Maximum number of tokens to consider at each generation step. Must be greater than 0.
-    /// </summary>
-    [JsonPropertyName("topK")]
-    public int? TopK { get; set; }
-
-    /// <summary>
-    /// Maximum number of output tokens to generate. Must be greater than 0.
-    /// </summary>
-    [JsonPropertyName("maxOutputTokens")]
-    public int? MaxOutputTokens { get; set; }
-
-    /// <summary>
-    /// Seed for deterministic generation. Must be non-negative.
-    /// </summary>
-    [JsonPropertyName("seed")]
-    public long? Seed { get; set; }
-
-    /// <summary>
-    /// Character sequences that stop generation.
-    /// </summary>
-    [JsonPropertyName("stopSequences")]
-    public List<string>? StopSequences { get; set; }
+    [JsonPropertyName("defaultUseVl")]
+    public bool? DefaultUseVl { get; set; }
 
     /// <summary>
     /// Default embedding model.

@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.Collections.Generic;
 
 namespace HPD.Agent.Providers.HuggingFace;
 
@@ -12,6 +13,8 @@ namespace HPD.Agent.Providers.HuggingFace;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(HuggingFaceProviderConfig))]
+[JsonSerializable(typeof(HuggingFaceChatRequestOptions))]
+[JsonSerializable(typeof(List<float>))]
 internal partial class HuggingFaceJsonContext : JsonSerializerContext
 {
 }

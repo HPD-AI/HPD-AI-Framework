@@ -97,12 +97,6 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
             errors.Add("Endpoint must be a valid, absolute URI");
         }
 
-        var providerConfig = ResolveProviderConfig(config);
-        if (providerConfig is not null)
-        {
-            ValidateProviderOptions(providerConfig, errors);
-        }
-
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
             : ProviderValidationResult.Success();
@@ -164,9 +158,6 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
         }
     }
 
-    protected virtual void ValidateProviderOptions(TConfig config, IList<string> errors)
-        => OpenAICompatibleChatOptionsDefaults.Validate(config, errors);
-
     protected static Uri EnsureTrailingSlash(Uri endpoint)
         => endpoint.AbsoluteUri.EndsWith("/", StringComparison.Ordinal)
             ? endpoint
@@ -220,4 +211,3 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
             : EnsureTrailingSlash(new Uri(endpointValue, UriKind.Absolute));
     }
 }
-

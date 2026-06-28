@@ -33,7 +33,7 @@ public sealed class ModelSelectionCommandTests
                     "deepseek/deepseek-chat",
                     "DeepSeek Chat",
                     IsRecommended: true,
-                    SupportsTools: true)
+                    Capabilities: new AgentTuiModelCapabilities(SupportsTools: true))
             ]);
         var registry = new HpdAgentTuiBuilder()
             .AddModelSelection(catalog, selection)
@@ -87,7 +87,10 @@ public sealed class ModelSelectionCommandTests
             command,
             arguments));
 
-        selection.Current.Should().BeEquivalentTo(new AgentTuiSelectedModel("openrouter", "model-a"));
+        selection.Current.Should().BeEquivalentTo(new AgentTuiSelectedModel(
+            "openrouter",
+            "model-a",
+            Capabilities: AgentTuiModelCapabilities.None));
     }
 
     [Fact]
@@ -108,12 +111,12 @@ public sealed class ModelSelectionCommandTests
                     "text-only",
                     "Text Only",
                     IsRecommended: true,
-                    SupportsTools: false),
+                    Capabilities: new AgentTuiModelCapabilities(SupportsTools: false)),
                 new AgentTuiModelChoice(
                     "openrouter",
                     "tool-model",
                     "Tool Model",
-                    SupportsTools: true)
+                    Capabilities: new AgentTuiModelCapabilities(SupportsTools: true))
             ]);
         var registry = new HpdAgentTuiBuilder()
             .AddModelSelection(catalog, selection)
@@ -134,7 +137,7 @@ public sealed class ModelSelectionCommandTests
 
         selection.Current.Should().NotBeNull();
         selection.Current!.ModelId.Should().Be("text-only");
-        selection.Current.SupportsTools.Should().BeFalse();
+        selection.Current.Capabilities!.SupportsTools.Should().BeFalse();
     }
 
     [Fact]
@@ -155,12 +158,12 @@ public sealed class ModelSelectionCommandTests
                     "text-only",
                     "Text Only",
                     IsRecommended: true,
-                    SupportsTools: false),
+                    Capabilities: new AgentTuiModelCapabilities(SupportsTools: false)),
                 new AgentTuiModelChoice(
                     "openrouter",
                     "tool-model",
                     "Tool Model",
-                    SupportsTools: true)
+                    Capabilities: new AgentTuiModelCapabilities(SupportsTools: true))
             ]);
         var registry = new HpdAgentTuiBuilder()
             .AddModelSelection(catalog, selection, configure: static options => options.RequireToolSupport = true)
@@ -181,7 +184,249 @@ public sealed class ModelSelectionCommandTests
 
         selection.Current.Should().NotBeNull();
         selection.Current!.ModelId.Should().Be("tool-model");
-        selection.Current.SupportsTools.Should().BeTrue();
+        selection.Current.Capabilities!.SupportsTools.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ModelCommand_ConfiguresSelectionBeforeCommit()
+    {
+        var selection = new AgentTuiModelSelectionState();
+        var configureSawUncommittedState = false;
+        var commitSawFinalState = false;
+        var catalog = new TestModelCatalog(
+            [
+                new AgentTuiProviderChoice(
+                    "openai",
+                    "OpenAI",
+                    IsRegistered: true,
+                    IsAuthenticated: true)
+            ],
+            [
+                new AgentTuiModelChoice(
+                    "openai",
+                    "gpt-5.5",
+                    "GPT-5.5",
+                    IsRecommended: true,
+                    Capabilities: new AgentTuiModelCapabilities(
+                        SupportsTools: true,
+                        SupportsReasoning: true))
+            ]);
+        var registry = new HpdAgentTuiBuilder()
+            .AddModelSelection(catalog, selection, configure: options =>
+            {
+                options.ConfigureSelection = (_, model) =>
+                {
+                    configureSawUncommittedState = selection.Current is null;
+                    return ValueTask.FromResult(model with
+                    {
+                        Chat = new ChatRunConfig
+                        {
+                            Reasoning = new ReasoningOptions
+                            {
+                                Effort = ReasoningEffort.High
+                            }
+                        }
+                    });
+                };
+                options.SelectionCommitted = (_, model) =>
+                {
+                    commitSawFinalState = selection.Current?.ProviderKey == model.ProviderKey
+                        && selection.Current.ModelId == model.ModelId
+                        && selection.Current.Chat?.Reasoning?.Effort == ReasoningEffort.High
+                        && model.Chat?.Reasoning?.Effort == ReasoningEffort.High;
+                    return ValueTask.CompletedTask;
+                };
+            })
+            .Build();
+        registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var shell = new ChatShellModel(scope);
+
+        await command.ExecuteAsync(new AgentTuiCommandContext(
+            scope,
+            shell,
+            shell.Navigation,
+            new NoopRuntime(),
+            new FirstChoiceDialogs(),
+            static (_, _) => ValueTask.CompletedTask,
+            command,
+            arguments));
+
+        configureSawUncommittedState.Should().BeTrue();
+        commitSawFinalState.Should().BeTrue();
+        selection.Current.Should().NotBeNull();
+        selection.Current!.Chat.Should().NotBeNull();
+        selection.Current.Chat!.Reasoning!.Effort.Should().Be(ReasoningEffort.High);
+    }
+
+    [Fact]
+    public async Task ModelCommand_CanConfigureReasoningEffort()
+    {
+        var selection = new AgentTuiModelSelectionState();
+        var catalog = new TestModelCatalog(
+            [
+                new AgentTuiProviderChoice(
+                    "openai",
+                    "OpenAI",
+                    IsRegistered: true,
+                    IsAuthenticated: true)
+            ],
+            [
+                new AgentTuiModelChoice(
+                    "openai",
+                    "gpt-5.5",
+                    "GPT-5.5",
+                    IsRecommended: true,
+                    Capabilities: new AgentTuiModelCapabilities(
+                        SupportsTools: true,
+                        SupportsReasoning: true))
+            ]);
+        var registry = new HpdAgentTuiBuilder()
+            .AddModelSelection(catalog, selection, configure: options =>
+            {
+                options.ConfigureSelection = (context, model) =>
+                    AgentTuiModelConfigFlow.ConfigureAsync(context, model);
+            })
+            .Build();
+        registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var shell = new ChatShellModel(scope);
+
+        await command.ExecuteAsync(new AgentTuiCommandContext(
+            scope,
+            shell,
+            shell.Navigation,
+            new NoopRuntime(),
+            new PreferredChoiceDialogs("High"),
+            static (_, _) => ValueTask.CompletedTask,
+            command,
+            arguments));
+
+        selection.Current.Should().NotBeNull();
+        selection.Current!.Chat?.Reasoning?.Effort.Should().Be(ReasoningEffort.High);
+    }
+
+    [Fact]
+    public async Task ModelCommand_CanConfigureMoreGenericChatOptions()
+    {
+        var selection = new AgentTuiModelSelectionState();
+        var catalog = new TestModelCatalog(
+            [
+                new AgentTuiProviderChoice(
+                    "openai",
+                    "OpenAI",
+                    IsRegistered: true,
+                    IsAuthenticated: true)
+            ],
+            [
+                new AgentTuiModelChoice(
+                    "openai",
+                    "gpt-5.5",
+                    "GPT-5.5",
+                    IsRecommended: true,
+                    Capabilities: new AgentTuiModelCapabilities(
+                        SupportsTools: true,
+                        SupportsReasoning: true,
+                        SupportsTemperature: true,
+                        OutputTokenLimit: 4096))
+            ]);
+        var registry = new HpdAgentTuiBuilder()
+            .AddModelSelection(catalog, selection, configure: options =>
+            {
+                options.ConfigureSelection = (context, model) =>
+                    AgentTuiModelConfigFlow.ConfigureAsync(context, model);
+            })
+            .Build();
+        registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var shell = new ChatShellModel(scope);
+
+        await command.ExecuteAsync(new AgentTuiCommandContext(
+            scope,
+            shell,
+            shell.Navigation,
+            new NoopRuntime(),
+            new QueuedDialogs(
+                selections:
+                [
+                    "More config",
+                    "Sampling",
+                    "Output length",
+                    "Continue"
+                ],
+                inputs:
+                [
+                    "0.2",
+                    "0.9",
+                    "40",
+                    "2048"
+                ]),
+            static (_, _) => ValueTask.CompletedTask,
+            command,
+            arguments));
+
+        selection.Current.Should().NotBeNull();
+        selection.Current!.Chat.Should().NotBeNull();
+        selection.Current.Chat!.Temperature.Should().Be(0.2);
+        selection.Current.Chat.TopP.Should().Be(0.9);
+        selection.Current.Chat.TopK.Should().Be(40);
+        selection.Current.Chat.MaxOutputTokens.Should().Be(2048);
+    }
+
+    [Fact]
+    public async Task ModelCommand_CanRunProviderModelConfigContributor()
+    {
+        var selection = new AgentTuiModelSelectionState();
+        var contributor = new TestModelConfigContributor();
+        var catalog = new TestModelCatalog(
+            [
+                new AgentTuiProviderChoice(
+                    "test-provider",
+                    "Test Provider",
+                    IsRegistered: true,
+                    IsAuthenticated: true)
+            ],
+            [
+                new AgentTuiModelChoice(
+                    "test-provider",
+                    "test-model",
+                    "Test Model",
+                    IsRecommended: true,
+                    Capabilities: new AgentTuiModelCapabilities(
+                        SupportsTools: true,
+                        SupportsTemperature: true))
+            ]);
+        var registry = new HpdAgentTuiBuilder()
+            .AddModelSelection(catalog, selection, configure: options =>
+            {
+                options.ConfigureSelection = (context, model) =>
+                    AgentTuiModelConfigFlow.ConfigureAsync(context, model, [contributor]);
+            })
+            .Build();
+        registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var shell = new ChatShellModel(scope);
+
+        await command.ExecuteAsync(new AgentTuiCommandContext(
+            scope,
+            shell,
+            shell.Navigation,
+            new NoopRuntime(),
+            new QueuedDialogs(
+                selections:
+                [
+                    "More config",
+                    "Provider behavior",
+                    "Continue"
+                ],
+                inputs: []),
+            static (_, _) => ValueTask.CompletedTask,
+            command,
+            arguments));
+
+        contributor.WasCalled.Should().BeTrue();
+        selection.Current.Should().NotBeNull();
+        selection.Current!.Chat?.AdditionalProperties.Should().Contain("provider_mode", "strict");
     }
 
     private sealed class TestModelCatalog : IAgentTuiModelCatalog
@@ -250,6 +495,146 @@ public sealed class ModelSelectionCommandTests
             bool allowEmpty = false,
             CancellationToken cancellationToken = default)
             => Task.FromResult<string?>(null);
+    }
+
+    private sealed class PreferredChoiceDialogs(params string[] preferredLabels) : HPD.Agent.TUI.Composition.IAgentTuiDialogService
+    {
+        public bool HasOpenDialog => false;
+
+        public Task<TResult?> ShowAsync<TResult>(
+            string key,
+            Func<AgentTuiDialogContext<TResult>, IComponent> componentFactory,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<TResult?>(default);
+
+        public bool Close(string key) => false;
+
+        public bool CloseTop() => false;
+
+        public Task<bool?> ConfirmAsync(
+            string title,
+            bool? defaultValue = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<bool?>(defaultValue);
+
+        public Task<T?> SelectAsync<T>(
+            string title,
+            IReadOnlyList<T> options,
+            Func<T, string> titleSelector,
+            CancellationToken cancellationToken = default)
+        {
+            foreach (var preferred in preferredLabels)
+            {
+                var match = options.FirstOrDefault(option =>
+                    string.Equals(titleSelector(option), preferred, StringComparison.OrdinalIgnoreCase));
+                if (match is not null)
+                    return Task.FromResult<T?>(match);
+            }
+
+            return Task.FromResult(options.Count > 0 ? options[0] : default);
+        }
+
+        public Task<string?> InputAsync(
+            string title,
+            string? defaultValue = null,
+            bool allowEmpty = false,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(defaultValue ?? "manual-model");
+
+        public Task<string?> SecretInputAsync(
+            string title,
+            bool allowEmpty = false,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(null);
+    }
+
+    private sealed class QueuedDialogs(
+        IReadOnlyList<string> selections,
+        IReadOnlyList<string> inputs) : HPD.Agent.TUI.Composition.IAgentTuiDialogService
+    {
+        private int _selectionIndex;
+        private int _inputIndex;
+
+        public bool HasOpenDialog => false;
+
+        public Task<TResult?> ShowAsync<TResult>(
+            string key,
+            Func<AgentTuiDialogContext<TResult>, IComponent> componentFactory,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<TResult?>(default);
+
+        public bool Close(string key) => false;
+
+        public bool CloseTop() => false;
+
+        public Task<bool?> ConfirmAsync(
+            string title,
+            bool? defaultValue = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<bool?>(defaultValue);
+
+        public Task<T?> SelectAsync<T>(
+            string title,
+            IReadOnlyList<T> options,
+            Func<T, string> titleSelector,
+            CancellationToken cancellationToken = default)
+        {
+            if (_selectionIndex < selections.Count)
+            {
+                var preferred = selections[_selectionIndex];
+                var match = options.FirstOrDefault(option =>
+                    string.Equals(titleSelector(option), preferred, StringComparison.OrdinalIgnoreCase));
+                if (match is not null)
+                {
+                    _selectionIndex++;
+                    return Task.FromResult<T?>(match);
+                }
+            }
+
+            return Task.FromResult(options.Count > 0 ? options[0] : default);
+        }
+
+        public Task<string?> InputAsync(
+            string title,
+            string? defaultValue = null,
+            bool allowEmpty = false,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(
+                _inputIndex < inputs.Count
+                    ? inputs[_inputIndex++]
+                    : defaultValue);
+
+        public Task<string?> SecretInputAsync(
+            string title,
+            bool allowEmpty = false,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(null);
+    }
+
+    private sealed class TestModelConfigContributor : IAgentTuiModelConfigContributor
+    {
+        public bool WasCalled { get; private set; }
+
+        public string Label => "Provider behavior";
+
+        public bool CanConfigure(AgentTuiSelectedModel model)
+            => model.ProviderKey == "test-provider";
+
+        public ValueTask<AgentTuiSelectedModel> ConfigureAsync(
+            AgentTuiCommandContext context,
+            AgentTuiSelectedModel model,
+            CancellationToken cancellationToken = default)
+        {
+            WasCalled = true;
+            var chat = new ChatRunConfig
+            {
+                AdditionalProperties = new Dictionary<string, object>
+                {
+                    ["provider_mode"] = "strict"
+                }
+            };
+            return ValueTask.FromResult(model with { Chat = chat });
+        }
     }
 
     private sealed class NoopRuntime : IHpdAgentTuiRuntime

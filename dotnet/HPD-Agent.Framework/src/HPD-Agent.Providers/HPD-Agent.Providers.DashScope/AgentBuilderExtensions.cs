@@ -79,6 +79,37 @@ public static class AgentBuilderExtensions
         return builder;
     }
 
+    /// <summary>
+    /// Adds DashScope-specific runtime chat request options to the chat defaults.
+    /// </summary>
+    public static AgentBuilder WithDashScopeChatRequestOptions(
+        this AgentBuilder builder,
+        DashScopeChatRequestOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(options);
+
+        var chatConfig = builder.Config.EnsureChatClientConfig();
+        chatConfig.ChatDefaults ??= new ChatRunConfig();
+        options.ApplyTo(chatConfig.ChatDefaults);
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Adds DashScope-specific runtime chat request options to the chat defaults.
+    /// </summary>
+    public static AgentBuilder WithDashScopeChatRequestOptions(
+        this AgentBuilder builder,
+        Action<DashScopeChatRequestOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+
+        var options = new DashScopeChatRequestOptions();
+        configure(options);
+        return builder.WithDashScopeChatRequestOptions(options);
+    }
+
     private static void ValidateProviderConfig(DashScopeProviderConfig config, Action<DashScopeProviderConfig>? configure)
     {
         var errors = new List<string>();

@@ -12,6 +12,11 @@ namespace HPD.Agent.Providers.Anthropic;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(AnthropicProviderConfig))]
+[JsonSerializable(typeof(AnthropicChatRequestOptions))]
+[JsonSerializable(typeof(AnthropicServiceTier))]
+[JsonSerializable(typeof(AnthropicThinkingDisplay))]
+[JsonSerializable(typeof(AnthropicCacheControlConfig))]
+[JsonSerializable(typeof(AnthropicCacheTtl))]
 public partial class AnthropicJsonContext : JsonSerializerContext
 {
 }

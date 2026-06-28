@@ -1,7 +1,8 @@
+#pragma warning disable AOAI001 // AzureOpenAIClientOptions default headers/query parameters are experimental SDK options
+
 using System;
-using System.ClientModel;
-using System.ClientModel.Primitives;
 using System.Collections.Generic;
+using System.ClientModel.Primitives;
 using System.Threading;
 using Azure;
 using Azure.AI.OpenAI;
@@ -31,7 +32,7 @@ namespace HPD.Agent.Providers.AzureAI;
 /// </para>
 /// <para>
 /// Supports Azure AI Foundry/Projects endpoints: https://*.services.ai.azure.com/api/projects/*
-/// Also supports traditional Azure OpenAI endpoints for backward compatibility.
+/// Also supports direct Azure OpenAI-compatible endpoints.
 /// </para>
 /// <para>
 /// Authentication methods:
@@ -68,15 +69,18 @@ internal class AzureAIProvider : IChatClientProvider
         // Get typed config
         var azureConfig = config.GetProviderConfig<AzureAIProviderConfig>();
 
-        // Determine authentication method
-        bool useOAuth = azureConfig?.UseDefaultAzureCredential ?? false;
+        var authMode = azureConfig?.AuthMode ?? AzureAIAuthMode.Auto;
+        string? apiKey = authMode == AzureAIAuthMode.DefaultAzureCredential
+            ? null
+            : secrets.ResolveOrDefaultAsync("azure-ai:ApiKey", config.ApiKey, CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
 
-        // Resolve API key using ISecretResolver (unless OAuth is requested)
-        string? apiKey = null;
-        if (!useOAuth)
+        if (authMode == AzureAIAuthMode.ApiKey && string.IsNullOrEmpty(apiKey))
         {
-            var apiKeyTask = secrets.RequireAsync("azure-ai:ApiKey", "Azure AI", config.ApiKey, CancellationToken.None);
-            apiKey = apiKeyTask.GetAwaiter().GetResult();
+            throw new InvalidOperationException(
+                "Azure AI API key authentication was requested, but no API key was configured. " +
+                "Set apiKey, AZURE_AI_API_KEY, or change AuthMode to DefaultAzureCredential.");
         }
 
         // Create chat client based on endpoint type
@@ -88,13 +92,15 @@ internal class AzureAIProvider : IChatClientProvider
         {
             // Azure AI Projects endpoint - only supports OAuth (DefaultAzureCredential)
             // For Azure AI Foundry, API keys are not supported - must use OAuth
-            TokenCredential credential = string.IsNullOrEmpty(apiKey)
-                ? new DefaultAzureCredential()
-                : throw new InvalidOperationException(
+            if (!string.IsNullOrEmpty(apiKey))
+            {
+                throw new InvalidOperationException(
                     "Azure AI Foundry/Projects endpoints require OAuth authentication. " +
-                    "Set UseDefaultAzureCredential = true or omit the API key.");
+                    "Set AuthMode = DefaultAzureCredential or omit the API key.");
+            }
 
-            chatClient = CreateProjectsChatClient(endpointUri, modelName, credential);
+            TokenCredential credential = new DefaultAzureCredential();
+            chatClient = CreateProjectsChatClient(endpointUri, modelName, credential, azureConfig);
         }
         else
         {
@@ -103,25 +109,32 @@ internal class AzureAIProvider : IChatClientProvider
             {
                 // Use OAuth
                 TokenCredential credential = new DefaultAzureCredential();
-                chatClient = CreateAzureOpenAIChatClient(endpointUri, modelName, credential);
+                chatClient = CreateAzureOpenAIChatClient(endpointUri, modelName, credential, azureConfig);
             }
             else
             {
                 // Use API key
-                chatClient = CreateAzureOpenAIChatClientWithKey(endpointUri, modelName, apiKey);
+                chatClient = CreateAzureOpenAIChatClientWithKey(endpointUri, modelName, apiKey, azureConfig);
             }
         }
 
         return chatClient;
     }
 
-    private static IChatClient CreateProjectsChatClient(Uri projectEndpoint, string modelName, TokenCredential credential)
+    private static IChatClient CreateProjectsChatClient(
+        Uri projectEndpoint,
+        string modelName,
+        TokenCredential credential,
+        AzureAIProviderConfig? config)
     {
         // Create AIProjectClient
-        var projectClient = new AIProjectClient(projectEndpoint, credential);
+        var projectClient = new AIProjectClient(projectEndpoint, credential, CreateProjectClientOptions(config));
 
         // Get the Azure OpenAI connection from the project
-        var connection = projectClient.GetConnection(typeof(AzureOpenAIClient).FullName!);
+        var connectionId = string.IsNullOrWhiteSpace(config?.OpenAIConnectionId)
+            ? typeof(AzureOpenAIClient).FullName!
+            : config.OpenAIConnectionId;
+        var connection = projectClient.GetConnection(connectionId);
 
         if (!connection.TryGetLocatorAsUri(out Uri? openAIUri) || openAIUri is null)
         {
@@ -129,31 +142,123 @@ internal class AzureAIProvider : IChatClientProvider
         }
 
         // Create Azure OpenAI client using the connection
-        var azureOpenAIClient = new AzureOpenAIClient(new Uri($"https://{openAIUri.Host}"), credential);
+        var azureOpenAIClient = new AzureOpenAIClient(
+            new Uri($"https://{openAIUri.Host}"),
+            credential,
+            CreateAzureOpenAIClientOptions(config));
         var chatClient = azureOpenAIClient.GetChatClient(modelName);
 
         // Convert to IChatClient using Microsoft.Extensions.AI
         return chatClient.AsIChatClient();
     }
 
-    private static IChatClient CreateAzureOpenAIChatClient(Uri endpoint, string modelName, TokenCredential credential)
+    private static IChatClient CreateAzureOpenAIChatClient(
+        Uri endpoint,
+        string modelName,
+        TokenCredential credential,
+        AzureAIProviderConfig? config)
     {
         // Direct Azure OpenAI endpoint with OAuth
-        var azureOpenAIClient = new AzureOpenAIClient(endpoint, credential);
+        var azureOpenAIClient = new AzureOpenAIClient(endpoint, credential, CreateAzureOpenAIClientOptions(config));
         var chatClient = azureOpenAIClient.GetChatClient(modelName);
 
         // Convert to IChatClient using Microsoft.Extensions.AI
         return chatClient.AsIChatClient();
     }
 
-    private static IChatClient CreateAzureOpenAIChatClientWithKey(Uri endpoint, string modelName, string apiKey)
+    private static IChatClient CreateAzureOpenAIChatClientWithKey(
+        Uri endpoint,
+        string modelName,
+        string apiKey,
+        AzureAIProviderConfig? config)
     {
         // Direct Azure OpenAI endpoint with API key
-        var azureOpenAIClient = new AzureOpenAIClient(endpoint, new AzureKeyCredential(apiKey));
+        var azureOpenAIClient = new AzureOpenAIClient(
+            endpoint,
+            new System.ClientModel.ApiKeyCredential(apiKey),
+            CreateAzureOpenAIClientOptions(config));
         var chatClient = azureOpenAIClient.GetChatClient(modelName);
 
         // Convert to IChatClient using Microsoft.Extensions.AI
         return chatClient.AsIChatClient();
+    }
+
+    private static AIProjectClientOptions CreateProjectClientOptions(AzureAIProviderConfig? config)
+    {
+        var options = config?.ProjectServiceVersion is { } serviceVersion
+            ? new AIProjectClientOptions(ToSdkProjectServiceVersion(serviceVersion))
+            : new AIProjectClientOptions();
+
+        if (config is null)
+            return options;
+
+        if (!string.IsNullOrEmpty(config.UserAgentApplicationId))
+            options.UserAgentApplicationId = config.UserAgentApplicationId;
+
+        ApplyPipelineOptions(options, config.NetworkTimeoutMs, config.EnableDistributedTracing);
+
+        return options;
+    }
+
+    private static AzureOpenAIClientOptions CreateAzureOpenAIClientOptions(AzureAIProviderConfig? config)
+    {
+        var options = config?.OpenAIServiceVersion is { } serviceVersion
+            ? new AzureOpenAIClientOptions(ToSdkOpenAIServiceVersion(serviceVersion))
+            : new AzureOpenAIClientOptions();
+
+        if (config is null)
+            return options;
+
+        if (!string.IsNullOrEmpty(config.OpenAIAudience))
+            options.Audience = new AzureOpenAIAudience(config.OpenAIAudience);
+
+        if (config.OpenAIDefaultHeaders is { Count: > 0 })
+            options.DefaultHeaders = config.OpenAIDefaultHeaders;
+
+        if (config.OpenAIDefaultQueryParameters is { Count: > 0 })
+            options.DefaultQueryParameters = config.OpenAIDefaultQueryParameters;
+
+        if (!string.IsNullOrEmpty(config.UserAgentApplicationId))
+            options.UserAgentApplicationId = config.UserAgentApplicationId;
+
+        ApplyPipelineOptions(options, config.NetworkTimeoutMs, config.EnableDistributedTracing);
+
+        return options;
+    }
+
+    private static AIProjectClientOptions.ServiceVersion ToSdkProjectServiceVersion(AzureAIProjectServiceVersion version)
+        => version switch
+        {
+            AzureAIProjectServiceVersion.V2025_05_01 => AIProjectClientOptions.ServiceVersion.V2025_05_01,
+            AzureAIProjectServiceVersion.V1 => AIProjectClientOptions.ServiceVersion.V1,
+            _ => throw new ArgumentOutOfRangeException(nameof(version), version, "Unsupported Azure AI Projects service version.")
+        };
+
+    private static AzureOpenAIClientOptions.ServiceVersion ToSdkOpenAIServiceVersion(AzureAIOpenAIServiceVersion version)
+        => version switch
+        {
+            AzureAIOpenAIServiceVersion.V2024_06_01 => AzureOpenAIClientOptions.ServiceVersion.V2024_06_01,
+            AzureAIOpenAIServiceVersion.V2024_08_01_Preview => AzureOpenAIClientOptions.ServiceVersion.V2024_08_01_Preview,
+            AzureAIOpenAIServiceVersion.V2024_09_01_Preview => AzureOpenAIClientOptions.ServiceVersion.V2024_09_01_Preview,
+            AzureAIOpenAIServiceVersion.V2024_10_01_Preview => AzureOpenAIClientOptions.ServiceVersion.V2024_10_01_Preview,
+            AzureAIOpenAIServiceVersion.V2024_10_21 => AzureOpenAIClientOptions.ServiceVersion.V2024_10_21,
+            AzureAIOpenAIServiceVersion.V2024_12_01_Preview => AzureOpenAIClientOptions.ServiceVersion.V2024_12_01_Preview,
+            AzureAIOpenAIServiceVersion.V2025_01_01_Preview => AzureOpenAIClientOptions.ServiceVersion.V2025_01_01_Preview,
+            AzureAIOpenAIServiceVersion.V2025_03_01_Preview => AzureOpenAIClientOptions.ServiceVersion.V2025_03_01_Preview,
+            AzureAIOpenAIServiceVersion.V2025_04_01_Preview => AzureOpenAIClientOptions.ServiceVersion.V2025_04_01_Preview,
+            _ => throw new ArgumentOutOfRangeException(nameof(version), version, "Unsupported Azure OpenAI service version.")
+        };
+
+    private static void ApplyPipelineOptions(
+        ClientPipelineOptions options,
+        int? networkTimeoutMs,
+        bool? enableDistributedTracing)
+    {
+        if (networkTimeoutMs.HasValue)
+            options.NetworkTimeout = TimeSpan.FromMilliseconds(networkTimeoutMs.Value);
+
+        if (enableDistributedTracing.HasValue)
+            options.EnableDistributedTracing = enableDistributedTracing.Value;
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -191,74 +296,20 @@ internal class AzureAIProvider : IChatClientProvider
         if (string.IsNullOrEmpty(config.ModelName))
             errors.Add("Model name (deployment name) is required for Azure AI");
 
-        // Note: Endpoint and API key validation is now deferred to CreateChatClient where ISecretResolver is available
-        // This method only validates config structure, not secret resolution
-        if (string.IsNullOrEmpty(config.Endpoint))
-        {
-            errors.Add("Endpoint is required for Azure AI. " +
-                      "Set it via the endpoint parameter, AZURE_AI_ENDPOINT environment variable, or configuration.");
-        }
-
-        // Validate Azure-specific config if present
         var azureConfig = config.GetProviderConfig<AzureAIProviderConfig>();
-        if (azureConfig != null)
+        if (azureConfig is not null)
         {
-            // Validate Temperature range
-            if (azureConfig.Temperature.HasValue && (azureConfig.Temperature.Value < 0 || azureConfig.Temperature.Value > 2))
-            {
-                errors.Add("Temperature must be between 0 and 2");
-            }
+            if (!Enum.IsDefined(azureConfig.AuthMode))
+                errors.Add("Azure AI AuthMode must be Auto, ApiKey, or DefaultAzureCredential.");
 
-            // Validate TopP range
-            if (azureConfig.TopP.HasValue && (azureConfig.TopP.Value < 0 || azureConfig.TopP.Value > 1))
-            {
-                errors.Add("TopP must be between 0 and 1");
-            }
+            if (azureConfig.ProjectServiceVersion.HasValue && !Enum.IsDefined(azureConfig.ProjectServiceVersion.Value))
+                errors.Add("Azure AI ProjectServiceVersion must be a supported AIProjectClientOptions.ServiceVersion value.");
 
-            // Validate FrequencyPenalty range
-            if (azureConfig.FrequencyPenalty.HasValue && (azureConfig.FrequencyPenalty.Value < -2 || azureConfig.FrequencyPenalty.Value > 2))
-            {
-                errors.Add("FrequencyPenalty must be between -2 and 2");
-            }
+            if (azureConfig.OpenAIServiceVersion.HasValue && !Enum.IsDefined(azureConfig.OpenAIServiceVersion.Value))
+                errors.Add("Azure AI OpenAIServiceVersion must be a supported AzureOpenAIClientOptions.ServiceVersion value.");
 
-            // Validate PresencePenalty range
-            if (azureConfig.PresencePenalty.HasValue && (azureConfig.PresencePenalty.Value < -2 || azureConfig.PresencePenalty.Value > 2))
-            {
-                errors.Add("PresencePenalty must be between -2 and 2");
-            }
-
-            // Validate ResponseFormat
-            if (!string.IsNullOrEmpty(azureConfig.ResponseFormat))
-            {
-                var validFormats = new[] { "text", "json_object", "json_schema" };
-                if (!validFormats.Contains(azureConfig.ResponseFormat))
-                {
-                    errors.Add("ResponseFormat must be one of: text, json_object, json_schema");
-                }
-
-                // Validate json_schema requirements
-                if (azureConfig.ResponseFormat == "json_schema")
-                {
-                    if (string.IsNullOrEmpty(azureConfig.JsonSchemaName))
-                    {
-                        errors.Add("JsonSchemaName is required when ResponseFormat is json_schema");
-                    }
-                    if (string.IsNullOrEmpty(azureConfig.JsonSchema))
-                    {
-                        errors.Add("JsonSchema is required when ResponseFormat is json_schema");
-                    }
-                }
-            }
-
-            // Validate ToolChoice
-            if (!string.IsNullOrEmpty(azureConfig.ToolChoice))
-            {
-                var validChoices = new[] { "auto", "none", "required" };
-                if (!validChoices.Contains(azureConfig.ToolChoice))
-                {
-                    errors.Add("ToolChoice must be one of: auto, none, required");
-                }
-            }
+            if (azureConfig.NetworkTimeoutMs is <= 0)
+                errors.Add("Azure AI NetworkTimeoutMs must be greater than 0 when specified.");
         }
 
         return errors.Count > 0

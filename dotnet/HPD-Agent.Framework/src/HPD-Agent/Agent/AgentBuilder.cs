@@ -1568,7 +1568,13 @@ public class AgentBuilder
     /// <returns>The builder instance for chaining</returns>
     public AgentBuilder WithReasoning(ReasoningEffort effort = ReasoningEffort.Medium, ReasoningOutput output = ReasoningOutput.Full)
     {
-        _config.DefaultReasoning = new ReasoningOptions { Effort = effort, Output = output };
+        var chatConfig = _config.EnsureChatClientConfig();
+        chatConfig.ChatDefaults ??= new ChatRunConfig();
+        chatConfig.ChatDefaults.Reasoning = new ReasoningOptions
+        {
+            Effort = effort,
+            Output = output
+        };
         return this;
     }
 
@@ -1737,11 +1743,35 @@ public class AgentBuilder
     }
 
     /// <summary>
-    /// Sets default chat options (including backend tools)
+    /// Sets serializable default chat run options.
     /// </summary>
-    public AgentBuilder WithDefaultOptions(ChatOptions options)
+    public AgentBuilder WithChatDefaults(ChatRunConfig defaults)
     {
-        EnsureChatClientConfig().DefaultChatOptions = options;
+        ArgumentNullException.ThrowIfNull(defaults);
+        EnsureChatClientConfig().ChatDefaults = defaults;
+        return this;
+    }
+
+    /// <summary>
+    /// Configures serializable default chat run options.
+    /// </summary>
+    public AgentBuilder WithChatDefaults(Action<ChatRunConfig> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        var chatConfig = EnsureChatClientConfig();
+        chatConfig.ChatDefaults ??= new ChatRunConfig();
+        configure(chatConfig.ChatDefaults);
+        return this;
+    }
+
+    /// <summary>
+    /// Sets runtime-only MEAI chat options for advanced in-process scenarios such as tools.
+    /// Prefer WithChatDefaults for serializable defaults.
+    /// </summary>
+    public AgentBuilder WithDefaultMicrosoftChatOptions(ChatOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        EnsureChatClientConfig().SetDefaultMicrosoftChatOptions(options);
         return this;
     }
 
@@ -2269,7 +2299,7 @@ public class AgentBuilder
         }
 
         return new AgentToolBuildResult(
-            MergeToolFunctions(_config.ResolveClientConfig(ProviderClientFamily.Chat)?.DefaultChatOptions, toolFunctions),
+            MergeToolFunctions(_config.ResolveClientConfig(ProviderClientFamily.Chat)?.BuildEffectiveChatOptions(), toolFunctions),
             openApiResult?.OwnedHttpClients.Count > 0 ? openApiResult.OwnedHttpClients : null);
     }
 
@@ -2743,7 +2773,7 @@ public class AgentBuilder
         if (toolFunctions.Count == 0)
             return defaultOptions;
 
-        var options = defaultOptions ?? new ChatOptions();
+        var options = defaultOptions?.Clone() ?? new ChatOptions();
 
         // Add ToolHarness functions to existing tools
         var allTools = new List<AITool>(options.Tools ?? []);
@@ -2752,21 +2782,9 @@ public class AgentBuilder
         // Translate ToolSelectionConfig to ChatToolMode (FFI-friendly → M.E.AI)
         var toolMode = TranslateToolMode(_config.ToolSelection);
 
-        return new ChatOptions
-        {
-            Tools = allTools,
-            ToolMode = toolMode,
-            MaxOutputTokens = options.MaxOutputTokens,
-            Temperature = options.Temperature,
-            TopP = options.TopP,
-            FrequencyPenalty = options.FrequencyPenalty,
-            PresencePenalty = options.PresencePenalty,
-            ResponseFormat = options.ResponseFormat,
-            Seed = options.Seed,
-            StopSequences = options.StopSequences,
-            ModelId = options.ModelId,
-            AdditionalProperties = options.AdditionalProperties
-        };
+        options.Tools = allTools;
+        options.ToolMode = toolMode;
+        return options;
     }
 
     /// <summary>
@@ -2911,17 +2929,17 @@ public class AgentBuilder
     {
         // Get or create default chat options
         var chatConfig = EnsureChatClientConfig();
-        if (chatConfig.DefaultChatOptions == null)
-            chatConfig.DefaultChatOptions = new ChatOptions();
+        if (chatConfig.DefaultMicrosoftChatOptions == null)
+            chatConfig.DefaultMicrosoftChatOptions = new ChatOptions();
             
         // Add to tools list
-        var tools = chatConfig.DefaultChatOptions.Tools?.ToList() ?? new List<AITool>();
+        var tools = chatConfig.DefaultMicrosoftChatOptions.Tools?.ToList() ?? new List<AITool>();
         tools.Add(function);
-        chatConfig.DefaultChatOptions.Tools = tools;
+        chatConfig.DefaultMicrosoftChatOptions.Tools = tools;
 
         // Enable auto tool mode if not already set
-        if (chatConfig.DefaultChatOptions.ToolMode == null)
-            chatConfig.DefaultChatOptions.ToolMode = ChatToolMode.Auto;
+        if (chatConfig.DefaultMicrosoftChatOptions.ToolMode == null)
+            chatConfig.DefaultMicrosoftChatOptions.ToolMode = ChatToolMode.Auto;
             
         return this;
     }

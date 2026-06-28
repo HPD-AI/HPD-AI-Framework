@@ -12,6 +12,7 @@ namespace HPD.Agent.Providers.Mistral;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(MistralProviderConfig))]
+[JsonSerializable(typeof(MistralChatRequestOptions))]
 internal partial class MistralJsonContext : JsonSerializerContext
 {
 }

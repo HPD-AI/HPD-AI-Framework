@@ -60,13 +60,13 @@ internal class BedrockProvider : IChatClientProvider
         // Resolve region from explicit config, HPD secret resolvers, or the canonical environment variable.
         string? region = bedrockConfig?.Region
             ?? ResolveOptionalSecret(secrets, "bedrock:Region")
-            ?? System.Environment.GetEnvironmentVariable("AWS_REGION");
+            ?? GetEnvironmentRegion();
 
         if (string.IsNullOrEmpty(region))
         {
             throw new InvalidOperationException(
                 "For AWS Bedrock, the AWS Region must be configured via BedrockProviderConfig.Region, " +
-                "or the AWS_REGION environment variable.");
+                "AWS_REGION, AWS_DEFAULT_REGION, or the HPD secret resolver.");
         }
 
         string? modelName = config.ModelName;
@@ -107,10 +107,88 @@ internal class BedrockProvider : IChatClientProvider
             }
 
             // FIPS endpoint
-            if (config.UseFipsEndpoint)
+            if (config.UseFipsEndpoint.HasValue)
+                clientConfig.UseFIPSEndpoint = config.UseFipsEndpoint.Value;
+
+            if (config.UseDualstackEndpoint.HasValue)
+                clientConfig.UseDualstackEndpoint = config.UseDualstackEndpoint.Value;
+
+            if (config.UseHttp.HasValue)
+                clientConfig.UseHttp = config.UseHttp.Value;
+
+            if (!string.IsNullOrEmpty(config.AuthenticationRegion))
             {
-                clientConfig.UseFIPSEndpoint = true;
+                clientConfig.AuthenticationRegion = config.AuthenticationRegion;
             }
+
+            if (!string.IsNullOrEmpty(config.AuthenticationServiceName))
+                clientConfig.AuthenticationServiceName = config.AuthenticationServiceName;
+
+            if (config.AuthSchemePreference is { Count: > 0 })
+                clientConfig.AuthSchemePreference = config.AuthSchemePreference;
+
+            if (config.SigV4aSigningRegionSet is { Count: > 0 })
+                clientConfig.SigV4aSigningRegionSet = config.SigV4aSigningRegionSet;
+
+            if (config.IgnoreConfiguredEndpointUrls.HasValue)
+                clientConfig.IgnoreConfiguredEndpointUrls = config.IgnoreConfiguredEndpointUrls.Value;
+
+            if (config.DisableHostPrefixInjection.HasValue)
+                clientConfig.DisableHostPrefixInjection = config.DisableHostPrefixInjection.Value;
+
+            if (config.EndpointDiscoveryEnabled.HasValue)
+                clientConfig.EndpointDiscoveryEnabled = config.EndpointDiscoveryEnabled.Value;
+
+            if (config.DisableRequestCompression.HasValue)
+                clientConfig.DisableRequestCompression = config.DisableRequestCompression.Value;
+
+            if (config.RequestMinCompressionSizeBytes.HasValue)
+                clientConfig.RequestMinCompressionSizeBytes = config.RequestMinCompressionSizeBytes.Value;
+
+            if (!string.IsNullOrEmpty(config.ClientAppId))
+                clientConfig.ClientAppId = config.ClientAppId;
+
+            if (config.ThrottleRetries.HasValue)
+                clientConfig.ThrottleRetries = config.ThrottleRetries.Value;
+
+            if (config.FastFailRequests.HasValue)
+                clientConfig.FastFailRequests = config.FastFailRequests.Value;
+
+            if (config.CacheHttpClient.HasValue)
+                clientConfig.CacheHttpClient = config.CacheHttpClient.Value;
+
+            if (config.HttpClientCacheSize.HasValue)
+                clientConfig.HttpClientCacheSize = config.HttpClientCacheSize.Value;
+
+            if (!string.IsNullOrEmpty(config.ProxyHost))
+                clientConfig.ProxyHost = config.ProxyHost;
+
+            if (config.ProxyPort.HasValue)
+                clientConfig.ProxyPort = config.ProxyPort.Value;
+
+            if (config.MaxConnectionsPerServer.HasValue)
+                clientConfig.MaxConnectionsPerServer = config.MaxConnectionsPerServer.Value;
+
+            if (config.LogResponse.HasValue)
+                clientConfig.LogResponse = config.LogResponse.Value;
+
+            if (config.BufferSize.HasValue)
+                clientConfig.BufferSize = config.BufferSize.Value;
+
+            if (config.ProgressUpdateIntervalMs.HasValue)
+                clientConfig.ProgressUpdateInterval = config.ProgressUpdateIntervalMs.Value;
+
+            if (config.ResignRetries.HasValue)
+                clientConfig.ResignRetries = config.ResignRetries.Value;
+
+            if (config.AllowAutoRedirect.HasValue)
+                clientConfig.AllowAutoRedirect = config.AllowAutoRedirect.Value;
+
+            if (config.LogMetrics.HasValue)
+                clientConfig.LogMetrics = config.LogMetrics.Value;
+
+            if (config.DisableLogging.HasValue)
+                clientConfig.DisableLogging = config.DisableLogging.Value;
 
             // Timeouts
             if (config.RequestTimeoutMs.HasValue)
@@ -118,11 +196,25 @@ internal class BedrockProvider : IChatClientProvider
                 clientConfig.Timeout = TimeSpan.FromMilliseconds(config.RequestTimeoutMs.Value);
             }
 
+            if (config.ConnectTimeoutMs.HasValue)
+            {
+                clientConfig.ConnectTimeout = TimeSpan.FromMilliseconds(config.ConnectTimeoutMs.Value);
+            }
+
             // Retry configuration
             if (config.MaxRetryAttempts.HasValue)
             {
                 clientConfig.MaxErrorRetry = config.MaxRetryAttempts.Value;
             }
+
+            if (config.RetryMode.HasValue)
+                clientConfig.RetryMode = config.RetryMode.Value;
+
+            if (config.DefaultConfigurationMode.HasValue)
+                clientConfig.DefaultConfigurationMode = config.DefaultConfigurationMode.Value;
+
+            if (config.MaxStaleConnectionRetries.HasValue)
+                clientConfig.MaxStaleConnectionRetries = config.MaxStaleConnectionRetries.Value;
         }
 
         // Determine which credential type to use
@@ -218,72 +310,9 @@ internal class BedrockProvider : IChatClientProvider
         // Get typed config for validation
         var bedrockConfig = config.GetProviderConfig<BedrockProviderConfig>();
 
-        // Validate region from explicit config or the canonical environment variable.
-        string? region = bedrockConfig?.Region
-            ?? System.Environment.GetEnvironmentVariable("AWS_REGION");
-
-        if (string.IsNullOrEmpty(region))
-            errors.Add("AWS Region is required for Bedrock. Configure it via BedrockProviderConfig.Region or AWS_REGION environment variable.");
-
         // Validate Bedrock-specific config if present
         if (bedrockConfig != null)
         {
-            // Validate Temperature range
-            if (bedrockConfig.Temperature.HasValue && (bedrockConfig.Temperature.Value < 0 || bedrockConfig.Temperature.Value > 1))
-            {
-                errors.Add("Temperature must be between 0 and 1 for AWS Bedrock");
-            }
-
-            // Validate TopP range
-            if (bedrockConfig.TopP.HasValue && (bedrockConfig.TopP.Value < 0 || bedrockConfig.TopP.Value > 1))
-            {
-                errors.Add("TopP must be between 0 and 1 for AWS Bedrock");
-            }
-
-            // Validate MaxTokens minimum
-            if (bedrockConfig.MaxTokens.HasValue && bedrockConfig.MaxTokens.Value < 1)
-            {
-                errors.Add("MaxTokens must be at least 1");
-            }
-
-            // Validate StopSequences count
-            if (bedrockConfig.StopSequences != null && bedrockConfig.StopSequences.Count > 2500)
-            {
-                errors.Add("StopSequences cannot exceed 2500 items");
-            }
-
-            // Validate ToolChoice
-            if (!string.IsNullOrEmpty(bedrockConfig.ToolChoice))
-            {
-                var validChoices = new[] { "auto", "any", "tool" };
-                if (!validChoices.Contains(bedrockConfig.ToolChoice))
-                {
-                    errors.Add("ToolChoice must be one of: auto, any, tool");
-                }
-
-                // Validate ToolChoiceName requirement
-                if (bedrockConfig.ToolChoice == "tool" && string.IsNullOrEmpty(bedrockConfig.ToolChoiceName))
-                {
-                    errors.Add("ToolChoiceName is required when ToolChoice is 'tool'");
-                }
-            }
-
-            // Validate Guardrail configuration
-            if (!string.IsNullOrEmpty(bedrockConfig.GuardrailIdentifier) && string.IsNullOrEmpty(bedrockConfig.GuardrailVersion))
-            {
-                errors.Add("GuardrailVersion is required when GuardrailIdentifier is specified");
-            }
-
-            // Validate GuardrailTrace
-            if (!string.IsNullOrEmpty(bedrockConfig.GuardrailTrace))
-            {
-                var validTraceOptions = new[] { "enabled", "disabled" };
-                if (!validTraceOptions.Contains(bedrockConfig.GuardrailTrace))
-                {
-                    errors.Add("GuardrailTrace must be either 'enabled' or 'disabled'");
-                }
-            }
-
             // Validate credentials pairing
             if (!string.IsNullOrEmpty(bedrockConfig.AccessKeyId) && string.IsNullOrEmpty(bedrockConfig.SecretAccessKey))
             {
@@ -294,6 +323,36 @@ internal class BedrockProvider : IChatClientProvider
             {
                 errors.Add("AccessKeyId is required when SecretAccessKey is specified");
             }
+
+            if (bedrockConfig.RequestTimeoutMs is <= 0)
+                errors.Add("RequestTimeoutMs must be greater than 0 when specified");
+
+            if (bedrockConfig.ConnectTimeoutMs is <= 0)
+                errors.Add("ConnectTimeoutMs must be greater than 0 when specified");
+
+            if (bedrockConfig.MaxRetryAttempts is < 0)
+                errors.Add("MaxRetryAttempts must be greater than or equal to 0 when specified");
+
+            if (bedrockConfig.MaxStaleConnectionRetries is < 0)
+                errors.Add("MaxStaleConnectionRetries must be greater than or equal to 0 when specified");
+
+            if (bedrockConfig.RequestMinCompressionSizeBytes is < 0)
+                errors.Add("RequestMinCompressionSizeBytes must be greater than or equal to 0 when specified");
+
+            if (bedrockConfig.HttpClientCacheSize is <= 0)
+                errors.Add("HttpClientCacheSize must be greater than 0 when specified");
+
+            if (bedrockConfig.ProxyPort is <= 0 or > 65535)
+                errors.Add("ProxyPort must be between 1 and 65535 when specified");
+
+            if (bedrockConfig.MaxConnectionsPerServer is <= 0)
+                errors.Add("MaxConnectionsPerServer must be greater than 0 when specified");
+
+            if (bedrockConfig.BufferSize is <= 0)
+                errors.Add("BufferSize must be greater than 0 when specified");
+
+            if (bedrockConfig.ProgressUpdateIntervalMs is <= 0)
+                errors.Add("ProgressUpdateIntervalMs must be greater than 0 when specified");
         }
 
         return errors.Count > 0
@@ -307,4 +366,8 @@ internal class BedrockProvider : IChatClientProvider
             .GetAwaiter()
             .GetResult()
             ?.Value;
+
+    private static string? GetEnvironmentRegion()
+        => System.Environment.GetEnvironmentVariable("AWS_REGION")
+            ?? System.Environment.GetEnvironmentVariable("AWS_DEFAULT_REGION");
 }

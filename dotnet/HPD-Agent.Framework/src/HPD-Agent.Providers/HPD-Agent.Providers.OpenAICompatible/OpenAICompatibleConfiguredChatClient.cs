@@ -71,7 +71,7 @@ public sealed class OpenAICompatibleConfiguredChatClient<TConfig> : IChatClient
         CancellationToken cancellationToken = default)
         => _innerClient.GetResponseAsync(
             messages,
-            OpenAICompatibleChatOptionsDefaults.Apply(_defaultModelId, _config, options),
+            OpenAICompatibleChatRequestOptions.Apply(_defaultModelId, options),
             cancellationToken);
 
     public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
@@ -80,7 +80,6 @@ public sealed class OpenAICompatibleConfiguredChatClient<TConfig> : IChatClient
         CancellationToken cancellationToken = default)
         => _innerClient.GetStreamingResponseAsync(
             messages,
-            OpenAICompatibleChatOptionsDefaults.Apply(_defaultModelId, _config, options),
+            OpenAICompatibleChatRequestOptions.Apply(_defaultModelId, options),
             cancellationToken);
 }
-

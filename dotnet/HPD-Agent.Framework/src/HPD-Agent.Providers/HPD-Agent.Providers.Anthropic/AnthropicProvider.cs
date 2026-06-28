@@ -39,16 +39,15 @@ internal class AnthropicProvider : IChatClientProvider
             BaseUrl = config.Endpoint ?? "https://api.anthropic.com"
         });
 
-        // Get config for max tokens
-        var anthropicConfig = config.GetProviderConfig<AnthropicProviderConfig>();
-        var maxTokens = anthropicConfig?.MaxTokens ?? 4096;
+        var maxTokens = config.ChatDefaults?.MaxOutputTokens
+            ?? config.DefaultMicrosoftChatOptions?.MaxOutputTokens
+            ?? 4096;
+        var chatClient = anthropicClient.AsIChatClient(config.ModelName, maxTokens);
 
-        // Note: Most configuration (temperature, topP, thinking, etc.) is applied
-        // via ChatOptions when calling CompleteAsync/CompleteChatAsync.
-        // The AnthropicProviderConfig is stored and can be accessed to build ChatOptions
-        // with RawRepresentationFactory for advanced features.
-
-        return anthropicClient.AsIChatClient(config.ModelName, maxTokens);
+        return new AnthropicConfiguredChatClient(
+            chatClient,
+            config.ModelName,
+            maxTokens);
     }
 
     public IProviderErrorHandler CreateErrorHandler()
@@ -92,29 +91,6 @@ internal class AnthropicProvider : IChatClientProvider
 
         if (string.IsNullOrEmpty(config.ModelName))
             return ProviderValidationResult.Failure("Model name is required");
-
-        // Validate Anthropic-specific config if present
-        var anthropicConfig = config.GetProviderConfig<AnthropicProviderConfig>();
-        if (anthropicConfig != null)
-        {
-            if (anthropicConfig.ThinkingBudgetTokens.HasValue && anthropicConfig.ThinkingBudgetTokens.Value < 1024)
-            {
-                return ProviderValidationResult.Failure("Thinking budget tokens must be at least 1024");
-            }
-
-            if (anthropicConfig.MaxTokens <= 0)
-            {
-                return ProviderValidationResult.Failure("MaxTokens must be greater than 0");
-            }
-
-            if (anthropicConfig.EnablePromptCaching && anthropicConfig.PromptCacheTTLMinutes.HasValue)
-            {
-                if (anthropicConfig.PromptCacheTTLMinutes < 1 || anthropicConfig.PromptCacheTTLMinutes > 60)
-                {
-                    return ProviderValidationResult.Failure("PromptCacheTTLMinutes must be between 1 and 60 minutes");
-                }
-            }
-        }
 
         return ProviderValidationResult.Success();
     }

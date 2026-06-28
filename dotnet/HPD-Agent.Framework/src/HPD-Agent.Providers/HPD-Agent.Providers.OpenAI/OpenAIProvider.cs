@@ -1,10 +1,11 @@
 #pragma warning disable OPENAI001 // ResponsesClient is experimental
 #pragma warning disable MEAI001 // Some Microsoft.Extensions.AI OpenAI client families are experimental
+#pragma warning disable AOAI001 // AzureOpenAIClientOptions default headers/query parameters are experimental SDK options
 
 using System;
 using System.Collections.Generic;
+using System.ClientModel.Primitives;
 using System.Diagnostics.CodeAnalysis;
-using System.Linq;
 using System.Threading;
 using Azure.AI.OpenAI;
 using Azure;
@@ -14,6 +15,7 @@ using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using OpenAI;
+using OpenAI.Chat;
 
 namespace HPD.Agent.Providers.OpenAI;
 
@@ -56,10 +58,11 @@ internal class OpenAIProvider :
 
         IChatClient client;
 
-        // Create the OpenAI client and get the ResponsesClient
+        var openAIConfig = config.GetProviderConfig<OpenAIProviderConfig>();
         var openAIClient = CreateOpenAIClient(config, secrets);
-        var responsesClient = openAIClient.GetResponsesClient();
-        client = responsesClient.AsIChatClient(modelName);
+        client = openAIConfig?.ChatApi == OpenAIChatApi.ChatCompletions
+            ? openAIClient.GetChatClient(modelName).AsIChatClient()
+            : openAIClient.GetResponsesClient().AsIChatClient(modelName);
 
         return client;
     }
@@ -138,131 +141,11 @@ internal class OpenAIProvider :
     {
         var errors = new List<string>();
 
-        // Note: API key validation is now deferred to CreateChatClient where ISecretResolver is available
-        // This method only validates config structure, not secret resolution
-        if (string.IsNullOrEmpty(config.ApiKey))
-        {
-            errors.Add("API key is required for OpenAI. " +
-                      "Set it via the apiKey parameter, OPENAI_API_KEY environment variable, or configuration.");
-        }
-
         // Validate model name for model-scoped families. Hosted files are account/client scoped.
         if (family != ProviderClientFamily.HostedFiles && string.IsNullOrEmpty(config.ModelName))
             errors.Add("Model name is required for OpenAI");
 
-        // Validate OpenAI-specific config if present
-        var openAIConfig = config.GetProviderConfig<OpenAIProviderConfig>();
-        if (openAIConfig != null)
-        {
-            // Validate Temperature range
-            if (openAIConfig.Temperature.HasValue && (openAIConfig.Temperature.Value < 0 || openAIConfig.Temperature.Value > 2))
-            {
-                errors.Add("Temperature must be between 0 and 2");
-            }
-
-            // Validate TopP range
-            if (openAIConfig.TopP.HasValue && (openAIConfig.TopP.Value < 0 || openAIConfig.TopP.Value > 1))
-            {
-                errors.Add("TopP must be between 0 and 1");
-            }
-
-            // Validate FrequencyPenalty range
-            if (openAIConfig.FrequencyPenalty.HasValue && (openAIConfig.FrequencyPenalty.Value < -2 || openAIConfig.FrequencyPenalty.Value > 2))
-            {
-                errors.Add("FrequencyPenalty must be between -2 and 2");
-            }
-
-            // Validate PresencePenalty range
-            if (openAIConfig.PresencePenalty.HasValue && (openAIConfig.PresencePenalty.Value < -2 || openAIConfig.PresencePenalty.Value > 2))
-            {
-                errors.Add("PresencePenalty must be between -2 and 2");
-            }
-
-            // Validate StopSequences count
-            if (openAIConfig.StopSequences != null && openAIConfig.StopSequences.Count > 4)
-            {
-                errors.Add("Maximum of 4 stop sequences allowed");
-            }
-
-            // Validate TopLogProbabilityCount range
-            if (openAIConfig.TopLogProbabilityCount.HasValue && (openAIConfig.TopLogProbabilityCount.Value < 0 || openAIConfig.TopLogProbabilityCount.Value > 20))
-            {
-                errors.Add("TopLogProbabilityCount must be between 0 and 20");
-            }
-
-            // Validate ResponseFormat
-            if (!string.IsNullOrEmpty(openAIConfig.ResponseFormat))
-            {
-                var validFormats = new[] { "text", "json_object", "json_schema" };
-                if (!validFormats.Contains(openAIConfig.ResponseFormat))
-                {
-                    errors.Add("ResponseFormat must be one of: text, json_object, json_schema");
-                }
-
-                // Validate json_schema requirements
-                if (openAIConfig.ResponseFormat == "json_schema")
-                {
-                    if (string.IsNullOrEmpty(openAIConfig.JsonSchemaName))
-                    {
-                        errors.Add("JsonSchemaName is required when ResponseFormat is json_schema");
-                    }
-                    if (string.IsNullOrEmpty(openAIConfig.JsonSchema))
-                    {
-                        errors.Add("JsonSchema is required when ResponseFormat is json_schema");
-                    }
-                }
-            }
-
-            // Validate ToolChoice
-            if (!string.IsNullOrEmpty(openAIConfig.ToolChoice))
-            {
-                var validChoices = new[] { "auto", "none", "required" };
-                if (!validChoices.Contains(openAIConfig.ToolChoice))
-                {
-                    errors.Add("ToolChoice must be one of: auto, none, required");
-                }
-            }
-
-            // Validate ReasoningEffortLevel
-            if (!string.IsNullOrEmpty(openAIConfig.ReasoningEffortLevel))
-            {
-                var validLevels = new[] { "low", "medium", "high", "minimal" };
-                if (!validLevels.Contains(openAIConfig.ReasoningEffortLevel))
-                {
-                    errors.Add("ReasoningEffortLevel must be one of: low, medium, high, minimal");
-                }
-            }
-
-            // Validate AudioVoice
-            if (!string.IsNullOrEmpty(openAIConfig.AudioVoice))
-            {
-                var validVoices = new[] { "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse" };
-                if (!validVoices.Contains(openAIConfig.AudioVoice))
-                {
-                    errors.Add("AudioVoice must be one of: alloy, ash, ballad, coral, echo, sage, shimmer, verse");
-                }
-            }
-
-            // Validate AudioFormat
-            if (!string.IsNullOrEmpty(openAIConfig.AudioFormat))
-            {
-                var validFormats = new[] { "wav", "mp3", "flac", "opus", "pcm16" };
-                if (!validFormats.Contains(openAIConfig.AudioFormat))
-                {
-                    errors.Add("AudioFormat must be one of: wav, mp3, flac, opus, pcm16");
-                }
-            }
-
-            // Validate ServiceTier
-            if (!string.IsNullOrEmpty(openAIConfig.ServiceTier))
-            {
-                var validTiers = new[] { "auto", "default" };
-                if (!validTiers.Contains(openAIConfig.ServiceTier))
-                {
-                    errors.Add("ServiceTier must be one of: auto, default");
-                }
-            }
-        }
+        OpenAIProviderConfigValidation.Validate(config, errors);
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
@@ -299,8 +182,10 @@ internal class OpenAIProvider :
         var endpoint = endpointTask.GetAwaiter().GetResult();
         var hasCustomEndpoint = !string.IsNullOrEmpty(endpoint);
         var hasCustomHeaders = config.CustomHeaders?.Count > 0;
+        var openAIConfig = config.GetProviderConfig<OpenAIProviderConfig>();
 
         var options = new OpenAIClientOptions();
+        ApplyOpenAIOptions(options, openAIConfig);
 
         if (hasCustomEndpoint || hasCustomHeaders)
         {
@@ -327,6 +212,51 @@ internal class OpenAIProvider :
 
         return new OpenAIClient(new System.ClientModel.ApiKeyCredential(apiKey), options);
     }
+
+    private static void ApplyOpenAIOptions(OpenAIClientOptions options, OpenAIProviderConfig? config)
+    {
+        if (config is null)
+            return;
+
+        if (!string.IsNullOrEmpty(config.OrganizationId))
+            options.OrganizationId = config.OrganizationId;
+
+        if (!string.IsNullOrEmpty(config.ProjectId))
+            options.ProjectId = config.ProjectId;
+
+        if (!string.IsNullOrEmpty(config.UserAgentApplicationId))
+            options.UserAgentApplicationId = config.UserAgentApplicationId;
+
+        ApplyPipelineOptions(options, config.NetworkTimeoutMs, config.EnableDistributedTracing);
+    }
+
+    internal static void ApplyPipelineOptions(
+        ClientPipelineOptions options,
+        int? networkTimeoutMs,
+        bool? enableDistributedTracing)
+    {
+        if (networkTimeoutMs.HasValue)
+            options.NetworkTimeout = TimeSpan.FromMilliseconds(networkTimeoutMs.Value);
+
+        if (enableDistributedTracing.HasValue)
+            options.EnableDistributedTracing = enableDistributedTracing.Value;
+    }
+}
+
+internal static class OpenAIProviderConfigValidation
+{
+    public static void Validate(ClientProviderConfig config, List<string> errors)
+    {
+        var openAIConfig = config.GetProviderConfig<OpenAIProviderConfig>();
+        if (openAIConfig is null)
+            return;
+
+        if (!Enum.IsDefined(openAIConfig.ChatApi))
+            errors.Add("OpenAI ChatApi must be Responses or ChatCompletions.");
+
+        if (openAIConfig.NetworkTimeoutMs is <= 0)
+            errors.Add("OpenAI NetworkTimeoutMs must be greater than 0 when specified.");
+    }
 }
 
 /// <summary>
@@ -351,11 +281,11 @@ internal class AzureOpenAIProvider :
             throw new InvalidOperationException("For Azure OpenAI, the ModelName (deployment name) must be configured.");
         }
 
-        // Create Azure OpenAI client and get ResponsesClient
+        var openAIConfig = config.GetProviderConfig<AzureOpenAIProviderConfig>();
         var azureClient = CreateAzureOpenAIClient(config, GetSecretResolver(services));
-
-        var responsesClient = azureClient.GetResponsesClient();
-        IChatClient client = responsesClient.AsIChatClient(modelName);
+        IChatClient client = openAIConfig?.ChatApi == OpenAIChatApi.ChatCompletions
+            ? azureClient.GetChatClient(modelName).AsIChatClient()
+            : azureClient.GetResponsesClient().AsIChatClient(modelName);
 
         return client;
     }
@@ -431,54 +361,11 @@ internal class AzureOpenAIProvider :
     {
         var errors = new List<string>();
 
-        // Note: Endpoint and API key validation is now deferred to CreateChatClient where ISecretResolver is available
-        // This method only validates config structure, not secret resolution
-        if (string.IsNullOrEmpty(config.Endpoint))
-        {
-            errors.Add("Endpoint is required for Azure OpenAI. " +
-                      "Set it via the endpoint parameter, AZURE_OPENAI_ENDPOINT environment variable, or configuration.");
-        }
-
-        if (string.IsNullOrEmpty(config.ApiKey))
-        {
-            errors.Add("API key is required for Azure OpenAI. " +
-                      "Set it via the apiKey parameter, AZURE_OPENAI_API_KEY environment variable, or configuration.");
-        }
-
         // Validate model/deployment name for model-scoped families. Hosted files are account/client scoped.
         if (family != ProviderClientFamily.HostedFiles && string.IsNullOrEmpty(config.ModelName))
             errors.Add("Model name (deployment name) is required for Azure OpenAI");
 
-        // Validate OpenAI-specific config if present (same validation as OpenAI)
-        var openAIConfig = config.GetProviderConfig<OpenAIProviderConfig>();
-        if (openAIConfig != null)
-        {
-            // Validate Temperature range
-            if (openAIConfig.Temperature.HasValue && (openAIConfig.Temperature.Value < 0 || openAIConfig.Temperature.Value > 2))
-            {
-                errors.Add("Temperature must be between 0 and 2");
-            }
-
-            // Validate TopP range
-            if (openAIConfig.TopP.HasValue && (openAIConfig.TopP.Value < 0 || openAIConfig.TopP.Value > 1))
-            {
-                errors.Add("TopP must be between 0 and 1");
-            }
-
-            // Validate FrequencyPenalty range
-            if (openAIConfig.FrequencyPenalty.HasValue && (openAIConfig.FrequencyPenalty.Value < -2 || openAIConfig.FrequencyPenalty.Value > 2))
-            {
-                errors.Add("FrequencyPenalty must be between -2 and 2");
-            }
-
-            // Validate PresencePenalty range
-            if (openAIConfig.PresencePenalty.HasValue && (openAIConfig.PresencePenalty.Value < -2 || openAIConfig.PresencePenalty.Value > 2))
-            {
-                errors.Add("PresencePenalty must be between -2 and 2");
-            }
-
-            // Add other validations as needed...
-        }
+        AzureOpenAIProviderConfigValidation.Validate(config, errors);
 
         return errors.Count > 0
             ? ProviderValidationResult.Failure(errors.ToArray())
@@ -513,9 +400,72 @@ internal class AzureOpenAIProvider :
 
         var apiKeyTask = secrets.RequireAsync("azure-openai:ApiKey", "Azure OpenAI", config.ApiKey, CancellationToken.None);
         var apiKey = apiKeyTask.GetAwaiter().GetResult();
+        var azureConfig = config.GetProviderConfig<AzureOpenAIProviderConfig>();
+        var options = CreateAzureOpenAIClientOptions(azureConfig);
 
         return new AzureOpenAIClient(
             new Uri(endpoint),
-            new AzureKeyCredential(apiKey));
+            new System.ClientModel.ApiKeyCredential(apiKey),
+            options);
+    }
+
+    private static AzureOpenAIClientOptions CreateAzureOpenAIClientOptions(AzureOpenAIProviderConfig? config)
+    {
+        var options = config?.ServiceVersion is { } serviceVersion
+            ? new AzureOpenAIClientOptions(ToSdkServiceVersion(serviceVersion))
+            : new AzureOpenAIClientOptions();
+
+        if (config is null)
+            return options;
+
+        if (!string.IsNullOrEmpty(config.Audience))
+            options.Audience = new AzureOpenAIAudience(config.Audience);
+
+        if (config.DefaultHeaders is { Count: > 0 })
+            options.DefaultHeaders = config.DefaultHeaders;
+
+        if (config.DefaultQueryParameters is { Count: > 0 })
+            options.DefaultQueryParameters = config.DefaultQueryParameters;
+
+        if (!string.IsNullOrEmpty(config.UserAgentApplicationId))
+            options.UserAgentApplicationId = config.UserAgentApplicationId;
+
+        OpenAIProvider.ApplyPipelineOptions(options, config.NetworkTimeoutMs, config.EnableDistributedTracing);
+
+        return options;
+    }
+
+    private static AzureOpenAIClientOptions.ServiceVersion ToSdkServiceVersion(AzureOpenAIServiceVersion version)
+        => version switch
+        {
+            AzureOpenAIServiceVersion.V2024_06_01 => AzureOpenAIClientOptions.ServiceVersion.V2024_06_01,
+            AzureOpenAIServiceVersion.V2024_08_01_Preview => AzureOpenAIClientOptions.ServiceVersion.V2024_08_01_Preview,
+            AzureOpenAIServiceVersion.V2024_09_01_Preview => AzureOpenAIClientOptions.ServiceVersion.V2024_09_01_Preview,
+            AzureOpenAIServiceVersion.V2024_10_01_Preview => AzureOpenAIClientOptions.ServiceVersion.V2024_10_01_Preview,
+            AzureOpenAIServiceVersion.V2024_10_21 => AzureOpenAIClientOptions.ServiceVersion.V2024_10_21,
+            AzureOpenAIServiceVersion.V2024_12_01_Preview => AzureOpenAIClientOptions.ServiceVersion.V2024_12_01_Preview,
+            AzureOpenAIServiceVersion.V2025_01_01_Preview => AzureOpenAIClientOptions.ServiceVersion.V2025_01_01_Preview,
+            AzureOpenAIServiceVersion.V2025_03_01_Preview => AzureOpenAIClientOptions.ServiceVersion.V2025_03_01_Preview,
+            AzureOpenAIServiceVersion.V2025_04_01_Preview => AzureOpenAIClientOptions.ServiceVersion.V2025_04_01_Preview,
+            _ => throw new ArgumentOutOfRangeException(nameof(version), version, "Unsupported Azure OpenAI service version.")
+        };
+}
+
+internal static class AzureOpenAIProviderConfigValidation
+{
+    public static void Validate(ClientProviderConfig config, List<string> errors)
+    {
+        var azureConfig = config.GetProviderConfig<AzureOpenAIProviderConfig>();
+        if (azureConfig is null)
+            return;
+
+        if (!Enum.IsDefined(azureConfig.ChatApi))
+            errors.Add("Azure OpenAI ChatApi must be Responses or ChatCompletions.");
+
+        if (azureConfig.ServiceVersion.HasValue && !Enum.IsDefined(azureConfig.ServiceVersion.Value))
+            errors.Add("Azure OpenAI ServiceVersion must be a supported AzureOpenAIClientOptions.ServiceVersion value.");
+
+        if (azureConfig.NetworkTimeoutMs is <= 0)
+            errors.Add("Azure OpenAI NetworkTimeoutMs must be greater than 0 when specified.");
     }
 }

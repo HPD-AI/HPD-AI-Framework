@@ -34,9 +34,8 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
         }
 
         var client = CreateTogetherClient(config, services);
-        var togetherConfig = config.GetProviderConfig<TogetherProviderConfig>();
 
-        return new TogetherConfiguredChatClient(client, config.ModelName, togetherConfig);
+        return new TogetherConfiguredChatClient(client, config.ModelName);
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider registers an AOT-compatible config deserializer in TogetherProviderModule.")]
@@ -117,10 +116,14 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
             errors.Add("Endpoint must be a valid, absolute URI");
         }
 
-        var togetherConfig = config.GetProviderConfig<TogetherProviderConfig>(family);
-        if (togetherConfig is not null)
+        if (family == ProviderClientFamily.Embeddings)
         {
-            ValidateProviderOptions(togetherConfig, errors);
+            var togetherConfig = config.GetProviderConfig<TogetherProviderConfig>(family)
+                ?? config.GetProviderConfig<TogetherProviderConfig>();
+            if (togetherConfig is not null)
+            {
+                ValidateProviderOptions(togetherConfig, errors);
+            }
         }
 
         return errors.Count > 0
@@ -130,39 +133,6 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
 
     internal static void ValidateProviderOptions(TogetherProviderConfig config, List<string> errors)
     {
-        if (config.Temperature.HasValue && (config.Temperature.Value < 0 || config.Temperature.Value > 2))
-            errors.Add("Temperature must be between 0 and 2");
-
-        if (config.TopP.HasValue && (config.TopP.Value < 0 || config.TopP.Value > 1))
-            errors.Add("TopP must be between 0 and 1");
-
-        if (config.TopK.HasValue && config.TopK.Value <= 0)
-            errors.Add("TopK must be greater than 0");
-
-        if (config.MaxOutputTokens.HasValue && config.MaxOutputTokens.Value <= 0)
-            errors.Add("MaxOutputTokens must be greater than 0");
-
-        if (config.Seed.HasValue && config.Seed.Value is < int.MinValue or > int.MaxValue)
-            errors.Add("Seed must fit in a 32-bit signed integer");
-
-        if (config.StopSequences is { Count: > 0 })
-        {
-            foreach (var stopSequence in config.StopSequences)
-            {
-                if (string.IsNullOrEmpty(stopSequence))
-                    errors.Add("StopSequences cannot contain empty values");
-            }
-        }
-
-        if (config.ResponseFormat is { Length: > 0 } responseFormat)
-        {
-            if (!string.Equals(responseFormat, "text", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(responseFormat, "json_object", StringComparison.OrdinalIgnoreCase))
-            {
-                errors.Add("ResponseFormat must be one of: text, json_object");
-            }
-        }
-
         if (config.EmbeddingModelId is { Length: 0 })
             errors.Add("EmbeddingModelId cannot be empty");
     }
@@ -193,14 +163,12 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
     {
         private readonly Meai.IChatClient _innerClient;
         private readonly string _modelName;
-        private readonly TogetherProviderConfig? _config;
         private Meai.ChatClientMetadata? _metadata;
 
-        public TogetherConfiguredChatClient(Meai.IChatClient innerClient, string modelName, TogetherProviderConfig? config)
+        public TogetherConfiguredChatClient(Meai.IChatClient innerClient, string modelName)
         {
             _innerClient = innerClient ?? throw new ArgumentNullException(nameof(innerClient));
             _modelName = modelName ?? throw new ArgumentNullException(nameof(modelName));
-            _config = config;
         }
 
         public Meai.ChatClientMetadata Metadata =>
@@ -230,49 +198,14 @@ internal class TogetherProvider : IChatClientProvider, IEmbeddingGeneratorProvid
 
         private Meai.ChatOptions ApplyDefaults(Meai.ChatOptions? options)
         {
-            if (options is null)
-            {
-                return CreateDefaultOptions();
-            }
+            var merged = options?.Clone() ?? new Meai.ChatOptions();
+            if (string.IsNullOrWhiteSpace(merged.ModelId))
+                merged.ModelId = _modelName;
 
-            return new Meai.ChatOptions
-            {
-                ModelId = string.IsNullOrWhiteSpace(options.ModelId) ? _modelName : options.ModelId,
-                Instructions = options.Instructions,
-                Tools = options.Tools,
-                MaxOutputTokens = options.MaxOutputTokens ?? _config?.MaxOutputTokens,
-                Temperature = options.Temperature ?? ToSingle(_config?.Temperature),
-                TopP = options.TopP ?? ToSingle(_config?.TopP),
-                TopK = options.TopK ?? _config?.TopK,
-                FrequencyPenalty = options.FrequencyPenalty,
-                PresencePenalty = options.PresencePenalty,
-                StopSequences = options.StopSequences ?? _config?.StopSequences,
-                ResponseFormat = options.ResponseFormat ?? CreateResponseFormat(_config?.ResponseFormat),
-                Seed = options.Seed ?? _config?.Seed,
-                ToolMode = options.ToolMode,
-                AdditionalProperties = options.AdditionalProperties,
-                RawRepresentationFactory = options.RawRepresentationFactory
-            };
+            TogetherChatRequestOptionKeys.ApplyRawRequestOptions(merged);
+
+            return merged;
         }
-
-        private Meai.ChatOptions CreateDefaultOptions() => new()
-        {
-            ModelId = _modelName,
-            MaxOutputTokens = _config?.MaxOutputTokens,
-            Temperature = ToSingle(_config?.Temperature),
-            TopP = ToSingle(_config?.TopP),
-            TopK = _config?.TopK,
-            Seed = _config?.Seed,
-            StopSequences = _config?.StopSequences,
-            ResponseFormat = CreateResponseFormat(_config?.ResponseFormat)
-        };
-
-        private static Meai.ChatResponseFormat? CreateResponseFormat(string? responseFormat)
-            => string.Equals(responseFormat, "json_object", StringComparison.OrdinalIgnoreCase)
-                ? Meai.ChatResponseFormat.Json
-                : null;
-
-        private static float? ToSingle(double? value) => value.HasValue ? (float)value.Value : null;
     }
 
     private sealed class TogetherConfiguredEmbeddingGenerator : Meai.IEmbeddingGenerator
