@@ -117,7 +117,7 @@ public sealed class AgentConfigSerializationTests
     public void ProviderOptions_ObjectFeedsRegisteredProviderDeserializer()
     {
         var providerKey = $"provider-options-{Guid.NewGuid():N}";
-        ProviderDiscovery.RegisterProviderConfigType<ProviderTestOptions>(
+        ProviderContributionRegistry.RegisterProviderConfigType<ProviderTestOptions>(
             providerKey,
             json => JsonSerializer.Deserialize<ProviderTestOptions>(json),
             config => JsonSerializer.Serialize(config));

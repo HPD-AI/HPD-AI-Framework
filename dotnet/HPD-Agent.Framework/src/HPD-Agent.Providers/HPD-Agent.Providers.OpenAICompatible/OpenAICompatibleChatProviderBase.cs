@@ -21,7 +21,7 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
     public string ProviderKey => Definition.ProviderKey;
     public string DisplayName => Definition.DisplayName;
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages register AOT-compatible config deserializers through ProviderDiscovery.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages register AOT-compatible config deserializers through ProviderContributionRegistry.")]
     public virtual IChatClient CreateChatClient(ClientProviderConfig config, IServiceProvider? services = null)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -65,7 +65,7 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
             }
         };
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages register AOT-compatible config deserializers through ProviderDiscovery.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Provider packages register AOT-compatible config deserializers through ProviderContributionRegistry.")]
     public virtual ProviderValidationResult ValidateConfiguration(
         ClientProviderConfig config,
         ProviderClientFamily family)
@@ -220,4 +220,3 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
             : EnsureTrailingSlash(new Uri(endpointValue, UriKind.Absolute));
     }
 }
-

@@ -1146,7 +1146,7 @@ public sealed class RipgrepWrapperTests
     }
 
     [Fact]
-    public void Source_DoesNotUseRuntimeDownloadsOrDynamicProviderDiscovery()
+    public void Source_DoesNotUseRuntimeDownloadsOrDynamicProviderLoading()
     {
         var sourcePath = FindRipgrepWrapperSourcePath();
         if (sourcePath == null)

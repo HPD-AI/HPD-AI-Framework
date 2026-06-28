@@ -22,7 +22,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
     [Fact]
     public void AddCodingHarnessTui_RegistersExecuteCommandHandlers()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddCodingHarnessTui()
             .Build();
 
@@ -203,16 +203,14 @@ public sealed class ExecuteCommandTuiLifecycleTests
     [Fact]
     public async Task ReplacedCommandRenderer_KeepsCommandHandlersAndState()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddCodingHarnessTui()
             .ReplaceTranscriptRenderer<CodingCommandCell>(
                 CodingHarnessTuiTranscriptRendererKeys.Command,
                 _ => new Text("custom command row"))
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
 
         await state.ApplyEventAsync(Started(command: "dotnet test"));
         await state.ApplyEventAsync(Output("restore complete\n"));
@@ -380,13 +378,11 @@ public sealed class ExecuteCommandTuiLifecycleTests
     [Fact]
     public async Task StatusItems_ReadSharedCommandState()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddCodingHarnessTui()
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
 
         await state.ApplyEventAsync(Started(command: "npm run dev"));
         await state.ApplyEventAsync(Output(
@@ -404,13 +400,11 @@ public sealed class ExecuteCommandTuiLifecycleTests
     [Fact]
     public async Task CommandOutput_RendersInTranscript()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddCodingHarnessTui()
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
 
         await state.ApplyEventAsync(Started(command: "dotnet test"));
         await state.ApplyEventAsync(Output("restore complete\n"));
@@ -427,13 +421,11 @@ public sealed class ExecuteCommandTuiLifecycleTests
     [Fact]
     public async Task BackgroundCommandOutput_RendersInTranscript()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddCodingHarnessTui()
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
 
         await state.ApplyEventAsync(Started(command: "npm run dev", background: true));
         await state.ApplyEventAsync(Output("listening on http://localhost:5173\n", command: "npm run dev"));
@@ -450,13 +442,11 @@ public sealed class ExecuteCommandTuiLifecycleTests
     [Fact]
     public async Task AutoBackgroundedCommandOutput_RendersInTranscript()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddCodingHarnessTui()
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
 
         await state.ApplyEventAsync(Started(command: "npm run dev"));
         await state.ApplyEventAsync(Output("server starting\n", command: "npm run dev"));
@@ -472,13 +462,11 @@ public sealed class ExecuteCommandTuiLifecycleTests
     [Fact]
     public async Task BackgroundStatus_ShowsCompletedBackgroundResultAfterExit()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddCodingHarnessTui()
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
 
         await state.ApplyEventAsync(Started(command: "npm run dev", background: true));
         await state.ApplyEventAsync(Output("ready on 5173\n", command: "npm run dev"));
@@ -493,13 +481,11 @@ public sealed class ExecuteCommandTuiLifecycleTests
     [Fact]
     public async Task CommandsPage_RendersCommandStateFromSharedStore()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddCodingHarnessTui()
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
 
         await state.ApplyEventAsync(Started(command: "dotnet test"));
         await state.ApplyEventAsync(Output("tests passing\n"));
@@ -517,13 +503,11 @@ public sealed class ExecuteCommandTuiLifecycleTests
     [Fact]
     public async Task BackgroundPage_RendersActiveBackgroundCommands()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddCodingHarnessTui()
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
 
         await state.ApplyEventAsync(Started(command: "npm run dev", background: true));
         await state.ApplyEventAsync(Output("ready on 5173\n", command: "npm run dev"));
@@ -727,15 +711,17 @@ public sealed class ExecuteCommandTuiLifecycleTests
             shell.Navigation,
             new NoopRuntime(),
             dialogs,
+            TuiTestBuilder.NoopSessionUi,
             request);
     }
 
     private static AgentTuiSessionState CreateState()
-        => new(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            new HpdAgentTuiBuilder()
-                .AddCodingHarnessTui()
-                .Build());
+    {
+        var registry = TuiTestBuilder.Create()
+            .AddCodingHarnessTui()
+            .Build();
+        return TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
+    }
 
     private static ExecuteCommandProcessStartedEvent Started(
         string command,
@@ -889,7 +875,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
             trimTrailingBlankLines: true);
 
     private static AgentTuiTranscriptRendererRegistry DefaultTranscriptRenderers()
-        => new HpdAgentTuiBuilder()
+        => TuiTestBuilder.Create()
             .AddDefaultTranscriptRenderers()
             .AddCodingHarnessTui()
             .Build()

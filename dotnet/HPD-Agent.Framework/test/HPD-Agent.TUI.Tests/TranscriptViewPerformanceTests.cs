@@ -61,7 +61,7 @@ public sealed class TranscriptViewPerformanceTests
     [Fact]
     public void TranscriptRendererRegistry_Lookup_IsConstantShape()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddDefaultTranscriptRenderers()
             .Build()
             .TranscriptRenderers;
@@ -102,12 +102,10 @@ public sealed class TranscriptViewPerformanceTests
     [Fact]
     public void ShellLayout_StatusOnlyChange_DoesNotRecaptureTranscript()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = new AgentTuiSessionState(new AgentTuiRuntimeScope("agent", "session", "main"));
         for (var i = 0; i < 100; i++)
         {
             state.Shell.Transcript.UpsertLive(Row(i));
@@ -153,7 +151,7 @@ public sealed class TranscriptViewPerformanceTests
     private static TranscriptView CreateView(TranscriptModel model, int height)
         => new(
             model,
-            new HpdAgentTuiBuilder()
+            TuiTestBuilder.Create()
                 .AddDefaultTranscriptRenderers()
                 .Build()
                 .TranscriptRenderers,

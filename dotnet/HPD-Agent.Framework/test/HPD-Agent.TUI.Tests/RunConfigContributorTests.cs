@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Agent;
+using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Runtime;
 using HPD.TUI.Core;
 using HPD.TUI.Terminal;
@@ -8,7 +9,7 @@ using System.Text;
 
 namespace HPD.Agent.TUI.Tests;
 
-public sealed class RunConfigComposerTests
+public sealed class RunConfigContributorTests
 {
     [Fact]
     public async Task SubmittedPrompt_CarriesComposedRunConfig()
@@ -18,28 +19,61 @@ public sealed class RunConfigComposerTests
         await using var app = HpdAgentTuiApp.Create(
             runtime,
             scope,
-            builder => builder
+            TuiTestBuilder.CreateProvider(builder => builder
                 .AddAgentTuiDefaults()
-                .SetRunConfigComposer(context =>
+                .AddRunConfigContributor("test.model", (context, runConfig) =>
                 {
                     context.Scope.Should().BeSameAs(scope);
-                    context.Prompt.Should().Be("hello");
+                    context.PromptText.Should().Be("hello");
 
-                    return new AgentRunConfig
-                    {
-                        ProviderKey = "openrouter",
-                        ModelId = "deepseek/deepseek-chat"
-                    };
-                }),
+                    runConfig.SetProviderModel("openrouter", "deepseek/deepseek-chat");
+                })),
             new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", scope, "Connected.", null!);
         InvokePrivate(app, "SubmitPrompt", "hello".AsMemory());
 
         runtime.LastInput.Should().BeOfType<UserMessagesInputEvent>()
             .Which.RunConfig.Should().NotBeNull();
         runtime.LastInput!.RunConfig!.ProviderKey.Should().Be("openrouter");
         runtime.LastInput.RunConfig.ModelId.Should().Be("deepseek/deepseek-chat");
+    }
+
+    [Fact]
+    public async Task SubmittedPrompt_MergesMultipleRunConfigContributors()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CapturingRuntime(scope);
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            TuiTestBuilder.CreateProvider(builder => builder
+                .AddAgentTuiDefaults()
+                .AddRunConfigContributor("test.model", (_, runConfig) =>
+                {
+                    runConfig.SetProviderModel("openrouter", "deepseek/deepseek-chat");
+                    runConfig.AddAdditionalSystemInstructions("test.model", "Prefer short answers.");
+                })
+                .AddRunConfigContributor("test.workspace", (_, runConfig) =>
+                {
+                    runConfig.AddContextOverride("workspace", "/repo");
+                    runConfig.AddPermissionOverride("ExecuteCommand", requiresPermission: true);
+                    runConfig.AddAdditionalSystemInstructions("test.workspace", "Use the workspace context.");
+                })),
+            new TestTerminal(80, 24));
+
+        InvokePrivate(app, "RebuildShell", scope, "Connected.", null!);
+        InvokePrivate(app, "SubmitPrompt", "hello".AsMemory());
+
+        var input = runtime.LastInput.Should().BeOfType<UserMessagesInputEvent>().Subject;
+        input.RunConfig.Should().NotBeNull();
+        var runConfig = input.RunConfig!;
+        runConfig.ProviderKey.Should().Be("openrouter");
+        runConfig.ModelId.Should().Be("deepseek/deepseek-chat");
+        runConfig.ContextOverrides.Should().Contain("workspace", "/repo");
+        runConfig.PermissionOverrides.Should().Contain("ExecuteCommand", true);
+        runConfig.AdditionalSystemInstructions.Should().Be(
+            "Prefer short answers.\n\nUse the workspace context.");
     }
 
     private static void InvokePrivate(

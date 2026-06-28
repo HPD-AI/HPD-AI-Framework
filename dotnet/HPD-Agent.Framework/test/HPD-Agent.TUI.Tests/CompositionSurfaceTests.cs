@@ -19,7 +19,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void AddStatusItem_FailsOnDuplicateKey()
     {
-        var builder = new HpdAgentTuiBuilder()
+        var builder = TuiTestBuilder.Create()
             .AddStatusItem("sample.status", new TextStatusItem("one"));
 
         var act = () => builder.AddStatusItem("sample.status", new TextStatusItem("two"));
@@ -30,7 +30,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void TryAddStatusItem_KeepsExistingContribution()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddStatusItem("sample.status", new TextStatusItem("one"))
             .TryAddStatusItem("sample.status", new TextStatusItem("two"))
             .Build();
@@ -43,7 +43,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void ReplaceStatusItem_ReplacesExistingContribution()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddStatusItem("sample.status", new TextStatusItem("one"))
             .ReplaceStatusItem("sample.status", new TextStatusItem("two"))
             .Build();
@@ -56,7 +56,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void ReplaceStatusItem_FailsWhenMissing()
     {
-        var builder = new HpdAgentTuiBuilder();
+        var builder = TuiTestBuilder.Create();
 
         var act = () => builder.ReplaceStatusItem("missing", new TextStatusItem("value"));
 
@@ -66,7 +66,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void AddWidget_FailsOnDuplicateSlotAndKey()
     {
-        var builder = new HpdAgentTuiBuilder()
+        var builder = TuiTestBuilder.Create()
             .AddWidget(TuiSlot.AboveEditor, "sample.widget", new TextWidget("one"));
 
         var act = () => builder.AddWidget(TuiSlot.AboveEditor, "sample.widget", new TextWidget("two"));
@@ -77,7 +77,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void SameWidgetKey_CanAppearInDifferentSlots()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddWidget(TuiSlot.AboveEditor, "sample.widget", new TextWidget("above"))
             .AddWidget(TuiSlot.BelowEditor, "sample.widget", new TextWidget("below"))
             .Build();
@@ -89,7 +89,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void ReplaceHeader_RequiresExistingHeader()
     {
-        var builder = new HpdAgentTuiBuilder();
+        var builder = TuiTestBuilder.Create();
 
         var act = () => builder.ReplaceHeader(_ => new Text("custom"));
 
@@ -99,7 +99,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void AddAgentTuiDefaults_DoesNotOverrideExistingHeader()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddHeader(_ => new Text("custom header"))
             .AddAgentTuiDefaults()
             .Build();
@@ -120,7 +120,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void DecorateHeader_WrapsExistingHeader()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .DecorateHeader(inner => new DelegateAgentTuiShellComponent(context =>
                 new Stack()
@@ -145,7 +145,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void DecorateFooter_RequiresExistingFooter()
     {
-        var builder = new HpdAgentTuiBuilder();
+        var builder = TuiTestBuilder.Create();
 
         var act = () => builder.DecorateFooter(inner => inner);
 
@@ -155,7 +155,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void DefaultShellLayout_RendersRegisteredContributions()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .ReplaceHeader(_ => new Text("custom header"))
             .ReplaceFooter(_ => new Text("custom footer"))
@@ -188,7 +188,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void AddAgentTuiDefaults_InstallsDefaultShellLayout()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .Build();
 
@@ -198,7 +198,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void AddAgentTuiDefaults_InstallsDefaultTranscriptRenderers()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .Build();
 
@@ -212,7 +212,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void AddTranscriptRenderer_FailsOnDuplicateKey()
     {
-        var builder = new HpdAgentTuiBuilder()
+        var builder = TuiTestBuilder.Create()
             .AddTranscriptRenderer("sample.transcript", new TextTranscriptRenderer<RunStatusCell>("one"));
 
         var act = () => builder.AddTranscriptRenderer(
@@ -225,7 +225,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void AddTranscriptRenderer_FailsOnDuplicateCellType()
     {
-        var builder = new HpdAgentTuiBuilder()
+        var builder = TuiTestBuilder.Create()
             .AddTranscriptRenderer("sample.one", new TextTranscriptRenderer<RunStatusCell>("one"));
 
         var act = () => builder.AddTranscriptRenderer(
@@ -241,7 +241,7 @@ public sealed class CompositionSurfaceTests
         var first = new TextTranscriptRenderer<RunStatusCell>("one");
         var second = new TextTranscriptRenderer<RunStatusCell>("two");
 
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddTranscriptRenderer("sample.run", first)
             .TryAddTranscriptRenderer("sample.run", second)
             .Build();
@@ -258,7 +258,7 @@ public sealed class CompositionSurfaceTests
     {
         var replacement = new TextTranscriptRenderer<RunStatusCell>("two");
 
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddTranscriptRenderer("sample.run", new TextTranscriptRenderer<RunStatusCell>("one"))
             .ReplaceTranscriptRenderer("sample.run", replacement)
             .Build();
@@ -273,7 +273,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void ReplaceTranscriptRenderer_RequiresExistingRenderer()
     {
-        var builder = new HpdAgentTuiBuilder();
+        var builder = TuiTestBuilder.Create();
 
         var act = () => builder.ReplaceTranscriptRenderer(
             "missing",
@@ -285,7 +285,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void DecorateTranscriptRenderer_WrapsExistingRenderer()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddTranscriptRenderer("sample.run", new TextTranscriptRenderer<RunStatusCell>("inner"))
             .DecorateTranscriptRenderer<RunStatusCell>(
                 "sample.run",
@@ -316,7 +316,7 @@ public sealed class CompositionSurfaceTests
         var first = new TestShellLayout("first");
         var second = new TestShellLayout("second");
 
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddShellLayout(first)
             .TryAddShellLayout(second)
             .Build();
@@ -329,7 +329,7 @@ public sealed class CompositionSurfaceTests
     {
         var replacement = new TestShellLayout("replacement");
 
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .ReplaceShellLayout(replacement)
             .Build();
@@ -340,7 +340,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void ReplaceShellLayout_RequiresExistingLayout()
     {
-        var builder = new HpdAgentTuiBuilder();
+        var builder = TuiTestBuilder.Create();
 
         var act = () => builder.ReplaceShellLayout(new TestShellLayout("replacement"));
 
@@ -350,7 +350,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void ConfigureShellChrome_IsFrozenInRegistry()
     {
-        var builder = new HpdAgentTuiBuilder()
+        var builder = TuiTestBuilder.Create()
             .ConfigureShellChrome(chrome =>
             {
                 chrome.ShowSectionTitles = false;
@@ -370,25 +370,23 @@ public sealed class CompositionSurfaceTests
     }
 
     [Fact]
-    public void SetRunConfigComposer_StoresComposerInRegistry()
+    public void AddRunConfigContributor_StoresContributorInRegistry()
     {
-        AgentTuiRunConfigComposer composer = context => new AgentRunConfig
-        {
-            ProviderKey = context.Scope.AgentId,
-            ModelId = context.Prompt
-        };
+        var contributor = new DelegateRunConfigContributor();
 
-        var registry = new HpdAgentTuiBuilder()
-            .SetRunConfigComposer(composer)
+        var registry = TuiTestBuilder.Create()
+            .AddRunConfigContributor("sample.run-config", contributor)
             .Build();
 
-        registry.RunConfigComposer.Should().BeSameAs(composer);
+        registry.RunConfigContributors.Should().ContainSingle(contribution =>
+            contribution.Key == "sample.run-config" &&
+            ReferenceEquals(contribution.Value, contributor));
     }
 
     [Fact]
     public void AddAutocompleteProvider_AppendsProviderAfterSlashProvider()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddAutocompleteProvider("sample.hash", new HashAutocompleteProvider())
             .Build();
@@ -401,7 +399,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public async Task ReplaceAutocompleteProvider_ReplacesExistingProvider()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAutocompleteProvider("sample.hash", new HashAutocompleteProvider("#one"))
             .ReplaceAutocompleteProvider("sample.hash", new HashAutocompleteProvider("#two"))
             .Build();
@@ -421,7 +419,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void ReplacePrompt_RequiresExistingPrompt()
     {
-        var builder = new HpdAgentTuiBuilder();
+        var builder = TuiTestBuilder.Create();
 
         var act = () => builder.ReplacePrompt(new DefaultAgentTuiPromptFactory());
 
@@ -431,7 +429,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void PromptFactory_CanReplaceDefaultPrompt()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .ReplacePrompt(new DefaultAgentTuiPromptFactory { Placeholder = "Custom prompt..." })
             .Build();
@@ -454,7 +452,7 @@ public sealed class CompositionSurfaceTests
             Accent = new Style(new Color(1, 2, 3), Color.Default)
         };
 
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .UseTheme(theme)
             .Build();
 
@@ -472,7 +470,7 @@ public sealed class CompositionSurfaceTests
             "sample.shortcut",
             new KeyGesture(KeyCode.Tab, KeyModifiers.Ctrl),
             _ => { });
-        var builder = new HpdAgentTuiBuilder().AddShortcut(first);
+        var builder = TuiTestBuilder.Create().AddShortcut(first);
 
         var act = () => builder.AddShortcut(second);
 
@@ -483,7 +481,7 @@ public sealed class CompositionSurfaceTests
     public void AddShortcut_FailsOnDuplicateGesture()
     {
         var gesture = new KeyGesture(KeyCode.Enter, KeyModifiers.Ctrl);
-        var builder = new HpdAgentTuiBuilder()
+        var builder = TuiTestBuilder.Create()
             .AddShortcut(new HpdAgentTuiShortcutDescriptor("one", gesture, _ => { }));
 
         var act = () => builder.AddShortcut(new HpdAgentTuiShortcutDescriptor("two", gesture, _ => { }));
@@ -495,7 +493,7 @@ public sealed class CompositionSurfaceTests
     public void TryFindShortcut_MatchesRegisteredGesture()
     {
         var executed = false;
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddShortcut(new HpdAgentTuiShortcutDescriptor(
                 "sample.shortcut",
                 new KeyGesture(KeyCode.Enter, KeyModifiers.Ctrl),
@@ -521,7 +519,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void ReplaceShortcut_FailsWhenNewGestureAlreadyExists()
     {
-        var builder = new HpdAgentTuiBuilder()
+        var builder = TuiTestBuilder.Create()
             .AddShortcut(new HpdAgentTuiShortcutDescriptor(
                 "one",
                 new KeyGesture(KeyCode.Character, KeyModifiers.Ctrl, new Rune('a')),
@@ -542,7 +540,7 @@ public sealed class CompositionSurfaceTests
     [Fact]
     public void AddEventHandler_FailsOnDuplicateKey()
     {
-        var builder = new HpdAgentTuiBuilder()
+        var builder = TuiTestBuilder.Create()
             .AddEventHandler("sample.event", new CountingEventHandler());
 
         var act = () => builder.AddEventHandler("sample.event", new CountingEventHandler());
@@ -556,7 +554,7 @@ public sealed class CompositionSurfaceTests
         var first = new CountingEventHandler();
         var second = new CountingEventHandler();
 
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddEventHandler("sample.event", first)
             .TryAddEventHandler("sample.event", second)
             .Build();
@@ -570,7 +568,7 @@ public sealed class CompositionSurfaceTests
     {
         var replacement = new CountingEventHandler();
 
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddEventHandler("sample.event", new CountingEventHandler())
             .ReplaceEventHandler("sample.event", replacement)
             .Build();
@@ -584,7 +582,7 @@ public sealed class CompositionSurfaceTests
     {
         var first = new CountingEventHandler();
         var second = new CountingEventHandler();
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddEventHandler("sample.first", first)
             .AddEventHandler("sample.second", second)
             .Build();
@@ -685,6 +683,16 @@ public sealed class CompositionSurfaceTests
         {
             Count++;
             return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class DelegateRunConfigContributor : IAgentTuiRunConfigContributor
+    {
+        public void ConfigureRun(
+            AgentTuiRunConfigContributionContext context,
+            AgentRunConfigBuilder builder)
+        {
+            builder.SetProviderModel(context.Scope.AgentId, context.PromptText);
         }
     }
 }

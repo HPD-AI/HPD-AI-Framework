@@ -2,7 +2,7 @@ namespace HPD.Agent.Secrets;
 
 /// <summary>
 /// Resolves secrets from environment variables.
-/// Providers must register their canonical environment variable names through SecretAliasRegistry.
+/// Provider contributions populate the effective alias table used by this resolver.
 /// </summary>
 public sealed class EnvironmentSecretResolver : ISecretResolver
 {

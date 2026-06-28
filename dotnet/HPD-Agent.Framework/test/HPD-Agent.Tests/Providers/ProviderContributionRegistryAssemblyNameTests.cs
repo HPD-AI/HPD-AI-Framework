@@ -3,7 +3,7 @@ using HPD.Agent.Providers;
 
 namespace HPD.Agent.Tests.Providers;
 
-public sealed class ProviderDiscoveryAssemblyNameTests
+public sealed class ProviderContributionRegistryAssemblyNameTests
 {
     [Theory]
     [InlineData("HPD-Agent.Providers.OpenAI", true)]
@@ -17,7 +17,7 @@ public sealed class ProviderDiscoveryAssemblyNameTests
         string assemblyName,
         bool expected)
     {
-        var method = typeof(ProviderDiscovery).GetMethod(
+        var method = typeof(ProviderContributionRegistry).GetMethod(
             "IsProviderAssemblyName",
             BindingFlags.NonPublic | BindingFlags.Static);
 

@@ -323,11 +323,11 @@ public sealed class SimpleOpenAICompatibleProviderTests
 
     [Theory]
     [MemberData(nameof(Providers))]
-    public void ProviderDiscovery_ShouldRegisterConfigAndSecretAliases(ProviderCase providerCase)
+    public void ProviderContributionRegistry_ShouldRegisterConfigAndSecretAliases(ProviderCase providerCase)
     {
         providerCase.Initialize();
 
-        ProviderDiscovery.GetProviderConfigType(providerCase.Key).Should().NotBeNull();
+        ProviderContributionRegistry.GetProviderConfigType(providerCase.Key).Should().NotBeNull();
         SecretAliasRegistry.GetAll().Should().ContainKey($"{providerCase.Key}:ApiKey")
             .WhoseValue.Should().Contain(providerCase.ApiKeyAlias);
         SecretAliasRegistry.GetAll().Should().ContainKey($"{providerCase.Key}:Endpoint")
@@ -340,7 +340,7 @@ public sealed class SimpleOpenAICompatibleProviderTests
     [InlineData("zai", "BIGMODEL_API_KEY", "BIGMODEL_BASE_URL")]
     [InlineData("minimax", "MINIMAX_API_KEY", "MINIMAX_API_BASE")]
     [InlineData("nvidia-nim", "NVIDIA_NIM_API_KEY", "NVIDIA_BASE_URL")]
-    public void ProviderDiscovery_ShouldRegisterLiteLlmInspiredAliases(
+    public void ProviderContributionRegistry_ShouldRegisterLiteLlmInspiredAliases(
         string providerKey,
         string apiKeyAlias,
         string endpointAlias)
@@ -427,7 +427,7 @@ public sealed class SimpleOpenAICompatibleProviderTests
 
     [Theory]
     [MemberData(nameof(Providers))]
-    public void ProviderDiscovery_ConfigJsonRoundTrips(ProviderCase providerCase)
+    public void ProviderContributionRegistry_ConfigJsonRoundTrips(ProviderCase providerCase)
     {
         providerCase.Initialize();
         var config = providerCase.CreateProviderConfig(options =>
@@ -436,8 +436,8 @@ public sealed class SimpleOpenAICompatibleProviderTests
             options.ResponseFormat = "json_object";
         });
 
-        var json = ProviderDiscovery.SerializeProviderConfig(providerCase.Key, config);
-        var roundTrip = ProviderDiscovery.DeserializeProviderConfig(providerCase.Key, json);
+        var json = ProviderContributionRegistry.SerializeProviderConfig(providerCase.Key, config);
+        var roundTrip = ProviderContributionRegistry.DeserializeProviderConfig(providerCase.Key, json);
 
         roundTrip.Should().BeEquivalentTo(config);
     }

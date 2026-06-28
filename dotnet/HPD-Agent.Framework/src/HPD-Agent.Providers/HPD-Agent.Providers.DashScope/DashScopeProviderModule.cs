@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.DashScope;
 
@@ -16,18 +15,18 @@ public static class DashScopeProviderModule
 #pragma warning restore CA2255 // The 'ModuleInitializer' attribute should not be used in libraries
     public static void Initialize()
     {
-        ProviderDiscovery.RegisterProviderFactory(() => new DashScopeProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new DashScopeProvider());
 
-        ProviderDiscovery.RegisterProviderConfigType<DashScopeProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<DashScopeProviderConfig>(
             "dashscope",
             json => JsonSerializer.Deserialize(json, DashScopeJsonContext.Default.DashScopeProviderConfig),
             config => JsonSerializer.Serialize(config, DashScopeJsonContext.Default.DashScopeProviderConfig));
-        ProviderDiscovery.RegisterProviderConfigType<DashScopeProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<DashScopeProviderConfig>(
             "dashscope",
             ProviderClientFamily.Embeddings,
             json => JsonSerializer.Deserialize(json, DashScopeJsonContext.Default.DashScopeProviderConfig),
             config => JsonSerializer.Serialize(config, DashScopeJsonContext.Default.DashScopeProviderConfig));
 
-        SecretAliasRegistry.Register("dashscope:ApiKey", "DASHSCOPE_API_KEY", "QWEN_API_KEY", "DASHSCOPE_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("dashscope:ApiKey", "DASHSCOPE_API_KEY", "QWEN_API_KEY", "DASHSCOPE_KEY");
     }
 }

@@ -1,5 +1,6 @@
 using HPD.Agent.Sandbox.Local;
 using HPD.Agent.ToolHarness.Coding;
+using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Runtime;
 using Microsoft.Extensions.AI;
 
@@ -56,22 +57,29 @@ internal static class CodingMode
 
         var scope = new AgentTuiRuntimeScope(agentId, sessionId, threadId);
         await using var runtime = new InMemoryAgentTuiRuntime(agent, scope);
+        var store = new AgentTuiContributionStore();
+        var packages = ConsolePackageContext.Create(store);
+        new HpdAgentTuiBuilder(store, HpdContributionOwner.App)
+            .AddAgentTuiDefaults()
+            .AddConsoleBranding("coding")
+            .AddPackageManagement(packages.TuiPackages)
+            .AddConsoleModelsDevModelSelection(providers)
+            .AddRunConfigContributor("console.coding", (_, runConfig) =>
+            {
+                if (providers.ModelSelection.Current is { } selected)
+                {
+                    runConfig.SetProviderModel(selected.ProviderKey, selected.ModelId);
+                }
+
+                runConfig.AddContextOverride(AgentWorkspace.ContextKey, workspace);
+            })
+            .AddConsoleProviderCommands(providers)
+            .AddConsoleCodingAgent();
+        var registries = new HpdAgentTuiRegistryProvider(store);
         await using var app = HpdAgentTuiApp.Create(
             runtime,
             scope,
-            tui => tui
-                .AddAgentTuiDefaults()
-                .AddConsoleBranding("coding")
-                .AddConsoleModelsDevModelSelection(providers)
-                .SetRunConfigComposer(_ =>
-                {
-                    var runConfig = providers.ModelSelection.ToRunConfig() ?? new AgentRunConfig();
-                    runConfig.ContextOverrides ??= [];
-                    runConfig.ContextOverrides[AgentWorkspace.ContextKey] = workspace;
-                    return runConfig;
-                })
-                .AddConsoleProviderCommands(providers)
-                .AddConsoleCodingAgent());
+            registries);
         await app.RunAsync();
     }
 }

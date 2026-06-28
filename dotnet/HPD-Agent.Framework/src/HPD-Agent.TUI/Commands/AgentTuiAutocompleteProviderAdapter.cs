@@ -6,14 +6,14 @@ namespace HPD.Agent.TUI.Commands;
 
 internal sealed class AgentTuiAutocompleteProviderAdapter : IAutocompleteProvider
 {
-    private readonly HpdAgentTuiRegistry _registry;
+    private readonly Func<HpdAgentTuiRegistry> _getRegistry;
     private readonly Func<AgentTuiSessionState?> _getState;
 
     public AgentTuiAutocompleteProviderAdapter(
-        HpdAgentTuiRegistry registry,
+        Func<HpdAgentTuiRegistry> getRegistry,
         Func<AgentTuiSessionState?> getState)
     {
-        _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _getRegistry = getRegistry ?? throw new ArgumentNullException(nameof(getRegistry));
         _getState = getState ?? throw new ArgumentNullException(nameof(getState));
     }
 
@@ -23,7 +23,7 @@ internal sealed class AgentTuiAutocompleteProviderAdapter : IAutocompleteProvide
         CancellationToken cancellationToken = default)
     {
         var context = CreateContext(request);
-        foreach (var provider in _registry.AutocompleteProviders)
+        foreach (var provider in _getRegistry().AutocompleteProviders)
         {
             if (!provider.Value.CanProvide(context))
             {
@@ -39,7 +39,7 @@ internal sealed class AgentTuiAutocompleteProviderAdapter : IAutocompleteProvide
         CancellationToken cancellationToken = default)
     {
         var agentContext = CreateContext(context.Request);
-        foreach (var provider in _registry.AutocompleteProviders)
+        foreach (var provider in _getRegistry().AutocompleteProviders)
         {
             if (!provider.Value.CanProvide(agentContext))
             {

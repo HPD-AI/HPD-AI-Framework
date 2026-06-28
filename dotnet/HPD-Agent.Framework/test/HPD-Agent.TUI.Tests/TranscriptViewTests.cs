@@ -80,7 +80,7 @@ public sealed class TranscriptViewTests
     [Fact]
     public void Render_RunStatusCell_UsesRegisteredRenderer()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddDefaultTranscriptRenderers()
             .ReplaceTranscriptRenderer<RunStatusCell>(
                 AgentTuiTranscriptRendererKeys.RunStatus,
@@ -137,7 +137,7 @@ public sealed class TranscriptViewTests
     private static TranscriptView CreateView(TranscriptModel model, int height)
         => new(
             model,
-            new HpdAgentTuiBuilder()
+            TuiTestBuilder.Create()
                 .AddDefaultTranscriptRenderers()
                 .Build()
                 .TranscriptRenderers,

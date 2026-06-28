@@ -13,11 +13,11 @@ public sealed class AgentTuiSessionStateTests
     [Fact]
     public async Task ApplyEventAsync_StreamsAssistantIntoSingleKeyedRow()
     {
-        var state = CreateState();
+        var (state, registry) = CreateState();
 
-        await state.ApplyEventAsync(new TextMessageStartEvent("m1", "assistant"));
-        await state.ApplyEventAsync(new TextDeltaEvent("hello ", "m1"));
-        await state.ApplyEventAsync(new TextDeltaEvent("world", "m1"));
+        await state.ApplyEventAsync(new TextMessageStartEvent("m1", "assistant"), registry);
+        await state.ApplyEventAsync(new TextDeltaEvent("hello ", "m1"), registry);
+        await state.ApplyEventAsync(new TextDeltaEvent("world", "m1"), registry);
 
         var rows = ReadRows(state.Shell.Transcript);
         rows.Should().ContainSingle(row => row.EntryKey == "assistant:m1");
@@ -27,11 +27,11 @@ public sealed class AgentTuiSessionStateTests
     [Fact]
     public async Task ApplyEventAsync_UpdatesToolRowByCallId()
     {
-        var state = CreateState();
+        var (state, registry) = CreateState();
 
-        await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "sample.inspect", "m1"));
-        await state.ApplyEventAsync(new ToolCallArgsEvent("call-1", """{"path":"Program.cs"}"""));
-        await state.ApplyEventAsync(new ToolCallEndEvent("call-1", "m1", "sample.inspect", """{"path":"Program.cs"}"""));
+        await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "sample.inspect", "m1"), registry);
+        await state.ApplyEventAsync(new ToolCallArgsEvent("call-1", """{"path":"Program.cs"}"""), registry);
+        await state.ApplyEventAsync(new ToolCallEndEvent("call-1", "m1", "sample.inspect", """{"path":"Program.cs"}"""), registry);
 
         var rows = ReadRows(state.Shell.Transcript);
         rows.Should().ContainSingle(row => row.EntryKey == "tool:call-1");
@@ -40,12 +40,12 @@ public sealed class AgentTuiSessionStateTests
     [Fact]
     public async Task ApplyEventAsync_TracksRunStatusInFooterAndActivities()
     {
-        var state = CreateState();
+        var (state, registry) = CreateState();
 
-        await state.ApplyEventAsync(new ThreadRunStartedEvent("run-12345678", "agent", DateTimeOffset.UtcNow));
+        await state.ApplyEventAsync(new ThreadRunStartedEvent("run-12345678", "agent", DateTimeOffset.UtcNow), registry);
         state.Shell.FooterText.Should().Contain("running");
 
-        await state.ApplyEventAsync(new ThreadRunCompletedEvent("run-12345678", "agent", Cancelled: false));
+        await state.ApplyEventAsync(new ThreadRunCompletedEvent("run-12345678", "agent", Cancelled: false), registry);
 
         state.Shell.FooterText.Should().Contain("idle");
         state.Shell.Activities.Activities.Should().Contain(activity => activity.State == HPD.TUI.Models.ActivityState.Completed);
@@ -54,9 +54,9 @@ public sealed class AgentTuiSessionStateTests
     [Fact]
     public async Task ApplyEventAsync_IgnoresUnhandledEvents()
     {
-        var state = CreateState();
+        var (state, registry) = CreateState();
 
-        await state.ApplyEventAsync(new InterruptionHandledEvent("flow", "stopped", InterruptionSource.User));
+        await state.ApplyEventAsync(new InterruptionHandledEvent("flow", "stopped", InterruptionSource.User), registry);
 
         state.Shell.Transcript.Count.Should().Be(0);
     }
@@ -64,12 +64,11 @@ public sealed class AgentTuiSessionStateTests
     [Fact]
     public async Task AddAgentTuiDefaults_DoesNotHandleHpdCoreEvents()
     {
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            new HpdAgentTuiBuilder().AddAgentTuiDefaults().Build());
+        var registry = TuiTestBuilder.Create().AddAgentTuiDefaults().Build();
+        var state = new AgentTuiSessionState(new AgentTuiRuntimeScope("agent", "session", "main"));
 
-        await state.ApplyEventAsync(new TextMessageStartEvent("m1", "assistant"));
-        await state.ApplyEventAsync(new TextDeltaEvent("hello", "m1"));
+        await state.ApplyEventAsync(new TextMessageStartEvent("m1", "assistant"), registry);
+        await state.ApplyEventAsync(new TextDeltaEvent("hello", "m1"), registry);
 
         state.Shell.Transcript.Count.Should().Be(0);
     }
@@ -78,14 +77,13 @@ public sealed class AgentTuiSessionStateTests
     public async Task ApplyEventAsync_ContinuesAfterHandlerFailure()
     {
         var afterFailure = new CountingEventHandler();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            new HpdAgentTuiBuilder()
-                .AddEventHandler("sample.failing", new FailingEventHandler())
-                .AddEventHandler("sample.after", afterFailure)
-                .Build());
+        var registry = TuiTestBuilder.Create()
+            .AddEventHandler("sample.failing", new FailingEventHandler())
+            .AddEventHandler("sample.after", afterFailure)
+            .Build();
+        var state = new AgentTuiSessionState(new AgentTuiRuntimeScope("agent", "session", "main"));
 
-        await state.ApplyEventAsync(new TextDeltaEvent("hello", "m1"));
+        await state.ApplyEventAsync(new TextDeltaEvent("hello", "m1"), registry);
 
         afterFailure.Count.Should().Be(1);
         ReadRows(state.Shell.Transcript)
@@ -94,15 +92,17 @@ public sealed class AgentTuiSessionStateTests
             .BeTrue();
     }
 
-    private static AgentTuiSessionState CreateState()
-        => new(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            new HpdAgentTuiBuilder()
-                .AddAgentTuiDefaults()
-                .AddEventHandler("test.text", new TestTextMessageHandler())
-                .AddEventHandler("test.tool", new TestToolHandler())
-                .AddEventHandler("test.run-status", new TestRunStatusHandler())
-                .Build());
+    private static (AgentTuiSessionState State, HpdAgentTuiRegistry Registry) CreateState()
+    {
+        var registry = TuiTestBuilder.Create()
+            .AddAgentTuiDefaults()
+            .AddEventHandler("test.text", new TestTextMessageHandler())
+            .AddEventHandler("test.tool", new TestToolHandler())
+            .AddEventHandler("test.run-status", new TestRunStatusHandler())
+            .Build();
+        var state = new AgentTuiSessionState(new AgentTuiRuntimeScope("agent", "session", "main"));
+        return (state, registry);
+    }
 
     private static List<TranscriptEntry> ReadRows(TranscriptModel model)
     {

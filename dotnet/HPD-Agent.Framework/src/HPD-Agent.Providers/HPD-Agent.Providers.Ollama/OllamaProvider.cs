@@ -5,8 +5,8 @@ using System.Threading;
 using OllamaSharp;
 using HPD.Agent;
 using HPD.Agent.Providers;
-using HPD.Agent.ErrorHandling;
 using HPD.Agent.Secrets;
+using HPD.Agent.ErrorHandling;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 

@@ -565,7 +565,7 @@ public class ClientProviderConfig
         if (string.IsNullOrWhiteSpace(providerOptionsJson))
             return null;
 
-        var registration = HPD.Agent.Providers.ProviderDiscovery.GetProviderConfigType(ProviderKey, family);
+        var registration = HPD.Agent.Providers.ProviderContributionRegistry.GetProviderConfigType(ProviderKey, family);
         if (registration is null || registration.ConfigType != typeof(T))
             return null;
 
@@ -576,7 +576,7 @@ public class ClientProviderConfig
 
     /// <summary>
     /// Sets the provider-specific configuration and updates ProviderOptions.
-    /// Uses the provider's registered serializer from ProviderDiscovery for AOT compatibility.
+    /// Uses the provider's registered serializer from ProviderContributionRegistry for AOT compatibility.
     /// </summary>
     /// <typeparam name="T">The strongly-typed configuration class</typeparam>
     /// <param name="config">The configuration object to set</param>
@@ -587,14 +587,14 @@ public class ClientProviderConfig
 
     /// <summary>
     /// Sets the provider-specific configuration for a client family and updates ProviderOptions.
-    /// Uses the provider's registered serializer from ProviderDiscovery for AOT compatibility.
+    /// Uses the provider's registered serializer from ProviderContributionRegistry for AOT compatibility.
     /// </summary>
     public void SetProviderConfig<T>(T config, HPD.Agent.Providers.ProviderClientFamily family) where T : class
     {
         _cachedProviderConfig = config;
 
         // Serialize using registered serializer
-        var registration = HPD.Agent.Providers.ProviderDiscovery.GetProviderConfigType(ProviderKey, family);
+        var registration = HPD.Agent.Providers.ProviderContributionRegistry.GetProviderConfigType(ProviderKey, family);
         if (registration != null && registration.ConfigType == typeof(T))
         {
             SetProviderOptionsRawJson(registration.Serialize(config));

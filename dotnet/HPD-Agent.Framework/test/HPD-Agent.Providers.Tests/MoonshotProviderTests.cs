@@ -45,11 +45,11 @@ public class MoonshotProviderTests
     }
 
     [Fact]
-    public void ProviderDiscovery_ShouldRegisterProviderConfigAndSecretAliases()
+    public void ProviderContributionRegistry_ShouldRegisterProviderConfigAndSecretAliases()
     {
         MoonshotProviderModule.Initialize();
 
-        ProviderDiscovery.GetProviderConfigType("moonshot").Should().NotBeNull();
+        ProviderContributionRegistry.GetProviderConfigType("moonshot").Should().NotBeNull();
         SecretAliasRegistry.GetAll()["moonshot:ApiKey"].Should().Equal("MOONSHOT_API_KEY", "KIMI_API_KEY");
         SecretAliasRegistry.GetAll()["moonshot:Endpoint"].Should().Equal(
             "MOONSHOT_ENDPOINT",
@@ -250,7 +250,7 @@ public class MoonshotProviderTests
     }
 
     [Fact]
-    public void ProviderDiscovery_ConfigJsonRoundTrips()
+    public void ProviderContributionRegistry_ConfigJsonRoundTrips()
     {
         MoonshotProviderModule.Initialize();
         var config = new MoonshotProviderConfig
@@ -260,8 +260,8 @@ public class MoonshotProviderTests
             ThinkingType = "disabled"
         };
 
-        var json = ProviderDiscovery.SerializeProviderConfig("moonshot", config);
-        var roundTrip = ProviderDiscovery.DeserializeProviderConfig("moonshot", json);
+        var json = ProviderContributionRegistry.SerializeProviderConfig("moonshot", config);
+        var roundTrip = ProviderContributionRegistry.DeserializeProviderConfig("moonshot", json);
 
         roundTrip.Should().BeEquivalentTo(config);
     }

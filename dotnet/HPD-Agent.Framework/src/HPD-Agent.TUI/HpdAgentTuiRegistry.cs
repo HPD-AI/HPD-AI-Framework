@@ -9,6 +9,7 @@ public sealed class HpdAgentTuiRegistry
 {
     private readonly IReadOnlyDictionary<string, HpdAgentTuiCommandDescriptor> _commands;
     private readonly HpdAgentTuiCommandDescriptor[] _commandList;
+    private readonly IReadOnlyList<AgentTuiContribution<HpdAgentTuiCommandDescriptor>> _commandContributions;
     private readonly IReadOnlyList<AgentTuiContribution<IAgentTuiStatusItem>> _statusItems;
     private readonly IReadOnlyList<AgentTuiContribution<IAgentTuiWidget>> _aboveEditorWidgets;
     private readonly IReadOnlyList<AgentTuiContribution<IAgentTuiWidget>> _belowEditorWidgets;
@@ -17,81 +18,109 @@ public sealed class HpdAgentTuiRegistry
     private readonly HpdAgentTuiShortcutDescriptor[] _shortcutList;
     private readonly IReadOnlyList<AgentTuiContribution<IAgentTuiEventHandler>> _eventHandlers;
     private readonly IReadOnlyList<AgentTuiContribution<IAgentTuiInteractionHandler>> _interactionHandlers;
+    private readonly IReadOnlyList<AgentTuiContribution<IAgentTuiRunConfigContributor>> _runConfigContributors;
     private readonly IReadOnlyDictionary<string, HpdAgentTuiPageDescriptor> _pages;
     private readonly HpdAgentTuiPageDescriptor[] _pageList;
+    private readonly IReadOnlyList<AgentTuiContribution<HpdAgentTuiPageDescriptor>> _pageContributions;
     private readonly IAgentTuiPromptFactory? _promptFactory;
     private readonly IAgentTuiShellLayout? _shellLayout;
 
-    internal HpdAgentTuiRegistry(
-        IEnumerable<HpdAgentTuiCommandDescriptor> commands,
-        IEnumerable<HpdAgentTuiPageDescriptor> pages,
-        IReadOnlyDictionary<string, IAgentTuiStatusItem> statusItems,
-        IReadOnlyDictionary<(TuiSlot Slot, string Key), IAgentTuiWidget> widgets,
-        IReadOnlyDictionary<string, IAgentTuiAutocompleteProvider> autocompleteProviders,
-        IEnumerable<HpdAgentTuiShortcutDescriptor> shortcuts,
-        IReadOnlyDictionary<string, IAgentTuiEventHandler> eventHandlers,
-        IReadOnlyDictionary<string, IAgentTuiInteractionHandler> interactionHandlers,
-        IEnumerable<IAgentTuiTranscriptRendererAdapter> transcriptRenderers,
-        IAgentTuiShellComponent? header,
-        IAgentTuiShellComponent? footer,
-        IAgentTuiPromptFactory? promptFactory,
-        IAgentTuiShellLayout? shellLayout,
-        AgentTuiShellChrome shellChrome,
-        Theme? theme,
-        bool includeSlashCommandAutocomplete,
-        AgentTuiRunConfigComposer? runConfigComposer)
+    internal HpdAgentTuiRegistry(AgentTuiContributionStore store)
     {
-        _commands = commands.ToDictionary(command => command.SlashName, StringComparer.OrdinalIgnoreCase);
+        ArgumentNullException.ThrowIfNull(store);
+
+        _commands = store.Commands.Values.ToDictionary(command => command.SlashName, StringComparer.OrdinalIgnoreCase);
         _commandList = _commands.Values
             .OrderBy(static command => command.Order)
             .ThenBy(static command => command.SlashName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        _pages = pages.ToDictionary(page => page.Id, StringComparer.OrdinalIgnoreCase);
+        _commandContributions = _commandList
+            .Select(command => new AgentTuiContribution<HpdAgentTuiCommandDescriptor>(
+                command.SlashName,
+                command,
+                store.GetCommandOwner(command.SlashName),
+                command.Order))
+            .ToArray();
+        _pages = store.Pages.Values.ToDictionary(page => page.Id, StringComparer.OrdinalIgnoreCase);
         _pageList = _pages.Values.ToArray();
-        _statusItems = statusItems
-            .Select(pair => new AgentTuiContribution<IAgentTuiStatusItem>(pair.Key, pair.Value))
+        _pageContributions = _pageList
+            .Select(page => new AgentTuiContribution<HpdAgentTuiPageDescriptor>(
+                page.Id,
+                page,
+                store.GetPageOwner(page.Id)))
             .ToArray();
-        _aboveEditorWidgets = widgets
+        _statusItems = store.StatusItems
+            .Select(pair => new AgentTuiContribution<IAgentTuiStatusItem>(
+                pair.Key,
+                pair.Value,
+                store.GetStatusItemOwner(pair.Key)))
+            .ToArray();
+        _aboveEditorWidgets = store.Widgets
             .Where(pair => pair.Key.Slot == TuiSlot.AboveEditor)
-            .Select(pair => new AgentTuiContribution<IAgentTuiWidget>(pair.Key.Key, pair.Value))
+            .Select(pair => new AgentTuiContribution<IAgentTuiWidget>(
+                pair.Key.Key,
+                pair.Value,
+                store.GetWidgetOwner(pair.Key)))
             .ToArray();
-        _belowEditorWidgets = widgets
+        _belowEditorWidgets = store.Widgets
             .Where(pair => pair.Key.Slot == TuiSlot.BelowEditor)
-            .Select(pair => new AgentTuiContribution<IAgentTuiWidget>(pair.Key.Key, pair.Value))
+            .Select(pair => new AgentTuiContribution<IAgentTuiWidget>(
+                pair.Key.Key,
+                pair.Value,
+                store.GetWidgetOwner(pair.Key)))
             .ToArray();
-        var providerContributions = autocompleteProviders
-            .Select(pair => new AgentTuiContribution<IAgentTuiAutocompleteProvider>(pair.Key, pair.Value))
+        var providerContributions = store.AutocompleteProviders
+            .Select(pair => new AgentTuiContribution<IAgentTuiAutocompleteProvider>(
+                pair.Key,
+                pair.Value,
+                store.GetAutocompleteProviderOwner(pair.Key)))
             .ToList();
 
-        if (includeSlashCommandAutocomplete)
+        if (store.IncludeSlashCommandAutocomplete)
         {
             providerContributions.Insert(0, new AgentTuiContribution<IAgentTuiAutocompleteProvider>(
                 "hpd.slash-commands",
-                new SlashCommandAgentAutocompleteProvider(this)));
+                new SlashCommandAgentAutocompleteProvider(this),
+                HpdContributionOwner.Framework));
         }
 
         _autocompleteProviders = providerContributions.ToArray();
-        _shortcuts = shortcuts.ToDictionary(shortcut => shortcut.Key, StringComparer.Ordinal);
+        _shortcuts = store.Shortcuts.Values.ToDictionary(shortcut => shortcut.Key, StringComparer.Ordinal);
         _shortcutList = _shortcuts.Values.ToArray();
-        _eventHandlers = eventHandlers
-            .Select(pair => new AgentTuiContribution<IAgentTuiEventHandler>(pair.Key, pair.Value))
+        _eventHandlers = store.EventHandlers
+            .Select(pair => new AgentTuiContribution<IAgentTuiEventHandler>(
+                pair.Key,
+                pair.Value,
+                store.GetEventHandlerOwner(pair.Key)))
             .ToArray();
-        _interactionHandlers = interactionHandlers
-            .Select(pair => new AgentTuiContribution<IAgentTuiInteractionHandler>(pair.Key, pair.Value))
+        _interactionHandlers = store.InteractionHandlers
+            .Select(pair => new AgentTuiContribution<IAgentTuiInteractionHandler>(
+                pair.Key,
+                pair.Value,
+                store.GetInteractionHandlerOwner(pair.Key)))
             .ToArray();
-        TranscriptRenderers = new AgentTuiTranscriptRendererRegistry(transcriptRenderers);
-        Header = header;
-        Footer = footer;
-        _promptFactory = promptFactory;
-        _shellLayout = shellLayout;
-        ShellChrome = (shellChrome ?? throw new ArgumentNullException(nameof(shellChrome))).Clone();
-        Theme = theme;
-        RunConfigComposer = runConfigComposer;
+        _runConfigContributors = store.RunConfigContributors
+            .Select(pair => new AgentTuiContribution<IAgentTuiRunConfigContributor>(
+                pair.Key,
+                pair.Value,
+                store.GetRunConfigContributorOwner(pair.Key)))
+            .ToArray();
+        TranscriptRenderers = new AgentTuiTranscriptRendererRegistry(store.TranscriptRenderers.Values);
+        Header = store.Header;
+        Footer = store.Footer;
+        _promptFactory = store.PromptFactory;
+        _shellLayout = store.ShellLayout;
+        ShellChrome = store.ShellChrome.Clone();
+        Theme = store.Theme;
     }
 
     public IReadOnlyList<HpdAgentTuiCommandDescriptor> Commands => _commandList;
 
+    public IReadOnlyList<AgentTuiContribution<HpdAgentTuiCommandDescriptor>> CommandContributions => _commandContributions;
+
     public IReadOnlyList<HpdAgentTuiPageDescriptor> Pages => _pageList;
+
+    public IReadOnlyList<AgentTuiContribution<HpdAgentTuiPageDescriptor>> PageContributions => _pageContributions;
 
     public string? DefaultPageId => _pages.Count > 0 ? _pages.Values.First().Id : null;
 
@@ -109,8 +138,6 @@ public sealed class HpdAgentTuiRegistry
 
     public Theme? Theme { get; }
 
-    public AgentTuiRunConfigComposer? RunConfigComposer { get; }
-
     public AgentTuiTranscriptRendererRegistry TranscriptRenderers { get; }
 
     public IReadOnlyList<AgentTuiContribution<IAgentTuiStatusItem>> StatusItems => _statusItems;
@@ -127,15 +154,32 @@ public sealed class HpdAgentTuiRegistry
 
     public IReadOnlyList<AgentTuiContribution<IAgentTuiInteractionHandler>> InteractionHandlers => _interactionHandlers;
 
+    public IReadOnlyList<AgentTuiContribution<IAgentTuiRunConfigContributor>> RunConfigContributors => _runConfigContributors;
+
     public bool TryFindSlashCommand(
         ReadOnlySpan<char> commandLine,
         out HpdAgentTuiCommandDescriptor command,
         out string arguments)
     {
+        if (TryFindSlashCommandContribution(commandLine, out var contribution, out arguments))
+        {
+            command = contribution.Value;
+            return true;
+        }
+
+        command = null!;
+        return false;
+    }
+
+    public bool TryFindSlashCommandContribution(
+        ReadOnlySpan<char> commandLine,
+        out AgentTuiContribution<HpdAgentTuiCommandDescriptor> contribution,
+        out string arguments)
+    {
         var trimmed = commandLine.Trim();
         if (trimmed.IsEmpty)
         {
-            command = null!;
+            contribution = null!;
             arguments = "";
             return false;
         }
@@ -145,8 +189,9 @@ public sealed class HpdAgentTuiRegistry
             trimmed = trimmed[1..];
         }
 
-        if (trimmed.Trim().IsEmpty && _commands.TryGetValue("help", out command!))
+        if (trimmed.Trim().IsEmpty && _commands.TryGetValue("help", out var helpCommand))
         {
+            contribution = FindCommandContribution(helpCommand.SlashName);
             arguments = "";
             return true;
         }
@@ -155,14 +200,19 @@ public sealed class HpdAgentTuiRegistry
         var name = split < 0 ? trimmed : trimmed[..split];
         arguments = split < 0 ? "" : trimmed[(split + 1)..].Trim().ToString();
 
-        if (_commands.TryGetValue(name.ToString(), out command!))
+        if (_commands.TryGetValue(name.ToString(), out var command))
         {
+            contribution = FindCommandContribution(command.SlashName);
             return true;
         }
 
-        command = null!;
+        contribution = null!;
         return false;
     }
+
+    private AgentTuiContribution<HpdAgentTuiCommandDescriptor> FindCommandContribution(string slashName)
+        => _commandContributions.First(contribution =>
+            string.Equals(contribution.Key, slashName, StringComparison.OrdinalIgnoreCase));
 
     public bool TryFindShortcut(in KeyEvent key, out HpdAgentTuiShortcutDescriptor shortcut)
     {

@@ -3,39 +3,34 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using HPD.Agent;
 
 namespace HPD.Agent.Secrets;
 
 /// <summary>
-/// Global registry for canonical environment variable names for secret keys.
-/// Providers register their supported names during ModuleInitializers.
+/// Effective table of canonical environment variable names for secret keys.
+/// Provider packages contribute aliases through the provider contribution surface;
+/// this table is what secret resolvers query after those contributions are applied.
 /// EnvironmentSecretResolver queries this registry instead of inferring names.
 /// </summary>
 public static class SecretAliasRegistry
 {
-    private static readonly ConcurrentDictionary<string, string[]> _aliases =
+    private static readonly ConcurrentDictionary<string, SecretAliasContribution> _aliases =
         new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Registers canonical environment variable names for a secret key.
-    /// Called by provider package ModuleInitializers to register supported env vars.
-    /// Thread-safe and idempotent - calling multiple times with the same key overwrites previous registration.
+    /// Applies canonical environment variable names for a secret key.
+    /// Thread-safe and idempotent; calling multiple times with the same key replaces the effective alias contribution.
     /// </summary>
     /// <param name="secretKey">The secret key in "{scope}:{name}" format (e.g., "huggingface:ApiKey")</param>
+    /// <param name="owner">The contribution owner that supplied the aliases.</param>
     /// <param name="envVarNames">One or more canonical environment variable names to check, in priority order.</param>
-    /// <example>
-    /// <code>
-    /// // In HuggingFaceProviderModule.Initialize():
-    /// SecretAliasRegistry.Register("huggingface:ApiKey", "HUGGINGFACE_API_KEY");
-    ///
-    /// // In OpenAIProviderModule.Initialize():
-    /// SecretAliasRegistry.Register("openai:ApiKey", "OPENAI_API_KEY");
-    /// </code>
-    /// </example>
-    public static void Register(string secretKey, params string[] envVarNames)
+    internal static void Apply(string secretKey, HpdContributionOwner owner, params string[] envVarNames)
     {
         if (string.IsNullOrWhiteSpace(secretKey))
             throw new ArgumentException("Secret key cannot be null or whitespace.", nameof(secretKey));
+
+        ArgumentNullException.ThrowIfNull(owner);
 
         if (envVarNames == null || envVarNames.Length == 0)
             throw new ArgumentException("At least one environment variable name must be provided.", nameof(envVarNames));
@@ -43,7 +38,7 @@ public static class SecretAliasRegistry
         if (envVarNames.Any(string.IsNullOrWhiteSpace))
             throw new ArgumentException("Environment variable names cannot be null or whitespace.", nameof(envVarNames));
 
-        _aliases[secretKey] = envVarNames;
+        _aliases[secretKey] = new SecretAliasContribution(secretKey, envVarNames, owner);
     }
 
     /// <summary>
@@ -68,7 +63,7 @@ public static class SecretAliasRegistry
     /// </example>
     internal static string[]? GetAliases(string secretKey)
     {
-        return _aliases.TryGetValue(secretKey, out var aliases) ? aliases : null;
+        return _aliases.TryGetValue(secretKey, out var aliases) ? aliases.EnvironmentVariableNames : null;
     }
 
     /// <summary>
@@ -89,7 +84,25 @@ public static class SecretAliasRegistry
     public static IReadOnlyDictionary<string, string[]> GetAll()
     {
         // Return a snapshot copy for thread safety
-        return new Dictionary<string, string[]>(_aliases, StringComparer.Ordinal);
+        return _aliases.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value.EnvironmentVariableNames,
+            StringComparer.Ordinal);
+    }
+
+    internal static bool RemoveOwner(HpdContributionOwner owner)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        var removed = false;
+        foreach (var pair in _aliases.ToArray())
+        {
+            if (pair.Value.Owner == owner)
+            {
+                removed |= _aliases.TryRemove(pair.Key, out _);
+            }
+        }
+
+        return removed;
     }
 
     /// <summary>
@@ -99,4 +112,9 @@ public static class SecretAliasRegistry
     {
         _aliases.Clear();
     }
+
+    private sealed record SecretAliasContribution(
+        string SecretKey,
+        string[] EnvironmentVariableNames,
+        HpdContributionOwner Owner);
 }

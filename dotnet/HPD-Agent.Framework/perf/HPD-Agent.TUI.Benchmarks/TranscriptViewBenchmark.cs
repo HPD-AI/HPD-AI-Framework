@@ -18,7 +18,8 @@ public class TranscriptViewBenchmark
     [GlobalSetup]
     public void Setup()
     {
-        _renderers = new HpdAgentTuiBuilder()
+        var store = new AgentTuiContributionStore();
+        _renderers = new HpdAgentTuiBuilder(store, HpdContributionOwner.App)
             .AddDefaultTranscriptRenderers()
             .Build()
             .TranscriptRenderers;
@@ -46,7 +47,7 @@ public class TranscriptViewBenchmark
         var model = CreateTranscript(1_000);
         var view = new TranscriptView(model, _renderers, height: 16);
         Render(view);
-        model.Append(Row(_appendIndex++));
+        model.AddFinal(Row(_appendIndex++));
         return Render(view);
     }
 
@@ -56,17 +57,15 @@ public class TranscriptViewBenchmark
         var model = CreateTranscript(1_000);
         var view = new TranscriptView(model, _renderers, height: 16);
         Render(view);
-        model.Update(Row(_updateIndex, $"updated visible row {_updateIndex++:D4}"));
+        model.UpsertLive(Row(_updateIndex, $"updated visible row {_updateIndex++:D4}"));
         return Render(view);
     }
 
     [Benchmark]
-    public string Scroll()
+    public string RebuildVisibleWindow()
     {
-        _largeTranscript.ScrollUp(4);
-        var output = Render(_largeView);
-        _largeTranscript.ScrollDown(4);
-        return output;
+        _largeTranscript.AddFinal(Row(_appendIndex++));
+        return Render(_largeView);
     }
 
     private static TranscriptModel CreateTranscript(int count)
@@ -74,7 +73,7 @@ public class TranscriptViewBenchmark
         var model = new TranscriptModel();
         for (var i = 0; i < count; i++)
         {
-            model.Append(Row(i));
+            model.AddFinal(Row(i));
         }
 
         return model;

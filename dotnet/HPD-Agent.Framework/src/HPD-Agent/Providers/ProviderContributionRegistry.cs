@@ -1,22 +1,22 @@
-// HPD-Agent/Providers/ProviderDiscovery.cs
+// HPD-Agent/Providers/ProviderContributionRegistry.cs
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using HPD.Agent;
 
 namespace HPD.Agent.Providers;
 
 /// <summary>
-/// Global discovery mechanism for provider packages.
-/// ModuleInitializers register here, AgentBuilder copies to instance registry.
-/// Also supports provider-specific configuration type registration for FFI serialization.
+/// Build-time provider contribution bridge.
+/// Module initializers register owned provider contributions here; AgentBuilder snapshots
+/// the effective contributions into its instance provider registry.
 /// </summary>
-public static class ProviderDiscovery
+public static class ProviderContributionRegistry
 {
-    private static readonly List<Func<IProvider>> _factories = new();
-    private static readonly Dictionary<ProviderConfigKey, ProviderConfigRegistration> _configTypes = new();
+    private static readonly ProviderContributionStore s_store = new();
     private static readonly object _lock = new();
 
     /// <summary>
@@ -24,32 +24,44 @@ public static class ProviderDiscovery
     /// </summary>
     public static void RegisterProviderFactory(Func<IProvider> factory)
     {
-        lock (_lock)
-        {
-            _factories.Add(factory);
-        }
+        ArgumentNullException.ThrowIfNull(factory);
+        s_store.AddProviderFactory(
+            CreateProviderFactoryKey(factory),
+            _ => factory(),
+            HpdContributionOwner.Framework);
     }
 
-    /// <summary>
-    /// Get all discovered provider factories.
-    /// Called by AgentBuilder to populate its instance registry.
-    /// </summary>
-    internal static IEnumerable<Func<IProvider>> GetFactories()
+    public static void RegisterProviderContributor(
+        IProviderContributor contributor,
+        HpdContributionOwner owner)
     {
-        lock (_lock)
-        {
-            return _factories.ToList(); // Return copy for thread safety
-        }
+        ArgumentNullException.ThrowIfNull(contributor);
+        ArgumentNullException.ThrowIfNull(owner);
+        contributor.ConfigureProviders(
+            new ProviderContributionBuilder(s_store, owner),
+            new HpdProviderContributionContext
+            {
+                Owner = owner,
+                Services = EmptyServiceProvider.Instance
+            });
     }
 
+    internal static void ApplyTo(
+        IProviderRegistry registry,
+        IServiceProvider? services = null)
+        => s_store.ApplyTo(registry, services);
+
     /// <summary>
-    /// For testing: clear discovery registry.
+    /// For testing: clear provider contributions.
     /// </summary>
     internal static void ClearForTesting()
     {
         lock (_lock)
         {
-            _factories.Clear();
+            foreach (var owner in s_store.Owners)
+            {
+                s_store.RemoveOwner(owner);
+            }
         }
     }
 
@@ -62,7 +74,7 @@ public static class ProviderDiscovery
     /// <example>
     /// <code>
     /// // Native AOT or PublishSingleFile: Explicitly load providers before creating AgentBuilder
-    /// ProviderDiscovery.LoadProvider&lt;HPD.Agent.Providers.OpenRouter.OpenRouterProviderModule&gt;();
+    /// ProviderContributionRegistry.LoadProvider&lt;HPD.Agent.Providers.OpenRouter.OpenRouterProviderModule&gt;();
     /// var agent = new AgentBuilder(config).Build();
     /// </code>
     /// </example>
@@ -80,7 +92,7 @@ public static class ProviderDiscovery
     /// <example>
     /// <code>
     /// // At application startup (especially for PublishSingleFile):
-    /// ProviderDiscovery.LoadAllProviders();
+    /// ProviderContributionRegistry.LoadAllProviders();
     /// var agent = new AgentBuilder(config).Build();
     /// </code>
     /// </example>
@@ -163,7 +175,7 @@ public static class ProviderDiscovery
     /// <example>
     /// <code>
     /// // In AnthropicProviderModule.Initialize():
-    /// ProviderDiscovery.RegisterProviderConfigType&lt;AnthropicProviderConfig&gt;(
+    /// ProviderContributionRegistry.RegisterProviderConfigType&lt;AnthropicProviderConfig&gt;(
     ///     "anthropic",
     ///     json => JsonSerializer.Deserialize(json, AnthropicJsonContext.Default.AnthropicProviderConfig),
     ///     config => JsonSerializer.Serialize(config, AnthropicJsonContext.Default.AnthropicProviderConfig));
@@ -189,10 +201,48 @@ public static class ProviderDiscovery
     {
         lock (_lock)
         {
-            _configTypes[new ProviderConfigKey(providerKey, family)] = new ProviderConfigRegistration(
-                typeof(TConfig),
-                json => deserializer(json),
-                obj => serializer((TConfig)obj));
+            s_store.AddProviderConfigSerializer(
+                providerKey,
+                family,
+                new ProviderConfigRegistration(
+                    typeof(TConfig),
+                    json => deserializer(json),
+                    obj => serializer((TConfig)obj)),
+                HpdContributionOwner.Framework);
+        }
+    }
+
+    public static void RegisterSecretAlias(
+        string secretKey,
+        params string[] environmentVariableNames)
+    {
+        lock (_lock)
+        {
+            s_store.AddSecretAlias(secretKey, environmentVariableNames, HpdContributionOwner.Framework);
+        }
+    }
+
+    public static void RegisterModelCatalog(IProviderModelCatalog catalog)
+    {
+        lock (_lock)
+        {
+            s_store.AddModelCatalog(catalog, HpdContributionOwner.Framework);
+        }
+    }
+
+    public static IReadOnlyList<ProviderContribution<IProviderModelCatalog>> GetModelCatalogs()
+    {
+        lock (_lock)
+        {
+            return s_store.ModelCatalogs;
+        }
+    }
+
+    public static IProviderModelCatalog? GetModelCatalog(string providerKey)
+    {
+        lock (_lock)
+        {
+            return s_store.GetModelCatalog(providerKey);
         }
     }
 
@@ -213,9 +263,7 @@ public static class ProviderDiscovery
     {
         lock (_lock)
         {
-            return _configTypes.TryGetValue(new ProviderConfigKey(providerKey, family), out var registration)
-                ? registration
-                : null;
+            return s_store.GetProviderConfigSerializer(providerKey, family);
         }
     }
 
@@ -273,9 +321,9 @@ public static class ProviderDiscovery
     {
         lock (_lock)
         {
-            return _configTypes
+            return s_store.GetProviderConfigSerializers()
                 .Where(pair => pair.Key.Family == ProviderClientFamily.Chat)
-                .ToDictionary(pair => pair.Key.ProviderKey, pair => pair.Value, StringComparer.Ordinal);
+                .ToDictionary(pair => pair.Key.ProviderKey, pair => pair.Value.Value, StringComparer.Ordinal);
         }
     }
 
@@ -286,10 +334,18 @@ public static class ProviderDiscovery
     {
         lock (_lock)
         {
-            return _configTypes.ToDictionary(
-                pair => (pair.Key.ProviderKey, pair.Key.Family),
-                pair => pair.Value);
+            return s_store.GetProviderConfigSerializers()
+                .ToDictionary(
+                    pair => pair.Key,
+                    pair => pair.Value.Value);
         }
+    }
+
+    private static string CreateProviderFactoryKey(Func<IProvider> factory)
+    {
+        var method = factory.Method;
+        var declaringType = method.DeclaringType?.FullName ?? "provider";
+        return $"{declaringType}.{method.Name}.{Guid.NewGuid():N}";
     }
 }
 

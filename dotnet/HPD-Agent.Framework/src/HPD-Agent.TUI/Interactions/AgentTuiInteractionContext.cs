@@ -12,6 +12,7 @@ public sealed class AgentTuiInteractionContext
         AgentTuiNavigationModel navigation,
         IHpdAgentTuiRuntime runtime,
         IAgentTuiDialogService dialogs,
+        IAgentTuiSessionUi sessionUi,
         AgentEvent request)
     {
         Scope = scope ?? throw new ArgumentNullException(nameof(scope));
@@ -19,6 +20,7 @@ public sealed class AgentTuiInteractionContext
         Navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
         Runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         Dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
+        SessionUi = sessionUi ?? throw new ArgumentNullException(nameof(sessionUi));
         Request = request ?? throw new ArgumentNullException(nameof(request));
     }
 
@@ -31,6 +33,8 @@ public sealed class AgentTuiInteractionContext
     public IHpdAgentTuiRuntime Runtime { get; }
 
     public IAgentTuiDialogService Dialogs { get; }
+
+    public IAgentTuiSessionUi SessionUi { get; }
 
     public AgentEvent Request { get; }
 }
@@ -44,6 +48,7 @@ public sealed class AgentTuiInteractionContext<TRequest>
         AgentTuiNavigationModel navigation,
         IHpdAgentTuiRuntime runtime,
         IAgentTuiDialogService dialogs,
+        IAgentTuiSessionUi sessionUi,
         TRequest request)
     {
         Scope = scope ?? throw new ArgumentNullException(nameof(scope));
@@ -51,6 +56,7 @@ public sealed class AgentTuiInteractionContext<TRequest>
         Navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
         Runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         Dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
+        SessionUi = sessionUi ?? throw new ArgumentNullException(nameof(sessionUi));
         Request = request ?? throw new ArgumentNullException(nameof(request));
     }
 
@@ -63,6 +69,8 @@ public sealed class AgentTuiInteractionContext<TRequest>
     public IHpdAgentTuiRuntime Runtime { get; }
 
     public IAgentTuiDialogService Dialogs { get; }
+
+    public IAgentTuiSessionUi SessionUi { get; }
 
     public TRequest Request { get; }
 }

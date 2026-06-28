@@ -3,6 +3,13 @@ using HPD.Agent;
 
 namespace HPD.Agent.Hosting.Lifecycle;
 
+public sealed record AgentCacheEvictionResult(
+    int AgentCount,
+    int BuildLockCount)
+{
+    public bool EvictedAny => AgentCount > 0 || BuildLockCount > 0;
+}
+
 /// <summary>
 /// Abstract base class for managing <see cref="StoredAgent"/> definitions and
 /// cached <see cref="Agent"/> instances.
@@ -214,6 +221,45 @@ public abstract class AgentManager : IDisposable
     }
 
     /// <summary>
+    /// Marks cached instances for one agent definition as stale and evicts them.
+    /// Future requests rebuild from the current definition and contribution pipeline.
+    /// Active turns keep using any <see cref="Agent"/> reference they already hold.
+    /// </summary>
+    public AgentCacheEvictionResult MarkAgentStale(string agentId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        return EvictAgent(agentId);
+    }
+
+    /// <summary>
+    /// Marks every cached agent instance as stale. Used when backend package changes
+    /// may affect the global provider, middleware, tool, or contributor pipeline.
+    /// </summary>
+    public AgentCacheEvictionResult MarkAllAgentsStale()
+    {
+        var removedAgents = 0;
+        var removedLocks = 0;
+        foreach (var key in _agents.Keys.ToArray())
+        {
+            if (_agents.TryRemove(key, out _))
+            {
+                removedAgents++;
+            }
+        }
+
+        foreach (var key in _buildLocks.Keys.ToArray())
+        {
+            if (_buildLocks.TryRemove(key, out var sem))
+            {
+                sem.Dispose();
+                removedLocks++;
+            }
+        }
+
+        return new AgentCacheEvictionResult(removedAgents, removedLocks);
+    }
+
+    /// <summary>
     /// Seeds a definition with the exact <paramref name="agentId"/> into the store.
     /// Use this for synthesizing fallback definitions when no stored definition exists.
     /// </summary>
@@ -240,18 +286,40 @@ public abstract class AgentManager : IDisposable
 
     // ─── Eviction ────────────────────────────────────────────────────────
 
-    private void EvictAgent(string agentId)
+    private AgentCacheEvictionResult EvictAgent(string agentId)
     {
-        _agents.TryRemove(agentId, out _);
+        var removedAgents = 0;
+        var removedLocks = 0;
+        if (_agents.TryRemove(agentId, out _))
+        {
+            removedAgents++;
+        }
+
         if (_buildLocks.TryRemove(agentId, out var sem))
+        {
             sem.Dispose();
+            removedLocks++;
+        }
 
         var runtimePrefix = $"{agentId}::";
         foreach (var key in _agents.Keys.Where(k => k.StartsWith(runtimePrefix, StringComparison.Ordinal)).ToList())
-            _agents.TryRemove(key, out _);
+        {
+            if (_agents.TryRemove(key, out _))
+            {
+                removedAgents++;
+            }
+        }
+
         foreach (var key in _buildLocks.Keys.Where(k => k.StartsWith(runtimePrefix, StringComparison.Ordinal)).ToList())
+        {
             if (_buildLocks.TryRemove(key, out var runtimeSem))
+            {
                 runtimeSem.Dispose();
+                removedLocks++;
+            }
+        }
+
+        return new AgentCacheEvictionResult(removedAgents, removedLocks);
     }
 
     private void EvictIdleAgents(object? state)

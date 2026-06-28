@@ -777,11 +777,11 @@ public sealed class ElevenLabsAudioProviderTests
             StreamingChunkSizeBytes = 4096
         };
 
-        var json = ProviderDiscovery.SerializeProviderConfig(
+        var json = ProviderContributionRegistry.SerializeProviderConfig(
             "elevenlabs",
             ProviderClientFamily.SpeechToText,
             config);
-        var deserialized = ProviderDiscovery.DeserializeProviderConfig(
+        var deserialized = ProviderContributionRegistry.DeserializeProviderConfig(
             "elevenlabs",
             ProviderClientFamily.SpeechToText,
             json);
@@ -825,11 +825,11 @@ public sealed class ElevenLabsAudioProviderTests
             PushTextAggregationMode = PushTextInputAggregationMode.Sentence
         };
 
-        var json = ProviderDiscovery.SerializeProviderConfig(
+        var json = ProviderContributionRegistry.SerializeProviderConfig(
             "elevenlabs",
             ProviderClientFamily.TextToSpeech,
             config);
-        var deserialized = ProviderDiscovery.DeserializeProviderConfig(
+        var deserialized = ProviderContributionRegistry.DeserializeProviderConfig(
             "elevenlabs",
             ProviderClientFamily.TextToSpeech,
             json);

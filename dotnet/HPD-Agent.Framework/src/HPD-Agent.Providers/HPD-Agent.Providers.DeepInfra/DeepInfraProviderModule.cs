@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.DeepInfra;
 
@@ -15,14 +14,14 @@ public static class DeepInfraProviderModule
 #pragma warning restore CA2255
     public static void Initialize()
     {
-        ProviderDiscovery.RegisterProviderFactory(() => new DeepInfraProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new DeepInfraProvider());
 
-        ProviderDiscovery.RegisterProviderConfigType<DeepInfraProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<DeepInfraProviderConfig>(
             "deepinfra",
             json => JsonSerializer.Deserialize(json, DeepInfraJsonContext.Default.DeepInfraProviderConfig),
             config => JsonSerializer.Serialize(config, DeepInfraJsonContext.Default.DeepInfraProviderConfig));
 
-        SecretAliasRegistry.Register("deepinfra:ApiKey", "DEEPINFRA_API_KEY");
-        SecretAliasRegistry.Register("deepinfra:Endpoint", "DEEPINFRA_ENDPOINT", "DEEPINFRA_BASE_URL");
+        ProviderContributionRegistry.RegisterSecretAlias("deepinfra:ApiKey", "DEEPINFRA_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("deepinfra:Endpoint", "DEEPINFRA_ENDPOINT", "DEEPINFRA_BASE_URL");
     }
 }

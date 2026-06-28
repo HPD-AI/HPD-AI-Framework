@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.Moonshot;
 
@@ -15,14 +14,14 @@ public static class MoonshotProviderModule
 #pragma warning restore CA2255
     public static void Initialize()
     {
-        ProviderDiscovery.RegisterProviderFactory(() => new MoonshotProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new MoonshotProvider());
 
-        ProviderDiscovery.RegisterProviderConfigType<MoonshotProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<MoonshotProviderConfig>(
             "moonshot",
             json => JsonSerializer.Deserialize(json, MoonshotJsonContext.Default.MoonshotProviderConfig),
             config => JsonSerializer.Serialize(config, MoonshotJsonContext.Default.MoonshotProviderConfig));
 
-        SecretAliasRegistry.Register("moonshot:ApiKey", "MOONSHOT_API_KEY", "KIMI_API_KEY");
-        SecretAliasRegistry.Register("moonshot:Endpoint", "MOONSHOT_ENDPOINT", "MOONSHOT_BASE_URL", "KIMI_ENDPOINT", "KIMI_BASE_URL");
+        ProviderContributionRegistry.RegisterSecretAlias("moonshot:ApiKey", "MOONSHOT_API_KEY", "KIMI_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("moonshot:Endpoint", "MOONSHOT_ENDPOINT", "MOONSHOT_BASE_URL", "KIMI_ENDPOINT", "KIMI_BASE_URL");
     }
 }

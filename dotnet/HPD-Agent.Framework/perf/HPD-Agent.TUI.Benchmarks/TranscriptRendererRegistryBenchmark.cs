@@ -24,18 +24,18 @@ public class TranscriptRendererRegistryBenchmark
     [GlobalSetup]
     public void Setup()
     {
-        _defaultRenderers = new HpdAgentTuiBuilder()
+        _defaultRenderers = CreateBuilder()
             .AddDefaultTranscriptRenderers()
             .Build()
             .TranscriptRenderers;
-        _replacedRenderers = new HpdAgentTuiBuilder()
+        _replacedRenderers = CreateBuilder()
             .AddDefaultTranscriptRenderers()
             .ReplaceTranscriptRenderer<UserMessageCell>(
                 AgentTuiTranscriptRendererKeys.UserMessage,
                 _ => new Text("replaced"))
             .Build()
             .TranscriptRenderers;
-        _decoratedRenderers = new HpdAgentTuiBuilder()
+        _decoratedRenderers = CreateBuilder()
             .AddDefaultTranscriptRenderers()
             .DecorateTranscriptRenderer<UserMessageCell>(
                 AgentTuiTranscriptRendererKeys.UserMessage,
@@ -58,6 +58,9 @@ public class TranscriptRendererRegistryBenchmark
 
     private static string Render(IComponent component)
         => TuiCapture.RenderToString(component, width: 80, height: 4, trimTrailingBlankLines: false);
+
+    private static HpdAgentTuiBuilder CreateBuilder()
+        => new(new AgentTuiContributionStore(), HpdContributionOwner.App);
 
     private sealed class DecoratingRenderer(IAgentTuiTranscriptRenderer<UserMessageCell> inner)
         : IAgentTuiTranscriptRenderer<UserMessageCell>

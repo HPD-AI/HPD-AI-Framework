@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.GoogleAI;
 
@@ -17,15 +16,15 @@ public static class GoogleAIProviderModule
     public static void Initialize()
     {
         // Register provider factory
-        ProviderDiscovery.RegisterProviderFactory(() => new GoogleAIProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new GoogleAIProvider());
 
         // Register config type for FFI/JSON serialization (AOT-compatible)
-        ProviderDiscovery.RegisterProviderConfigType<GoogleAIProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<GoogleAIProviderConfig>(
             "google-ai",
             json => JsonSerializer.Deserialize(json, GoogleAIJsonContext.Default.GoogleAIProviderConfig),
             config => JsonSerializer.Serialize(config, GoogleAIJsonContext.Default.GoogleAIProviderConfig));
 
         // Register provider secret key for environment resolution.
-        SecretAliasRegistry.Register("google-ai:ApiKey", "GOOGLE_AI_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("google-ai:ApiKey", "GOOGLE_AI_API_KEY");
     }
 }

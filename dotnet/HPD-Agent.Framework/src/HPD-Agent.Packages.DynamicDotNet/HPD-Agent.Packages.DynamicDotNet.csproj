@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>HPD.Agent.Packages.DynamicDotNet</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.Packages.DynamicDotNet</PackageId>
+    <Description>Trusted non-AOT .NET runtime package loading for HPD Agent.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
+  </ItemGroup>
+
+</Project>

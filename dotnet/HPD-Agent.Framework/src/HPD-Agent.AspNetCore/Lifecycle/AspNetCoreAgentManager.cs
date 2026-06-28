@@ -80,8 +80,8 @@ internal class AspNetCoreAgentManager : AgentManager
             .WithSessionStore(_sessionManager.Store, opts.PersistAfterTurn)
             .WithContentStore(_contentStore);
 
-        // ConfigureAgent always runs last — server runtime enrichment for all agents.
-        opts.ConfigureAgent?.Invoke(builder);
+        opts.ProviderContributions.ApplyTo(builder.ProviderRegistry, _serviceProvider);
+        opts.AgentContributors.ApplyTo(builder, _serviceProvider, agentId);
 
         return await builder.BuildAsync(ct);
     }

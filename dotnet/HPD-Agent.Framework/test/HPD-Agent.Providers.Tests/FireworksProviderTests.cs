@@ -44,11 +44,11 @@ public class FireworksProviderTests
     }
 
     [Fact]
-    public void ProviderDiscovery_ShouldRegisterProviderAndConfigType()
+    public void ProviderContributionRegistry_ShouldRegisterProviderAndConfigType()
     {
         FireworksProviderModule.Initialize();
 
-        ProviderDiscovery.GetProviderConfigType("fireworks").Should().NotBeNull();
+        ProviderContributionRegistry.GetProviderConfigType("fireworks").Should().NotBeNull();
     }
 
     [Fact]
@@ -210,7 +210,7 @@ public class FireworksProviderTests
     }
 
     [Fact]
-    public void ProviderDiscovery_ConfigJsonRoundTrips()
+    public void ProviderContributionRegistry_ConfigJsonRoundTrips()
     {
         FireworksProviderModule.Initialize();
         var config = new FireworksProviderConfig
@@ -220,8 +220,8 @@ public class FireworksProviderTests
             ToolChoice = "required"
         };
 
-        var json = ProviderDiscovery.SerializeProviderConfig("fireworks", config);
-        var roundTrip = ProviderDiscovery.DeserializeProviderConfig("fireworks", json);
+        var json = ProviderContributionRegistry.SerializeProviderConfig("fireworks", config);
+        var roundTrip = ProviderContributionRegistry.DeserializeProviderConfig("fireworks", json);
 
         roundTrip.Should().BeEquivalentTo(config);
     }

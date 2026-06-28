@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.Cohere;
 
@@ -16,18 +15,18 @@ public static class CohereProviderModule
 #pragma warning restore CA2255 // The 'ModuleInitializer' attribute should not be used in libraries
     public static void Initialize()
     {
-        ProviderDiscovery.RegisterProviderFactory(() => new CohereProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new CohereProvider());
 
-        ProviderDiscovery.RegisterProviderConfigType<CohereProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<CohereProviderConfig>(
             "cohere",
             json => JsonSerializer.Deserialize(json, CohereJsonContext.Default.CohereProviderConfig),
             config => JsonSerializer.Serialize(config, CohereJsonContext.Default.CohereProviderConfig));
-        ProviderDiscovery.RegisterProviderConfigType<CohereProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<CohereProviderConfig>(
             "cohere",
             ProviderClientFamily.Embeddings,
             json => JsonSerializer.Deserialize(json, CohereJsonContext.Default.CohereProviderConfig),
             config => JsonSerializer.Serialize(config, CohereJsonContext.Default.CohereProviderConfig));
 
-        SecretAliasRegistry.Register("cohere:ApiKey", "COHERE_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("cohere:ApiKey", "COHERE_API_KEY");
     }
 }

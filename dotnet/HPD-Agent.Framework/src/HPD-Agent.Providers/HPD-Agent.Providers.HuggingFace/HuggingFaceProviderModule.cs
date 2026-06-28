@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.HuggingFace;
 
@@ -17,15 +16,15 @@ public static class HuggingFaceProviderModule
     public static void Initialize()
     {
         // Register provider factory
-        ProviderDiscovery.RegisterProviderFactory(() => new HuggingFaceProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new HuggingFaceProvider());
 
         // Register config type for FFI/JSON serialization (AOT-compatible)
-        ProviderDiscovery.RegisterProviderConfigType<HuggingFaceProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<HuggingFaceProviderConfig>(
             "huggingface",
             json => JsonSerializer.Deserialize(json, HuggingFaceJsonContext.Default.HuggingFaceProviderConfig),
             config => JsonSerializer.Serialize(config, HuggingFaceJsonContext.Default.HuggingFaceProviderConfig));
 
         // Register environment variable aliases for secret resolution
-        SecretAliasRegistry.Register("huggingface:ApiKey", "HUGGINGFACE_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("huggingface:ApiKey", "HUGGINGFACE_API_KEY");
     }
 }

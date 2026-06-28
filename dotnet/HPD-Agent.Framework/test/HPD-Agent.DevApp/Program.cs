@@ -1,3 +1,4 @@
+using HPD.Agent;
 using HPD.Agent.Bots.Discord;
 using HPD.Agent.Bots.Slack;
 using HPD.Agent.Bots.Slack.OAuth;
@@ -19,10 +20,10 @@ var agentId = builder.Configuration["Agent:Id"] ?? "dev-agent";
 
 builder.Services.AddHPDAgent(cfg =>
 {
-    cfg.ConfigureAgent = ab => ab
+    cfg.AgentContributors.Add(new DelegateAgentBuilderContributor(ab => ab
         .WithAnthropic(
             model: builder.Configuration["Agent:Model"] ?? "claude-sonnet-4-5-20250929",
-            apiKey: builder.Configuration["Anthropic:ApiKey"]);
+            apiKey: builder.Configuration["Anthropic:ApiKey"])));
 
     cfg.PersistAfterTurn = true;
 });

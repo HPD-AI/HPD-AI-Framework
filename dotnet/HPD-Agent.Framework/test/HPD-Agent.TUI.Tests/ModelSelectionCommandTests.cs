@@ -35,7 +35,7 @@ public sealed class ModelSelectionCommandTests
                     IsRecommended: true,
                     SupportsTools: true)
             ]);
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddModelSelection(catalog, selection)
             .Build();
         registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
@@ -48,6 +48,7 @@ public sealed class ModelSelectionCommandTests
             shell.Navigation,
             new NoopRuntime(),
             new FirstChoiceDialogs(),
+            TuiTestBuilder.NoopSessionUi,
             static (_, _) => ValueTask.CompletedTask,
             command,
             arguments));
@@ -56,12 +57,9 @@ public sealed class ModelSelectionCommandTests
         selection.Current!.ProviderKey.Should().Be("openrouter");
         selection.Current.ModelId.Should().Be("deepseek/deepseek-chat");
 
-        var runConfig = registry.RunConfigComposer!(new AgentTuiRunConfigContext(
-            scope,
-            shell,
-            "hello"));
+        var runConfig = BuildRunConfig(registry, scope, shell, "hello");
         runConfig.Should().NotBeNull();
-        runConfig!.ProviderKey.Should().Be("openrouter");
+        runConfig.ProviderKey.Should().Be("openrouter");
         runConfig.ModelId.Should().Be("deepseek/deepseek-chat");
     }
 
@@ -69,9 +67,9 @@ public sealed class ModelSelectionCommandTests
     public async Task ModelCommand_WithArguments_SetsSelectionDirectly()
     {
         var selection = new AgentTuiModelSelectionState();
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddModelSelectionCommand(new TestModelCatalog([], []), selection)
-            .UseModelSelectionRunConfig(selection)
+            .AddModelSelectionRunConfig(selection)
             .Build();
         registry.TryFindSlashCommand("/model openrouter model-a", out var command, out var arguments).Should().BeTrue();
         var scope = new AgentTuiRuntimeScope("agent", "session", "main");
@@ -83,6 +81,7 @@ public sealed class ModelSelectionCommandTests
             shell.Navigation,
             new NoopRuntime(),
             new FirstChoiceDialogs(),
+            TuiTestBuilder.NoopSessionUi,
             static (_, _) => ValueTask.CompletedTask,
             command,
             arguments));
@@ -115,7 +114,7 @@ public sealed class ModelSelectionCommandTests
                     "Tool Model",
                     SupportsTools: true)
             ]);
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddModelSelection(catalog, selection)
             .Build();
         registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
@@ -128,6 +127,7 @@ public sealed class ModelSelectionCommandTests
             shell.Navigation,
             new NoopRuntime(),
             new FirstChoiceDialogs(),
+            TuiTestBuilder.NoopSessionUi,
             static (_, _) => ValueTask.CompletedTask,
             command,
             arguments));
@@ -162,7 +162,7 @@ public sealed class ModelSelectionCommandTests
                     "Tool Model",
                     SupportsTools: true)
             ]);
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddModelSelection(catalog, selection, configure: static options => options.RequireToolSupport = true)
             .Build();
         registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
@@ -175,6 +175,7 @@ public sealed class ModelSelectionCommandTests
             shell.Navigation,
             new NoopRuntime(),
             new FirstChoiceDialogs(),
+            TuiTestBuilder.NoopSessionUi,
             static (_, _) => ValueTask.CompletedTask,
             command,
             arguments));
@@ -250,6 +251,27 @@ public sealed class ModelSelectionCommandTests
             bool allowEmpty = false,
             CancellationToken cancellationToken = default)
             => Task.FromResult<string?>(null);
+    }
+
+    private static AgentRunConfig BuildRunConfig(
+        HpdAgentTuiRegistry registry,
+        AgentTuiRuntimeScope scope,
+        ChatShellModel shell,
+        string promptText)
+    {
+        var builder = new AgentRunConfigBuilder();
+        var context = new AgentTuiRunConfigContributionContext(
+            scope,
+            shell,
+            promptText,
+            registry,
+            new AgentTuiStateBag());
+        foreach (var contribution in registry.RunConfigContributors)
+        {
+            contribution.Value.ConfigureRun(context, builder);
+        }
+
+        return builder.Config;
     }
 
     private sealed class NoopRuntime : IHpdAgentTuiRuntime

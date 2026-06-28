@@ -1,5 +1,4 @@
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -12,14 +11,14 @@ public static class CerebrasProviderModule
 #pragma warning restore CA2255
     public static void Initialize()
     {
-        ProviderDiscovery.RegisterProviderFactory(() => new CerebrasProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new CerebrasProvider());
 
-        ProviderDiscovery.RegisterProviderConfigType<CerebrasProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<CerebrasProviderConfig>(
             "cerebras",
             json => JsonSerializer.Deserialize(json, CerebrasJsonContext.Default.CerebrasProviderConfig),
             config => JsonSerializer.Serialize(config, CerebrasJsonContext.Default.CerebrasProviderConfig));
 
-        SecretAliasRegistry.Register("cerebras:ApiKey", "CEREBRAS_API_KEY");
-        SecretAliasRegistry.Register("cerebras:Endpoint", "CEREBRAS_ENDPOINT", "CEREBRAS_BASE_URL");
+        ProviderContributionRegistry.RegisterSecretAlias("cerebras:ApiKey", "CEREBRAS_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("cerebras:Endpoint", "CEREBRAS_ENDPOINT", "CEREBRAS_BASE_URL");
     }
 }

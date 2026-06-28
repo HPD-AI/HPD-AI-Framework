@@ -310,11 +310,11 @@ public sealed class OpenAIAudioProviderTests
             IncludeLogprobs = true
         };
 
-        var json = ProviderDiscovery.SerializeProviderConfig(
+        var json = ProviderContributionRegistry.SerializeProviderConfig(
             "openai",
             ProviderClientFamily.SpeechToText,
             config);
-        var deserialized = ProviderDiscovery.DeserializeProviderConfig(
+        var deserialized = ProviderContributionRegistry.DeserializeProviderConfig(
             "openai",
             ProviderClientFamily.SpeechToText,
             json);

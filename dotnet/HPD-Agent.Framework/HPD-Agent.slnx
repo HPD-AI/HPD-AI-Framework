@@ -7,11 +7,13 @@
   </Configurations>
   <Folder Name="/Core/">
     <Project Path="src/HPD-Agent/HPD-Agent.csproj" />
+    <Project Path="src/HPD-Agent.Packages.DynamicDotNet/HPD-Agent.Packages.DynamicDotNet.csproj" />
     <Project Path="src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj" />
     <Project Path="src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" />
   </Folder>
   <Folder Name="/Web/">
     <Project Path="src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
+    <Project Path="src/HPD-Agent.AspNetCore.Packages/HPD-Agent.AspNetCore.Packages.csproj" />
     <Project Path="src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj" />
     <Project Path="src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
   </Folder>
@@ -102,6 +104,7 @@
     <Project Path="test/HPD-Agent.MultiAgent.Tests/HPD-Agent.MultiAgent.Tests.csproj" />
     <Project Path="test/HPD-Agent.OpenApi.Tests/HPD-Agent.OpenApi.Tests.csproj" />
     <Project Path="test/HPD-Agent.AspNetCore.Tests/HPD-Agent.AspNetCore.Tests.csproj" />
+    <Project Path="test/HPD-Agent.AspNetCore.Packages.Tests/HPD-Agent.AspNetCore.Packages.Tests.csproj" />
     <Project Path="test/HPD-Agent.Evaluations.Tests/HPD-Agent.Evaluations.Tests.csproj" />
     <Project Path="test/HPD-Agent.Providers.Tests/HPD-Agent.Providers.Tests.csproj" />
     <Project Path="test/HPD-Agent.Hosting.Tests/HPD-Agent.Hosting.Tests.csproj" />

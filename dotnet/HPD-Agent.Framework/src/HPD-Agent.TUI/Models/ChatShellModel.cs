@@ -28,6 +28,8 @@ public sealed class ChatShellModel
 
     public ActivityGroupModel Activities { get; } = new() { Title = "activity" };
 
+    public SessionStatusModel Status { get; } = new();
+
     public WidgetSlotModel AboveEditor { get; } = new();
 
     public WidgetSlotModel BelowEditor { get; } = new();

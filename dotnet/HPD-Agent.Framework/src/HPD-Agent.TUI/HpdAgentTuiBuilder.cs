@@ -12,24 +12,38 @@ namespace HPD.Agent.TUI;
 
 public sealed class HpdAgentTuiBuilder
 {
-    private readonly Dictionary<string, HpdAgentTuiCommandDescriptor> _commands = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, HpdAgentTuiPageDescriptor> _pages = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, IAgentTuiStatusItem> _statusItems = new(StringComparer.Ordinal);
-    private readonly Dictionary<(TuiSlot Slot, string Key), IAgentTuiWidget> _widgets = [];
-    private readonly Dictionary<string, IAgentTuiAutocompleteProvider> _autocompleteProviders = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, HpdAgentTuiShortcutDescriptor> _shortcuts = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, IAgentTuiEventHandler> _eventHandlers = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, IAgentTuiInteractionHandler> _interactionHandlers = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, IAgentTuiTranscriptRendererAdapter> _transcriptRenderers = new(StringComparer.Ordinal);
-    private readonly HashSet<KeyGesture> _shortcutGestures = [];
-    private IAgentTuiShellComponent? _header;
-    private IAgentTuiShellComponent? _footer;
-    private IAgentTuiPromptFactory? _promptFactory;
-    private IAgentTuiShellLayout? _shellLayout;
-    private AgentTuiShellChrome _shellChrome = new();
-    private Theme? _theme;
-    private bool _includeSlashCommandAutocomplete;
-    private AgentTuiRunConfigComposer? _runConfigComposer;
+    private readonly AgentTuiContributionStore _store;
+    private readonly HpdContributionOwner _owner;
+    private readonly Dictionary<string, HpdAgentTuiCommandDescriptor> _commands;
+    private readonly Dictionary<string, HpdAgentTuiPageDescriptor> _pages;
+    private readonly Dictionary<string, IAgentTuiStatusItem> _statusItems;
+    private readonly Dictionary<(TuiSlot Slot, string Key), IAgentTuiWidget> _widgets;
+    private readonly Dictionary<string, IAgentTuiAutocompleteProvider> _autocompleteProviders;
+    private readonly Dictionary<string, HpdAgentTuiShortcutDescriptor> _shortcuts;
+    private readonly Dictionary<string, IAgentTuiEventHandler> _eventHandlers;
+    private readonly Dictionary<string, IAgentTuiInteractionHandler> _interactionHandlers;
+    private readonly Dictionary<string, IAgentTuiTranscriptRendererAdapter> _transcriptRenderers;
+    private readonly Dictionary<string, IAgentTuiRunConfigContributor> _runConfigContributors;
+    private readonly HashSet<KeyGesture> _shortcutGestures;
+
+    public HpdAgentTuiBuilder(
+        AgentTuiContributionStore store,
+        HpdContributionOwner owner)
+    {
+        _store = store ?? throw new ArgumentNullException(nameof(store));
+        _owner = owner ?? throw new ArgumentNullException(nameof(owner));
+        _commands = _store.Commands;
+        _pages = _store.Pages;
+        _statusItems = _store.StatusItems;
+        _widgets = _store.Widgets;
+        _autocompleteProviders = _store.AutocompleteProviders;
+        _shortcuts = _store.Shortcuts;
+        _eventHandlers = _store.EventHandlers;
+        _interactionHandlers = _store.InteractionHandlers;
+        _transcriptRenderers = _store.TranscriptRenderers;
+        _runConfigContributors = _store.RunConfigContributors;
+        _shortcutGestures = _store.ShortcutGestures;
+    }
 
     public HpdAgentTuiBuilder AddAgentTuiDefaults()
         => AddDefaultShell()
@@ -72,7 +86,8 @@ public sealed class HpdAgentTuiBuilder
 
     public HpdAgentTuiBuilder AddSlashCommandAutocomplete()
     {
-        _includeSlashCommandAutocomplete = true;
+        _store.IncludeSlashCommandAutocomplete = true;
+        _store.MarkAutocompleteProvider("hpd.slash-commands", HpdContributionOwner.Framework);
         return this;
     }
 
@@ -160,6 +175,7 @@ public sealed class HpdAgentTuiBuilder
         }
 
         _transcriptRenderers[key] = new AgentTuiTranscriptRendererAdapter<TCell>(key, renderer);
+        _store.MarkTranscriptRenderer(key, _owner);
         return this;
     }
 
@@ -183,6 +199,7 @@ public sealed class HpdAgentTuiBuilder
         }
 
         _transcriptRenderers[key] = new AgentTuiTranscriptRendererAdapter<TCell>(key, renderer);
+        _store.MarkTranscriptRenderer(key, _owner);
         return this;
     }
 
@@ -211,6 +228,7 @@ public sealed class HpdAgentTuiBuilder
         }
 
         _transcriptRenderers[key] = new AgentTuiTranscriptRendererAdapter<TCell>(key, renderer);
+        _store.MarkTranscriptRenderer(key, _owner);
         return this;
     }
 
@@ -241,6 +259,7 @@ public sealed class HpdAgentTuiBuilder
         var decorated = decorate(typed.Renderer)
             ?? throw new InvalidOperationException("Transcript renderer decorator returned null.");
         _transcriptRenderers[key] = new AgentTuiTranscriptRendererAdapter<TCell>(key, decorated);
+        _store.MarkTranscriptRenderer(key, _owner);
         return this;
     }
 
@@ -252,6 +271,7 @@ public sealed class HpdAgentTuiBuilder
             throw new InvalidOperationException($"A page is already registered for '{page.Id}'.");
         }
 
+        _store.MarkPage(page.Id, _owner);
         return this;
     }
 
@@ -263,7 +283,11 @@ public sealed class HpdAgentTuiBuilder
     public HpdAgentTuiBuilder TryAddPage(HpdAgentTuiPageDescriptor page)
     {
         ArgumentNullException.ThrowIfNull(page);
-        _pages.TryAdd(page.Id, page);
+        if (_pages.TryAdd(page.Id, page))
+        {
+            _store.MarkPage(page.Id, _owner);
+        }
+
         return this;
     }
 
@@ -281,6 +305,7 @@ public sealed class HpdAgentTuiBuilder
         }
 
         _pages[page.Id] = page;
+        _store.MarkPage(page.Id, _owner);
         return this;
     }
 
@@ -292,12 +317,13 @@ public sealed class HpdAgentTuiBuilder
     public HpdAgentTuiBuilder AddHeader(IAgentTuiShellComponent header)
     {
         ArgumentNullException.ThrowIfNull(header);
-        if (_header is not null)
+        if (_store.Header is not null)
         {
             throw new InvalidOperationException("A header contribution is already registered.");
         }
 
-        _header = header;
+        _store.Header = header;
+        _store.MarkSingle(AgentTuiContributionChangeKind.Header, _owner);
         return this;
     }
 
@@ -307,19 +333,25 @@ public sealed class HpdAgentTuiBuilder
     public HpdAgentTuiBuilder TryAddHeader(IAgentTuiShellComponent header)
     {
         ArgumentNullException.ThrowIfNull(header);
-        _header ??= header;
+        if (_store.Header is null)
+        {
+            _store.Header = header;
+            _store.MarkSingle(AgentTuiContributionChangeKind.Header, _owner);
+        }
+
         return this;
     }
 
     public HpdAgentTuiBuilder ReplaceHeader(IAgentTuiShellComponent header)
     {
         ArgumentNullException.ThrowIfNull(header);
-        if (_header is null)
+        if (_store.Header is null)
         {
             throw new InvalidOperationException("Cannot replace header because none is registered.");
         }
 
-        _header = header;
+        _store.Header = header;
+        _store.MarkSingle(AgentTuiContributionChangeKind.Header, _owner);
         return this;
     }
 
@@ -330,24 +362,26 @@ public sealed class HpdAgentTuiBuilder
         Func<IAgentTuiShellComponent, IAgentTuiShellComponent> decorate)
     {
         ArgumentNullException.ThrowIfNull(decorate);
-        if (_header is null)
+        if (_store.Header is null)
         {
             throw new InvalidOperationException("Cannot decorate header because none is registered.");
         }
 
-        _header = decorate(_header) ?? throw new InvalidOperationException("Header decorator returned null.");
+        _store.Header = decorate(_store.Header) ?? throw new InvalidOperationException("Header decorator returned null.");
+        _store.MarkSingle(AgentTuiContributionChangeKind.Header, _owner);
         return this;
     }
 
     public HpdAgentTuiBuilder AddFooter(IAgentTuiShellComponent footer)
     {
         ArgumentNullException.ThrowIfNull(footer);
-        if (_footer is not null)
+        if (_store.Footer is not null)
         {
             throw new InvalidOperationException("A footer contribution is already registered.");
         }
 
-        _footer = footer;
+        _store.Footer = footer;
+        _store.MarkSingle(AgentTuiContributionChangeKind.Footer, _owner);
         return this;
     }
 
@@ -357,19 +391,25 @@ public sealed class HpdAgentTuiBuilder
     public HpdAgentTuiBuilder TryAddFooter(IAgentTuiShellComponent footer)
     {
         ArgumentNullException.ThrowIfNull(footer);
-        _footer ??= footer;
+        if (_store.Footer is null)
+        {
+            _store.Footer = footer;
+            _store.MarkSingle(AgentTuiContributionChangeKind.Footer, _owner);
+        }
+
         return this;
     }
 
     public HpdAgentTuiBuilder ReplaceFooter(IAgentTuiShellComponent footer)
     {
         ArgumentNullException.ThrowIfNull(footer);
-        if (_footer is null)
+        if (_store.Footer is null)
         {
             throw new InvalidOperationException("Cannot replace footer because none is registered.");
         }
 
-        _footer = footer;
+        _store.Footer = footer;
+        _store.MarkSingle(AgentTuiContributionChangeKind.Footer, _owner);
         return this;
     }
 
@@ -380,45 +420,104 @@ public sealed class HpdAgentTuiBuilder
         Func<IAgentTuiShellComponent, IAgentTuiShellComponent> decorate)
     {
         ArgumentNullException.ThrowIfNull(decorate);
-        if (_footer is null)
+        if (_store.Footer is null)
         {
             throw new InvalidOperationException("Cannot decorate footer because none is registered.");
         }
 
-        _footer = decorate(_footer) ?? throw new InvalidOperationException("Footer decorator returned null.");
+        _store.Footer = decorate(_store.Footer) ?? throw new InvalidOperationException("Footer decorator returned null.");
+        _store.MarkSingle(AgentTuiContributionChangeKind.Footer, _owner);
         return this;
     }
 
     public HpdAgentTuiBuilder UseTheme(Theme theme)
     {
-        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
+        _store.Theme = theme ?? throw new ArgumentNullException(nameof(theme));
+        _store.MarkSingle(AgentTuiContributionChangeKind.Theme, _owner);
         return this;
     }
 
     public HpdAgentTuiBuilder ConfigureShellChrome(Action<AgentTuiShellChrome> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);
-        configure(_shellChrome);
+        configure(_store.ShellChrome);
+        _store.MarkShellChrome(_owner);
         return this;
     }
 
-    public HpdAgentTuiBuilder SetRunConfigComposer(AgentTuiRunConfigComposer composer)
+    public HpdAgentTuiBuilder AddRunConfigContributor(
+        string key,
+        IAgentTuiRunConfigContributor contributor)
     {
-        _runConfigComposer = composer ?? throw new ArgumentNullException(nameof(composer));
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(contributor);
+        if (!_runConfigContributors.TryAdd(key, contributor))
+        {
+            throw new InvalidOperationException($"A run config contributor is already registered for '{key}'.");
+        }
+
+        _store.MarkRunConfigContributor(key, _owner);
         return this;
     }
 
-    public HpdAgentTuiBuilder ClearRunConfigComposer()
+    public HpdAgentTuiBuilder AddRunConfigContributor(
+        string key,
+        Action<AgentTuiRunConfigContributionContext, AgentRunConfigBuilder> configure)
+        => AddRunConfigContributor(key, new DelegateAgentTuiRunConfigContributor(configure));
+
+    public HpdAgentTuiBuilder TryAddRunConfigContributor(
+        string key,
+        IAgentTuiRunConfigContributor contributor)
     {
-        _runConfigComposer = null;
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(contributor);
+        if (_runConfigContributors.TryAdd(key, contributor))
+        {
+            _store.MarkRunConfigContributor(key, _owner);
+        }
+
         return this;
     }
 
-    public HpdAgentTuiBuilder UseModelSelectionRunConfig(
-        AgentTuiModelSelectionState selection)
+    public HpdAgentTuiBuilder TryAddRunConfigContributor(
+        string key,
+        Action<AgentTuiRunConfigContributionContext, AgentRunConfigBuilder> configure)
+        => TryAddRunConfigContributor(key, new DelegateAgentTuiRunConfigContributor(configure));
+
+    public HpdAgentTuiBuilder ReplaceRunConfigContributor(
+        string key,
+        IAgentTuiRunConfigContributor contributor)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(contributor);
+        if (!_runConfigContributors.ContainsKey(key))
+        {
+            throw new InvalidOperationException(
+                $"Cannot replace run config contributor '{key}' because none is registered.");
+        }
+
+        _runConfigContributors[key] = contributor;
+        _store.MarkRunConfigContributor(key, _owner);
+        return this;
+    }
+
+    public HpdAgentTuiBuilder ReplaceRunConfigContributor(
+        string key,
+        Action<AgentTuiRunConfigContributionContext, AgentRunConfigBuilder> configure)
+        => ReplaceRunConfigContributor(key, new DelegateAgentTuiRunConfigContributor(configure));
+
+    public HpdAgentTuiBuilder AddModelSelectionRunConfig(
+        AgentTuiModelSelectionState selection,
+        string key = "hpd.model-selection")
     {
         ArgumentNullException.ThrowIfNull(selection);
-        return SetRunConfigComposer(_ => selection.ToRunConfig());
+        return AddRunConfigContributor(key, (_, builder) =>
+        {
+            if (selection.Current is { } selected)
+            {
+                builder.SetProviderModel(selected.ProviderKey, selected.ModelId);
+            }
+        });
     }
 
     public HpdAgentTuiBuilder AddModelSelectionCommand(
@@ -442,18 +541,19 @@ public sealed class HpdAgentTuiBuilder
     {
         selection ??= new AgentTuiModelSelectionState();
         return AddModelSelectionCommand(catalog, selection, commandName, configure)
-            .UseModelSelectionRunConfig(selection);
+            .AddModelSelectionRunConfig(selection);
     }
 
     public HpdAgentTuiBuilder AddShellLayout(IAgentTuiShellLayout layout)
     {
         ArgumentNullException.ThrowIfNull(layout);
-        if (_shellLayout is not null)
+        if (_store.ShellLayout is not null)
         {
             throw new InvalidOperationException("A shell layout is already registered.");
         }
 
-        _shellLayout = layout;
+        _store.ShellLayout = layout;
+        _store.MarkSingle(AgentTuiContributionChangeKind.ShellLayout, _owner);
         return this;
     }
 
@@ -464,7 +564,12 @@ public sealed class HpdAgentTuiBuilder
     public HpdAgentTuiBuilder TryAddShellLayout(IAgentTuiShellLayout layout)
     {
         ArgumentNullException.ThrowIfNull(layout);
-        _shellLayout ??= layout;
+        if (_store.ShellLayout is null)
+        {
+            _store.ShellLayout = layout;
+            _store.MarkSingle(AgentTuiContributionChangeKind.ShellLayout, _owner);
+        }
+
         return this;
     }
 
@@ -475,12 +580,13 @@ public sealed class HpdAgentTuiBuilder
     public HpdAgentTuiBuilder ReplaceShellLayout(IAgentTuiShellLayout layout)
     {
         ArgumentNullException.ThrowIfNull(layout);
-        if (_shellLayout is null)
+        if (_store.ShellLayout is null)
         {
             throw new InvalidOperationException("Cannot replace shell layout because none is registered.");
         }
 
-        _shellLayout = layout;
+        _store.ShellLayout = layout;
+        _store.MarkSingle(AgentTuiContributionChangeKind.ShellLayout, _owner);
         return this;
     }
 
@@ -491,12 +597,13 @@ public sealed class HpdAgentTuiBuilder
     public HpdAgentTuiBuilder AddPrompt(IAgentTuiPromptFactory promptFactory)
     {
         ArgumentNullException.ThrowIfNull(promptFactory);
-        if (_promptFactory is not null)
+        if (_store.PromptFactory is not null)
         {
             throw new InvalidOperationException("A prompt contribution is already registered.");
         }
 
-        _promptFactory = promptFactory;
+        _store.PromptFactory = promptFactory;
+        _store.MarkSingle(AgentTuiContributionChangeKind.PromptFactory, _owner);
         return this;
     }
 
@@ -507,19 +614,25 @@ public sealed class HpdAgentTuiBuilder
     public HpdAgentTuiBuilder TryAddPrompt(IAgentTuiPromptFactory promptFactory)
     {
         ArgumentNullException.ThrowIfNull(promptFactory);
-        _promptFactory ??= promptFactory;
+        if (_store.PromptFactory is null)
+        {
+            _store.PromptFactory = promptFactory;
+            _store.MarkSingle(AgentTuiContributionChangeKind.PromptFactory, _owner);
+        }
+
         return this;
     }
 
     public HpdAgentTuiBuilder ReplacePrompt(IAgentTuiPromptFactory promptFactory)
     {
         ArgumentNullException.ThrowIfNull(promptFactory);
-        if (_promptFactory is null)
+        if (_store.PromptFactory is null)
         {
             throw new InvalidOperationException("Cannot replace prompt because none is registered.");
         }
 
-        _promptFactory = promptFactory;
+        _store.PromptFactory = promptFactory;
+        _store.MarkSingle(AgentTuiContributionChangeKind.PromptFactory, _owner);
         return this;
     }
 
@@ -536,6 +649,7 @@ public sealed class HpdAgentTuiBuilder
             throw new InvalidOperationException($"An event handler is already registered for '{key}'.");
         }
 
+        _store.MarkEventHandler(key, _owner);
         return this;
     }
 
@@ -554,7 +668,11 @@ public sealed class HpdAgentTuiBuilder
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(handler);
-        _eventHandlers.TryAdd(key, handler);
+        if (_eventHandlers.TryAdd(key, handler))
+        {
+            _store.MarkEventHandler(key, _owner);
+        }
+
         return this;
     }
 
@@ -579,6 +697,7 @@ public sealed class HpdAgentTuiBuilder
         }
 
         _eventHandlers[key] = handler;
+        _store.MarkEventHandler(key, _owner);
         return this;
     }
 
@@ -604,6 +723,7 @@ public sealed class HpdAgentTuiBuilder
                 $"A slash command is already registered for /{command.SlashName}.");
         }
 
+        _store.MarkCommand(command.SlashName, _owner);
         return this;
     }
 
@@ -611,7 +731,11 @@ public sealed class HpdAgentTuiBuilder
         HpdAgentTuiCommandDescriptor command)
     {
         ArgumentNullException.ThrowIfNull(command);
-        _commands.TryAdd(command.SlashName, command);
+        if (_commands.TryAdd(command.SlashName, command))
+        {
+            _store.MarkCommand(command.SlashName, _owner);
+        }
+
         return this;
     }
 
@@ -627,6 +751,7 @@ public sealed class HpdAgentTuiBuilder
         }
 
         _commands[command.SlashName] = command;
+        _store.MarkCommand(command.SlashName, _owner);
         return this;
     }
 
@@ -639,6 +764,7 @@ public sealed class HpdAgentTuiBuilder
             throw new InvalidOperationException($"A status item is already registered for '{key}'.");
         }
 
+        _store.MarkStatusItem(key, _owner);
         return this;
     }
 
@@ -646,7 +772,11 @@ public sealed class HpdAgentTuiBuilder
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(item);
-        _statusItems.TryAdd(key, item);
+        if (_statusItems.TryAdd(key, item))
+        {
+            _store.MarkStatusItem(key, _owner);
+        }
+
         return this;
     }
 
@@ -660,6 +790,7 @@ public sealed class HpdAgentTuiBuilder
         }
 
         _statusItems[key] = item;
+        _store.MarkStatusItem(key, _owner);
         return this;
     }
 
@@ -672,6 +803,7 @@ public sealed class HpdAgentTuiBuilder
             throw new InvalidOperationException($"A widget is already registered for {slot} slot key '{key}'.");
         }
 
+        _store.MarkWidget((slot, key), _owner);
         return this;
     }
 
@@ -679,7 +811,11 @@ public sealed class HpdAgentTuiBuilder
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(widget);
-        _widgets.TryAdd((slot, key), widget);
+        if (_widgets.TryAdd((slot, key), widget))
+        {
+            _store.MarkWidget((slot, key), _owner);
+        }
+
         return this;
     }
 
@@ -693,13 +829,18 @@ public sealed class HpdAgentTuiBuilder
         }
 
         _widgets[(slot, key)] = widget;
+        _store.MarkWidget((slot, key), _owner);
         return this;
     }
 
     public HpdAgentTuiBuilder RemoveWidget(TuiSlot slot, string key)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
-        _widgets.Remove((slot, key));
+        if (_widgets.Remove((slot, key)))
+        {
+            _store.RemoveWidgetOwner((slot, key), _owner);
+        }
+
         return this;
     }
 
@@ -712,6 +853,7 @@ public sealed class HpdAgentTuiBuilder
             throw new InvalidOperationException($"An autocomplete provider is already registered for '{key}'.");
         }
 
+        _store.MarkAutocompleteProvider(key, _owner);
         return this;
     }
 
@@ -719,7 +861,11 @@ public sealed class HpdAgentTuiBuilder
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(provider);
-        _autocompleteProviders.TryAdd(key, provider);
+        if (_autocompleteProviders.TryAdd(key, provider))
+        {
+            _store.MarkAutocompleteProvider(key, _owner);
+        }
+
         return this;
     }
 
@@ -733,6 +879,7 @@ public sealed class HpdAgentTuiBuilder
         }
 
         _autocompleteProviders[key] = provider;
+        _store.MarkAutocompleteProvider(key, _owner);
         return this;
     }
 
@@ -750,6 +897,7 @@ public sealed class HpdAgentTuiBuilder
         }
 
         _shortcuts[shortcut.Key] = shortcut;
+        _store.MarkShortcut(shortcut.Key, _owner);
         return this;
     }
 
@@ -763,6 +911,7 @@ public sealed class HpdAgentTuiBuilder
 
         _shortcuts[shortcut.Key] = shortcut;
         _shortcutGestures.Add(shortcut.Gesture);
+        _store.MarkShortcut(shortcut.Key, _owner);
         return this;
     }
 
@@ -782,6 +931,7 @@ public sealed class HpdAgentTuiBuilder
         _shortcutGestures.Remove(existing.Gesture);
         _shortcutGestures.Add(shortcut.Gesture);
         _shortcuts[shortcut.Key] = shortcut;
+        _store.MarkShortcut(shortcut.Key, _owner);
         return this;
     }
 
@@ -794,6 +944,7 @@ public sealed class HpdAgentTuiBuilder
             throw new InvalidOperationException($"An interaction handler is already registered for '{key}'.");
         }
 
+        _store.MarkInteractionHandler(key, _owner);
         return this;
     }
 
@@ -812,7 +963,11 @@ public sealed class HpdAgentTuiBuilder
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(handler);
-        _interactionHandlers.TryAdd(key, handler);
+        if (_interactionHandlers.TryAdd(key, handler))
+        {
+            _store.MarkInteractionHandler(key, _owner);
+        }
+
         return this;
     }
 
@@ -837,6 +992,7 @@ public sealed class HpdAgentTuiBuilder
         }
 
         _interactionHandlers[key] = handler;
+        _store.MarkInteractionHandler(key, _owner);
         return this;
     }
 
@@ -867,22 +1023,5 @@ public sealed class HpdAgentTuiBuilder
     }
 
     public HpdAgentTuiRegistry Build()
-        => new(
-            _commands.Values,
-            _pages.Values,
-            _statusItems,
-            _widgets,
-            _autocompleteProviders,
-            _shortcuts.Values,
-            _eventHandlers,
-            _interactionHandlers,
-            _transcriptRenderers.Values,
-            _header,
-            _footer,
-            _promptFactory,
-            _shellLayout,
-            _shellChrome,
-            _theme,
-            _includeSlashCommandAutocomplete,
-            _runConfigComposer);
+        => new(_store);
 }

@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.OpenAI;
 
@@ -17,24 +16,24 @@ public static class OpenAIProviderModule
     public static void Initialize()
     {
         // Register provider factories
-        ProviderDiscovery.RegisterProviderFactory(() => new OpenAIProvider());
-        ProviderDiscovery.RegisterProviderFactory(() => new AzureOpenAIProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new OpenAIProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new AzureOpenAIProvider());
 
         // Register config type for FFI/JSON serialization (AOT-compatible)
         // Both OpenAI and Azure OpenAI use the same config type
-        ProviderDiscovery.RegisterProviderConfigType<OpenAIProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<OpenAIProviderConfig>(
             "openai",
             json => JsonSerializer.Deserialize(json, OpenAIJsonContext.Default.OpenAIProviderConfig),
             config => JsonSerializer.Serialize(config, OpenAIJsonContext.Default.OpenAIProviderConfig));
 
-        ProviderDiscovery.RegisterProviderConfigType<OpenAIProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<OpenAIProviderConfig>(
             "azure-openai",
             json => JsonSerializer.Deserialize(json, OpenAIJsonContext.Default.OpenAIProviderConfig),
             config => JsonSerializer.Serialize(config, OpenAIJsonContext.Default.OpenAIProviderConfig));
 
         // Register environment variable aliases for unified secret resolution
-        SecretAliasRegistry.Register("openai:ApiKey", "OPENAI_API_KEY");
-        SecretAliasRegistry.Register("azure-openai:ApiKey", "AZURE_OPENAI_API_KEY");
-        SecretAliasRegistry.Register("azure-openai:Endpoint", "AZURE_OPENAI_ENDPOINT");
+        ProviderContributionRegistry.RegisterSecretAlias("openai:ApiKey", "OPENAI_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("azure-openai:ApiKey", "AZURE_OPENAI_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("azure-openai:Endpoint", "AZURE_OPENAI_ENDPOINT");
     }
 }

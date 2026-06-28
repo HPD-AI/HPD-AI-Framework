@@ -47,7 +47,7 @@ public sealed class AgentTuiPerformanceDiagnosticsTests
     [Fact]
     public void DefaultShellLayout_UsesPerformanceSinkFromState()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .Build();
         var scope = new AgentTuiRuntimeScope("agent-1", "session-1", "thread-1");
@@ -134,7 +134,7 @@ public sealed class AgentTuiPerformanceDiagnosticsTests
     [Fact]
     public void HpdAgentTuiApp_RebuildShell_ConfiguresEnvironmentSinkBeforeShellView()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .Build();
         var state = new AgentTuiStateBag();
@@ -160,7 +160,7 @@ public sealed class AgentTuiPerformanceDiagnosticsTests
     }
 
     private static AgentTuiTranscriptRendererRegistry DefaultTranscriptRenderers()
-        => new HpdAgentTuiBuilder()
+        => TuiTestBuilder.Create()
             .AddDefaultTranscriptRenderers()
             .Build()
             .TranscriptRenderers;

@@ -10,7 +10,7 @@ public sealed class CodingHarnessTuiProjectTests
     [Fact]
     public void AddCodingHarnessTui_ReturnsBuilder()
     {
-        var builder = new HpdAgentTuiBuilder();
+        var builder = TuiTestBuilder.Create();
 
         var result = builder.AddCodingHarnessTui();
 

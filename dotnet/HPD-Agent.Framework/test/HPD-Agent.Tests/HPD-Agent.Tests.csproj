@@ -37,6 +37,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/HPD-Agent.Audio/HPD-Agent.Audio.csproj" />
     <ProjectReference Include="../../src/HPD-Agent/HPD-Agent.csproj" />
+    <ProjectReference Include="../../src/HPD-Agent.Packages.DynamicDotNet/HPD-Agent.Packages.DynamicDotNet.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.FFI/HPD-Agent.FFI.csproj" />
     <ProjectReference Include="../../src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj"
                       OutputItemType="Analyzer"

@@ -1,5 +1,4 @@
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -12,14 +11,14 @@ public static class NscaleProviderModule
 #pragma warning restore CA2255
     public static void Initialize()
     {
-        ProviderDiscovery.RegisterProviderFactory(() => new NscaleProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new NscaleProvider());
 
-        ProviderDiscovery.RegisterProviderConfigType<NscaleProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<NscaleProviderConfig>(
             "nscale",
             json => JsonSerializer.Deserialize(json, NscaleJsonContext.Default.NscaleProviderConfig),
             config => JsonSerializer.Serialize(config, NscaleJsonContext.Default.NscaleProviderConfig));
 
-        SecretAliasRegistry.Register("nscale:ApiKey", "NSCALE_API_KEY");
-        SecretAliasRegistry.Register("nscale:Endpoint", "NSCALE_ENDPOINT", "NSCALE_BASE_URL");
+        ProviderContributionRegistry.RegisterSecretAlias("nscale:ApiKey", "NSCALE_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("nscale:Endpoint", "NSCALE_ENDPOINT", "NSCALE_BASE_URL");
     }
 }

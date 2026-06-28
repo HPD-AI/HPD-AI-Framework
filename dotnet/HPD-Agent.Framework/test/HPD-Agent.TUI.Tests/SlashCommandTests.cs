@@ -13,7 +13,7 @@ public sealed class SlashCommandTests
     [Fact]
     public void Build_IncludesDefaultSlashCommands()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .Build();
 
@@ -25,7 +25,7 @@ public sealed class SlashCommandTests
     [Fact]
     public void Build_OrdersSlashCommandsByDescriptorOrder()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddSlashCommand(new HpdAgentTuiCommandDescriptor("first", _ => { })
             {
@@ -42,7 +42,7 @@ public sealed class SlashCommandTests
     [Fact]
     public void AddSlashCommand_FailsOnDuplicate()
     {
-        var builder = new HpdAgentTuiBuilder()
+        var builder = TuiTestBuilder.Create()
             .AddSlashCommand(new HpdAgentTuiCommandDescriptor("sample", _ => { }));
 
         var act = () => builder.AddSlashCommand(new HpdAgentTuiCommandDescriptor("sample", _ => { }));
@@ -53,7 +53,7 @@ public sealed class SlashCommandTests
     [Fact]
     public void TryFindSlashCommand_ParsesArguments()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .Build();
 
@@ -67,7 +67,7 @@ public sealed class SlashCommandTests
     [Fact]
     public void TryFindSlashCommand_TreatsBareSlashAsHelp()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .Build();
 
@@ -81,7 +81,7 @@ public sealed class SlashCommandTests
     [Fact]
     public async Task SlashCommandAgentAutocompleteProvider_ReturnsMatchingCommands()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .Build();
         var provider = new SlashCommandAgentAutocompleteProvider(registry);
@@ -102,7 +102,7 @@ public sealed class SlashCommandTests
     [Fact]
     public async Task SlashCommandAgentAutocompleteProvider_DoesNotSuggestExactCommand()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .Build();
         var provider = new SlashCommandAgentAutocompleteProvider(registry);
@@ -120,7 +120,7 @@ public sealed class SlashCommandTests
     [Fact]
     public async Task DefaultClearCommand_ClearsTranscript()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .Build();
         var shell = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
@@ -137,6 +137,7 @@ public sealed class SlashCommandTests
             shell.Navigation,
             new NoopRuntime(),
             NoopDialogs.Instance,
+            TuiTestBuilder.NoopSessionUi,
             static (_, _) => ValueTask.CompletedTask,
             command,
             arguments));
@@ -147,7 +148,7 @@ public sealed class SlashCommandTests
     [Fact]
     public async Task DefaultHelpCommand_IncludesCommandsAddedAfterDefaults()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddSlashCommand(new HpdAgentTuiCommandDescriptor("sessions", _ => { })
             {
@@ -163,6 +164,7 @@ public sealed class SlashCommandTests
             shell.Navigation,
             new NoopRuntime(),
             NoopDialogs.Instance,
+            TuiTestBuilder.NoopSessionUi,
             static (_, _) => ValueTask.CompletedTask,
             command,
             arguments));

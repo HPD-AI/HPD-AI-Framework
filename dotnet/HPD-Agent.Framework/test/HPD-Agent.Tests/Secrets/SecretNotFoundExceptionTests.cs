@@ -1,6 +1,7 @@
 // Copyright (c) 2025 Einstein Essibu. All rights reserved.
 
 using HPD.Agent.Secrets;
+using HPD.Agent.Providers;
 using Microsoft.Extensions.Configuration;
 using Xunit;
 
@@ -144,7 +145,7 @@ public class SecretNotFoundExceptionTests
     public async Task EnvironmentResolver_UsesRegisteredCanonicalEnvVar(string key, string expectedEnvVar)
     {
         // Arrange
-        SecretAliasRegistry.Register(key, expectedEnvVar);
+        ProviderContributionRegistry.RegisterSecretAlias(key, expectedEnvVar);
         System.Environment.SetEnvironmentVariable(expectedEnvVar, "test-value");
         var envResolver = new EnvironmentSecretResolver();
 
@@ -189,7 +190,7 @@ public class SecretNotFoundExceptionTests
     public async Task EnvironmentResolver_RequiresCanonicalSecretKeyCasing()
     {
         // Arrange
-        SecretAliasRegistry.Register("openai:ApiKey", "TEST_OPENAI_API_KEY_CANONICAL");
+        ProviderContributionRegistry.RegisterSecretAlias("openai:ApiKey", "TEST_OPENAI_API_KEY_CANONICAL");
         System.Environment.SetEnvironmentVariable("TEST_OPENAI_API_KEY_CANONICAL", "test-value");
         var envResolver = new EnvironmentSecretResolver();
 

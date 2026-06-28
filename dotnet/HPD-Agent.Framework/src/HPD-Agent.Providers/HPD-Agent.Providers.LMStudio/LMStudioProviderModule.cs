@@ -1,5 +1,4 @@
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -12,15 +11,15 @@ public static class LMStudioProviderModule
 #pragma warning restore CA2255
     public static void Initialize()
     {
-        ProviderDiscovery.RegisterProviderFactory(() => new LMStudioProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new LMStudioProvider());
 
-        ProviderDiscovery.RegisterProviderConfigType<LMStudioProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<LMStudioProviderConfig>(
             "lmstudio",
             json => JsonSerializer.Deserialize(json, LMStudioJsonContext.Default.LMStudioProviderConfig),
             config => JsonSerializer.Serialize(config, LMStudioJsonContext.Default.LMStudioProviderConfig));
 
-        SecretAliasRegistry.Register("lmstudio:ApiKey", "LMSTUDIO_API_KEY", "LM_STUDIO_API_KEY");
-        SecretAliasRegistry.Register(
+        ProviderContributionRegistry.RegisterSecretAlias("lmstudio:ApiKey", "LMSTUDIO_API_KEY", "LM_STUDIO_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias(
             "lmstudio:Endpoint",
             "LMSTUDIO_ENDPOINT",
             "LMSTUDIO_BASE_URL",

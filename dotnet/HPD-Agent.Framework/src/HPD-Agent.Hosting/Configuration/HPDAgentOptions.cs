@@ -1,4 +1,6 @@
 using HPD.Agent;
+using HPD.Agent.Packages;
+using HPD.Agent.Providers;
 
 namespace HPD.Agent.Hosting.Configuration;
 
@@ -8,6 +10,13 @@ namespace HPD.Agent.Hosting.Configuration;
 /// </summary>
 public class HPDAgentConfig
 {
+    public HPDAgentConfig()
+    {
+        PackageContributions = new HpdPackageContributionStores(
+            AgentContributors,
+            ProviderContributions);
+    }
+
     /// <summary>
     /// The session store to use for this agent.
     /// Owns session lifecycle (list, create, delete) and is shared with the agent for thread persistence.
@@ -17,8 +26,7 @@ public class HPDAgentConfig
     /// <remarks>
     /// The hosting layer owns the store, not the AgentBuilder. The store is created at startup
     /// so that session/thread endpoints work before any agent is built. When a stream request
-    /// arrives, the same store is passed into the AgentBuilder automatically — do not also
-    /// call WithSessionStore() inside <see cref="ConfigureAgent"/>.
+    /// arrives, the same store is passed into the AgentBuilder automatically.
     /// </remarks>
     /// <summary>
     /// Path to a directory where sessions are persisted as JSON files.
@@ -36,8 +44,8 @@ public class HPDAgentConfig
     /// </summary>
     /// <remarks>
     /// The hosting layer owns the content store so uploaded content and model-call resolution
-    /// use the same storage instance. Do not also call WithContentStore() inside
-    /// <see cref="ConfigureAgent"/>; set this property instead.
+    /// use the same storage instance. Set this property instead of adding content storage
+    /// from an agent contributor.
     /// </remarks>
     public IContentStore? ContentStore { get; set; }
 
@@ -50,7 +58,7 @@ public class HPDAgentConfig
 
     /// <summary>
     /// Serializable default agent definition.
-    /// If set, seeds the AgentBuilder before ConfigureAgent runs.
+    /// If set, seeds the AgentBuilder before agent contributors run.
     /// Because AgentConfig is JSON-serializable, it can be loaded from files,
     /// databases, or API payloads — enabling no-code agent definition.
     /// Takes priority over <see cref="DefaultAgentPath"/>.
@@ -77,17 +85,21 @@ public class HPDAgentConfig
     public bool PersistAgentDefinitionsOnBuild { get; set; } = true;
 
     /// <summary>
-    /// Callback to configure the AgentBuilder for each new session.
-    /// Called after DefaultAgent/DefaultAgentPath are applied.
-    /// Use this for runtime-only concerns (compiled type references, DI services).
+    /// Ordered contributors applied to every hosted agent build after the stored/default
+    /// agent definition and hosting-owned stores are applied.
     /// </summary>
-    /// <remarks>
-    /// The AgentBuilder is pre-configured with the <see cref="SessionStore"/> and any
-    /// default agent definition. Use this callback for runtime-only enrichment such as
-    /// DI-backed services, compiled tools, or server policy. Do not call WithSessionStore()
-    /// here; set <see cref="SessionStore"/> directly instead.
-    /// </remarks>
-    public Action<AgentBuilder>? ConfigureAgent { get; set; }
+    public AgentBuilderContributorStore AgentContributors { get; } = new();
+
+    /// <summary>
+    /// Provider contributions applied to every hosted agent build after globally discovered
+    /// providers and before the agent is built.
+    /// </summary>
+    public ProviderContributionStore ProviderContributions { get; } = new();
+
+    /// <summary>
+    /// Backend package contribution stores used by package managers for this hosted agent.
+    /// </summary>
+    public HpdPackageContributionStores PackageContributions { get; }
 
     /// <summary>
     /// How long an agent can sit idle before eviction from the in-memory cache.

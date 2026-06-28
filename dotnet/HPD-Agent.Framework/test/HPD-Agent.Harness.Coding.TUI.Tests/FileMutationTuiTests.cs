@@ -19,7 +19,7 @@ public sealed class FileMutationTuiTests
     [Fact]
     public void AddCodingHarnessTui_RegistersFileMutationHandlersAndStatus()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddCodingHarnessTui()
             .Build();
 
@@ -61,16 +61,14 @@ public sealed class FileMutationTuiTests
     [Fact]
     public async Task ReplacedFileMutationRenderer_KeepsMutationHandlersAndState()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddCodingHarnessTui()
             .ReplaceTranscriptRenderer<CodingFileMutationTranscriptCell>(
                 CodingHarnessTuiTranscriptRendererKeys.FileMutation,
                 _ => new Text("custom mutation row"))
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
 
         await state.ApplyEventAsync(EditMutation());
 
@@ -105,13 +103,11 @@ public sealed class FileMutationTuiTests
     [Fact]
     public async Task FileMutationReplay_DoesNotDoubleCountStatus()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddCodingHarnessTui()
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
         var mutation = WriteMutation(FileWriteMode.Create);
 
         await state.ApplyEventAsync(mutation);
@@ -163,13 +159,11 @@ public sealed class FileMutationTuiTests
     [Fact]
     public async Task StatusItems_ReadFileAndDiagnosticsState()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddCodingHarnessTui()
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
 
         await state.ApplyEventAsync(EditMutation());
         await state.ApplyEventAsync(Diagnostics(path: "/repo/src/Foo.cs", displayPath: "src/Foo.cs"));
@@ -180,11 +174,12 @@ public sealed class FileMutationTuiTests
     }
 
     private static AgentTuiSessionState CreateState()
-        => new(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            new HpdAgentTuiBuilder()
-                .AddCodingHarnessTui()
-                .Build());
+    {
+        var registry = TuiTestBuilder.Create()
+            .AddCodingHarnessTui()
+            .Build();
+        return TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
+    }
 
     private static FileEditAppliedEvent EditMutation()
         => new()
@@ -321,7 +316,7 @@ public sealed class FileMutationTuiTests
             height: height);
 
     private static AgentTuiTranscriptRendererRegistry DefaultTranscriptRenderers()
-        => new HpdAgentTuiBuilder()
+        => TuiTestBuilder.Create()
             .AddDefaultTranscriptRenderers()
             .AddCodingHarnessTui()
             .Build()

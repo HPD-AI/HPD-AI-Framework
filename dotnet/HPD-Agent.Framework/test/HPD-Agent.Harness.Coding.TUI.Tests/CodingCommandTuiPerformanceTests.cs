@@ -194,11 +194,12 @@ public sealed class CodingCommandTuiPerformanceTests
     }
 
     private static AgentTuiSessionState CreateState()
-        => new(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            new HpdAgentTuiBuilder()
-                .AddCodingHarnessTui()
-                .Build());
+    {
+        var registry = TuiTestBuilder.Create()
+            .AddCodingHarnessTui()
+            .Build();
+        return TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
+    }
 
     private static CodingCommandCell ReadCommandCell(AgentTuiSessionState state)
     {
@@ -286,7 +287,7 @@ public sealed class CodingCommandTuiPerformanceTests
             trimTrailingBlankLines: true);
 
     private static AgentTuiTranscriptRendererRegistry DefaultTranscriptRenderers()
-        => new HpdAgentTuiBuilder()
+        => TuiTestBuilder.Create()
             .AddDefaultTranscriptRenderers()
             .AddCodingHarnessTui()
             .Build()

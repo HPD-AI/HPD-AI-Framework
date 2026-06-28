@@ -30,6 +30,7 @@ public abstract class AgentTuiInteractionHandler<TRequest> : IAgentTuiInteractio
                 context.Navigation,
                 context.Runtime,
                 context.Dialogs,
+                context.SessionUi,
                 typed),
             cancellationToken);
     }

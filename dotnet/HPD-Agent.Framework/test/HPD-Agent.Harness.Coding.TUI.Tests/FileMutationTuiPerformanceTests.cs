@@ -83,11 +83,12 @@ public sealed class FileMutationTuiPerformanceTests
     }
 
     private static AgentTuiSessionState CreateState()
-        => new(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            new HpdAgentTuiBuilder()
-                .AddCodingHarnessTui()
-                .Build());
+    {
+        var registry = TuiTestBuilder.Create()
+            .AddCodingHarnessTui()
+            .Build();
+        return TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
+    }
 
     private static FileEditAppliedEvent LargeMutation(int hunkCount, int linesPerHunk)
         => new()
@@ -188,7 +189,7 @@ public sealed class FileMutationTuiPerformanceTests
             trimTrailingBlankLines: true);
 
     private static AgentTuiTranscriptRendererRegistry DefaultTranscriptRenderers()
-        => new HpdAgentTuiBuilder()
+        => TuiTestBuilder.Create()
             .AddDefaultTranscriptRenderers()
             .AddCodingHarnessTui()
             .Build()

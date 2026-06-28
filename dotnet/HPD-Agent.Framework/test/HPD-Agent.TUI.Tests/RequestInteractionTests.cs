@@ -12,7 +12,7 @@ public sealed class RequestInteractionTests
     [Fact]
     public void AddInteractionHandler_RegistersRequestInteractionHandlers()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddInteractionHandler<PermissionRequestEvent>("hpd.permission", new PermissionRequestInteractionHandler())
             .AddInteractionHandler<ContinuationRequestEvent>("hpd.continuation", new ContinuationRequestInteractionHandler())
@@ -31,7 +31,7 @@ public sealed class RequestInteractionTests
     [Fact]
     public void AddAgentTuiDefaults_DoesNotRegisterRequestInteractionHandlers()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .Build();
 
@@ -41,7 +41,7 @@ public sealed class RequestInteractionTests
     [Fact]
     public void AddInteractionHandler_FailsOnDuplicateKey()
     {
-        var builder = new HpdAgentTuiBuilder()
+        var builder = TuiTestBuilder.Create()
             .AddInteractionHandler("sample.interaction", new NoopInteractionHandler());
 
         var act = () => builder.AddInteractionHandler("sample.interaction", new NoopInteractionHandler());
@@ -53,7 +53,7 @@ public sealed class RequestInteractionTests
     public void ReplaceInteractionHandler_ReplacesExistingHandler()
     {
         var replacement = new NoopInteractionHandler();
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddInteractionHandler("sample.interaction", new NoopInteractionHandler())
             .ReplaceInteractionHandler("sample.interaction", replacement)
             .Build();
@@ -65,7 +65,7 @@ public sealed class RequestInteractionTests
     [Fact]
     public void TypedInteractionHandler_OnlyMatchesRegisteredRequestType()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddInteractionHandler<ClarificationRequestEvent>(
                 "sample.clarification",
                 new TypedClarificationHandler())
@@ -180,6 +180,7 @@ public sealed class RequestInteractionTests
             shell.Navigation,
             new NoopRuntime(),
             dialogs,
+            TuiTestBuilder.NoopSessionUi,
             request);
     }
 

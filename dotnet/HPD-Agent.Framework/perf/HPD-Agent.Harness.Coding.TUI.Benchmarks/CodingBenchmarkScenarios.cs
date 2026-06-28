@@ -14,18 +14,12 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Benchmarks;
 
 internal static class CodingBenchmarkScenarios
 {
-    public static AgentTuiTranscriptRendererRegistry Renderers { get; } = new HpdAgentTuiBuilder()
-        .AddDefaultTranscriptRenderers()
-        .AddCodingHarnessTui()
-        .Build()
-        .TranscriptRenderers;
+    public static HpdAgentTuiRegistry Registry { get; } = CreateRegistry();
+
+    public static AgentTuiTranscriptRendererRegistry Renderers { get; } = Registry.TranscriptRenderers;
 
     public static AgentTuiSessionState CreateState()
-        => new(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            new HpdAgentTuiBuilder()
-                .AddCodingHarnessTui()
-                .Build());
+        => new(new AgentTuiRuntimeScope("agent", "session", "main"));
 
     public static string RenderTranscript(AgentTuiSessionState state, int width = 100, int height = 24)
         => TuiCapture.RenderToString(
@@ -40,12 +34,21 @@ internal static class CodingBenchmarkScenarios
         ExecuteCommandStreamKind stream = ExecuteCommandStreamKind.Stdout,
         string? line = null)
     {
-        await state.ApplyEventAsync(Started("dotnet test"));
+        await state.ApplyEventAsync(Started("dotnet test"), Registry);
         var text = line ?? $"line {new string('x', 80)}\n";
         for (var i = 0; i < chunks; i++)
         {
-            await state.ApplyEventAsync(Output($"{i:D4} {text}", stream));
+            await state.ApplyEventAsync(Output($"{i:D4} {text}", stream), Registry);
         }
+    }
+
+    private static HpdAgentTuiRegistry CreateRegistry()
+    {
+        var store = new AgentTuiContributionStore();
+        return new HpdAgentTuiBuilder(store, HpdContributionOwner.App)
+            .AddDefaultTranscriptRenderers()
+            .AddCodingHarnessTui()
+            .Build();
     }
 
     public static ExecuteCommandProcessStartedEvent Started(string command)
@@ -95,8 +98,8 @@ internal static class CodingBenchmarkScenarios
         for (var i = 0; i < operations; i++)
         {
             var callId = $"call-read-{i:D3}";
-            await state.ApplyEventAsync(new ToolCallStartEvent(callId, "ReadFile", "msg-1"));
-            await state.ApplyEventAsync(new ToolCallArgsEvent(callId, $$"""{"path":"src/File{{i:D3}}.cs"}"""));
+            await state.ApplyEventAsync(new ToolCallStartEvent(callId, "ReadFile", "msg-1"), Registry);
+            await state.ApplyEventAsync(new ToolCallArgsEvent(callId, $$"""{"path":"src/File{{i:D3}}.cs"}"""), Registry);
         }
     }
 

@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.Ollama;
 
@@ -17,15 +16,15 @@ public static class OllamaProviderModule
     public static void Initialize()
     {
         // Register provider factory
-        ProviderDiscovery.RegisterProviderFactory(() => new OllamaProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new OllamaProvider());
 
         // Register config type for FFI/JSON serialization (AOT-compatible)
-        ProviderDiscovery.RegisterProviderConfigType<OllamaProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<OllamaProviderConfig>(
             "ollama",
             json => JsonSerializer.Deserialize(json, OllamaJsonContext.Default.OllamaProviderConfig),
             config => JsonSerializer.Serialize(config, OllamaJsonContext.Default.OllamaProviderConfig));
 
-        SecretAliasRegistry.Register("ollama:Endpoint", "OLLAMA_ENDPOINT");
-        SecretAliasRegistry.Register("ollama:Host", "OLLAMA_HOST");
+        ProviderContributionRegistry.RegisterSecretAlias("ollama:Endpoint", "OLLAMA_ENDPOINT");
+        ProviderContributionRegistry.RegisterSecretAlias("ollama:Host", "OLLAMA_HOST");
     }
 }

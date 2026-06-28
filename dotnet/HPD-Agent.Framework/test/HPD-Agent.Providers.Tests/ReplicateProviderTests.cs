@@ -39,11 +39,11 @@ public class ReplicateProviderTests
     }
 
     [Fact]
-    public void ProviderDiscovery_ShouldRegisterProviderConfigTypeAndSecretAliases()
+    public void ProviderContributionRegistry_ShouldRegisterProviderConfigTypeAndSecretAliases()
     {
         ReplicateProviderModule.Initialize();
 
-        ProviderDiscovery.GetProviderConfigType("replicate", ProviderClientFamily.ImageGeneration)
+        ProviderContributionRegistry.GetProviderConfigType("replicate", ProviderClientFamily.ImageGeneration)
             .Should().NotBeNull();
 
         SecretAliasRegistry.GetAll().Should().ContainKey("replicate:ApiKey")

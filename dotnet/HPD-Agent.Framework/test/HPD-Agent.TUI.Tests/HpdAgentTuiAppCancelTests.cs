@@ -29,10 +29,10 @@ public sealed class HpdAgentTuiAppCancelTests
         await using var app = HpdAgentTuiApp.Create(
             runtime,
             scope,
-            static builder => builder.AddAgentTuiDefaults(),
+            TuiTestBuilder.CreateProvider(static builder => builder.AddAgentTuiDefaults()),
             new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", scope, "Connected.", null!);
 
         var handled = InvokePrivate<bool>(
             app,
@@ -62,10 +62,10 @@ public sealed class HpdAgentTuiAppCancelTests
         await using var app = HpdAgentTuiApp.Create(
             runtime,
             scope,
-            static builder => builder.AddAgentTuiDefaults(),
+            TuiTestBuilder.CreateProvider(static builder => builder.AddAgentTuiDefaults()),
             new TestTerminal(80, 24));
 
-        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        InvokePrivate(app, "RebuildShell", scope, "Connected.", null!);
 
         var handled = InvokePrivate<bool>(
             app,

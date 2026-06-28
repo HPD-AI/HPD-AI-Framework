@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.AzureAI;
 
@@ -17,16 +16,16 @@ public static class AzureAIProviderModule
     public static void Initialize()
     {
         // Register provider factory
-        ProviderDiscovery.RegisterProviderFactory(() => new AzureAIProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new AzureAIProvider());
 
         // Register config type for FFI/JSON serialization (AOT-compatible)
-        ProviderDiscovery.RegisterProviderConfigType<AzureAIProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<AzureAIProviderConfig>(
             "azure-ai",
             json => JsonSerializer.Deserialize(json, AzureAIJsonContext.Default.AzureAIProviderConfig),
             config => JsonSerializer.Serialize(config, AzureAIJsonContext.Default.AzureAIProviderConfig));
 
         // Register environment variable aliases
-        SecretAliasRegistry.Register("azure-ai:ApiKey", "AZURE_AI_API_KEY");
-        SecretAliasRegistry.Register("azure-ai:Endpoint", "AZURE_AI_ENDPOINT");
+        ProviderContributionRegistry.RegisterSecretAlias("azure-ai:ApiKey", "AZURE_AI_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("azure-ai:Endpoint", "AZURE_AI_ENDPOINT");
     }
 }

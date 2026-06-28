@@ -66,7 +66,7 @@ public class AgentBuilder
 
     // The new central configuration object
     private readonly AgentConfig _config;
-    private readonly IProviderRegistry _providerRegistry;
+    private IProviderRegistry _providerRegistry;
 
     // Fields that are NOT part of the serializable config remain
     internal IChatClient? _baseClient;
@@ -355,18 +355,7 @@ public class AgentBuilder
         // Force load provider assemblies referenced by the entry/calling assembly
         ForceLoadProviderAssembliesFromCallingAssembly();
 
-        foreach (var factory in ProviderDiscovery.GetFactories())
-        {
-            try
-            {
-                var provider = factory();
-                _providerRegistry.Register(provider);
-            }
-            catch (Exception ex)
-            {
-                _logger?.CreateLogger<AgentBuilder>().LogWarning(ex, "Failed to register provider from discovery");
-            }
-        }
+        ProviderContributionRegistry.ApplyTo(_providerRegistry, _serviceProvider);
     }
 
     /// <summary>
@@ -994,8 +983,7 @@ public class AgentBuilder
     /// </summary>
     public AgentBuilder WithProviderRegistry(IProviderRegistry registry)
     {
-        // _providerRegistry is readonly, so this is a noop setter for now
-        // In future, we may make it settable or use dependency injection
+        _providerRegistry = registry ?? throw new ArgumentNullException(nameof(registry));
         return this;
     }
 
@@ -2068,9 +2056,16 @@ public class AgentBuilder
 
     private void ActivateRegisteredFeatures()
     {
-        foreach (var activate in AgentFeatureActivatorRegistry.Snapshot())
+        foreach (var contribution in AgentFeatureActivatorRegistry.Snapshot())
         {
-            activate(this);
+            contribution.Contributor.ConfigureAgent(
+                this,
+                new HpdAgentContributionContext
+                {
+                    Owner = contribution.Owner,
+                    Services = _serviceProvider ?? EmptyServiceProvider.Instance,
+                    AgentId = _config.AgentId ?? _config.Name ?? string.Empty
+                });
         }
     }
 
@@ -3886,6 +3881,24 @@ public static class AgentBuilderToolHarnessExtensions
     {
         RuntimeHelpers.RunModuleConstructor(typeof(T).Assembly.ManifestModule.ModuleHandle);
         builder.LoadToolRegistryFromAssembly(typeof(T).Assembly);
+        builder.LoadGeneratedRegistries();
+        return builder;
+    }
+
+    /// <summary>
+    /// Loads generated toolharness, middleware, and middleware-state catalogs from an assembly.
+    /// This is intended for trusted non-AOT hosts and opt-in dynamic package loaders.
+    /// </summary>
+    [RequiresUnreferencedCode("Registry lookup via Assembly.GetType requires generated registry types to be preserved.")]
+    public static AgentBuilder WithToolHarnessCatalogFrom(
+        this AgentBuilder builder,
+        Assembly assembly)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(assembly);
+
+        RuntimeHelpers.RunModuleConstructor(assembly.ManifestModule.ModuleHandle);
+        builder.LoadToolRegistryFromAssembly(assembly);
         builder.LoadGeneratedRegistries();
         return builder;
     }

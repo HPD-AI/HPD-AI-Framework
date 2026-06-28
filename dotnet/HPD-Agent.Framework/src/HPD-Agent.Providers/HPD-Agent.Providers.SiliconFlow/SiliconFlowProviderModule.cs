@@ -1,5 +1,4 @@
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -12,14 +11,14 @@ public static class SiliconFlowProviderModule
 #pragma warning restore CA2255
     public static void Initialize()
     {
-        ProviderDiscovery.RegisterProviderFactory(() => new SiliconFlowProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new SiliconFlowProvider());
 
-        ProviderDiscovery.RegisterProviderConfigType<SiliconFlowProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<SiliconFlowProviderConfig>(
             "siliconflow",
             json => JsonSerializer.Deserialize(json, SiliconFlowJsonContext.Default.SiliconFlowProviderConfig),
             config => JsonSerializer.Serialize(config, SiliconFlowJsonContext.Default.SiliconFlowProviderConfig));
 
-        SecretAliasRegistry.Register("siliconflow:ApiKey", "SILICONFLOW_API_KEY");
-        SecretAliasRegistry.Register("siliconflow:Endpoint", "SILICONFLOW_ENDPOINT", "SILICONFLOW_BASE_URL");
+        ProviderContributionRegistry.RegisterSecretAlias("siliconflow:ApiKey", "SILICONFLOW_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("siliconflow:Endpoint", "SILICONFLOW_ENDPOINT", "SILICONFLOW_BASE_URL");
     }
 }

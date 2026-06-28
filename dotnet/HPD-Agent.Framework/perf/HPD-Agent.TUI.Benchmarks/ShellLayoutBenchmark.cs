@@ -21,13 +21,14 @@ public class ShellLayoutBenchmark
     [GlobalSetup]
     public void Setup()
     {
-        _registry = new HpdAgentTuiBuilder()
+        var store = new AgentTuiContributionStore();
+        _registry = new HpdAgentTuiBuilder(store, HpdContributionOwner.App)
             .AddAgentTuiDefaults()
             .Build();
-        _state = new AgentTuiSessionState(new AgentTuiRuntimeScope("agent", "session", "main"), _registry);
+        _state = new AgentTuiSessionState(new AgentTuiRuntimeScope("agent", "session", "main"));
         for (var i = 0; i < 500; i++)
         {
-            _state.Shell.Transcript.Append(new TranscriptEntry(
+            _state.Shell.Transcript.AddFinal(new TranscriptEntry(
                 Id: $"entry-{i:D4}",
                 EntryKey: $"entry:{i:D4}",
                 Cell: new UserMessageCell($"message {i:D4} {new string('x', 96)}"),

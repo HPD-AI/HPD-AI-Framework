@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.OnnxRuntime;
 
@@ -17,15 +16,15 @@ public static class OnnxRuntimeProviderModule
     public static void Initialize()
     {
         // Register provider factory
-        ProviderDiscovery.RegisterProviderFactory(() => new OnnxRuntimeProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new OnnxRuntimeProvider());
 
         // Register config type for FFI/JSON serialization (AOT-compatible)
-        ProviderDiscovery.RegisterProviderConfigType<OnnxRuntimeProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<OnnxRuntimeProviderConfig>(
             "onnx-runtime",
             json => JsonSerializer.Deserialize(json, OnnxRuntimeJsonContext.Default.OnnxRuntimeProviderConfig),
             config => JsonSerializer.Serialize(config, OnnxRuntimeJsonContext.Default.OnnxRuntimeProviderConfig));
 
-        SecretAliasRegistry.Register("onnx-runtime:ModelPath", "ONNX_MODEL_PATH");
-        SecretAliasRegistry.Register("onnx-runtime:ModelPath", "ONNX_RUNTIME_MODEL_PATH");
+        ProviderContributionRegistry.RegisterSecretAlias("onnx-runtime:ModelPath", "ONNX_MODEL_PATH");
+        ProviderContributionRegistry.RegisterSecretAlias("onnx-runtime:ModelPath", "ONNX_RUNTIME_MODEL_PATH");
     }
 }

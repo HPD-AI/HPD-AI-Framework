@@ -7,16 +7,21 @@ namespace HPD.Agent.TUI.Application;
 
 public sealed class AgentTuiSessionState
 {
-    private readonly HpdAgentTuiRegistry _registry;
-    private readonly AgentTuiStateBag _state = new();
+    private readonly AgentTuiStateBag _state;
+
+    public AgentTuiSessionState(AgentTuiRuntimeScope scope)
+        : this(scope, new ChatShellModel(scope), new AgentTuiStateBag())
+    {
+    }
 
     public AgentTuiSessionState(
         AgentTuiRuntimeScope scope,
-        HpdAgentTuiRegistry registry)
+        ChatShellModel shell,
+        AgentTuiStateBag state)
     {
         Scope = scope ?? throw new ArgumentNullException(nameof(scope));
-        _registry = registry ?? throw new ArgumentNullException(nameof(registry));
-        Shell = new ChatShellModel(scope);
+        Shell = shell ?? throw new ArgumentNullException(nameof(shell));
+        _state = state ?? throw new ArgumentNullException(nameof(state));
     }
 
     public AgentTuiRuntimeScope Scope { get; }
@@ -40,12 +45,14 @@ public sealed class AgentTuiSessionState
 
     public async ValueTask ApplyEventAsync(
         AgentEvent evt,
+        HpdAgentTuiRegistry registry,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(evt);
+        ArgumentNullException.ThrowIfNull(registry);
 
-        var context = new AgentTuiEventContext(Scope, Shell, Shell.Navigation, _registry, _state);
-        foreach (var handler in _registry.FindEventHandlers(evt))
+        var context = new AgentTuiEventContext(Scope, Shell, Shell.Navigation, registry, _state);
+        foreach (var handler in registry.FindEventHandlers(evt))
         {
             try
             {

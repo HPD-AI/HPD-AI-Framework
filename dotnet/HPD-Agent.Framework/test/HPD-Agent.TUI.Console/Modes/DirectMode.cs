@@ -1,4 +1,5 @@
 using HPD.Agent.TUI.Runtime;
+using HPD.Agent.TUI.Composition;
 
 namespace HPD.Agent.TUI.Console.Modes;
 
@@ -21,15 +22,20 @@ internal static class DirectMode
 
         var scope = new AgentTuiRuntimeScope(agentId, sessionId, threadId);
         await using var runtime = new InMemoryAgentTuiRuntime(agent, scope);
+        var store = new AgentTuiContributionStore();
+        var packages = ConsolePackageContext.Create(store);
+        new HpdAgentTuiBuilder(store, HpdContributionOwner.App)
+            .AddAgentTuiDefaults()
+            .AddConsoleBranding("direct")
+            .AddPackageManagement(packages.TuiPackages)
+            .AddConsoleModelsDevModelSelection(providers)
+            .AddConsoleProviderCommands(providers)
+            .AddConsoleAgentChat();
+        var registries = new HpdAgentTuiRegistryProvider(store);
         await using var app = HpdAgentTuiApp.Create(
             runtime,
             scope,
-            tui => tui
-                .AddAgentTuiDefaults()
-                .AddConsoleBranding("direct")
-                .AddConsoleModelsDevModelSelection(providers)
-                .AddConsoleProviderCommands(providers)
-                .AddConsoleAgentChat());
+            registries);
         await app.RunAsync();
     }
 }

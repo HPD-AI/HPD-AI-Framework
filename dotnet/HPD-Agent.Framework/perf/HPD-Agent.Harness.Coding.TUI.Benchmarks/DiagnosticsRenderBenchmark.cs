@@ -16,10 +16,10 @@ public class DiagnosticsRenderBenchmark
         _none = CodingBenchmarkScenarios.CreateState();
 
         _ten = CodingBenchmarkScenarios.CreateState();
-        await _ten.ApplyEventAsync(CodingBenchmarkScenarios.Diagnostics(10));
+        await _ten.ApplyEventAsync(CodingBenchmarkScenarios.Diagnostics(10), CodingBenchmarkScenarios.Registry);
 
         _thousand = CodingBenchmarkScenarios.CreateState();
-        await _thousand.ApplyEventAsync(CodingBenchmarkScenarios.Diagnostics(1_000));
+        await _thousand.ApplyEventAsync(CodingBenchmarkScenarios.Diagnostics(1_000), CodingBenchmarkScenarios.Registry);
     }
 
     [Benchmark(Baseline = true)]

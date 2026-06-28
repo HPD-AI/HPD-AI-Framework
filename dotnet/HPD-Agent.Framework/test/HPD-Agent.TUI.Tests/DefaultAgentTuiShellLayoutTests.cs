@@ -77,7 +77,7 @@ public sealed class DefaultAgentTuiShellLayoutTests
             model.Transcript.AddFinal(Row($"row-{i}", "assistant", $"message {i:00}"));
         }
 
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .ReplaceHeader(_ => new Markdown("logo one\nlogo two\nlogo three\nlogo four\nlogo five\nlogo six"))
             .Build();
@@ -93,7 +93,7 @@ public sealed class DefaultAgentTuiShellLayoutTests
     {
         var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
         model.Transcript.AddFinal(Row("row-1", "assistant", "hello"));
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .ConfigureShellChrome(chrome =>
             {
@@ -117,7 +117,7 @@ public sealed class DefaultAgentTuiShellLayoutTests
         ChatShellModel model,
         HpdAgentTuiRegistry? registry = null)
     {
-        registry ??= new HpdAgentTuiBuilder().AddAgentTuiDefaults().Build();
+        registry ??= TuiTestBuilder.Create().AddAgentTuiDefaults().Build();
         return registry.ShellLayout.Create(new AgentTuiShellLayoutContext(
             model,
             PromptView.Create("Ask HPD..."),

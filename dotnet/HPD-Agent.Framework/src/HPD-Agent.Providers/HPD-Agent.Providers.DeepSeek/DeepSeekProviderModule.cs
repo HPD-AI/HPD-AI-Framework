@@ -1,5 +1,4 @@
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -12,14 +11,14 @@ public static class DeepSeekProviderModule
 #pragma warning restore CA2255
     public static void Initialize()
     {
-        ProviderDiscovery.RegisterProviderFactory(() => new DeepSeekProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new DeepSeekProvider());
 
-        ProviderDiscovery.RegisterProviderConfigType<DeepSeekProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<DeepSeekProviderConfig>(
             "deepseek",
             json => JsonSerializer.Deserialize(json, DeepSeekJsonContext.Default.DeepSeekProviderConfig),
             config => JsonSerializer.Serialize(config, DeepSeekJsonContext.Default.DeepSeekProviderConfig));
 
-        SecretAliasRegistry.Register("deepseek:ApiKey", "DEEPSEEK_API_KEY");
-        SecretAliasRegistry.Register("deepseek:Endpoint", "DEEPSEEK_ENDPOINT", "DEEPSEEK_BASE_URL");
+        ProviderContributionRegistry.RegisterSecretAlias("deepseek:ApiKey", "DEEPSEEK_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("deepseek:Endpoint", "DEEPSEEK_ENDPOINT", "DEEPSEEK_BASE_URL");
     }
 }

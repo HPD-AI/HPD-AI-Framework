@@ -46,12 +46,12 @@ public class TogetherProviderTests
     }
 
     [Fact]
-    public void ProviderDiscovery_ShouldRegisterProviderAndConfigTypes()
+    public void ProviderContributionRegistry_ShouldRegisterProviderAndConfigTypes()
     {
         TogetherProviderModule.Initialize();
 
-        ProviderDiscovery.GetProviderConfigType("together").Should().NotBeNull();
-        ProviderDiscovery.GetProviderConfigType("together", ProviderClientFamily.Embeddings).Should().NotBeNull();
+        ProviderContributionRegistry.GetProviderConfigType("together").Should().NotBeNull();
+        ProviderContributionRegistry.GetProviderConfigType("together", ProviderClientFamily.Embeddings).Should().NotBeNull();
     }
 
     [Fact]
@@ -219,7 +219,7 @@ public class TogetherProviderTests
     }
 
     [Fact]
-    public void ProviderDiscovery_ConfigJsonRoundTrips()
+    public void ProviderContributionRegistry_ConfigJsonRoundTrips()
     {
         TogetherProviderModule.Initialize();
         var config = new TogetherProviderConfig
@@ -229,8 +229,8 @@ public class TogetherProviderTests
             EmbeddingModelId = "BAAI/bge-large-en-v1.5"
         };
 
-        var json = ProviderDiscovery.SerializeProviderConfig("together", config);
-        var roundTrip = ProviderDiscovery.DeserializeProviderConfig("together", json);
+        var json = ProviderContributionRegistry.SerializeProviderConfig("together", config);
+        var roundTrip = ProviderContributionRegistry.DeserializeProviderConfig("together", json);
 
         roundTrip.Should().BeEquivalentTo(config);
     }

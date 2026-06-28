@@ -149,7 +149,7 @@ public class HPDAgentRegistryTests
         var sp = BuildProvider(opts =>
         {
             opts.AgentStore = agentStore;
-            opts.ConfigureAgent = InjectTestProvider;
+            opts.AgentContributors.Add(new DelegateAgentBuilderContributor(InjectTestProvider));
         });
 
         var manager = sp.GetRequiredService<AgentManager>();
@@ -178,7 +178,7 @@ public class HPDAgentRegistryTests
         var sp = BuildProvider(opts =>
         {
             opts.AgentStore = agentStore;
-            opts.ConfigureAgent = InjectTestProvider;
+            opts.AgentContributors.Add(new DelegateAgentBuilderContributor(InjectTestProvider));
         });
 
         var manager = sp.GetRequiredService<AgentManager>();

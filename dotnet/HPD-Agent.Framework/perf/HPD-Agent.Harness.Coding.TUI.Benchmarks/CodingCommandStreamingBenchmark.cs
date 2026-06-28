@@ -32,11 +32,13 @@ public class CodingCommandStreamingBenchmark
     public async Task<AgentTuiSessionState> MixedStreams()
     {
         var state = CodingBenchmarkScenarios.CreateState();
-        await state.ApplyEventAsync(CodingBenchmarkScenarios.Started("dotnet test"));
+        await state.ApplyEventAsync(CodingBenchmarkScenarios.Started("dotnet test"), CodingBenchmarkScenarios.Registry);
         for (var i = 0; i < Chunks; i++)
         {
             var stream = i % 2 == 0 ? ExecuteCommandStreamKind.Stdout : ExecuteCommandStreamKind.Stderr;
-            await state.ApplyEventAsync(CodingBenchmarkScenarios.Output($"line {i:D5} {new string('x', 80)}\n", stream));
+            await state.ApplyEventAsync(
+                CodingBenchmarkScenarios.Output($"line {i:D5} {new string('x', 80)}\n", stream),
+                CodingBenchmarkScenarios.Registry);
         }
 
         return state;

@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.Xai;
 
@@ -15,14 +14,14 @@ public static class XaiProviderModule
 #pragma warning restore CA2255
     public static void Initialize()
     {
-        ProviderDiscovery.RegisterProviderFactory(() => new XaiProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new XaiProvider());
 
-        ProviderDiscovery.RegisterProviderConfigType<XaiProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<XaiProviderConfig>(
             "xai",
             json => JsonSerializer.Deserialize(json, XaiJsonContext.Default.XaiProviderConfig),
             config => JsonSerializer.Serialize(config, XaiJsonContext.Default.XaiProviderConfig));
 
-        SecretAliasRegistry.Register("xai:ApiKey", "XAI_API_KEY");
-        SecretAliasRegistry.Register("xai:Endpoint", "XAI_ENDPOINT", "XAI_BASE_URL");
+        ProviderContributionRegistry.RegisterSecretAlias("xai:ApiKey", "XAI_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("xai:Endpoint", "XAI_ENDPOINT", "XAI_BASE_URL");
     }
 }

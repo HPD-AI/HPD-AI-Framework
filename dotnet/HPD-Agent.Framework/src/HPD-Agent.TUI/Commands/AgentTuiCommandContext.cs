@@ -12,6 +12,7 @@ public sealed class AgentTuiCommandContext
         AgentTuiNavigationModel navigation,
         IHpdAgentTuiRuntime runtime,
         IAgentTuiDialogService dialogs,
+        IAgentTuiSessionUi sessionUi,
         Func<AgentTuiRuntimeScope, CancellationToken, ValueTask> switchScopeAsync,
         HpdAgentTuiCommandDescriptor command,
         string arguments)
@@ -21,6 +22,7 @@ public sealed class AgentTuiCommandContext
         Navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
         Runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         Dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
+        SessionUi = sessionUi ?? throw new ArgumentNullException(nameof(sessionUi));
         SwitchScopeAsync = switchScopeAsync ?? throw new ArgumentNullException(nameof(switchScopeAsync));
         Command = command ?? throw new ArgumentNullException(nameof(command));
         Arguments = arguments ?? "";
@@ -35,6 +37,8 @@ public sealed class AgentTuiCommandContext
     public IHpdAgentTuiRuntime Runtime { get; }
 
     public IAgentTuiDialogService Dialogs { get; }
+
+    public IAgentTuiSessionUi SessionUi { get; }
 
     public Func<AgentTuiRuntimeScope, CancellationToken, ValueTask> SwitchScopeAsync { get; }
 

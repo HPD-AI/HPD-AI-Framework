@@ -18,7 +18,7 @@ public sealed class ExplorationTuiTests
     [Fact]
     public void AddCodingHarnessTui_RegistersExplorationHandlersAndStatus()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddCodingHarnessTui()
             .Build();
 
@@ -68,16 +68,14 @@ public sealed class ExplorationTuiTests
     [Fact]
     public async Task ReplacedExplorationRenderer_KeepsExplorationHandlersAndState()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddCodingHarnessTui()
             .ReplaceTranscriptRenderer<CodingExplorationCell>(
                 CodingHarnessTuiTranscriptRendererKeys.Exploration,
                 _ => new Text("custom exploration row"))
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
 
         await state.ApplyEventAsync(new ToolCallStartEvent("call-read-1", "ReadFile", "msg-1"));
 
@@ -137,13 +135,11 @@ public sealed class ExplorationTuiTests
     [Fact]
     public async Task StatusItem_ReadsExplorationState()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddCodingHarnessTui()
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
 
         await state.ApplyEventAsync(new ToolCallStartEvent("call-read-1", "ReadFile", "msg-1"));
 
@@ -152,11 +148,12 @@ public sealed class ExplorationTuiTests
     }
 
     private static AgentTuiSessionState CreateState()
-        => new(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            new HpdAgentTuiBuilder()
-                .AddCodingHarnessTui()
-                .Build());
+    {
+        var registry = TuiTestBuilder.Create()
+            .AddCodingHarnessTui()
+            .Build();
+        return TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
+    }
 
     private static async Task CompleteTool(
         AgentTuiSessionState state,
@@ -193,7 +190,7 @@ public sealed class ExplorationTuiTests
             trimTrailingBlankLines: true);
 
     private static AgentTuiTranscriptRendererRegistry DefaultTranscriptRenderers()
-        => new HpdAgentTuiBuilder()
+        => TuiTestBuilder.Create()
             .AddDefaultTranscriptRenderers()
             .AddCodingHarnessTui()
             .Build()

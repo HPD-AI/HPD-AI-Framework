@@ -70,16 +70,14 @@ public sealed class CodingExplorationTuiPerformanceTests
     [Fact]
     public async Task Exploration_RendererReplacement_KeepsStateWithoutExtraRows()
     {
-        var registry = new HpdAgentTuiBuilder()
+        var registry = TuiTestBuilder.Create()
             .AddAgentTuiDefaults()
             .AddCodingHarnessTui()
             .ReplaceTranscriptRenderer<CodingExplorationCell>(
                 CodingHarnessTuiTranscriptRendererKeys.Exploration,
                 _ => new Text("custom exploration row"))
             .Build();
-        var state = new AgentTuiSessionState(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            registry);
+        var state = TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
 
         for (var i = 0; i < 20; i++)
         {
@@ -92,11 +90,12 @@ public sealed class CodingExplorationTuiPerformanceTests
     }
 
     private static AgentTuiSessionState CreateState()
-        => new(
-            new AgentTuiRuntimeScope("agent", "session", "main"),
-            new HpdAgentTuiBuilder()
-                .AddCodingHarnessTui()
-                .Build());
+    {
+        var registry = TuiTestBuilder.Create()
+            .AddCodingHarnessTui()
+            .Build();
+        return TuiTestBuilder.CreateState(new AgentTuiRuntimeScope("agent", "session", "main"), registry);
+    }
 
     private static async Task StartRead(AgentTuiSessionState state, int index)
     {
@@ -138,7 +137,7 @@ public sealed class CodingExplorationTuiPerformanceTests
             trimTrailingBlankLines: true);
 
     private static AgentTuiTranscriptRendererRegistry DefaultTranscriptRenderers()
-        => new HpdAgentTuiBuilder()
+        => TuiTestBuilder.Create()
             .AddDefaultTranscriptRenderers()
             .AddCodingHarnessTui()
             .Build()

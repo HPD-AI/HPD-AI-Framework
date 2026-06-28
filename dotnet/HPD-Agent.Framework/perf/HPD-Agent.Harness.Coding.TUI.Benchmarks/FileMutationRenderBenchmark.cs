@@ -14,14 +14,22 @@ public class FileMutationRenderBenchmark
     public async Task Setup()
     {
         _smallDiff = CodingBenchmarkScenarios.CreateState();
-        await _smallDiff.ApplyEventAsync(CodingBenchmarkScenarios.Mutation(hunkCount: 1, linesPerHunk: 8));
+        await _smallDiff.ApplyEventAsync(
+            CodingBenchmarkScenarios.Mutation(hunkCount: 1, linesPerHunk: 8),
+            CodingBenchmarkScenarios.Registry);
 
         _largeDiff = CodingBenchmarkScenarios.CreateState();
-        await _largeDiff.ApplyEventAsync(CodingBenchmarkScenarios.Mutation(hunkCount: 20, linesPerHunk: 20));
+        await _largeDiff.ApplyEventAsync(
+            CodingBenchmarkScenarios.Mutation(hunkCount: 20, linesPerHunk: 20),
+            CodingBenchmarkScenarios.Registry);
 
         _withDiagnostics = CodingBenchmarkScenarios.CreateState();
-        await _withDiagnostics.ApplyEventAsync(CodingBenchmarkScenarios.Mutation(hunkCount: 20, linesPerHunk: 20));
-        await _withDiagnostics.ApplyEventAsync(CodingBenchmarkScenarios.Diagnostics(1_000));
+        await _withDiagnostics.ApplyEventAsync(
+            CodingBenchmarkScenarios.Mutation(hunkCount: 20, linesPerHunk: 20),
+            CodingBenchmarkScenarios.Registry);
+        await _withDiagnostics.ApplyEventAsync(
+            CodingBenchmarkScenarios.Diagnostics(1_000),
+            CodingBenchmarkScenarios.Registry);
     }
 
     [Benchmark(Baseline = true)]

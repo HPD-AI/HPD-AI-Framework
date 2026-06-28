@@ -6,7 +6,7 @@ namespace HPD.Agent;
 public static class AgentFeatureActivatorRegistry
 {
     private static readonly object s_lock = new();
-    private static readonly Dictionary<string, Action<AgentBuilder>> s_activators =
+    private static readonly Dictionary<string, IAgentBuilderContributor> s_activators =
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -17,17 +17,30 @@ public static class AgentFeatureActivatorRegistry
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(activate);
 
+        Register(name, new DelegateAgentBuilderContributor(activate));
+    }
+
+    public static void Register(string name, IAgentBuilderContributor contributor)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(contributor);
+
         lock (s_lock)
         {
-            s_activators[name] = activate;
+            s_activators[name] = contributor;
         }
     }
 
-    internal static Action<AgentBuilder>[] Snapshot()
+    internal static IReadOnlyList<AgentFeatureActivatorContribution> Snapshot()
     {
         lock (s_lock)
         {
-            return s_activators.Values.ToArray();
+            return s_activators
+                .Select(pair => new AgentFeatureActivatorContribution(
+                    pair.Key,
+                    pair.Value,
+                    new HpdContributionOwner(pair.Key, "framework-feature", DisplayName: pair.Key)))
+                .ToArray();
         }
     }
 
@@ -39,3 +52,8 @@ public static class AgentFeatureActivatorRegistry
         }
     }
 }
+
+internal sealed record AgentFeatureActivatorContribution(
+    string Key,
+    IAgentBuilderContributor Contributor,
+    HpdContributionOwner Owner);

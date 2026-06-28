@@ -1,5 +1,4 @@
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -12,14 +11,14 @@ public static class PerplexityProviderModule
 #pragma warning restore CA2255
     public static void Initialize()
     {
-        ProviderDiscovery.RegisterProviderFactory(() => new PerplexityProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new PerplexityProvider());
 
-        ProviderDiscovery.RegisterProviderConfigType<PerplexityProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<PerplexityProviderConfig>(
             "perplexity",
             json => JsonSerializer.Deserialize(json, PerplexityJsonContext.Default.PerplexityProviderConfig),
             config => JsonSerializer.Serialize(config, PerplexityJsonContext.Default.PerplexityProviderConfig));
 
-        SecretAliasRegistry.Register("perplexity:ApiKey", "PERPLEXITY_API_KEY");
-        SecretAliasRegistry.Register("perplexity:Endpoint", "PERPLEXITY_ENDPOINT", "PERPLEXITY_BASE_URL");
+        ProviderContributionRegistry.RegisterSecretAlias("perplexity:ApiKey", "PERPLEXITY_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("perplexity:Endpoint", "PERPLEXITY_ENDPOINT", "PERPLEXITY_BASE_URL");
     }
 }

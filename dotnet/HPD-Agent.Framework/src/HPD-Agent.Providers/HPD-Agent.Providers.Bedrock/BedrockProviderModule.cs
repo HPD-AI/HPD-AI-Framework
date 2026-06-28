@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.Bedrock;
 
@@ -17,18 +16,18 @@ public static class BedrockProviderModule
     public static void Initialize()
     {
         // Register provider factory
-        ProviderDiscovery.RegisterProviderFactory(() => new BedrockProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new BedrockProvider());
 
         // Register config type for FFI/JSON serialization (AOT-compatible)
-        ProviderDiscovery.RegisterProviderConfigType<BedrockProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<BedrockProviderConfig>(
             "bedrock",
             json => JsonSerializer.Deserialize(json, BedrockJsonContext.Default.BedrockProviderConfig),
             config => JsonSerializer.Serialize(config, BedrockJsonContext.Default.BedrockProviderConfig));
 
         // Register environment variable aliases
-        SecretAliasRegistry.Register("bedrock:AccessKeyId", "AWS_ACCESS_KEY_ID");
-        SecretAliasRegistry.Register("bedrock:SecretAccessKey", "AWS_SECRET_ACCESS_KEY");
-        SecretAliasRegistry.Register("bedrock:SessionToken", "AWS_SESSION_TOKEN");
-        SecretAliasRegistry.Register("bedrock:Region", "AWS_REGION");
+        ProviderContributionRegistry.RegisterSecretAlias("bedrock:AccessKeyId", "AWS_ACCESS_KEY_ID");
+        ProviderContributionRegistry.RegisterSecretAlias("bedrock:SecretAccessKey", "AWS_SECRET_ACCESS_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("bedrock:SessionToken", "AWS_SESSION_TOKEN");
+        ProviderContributionRegistry.RegisterSecretAlias("bedrock:Region", "AWS_REGION");
     }
 }

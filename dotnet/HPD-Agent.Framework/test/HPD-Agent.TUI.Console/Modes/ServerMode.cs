@@ -1,4 +1,6 @@
 using HPD.Agent.AspNetCore;
+using HPD.Agent.AspNetCore.Packages;
+using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Runtime;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -45,6 +47,7 @@ internal static class ServerMode
                 }
             };
         });
+        builder.Services.AddHPDAgentPackageManagement(agentId);
 
         await using var server = builder.Build();
         server.MapGet("/", () => "HPD Agent TUI console server is running.");
@@ -52,6 +55,7 @@ internal static class ServerMode
         {
             api.MapEvals = false;
         });
+        server.MapHPDAgentPackageManagement("/hpd/packages");
 
         await server.StartAsync();
 
@@ -63,15 +67,24 @@ internal static class ServerMode
                 BaseAddress = new Uri($"{url.TrimEnd('/')}/hpd/"),
                 DefaultScope = scope
             });
+            var store = new AgentTuiContributionStore();
+            using var packageHttp = new HttpClient
+            {
+                BaseAddress = new Uri(url.TrimEnd('/') + "/")
+            };
+            var packages = new HpdAspNetCorePackageRuntimeClient(packageHttp, "hpd/packages");
+            new HpdAgentTuiBuilder(store, HpdContributionOwner.App)
+                .AddAgentTuiDefaults()
+                .AddConsoleBranding("server")
+                .AddPackageManagement(packages)
+                .AddConsoleModelsDevModelSelection(providers)
+                .AddConsoleProviderCommands(providers)
+                .AddConsoleAgentChat();
+            var registries = new HpdAgentTuiRegistryProvider(store);
             await using var app = HpdAgentTuiApp.Create(
                 runtime,
                 scope,
-                tui => tui
-                    .AddAgentTuiDefaults()
-                    .AddConsoleBranding("server")
-                    .AddConsoleModelsDevModelSelection(providers)
-                    .AddConsoleProviderCommands(providers)
-                    .AddConsoleAgentChat());
+                registries);
             await app.RunAsync();
         }
         finally

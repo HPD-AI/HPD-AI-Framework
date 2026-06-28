@@ -1,5 +1,4 @@
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -12,14 +11,14 @@ public static class OVHcloudProviderModule
 #pragma warning restore CA2255
     public static void Initialize()
     {
-        ProviderDiscovery.RegisterProviderFactory(() => new OVHcloudProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new OVHcloudProvider());
 
-        ProviderDiscovery.RegisterProviderConfigType<OVHcloudProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<OVHcloudProviderConfig>(
             "ovhcloud",
             json => JsonSerializer.Deserialize(json, OVHcloudJsonContext.Default.OVHcloudProviderConfig),
             config => JsonSerializer.Serialize(config, OVHcloudJsonContext.Default.OVHcloudProviderConfig));
 
-        SecretAliasRegistry.Register("ovhcloud:ApiKey", "OVHCLOUD_API_KEY");
-        SecretAliasRegistry.Register("ovhcloud:Endpoint", "OVHCLOUD_ENDPOINT", "OVHCLOUD_BASE_URL");
+        ProviderContributionRegistry.RegisterSecretAlias("ovhcloud:ApiKey", "OVHCLOUD_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("ovhcloud:Endpoint", "OVHCLOUD_ENDPOINT", "OVHCLOUD_BASE_URL");
     }
 }

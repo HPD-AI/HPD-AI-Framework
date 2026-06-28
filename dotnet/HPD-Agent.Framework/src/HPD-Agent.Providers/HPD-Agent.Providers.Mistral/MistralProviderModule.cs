@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.Mistral;
 
@@ -17,15 +16,15 @@ public static class MistralProviderModule
     public static void Initialize()
     {
         // Register provider factory
-        ProviderDiscovery.RegisterProviderFactory(() => new MistralProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new MistralProvider());
 
         // Register config type for FFI/JSON serialization (AOT-compatible)
-        ProviderDiscovery.RegisterProviderConfigType<MistralProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<MistralProviderConfig>(
             "mistral",
             json => JsonSerializer.Deserialize(json, MistralJsonContext.Default.MistralProviderConfig),
             config => JsonSerializer.Serialize(config, MistralJsonContext.Default.MistralProviderConfig));
 
         // Register environment variable aliases for secret resolution
-        SecretAliasRegistry.Register("mistral:ApiKey", "MISTRAL_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("mistral:ApiKey", "MISTRAL_API_KEY");
     }
 }

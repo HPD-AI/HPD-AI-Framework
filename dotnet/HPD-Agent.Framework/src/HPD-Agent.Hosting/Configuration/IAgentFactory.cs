@@ -16,7 +16,7 @@ namespace HPD.Agent.Hosting.Configuration;
 /// 1. IAgentFactory from DI
 /// 2. DefaultAgent object (serializable — from JSON, DB, admin UI)
 /// 3. DefaultAgentPath file (serializable — loaded from disk)
-/// 4. ConfigureAgent callback (runtime-only concerns)
+/// 4. AgentBuilder contributor pipeline (runtime-only concerns)
 /// 5. Empty builder (fallback)
 /// </remarks>
 public interface IAgentFactory

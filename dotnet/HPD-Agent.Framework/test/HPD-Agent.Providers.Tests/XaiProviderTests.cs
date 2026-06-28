@@ -43,11 +43,11 @@ public class XaiProviderTests
     }
 
     [Fact]
-    public void ProviderDiscovery_ShouldRegisterProviderAndConfigType()
+    public void ProviderContributionRegistry_ShouldRegisterProviderAndConfigType()
     {
         XaiProviderModule.Initialize();
 
-        ProviderDiscovery.GetProviderConfigType("xai").Should().NotBeNull();
+        ProviderContributionRegistry.GetProviderConfigType("xai").Should().NotBeNull();
     }
 
     [Fact]
@@ -194,7 +194,7 @@ public class XaiProviderTests
     }
 
     [Fact]
-    public void ProviderDiscovery_ConfigJsonRoundTrips()
+    public void ProviderContributionRegistry_ConfigJsonRoundTrips()
     {
         XaiProviderModule.Initialize();
         var config = new XaiProviderConfig
@@ -204,8 +204,8 @@ public class XaiProviderTests
             ReasoningEffort = "low"
         };
 
-        var json = ProviderDiscovery.SerializeProviderConfig("xai", config);
-        var roundTrip = ProviderDiscovery.DeserializeProviderConfig("xai", json);
+        var json = ProviderContributionRegistry.SerializeProviderConfig("xai", config);
+        var roundTrip = ProviderContributionRegistry.DeserializeProviderConfig("xai", json);
 
         roundTrip.Should().BeEquivalentTo(config);
     }

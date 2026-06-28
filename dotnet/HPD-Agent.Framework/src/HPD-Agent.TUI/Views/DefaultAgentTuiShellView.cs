@@ -76,7 +76,14 @@ public sealed class DefaultAgentTuiShellView : IComponent
         }
 
         AddSection(shell, _chrome.Transcript, new MainSectionView(this), isMain: true);
-        AddSection(shell, _chrome.Status, BuildStatusSection(), isMain: false);
+        AddSection(
+            shell,
+            _chrome.Status,
+            BuildStatusSection(),
+            isMain: false,
+            () => _model.Status.Count > 0 ||
+                  _registry.StatusItems.Count > 0 ||
+                  _model.Activities.Activities.Count > 0);
 
         AddSection(
             shell,
@@ -116,6 +123,8 @@ public sealed class DefaultAgentTuiShellView : IComponent
                 Mode = ActivityGroupDisplayMode.Compact,
                 AnimationsEnabled = false
             });
+
+        status.Add(new SessionStatusView(_model.Status));
 
         if (_registry.StatusItems.Count > 0)
         {

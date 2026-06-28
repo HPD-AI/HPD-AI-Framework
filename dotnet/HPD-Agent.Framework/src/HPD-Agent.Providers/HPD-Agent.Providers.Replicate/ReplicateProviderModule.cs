@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.Replicate;
 
@@ -15,14 +14,14 @@ public static class ReplicateProviderModule
 #pragma warning restore CA2255
     public static void Initialize()
     {
-        ProviderDiscovery.RegisterProviderFactory(() => new ReplicateProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new ReplicateProvider());
 
-        ProviderDiscovery.RegisterProviderConfigType<ReplicateProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<ReplicateProviderConfig>(
             "replicate",
             ProviderClientFamily.ImageGeneration,
             json => JsonSerializer.Deserialize(json, ReplicateJsonContext.Default.ReplicateProviderConfig),
             config => JsonSerializer.Serialize(config, ReplicateJsonContext.Default.ReplicateProviderConfig));
 
-        SecretAliasRegistry.Register("replicate:ApiKey", "REPLICATE_API_KEY", "REPLICATE_API_TOKEN");
+        ProviderContributionRegistry.RegisterSecretAlias("replicate:ApiKey", "REPLICATE_API_KEY", "REPLICATE_API_TOKEN");
     }
 }

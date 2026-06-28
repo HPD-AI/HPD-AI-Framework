@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using HPD.Agent.Providers;
-using HPD.Agent.Secrets;
 
 namespace HPD.Agent.Providers.Fireworks;
 
@@ -15,14 +14,14 @@ public static class FireworksProviderModule
 #pragma warning restore CA2255
     public static void Initialize()
     {
-        ProviderDiscovery.RegisterProviderFactory(() => new FireworksProvider());
+        ProviderContributionRegistry.RegisterProviderFactory(() => new FireworksProvider());
 
-        ProviderDiscovery.RegisterProviderConfigType<FireworksProviderConfig>(
+        ProviderContributionRegistry.RegisterProviderConfigType<FireworksProviderConfig>(
             "fireworks",
             json => JsonSerializer.Deserialize(json, FireworksJsonContext.Default.FireworksProviderConfig),
             config => JsonSerializer.Serialize(config, FireworksJsonContext.Default.FireworksProviderConfig));
 
-        SecretAliasRegistry.Register("fireworks:ApiKey", "FIREWORKS_API_KEY");
-        SecretAliasRegistry.Register("fireworks:Endpoint", "FIREWORKS_ENDPOINT", "FIREWORKS_BASE_URL");
+        ProviderContributionRegistry.RegisterSecretAlias("fireworks:ApiKey", "FIREWORKS_API_KEY");
+        ProviderContributionRegistry.RegisterSecretAlias("fireworks:Endpoint", "FIREWORKS_ENDPOINT", "FIREWORKS_BASE_URL");
     }
 }

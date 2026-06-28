@@ -1,3 +1,4 @@
+using HPD.Agent;
 using HPD.Agent.TUI.Application;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Composition;
@@ -20,7 +21,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 {
     private readonly IHpdAgentTuiRuntime _runtime;
     private readonly AgentTuiRuntimeScope? _requestedScope;
-    private readonly HpdAgentTuiRegistry _registry;
+    private readonly IHpdAgentTuiRegistryProvider _registries;
     private readonly NormalTerminalTuiApplication _application;
     private PromptView? _prompt;
     private AgentTuiSessionState? _state;
@@ -31,38 +32,41 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private CancellationToken _runCancellationToken;
     private readonly HashSet<string> _handledInteractionIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _sessionTitleUpdates = new(StringComparer.Ordinal);
+    private readonly AgentTuiSessionUiController _sessionUi = new();
 
     private HpdAgentTuiApp(
         IHpdAgentTuiRuntime runtime,
         AgentTuiRuntimeScope? requestedScope,
-        HpdAgentTuiRegistry registry,
+        IHpdAgentTuiRegistryProvider registries,
         ITerminal terminal)
     {
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _requestedScope = requestedScope;
-        _registry = registry;
+        _registries = registries ?? throw new ArgumentNullException(nameof(registries));
         _application = new NormalTerminalTuiApplication(terminal);
         _application.ShortcutHandler = TryExecuteShortcut;
-        if (_registry.Theme is { } theme)
+        _registries.Changed += OnRegistryChanged;
+        if (Registry.Theme is { } theme)
         {
             _application.Theme = theme;
         }
     }
 
+    private HpdAgentTuiRegistry Registry => _registries.Current;
+
     public static HpdAgentTuiApp Create(
         IHpdAgentTuiRuntime runtime,
-        AgentTuiRuntimeScope? scope = null,
-        Action<HpdAgentTuiBuilder>? configure = null,
+        AgentTuiRuntimeScope? scope,
+        IHpdAgentTuiRegistryProvider registries,
         ITerminal? terminal = null)
     {
         ArgumentNullException.ThrowIfNull(runtime);
+        ArgumentNullException.ThrowIfNull(registries);
 
-        var builder = new HpdAgentTuiBuilder();
-        configure?.Invoke(builder);
-        var registry = builder.Build();
+        var registry = registries.Current;
         _ = registry.PromptFactory;
         _ = registry.ShellLayout;
-        return new HpdAgentTuiApp(runtime, scope, registry, terminal ?? new ProcessTerminal());
+        return new HpdAgentTuiApp(runtime, scope, registries, terminal ?? new ProcessTerminal());
     }
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
@@ -91,19 +95,45 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         CancellationToken cancellationToken = default)
         => SubmitCommandAsync(commandLine, cancellationToken);
 
+    public void InvalidateSessionUi(HpdContributionOwner owner)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        if (_state is null)
+        {
+            return;
+        }
+
+        _sessionUi.InvalidateOwner(_state.Shell, owner);
+        RequestRender();
+    }
+
+    public void InvalidateAllSessionUi()
+    {
+        if (_state is null)
+        {
+            return;
+        }
+
+        _sessionUi.InvalidateAll(_state.Shell);
+        RequestRender();
+    }
+
     private void RebuildShell(
         AgentTuiRuntimeScope scope,
-        string notice)
+        string notice,
+        AgentTuiSessionState? existingState = null)
     {
         _scope = scope;
-        _state = new AgentTuiSessionState(scope, _registry);
+        _state = existingState is null
+            ? new AgentTuiSessionState(scope)
+            : new AgentTuiSessionState(scope, existingState.Shell, existingState.State);
         AgentTuiPerformanceDiagnostics.ConfigureFromEnvironment(_state.State);
         _state.Shell.Runtime = _runtime;
         _state.Shell.SwitchScopeAsync = SwitchScopeAsync;
         _state.Shell.SetPromptDraftAsync = SetPromptDraftAsync;
         var autocomplete = new AutocompleteController()
-            .Register(new AgentTuiAutocompleteProviderAdapter(_registry, () => _state));
-        _prompt = _registry.PromptFactory.Create(
+            .Register(new AgentTuiAutocompleteProviderAdapter(() => Registry, () => _state));
+        _prompt = Registry.PromptFactory.Create(
             new AgentTuiPromptContext(scope, _state.Shell),
             SubmitPrompt,
             autocomplete);
@@ -113,16 +143,16 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             Cell: new NoticeCell(notice),
             Metadata: new TranscriptEntryMetadata()));
 
-        var shell = _registry.ShellLayout.Create(new AgentTuiShellLayoutContext(
+        var shell = Registry.ShellLayout.Create(new AgentTuiShellLayoutContext(
             _state.Shell,
             _prompt,
-            _registry,
-            _registry.ShellChrome,
+            Registry,
+            Registry.ShellChrome,
             _state.State));
         var dialogHost = new DialogHost(shell, _application.Focus);
         _dialogs = new AgentTuiDialogService(
             dialogHost,
-            _registry.ShellChrome.Dialog,
+            Registry.ShellChrome.Dialog,
             _state.Shell.AboveEditor,
             _state.Shell.Navigation,
             RequestRender);
@@ -199,10 +229,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         AgentRunConfig? runConfig;
         try
         {
-            runConfig = _registry.RunConfigComposer?.Invoke(new AgentTuiRunConfigContext(
-                _scope,
-                _state.Shell,
-                text));
+            runConfig = BuildRunConfig(text);
         }
         catch (Exception ex)
         {
@@ -234,6 +261,44 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 RunConfig = runConfig
             },
             text);
+    }
+
+    private AgentRunConfig? BuildRunConfig(string promptText)
+    {
+        if (_scope is null || _state is null)
+        {
+            return null;
+        }
+
+        var registry = Registry;
+        if (registry.RunConfigContributors.Count == 0)
+        {
+            return null;
+        }
+
+        var builder = new AgentRunConfigBuilder();
+        var context = new AgentTuiRunConfigContributionContext(
+            _scope,
+            _state.Shell,
+            promptText,
+            registry,
+            _state.State);
+
+        foreach (var contribution in registry.RunConfigContributors)
+        {
+            try
+            {
+                contribution.Value.ConfigureRun(context, builder);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"Run config contributor '{contribution.Key}' failed: {ex.Message}",
+                    ex);
+            }
+        }
+
+        return builder.Config;
     }
 
     private async Task SubmitInputAsync(
@@ -298,7 +363,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return true;
         }
 
-        if (!_registry.TryFindShortcut(in key, out var shortcut))
+        if (!Registry.TryFindShortcut(in key, out var shortcut))
         {
             return false;
         }
@@ -390,7 +455,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
-        if (!_registry.TryFindSlashCommand(text.AsSpan(), out var command, out var arguments))
+        if (!Registry.TryFindSlashCommandContribution(text.AsSpan(), out var commandContribution, out var arguments))
         {
             _state.Shell.Transcript.AddFinal(new TranscriptEntry(
                 Id: $"unknown-command-{Guid.NewGuid():N}",
@@ -406,6 +471,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
+        var command = commandContribution.Value;
         try
         {
             await command.ExecuteAsync(new AgentTuiCommandContext(
@@ -414,6 +480,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                     _state.Shell.Navigation,
                     _runtime,
                     _dialogs,
+                    CreateSessionUi(commandContribution.Owner),
                     SwitchScopeAsync,
                     command,
                     arguments))
@@ -500,7 +567,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
         foreach (var evt in events)
         {
-            await _state.ApplyEventAsync(evt, cancellationToken).ConfigureAwait(false);
+            await _state.ApplyEventAsync(evt, Registry, cancellationToken).ConfigureAwait(false);
         }
 
         RequestRender();
@@ -579,7 +646,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
-        await _state.ApplyEventAsync(evt, cancellationToken).ConfigureAwait(false);
+        await _state.ApplyEventAsync(evt, Registry, cancellationToken).ConfigureAwait(false);
         RequestRender();
 
         if (_dialogs is null)
@@ -589,7 +656,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
         if (evt is not IRequestEvent request ||
             string.IsNullOrWhiteSpace(request.RequestId) ||
-            !_registry.TryFindInteractionHandler(evt, out var handler))
+            !Registry.TryFindInteractionHandler(evt, out var handler))
         {
             return;
         }
@@ -608,6 +675,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                     _state.Shell.Navigation,
                     _runtime,
                     _dialogs,
+                    CreateSessionUi(handler.Owner),
                     evt),
                 cancellationToken).ConfigureAwait(false);
 
@@ -644,8 +712,48 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _application.RequestRender();
     }
 
+    private IAgentTuiSessionUi CreateSessionUi(HpdContributionOwner owner)
+    {
+        if (_scope is null || _state is null || _dialogs is null)
+        {
+            throw new InvalidOperationException("No active TUI session is available.");
+        }
+
+        return new AgentTuiSessionUi(
+            _sessionUi,
+            owner,
+            _sessionUi.GetGeneration(owner),
+            _scope,
+            _state.Shell,
+            _state.State,
+            Registry,
+            _dialogs,
+            SetPromptDraftAsync,
+            RequestRender);
+    }
+
+    private void OnRegistryChanged(object? sender, HpdAgentTuiRegistryChangedEventArgs e)
+    {
+        if (e.Registry.Theme is { } theme)
+        {
+            _application.Theme = theme;
+        }
+
+        if (e.RequiresShellRebuild && _scope is { } scope && _state is { } state)
+        {
+            RebuildShell(
+                scope,
+                "TUI contributions changed.",
+                state);
+            return;
+        }
+
+        RequestRender();
+    }
+
     public ValueTask DisposeAsync()
     {
+        _registries.Changed -= OnRegistryChanged;
         _application.Dispose();
         return ValueTask.CompletedTask;
     }

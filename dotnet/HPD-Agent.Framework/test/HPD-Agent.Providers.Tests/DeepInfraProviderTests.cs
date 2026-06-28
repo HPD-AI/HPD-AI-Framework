@@ -42,11 +42,11 @@ public class DeepInfraProviderTests
     }
 
     [Fact]
-    public void ProviderDiscovery_ShouldRegisterProviderConfigAndSecretAliases()
+    public void ProviderContributionRegistry_ShouldRegisterProviderConfigAndSecretAliases()
     {
         DeepInfraProviderModule.Initialize();
 
-        ProviderDiscovery.GetProviderConfigType("deepinfra").Should().NotBeNull();
+        ProviderContributionRegistry.GetProviderConfigType("deepinfra").Should().NotBeNull();
         SecretAliasRegistry.GetAll()["deepinfra:ApiKey"].Should().Equal("DEEPINFRA_API_KEY");
         SecretAliasRegistry.GetAll()["deepinfra:Endpoint"].Should().Equal("DEEPINFRA_ENDPOINT", "DEEPINFRA_BASE_URL");
     }
@@ -239,7 +239,7 @@ public class DeepInfraProviderTests
     }
 
     [Fact]
-    public void ProviderDiscovery_ConfigJsonRoundTrips()
+    public void ProviderContributionRegistry_ConfigJsonRoundTrips()
     {
         DeepInfraProviderModule.Initialize();
         var config = new DeepInfraProviderConfig
@@ -249,8 +249,8 @@ public class DeepInfraProviderTests
             ToolChoice = "auto"
         };
 
-        var json = ProviderDiscovery.SerializeProviderConfig("deepinfra", config);
-        var roundTrip = ProviderDiscovery.DeserializeProviderConfig("deepinfra", json);
+        var json = ProviderContributionRegistry.SerializeProviderConfig("deepinfra", config);
+        var roundTrip = ProviderContributionRegistry.DeserializeProviderConfig("deepinfra", json);
 
         roundTrip.Should().BeEquivalentTo(config);
     }

@@ -116,7 +116,8 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
 
         await Delay(cancellationToken);
         var callId = Guid.NewGuid().ToString("N");
-        await PublishAsync(new ToolCallStartEvent(callId, "sample.inspect", messageId, "SampleHarness")
+        const string toolName = "sample.inspect";
+        await PublishAsync(new ToolCallStartEvent(callId, toolName, messageId, "SampleHarness")
         {
             SessionId = scope.SessionId,
             ThreadId = scope.ThreadId,

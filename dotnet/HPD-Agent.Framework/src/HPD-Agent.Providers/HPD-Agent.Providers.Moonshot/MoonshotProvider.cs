@@ -3,8 +3,8 @@ using System.Net.Http;
 using System.Threading;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
-using HPD.Agent.Providers.OpenAICompatible;
 using HPD.Agent.Secrets;
+using HPD.Agent.Providers.OpenAICompatible;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 

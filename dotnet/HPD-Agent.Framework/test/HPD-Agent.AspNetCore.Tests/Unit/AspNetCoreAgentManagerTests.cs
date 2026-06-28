@@ -57,7 +57,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
     public async Task BuildAgentAsync_UsesDefaultAgent_WhenProvided()
     {
         _optionsMonitor.CurrentValue.DefaultAgent = MakeConfig("Default Agent");
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        AddContributor(InjectTestProvider);
 
         var manager = MakeManager();
         var stored = await SeedDefault(manager);
@@ -74,7 +74,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
         await File.WriteAllTextAsync(tempPath, System.Text.Json.JsonSerializer.Serialize(config));
 
         _optionsMonitor.CurrentValue.DefaultAgentPath = tempPath;
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        AddContributor(InjectTestProvider);
 
         try
         {
@@ -93,7 +93,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
     public async Task BuildAgentAsync_FallsBackToEmptyBuilder_WhenNoConfig()
     {
         // No DefaultAgent, no path, no factory — falls back to empty AgentBuilder
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        AddContributor(InjectTestProvider);
 
         var manager = MakeManager();
         var stored = await SeedDefault(manager);
@@ -103,27 +103,54 @@ public class AspNetCoreAgentManagerTests : IDisposable
     }
 
     [Fact]
-    public async Task BuildAgentAsync_CallsConfigureAgent_AfterConfig()
+    public async Task BuildAgentAsync_AppliesAgentContributors_AfterConfig()
     {
         var called = false;
+        var owner = new HpdContributionOwner("hpd.test.package", "test");
+        HpdAgentContributionContext? capturedContext = null;
         _optionsMonitor.CurrentValue.DefaultAgent = MakeConfig("X");
-        _optionsMonitor.CurrentValue.ConfigureAgent = builder =>
-        {
-            called = true;
-            InjectTestProvider(builder);
-        };
+        _optionsMonitor.CurrentValue.AgentContributors.Add(
+            "test.agent",
+            new CapturingAgentBuilderContributor((builder, context) =>
+            {
+                called = true;
+                capturedContext = context;
+                InjectTestProvider(builder);
+            }),
+            owner);
 
         var manager = MakeManager();
         var stored = await SeedDefault(manager);
         await manager.GetOrBuildAgentAsync(stored.Id);
 
         called.Should().BeTrue();
+        capturedContext.Should().NotBeNull();
+        capturedContext!.Owner.Should().Be(owner);
+        capturedContext.AgentId.Should().Be(stored.Id);
+        capturedContext.Services.Should().BeSameAs(_serviceProvider);
+    }
+
+    [Fact]
+    public async Task BuildAgentAsync_AppliesProviderContributions_BeforeBuild()
+    {
+        _optionsMonitor.CurrentValue.DefaultAgent = MakeConfig("Provider Contribution");
+        _optionsMonitor.CurrentValue.ProviderContributions.AddProviderFactory(
+            "test",
+            _ => new TestChatClientProvider(new FakeChatClient()),
+            new HpdContributionOwner("hpd.test.provider", "test"));
+
+        var manager = MakeManager();
+        var stored = await SeedDefault(manager);
+
+        var agent = await manager.GetOrBuildAgentAsync(stored.Id);
+
+        agent.Should().NotBeNull();
     }
 
     [Fact]
     public async Task GetOrBuildAgentAsync_CachesInstance_ByAgentId()
     {
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        AddContributor(InjectTestProvider);
         var manager = MakeManager();
         var stored = await SeedDefault(manager);
 
@@ -136,7 +163,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
     [Fact]
     public async Task GetOrBuildAgentAsync_Builds_WhenDefinitionMissing()
     {
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        AddContributor(InjectTestProvider);
         var manager = MakeManager();
 
         var agent = await manager.GetOrBuildAgentAsync("no-such-agent");
@@ -148,7 +175,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
     [Fact]
     public async Task GetOrBuildAgentAsync_DoesNotPersistMissingDefinition_WhenPersistAgentDefinitionsOnBuildFalse()
     {
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProvider;
+        AddContributor(InjectTestProvider);
         _optionsMonitor.CurrentValue.PersistAgentDefinitionsOnBuild = false;
         var manager = MakeManager();
 
@@ -162,11 +189,11 @@ public class AspNetCoreAgentManagerTests : IDisposable
     [Fact]
     public async Task BuildAgentAsync_UsesStoredToolHarnessConfig()
     {
-        _optionsMonitor.CurrentValue.ConfigureAgent = builder =>
+        AddContributor(builder =>
         {
             builder.WithToolHarnessCatalogFrom<CodingToolHarness>();
             InjectTestProvider(builder);
-        };
+        });
         var manager = MakeManager();
         var stored = await manager.CreateDefinitionAsync(new AgentConfig
         {
@@ -195,8 +222,8 @@ public class AspNetCoreAgentManagerTests : IDisposable
     [Fact]
     public async Task BuildAgentAsync_UsesStoredToolHarnessConfig_WithRuntimeProvider()
     {
-        _optionsMonitor.CurrentValue.ConfigureAgent = builder =>
-            builder.WithToolHarnessCatalogFrom<CodingToolHarness>();
+        AddContributor(builder =>
+            builder.WithToolHarnessCatalogFrom<CodingToolHarness>());
         var manager = MakeManager();
         var stored = await manager.CreateDefinitionAsync(new AgentConfig
         {
@@ -224,7 +251,7 @@ public class AspNetCoreAgentManagerTests : IDisposable
     [Fact]
     public async Task BuildAgentAsync_RuntimeProvider_UsesExplicitSummarizerProvider()
     {
-        _optionsMonitor.CurrentValue.ConfigureAgent = InjectTestProviderRegistry;
+        AddContributor(InjectTestProviderRegistry);
         var manager = MakeManager();
         var stored = await manager.CreateDefinitionAsync(new AgentConfig
         {
@@ -273,6 +300,9 @@ public class AspNetCoreAgentManagerTests : IDisposable
     private TestableAgentManager MakeManager(IAgentFactory? factory = null)
         => new TestableAgentManager(_agentStore, _sessionManager, _optionsMonitor, _serviceProvider, Options.DefaultName, factory);
 
+    private void AddContributor(Action<AgentBuilder> configure)
+        => _optionsMonitor.CurrentValue.AgentContributors.Add(new DelegateAgentBuilderContributor(configure));
+
     private static async Task<StoredAgent> SeedDefault(AgentManager manager)
     {
         return await manager.CreateDefinitionAsync(new AgentConfig
@@ -310,6 +340,19 @@ public class AspNetCoreAgentManagerTests : IDisposable
         var field = typeof(AgentBuilder).GetField("_providerRegistry",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
         field?.SetValue(builder, registry);
+    }
+
+    private sealed class CapturingAgentBuilderContributor : IAgentBuilderContributor
+    {
+        private readonly Action<AgentBuilder, HpdAgentContributionContext> _configure;
+
+        public CapturingAgentBuilderContributor(Action<AgentBuilder, HpdAgentContributionContext> configure)
+        {
+            _configure = configure;
+        }
+
+        public void ConfigureAgent(AgentBuilder builder, HpdAgentContributionContext context)
+            => _configure(builder, context);
     }
 
     // ──────────────────────────────────────────────────────────────────────────

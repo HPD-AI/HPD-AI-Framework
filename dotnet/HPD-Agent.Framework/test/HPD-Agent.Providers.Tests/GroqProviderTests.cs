@@ -44,11 +44,11 @@ public class GroqProviderTests
     }
 
     [Fact]
-    public void ProviderDiscovery_ShouldRegisterProviderConfigTypeAndSecretAliases()
+    public void ProviderContributionRegistry_ShouldRegisterProviderConfigTypeAndSecretAliases()
     {
         GroqProviderModule.Initialize();
 
-        ProviderDiscovery.GetProviderConfigType("groq").Should().NotBeNull();
+        ProviderContributionRegistry.GetProviderConfigType("groq").Should().NotBeNull();
         SecretAliasRegistry.GetAll().Should().ContainKey("groq:ApiKey")
             .WhoseValue.Should().Equal("GROQ_API_KEY");
         SecretAliasRegistry.GetAll().Should().ContainKey("groq:Endpoint")
@@ -213,7 +213,7 @@ public class GroqProviderTests
     }
 
     [Fact]
-    public void ProviderDiscovery_ConfigJsonRoundTrips()
+    public void ProviderContributionRegistry_ConfigJsonRoundTrips()
     {
         GroqProviderModule.Initialize();
         var config = new GroqProviderConfig
@@ -222,8 +222,8 @@ public class GroqProviderTests
             ResponseFormat = "json_object"
         };
 
-        var json = ProviderDiscovery.SerializeProviderConfig("groq", config);
-        var roundTrip = ProviderDiscovery.DeserializeProviderConfig("groq", json);
+        var json = ProviderContributionRegistry.SerializeProviderConfig("groq", config);
+        var roundTrip = ProviderContributionRegistry.DeserializeProviderConfig("groq", json);
 
         roundTrip.Should().BeEquivalentTo(config);
     }

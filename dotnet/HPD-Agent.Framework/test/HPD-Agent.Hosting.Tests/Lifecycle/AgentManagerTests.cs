@@ -1,8 +1,11 @@
 using FluentAssertions;
 using HPD.Agent.Hosting.Lifecycle;
+using HPD.Agent.Hosting.Packages;
 using HPD.Agent;
+using HPD.Agent.Packages;
 using HPD.Agent.Providers;
 using HPD.Agent.Hosting.Tests.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Agent.Hosting.Tests.Lifecycle;
 
@@ -300,6 +303,42 @@ public class AgentManagerTests : IDisposable
         _manager.GetRuntimeAgent(stored.Id, "session-1", "thread-1").Should().BeNull();
     }
 
+    [Fact]
+    public async Task MarkAgentStale_EvictsUnscopedAndRuntimeInstances_ForAgent()
+    {
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        await _manager.GetOrBuildAgentAsync(stored.Id);
+        await _manager.GetOrBuildAgentRuntimeAsync(stored.Id, "session-1", "thread-1");
+        var other = await _manager.CreateDefinitionAsync(MakeConfig("Y"), "Y");
+        var otherAgent = await _manager.GetOrBuildAgentAsync(other.Id);
+
+        var result = _manager.MarkAgentStale(stored.Id);
+
+        result.EvictedAny.Should().BeTrue();
+        result.AgentCount.Should().Be(2);
+        _manager.GetAgent(stored.Id).Should().BeNull();
+        _manager.GetRuntimeAgent(stored.Id, "session-1", "thread-1").Should().BeNull();
+        _manager.GetAgent(other.Id).Should().BeSameAs(otherAgent);
+    }
+
+    [Fact]
+    public async Task MarkAllAgentsStale_EvictsEveryCachedInstance()
+    {
+        var first = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var second = await _manager.CreateDefinitionAsync(MakeConfig("Y"), "Y");
+        await _manager.GetOrBuildAgentAsync(first.Id);
+        await _manager.GetOrBuildAgentRuntimeAsync(first.Id, "session-1", "thread-1");
+        await _manager.GetOrBuildAgentAsync(second.Id);
+
+        var result = _manager.MarkAllAgentsStale();
+
+        result.EvictedAny.Should().BeTrue();
+        result.AgentCount.Should().Be(3);
+        _manager.GetAgent(first.Id).Should().BeNull();
+        _manager.GetRuntimeAgent(first.Id, "session-1", "thread-1").Should().BeNull();
+        _manager.GetAgent(second.Id).Should().BeNull();
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Idle eviction — purely time-based, no IsStreaming guard
     // ──────────────────────────────────────────────────────────────────────────
@@ -356,6 +395,53 @@ public class AgentManagerTests : IDisposable
         _manager.GetIdleTimeoutForTests().Should().Be(TimeSpan.FromMinutes(30));
     }
 
+    [Fact]
+    public async Task PackageChanges_WithBackendImpact_MarkCachedAgentsStale()
+    {
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var first = await _manager.GetOrBuildAgentAsync(stored.Id);
+        var packages = CreatePackageManager();
+        using var subscription = packages.MarkAgentsStaleOnPackageChanges(_manager);
+
+        packages.Enable(new TestPackage("hpd.test.package"));
+
+        var second = await _manager.GetOrBuildAgentAsync(stored.Id);
+        second.Should().NotBeSameAs(first);
+        _manager.BuildCallCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task PackageDisable_MarksCachedAgentsStale()
+    {
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var packages = CreatePackageManager();
+        packages.Enable(new TestPackage("hpd.test.package"));
+        using var subscription = packages.MarkAgentsStaleOnPackageChanges(_manager);
+        var first = await _manager.GetOrBuildAgentAsync(stored.Id);
+
+        packages.Disable("hpd.test.package");
+
+        var second = await _manager.GetOrBuildAgentAsync(stored.Id);
+        second.Should().NotBeSameAs(first);
+        _manager.BuildCallCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task PackageStalenessSubscription_CanBeDisposed()
+    {
+        var stored = await _manager.CreateDefinitionAsync(MakeConfig("X"), "X");
+        var first = await _manager.GetOrBuildAgentAsync(stored.Id);
+        var packages = CreatePackageManager();
+        var subscription = packages.MarkAgentsStaleOnPackageChanges(_manager);
+        subscription.Dispose();
+
+        packages.Enable(new TestPackage("hpd.test.package"));
+
+        var second = await _manager.GetOrBuildAgentAsync(stored.Id);
+        second.Should().BeSameAs(first);
+        _manager.BuildCallCount.Should().Be(1);
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Helpers
     // ──────────────────────────────────────────────────────────────────────────
@@ -366,6 +452,45 @@ public class AgentManagerTests : IDisposable
         MaxAgenticIterations = 5,
         Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
     };
+
+    private static HpdPackageManager CreatePackageManager()
+    {
+        var services = new ServiceCollection();
+        return new HpdPackageManager(
+            services,
+            new HpdPackageContributionStores(
+                new AgentBuilderContributorStore(),
+                new ProviderContributionStore()));
+    }
+
+    private sealed class TestPackage : IHpdPackage
+    {
+        public TestPackage(string id)
+        {
+            Id = id;
+        }
+
+        public string Id { get; }
+
+        public HpdPackageManifest Manifest => new(Id, DisplayName, Version)
+        {
+            Trust = HpdPackageTrust.Trusted,
+            LoadMode = HpdPackageLoadMode.BuildTimeInProcess,
+            Contributes = new HpdPackageContributes
+            {
+                Agent = true
+            }
+        };
+
+        public string DisplayName => "Test Package";
+
+        public Version Version { get; } = new(1, 0, 0);
+
+        public void Configure(IHpdPackageBuilder builder)
+            => builder.AddAgentContributor(
+                $"{Id}.agent",
+                new DelegateAgentBuilderContributor(_ => { }));
+    }
 
     // ──────────────────────────────────────────────────────────────────────────
     // Test double
