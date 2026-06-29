@@ -8,11 +8,15 @@
   <Folder Name="/Core/">
     <Project Path="src/HPD.Base.Abstractions/HPD.Base.Abstractions.csproj" />
     <Project Path="src/HPD.Base.Runtime/HPD.Base.Runtime.csproj" />
+    <Project Path="src/HPD.Base.InMemory/HPD.Base.InMemory.csproj" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="test/HPD.Base.Abstractions.Tests/HPD.Base.Abstractions.Tests.csproj" />
     <Project Path="test/HPD.Base.Abstractions.AotSmoke/HPD.Base.Abstractions.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.Runtime.Tests/HPD.Base.Runtime.Tests.csproj" />
     <Project Path="test/HPD.Base.Runtime.AotSmoke/HPD.Base.Runtime.AotSmoke.csproj" />
+    <Project Path="test/HPD.Base.StoreConformance/HPD.Base.StoreConformance.csproj" />
+    <Project Path="test/HPD.Base.InMemory.Tests/HPD.Base.InMemory.Tests.csproj" />
+    <Project Path="test/HPD.Base.InMemory.AotSmoke/HPD.Base.InMemory.AotSmoke.csproj" />
   </Folder>
 </Solution>
