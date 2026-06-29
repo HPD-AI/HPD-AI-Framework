@@ -1,0 +1,366 @@
+using System.Text.Json;
+using HPD.Base.Events;
+using HPD.Base.Policy;
+using HPD.Base.Records;
+using HPD.Base.Results;
+using HPD.Base.Runtime.Operations;
+using HPD.Base.Runtime.Schema;
+using HPD.Base.Schema;
+using HPD.Base.Stores;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace HPD.Base.Runtime.Tests.Operations;
+
+public sealed class PatchReplaceDeleteOperationPipelineTests
+{
+    [Fact]
+    public async Task EmptyPatchFailsValidationBeforeStoreCall()
+    {
+        var store = new FakeRecordStore("primary");
+        using var provider = OperationTestServices.Build(store);
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().PatchAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordPatchRequest
+            {
+                Patch = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = [] }
+            },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Patch),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.ValidationFailed, result.Status);
+        Assert.Equal(0, store.PatchCalls);
+    }
+
+    [Fact]
+    public async Task ExpectedRevisionPatchRequiresRevisionedStore()
+    {
+        var store = new FakeRecordStore("primary");
+        using var provider = OperationTestServices.Build(store);
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().PatchAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordPatchRequest
+            {
+                Patch = FieldMapPayload("title", "updated"),
+                ExpectedRevision = new RevisionToken("rev_1")
+            },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Patch),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Unsupported, result.Status);
+        Assert.Equal(0, store.PatchCalls);
+    }
+
+    [Fact]
+    public async Task ExpectedRevisionPatchUsesRevisionedStoreMethod()
+    {
+        var store = new FakeRevisionedRecordStore("primary");
+        store.AddRecord(ExistingRecord());
+        using var provider = OperationTestServices.Build(store);
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().PatchAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordPatchRequest
+            {
+                Patch = FieldMapPayload("title", "updated"),
+                ExpectedRevision = new RevisionToken("rev_1")
+            },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Patch),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Updated, result.Status);
+        Assert.Equal(1, store.PatchIfRevisionCalls);
+        Assert.Single(result.Events!);
+    }
+
+    [Fact]
+    public async Task ExpectedRevisionReplaceUsesRevisionedStoreMethod()
+    {
+        var store = new FakeRevisionedRecordStore("primary");
+        using var provider = OperationTestServices.Build(store);
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().ReplaceAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordReplaceRequest
+            {
+                Payload = JsonPayload("title", "replacement"),
+                ExpectedRevision = new RevisionToken("rev_1")
+            },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Replace),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Updated, result.Status);
+        Assert.Equal(1, store.ReplaceIfRevisionCalls);
+        Assert.Single(result.Events!);
+    }
+
+    [Fact]
+    public async Task PatchPassesSchemaValidatedPayloadToStore()
+    {
+        var store = new FakeRecordStore("primary");
+        store.AddRecord(ExistingRecord());
+        using var provider = OperationTestServices.Build(
+            store,
+            configureServices: services => services.AddSingleton<IBaseSchemaValidator>(new NormalizingSchemaValidator()));
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().PatchAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordPatchRequest { Patch = FieldMapPayload("title", "original") },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Patch),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Updated, result.Status);
+        Assert.Equal("patch-normalized", store.LastPatchRequest!.Patch.Fields!["normalized"].GetString());
+    }
+
+    [Fact]
+    public async Task PatchEvaluatesPolicyAgainstMergedCandidateAndDispatchesBeforeSnapshot()
+    {
+        var store = new FakeRecordStore("primary");
+        store.AddRecord(ExistingRecord("rec_1", ("title", "old"), ("status", "active")));
+        var policy = new CapturingPolicyEvaluator();
+        var publisher = new CapturingEventPublisher();
+        using var provider = OperationTestServices.Build(
+            store,
+            policy,
+            configureServices: services => services.AddSingleton<IBaseEventPublisher>(publisher));
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().PatchAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordPatchRequest { Patch = FieldMapPayload("title", "new") },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Patch),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Updated, result.Status);
+        Assert.NotNull(policy.LastRequest);
+        Assert.NotNull(policy.LastRequest!.Resource.ExistingRecord);
+        Assert.Equal("new", policy.LastRequest.Resource.ProposedPayload!.Fields!["title"].GetString());
+        Assert.Equal("active", policy.LastRequest.Resource.ProposedPayload.Fields["status"].GetString());
+        Assert.Equal(["title"], store.LastPatchRequest!.Patch.Fields!.Keys.ToArray());
+        Assert.NotNull(publisher.LastEnvelope);
+        Assert.Equal("old", publisher.LastEnvelope!.Before!.Payload.Fields!["title"].GetString());
+    }
+
+    [Fact]
+    public async Task ReplacePassesSchemaValidatedPayloadToStore()
+    {
+        var store = new FakeRecordStore("primary");
+        using var provider = OperationTestServices.Build(
+            store,
+            configureServices: services => services.AddSingleton<IBaseSchemaValidator>(new NormalizingSchemaValidator()));
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().ReplaceAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordReplaceRequest { Payload = JsonPayload("title", "original") },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Replace),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Updated, result.Status);
+        Assert.Equal("replace-normalized", store.LastReplaceRequest!.Payload.Fields!["normalized"].GetString());
+    }
+
+    [Fact]
+    public async Task ExpectedRevisionDeleteFailsClosedWithoutAdvertisedDeleteCapability()
+    {
+        var store = new FakeRevisionedRecordStore("primary");
+        using var provider = OperationTestServices.Build(store);
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().DeleteAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordDeleteRequest { ExpectedRevision = new RevisionToken("rev_1") },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Delete),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Unsupported, result.Status);
+        Assert.Equal(0, store.DeleteCalls);
+    }
+
+    [Fact]
+    public async Task ExpectedRevisionDeleteUsesBaseDeleteWhenStoreAdvertisesRevisionDelete()
+    {
+        var store = new FakeRecordStore(
+            "primary",
+            revision: new RevisionCapability
+            {
+                Supported = true,
+                Guarantee = RevisionGuarantee.Store,
+                Delete = true
+            });
+        store.AddRecord(ExistingRecord());
+        using var provider = OperationTestServices.Build(store);
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().DeleteAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordDeleteRequest { ExpectedRevision = new RevisionToken("rev_1") },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Delete),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Deleted, result.Status);
+        Assert.Equal(1, store.DeleteCalls);
+    }
+
+    [Fact]
+    public async Task DeleteDispatchesEventAfterSuccessfulStoreCall()
+    {
+        var store = new FakeRecordStore("primary");
+        store.AddRecord(ExistingRecord());
+        using var provider = OperationTestServices.Build(store);
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().DeleteAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordDeleteRequest(),
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Delete),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Deleted, result.Status);
+        Assert.Equal(1, store.DeleteCalls);
+        Assert.Single(result.Events!);
+    }
+
+    [Fact]
+    public async Task DeleteEvaluatesPolicyAgainstExistingCandidateBeforeStoreCall()
+    {
+        var store = new FakeRecordStore("primary");
+        store.AddRecord(ExistingRecord());
+        using var provider = OperationTestServices.Build(store, new DenyExistingRecordPolicyEvaluator());
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().DeleteAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordDeleteRequest(),
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Delete),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.PolicyDenied, result.Status);
+        Assert.Equal(1, store.GetCalls);
+        Assert.Equal(0, store.DeleteCalls);
+    }
+
+    [Fact]
+    public async Task DeleteRedactsReturnedPreviousAndEventSnapshot()
+    {
+        var store = new FakeRecordStore("primary");
+        store.AddRecord(new RecordEnvelope
+        {
+            CollectionId = "items",
+            Id = new RecordId("rec_1"),
+            Payload = new RecordPayload
+            {
+                Kind = RecordPayloadKind.FieldMap,
+                Fields = new Dictionary<string, JsonElement>
+                {
+                    ["title"] = Json("hello"),
+                    ["secret"] = Json("hidden")
+                }
+            },
+            Metadata = new RecordMetadata()
+        });
+        var publisher = new CapturingEventPublisher();
+        using var provider = OperationTestServices.Build(
+            store,
+            fields:
+            [
+                new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
+                new FieldDefinition { Id = "secret", Name = "secret", Type = BaseFieldTypes.String, Hidden = true }
+            ],
+            configureServices: services => services.AddSingleton<IBaseEventPublisher>(publisher));
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().DeleteAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordDeleteRequest { ReturnPrevious = true },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Delete),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Deleted, result.Status);
+        Assert.Equal(["title"], result.Value!.Previous!.Payload.Fields!.Keys.ToArray());
+        Assert.True(result.Value.Previous.Policy!.Redacted);
+        Assert.NotNull(publisher.LastEnvelope);
+        Assert.True(publisher.LastEnvelope!.Before!.Redacted);
+        Assert.Equal(["title"], publisher.LastEnvelope.Before.Payload!.Fields!.Keys.ToArray());
+    }
+
+    private static RecordPayload FieldMapPayload(string name, string value)
+    {
+        using var document = JsonDocument.Parse($$"""{"{{name}}":"{{value}}"}""");
+        return new RecordPayload
+        {
+            Kind = RecordPayloadKind.FieldMap,
+            Fields = new Dictionary<string, JsonElement>
+            {
+                [name] = document.RootElement.GetProperty(name).Clone()
+            }
+        };
+    }
+
+    private static RecordPayload JsonPayload(string name, string value)
+    {
+        using var document = JsonDocument.Parse($$"""{"{{name}}":"{{value}}"}""");
+        return new RecordPayload
+        {
+            Kind = RecordPayloadKind.Json,
+            Json = document.RootElement.Clone()
+        };
+    }
+
+    private static JsonElement Json(string value)
+    {
+        using var document = JsonDocument.Parse($"\"{value}\"");
+        return document.RootElement.Clone();
+    }
+
+    private static RecordEnvelope ExistingRecord(string id = "rec_1", params (string Name, string Value)[] fields) => new()
+    {
+        CollectionId = "items",
+        Id = new RecordId(id),
+        Payload = new RecordPayload
+        {
+            Kind = RecordPayloadKind.FieldMap,
+            Fields = fields.Length == 0
+                ? new Dictionary<string, JsonElement> { ["title"] = Json("existing") }
+                : fields.ToDictionary(field => field.Name, field => Json(field.Value), StringComparer.Ordinal)
+        },
+        Metadata = new RecordMetadata()
+    };
+
+    private sealed class CapturingPolicyEvaluator : IPolicyEvaluator
+    {
+        public PolicyEvaluationRequest? LastRequest { get; private set; }
+
+        public ValueTask<PolicyDecision> EvaluateAsync(
+            PolicyEvaluationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            LastRequest = request;
+            return ValueTask.FromResult(new PolicyDecision
+            {
+                Effect = PolicyEffect.Allow,
+                Outcome = PolicyOutcome.Allowed
+            });
+        }
+    }
+}
