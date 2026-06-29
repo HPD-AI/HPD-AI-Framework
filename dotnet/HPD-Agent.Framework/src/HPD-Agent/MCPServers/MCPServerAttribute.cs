@@ -6,7 +6,7 @@ namespace HPD.Agent;
 /// </summary>
 /// <remarks>
 /// Two modes of operation:
-/// 1. **Inline config**: Method returns a fully configured MCPServerConfig
+/// 1. **Inline config**: Method returns a fully configured MCPServerConfig with an explicit transport
 /// 2. **Manifest reference**: Set FromManifest to load config from mcp.json by server name
 ///
 /// Description is auto-fetched from the MCP server's ServerInfo metadata at connection time.
@@ -47,6 +47,21 @@ public class MCPServerAttribute : Attribute
     /// The ServerName parameter specifies which server to look up.
     /// </summary>
     /// <example>
+    /// public MCPServerConfig LocalFileSystem() => new()
+    /// {
+    ///     Name = "filesystem",
+    ///     Transport = "stdio",
+    ///     Command = "npx",
+    ///     Arguments = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    /// };
+    ///
+    /// public MCPServerConfig RemoteSearch() => new()
+    /// {
+    ///     Name = "search",
+    ///     Transport = "http",
+    ///     Endpoint = "https://mcp.example.com/search"
+    /// };
+    ///
     /// [MCPServer("filesystem", FromManifest = "mcp.json")]
     /// public MCPServerConfig? FileSystem() => null;
     /// </example>

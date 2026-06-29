@@ -11,6 +11,9 @@
     <Project Path="src/HPD-RAG.Retrieval/HPD-RAG.Retrieval.csproj" />
     <Project Path="src/HPD-RAG.Extensions/HPD-RAG.Extensions.csproj" />
   </Folder>
+  <Folder Name="/Studio/">
+    <Project Path="src/HPD-RAG.Studio/HPD-RAG.Studio.csproj" />
+  </Folder>
   <Folder Name="/EmbeddingProviders/">
     <Project Path="src/HPD-RAG.EmbeddingProviders/HPD-RAG.EmbeddingProviders.OpenAI/HPD-RAG.EmbeddingProviders.OpenAI.csproj" />
     <Project Path="src/HPD-RAG.EmbeddingProviders/HPD-RAG.EmbeddingProviders.AzureAI/HPD-RAG.EmbeddingProviders.AzureAI.csproj" />

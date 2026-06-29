@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <RootNamespace>HPD.Agent.MultiAgent.AspNetCore</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.MultiAgent.AspNetCore</PackageId>
+    <Description>ASP.NET Core projection API for HPD multi-agent workflows over HPD-Graph hosting services.</Description>
+    <PackageTags>ai;agent;multi-agent;aspnetcore;workflow;graph</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj" />
+    <ProjectReference Include="../../../HPD-Graph.Framework/src/HPD-Graph.Hosting/HPD-Graph.Hosting.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

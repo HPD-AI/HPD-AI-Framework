@@ -465,9 +465,12 @@ public class AgentConfig
 public class McpConfig
 {
     public string ManifestPath { get; set; } = string.Empty;
+    public string ManifestContent { get; set; } = string.Empty;
     /// <summary>
-    /// MCP configuration options (stored as object to avoid circular dependency on HPD-Agent.MCP)
+    /// Runtime-only MCP configuration options.
+    /// Stored as object to avoid a compile-time dependency on HPD-Agent.MCP.
     /// </summary>
+    [JsonIgnore]
     public object? Options { get; set; }
 }
 

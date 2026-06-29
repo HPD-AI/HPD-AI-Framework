@@ -11,6 +11,9 @@
     <Project Path="src/HPD-Graph.Hosting/HPD-Graph.Hosting.csproj" />
     <Project Path="src/HPD-Graph.AspNetCore/HPD-Graph.AspNetCore.csproj" />
   </Folder>
+  <Folder Name="/Studio/">
+    <Project Path="src/HPD-Graph.Studio/HPD-Graph.Studio.csproj" />
+  </Folder>
   <Folder Name="/Connectors/">
     <Project Path="src/HPD-Graph.Connectors/HPD-Graph.Connectors.Abstractions/HPD-Graph.Connectors.Abstractions.csproj" />
     <Project Path="src/HPD-Graph.Connectors/HPD-Graph.Connectors.Core/HPD-Graph.Connectors.Core.csproj" />

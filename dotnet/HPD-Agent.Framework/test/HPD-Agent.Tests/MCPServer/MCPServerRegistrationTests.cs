@@ -20,6 +20,7 @@ public class MCPServerRegistrationTests
             StaticConfigProvider = () => new MCPServerConfig
             {
                 Name = "wolfram",
+                Transport = "stdio",
                 Command = "npx",
                 Arguments = new List<string> { "wolfram-mcp" }
             }
@@ -43,6 +44,7 @@ public class MCPServerRegistrationTests
             InstanceConfigProvider = (instance) => new MCPServerConfig
             {
                 Name = "custom",
+                Transport = "stdio",
                 Command = "node",
                 Arguments = new List<string> { "custom.js" }
             }

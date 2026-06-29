@@ -1,0 +1,55 @@
+ @theme {
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  --color-studio-bg: oklch(96.5% 0.009 185);
+  --color-studio-panel: oklch(99.2% 0.003 185);
+  --color-studio-panel-soft: oklch(97.8% 0.006 185);
+  --color-studio-panel-raised: oklch(100% 0 0);
+  --color-studio-ink: oklch(20.5% 0.022 210);
+  --color-studio-ink-soft: oklch(32% 0.019 205);
+  --color-studio-muted: oklch(47% 0.018 185);
+  --color-studio-disabled: oklch(68% 0.011 185);
+  --color-studio-line: oklch(88% 0.012 185);
+  --color-studio-line-strong: oklch(79% 0.018 185);
+
+  --color-studio-nav: oklch(22% 0.027 170);
+  --color-studio-nav-raised: oklch(27% 0.027 170);
+  --color-studio-nav-active: oklch(33% 0.028 170);
+  --color-studio-nav-line: oklch(55% 0.026 170 / 0.32);
+  --color-studio-nav-ink: oklch(95% 0.007 175);
+  --color-studio-nav-muted: oklch(78% 0.018 170);
+
+  --color-studio-brand: oklch(88% 0.18 124);
+  --color-studio-accent: oklch(43% 0.085 180);
+  --color-studio-accent-ink: oklch(23% 0.04 180);
+  --color-studio-accent-soft: oklch(92.5% 0.035 180);
+  --color-studio-accent-line: oklch(73% 0.055 180);
+
+  --color-studio-info: oklch(42% 0.095 245);
+  --color-studio-info-muted: oklch(93% 0.035 245);
+  --color-studio-info-soft: oklch(80% 0.06 245);
+  --color-studio-danger: oklch(45% 0.13 28);
+  --color-studio-danger-muted: oklch(94% 0.035 28);
+  --color-studio-danger-soft: oklch(82% 0.055 28);
+  --color-studio-warning: oklch(47% 0.095 70);
+  --color-studio-warning-muted: oklch(94% 0.04 78);
+  --color-studio-warning-soft: oklch(82% 0.075 78);
+  --color-studio-good: oklch(43% 0.105 150);
+  --color-studio-good-muted: oklch(93% 0.035 150);
+  --color-studio-good-soft: oklch(80% 0.065 150);
+
+  --radius-studio-xs: 0.25rem;
+  --radius-studio-sm: 0.375rem;
+  --radius-studio: 0.5rem;
+  --radius-studio-pill: 999px;
+
+  --shadow-studio: 0 12px 28px oklch(20.5% 0.022 210 / 0.08);
+  --shadow-studio-focus: 0 0 0 3px oklch(88% 0.18 124 / 0.34);
+
+  --spacing-studio-control: 2.75rem;
+  --spacing-studio-control-sm: 2.25rem;
+  --spacing-studio-sidebar: 15.5rem;
+}

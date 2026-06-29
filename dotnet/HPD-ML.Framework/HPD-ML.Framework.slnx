@@ -29,6 +29,9 @@
   <Folder Name="/Specialized/">
     <Project Path="src/HPD.ML.Evaluation/HPD.ML.Evaluation.csproj" />
   </Folder>
+  <Folder Name="/Studio/">
+    <Project Path="src/HPD.ML.Studio/HPD.ML.Studio.csproj" />
+  </Folder>
   <Folder Name="/Tests/">
     <Project Path="test/HPD.ML.Core.Tests/HPD.ML.Core.Tests.csproj" />
     <Project Path="test/HPD.ML.Clustering.Tests/HPD.ML.Clustering.Tests.csproj" />

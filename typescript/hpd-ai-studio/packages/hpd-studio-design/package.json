@@ -1,0 +1,26 @@
+{
+  "name": "@hpd-research/hpd-studio-design",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Shared design tokens and CSS utilities for HPD AI Studio modules.",
+  "type": "module",
+  "exports": {
+    "./theme.css": "./src/theme.css",
+    "./base.css": "./src/base.css",
+    "./utilities.css": "./src/utilities.css",
+    "./styles.css": "./src/styles.css"
+  },
+  "files": [
+    "src",
+    "DESIGN.md",
+    "README.md"
+  ],
+  "keywords": [
+    "hpd",
+    "studio",
+    "design-system",
+    "tailwind"
+  ],
+  "author": "HPD-AI",
+  "license": "Apache-2.0"
+}

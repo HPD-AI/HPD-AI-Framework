@@ -1,0 +1,35 @@
+{
+  "name": "@hpd-research/hpd-agent-studio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "HPD Agent module for HPD AI Studio.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "svelte": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./api": {
+      "import": "./src/api/agentApi.ts"
+    }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "svelte": "^5.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "hpd",
+    "agent",
+    "studio",
+    "svelte"
+  ],
+  "author": "HPD-AI",
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <RootNamespace>HPD.Agent.Studio</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Agent.Studio</PackageId>
+    <Description>HPD Agent Studio module contribution for HPD-AI.Studio.</Description>
+    <PackageTags>ai;agent;studio;svelte</PackageTags>
+    <StudioAgentModuleRoot>$(MSBuildThisFileDirectory)..\..\..\..\typescript\hpd-ai-studio\modules\hpd-agent-studio\</StudioAgentModuleRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\HPD-AI.Studio\HPD-AI.Studio.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(StudioAgentModuleRoot)**\*" Exclude="$(StudioAgentModuleRoot)node_modules\**\*;$(StudioAgentModuleRoot)dist\**\*" Pack="true" PackagePath="clientapp-modules\hpd-agent-studio\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

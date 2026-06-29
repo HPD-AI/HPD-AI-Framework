@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using HPD.Events;
 
 namespace HPD.Agent;
 
@@ -27,12 +28,14 @@ internal interface IMcpToolLoader
     Task<List<AIFunction>> LoadFromManifestAsync(
         object manager,
         string manifestPath,
+        object? secretResolver,
         int maxFunctionNames,
         CancellationToken cancellationToken);
 
     Task<List<AIFunction>> LoadFromManifestContentAsync(
         object manager,
         string manifestContent,
+        object? secretResolver,
         int maxFunctionNames,
         CancellationToken cancellationToken);
 
@@ -45,6 +48,9 @@ internal interface IMcpToolLoader
         object manager,
         object config,
         McpServerSource source,
+        object? secretResolver,
         int maxFunctionNames,
         CancellationToken cancellationToken);
+
+    IDisposable AttachLiveUpdates(object manager, IEventCoordinator eventCoordinator);
 }

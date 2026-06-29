@@ -1,7 +1,7 @@
 using HPD.Graph.Hosting.Lifecycle;
 using Microsoft.Extensions.Hosting;
 
-namespace HPD.Graph.AspNetCore.Hosting;
+namespace HPD.Graph.Hosting.Hosting;
 
 internal sealed class WorkflowExecutionBackgroundService : BackgroundService
 {

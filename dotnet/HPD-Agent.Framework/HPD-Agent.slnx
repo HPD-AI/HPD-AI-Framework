@@ -12,6 +12,8 @@
   </Folder>
   <Folder Name="/Web/">
     <Project Path="src/HPD-Agent.AspNetCore/HPD-Agent.AspNetCore.csproj" />
+    <Project Path="src/HPD-Agent.MultiAgent.AspNetCore/HPD-Agent.MultiAgent.AspNetCore.csproj" />
+    <Project Path="src/HPD-Agent.Studio/HPD-Agent.Studio.csproj" />
     <Project Path="src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj" />
     <Project Path="src/HPD-Agent.Hosting/HPD-Agent.Hosting.csproj" />
   </Folder>
@@ -100,6 +102,7 @@
     <Project Path="test/HPD-Agent.Tests/HPD-Agent.Tests.csproj" />
     <Project Path="test/HPD-TextExtract.Tests/HPD-TextExtract.Tests.csproj" />
     <Project Path="test/HPD-Agent.MultiAgent.Tests/HPD-Agent.MultiAgent.Tests.csproj" />
+    <Project Path="test/HPD-Agent.MultiAgent.AspNetCore.Tests/HPD-Agent.MultiAgent.AspNetCore.Tests.csproj" />
     <Project Path="test/HPD-Agent.OpenApi.Tests/HPD-Agent.OpenApi.Tests.csproj" />
     <Project Path="test/HPD-Agent.AspNetCore.Tests/HPD-Agent.AspNetCore.Tests.csproj" />
     <Project Path="test/HPD-Agent.Evaluations.Tests/HPD-Agent.Evaluations.Tests.csproj" />

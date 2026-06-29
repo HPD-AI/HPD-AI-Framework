@@ -1,7 +1,9 @@
 using HPD.Agent;
+using HPD.Agent.Secrets;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using HPD.Events;
 
 namespace HPD.Agent.MCP;
 
@@ -15,27 +17,31 @@ internal sealed class McpToolLoader : IMcpToolLoader
     public Task<List<AIFunction>> LoadFromManifestAsync(
         object manager,
         string manifestPath,
+        object? secretResolver,
         int maxFunctionNames,
         CancellationToken cancellationToken)
     {
         return ((MCPClientManager)manager).LoadToolsFromManifestAsync(
-            manifestPath,
+            manifestPath: manifestPath,
             enableCollapsing: false,
-            maxFunctionNames,
-            cancellationToken);
+            maxFunctionNamesInDescription: maxFunctionNames,
+            secretResolver: secretResolver as ISecretResolver,
+            cancellationToken: cancellationToken);
     }
 
     public Task<List<AIFunction>> LoadFromManifestContentAsync(
         object manager,
         string manifestContent,
+        object? secretResolver,
         int maxFunctionNames,
         CancellationToken cancellationToken)
     {
         return ((MCPClientManager)manager).LoadToolsFromManifestContentAsync(
-            manifestContent,
+            manifestContent: manifestContent,
             enableCollapsing: false,
-            maxFunctionNames,
-            cancellationToken);
+            maxFunctionNamesInDescription: maxFunctionNames,
+            secretResolver: secretResolver as ISecretResolver,
+            cancellationToken: cancellationToken);
     }
 
     public async Task<object?> LoadConfigFromManifestAsync(
@@ -57,6 +63,7 @@ internal sealed class McpToolLoader : IMcpToolLoader
         object manager,
         object config,
         McpServerSource source,
+        object? secretResolver,
         int maxFunctionNames,
         CancellationToken cancellationToken)
     {
@@ -71,8 +78,14 @@ internal sealed class McpToolLoader : IMcpToolLoader
             serverConfig.Description = source.Description;
 
         return ((MCPClientManager)manager).LoadToolsForToolHarnessAsync(
-            serverConfig,
-            maxFunctionNames,
-            cancellationToken);
+            config: serverConfig,
+            maxFunctionNamesInDescription: maxFunctionNames,
+            secretResolver: secretResolver as ISecretResolver,
+            cancellationToken: cancellationToken);
+    }
+
+    public IDisposable AttachLiveUpdates(object manager, IEventCoordinator eventCoordinator)
+    {
+        return ((MCPClientManager)manager).AttachLiveUpdates(eventCoordinator);
     }
 }

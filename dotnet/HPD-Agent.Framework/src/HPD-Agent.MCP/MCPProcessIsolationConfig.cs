@@ -12,12 +12,14 @@ public sealed class MCPProcessIsolationConfig
     private string[] _allowedDomains = [];
 
     [JsonPropertyName("mode")]
+    [JsonConverter(typeof(JsonStringEnumConverter<ProcessIsolationMode>))]
     public ProcessIsolationMode Mode { get; set; } = ProcessIsolationMode.Isolated;
 
     [JsonPropertyName("profile")]
     public string? Profile { get; set; }
 
     [JsonPropertyName("networkMode")]
+    [JsonConverter(typeof(JsonStringEnumConverter<NetworkEgressMode>))]
     public NetworkEgressMode? NetworkMode { get; set; }
 
     [JsonPropertyName("allowedDomains")]
@@ -68,6 +70,7 @@ public sealed class MCPProcessIsolationConfig
     public bool StripUnlistedEnvironmentVariables { get; set; } = true;
 
     [JsonPropertyName("tlsTrustMode")]
+    [JsonConverter(typeof(JsonStringEnumConverter<TlsTrustMode>))]
     public TlsTrustMode TlsTrustMode { get; set; } = TlsTrustMode.None;
 
     [JsonPropertyName("injectTlsTrustEnvironmentVariables")]
@@ -77,6 +80,7 @@ public sealed class MCPProcessIsolationConfig
     public string[]? IgnoreViolations { get; set; }
 
     [JsonPropertyName("violationAction")]
+    [JsonConverter(typeof(JsonStringEnumConverter<ProcessViolationAction>))]
     public ProcessViolationAction ViolationAction { get; set; } = ProcessViolationAction.ObserveAndFailInvocation;
 
     public ProcessIsolationPolicy ToPolicy()

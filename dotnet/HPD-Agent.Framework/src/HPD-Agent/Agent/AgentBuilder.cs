@@ -2130,6 +2130,8 @@ public class AgentBuilder
             var logger = _logger?.CreateLogger("HPD.Agent.MCP.MCPClientManager")
                 ?? NullLogger.Instance;
             McpClientManager = s_mcpToolLoader.CreateManager(logger, _config.Mcp?.Options);
+            _eventSubscriptionFactories.Add(coordinator =>
+                s_mcpToolLoader.AttachLiveUpdates(McpClientManager!, coordinator));
         }
 
         var maxFunctionNames = _config.Collapsing?.MaxFunctionNamesInDescription ?? 10;
@@ -2180,6 +2182,7 @@ public class AgentBuilder
                         McpClientManager!,
                         config,
                         source,
+                        _secretResolver,
                         maxFunctionNames,
                         cancellationToken).ConfigureAwait(false);
                     allTools.AddRange(tools);
@@ -2234,15 +2237,18 @@ public class AgentBuilder
                         "Reference HPD-Agent.MCP so its module initializer can register MCP support.");
 
                 List<AIFunction> mcpTools;
-                if (_config.Mcp != null && !string.IsNullOrEmpty(_config.Mcp.ManifestPath))
+                if (_config.Mcp != null &&
+                    (!string.IsNullOrEmpty(_config.Mcp.ManifestPath) ||
+                     !string.IsNullOrEmpty(_config.Mcp.ManifestContent)))
                 {
                     var maxFunctionNames = _config.Collapsing?.MaxFunctionNamesInDescription ?? 10;
 
-                    if (_config.Mcp.ManifestPath.TrimStart().StartsWith("{"))
+                    if (!string.IsNullOrEmpty(_config.Mcp.ManifestContent))
                     {
                         mcpTools = await s_mcpToolLoader.LoadFromManifestContentAsync(
                             McpClientManager,
-                            _config.Mcp.ManifestPath,
+                            _config.Mcp.ManifestContent,
+                            _secretResolver,
                             maxFunctionNames,
                             cancellationToken).ConfigureAwait(false);
                     }
@@ -2251,6 +2257,7 @@ public class AgentBuilder
                         mcpTools = await s_mcpToolLoader.LoadFromManifestAsync(
                             McpClientManager,
                             _config.Mcp.ManifestPath,
+                            _secretResolver,
                             maxFunctionNames,
                             cancellationToken).ConfigureAwait(false);
                     }

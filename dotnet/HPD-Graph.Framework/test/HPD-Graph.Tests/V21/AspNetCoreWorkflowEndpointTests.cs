@@ -11,6 +11,7 @@ using HPD.Graph.AspNetCore.EndpointMapping;
 using HPD.Graph.Core.Artifacts;
 using HPD.Graph.Core.Registry;
 using HPD.Graph.Hosting.Data;
+using HPD.Graph.Hosting.DependencyInjection;
 using HPD.Graph.Hosting.Lifecycle;
 using HPD.Graph.Hosting.Serialization;
 using Microsoft.AspNetCore.Builder;

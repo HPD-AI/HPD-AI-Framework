@@ -1,0 +1,5 @@
+@source "../../../../modules/hpd-agent-studio/src";
+@source "../../../../modules/hpd-graph-studio/src";
+@source "../../../../modules/hpd-rag-studio/src";
+@source "../../../../modules/hpd-auth-studio/src";
+@source "../../../../modules/hpd-ml-studio/src";

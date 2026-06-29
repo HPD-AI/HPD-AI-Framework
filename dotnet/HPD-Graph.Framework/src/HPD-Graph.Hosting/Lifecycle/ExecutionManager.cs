@@ -43,6 +43,19 @@ public sealed class ExecutionManager : IWorkflowExecutionStateSink
         return execution is null ? null : WorkflowDtoMapper.ToStatusDto(execution);
     }
 
+    public async Task<IReadOnlyList<WorkflowExecutionDto>> ListExecutionsAsync(
+        string graphId,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(graphId);
+
+        var executions = await _executionStore.ListAsync(graphId, ct).ConfigureAwait(false);
+        return executions
+            .OrderByDescending(static execution => execution.CreatedAt)
+            .Select(WorkflowDtoMapper.ToExecutionDto)
+            .ToList();
+    }
+
     public async IAsyncEnumerable<GraphLogEntryDto> StreamLogsAsync(
         string graphId,
         string executionId,

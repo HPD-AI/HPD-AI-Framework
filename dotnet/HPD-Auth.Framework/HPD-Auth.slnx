@@ -18,6 +18,9 @@
     <Project Path="src/HPD.Auth.OAuth/HPD.Auth.OAuth.csproj" />
     <Project Path="src/HPD.Auth.TwoFactor/HPD.Auth.TwoFactor.csproj" />
   </Folder>
+  <Folder Name="/Studio/">
+    <Project Path="src/HPD.Auth.Studio/HPD.Auth.Studio.csproj" />
+  </Folder>
   <Folder Name="/Tests/">
     <Project Path="test/HPD.Auth.Tests/HPD.Auth.Tests.csproj" />
     <Project Path="test/HPD.Auth.Core.Tests/HPD.Auth.Core.Tests.csproj" />

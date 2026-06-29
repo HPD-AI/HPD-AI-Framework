@@ -1,0 +1,4 @@
+@import "tailwindcss";
+
+@import "./studio/styles/sources.css";
+@import "@hpd-research/hpd-studio-design/styles.css";

@@ -2,6 +2,7 @@ using HPD.Graph.AspNetCore.DependencyInjection;
 using HPD.Graph.Connectors.Abstractions.Serialization;
 using HPD.Graph.Connectors.AspNetCore.Serialization;
 using HPD.Graph.Connectors.Core.DependencyInjection;
+using HPD.Graph.Hosting.DependencyInjection;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;

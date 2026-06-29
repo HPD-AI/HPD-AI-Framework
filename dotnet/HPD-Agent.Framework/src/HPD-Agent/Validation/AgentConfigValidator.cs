@@ -118,6 +118,13 @@ public static class AgentConfigValidator
                 errors.Add("MCP ManifestPath must be a valid file path.");
             }
         }
+
+        if (config.Mcp != null &&
+            !string.IsNullOrEmpty(config.Mcp.ManifestPath) &&
+            !string.IsNullOrEmpty(config.Mcp.ManifestContent))
+        {
+            errors.Add("MCP ManifestPath and ManifestContent cannot both be set.");
+        }
     }
 
     private static void ValidateErrorHandling(AgentConfig config, List<string> errors)

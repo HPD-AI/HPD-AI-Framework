@@ -1,0 +1,65 @@
+@layer base {
+  *,
+  ::before,
+  ::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    color: var(--color-studio-ink);
+    background: var(--color-studio-bg);
+    font-size: 14px;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    overflow-wrap: anywhere;
+  }
+
+  button,
+  input,
+  select,
+  textarea,
+  a {
+    font: inherit;
+  }
+
+  button,
+  select,
+  input,
+  textarea {
+    color: inherit;
+  }
+
+  button,
+  [role="button"],
+  select,
+  a {
+    touch-action: manipulation;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p,
+  li,
+  dd {
+    text-wrap: pretty;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-studio-brand);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--color-studio-accent-soft);
+    color: var(--color-studio-accent-ink);
+  }
+}

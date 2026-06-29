@@ -9,23 +9,46 @@ namespace HPD.Agent.MCP;
 public static class AgentBuilderMcpExtensions
 {
     /// <summary>
+    /// Configures MCP options without registering a manifest.
+    /// Use this for toolharness-owned [MCPServer] declarations or before calling WithMCP.
+    /// </summary>
+    /// <param name="configure">Configuration action for MCP options</param>
+    public static AgentBuilder WithMCPOptions(this AgentBuilder builder, Action<MCPOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(configure);
+
+        var options = builder.Config.Mcp?.Options as MCPOptions ?? new MCPOptions();
+        configure(options);
+
+        builder.Config.Mcp ??= new McpConfig();
+        builder.Config.Mcp.Options = options;
+
+        return builder;
+    }
+
+    /// <summary>
     /// Enables MCP support with the specified manifest file
     /// </summary>
     /// <param name="manifestPath">Path to the MCP manifest JSON file</param>
     /// <param name="options">Optional MCP configuration options</param>
     public static AgentBuilder WithMCP(this AgentBuilder builder, string manifestPath, MCPOptions? options = null)
     {
+        ArgumentNullException.ThrowIfNull(builder);
         if (string.IsNullOrWhiteSpace(manifestPath))
             throw new ArgumentException("Manifest path cannot be null or empty", nameof(manifestPath));
 
+        options ??= builder.Config.Mcp?.Options as MCPOptions;
         builder.Config.Mcp = new McpConfig
         {
             ManifestPath = manifestPath,
             Options = options
         };
-        builder.McpClientManager = new MCPClientManager(
+        var manager = new MCPClientManager(
             builder.Logger?.CreateLogger("HPD.Agent.MCP.MCPClientManager") ?? NullLogger.Instance, 
             options);
+        builder.McpClientManager = manager;
+        builder.WithEventSubscription(coordinator => manager.AttachLiveUpdates(coordinator));
 
         return builder;
     }
@@ -37,7 +60,9 @@ public static class AgentBuilderMcpExtensions
     /// <param name="configure">Configuration action for MCP options</param>
     public static AgentBuilder WithMCP(this AgentBuilder builder, string manifestPath, Action<MCPOptions> configure)
     {
-        var options = new MCPOptions();
+        ArgumentNullException.ThrowIfNull(configure);
+
+        var options = builder.Config.Mcp?.Options as MCPOptions ?? new MCPOptions();
         configure(options);
         return builder.WithMCP(manifestPath, options);
     }
@@ -49,18 +74,21 @@ public static class AgentBuilderMcpExtensions
     /// <param name="options">Optional MCP configuration options</param>
     public static AgentBuilder WithMCPContent(this AgentBuilder builder, string manifestContent, MCPOptions? options = null)
     {
+        ArgumentNullException.ThrowIfNull(builder);
         if (string.IsNullOrWhiteSpace(manifestContent))
             throw new ArgumentException("Manifest content cannot be null or empty", nameof(manifestContent));
 
-        // Store content in ManifestPath for now - we might need a separate property for content
+        options ??= builder.Config.Mcp?.Options as MCPOptions;
         builder.Config.Mcp = new McpConfig
         {
-            ManifestPath = manifestContent, // This represents content, not path
+            ManifestContent = manifestContent,
             Options = options
         };
-        builder.McpClientManager = new MCPClientManager(
+        var manager = new MCPClientManager(
             builder.Logger?.CreateLogger("HPD.Agent.MCP.MCPClientManager") ?? NullLogger.Instance,
             options);
+        builder.McpClientManager = manager;
+        builder.WithEventSubscription(coordinator => manager.AttachLiveUpdates(coordinator));
 
         return builder;
     }
