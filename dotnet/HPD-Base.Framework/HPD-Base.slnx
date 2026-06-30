@@ -9,6 +9,7 @@
     <Project Path="src/HPD.Base.Abstractions/HPD.Base.Abstractions.csproj" />
     <Project Path="src/HPD.Base.Runtime/HPD.Base.Runtime.csproj" />
     <Project Path="src/HPD.Base.InMemory/HPD.Base.InMemory.csproj" />
+    <Project Path="src/HPD.Base.AspNetCore/HPD.Base.AspNetCore.csproj" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="test/HPD.Base.Abstractions.Tests/HPD.Base.Abstractions.Tests.csproj" />
@@ -18,5 +19,7 @@
     <Project Path="test/HPD.Base.StoreConformance/HPD.Base.StoreConformance.csproj" />
     <Project Path="test/HPD.Base.InMemory.Tests/HPD.Base.InMemory.Tests.csproj" />
     <Project Path="test/HPD.Base.InMemory.AotSmoke/HPD.Base.InMemory.AotSmoke.csproj" />
+    <Project Path="test/HPD.Base.AspNetCore.Tests/HPD.Base.AspNetCore.Tests.csproj" />
+    <Project Path="test/HPD.Base.AspNetCore.AotSmoke/HPD.Base.AspNetCore.AotSmoke.csproj" />
   </Folder>
 </Solution>

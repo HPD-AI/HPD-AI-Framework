@@ -1,0 +1,14 @@
+{
+  "collectionId": "items",
+  "id": "1",
+  "payload": {
+    "kind": "json",
+    "json": {
+      "title": "alpha"
+    }
+  },
+  "metadata": {
+    "revision": "r1",
+    "eTag": "W/\"r1\""
+  }
+}

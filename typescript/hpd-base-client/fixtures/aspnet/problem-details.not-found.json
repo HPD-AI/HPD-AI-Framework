@@ -1,0 +1,10 @@
+{
+  "type": "urn:hpd:base:error:not-found",
+  "title": "Not found",
+  "status": 404,
+  "detail": "Record was not found.",
+  "instance": "/base/collections/items/records/missing",
+  "hpd.status": "notFound",
+  "hpd.error.code": "base.record.notFound",
+  "hpd.error.category": "notFound"
+}

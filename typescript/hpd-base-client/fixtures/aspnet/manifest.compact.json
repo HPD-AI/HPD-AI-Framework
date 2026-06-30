@@ -1,0 +1,10 @@
+{
+  "manifestVersion": "1",
+  "contractVersion": "1",
+  "runtime": {
+    "runtimeId": "runtime"
+  },
+  "compatibility": {},
+  "visibility": "public",
+  "generatedAt": "2026-01-01T00:00:00Z"
+}

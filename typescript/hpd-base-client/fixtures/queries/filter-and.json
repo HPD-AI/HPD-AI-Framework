@@ -1,0 +1,20 @@
+{
+  "filter": {
+    "kind": "and",
+    "children": [
+      {
+        "kind": "compare",
+        "field": "title",
+        "operator": "equal",
+        "value": {
+          "kind": "string",
+          "string": "alpha"
+        }
+      },
+      {
+        "kind": "isDefined",
+        "field": "title"
+      }
+    ]
+  }
+}

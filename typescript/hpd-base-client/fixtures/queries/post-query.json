@@ -1,0 +1,16 @@
+{
+  "filter": {
+    "kind": "between",
+    "field": "rank",
+    "values": [
+      {
+        "kind": "integer",
+        "integer": 1
+      },
+      {
+        "kind": "integer",
+        "integer": 3
+      }
+    ]
+  }
+}

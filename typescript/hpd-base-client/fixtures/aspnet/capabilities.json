@@ -1,0 +1,20 @@
+{
+  "descriptorVersion": "1",
+  "runtimeId": "runtime",
+  "families": [
+    {
+      "familyId": "records",
+      "familyVersion": "1",
+      "status": "available",
+      "features": [
+        {
+          "featureId": "base.records.crud",
+          "version": "1",
+          "status": "available",
+          "supportLevel": "required",
+          "scope": "runtime"
+        }
+      ]
+    }
+  ]
+}

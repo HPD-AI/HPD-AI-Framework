@@ -1,0 +1,18 @@
+{
+  "filter": {
+    "kind": "compare",
+    "field": "title",
+    "operator": "equal",
+    "value": {
+      "kind": "string",
+      "string": "alpha"
+    }
+  },
+  "sort": [
+    {
+      "field": "createdAt",
+      "direction": "desc",
+      "nulls": "last"
+    }
+  ]
+}

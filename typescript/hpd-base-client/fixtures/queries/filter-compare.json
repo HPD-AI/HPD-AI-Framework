@@ -1,0 +1,11 @@
+{
+  "filter": {
+    "kind": "compare",
+    "field": "title",
+    "operator": "equal",
+    "value": {
+      "kind": "string",
+      "string": "alpha"
+    }
+  }
+}

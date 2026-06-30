@@ -1,0 +1,10 @@
+{
+  "type": "urn:hpd:base:error:validation",
+  "title": "Validation failed",
+  "status": 400,
+  "detail": "Validation failed.",
+  "instance": "/base/collections/items/records",
+  "hpd.status": "validationFailed",
+  "hpd.error.code": "base.http.body.required",
+  "hpd.error.category": "validation"
+}

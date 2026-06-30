@@ -1,0 +1,9 @@
+[
+  {
+    "id": "items",
+    "name": "items",
+    "kind": "document",
+    "schemaMode": "loose",
+    "unknownFields": "preserve"
+  }
+]
