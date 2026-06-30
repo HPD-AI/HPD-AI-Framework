@@ -19,7 +19,14 @@ public sealed class DependencyContractTests
             .Should()
             .BeEquivalentTo(["Microsoft.AspNetCore.App"]);
 
-        project.Descendants("PackageReference").Should().BeEmpty();
+        var packages = project.Descendants("PackageReference")
+            .Select(reference => reference.Attribute("Include")?.Value)
+            .ToArray();
+
+        packages.Should().BeEquivalentTo(["Microsoft.AspNetCore.OpenApi"]);
+        packages.Where(package => package is not null)
+            .Should()
+            .NotContain(package => package!.Contains("Swashbuckle", StringComparison.OrdinalIgnoreCase));
     }
 
     private static string ProjectPath()

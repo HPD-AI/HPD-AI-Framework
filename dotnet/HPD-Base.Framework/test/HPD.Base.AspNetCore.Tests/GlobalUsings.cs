@@ -5,6 +5,8 @@ global using FluentAssertions;
 global using HPD.Base;
 global using HPD.Base.AspNetCore;
 global using HPD.Base.AspNetCore.DependencyInjection;
+global using HPD.Base.AspNetCore.Http;
+global using HPD.Base.AspNetCore.OpenApi;
 global using HPD.Base.Descriptors;
 global using HPD.Base.InMemory.DependencyInjection;
 global using HPD.Base.Policy;

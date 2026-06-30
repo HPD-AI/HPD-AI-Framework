@@ -6,7 +6,10 @@ internal static class TestBaseApp
         Action<HPD.Base.AspNetCore.Configuration.HPDBaseAspNetCoreOptions>? configureAspNetCore = null,
         IPolicyEvaluator? policyEvaluator = null,
         Action<IServiceCollection>? configureServices = null,
-        Action<HPD.Base.AspNetCore.EndpointMapping.HPDBaseEndpointOptions>? configureEndpoints = null)
+        Action<HPD.Base.AspNetCore.EndpointMapping.HPDBaseEndpointOptions>? configureEndpoints = null,
+        Action<HPD.Base.AspNetCore.OpenApi.HPDBaseOpenApiOptions>? configureOpenApi = null,
+        Action<HPD.Base.AspNetCore.OpenApi.HPDBaseOpenApiEndpointOptions>? configureOpenApiEndpoints = null,
+        bool mapOpenApi = false)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -16,6 +19,8 @@ internal static class TestBaseApp
         builder.WebHost.UseTestServer();
         builder.Services.AddSingleton(policyEvaluator ?? new AllowPolicyEvaluator());
         configureServices?.Invoke(builder.Services);
+        if (mapOpenApi)
+            builder.Services.AddHPDBaseOpenApi(configureOpenApi);
         builder.Services.AddHPDBaseRuntime()
             .AddHPDBaseAspNetCore(configureAspNetCore)
             .AddHPDBaseInMemoryStore(options =>
@@ -33,6 +38,8 @@ internal static class TestBaseApp
             options.RequireAuthorizationForAdminRoutes = false;
             configureEndpoints?.Invoke(options);
         });
+        if (mapOpenApi)
+            app.MapHPDBaseOpenApi(configureOpenApiEndpoints);
         await app.StartAsync();
         return app;
     }

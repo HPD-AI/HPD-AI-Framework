@@ -1,0 +1,18 @@
+{
+  "openapi": "3.1.0",
+  "paths": {
+    "/collections/{collectionId}/records": {
+      "get": {},
+      "post": {}
+    },
+    "/collections/{collectionId}/query": {
+      "post": {}
+    },
+    "/collections/{collectionId}/records/{id}": {
+      "get": {},
+      "patch": {},
+      "put": {},
+      "delete": {}
+    }
+  }
+}

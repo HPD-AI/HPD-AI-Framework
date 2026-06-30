@@ -1,6 +1,7 @@
 using HPD.Base;
 using HPD.Base.AspNetCore.EndpointMapping;
 using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore.OpenApi;
 using HPD.Base.AspNetCore.QueryBinding;
 using HPD.Base.AspNetCore.Results;
 using HPD.Base.Runtime;
@@ -16,16 +17,16 @@ internal static class MetadataEndpoints
 {
     public static void MapPublic(IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/manifest", (RequestDelegate)ManifestPublic).WithName(BaseRouteIds.Manifest);
-        endpoints.MapGet("/capabilities", (RequestDelegate)CapabilitiesPublic).WithName(BaseRouteIds.Capabilities);
-        endpoints.MapGet("/schema", (RequestDelegate)SchemaPublic).WithName(BaseRouteIds.Schema);
+        endpoints.MapGet("/manifest", (RequestDelegate)ManifestPublic).WithHPDBaseOpenApi(BaseRouteIds.Manifest).WithName(BaseRouteIds.Manifest);
+        endpoints.MapGet("/capabilities", (RequestDelegate)CapabilitiesPublic).WithHPDBaseOpenApi(BaseRouteIds.Capabilities).WithName(BaseRouteIds.Capabilities);
+        endpoints.MapGet("/schema", (RequestDelegate)SchemaPublic).WithHPDBaseOpenApi(BaseRouteIds.Schema).WithName(BaseRouteIds.Schema);
     }
 
     public static void MapAdmin(IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/manifest", (RequestDelegate)ManifestAdmin).WithName(BaseHttpRouteNames.AdminManifest);
-        endpoints.MapGet("/capabilities", (RequestDelegate)CapabilitiesAdmin).WithName(BaseHttpRouteNames.AdminCapabilities);
-        endpoints.MapGet("/schema", (RequestDelegate)SchemaAdmin).WithName(BaseHttpRouteNames.AdminSchema);
+        endpoints.MapGet("/manifest", (RequestDelegate)ManifestAdmin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminManifest).WithName(BaseHttpRouteNames.AdminManifest);
+        endpoints.MapGet("/capabilities", (RequestDelegate)CapabilitiesAdmin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminCapabilities).WithName(BaseHttpRouteNames.AdminCapabilities);
+        endpoints.MapGet("/schema", (RequestDelegate)SchemaAdmin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminSchema).WithName(BaseHttpRouteNames.AdminSchema);
     }
 
     private static Task ManifestPublic(HttpContext httpContext) => Execute(httpContext,

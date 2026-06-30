@@ -2,6 +2,7 @@ using System.Reflection;
 using HPD.Base.AspNetCore.Configuration;
 using HPD.Base.AspNetCore.EndpointMapping;
 using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore.OpenApi;
 using HPD.Base.AspNetCore.QueryBinding;
 using HPD.Base.AspNetCore.Results;
 using HPD.Base.AspNetCore.Serialization;
@@ -28,7 +29,10 @@ public sealed class PublicApiShapeTests
             typeof(IBaseHttpQueryBinder).FullName!,
             typeof(IBaseHttpResultMapper).FullName!,
             typeof(HPDBaseHttpResultMappingContext).FullName!,
-            typeof(HPDBaseAspNetCoreJsonSerializerContext).FullName!
+            typeof(HPDBaseAspNetCoreJsonSerializerContext).FullName!,
+            typeof(HPDBaseOpenApiOptions).FullName!,
+            typeof(HPDBaseOpenApiEndpointOptions).FullName!,
+            typeof(HPDBaseOpenApiDocumentNames).FullName!
         ]);
     }
 

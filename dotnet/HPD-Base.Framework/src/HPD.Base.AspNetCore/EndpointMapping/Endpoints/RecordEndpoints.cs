@@ -3,6 +3,7 @@ using HPD.Base;
 using HPD.Base.AspNetCore.EndpointMapping;
 using HPD.Base.AspNetCore.Configuration;
 using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore.OpenApi;
 using HPD.Base.AspNetCore.QueryBinding;
 using HPD.Base.AspNetCore.Results;
 using HPD.Base.Query;
@@ -23,13 +24,13 @@ internal static class RecordEndpoints
 {
     public static void Map(IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/collections/{collectionId}/records", (RequestDelegate)ListRequest).WithName(BaseRouteIds.RecordsList);
-        endpoints.MapPost("/collections/{collectionId}/query", (RequestDelegate)QueryRequest).WithName(BaseRouteIds.RecordsQuery);
-        endpoints.MapGet("/collections/{collectionId}/records/{id}", (RequestDelegate)GetRequest).WithName(BaseRouteIds.RecordsGet);
-        endpoints.MapPost("/collections/{collectionId}/records", (RequestDelegate)CreateRequest).WithName(BaseRouteIds.RecordsCreate);
-        endpoints.MapPatch("/collections/{collectionId}/records/{id}", (RequestDelegate)PatchRequest).WithName(BaseRouteIds.RecordsPatch);
-        endpoints.MapPut("/collections/{collectionId}/records/{id}", (RequestDelegate)ReplaceRequest).WithName(BaseRouteIds.RecordsReplace);
-        endpoints.MapDelete("/collections/{collectionId}/records/{id}", (RequestDelegate)DeleteRequest).WithName(BaseRouteIds.RecordsDelete);
+        endpoints.MapGet("/collections/{collectionId}/records", (RequestDelegate)ListRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsList).WithName(BaseRouteIds.RecordsList);
+        endpoints.MapPost("/collections/{collectionId}/query", (RequestDelegate)QueryRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsQuery).WithName(BaseRouteIds.RecordsQuery);
+        endpoints.MapGet("/collections/{collectionId}/records/{id}", (RequestDelegate)GetRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsGet).WithName(BaseRouteIds.RecordsGet);
+        endpoints.MapPost("/collections/{collectionId}/records", (RequestDelegate)CreateRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsCreate).WithName(BaseRouteIds.RecordsCreate);
+        endpoints.MapPatch("/collections/{collectionId}/records/{id}", (RequestDelegate)PatchRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsPatch).WithName(BaseRouteIds.RecordsPatch);
+        endpoints.MapPut("/collections/{collectionId}/records/{id}", (RequestDelegate)ReplaceRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsReplace).WithName(BaseRouteIds.RecordsReplace);
+        endpoints.MapDelete("/collections/{collectionId}/records/{id}", (RequestDelegate)DeleteRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsDelete).WithName(BaseRouteIds.RecordsDelete);
     }
 
     private static Task ListRequest(HttpContext httpContext) => Execute(httpContext,

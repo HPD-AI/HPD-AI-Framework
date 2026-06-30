@@ -1,6 +1,7 @@
 using HPD.Base;
 using HPD.Base.AspNetCore.EndpointMapping;
 using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore.OpenApi;
 using HPD.Base.AspNetCore.Results;
 using HPD.Base.Results;
 using HPD.Base.Runtime;
@@ -16,14 +17,14 @@ internal static class CollectionEndpoints
 {
     public static void MapPublic(IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/collections", (RequestDelegate)ListPublic).WithName(BaseHttpRouteNames.CollectionsList);
-        endpoints.MapGet("/collections/{collectionId}", (RequestDelegate)GetPublic).WithName(BaseHttpRouteNames.CollectionsGet);
+        endpoints.MapGet("/collections", (RequestDelegate)ListPublic).WithHPDBaseOpenApi(BaseHttpRouteNames.CollectionsList).WithName(BaseHttpRouteNames.CollectionsList);
+        endpoints.MapGet("/collections/{collectionId}", (RequestDelegate)GetPublic).WithHPDBaseOpenApi(BaseHttpRouteNames.CollectionsGet).WithName(BaseHttpRouteNames.CollectionsGet);
     }
 
     public static void MapAdmin(IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/collections", (RequestDelegate)ListAdmin).WithName(BaseHttpRouteNames.AdminCollectionsList);
-        endpoints.MapGet("/collections/{collectionId}", (RequestDelegate)GetAdmin).WithName(BaseHttpRouteNames.AdminCollectionsGet);
+        endpoints.MapGet("/collections", (RequestDelegate)ListAdmin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminCollectionsList).WithName(BaseHttpRouteNames.AdminCollectionsList);
+        endpoints.MapGet("/collections/{collectionId}", (RequestDelegate)GetAdmin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminCollectionsGet).WithName(BaseHttpRouteNames.AdminCollectionsGet);
     }
 
     private static Task ListPublic(HttpContext httpContext) => Execute(httpContext,

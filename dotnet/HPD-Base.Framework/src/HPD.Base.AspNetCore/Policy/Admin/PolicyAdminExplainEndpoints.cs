@@ -1,5 +1,6 @@
 using HPD.Base.AspNetCore.EndpointMapping;
 using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore.OpenApi;
 using HPD.Base.AspNetCore.Results;
 using HPD.Base.Results;
 using HPD.Base.Runtime;
@@ -26,6 +27,7 @@ public static class PolicyAdminExplainEndpoints
         ArgumentNullException.ThrowIfNull(endpoints);
 
         endpoints.MapPost("/policy/explain", (RequestDelegate)Explain)
+            .WithHPDBaseOpenApi(BaseHttpRouteNames.AdminPolicyExplain)
             .WithName(BaseHttpRouteNames.AdminPolicyExplain);
         return endpoints;
     }

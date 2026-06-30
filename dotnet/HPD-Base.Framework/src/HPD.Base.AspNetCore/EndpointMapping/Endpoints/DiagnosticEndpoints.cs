@@ -1,6 +1,7 @@
 using HPD.Base;
 using HPD.Base.AspNetCore.EndpointMapping;
 using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore.OpenApi;
 using HPD.Base.AspNetCore.Results;
 using HPD.Base.Runtime;
 using Microsoft.AspNetCore.Builder;
@@ -13,10 +14,10 @@ namespace HPD.Base.AspNetCore.EndpointMapping.Endpoints;
 internal static class DiagnosticEndpoints
 {
     public static void MapPublic(IEndpointRouteBuilder endpoints) =>
-        endpoints.MapGet("/diagnostics", (RequestDelegate)Public).WithName(BaseRouteIds.Diagnostics);
+        endpoints.MapGet("/diagnostics", (RequestDelegate)Public).WithHPDBaseOpenApi(BaseRouteIds.Diagnostics).WithName(BaseRouteIds.Diagnostics);
 
     public static void MapAdmin(IEndpointRouteBuilder endpoints) =>
-        endpoints.MapGet("/diagnostics", (RequestDelegate)Admin).WithName(BaseHttpRouteNames.AdminDiagnostics);
+        endpoints.MapGet("/diagnostics", (RequestDelegate)Admin).WithHPDBaseOpenApi(BaseHttpRouteNames.AdminDiagnostics).WithName(BaseHttpRouteNames.AdminDiagnostics);
 
     private static Task Public(HttpContext httpContext) => Execute(httpContext,
         services => Handle(httpContext, services.GetRequiredService<IHPDBaseRuntime>(), services.GetRequiredService<IBaseHttpPrincipalContextFactory>(), services.GetRequiredService<IBaseHttpOperationContextFactory>(), services.GetRequiredService<IBaseHttpResultMapper>(), VisibilityLevel.Public, OperationMode.User, false, httpContext.RequestAborted));
