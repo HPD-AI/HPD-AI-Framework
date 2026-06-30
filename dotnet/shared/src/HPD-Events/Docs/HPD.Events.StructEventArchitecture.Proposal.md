@@ -226,11 +226,7 @@ Changes from current shape:
 
 ### 4.2 Remove Base Object Metadata
 
-Remove this from base `Event`:
-
-```csharp
-IReadOnlyDictionary<string, object>? Extensions
-```
+Remove the base `Event` object-bag metadata surface.
 
 Reasons:
 
@@ -239,16 +235,9 @@ Reasons:
 - It makes the base event feel less strict.
 - It is not needed for the core event bus contract.
 
-If an escape hatch is required later, add it explicitly:
-
-```csharp
-public abstract record ExtensibleEvent : Event
-{
-    public IEventMetadata? Metadata { get; init; }
-}
-```
-
-That makes extensibility opt-in rather than foundational.
+Do not replace it with another base metadata bag. Domain data belongs on typed event
+properties. Rare scalar diagnostic or projection hints belong on events that opt in
+through `IAnnotatedEvent`.
 
 ### 4.3 EventBus Scope
 

@@ -13,6 +13,7 @@ using HPD.Base.Runtime.Results;
 using HPD.Base.Runtime.Schema;
 using HPD.Base.Runtime.Serialization;
 using HPD.Base.Runtime.Stores;
+using HPD.Events.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -30,6 +31,7 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         var options = HPDBaseRuntimeOptions.CreateDefault();
         configure?.Invoke(options);
 
+        services.AddHPDEvents();
         services.AddOptions();
         services.TryAddSingleton(options);
         services.TryAddSingleton<IOptions<HPDBaseRuntimeOptions>>(Options.Create(options));
@@ -59,8 +61,8 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton<IBaseResultNormalizer, DefaultBaseResultNormalizer>();
         services.TryAddSingleton<IBaseOperationalFailureMapper, DefaultBaseOperationalFailureMapper>();
         services.TryAddSingleton<IBaseResultRedactor, DefaultBaseResultRedactor>();
-        services.TryAddSingleton<IBaseEventPublisher, NoOpBaseEventPublisher>();
-        services.TryAddSingleton<IBaseEventEnvelopeFactory, DefaultBaseEventEnvelopeFactory>();
+        services.TryAddSingleton<IBaseEventPublisher, HPDEventsBaseEventPublisher>();
+        services.TryAddSingleton<IBaseEventFactory, DefaultBaseEventFactory>();
         services.TryAddSingleton<IBaseEventDispatcher, DefaultBaseEventDispatcher>();
         services.TryAddSingleton<IHPDBaseRuntime, DefaultHPDBaseRuntime>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, PolicyAdminDescriptorContributor>());

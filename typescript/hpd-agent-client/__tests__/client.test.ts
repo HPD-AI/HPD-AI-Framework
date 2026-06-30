@@ -90,6 +90,44 @@ describe('AgentClient', () => {
     }]);
   });
 
+  it('dispatches typed tool call end events with function-call metadata', async () => {
+    const events: Array<{
+      callId: string;
+      messageId: string;
+      name: string;
+      argsJson: string;
+    }> = [];
+    const client = new AgentClient('http://localhost:5135');
+
+    client.on(EventTypes.TOOL_CALL_END, (event) => {
+      events.push({
+        callId: event.callId,
+        messageId: event.messageId,
+        name: event.name,
+        argsJson: event.argsJson,
+      });
+    });
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okStream({
+      version: '1.0',
+      type: EventTypes.TOOL_CALL_END,
+      callId: 'call-1',
+      messageId: 'msg-1',
+      name: 'Calculator',
+      argsJson: '{"x":1}',
+    }));
+
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', threadId: 'main' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toEqual([{
+      callId: 'call-1',
+      messageId: 'msg-1',
+      name: 'Calculator',
+      argsJson: '{"x":1}',
+    }]);
+  });
+
   it('disposes typed and onAny subscriptions', async () => {
     const typed = vi.fn();
     const any = vi.fn();

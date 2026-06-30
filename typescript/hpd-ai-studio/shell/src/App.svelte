@@ -5,6 +5,7 @@
   import { createStudioState } from './studio/state/studioState.svelte';
   import { agentStudioModule } from '@hpd-research/hpd-agent-studio';
   import { authStudioModule } from '@hpd-research/hpd-auth-studio';
+  import { baseStudioModule } from '@hpd-research/hpd-base-studio';
   import { graphStudioModule } from '@hpd-research/hpd-graph-studio';
   import { mlStudioModule } from '@hpd-research/hpd-ml-studio';
   import { ragStudioModule } from '@hpd-research/hpd-rag-studio';
@@ -12,7 +13,7 @@
   const config = readRuntimeConfig();
   const studio = createStudioState({
     config,
-    modules: [agentStudioModule, graphStudioModule, ragStudioModule, authStudioModule, mlStudioModule]
+    modules: [agentStudioModule, graphStudioModule, ragStudioModule, authStudioModule, mlStudioModule, baseStudioModule]
   });
 
   let Page = $derived(studio.currentRoute.component);

@@ -246,7 +246,7 @@ public class AgentEventSerializerTests
         Assert.Contains("\"type\":\"TOOL_CALL_ARGS\"", argsJson);
 
         // ToolCallEndEvent
-        var endEvt = new ToolCallEndEvent("call-1");
+        var endEvt = new ToolCallEndEvent("call-1", "msg-1", "Calculator", "{\"x\":1,\"y\":2}");
         var endJson = AgentEventSerializer.ToJson(endEvt);
         Assert.Contains("\"type\":\"TOOL_CALL_END\"", endJson);
 
@@ -653,7 +653,7 @@ public class AgentEventSerializerFromJsonTests
     public void FromJson_ToolCallEndEvent_RoundTrips()
     {
         // Arrange
-        var evt = new ToolCallEndEvent("call-1");
+        var evt = new ToolCallEndEvent("call-1", "msg-1", "Calculator", "{\"x\":1}");
 
         // Act
         var result = RoundTrip<ToolCallEndEvent>(evt);
@@ -1095,7 +1095,7 @@ public class AgentEventSerializerFromJsonTests
         new AgentTurnFinishedEvent(1),
         new ToolCallStartEvent("c1", "Tool", "msg-1"),
         new ToolCallArgsEvent("c1", "{}"),
-        new ToolCallEndEvent("c1"),
+        new ToolCallEndEvent("c1", "msg-1", "Tool", "{}"),
         new ToolCallResultEvent("c1", new ToolResultPayload(Text: "ok")),
         new PermissionRequestEvent("p1", "S", "F", null, "c1", null),
         new PermissionApprovedEvent("p1", "S"),

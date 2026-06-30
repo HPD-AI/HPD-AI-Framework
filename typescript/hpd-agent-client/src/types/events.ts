@@ -156,7 +156,7 @@ export interface BaseEvent {
   type: string;
   isError?: boolean;
   errorMessage?: string | null;
-  metadata?: AgentMetadata;
+  metadata?: AgentMetadata | Record<string, string> | null;
   eventId?: string;
   sessionId?: string;
   threadId?: string;
@@ -700,6 +700,9 @@ export interface ToolCallArgsEvent extends BaseEvent {
 export interface ToolCallEndEvent extends BaseEvent {
   type: typeof EventTypes.TOOL_CALL_END;
   callId: string;
+  messageId: string;
+  name: string;
+  argsJson: string;
 }
 
 export interface ToolResultPayload {
@@ -1051,7 +1054,7 @@ export function isMessageTurnErrorEvent(event: BaseEvent): event is MessageTurnE
   return event.type === EventTypes.MESSAGE_TURN_ERROR;
 }
 
-export function isErrorEvent(event: BaseEvent): event is AgentErrorEvent {
+export function isErrorEvent(event: AgentEvent): event is AgentEvent & AgentErrorEvent {
   return event.isError === true && typeof event.errorMessage === 'string';
 }
 
@@ -1087,7 +1090,7 @@ export function isclientToolHarnessesRegisteredEvent(
   return event.type === EventTypes.CLIENT_TOOL_GROUPS_REGISTERED;
 }
 
-export function isAgentRequestEvent(event: BaseEvent): event is AgentRequestEvent {
+export function isAgentRequestEvent(event: AgentEvent): event is AgentEvent & AgentRequestEvent {
   return hasStringProperty(event, 'requestId') &&
     hasStringProperty(event, 'sourceName') &&
     !isRequestLifecycleEvent(event) &&

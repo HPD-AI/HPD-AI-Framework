@@ -13,6 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="/Users/einsteinessibu/Documents/HPD-Agent/HPD.Events/HPD.Events.csproj" />
+    <ProjectReference Include="../../../../src/HPD-Events/HPD-Events.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.9" />
   </ItemGroup>
 </Project>

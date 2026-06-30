@@ -88,7 +88,7 @@ public sealed class MragIngestionPipeline
     ///
     /// <para>
     /// Graph execution starts in a background task, and events are observed through
-    /// a fan-out <see cref="IEventBus.CreateInbox{TEvent}"/> subscription
+    /// the official inbox-backed <see cref="IEventStreamSource{TEvent}"/> adapter
     /// until completion.
     /// </para>
     ///
@@ -123,7 +123,10 @@ public sealed class MragIngestionPipeline
             services,
             checkpointStore: null);
 
-        await using var events = eventCoordinator.CreateInbox<Event>();
+        var eventSource = new EventStreamSource<Event>(eventCoordinator);
+        var events = await eventSource.OpenAsync(new EventStreamRequest<Event>(), ct).ConfigureAwait(false);
+        if (!events.Succeeded || events.Value is null)
+            throw new InvalidOperationException(events.Error?.Message ?? "Failed to open MRAG ingestion event stream.");
 
         var executionTask = Task.Run(async () =>
         {
@@ -147,7 +150,7 @@ public sealed class MragIngestionPipeline
             }
         }, ct);
 
-        await foreach (var evt in events.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+        await foreach (var evt in events.Value.Items.WithCancellation(ct).ConfigureAwait(false))
         {
             var mapped = MragEventMapper.MapIngestionEvent(evt, PipelineName, ingestionCtx);
             if (mapped != null)

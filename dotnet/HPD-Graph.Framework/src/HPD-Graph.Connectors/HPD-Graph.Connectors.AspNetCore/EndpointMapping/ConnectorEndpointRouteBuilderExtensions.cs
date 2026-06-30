@@ -1,5 +1,6 @@
 using System.Text.Json;
 using HPD.Events;
+using HPD.Events.Core;
 using HPD.Graph.Abstractions.Artifacts;
 using HPD.Graph.Connectors.Abstractions.Assets;
 using HPD.Graph.Connectors.Abstractions.Connections;
@@ -435,8 +436,17 @@ public static class ConnectorEndpointRouteBuilderExtensions
         CancellationToken ct)
     {
         httpContext.Response.ContentType = "text/event-stream";
-        await using var subscription = ((IEventInboxSource)events).CreateChannelInbox(EventChannel.Synchronous);
-        await foreach (var evt in subscription.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+        var eventSource = new EventStreamSource<Event>((IEventInboxSource)events);
+        var stream = await eventSource.OpenAsync(new EventStreamRequest<Event>
+        {
+            Channel = EventChannel.Synchronous,
+            StreamId = "graph.connector.events"
+        }, ct).ConfigureAwait(false);
+
+        if (!stream.Succeeded || stream.Value is null)
+            throw new InvalidOperationException(stream.Error?.Message ?? "Failed to open connector event stream.");
+
+        await foreach (var evt in stream.Value.Items.WithCancellation(ct).ConfigureAwait(false))
         {
             await httpContext.Response.WriteAsync("event: ", ct).ConfigureAwait(false);
             await httpContext.Response.WriteAsync(evt.GetType().Name, ct).ConfigureAwait(false);

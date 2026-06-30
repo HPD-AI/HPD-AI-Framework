@@ -32,7 +32,7 @@ public sealed class JsonContextCoverageTests
         Assert.NotNull(HPDBaseJsonSerializerContext.Default.BaseManifest);
         Assert.NotNull(HPDBaseJsonSerializerContext.Default.SchemaMetadata);
         Assert.NotNull(HPDBaseJsonSerializerContext.Default.RecordEnvelope);
-        Assert.NotNull(HPDBaseJsonSerializerContext.Default.BaseEventEnvelope);
+        Assert.NotNull(HPDBaseJsonSerializerContext.Default.BaseRecordMutationEvent);
         Assert.NotNull(HPDBaseJsonSerializerContext.Default.HealthDescriptor);
         Assert.NotNull(HPDBaseJsonSerializerContext.Default.DiagnosticDescriptor);
         Assert.NotNull(HPDBaseJsonSerializerContext.Default.BaseError);

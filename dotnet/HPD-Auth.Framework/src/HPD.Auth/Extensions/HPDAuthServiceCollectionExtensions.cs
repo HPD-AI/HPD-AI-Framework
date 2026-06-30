@@ -5,7 +5,7 @@ using HPD.Auth.Core.Options;
 using HPD.Auth.Serialization;
 using HPD.Auth.Infrastructure.Data;
 using HPD.Events;
-using HPD.Events.Core;
+using HPD.Events.DependencyInjection;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Json;
@@ -182,7 +182,7 @@ public static class HPDAuthServiceCollectionExtensions
         // Core auth endpoints emit AuthEvent instances for signup, login, logout,
         // password reset, etc. The coordinator is required even when callers do not
         // opt into the audit package; AddAudit() only attaches observers.
-        services.TryAddScoped<IEventCoordinator>(_ => new EventCoordinator());
+        services.AddHPDEvents(options => options.Lifetime = HPDEventsServiceLifetime.Scoped);
 
         // ── Step 8: Register no-op email and SMS senders ─────────────────────────
         // TryAdd ensures these are skipped if the caller has already registered a

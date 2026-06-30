@@ -61,19 +61,24 @@ public sealed class ConformanceDenyExistingRecordPolicyEvaluator : IPolicyEvalua
 
 public sealed class ConformanceCapturingEventPublisher : IBaseEventPublisher
 {
-    public BaseEventEnvelope? LastEnvelope { get; private set; }
+    public BaseRecordMutationEvent? LastEvent { get; private set; }
 
     public ValueTask<OperationResult<EventPublishResult>> PublishAsync(
-        BaseEventEnvelope envelope,
+        BaseEvent @event,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        LastEnvelope = envelope;
+        if (@event is not BaseRecordMutationEvent mutation)
+        {
+            throw new InvalidOperationException("Expected a BASE record mutation event.");
+        }
+
+        LastEvent = mutation;
         return ValueTask.FromResult(OperationResults.Ok(new EventPublishResult
         {
-            EventId = envelope.EventId,
-            Stream = envelope.Resource.CollectionId,
-            PublishedAt = envelope.OccurredAt,
+            EventId = mutation.EventId,
+            Stream = mutation.Resource.CollectionId,
+            PublishedAt = mutation.Timestamp,
             Guarantee = EventDeliveryGuarantee.BestEffort
         }));
     }

@@ -6,17 +6,22 @@ namespace HPD.Base.Runtime.Tests;
 
 internal sealed class CapturingEventPublisher : IBaseEventPublisher
 {
-    public BaseEventEnvelope? LastEnvelope { get; private set; }
+    public BaseRecordMutationEvent? LastEvent { get; private set; }
 
     public ValueTask<OperationResult<EventPublishResult>> PublishAsync(
-        BaseEventEnvelope envelope,
+        BaseEvent @event,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        LastEnvelope = envelope;
+        if (@event is not BaseRecordMutationEvent mutation)
+        {
+            throw new InvalidOperationException("Expected a BASE record mutation event.");
+        }
+
+        LastEvent = mutation;
         return ValueTask.FromResult(OperationResults.Ok(new EventPublishResult
         {
-            EventId = envelope.EventId,
+            EventId = mutation.EventId,
             Guarantee = EventDeliveryGuarantee.BestEffort
         }));
     }

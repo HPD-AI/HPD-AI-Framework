@@ -1,0 +1,33 @@
+{
+  "name": "@hpd-research/hpd-base-studio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "HPD BASE module for HPD AI Studio.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "svelte": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "svelte": "^5.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "hpd",
+    "base",
+    "dbase",
+    "studio",
+    "svelte"
+  ],
+  "author": "HPD-AI",
+  "license": "Apache-2.0"
+}

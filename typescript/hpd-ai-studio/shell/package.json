@@ -12,6 +12,7 @@
   "dependencies": {
     "@hpd-research/hpd-agent-studio": "file:../modules/hpd-agent-studio",
     "@hpd-research/hpd-auth-studio": "file:../modules/hpd-auth-studio",
+    "@hpd-research/hpd-base-studio": "file:../modules/hpd-base-studio",
     "@hpd-research/hpd-graph-studio": "file:../modules/hpd-graph-studio",
     "@hpd-research/hpd-ml-studio": "file:../modules/hpd-ml-studio",
     "@hpd-research/hpd-rag-studio": "file:../modules/hpd-rag-studio",

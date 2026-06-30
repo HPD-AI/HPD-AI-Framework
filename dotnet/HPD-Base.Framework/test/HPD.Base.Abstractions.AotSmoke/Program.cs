@@ -29,7 +29,7 @@ RoundTrip(CreateQuery(), HPDBaseJsonSerializerContext.Default.RecordQuery, optio
 RoundTrip(CreateRecordPage(), HPDBaseJsonSerializerContext.Default.RecordPage, options);
 RoundTrip(CreateRecordEnvelope(), HPDBaseJsonSerializerContext.Default.RecordEnvelope, options);
 RoundTrip(CreateValidationError(), HPDBaseJsonSerializerContext.Default.BaseError, options);
-RoundTrip(CreateEvent(), HPDBaseJsonSerializerContext.Default.BaseEventEnvelope, options);
+RoundTrip(CreateEvent(), HPDBaseJsonSerializerContext.Default.BaseRecordMutationEvent, options);
 RoundTrip(new[] { CreateHealth() }, HPDBaseJsonSerializerContext.Default.HealthDescriptorArray, options);
 RoundTrip(new[] { CreateDiagnostic() }, HPDBaseJsonSerializerContext.Default.DiagnosticDescriptorArray, options);
 RoundTrip(CreateTypedEnvelope(), SampleAppJsonSerializerContext.Default.RecordEnvelopeSampleAppPayload, options);
@@ -192,14 +192,14 @@ static BaseError CreateValidationError() => new()
     ]
 };
 
-static BaseEventEnvelope CreateEvent() => new()
+static BaseRecordMutationEvent CreateEvent() => new()
 {
     EventId = "evt_1",
     Type = BaseEventTypes.RecordCreated,
-    EnvelopeVersion = EventSupport.EnvelopeVersion1,
+    SchemaVersion = BaseEventSchemaVersions.V1,
     Resource = new EventResource { Kind = EventResourceKind.Record, CollectionId = "items", RecordId = new RecordId("rec_1") },
     Operation = BaseOperationKind.Create,
-    OccurredAt = DateTimeOffset.UnixEpoch,
+    Timestamp = DateTimeOffset.UnixEpoch,
     Visibility = VisibilityLevel.Public,
     Principal = new EventPrincipalSummary
     {

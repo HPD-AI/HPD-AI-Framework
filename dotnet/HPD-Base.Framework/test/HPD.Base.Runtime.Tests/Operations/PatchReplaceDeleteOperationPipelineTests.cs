@@ -157,8 +157,8 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
         Assert.Equal("new", proposedFields!["title"].GetString());
         Assert.Equal("active", proposedFields["status"].GetString());
         Assert.Equal(["title"], store.LastPatchRequest!.Patch.Fields!.Keys.ToArray());
-        Assert.NotNull(publisher.LastEnvelope);
-        var before = publisher.LastEnvelope!.Before;
+        Assert.NotNull(publisher.LastEvent);
+        var before = publisher.LastEvent!.Before;
         Assert.NotNull(before);
         var beforeRecord = before!;
         Assert.NotNull(beforeRecord.Payload);
@@ -311,9 +311,9 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
         Assert.Equal(OperationStatus.Deleted, result.Status);
         Assert.Equal(["title"], result.Value!.Previous!.Payload.Fields!.Keys.ToArray());
         Assert.True(result.Value.Previous.Policy!.Redacted);
-        Assert.NotNull(publisher.LastEnvelope);
-        Assert.True(publisher.LastEnvelope!.Before!.Redacted);
-        Assert.Equal(["title"], publisher.LastEnvelope.Before.Payload!.Fields!.Keys.ToArray());
+        Assert.NotNull(publisher.LastEvent);
+        Assert.True(publisher.LastEvent!.Before!.Redacted);
+        Assert.Equal(["title"], publisher.LastEvent.Before.Payload!.Fields!.Keys.ToArray());
     }
 
     private static RecordPayload FieldMapPayload(string name, string value)

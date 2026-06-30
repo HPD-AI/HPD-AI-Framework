@@ -126,7 +126,10 @@ public sealed class MragRetrievalPipeline : IMragRetriever
             services,
             checkpointStore: null);
 
-        await using var events = eventCoordinator.CreateInbox<Event>();
+        var eventSource = new EventStreamSource<Event>(eventCoordinator);
+        var events = await eventSource.OpenAsync(new EventStreamRequest<Event>(), ct).ConfigureAwait(false);
+        if (!events.Succeeded || events.Value is null)
+            throw new InvalidOperationException(events.Error?.Message ?? "Failed to open MRAG retrieval event stream.");
 
         var executionTask = Task.Run(async () =>
         {
@@ -150,7 +153,7 @@ public sealed class MragRetrievalPipeline : IMragRetriever
             }
         }, ct);
 
-        await foreach (var evt in events.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+        await foreach (var evt in events.Value.Items.WithCancellation(ct).ConfigureAwait(false))
         {
             var mapped = MragEventMapper.MapRetrievalEvent(evt, PipelineName, query);
             if (mapped != null)

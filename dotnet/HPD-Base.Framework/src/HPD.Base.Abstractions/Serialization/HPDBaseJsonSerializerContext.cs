@@ -418,7 +418,7 @@ using EventDeliveryGuaranteeConverter = LowerCamelJsonStringEnumConverter<EventD
 [JsonSerializable(typeof(RevisionInfo))]
 [JsonSerializable(typeof(EventReference))]
 [JsonSerializable(typeof(EventReference[]))]
-[JsonSerializable(typeof(BaseEventEnvelope))]
+[JsonSerializable(typeof(BaseRecordMutationEvent))]
 [JsonSerializable(typeof(EventResource))]
 [JsonSerializable(typeof(EventPrincipalSummary))]
 [JsonSerializable(typeof(RecordSnapshot))]

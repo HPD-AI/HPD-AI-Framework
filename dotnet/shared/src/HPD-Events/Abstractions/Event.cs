@@ -3,7 +3,7 @@ namespace HPD.Events;
 /// <summary>
 /// Universal base class for all events in the HPD ecosystem.
 /// All domain-specific events (Agent, Graph, Audio, etc.) inherit from this class.
-/// Provides common fields for event classification, channel routing, timestamps, and cross-domain metadata.
+/// Provides common fields for event classification, channel routing, and timestamps.
 /// </summary>
 public abstract record Event : IEvent
 {
@@ -62,13 +62,4 @@ public abstract record Event : IEvent
     /// </summary>
     public long ExchangeTimestampNs { get; init; }
 
-    /// <summary>
-    /// Optional extension dictionary for cross-domain metadata.
-    ///
-    /// Prefer using domain-specific typed fields (e.g., AgentEvent.ExecutionContext).
-    /// Use this only for advanced scenarios requiring cross-domain context enrichment.
-    ///
-    /// Example: Graph coordinator enriching agent events with graph execution context.
-    /// </summary>
-    public IReadOnlyDictionary<string, object>? Extensions { get; init; }
 }

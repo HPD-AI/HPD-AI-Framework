@@ -16,7 +16,8 @@ public sealed class DependencyContractTests
         "Microsoft.Extensions.DependencyInjection.Abstractions",
         "Microsoft.Extensions.Logging.Abstractions",
         "Microsoft.Extensions.Options",
-        "HPD.Base.Abstractions"
+        "HPD.Base.Abstractions",
+        "HPD.Events"
     };
 
     [Fact]

@@ -2,11 +2,13 @@ using HPD.Base.Events;
 using HPD.Base.Runtime.Capabilities;
 using HPD.Base.Runtime.DependencyInjection;
 using HPD.Base.Runtime.Descriptors;
+using HPD.Base.Runtime.Events;
 using HPD.Base.Runtime.Health;
 using HPD.Base.Runtime.Operations;
 using HPD.Base.Runtime.Results;
 using HPD.Base.Runtime.Schema;
 using HPD.Base.Runtime.Serialization;
+using HPD.Events;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Base.Runtime.Tests.Registration;
@@ -31,7 +33,9 @@ public sealed class AddHPDBaseRuntimeTests
         Assert.NotNull(provider.GetRequiredService<IBaseDiagnosticProvider>());
         Assert.NotNull(provider.GetRequiredService<IBaseJsonOptionsProvider>());
         Assert.NotNull(provider.GetRequiredService<IBaseResultFactory>());
-        Assert.NotNull(provider.GetRequiredService<IBaseEventPublisher>());
+        Assert.IsType<HPDEventsBaseEventPublisher>(provider.GetRequiredService<IBaseEventPublisher>());
+        Assert.NotNull(provider.GetRequiredService<IEventCoordinator>());
+        Assert.NotNull(provider.GetRequiredService<IEventPublisher>());
     }
 
     [Fact]

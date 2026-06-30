@@ -171,11 +171,11 @@ public sealed class PublicApiShapeTests
         typeof(OperationResults).GetMethod(nameof(OperationResults.NoContent)).Should().NotBeNull();
         typeof(OperationResults).GetMethod(nameof(OperationResults.StoreError)).Should().NotBeNull();
 
-        typeof(IBaseEventEnvelopeFactory)
-            .GetMethod(nameof(IBaseEventEnvelopeFactory.CreateRecordMutationEvent))
+        typeof(IBaseEventFactory)
+            .GetMethod(nameof(IBaseEventFactory.CreateRecordMutationEvent))
             .Should()
             .NotBeNull()
             .And
-            .Match<MethodInfo>(method => method.ReturnType == typeof(BaseEventEnvelope));
+            .Match<MethodInfo>(method => method.ReturnType == typeof(BaseRecordMutationEvent));
     }
 }

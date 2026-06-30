@@ -24,7 +24,7 @@ public static class BaseDtoIds
     public const string RecordEnvelope = "base.recordEnvelope";
     public const string RecordPage = "base.recordPage";
     public const string BaseError = "base.error";
-    public const string BaseEventEnvelope = "base.eventEnvelope";
+    public const string BaseRecordMutationEvent = "base.recordMutationEvent";
     public const string HealthDescriptor = "base.healthDescriptor";
     public const string DiagnosticDescriptor = "base.diagnosticDescriptor";
 }

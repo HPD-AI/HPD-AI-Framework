@@ -24,6 +24,18 @@ public class EventCoordinatorTests
         public override EventDirection Direction { get; init; } = EventDirection.Upstream;
     }
 
+    private record EnrichableEvent(string Message) : Event
+    {
+        public bool Enriched { get; init; }
+    }
+
+    private record EnrichableControlEvent(string Message) : Event
+    {
+        public override EventChannel Channel { get; init; } = EventChannel.Control;
+        public override EventDirection Direction { get; init; } = EventDirection.Upstream;
+        public bool ParentEnriched { get; init; }
+    }
+
     private record TestRequestEvent(string RequestId, string SourceName, string Message) : Event, IRequestEvent;
     private record TestResponseEvent(string RequestId, string SourceName, string Message) : Event, IResponseEvent;
     private record TestControlResponseEvent(string RequestId, string SourceName, string Message) : Event, IResponseEvent
@@ -410,22 +422,20 @@ public class EventCoordinatorTests
     public async Task SetParent_ParentEnricherAppliesToBubbledEventsWithoutChangingSequence()
     {
         using var parent = new EventCoordinator(
-            eventEnricher: evt => evt with
-            {
-                Extensions = new Dictionary<string, object> { ["parent"] = true }
-            });
+            eventEnricher: evt => evt is EnrichableControlEvent control
+                ? control with { ParentEnriched = true }
+                : evt);
         using var child = new EventCoordinator();
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         child.SetParent(parent);
-        await using var parentStream = parent.CreateInbox<TestControlEvent>();
+        await using var parentStream = parent.CreateInbox<EnrichableControlEvent>();
 
-        child.Emit(new TestControlEvent("bubbled"));
+        child.Emit(new EnrichableControlEvent("bubbled"));
 
         var result = await ReadOneAsync(parentStream.Reader, cts.Token);
 
         Assert.Equal(1, result.SequenceNumber);
-        Assert.NotNull(result.Extensions);
-        Assert.True((bool)result.Extensions["parent"]);
+        Assert.True(result.ParentEnriched);
     }
 
     [Fact]
@@ -448,18 +458,16 @@ public class EventCoordinatorTests
     public async Task EventEnricher_EnrichesEventsBeforeEmission()
     {
         using var coordinator = new EventCoordinator(
-            eventEnricher: evt => evt with
-            {
-                Extensions = new Dictionary<string, object> { ["enriched"] = true }
-            });
-        await using var stream = coordinator.CreateInbox<TestEvent>();
+            eventEnricher: evt => evt is EnrichableEvent enrichable
+                ? enrichable with { Enriched = true }
+                : evt);
+        await using var stream = coordinator.CreateInbox<EnrichableEvent>();
 
-        coordinator.Emit(new TestEvent("test"));
+        coordinator.Emit(new EnrichableEvent("test"));
 
         var result = await ReadOneAsync(stream.Reader);
 
-        Assert.NotNull(result.Extensions);
-        Assert.True((bool)result.Extensions["enriched"]);
+        Assert.True(result.Enriched);
     }
 
     [Fact]

@@ -20,7 +20,7 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
     }
 
     public async ValueTask<OperationResult<EventReference[]>> DispatchMutationAsync(
-        BaseEventEnvelope envelope,
+        BaseEvent @event,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -31,7 +31,7 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
                 "Event publishing is disabled."));
         }
 
-        var result = await _publisher.PublishAsync(envelope, cancellationToken).ConfigureAwait(false);
+        var result = await _publisher.PublishAsync(@event, cancellationToken).ConfigureAwait(false);
         if (!result.IsSuccess() || result.Value is null)
         {
             return OkWithoutReferences(Warning(
@@ -52,9 +52,11 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
             new EventReference
             {
                 EventId = result.Value.EventId,
-                Type = envelope.Type,
+                Type = @event.Type,
                 Stream = result.Value.Stream,
-                Resource = envelope.Resource.ResourcePath,
+                Resource = @event is BaseRecordMutationEvent mutation
+                    ? mutation.Resource.ResourcePath
+                    : null,
                 PublishedAt = result.Value.PublishedAt
             }
         });

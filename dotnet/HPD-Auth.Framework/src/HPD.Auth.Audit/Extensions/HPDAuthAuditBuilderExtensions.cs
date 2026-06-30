@@ -3,8 +3,8 @@ using HPD.Auth.Audit.Services;
 using HPD.Auth.Builder;
 using HPD.Auth.Core.Events;
 using HPD.Events;
+using HPD.Events.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace HPD.Auth.Audit.Extensions;
 
@@ -47,7 +47,7 @@ public static class HPDAuthAuditBuilderExtensions
 
         // AddHPDAuth registers the coordinator for core auth endpoint emission.
         // Keep this fallback for hosts/tests that call AddAudit without AddHPDAuth.
-        services.TryAddScoped<IEventCoordinator>(_ => new HPD.Events.Core.EventCoordinator());
+        services.AddHPDEvents(options => options.Lifetime = HPDEventsServiceLifetime.Scoped);
 
         if (builder.Options.Features.EnableAuditLog)
         {

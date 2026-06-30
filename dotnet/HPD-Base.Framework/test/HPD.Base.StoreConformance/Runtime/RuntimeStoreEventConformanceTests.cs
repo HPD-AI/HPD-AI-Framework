@@ -27,9 +27,9 @@ public abstract class RuntimeStoreEventConformanceTests<TFixture> : RuntimeStore
             Operation(BaseOperationKind.Create));
 
         RecordStoreConformanceAssertions.Success(result, OperationStatus.Created);
-        Assert.NotNull(publisher.LastEnvelope);
+        Assert.NotNull(publisher.LastEvent);
         Assert.NotNull(result.Events);
         Assert.NotEmpty(result.Events!);
-        Assert.Contains(result.Events!, reference => reference.EventId == publisher.LastEnvelope!.EventId);
+        Assert.Contains(result.Events!, reference => reference.EventId == publisher.LastEvent!.EventId);
     }
 }

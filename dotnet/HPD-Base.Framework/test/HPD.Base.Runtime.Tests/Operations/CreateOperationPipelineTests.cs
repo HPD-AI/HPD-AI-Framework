@@ -1,10 +1,12 @@
 using System.Text.Json;
+using HPD.Base.Events;
 using HPD.Base.Policy;
 using HPD.Base.Query;
 using HPD.Base.Records;
 using HPD.Base.Results;
 using HPD.Base.Runtime.Operations;
 using HPD.Base.Runtime.Schema;
+using HPD.Events;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Base.Runtime.Tests.Operations;
@@ -45,6 +47,32 @@ public sealed class CreateOperationPipelineTests
         Assert.NotNull(result.Events);
         Assert.Single(result.Events);
         Assert.Equal(1, store.CreateCalls);
+    }
+
+    [Fact]
+    public async Task CreatePublishesRecordMutationEventToHPDEvents()
+    {
+        var store = new FakeRecordStore("primary");
+        using var provider = OperationTestServices.Build(store);
+        var coordinator = provider.GetRequiredService<IEventCoordinator>();
+        await using var inbox = coordinator.CreateInbox<BaseRecordMutationEvent>();
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().CreateAsync(
+            "items",
+            CreateRequest(),
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Create),
+            CancellationToken.None);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var emitted = await inbox.Reader.ReadAsync(timeout.Token);
+
+        Assert.Equal(OperationStatus.Created, result.Status);
+        Assert.NotNull(result.Events);
+        Assert.Equal(result.Events![0].EventId, emitted.EventId);
+        Assert.Equal(BaseEventTypes.RecordCreated, emitted.Type);
+        Assert.Equal(BaseOperationKind.Create, emitted.Operation);
+        Assert.Equal("items", emitted.Resource.CollectionId);
     }
 
     [Fact]

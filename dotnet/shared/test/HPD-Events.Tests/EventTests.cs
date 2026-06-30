@@ -40,7 +40,6 @@ public class EventTests
         Assert.Equal(0, evt.ExchangeTimestampNs);
         Assert.True(evt.CanInterrupt);
         Assert.Null(evt.EventFlowId);
-        Assert.Null(evt.Extensions);
     }
 
     [Fact]
@@ -81,19 +80,9 @@ public class EventTests
     }
 
     [Fact]
-    public void Event_CanSetExtensions()
+    public void Event_DoesNotExposeExtensionsProperty()
     {
-        var extensions = new Dictionary<string, object>
-        {
-            ["key1"] = "value1",
-            ["key2"] = 42
-        };
-
-        var evt = new TestEvent { Extensions = extensions };
-
-        Assert.NotNull(evt.Extensions);
-        Assert.Equal("value1", evt.Extensions["key1"]);
-        Assert.Equal(42, evt.Extensions["key2"]);
+        Assert.Null(typeof(Event).GetProperty("Extensions"));
     }
 
     [Fact]
@@ -174,6 +163,65 @@ public class EventTests
         Assert.Equal(EventKind.Lifecycle, deserialized.Kind);
         Assert.Equal(EventChannel.Control, deserialized.Channel);
     }
+
+    [Fact]
+    public void EventAnnotationValue_Constructors_SetExpectedScalar()
+    {
+        var text = EventAnnotationValue.FromString("alpha");
+        var integer = EventAnnotationValue.FromInteger(42);
+        var number = EventAnnotationValue.FromNumber(3.14);
+        var boolean = EventAnnotationValue.FromBoolean(true);
+
+        Assert.Equal(EventAnnotationValueKind.String, text.Kind);
+        Assert.Equal("alpha", text.String);
+        Assert.Equal(EventAnnotationValueKind.Integer, integer.Kind);
+        Assert.Equal(42, integer.Integer);
+        Assert.Equal(EventAnnotationValueKind.Number, number.Kind);
+        Assert.Equal(3.14, number.Number);
+        Assert.Equal(EventAnnotationValueKind.Boolean, boolean.Kind);
+        Assert.True(boolean.Boolean);
+    }
+
+    [Fact]
+    public void AnnotatedEvent_RoundTrips_WithSourceGeneratedJsonMetadata()
+    {
+        var evt = new AnnotatedSourceGenerationTestEvent
+        {
+            Name = "annotated",
+            Annotations =
+            [
+                new EventAnnotation
+                {
+                    Key = "tenant",
+                    Value = EventAnnotationValue.FromString("hpd"),
+                    Visibility = EventAnnotationVisibility.Internal
+                },
+                new EventAnnotation
+                {
+                    Key = "display",
+                    Value = EventAnnotationValue.FromBoolean(true),
+                    Visibility = EventAnnotationVisibility.Public
+                }
+            ]
+        };
+
+        var json = JsonSerializer.Serialize(
+            evt,
+            EventTestsJsonSerializerContext.Default.AnnotatedSourceGenerationTestEvent);
+
+        var deserialized = JsonSerializer.Deserialize(
+            json,
+            EventTestsJsonSerializerContext.Default.AnnotatedSourceGenerationTestEvent);
+
+        Assert.NotNull(deserialized);
+        Assert.Equal("annotated", deserialized.Name);
+        Assert.Equal(2, deserialized.Annotations.Count);
+        Assert.Equal("tenant", deserialized.Annotations[0].Key);
+        Assert.Equal("hpd", deserialized.Annotations[0].Value.String);
+        Assert.Equal(EventAnnotationVisibility.Internal, deserialized.Annotations[0].Visibility);
+        Assert.True(deserialized.Annotations[1].Value.Boolean);
+        Assert.Equal(EventAnnotationVisibility.Public, deserialized.Annotations[1].Visibility);
+    }
 }
 
 internal sealed record EventSourceGenerationTestEvent : Event
@@ -185,6 +233,14 @@ internal sealed record EventSourceGenerationTestEvent : Event
     public override EventChannel Channel => EventChannel.Control;
 }
 
+internal sealed record AnnotatedSourceGenerationTestEvent : Event, IAnnotatedEvent
+{
+    public required string Name { get; init; }
+
+    public IReadOnlyList<EventAnnotation> Annotations { get; init; } = [];
+}
+
 [JsonSourceGenerationOptions(UseStringEnumConverter = true)]
 [JsonSerializable(typeof(EventSourceGenerationTestEvent))]
+[JsonSerializable(typeof(AnnotatedSourceGenerationTestEvent))]
 internal sealed partial class EventTestsJsonSerializerContext : JsonSerializerContext;

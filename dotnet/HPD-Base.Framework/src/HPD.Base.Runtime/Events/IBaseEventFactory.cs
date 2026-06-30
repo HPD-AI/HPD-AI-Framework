@@ -5,9 +5,13 @@ using HPD.Base.Schema;
 
 namespace HPD.Base.Runtime.Events;
 
-public interface IBaseEventEnvelopeFactory
+/// <summary>
+/// Creates BASE domain events for runtime operations.
+/// </summary>
+public interface IBaseEventFactory
 {
-    BaseEventEnvelope CreateRecordMutationEvent(
+    /// <summary>Creates an event for a committed record mutation.</summary>
+    BaseRecordMutationEvent CreateRecordMutationEvent(
         BaseOperationKind operation,
         OperationContext context,
         PrincipalContext principal,

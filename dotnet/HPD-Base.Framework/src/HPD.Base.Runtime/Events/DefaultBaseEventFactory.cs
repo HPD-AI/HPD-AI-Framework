@@ -6,9 +6,9 @@ using HPD.Base.Schema;
 
 namespace HPD.Base.Runtime.Events;
 
-internal sealed class DefaultBaseEventEnvelopeFactory : IBaseEventEnvelopeFactory
+internal sealed class DefaultBaseEventFactory : IBaseEventFactory
 {
-    public BaseEventEnvelope CreateRecordMutationEvent(
+    public BaseRecordMutationEvent CreateRecordMutationEvent(
         BaseOperationKind operation,
         OperationContext context,
         PrincipalContext principal,
@@ -22,7 +22,7 @@ internal sealed class DefaultBaseEventEnvelopeFactory : IBaseEventEnvelopeFactor
         ArgumentNullException.ThrowIfNull(collection);
 
         var record = after ?? before;
-        return new BaseEventEnvelope
+        return new BaseRecordMutationEvent
         {
             EventId = $"evt_{Guid.NewGuid():N}",
             Type = operation switch
@@ -33,7 +33,7 @@ internal sealed class DefaultBaseEventEnvelopeFactory : IBaseEventEnvelopeFactor
                 BaseOperationKind.Delete => BaseEventTypes.RecordDeleted,
                 _ => "record.mutated"
             },
-            EnvelopeVersion = EventSupport.EnvelopeVersion1,
+            SchemaVersion = BaseEventSchemaVersions.V1,
             Resource = new EventResource
             {
                 Kind = EventResourceKind.Record,
@@ -41,7 +41,7 @@ internal sealed class DefaultBaseEventEnvelopeFactory : IBaseEventEnvelopeFactor
                 RecordId = record?.Id
             },
             Operation = operation,
-            OccurredAt = context.Now == default ? DateTimeOffset.UtcNow : context.Now,
+            Timestamp = context.Now == default ? DateTimeOffset.UtcNow : context.Now,
             TenantId = context.TenantId,
             CorrelationId = context.CorrelationId,
             Principal = new EventPrincipalSummary

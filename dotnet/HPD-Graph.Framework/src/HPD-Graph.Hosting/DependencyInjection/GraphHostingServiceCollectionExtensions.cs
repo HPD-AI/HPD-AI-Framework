@@ -1,5 +1,5 @@
 using HPD.Events;
-using HPD.Events.Core;
+using HPD.Events.DependencyInjection;
 using HPD.Graph.Abstractions.Artifacts;
 using HPD.Graph.Abstractions.Checkpointing;
 using HPD.Graph.Abstractions.Config;
@@ -30,7 +30,7 @@ public static class GraphHostingServiceCollectionExtensions
         services.TryAddSingleton<IWorkflowLogStore, InMemoryWorkflowLogStore>();
         services.TryAddSingleton<IScheduledGraphStore, InMemoryScheduledGraphStore>();
         services.TryAddSingleton<IGraphCheckpointStore, InMemoryCheckpointStore>();
-        services.TryAddSingleton<IEventCoordinator, EventCoordinator>();
+        services.AddHPDEvents();
         services.TryAddSingleton<IGeneratedHandlerCatalog, EmptyGeneratedHandlerCatalog>();
         services.TryAddSingleton<IWorkflowResumeRunner, InProcessWorkflowResumeRunner>();
         services.TryAddSingleton<GraphManager>();

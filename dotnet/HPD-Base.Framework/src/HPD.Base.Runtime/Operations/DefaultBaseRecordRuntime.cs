@@ -23,7 +23,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
     private readonly IBaseRecordRedactor _recordRedactor;
     private readonly IBaseResultNormalizer _normalizer;
     private readonly IBaseOperationalFailureMapper _failureMapper;
-    private readonly IBaseEventEnvelopeFactory _eventEnvelopeFactory;
+    private readonly IBaseEventFactory _eventFactory;
     private readonly IBaseEventDispatcher _eventDispatcher;
 
     public DefaultBaseRecordRuntime(
@@ -35,7 +35,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         IBaseRecordRedactor recordRedactor,
         IBaseResultNormalizer normalizer,
         IBaseOperationalFailureMapper failureMapper,
-        IBaseEventEnvelopeFactory eventEnvelopeFactory,
+        IBaseEventFactory eventFactory,
         IBaseEventDispatcher eventDispatcher)
     {
         _schema = schema;
@@ -46,7 +46,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         _recordRedactor = recordRedactor;
         _normalizer = normalizer;
         _failureMapper = failureMapper;
-        _eventEnvelopeFactory = eventEnvelopeFactory;
+        _eventFactory = eventFactory;
         _eventDispatcher = eventDispatcher;
     }
 
@@ -480,7 +480,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             : eventPreviousSnapshot;
         result = result with { Value = result.Value with { Previous = returnedPrevious } };
 
-        var eventEnvelope = _eventEnvelopeFactory.CreateRecordMutationEvent(
+        var @event = _eventFactory.CreateRecordMutationEvent(
             BaseOperationKind.Delete,
             context,
             principal,
@@ -488,7 +488,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             eventPrevious,
             null,
             null);
-        var events = await _eventDispatcher.DispatchMutationAsync(eventEnvelope, cancellationToken).ConfigureAwait(false);
+        var events = await _eventDispatcher.DispatchMutationAsync(@event, cancellationToken).ConfigureAwait(false);
         return result with
         {
             Events = events.Value,
@@ -740,7 +740,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             return result;
         }
 
-        var eventEnvelope = _eventEnvelopeFactory.CreateRecordMutationEvent(
+        var @event = _eventFactory.CreateRecordMutationEvent(
             operation,
             context,
             principal,
@@ -748,7 +748,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             before,
             after,
             changedFields);
-        var events = await _eventDispatcher.DispatchMutationAsync(eventEnvelope, cancellationToken).ConfigureAwait(false);
+        var events = await _eventDispatcher.DispatchMutationAsync(@event, cancellationToken).ConfigureAwait(false);
         return result with
         {
             Events = events.Value,
