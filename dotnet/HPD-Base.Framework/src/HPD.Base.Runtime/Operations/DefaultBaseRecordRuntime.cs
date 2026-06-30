@@ -1,4 +1,3 @@
-using System.Text.Json;
 using HPD.Base.Policy;
 using HPD.Base.Query;
 using HPD.Base.Records;
@@ -308,7 +307,8 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             return existing;
         }
 
-        var proposedPayload = MergePatchPayload(existing.Value.Payload, validation.Value.Payload);
+        var proposedPayload = BasePolicyRuntimeSimulation.MergePatchPayload(existing.Value.Payload, validation.Value.Payload);
+        var proposedRecord = existing.Value with { Payload = proposedPayload };
         var policyResult = await EvaluateWriteAsync(
             prepared.Collection!,
             principal,
@@ -317,6 +317,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             proposedPayload,
             id,
             existing.Value,
+            proposedRecord,
             cancellationToken).ConfigureAwait(false);
         if (!policyResult.IsSuccess())
         {
@@ -525,7 +526,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             return null;
         }
 
-        var fields = payload is null ? [] : PayloadFields(payload);
+        var fields = payload is null ? [] : BasePolicyRuntimeSimulation.PayloadFields(payload);
         if (fields.Length == 0)
         {
             return null;
@@ -550,23 +551,6 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
                 Target = denied,
                 Policy = new PolicyErrorInfo { ReasonCode = "writeMask" }
             });
-    }
-
-    private static string[] PayloadFields(RecordPayload payload)
-    {
-        if (payload.Kind == RecordPayloadKind.FieldMap)
-        {
-            return payload.Fields?.Keys.ToArray() ?? [];
-        }
-
-        if (payload.Json.ValueKind != System.Text.Json.JsonValueKind.Object)
-        {
-            return [];
-        }
-
-        return payload.Json.EnumerateObject()
-            .Select(property => property.Name)
-            .ToArray();
     }
 
     private static OperationResult<RecordEnvelope>? ValidateCreateRequest(
@@ -698,6 +682,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         RecordPayload proposedPayload,
         RecordId? recordId,
         RecordEnvelope? existingRecord,
+        RecordEnvelope? proposedRecord,
         CancellationToken cancellationToken) =>
         await _policy.EvaluateWriteAsync(new BasePolicyRequest
         {
@@ -707,6 +692,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             ResourceKind = resourceKind,
             ProposedPayload = proposedPayload,
             ExistingRecord = existingRecord,
+            ProposedRecord = proposedRecord,
             RecordId = recordId
         }, cancellationToken).ConfigureAwait(false);
 
@@ -718,7 +704,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         RecordPayload proposedPayload,
         RecordId? recordId,
         CancellationToken cancellationToken) =>
-        EvaluateWriteAsync(collection, principal, context, resourceKind, proposedPayload, recordId, null, cancellationToken);
+        EvaluateWriteAsync(collection, principal, context, resourceKind, proposedPayload, recordId, null, null, cancellationToken);
 
     private async ValueTask<OperationResult<T>> InvokeStoreAsync<T>(
         Func<ValueTask<OperationResult<T>>> invoke,
@@ -736,47 +722,6 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
                 Error = error
             };
         }
-    }
-
-    private static RecordPayload MergePatchPayload(RecordPayload existing, RecordPayload patch)
-    {
-        var fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-
-        if (existing.Kind == RecordPayloadKind.FieldMap)
-        {
-            foreach (var field in existing.Fields ?? [])
-            {
-                fields[field.Key] = field.Value.Clone();
-            }
-        }
-        else if (existing.Json.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var property in existing.Json.EnumerateObject())
-            {
-                fields[property.Name] = property.Value.Clone();
-            }
-        }
-
-        if (patch.Kind == RecordPayloadKind.FieldMap)
-        {
-            foreach (var field in patch.Fields ?? [])
-            {
-                fields[field.Key] = field.Value.Clone();
-            }
-        }
-        else if (patch.Json.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var property in patch.Json.EnumerateObject())
-            {
-                fields[property.Name] = property.Value.Clone();
-            }
-        }
-
-        return new RecordPayload
-        {
-            Kind = RecordPayloadKind.FieldMap,
-            Fields = fields
-        };
     }
 
     private async ValueTask<OperationResult<RecordEnvelope>> DispatchMutationIfSuccessfulAsync(
@@ -888,50 +833,11 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             Now = operation.Now == default ? DateTimeOffset.UtcNow : operation.Now
         };
 
-    private static RecordQuery ComposePolicyFilter(RecordQuery query, FilterExpression? policyFilter)
-    {
-        if (policyFilter is null || policyFilter.Kind == FilterNodeKind.True)
-        {
-            return query;
-        }
+    private static RecordQuery ComposePolicyFilter(RecordQuery query, FilterExpression? policyFilter) =>
+        BasePolicyRuntimeSimulation.ComposePolicyFilter(query, policyFilter);
 
-        if (query.Filter is null)
-        {
-            return query with { Filter = policyFilter };
-        }
-
-        if (query.Filter.Kind == FilterNodeKind.True)
-        {
-            return query with { Filter = policyFilter };
-        }
-
-        if (policyFilter.Kind == FilterNodeKind.False || query.Filter.Kind == FilterNodeKind.False)
-        {
-            return query with { Filter = new FilterExpression { Kind = FilterNodeKind.False } };
-        }
-
-        return query with
-        {
-            Filter = new FilterExpression
-            {
-                Kind = FilterNodeKind.And,
-                Children = [policyFilter, query.Filter]
-            }
-        };
-    }
-
-    private static VisibilityLevel ViewFor(PrincipalContext principal, OperationContext context)
-    {
-        if (context.Mode is OperationMode.Admin or OperationMode.System
-            || principal.AuthenticationState is PrincipalAuthenticationState.Admin or PrincipalAuthenticationState.System)
-        {
-            return VisibilityLevel.Admin;
-        }
-
-        return principal.AuthenticationState == PrincipalAuthenticationState.Anonymous
-            ? VisibilityLevel.Public
-            : VisibilityLevel.Authenticated;
-    }
+    private static VisibilityLevel ViewFor(PrincipalContext principal, OperationContext context) =>
+        BasePolicyRuntimeSimulation.ViewFor(principal, context);
 
     private static OperationResult<T> Failure<T, TValue>(OperationResult<TValue> result) =>
         new()

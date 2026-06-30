@@ -9,6 +9,7 @@ using HPD.Base.Results;
 using HPD.Base.Runtime.Configuration;
 using HPD.Base.Runtime.Descriptors;
 using HPD.Base.Runtime.Policy;
+using HPD.Base.Runtime.Policy.Admin;
 using HPD.Base.Runtime.Query;
 using HPD.Base.Runtime.Schema;
 using HPD.Base.Schema;
@@ -48,12 +49,25 @@ using BaseRuntimeValidationSeverityConverter = LowerCamelJsonStringEnumConverter
 [JsonSerializable(typeof(BaseDescriptorSnapshot))]
 [JsonSerializable(typeof(BasePolicyRequest))]
 [JsonSerializable(typeof(BasePolicyEvaluation))]
+[JsonSerializable(typeof(BasePolicyExplainRequest))]
+[JsonSerializable(typeof(BasePolicyExplainResponse))]
+[JsonSerializable(typeof(BasePolicyExplainOperation))]
+[JsonSerializable(typeof(BasePolicyExplainOutcome))]
+[JsonSerializable(typeof(BasePolicyExplainOptions))]
+[JsonSerializable(typeof(BasePolicyExplainDecision))]
+[JsonSerializable(typeof(BasePolicyExplainRuntimeSummary))]
+[JsonSerializable(typeof(BasePolicyExplainConstraintSummary))]
+[JsonSerializable(typeof(BasePolicyExplainFilterSummary))]
+[JsonSerializable(typeof(BasePolicyExplainFieldMaskSummary))]
+[JsonSerializable(typeof(BasePolicyExplainObligationSummary))]
+[JsonSerializable(typeof(BasePolicyExplainRedactionSummary))]
 [JsonSerializable(typeof(BasePayloadValidationRequest))]
 [JsonSerializable(typeof(BaseValidatedPayload))]
 [JsonSerializable(typeof(ValidatedRecordQuery))]
 [JsonSerializable(typeof(OperationResult<BaseRuntimeValidationResult>))]
 [JsonSerializable(typeof(OperationResult<ExpandedBaseManifest>))]
 [JsonSerializable(typeof(OperationResult<BasePolicyEvaluation>))]
+[JsonSerializable(typeof(OperationResult<BasePolicyExplainResponse>))]
 [JsonSerializable(typeof(OperationResult<BaseValidatedPayload>))]
 [JsonSerializable(typeof(OperationResult<ValidatedRecordQuery>))]
 [JsonSerializable(typeof(HPDBaseRuntimeOptions))]

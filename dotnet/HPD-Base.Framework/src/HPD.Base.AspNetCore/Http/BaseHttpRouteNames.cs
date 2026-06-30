@@ -34,5 +34,8 @@ public static class BaseHttpRouteNames
     /// <summary>Admin diagnostics route id.</summary>
     public const string AdminDiagnostics = "base.admin.diagnostics";
 
+    /// <summary>Admin policy explain route id.</summary>
+    public const string AdminPolicyExplain = "base.admin.policy.explain";
+
     internal static string RecordCreate => BaseRouteIds.RecordsCreate;
 }

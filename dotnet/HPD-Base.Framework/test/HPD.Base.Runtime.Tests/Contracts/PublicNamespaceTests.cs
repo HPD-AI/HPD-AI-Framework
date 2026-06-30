@@ -15,6 +15,7 @@ public sealed class PublicNamespaceTests
         "HPD.Base.Runtime.Operations",
         "HPD.Base.Runtime.Query",
         "HPD.Base.Runtime.Policy",
+        "HPD.Base.Runtime.Policy.Admin",
         "HPD.Base.Runtime.Results",
         "HPD.Base.Runtime.Events",
         "HPD.Base.Runtime.Health",

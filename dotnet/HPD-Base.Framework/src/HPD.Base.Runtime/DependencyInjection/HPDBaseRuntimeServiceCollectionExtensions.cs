@@ -7,6 +7,7 @@ using HPD.Base.Runtime.Events;
 using HPD.Base.Runtime.Health;
 using HPD.Base.Runtime.Operations;
 using HPD.Base.Runtime.Policy;
+using HPD.Base.Runtime.Policy.Admin;
 using HPD.Base.Runtime.Query;
 using HPD.Base.Runtime.Results;
 using HPD.Base.Runtime.Schema;
@@ -32,6 +33,8 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.AddOptions();
         services.TryAddSingleton(options);
         services.TryAddSingleton<IOptions<HPDBaseRuntimeOptions>>(Options.Create(options));
+        services.TryAddSingleton<IOptions<HPDBasePolicyAdminOptions>>(Options.Create(new HPDBasePolicyAdminOptions()));
+        services.TryAddSingleton(TimeProvider.System);
 
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorValidator, DefaultBaseDescriptorValidator>());
         services.TryAddSingleton<IBaseDescriptorRegistry, DefaultBaseDescriptorRegistry>();
@@ -44,6 +47,8 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton<IRecordStoreResolver, DefaultRecordStoreResolver>();
         services.TryAddSingleton<IBaseQueryValidator, DefaultBaseQueryValidator>();
         services.TryAddSingleton<IBasePolicyOrchestrator, DefaultBasePolicyOrchestrator>();
+        services.TryAddSingleton<BasePolicyExplainRedactor>();
+        services.TryAddSingleton<IBasePolicyExplainService, DefaultBasePolicyExplainService>();
         services.TryAddSingleton<IBaseRecordRedactor, DefaultBaseRecordRedactor>();
         services.TryAddSingleton<IBaseRecordRuntime, DefaultBaseRecordRuntime>();
         services.TryAddSingleton<IBaseHealthProvider, DefaultBaseHealthProvider>();
@@ -58,6 +63,9 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton<IBaseEventEnvelopeFactory, DefaultBaseEventEnvelopeFactory>();
         services.TryAddSingleton<IBaseEventDispatcher, DefaultBaseEventDispatcher>();
         services.TryAddSingleton<IHPDBaseRuntime, DefaultHPDBaseRuntime>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, PolicyAdminDescriptorContributor>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, PolicyAdminHealthContributor>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, PolicyAdminHealthContributor>());
 
         return new HPDBaseRuntimeBuilder(services, options);
     }

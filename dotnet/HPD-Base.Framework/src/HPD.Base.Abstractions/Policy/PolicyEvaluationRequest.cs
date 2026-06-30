@@ -21,6 +21,7 @@ public sealed record PolicyResource
     public RecordQuery? Query { get; init; }
     public RecordEnvelope? ExistingRecord { get; init; }
     public RecordPayload? ProposedPayload { get; init; }
+    public RecordEnvelope? ProposedRecord { get; init; }
     public string? RecordId { get; init; }
     public string? FieldPath { get; init; }
 }

@@ -149,9 +149,22 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
         Assert.NotNull(policy.LastRequest!.Resource.ExistingRecord);
         Assert.Equal("new", policy.LastRequest.Resource.ProposedPayload!.Fields!["title"].GetString());
         Assert.Equal("active", policy.LastRequest.Resource.ProposedPayload.Fields["status"].GetString());
+        var proposedRecord = policy.LastRequest.Resource.ProposedRecord;
+        Assert.NotNull(proposedRecord);
+        var proposedFields = proposedRecord!.Payload.Fields;
+        Assert.NotNull(proposedFields);
+        Assert.Equal("rec_1", proposedRecord.Id.Value);
+        Assert.Equal("new", proposedFields!["title"].GetString());
+        Assert.Equal("active", proposedFields["status"].GetString());
         Assert.Equal(["title"], store.LastPatchRequest!.Patch.Fields!.Keys.ToArray());
         Assert.NotNull(publisher.LastEnvelope);
-        Assert.Equal("old", publisher.LastEnvelope!.Before!.Payload.Fields!["title"].GetString());
+        var before = publisher.LastEnvelope!.Before;
+        Assert.NotNull(before);
+        var beforeRecord = before!;
+        Assert.NotNull(beforeRecord.Payload);
+        var beforeFields = beforeRecord.Payload!.Fields;
+        Assert.NotNull(beforeFields);
+        Assert.Equal("old", beforeFields!["title"].GetString());
     }
 
     [Fact]

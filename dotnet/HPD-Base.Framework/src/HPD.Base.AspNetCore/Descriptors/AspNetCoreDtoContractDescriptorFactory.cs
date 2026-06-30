@@ -16,6 +16,8 @@ internal static class AspNetCoreDtoContractDescriptorFactory
     public const string RecordReplaceRequest = "base.recordReplaceRequest";
     public const string RecordDeleteRequest = "base.recordDeleteRequest";
     public const string RecordQuery = "base.recordQuery";
+    public const string BasePolicyExplainRequest = "base.policyExplainRequest";
+    public const string BasePolicyExplainResponse = "base.policyExplainResponse";
     public const string ProblemDetails = "hpd.base.aspnet.problemDetails";
 
     public static DtoContractDescriptor[] Create() =>
@@ -38,15 +40,17 @@ internal static class AspNetCoreDtoContractDescriptorFactory
         Dto(RecordReplaceRequest),
         Dto(RecordDeleteRequest),
         Dto(RecordQuery),
+        Dto(BasePolicyExplainRequest, VisibilityLevel.Admin),
+        Dto(BasePolicyExplainResponse, VisibilityLevel.Admin),
         Dto(BaseDtoIds.BaseError),
         Dto(ProblemDetails)
     ];
 
-    private static DtoContractDescriptor Dto(string id) => new()
+    private static DtoContractDescriptor Dto(string id, VisibilityLevel visibility = VisibilityLevel.Public) => new()
     {
         Id = id,
         ContractVersion = "1.0",
-        Visibility = VisibilityLevel.Public,
+        Visibility = visibility,
         JsonContextOwner = "HPD.Base.AspNetCore"
     };
 }

@@ -1,4 +1,5 @@
 using HPD.Base;
+using HPD.Base.AspNetCore.Http;
 using HPD.Base.Descriptors;
 using HPD.Base.Runtime.Descriptors;
 
@@ -49,6 +50,7 @@ internal sealed class AspNetCoreProjectionDescriptorContributor : IBaseDescripto
                         Feature(BaseFeatureIds.CapabilitiesRead, VisibilityLevel.Public),
                         Feature(BaseFeatureIds.HealthRead, VisibilityLevel.Public),
                         Feature(BaseFeatureIds.DiagnosticsRead, VisibilityLevel.Public),
+                        Feature("policy.explain.admin", VisibilityLevel.Admin, [BaseHttpRouteNames.AdminPolicyExplain]),
                         Feature(BaseFeatureIds.RecordsList, VisibilityLevel.Public),
                         Feature(BaseFeatureIds.RecordsQuery, VisibilityLevel.Public),
                         Feature(BaseFeatureIds.RecordsGet, VisibilityLevel.Public),
@@ -84,6 +86,7 @@ internal sealed class AspNetCoreProjectionDescriptorContributor : IBaseDescripto
         BaseFeatureIds.CapabilitiesRead,
         BaseFeatureIds.HealthRead,
         BaseFeatureIds.DiagnosticsRead,
+        "policy.explain.admin",
         BaseFeatureIds.RecordsList,
         BaseFeatureIds.RecordsQuery,
         BaseFeatureIds.RecordsGet,
@@ -93,13 +96,14 @@ internal sealed class AspNetCoreProjectionDescriptorContributor : IBaseDescripto
         BaseFeatureIds.RecordsDelete
     ];
 
-    private static CapabilityFeatureDescriptor Feature(string featureId, VisibilityLevel visibility) => new()
+    private static CapabilityFeatureDescriptor Feature(string featureId, VisibilityLevel visibility, string[]? routeRefs = null) => new()
     {
         FeatureId = featureId,
         Version = "1.0",
         Status = CapabilityStatus.Available,
         SupportLevel = SupportLevel.Required,
         Scope = CapabilityScope.Runtime,
+        RouteRefs = routeRefs,
         Visibility = visibility
     };
 }

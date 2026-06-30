@@ -153,6 +153,9 @@ internal static class DescriptorViewFilter
             RequiredCapabilities = VisibleRefs(projection.RequiredCapabilities, visibleFeatureIds),
             ProvidedCapabilities = VisibleRefs(projection.ProvidedCapabilities, visibleFeatureIds),
             Routes = NonEmpty(routes),
+            DtoContracts = projection.DtoContracts?
+                .Where(dto => visibleDtoIds.Contains(dto.Id))
+                .ToArray(),
             HealthRefs = VisibleRefs(projection.HealthRefs, visibleHealthIds),
             DiagnosticRefs = VisibleRefs(projection.DiagnosticRefs, visibleDiagnosticIds),
             Entrypoints = projection.Entrypoints?

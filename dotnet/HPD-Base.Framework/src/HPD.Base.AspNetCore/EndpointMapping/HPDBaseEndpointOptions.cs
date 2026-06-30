@@ -34,6 +34,11 @@ public sealed class HPDBaseEndpointOptions
     public bool MapAdminMetadata { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets whether the admin policy explain endpoint is mapped.
+    /// </summary>
+    public bool MapAdminPolicyExplain { get; set; }
+
+    /// <summary>
     /// Gets or sets whether health endpoints are mapped.
     /// </summary>
     public bool MapHealth { get; set; } = true;

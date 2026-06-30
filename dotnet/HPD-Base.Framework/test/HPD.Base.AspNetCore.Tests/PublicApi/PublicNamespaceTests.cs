@@ -12,6 +12,7 @@ public sealed class PublicNamespaceTests
             "HPD.Base.AspNetCore.DependencyInjection",
             "HPD.Base.AspNetCore.EndpointMapping",
             "HPD.Base.AspNetCore.Http",
+            "HPD.Base.AspNetCore.Policy.Admin",
             "HPD.Base.AspNetCore.QueryBinding",
             "HPD.Base.AspNetCore.Results",
             "HPD.Base.AspNetCore.Serialization"

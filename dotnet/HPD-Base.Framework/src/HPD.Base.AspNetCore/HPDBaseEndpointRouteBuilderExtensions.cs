@@ -1,5 +1,6 @@
 using HPD.Base.AspNetCore.EndpointMapping;
 using HPD.Base.AspNetCore.EndpointMapping.Endpoints;
+using HPD.Base.AspNetCore.Policy.Admin;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 
@@ -42,18 +43,24 @@ public static class HPDBaseEndpointRouteBuilderExtensions
         if (options.MapRecords)
             RecordEndpoints.Map(group);
 
-        if (options.MapAdminMetadata)
+        if (options.MapAdminMetadata || options.MapAdminPolicyExplain)
         {
             var admin = group.MapGroup("/admin");
             if (options.RequireAuthorizationForAdminRoutes)
                 admin.RequireAuthorization(options.AdminPolicyName);
 
-            MetadataEndpoints.MapAdmin(admin);
-            CollectionEndpoints.MapAdmin(admin);
-            if (options.MapHealth)
-                HealthEndpoints.MapAdmin(admin);
-            if (options.MapDiagnostics)
-                DiagnosticEndpoints.MapAdmin(admin);
+            if (options.MapAdminMetadata)
+            {
+                MetadataEndpoints.MapAdmin(admin);
+                CollectionEndpoints.MapAdmin(admin);
+                if (options.MapHealth)
+                    HealthEndpoints.MapAdmin(admin);
+                if (options.MapDiagnostics)
+                    DiagnosticEndpoints.MapAdmin(admin);
+            }
+
+            if (options.MapAdminPolicyExplain)
+                PolicyAdminExplainEndpoints.Map(admin);
         }
 
         options.ConfigureRoutes?.Invoke(group);
