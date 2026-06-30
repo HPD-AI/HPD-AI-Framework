@@ -27,11 +27,14 @@ internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApi
         BaseHttpHeaders.CorrelationId
     ];
 
+    private const string FileObjectsUploadOperationId = "base.files.objects.upload";
+    private const string FileObjectsListOperationId = "base.files.objects.list";
+
     public Task TransformAsync(OpenApiOperation operation, OpenApiOperationTransformerContext context, CancellationToken cancellationToken)
     {
         var metadata = context.Description.ActionDescriptor.EndpointMetadata.OfType<HPDBaseOpenApiRouteMetadata>().FirstOrDefault();
         if (metadata is null)
-            return Task.CompletedTask;
+            return TransformModuleRouteAsync(operation, context);
 
         operation.OperationId = metadata.OperationId;
         operation.Summary ??= metadata.Summary;
@@ -55,6 +58,29 @@ internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApi
 
         if (options.Value.AddBearerSecurityScheme && metadata.IsAdmin && HasAuthorizationMetadata(context))
             AddSecurityRequirement(operation, options.Value.BearerSecuritySchemeName, context.Document);
+
+        if (options.Value.AddHPDExtensions)
+            AddHPDExtensions(operation, metadata);
+
+        return Task.CompletedTask;
+    }
+
+    private Task TransformModuleRouteAsync(OpenApiOperation operation, OpenApiOperationTransformerContext context)
+    {
+        var metadata = context.Description.ActionDescriptor.EndpointMetadata.OfType<IHPDBaseModuleOpenApiMetadata>().FirstOrDefault();
+        if (metadata is null)
+            return Task.CompletedTask;
+
+        operation.OperationId = metadata.OperationId;
+        operation.Summary ??= metadata.Summary;
+        operation.Description ??= metadata.Description;
+
+        AddPathParameters(operation, context.Description.RelativePath);
+        AddModuleQueryParameters(operation, metadata.OperationId);
+        AddRequestHeader(operation, BaseHttpHeaders.CorrelationId, required: false, "Safe caller-provided correlation id echoed in responses.");
+        AddModuleRequestHeaders(operation, metadata.OperationId);
+        foreach (var header in s_responseHeaders)
+            AddResponseHeader(operation, header);
 
         if (options.Value.AddHPDExtensions)
             AddHPDExtensions(operation, metadata);
@@ -124,6 +150,26 @@ internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApi
                 AddParameter(operation, "ext[module.name]", ParameterLocation.Query, required: false, "Extension query arguments keyed by module and name.");
                 break;
         }
+    }
+
+    private static void AddModuleQueryParameters(OpenApiOperation operation, string operationId)
+    {
+        if (operationId != FileObjectsListOperationId)
+            return;
+
+        AddParameter(operation, "prefix", ParameterLocation.Query, required: false, "Object key prefix used to filter listed file objects.");
+        AddParameter(operation, "limit", ParameterLocation.Query, required: false, "Maximum number of file objects to return.");
+        AddParameter(operation, "cursor", ParameterLocation.Query, required: false, "Cursor token for file object pagination when supported.");
+    }
+
+    private static void AddModuleRequestHeaders(OpenApiOperation operation, string operationId)
+    {
+        if (operationId != FileObjectsUploadOperationId)
+            return;
+
+        AddRequestHeader(operation, "X-HPD-File-Key", required: true, "Logical object key for the uploaded file object.");
+        AddRequestHeader(operation, "X-HPD-File-Name", required: false, "Original or display file name for the uploaded file object.");
+        AddRequestHeader(operation, "X-HPD-File-Checksum", required: false, "Optional checksum for upload validation, for example sha256:<hex>.");
     }
 
     private static void AddRequestHeader(OpenApiOperation operation, string name, bool required, string description)
@@ -200,6 +246,15 @@ internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApi
             operation.Extensions["x-hpd-request-dto-id"] = new JsonNodeExtension(metadata.RequestDtoId);
         operation.Extensions["x-hpd-response-dto-id"] = new JsonNodeExtension(metadata.ResponseDtoId);
         operation.Extensions["x-hpd-error-dto-id"] = new JsonNodeExtension(metadata.ErrorDtoId);
+        operation.Extensions["x-hpd-required-feature-ids"] = new JsonNodeExtension(new JsonArray(metadata.RequiredFeatureIds.Select(static featureId => JsonValue.Create(featureId)).ToArray()));
+    }
+
+    private static void AddHPDExtensions(OpenApiOperation operation, IHPDBaseModuleOpenApiMetadata metadata)
+    {
+        operation.Extensions ??= new Dictionary<string, IOpenApiExtension>();
+        operation.Extensions["x-hpd-operation-id"] = new JsonNodeExtension(metadata.OperationId);
+        operation.Extensions["x-hpd-route-visibility"] = new JsonNodeExtension("Public");
+        operation.Extensions["x-hpd-auth-requirement"] = new JsonNodeExtension("Policy");
         operation.Extensions["x-hpd-required-feature-ids"] = new JsonNodeExtension(new JsonArray(metadata.RequiredFeatureIds.Select(static featureId => JsonValue.Create(featureId)).ToArray()));
     }
 }

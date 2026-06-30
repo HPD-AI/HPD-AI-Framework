@@ -22,7 +22,13 @@ internal static class HPDBaseOpenApiFilters
         BaseRouteIds.RecordsCreate,
         BaseRouteIds.RecordsPatch,
         BaseRouteIds.RecordsReplace,
-        BaseRouteIds.RecordsDelete
+        BaseRouteIds.RecordsDelete,
+        "base.files.objects.upload",
+        "base.files.objects.download",
+        "base.files.objects.head",
+        "base.files.objects.metadata.get",
+        "base.files.objects.delete",
+        "base.files.objects.list"
     ];
 
     private static readonly HashSet<string> s_adminOperationIds =
@@ -39,6 +45,7 @@ internal static class HPDBaseOpenApiFilters
 
     public static bool Public(ApiDescription description) =>
         description.ActionDescriptor.EndpointMetadata.OfType<HPDBaseOpenApiRouteMetadata>().FirstOrDefault() is { IsAdmin: false }
+        || description.ActionDescriptor.EndpointMetadata.OfType<IHPDBaseModuleOpenApiMetadata>().Any()
         || (OperationId(description) is { } operationId && s_publicOperationIds.Contains(operationId));
 
     public static bool Admin(ApiDescription description) =>
@@ -46,6 +53,7 @@ internal static class HPDBaseOpenApiFilters
         || (OperationId(description) is { } operationId && s_adminOperationIds.Contains(operationId));
 
     private static string? OperationId(ApiDescription description) =>
-        description.ActionDescriptor.EndpointMetadata.OfType<IEndpointNameMetadata>().FirstOrDefault()?.EndpointName
+        description.ActionDescriptor.EndpointMetadata.OfType<IHPDBaseModuleOpenApiMetadata>().FirstOrDefault()?.OperationId
+        ?? description.ActionDescriptor.EndpointMetadata.OfType<IEndpointNameMetadata>().FirstOrDefault()?.EndpointName
         ?? description.ActionDescriptor.AttributeRouteInfo?.Name;
 }
