@@ -1,7 +1,7 @@
 {
-  "name": "@hpd/base-client",
+  "name": "@hpd/base-client-files",
   "version": "0.1.0",
-  "description": "Zero-dependency TypeScript client for HPD.BASE records, metadata, capabilities, health, and diagnostics.",
+  "description": "Files/object storage module client for HPD.BASE.",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -10,18 +10,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./query": {
-      "types": "./dist/query/index.d.ts",
-      "import": "./dist/query/index.js"
-    },
-    "./transport": {
-      "types": "./dist/transport/index.d.ts",
-      "import": "./dist/transport/index.js"
-    },
-    "./result": {
-      "types": "./dist/result.d.ts",
-      "import": "./dist/result.js"
     },
     "./types": {
       "types": "./dist/types/index.d.ts",
@@ -45,7 +33,9 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@hpd/base-client": "file:../hpd-base-client"
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0",
@@ -54,8 +44,8 @@
   "keywords": [
     "hpd",
     "base",
-    "records",
-    "metadata",
+    "files",
+    "object-storage",
     "sdk",
     "typescript",
     "fetch"

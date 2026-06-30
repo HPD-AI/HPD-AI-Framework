@@ -4,6 +4,7 @@ import { HpdBaseError } from "./errors.js";
 import { createSchemaMetadataIndex } from "./hydration.js";
 import { unwrapResult } from "./result.js";
 import { encodePathSegment, HttpTransport } from "./transport/http.js";
+import type { HttpHeaderOptions } from "./transport/http.js";
 import type { BaseManifest, CapabilityDescriptor, CapabilityFeatureDescriptor, CollectionSummaryDescriptor, ExpandedBaseManifest, HydratedBaseMetadata, RouteDescriptor } from "./types/descriptors.js";
 import type { JsonObject } from "./types/records.js";
 import type { BaseResult } from "./types/results.js";
@@ -83,6 +84,28 @@ export interface SupportsOptions {
   allowDegraded?: boolean;
 }
 
+export interface BaseExtensionHeaderOptions {
+  headers?: HeadersInit;
+  hasBody?: boolean;
+  contentType?: string | false;
+  accept?: string | false;
+  correlationId?: string;
+}
+
+export interface BaseClientExtensionContext {
+  readonly baseUrl: string;
+  readonly fetch: typeof globalThis.fetch;
+  readonly credentials?: RequestCredentials;
+  readonly defaultSignal?: AbortSignal;
+  url(path: string, query?: URLSearchParams): string;
+  headers(options?: BaseExtensionHeaderOptions): Promise<Headers>;
+  metadata(options?: MetadataRequestOptions): Promise<HydratedBaseMetadata>;
+  metadataResult(options?: MetadataRequestOptions): Promise<BaseResult<HydratedBaseMetadata>>;
+  supports(featureId: string, options?: SupportsOptions): boolean | undefined;
+  feature(featureId: string, options?: SupportsOptions): CapabilityFeatureDescriptor | undefined;
+  requireFeature(featureId: string, options?: SupportsOptions): CapabilityFeatureDescriptor;
+}
+
 export interface ListRequestOptions extends RequestOptions {
   method?: "auto" | "get" | "post";
   maxUrlLength?: number;
@@ -131,6 +154,8 @@ export interface HpdBaseClient {
   supports(featureId: string, options?: SupportsOptions): boolean | undefined;
   feature(featureId: string, options?: SupportsOptions): CapabilityFeatureDescriptor | undefined;
   requireFeature(featureId: string, options?: SupportsOptions): CapabilityFeatureDescriptor;
+  /** Narrow module-client hook for URL, headers, fetch, metadata, and capability reuse. */
+  extension(): BaseClientExtensionContext;
 }
 
 export interface BaseAdminClient {
@@ -190,7 +215,7 @@ interface CacheEntry {
   createdAt: number;
 }
 
-type MetadataClientCore = Omit<HpdBaseClient, "admin" | "collection"> & { latestMetadata?: HydratedBaseMetadata };
+type MetadataClientCore = Omit<HpdBaseClient, "admin" | "collection" | "extension"> & { latestMetadata?: HydratedBaseMetadata };
 
 /** Creates a zero-dependency fetch client for the implemented HPD.BASE ASP.NET projection. */
 export function createBaseClient(config: BaseClientConfig | string): HpdBaseClient {
@@ -209,8 +234,12 @@ export function createBaseClient(config: BaseClientConfig | string): HpdBaseClie
   const resolveView = (requestedView: MetadataView) => requestedView === "admin" ? admin : publicClient;
   publicClient = createMetadataClient("public", transport, cache, resolved, resolveView);
   admin = createMetadataClient("admin", transport, cache, resolved, resolveView);
+  const extension = createExtensionContext(transport, publicClient);
   return {
     ...publicClient,
+    get latestMetadata() {
+      return publicClient.latestMetadata;
+    },
     admin,
     collection<TRecord extends JsonObject = JsonObject>(id: string): CollectionClient<TRecord> {
       return new BaseCollectionClient<TRecord>(
@@ -220,6 +249,37 @@ export function createBaseClient(config: BaseClientConfig | string): HpdBaseClie
         (collectionId, options) => publicClient.collectionDefinitionResult(collectionId, options),
         (collectionId, operation, options) => collectionSupports(publicClient.latestMetadata, collectionId, operation as CollectionOperation, options)
       );
+    },
+    extension: () => extension
+  };
+}
+
+function createExtensionContext(transport: HttpTransport, client: MetadataClientCore): BaseClientExtensionContext {
+  return {
+    baseUrl: transport.baseUrl,
+    fetch: transport.fetch,
+    credentials: transport.credentials,
+    defaultSignal: transport.defaultSignal,
+    url(path: string, query?: URLSearchParams) {
+      return transport.url(path, query);
+    },
+    headers(options?: BaseExtensionHeaderOptions) {
+      return transport.headers(options as HttpHeaderOptions | undefined);
+    },
+    metadata(options?: MetadataRequestOptions) {
+      return client.metadata(options);
+    },
+    metadataResult(options?: MetadataRequestOptions) {
+      return client.metadataResult(options);
+    },
+    supports(featureId: string, options?: SupportsOptions) {
+      return client.supports(featureId, options);
+    },
+    feature(featureId: string, options?: SupportsOptions) {
+      return client.feature(featureId, options);
+    },
+    requireFeature(featureId: string, options?: SupportsOptions) {
+      return client.requireFeature(featureId, options);
     }
   };
 }

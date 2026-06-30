@@ -23,28 +23,40 @@ export interface HttpRequestOptions {
   context?: OperationContextKind;
 }
 
+export interface HttpHeaderOptions {
+  headers?: HeadersInit;
+  hasBody?: boolean;
+  contentType?: string | false;
+  accept?: string | false;
+  correlationId?: string;
+}
+
 export class HttpTransport {
-  private readonly baseUrl: string;
-  private readonly fetchImpl: typeof globalThis.fetch;
+  readonly baseUrl: string;
+  readonly fetch: typeof globalThis.fetch;
+  readonly credentials?: RequestCredentials;
+  readonly defaultSignal?: AbortSignal;
   private readonly config: HttpTransportConfig;
 
   constructor(config: HttpTransportConfig) {
     this.baseUrl = normalizeBaseUrl(config.baseUrl);
-    this.fetchImpl = config.fetch ?? globalThis.fetch;
-    if (!this.fetchImpl) {
+    this.fetch = config.fetch ?? globalThis.fetch;
+    if (!this.fetch) {
       throw new Error("HPD.BASE client requires global fetch or config.fetch.");
     }
+    this.credentials = config.credentials;
+    this.defaultSignal = config.defaultSignal;
     this.config = config;
   }
 
   async request<T>(options: HttpRequestOptions): Promise<BaseResult<T>> {
     try {
       const hasBody = options.body !== undefined;
-      const response = await this.fetchImpl(this.url(options.path, options.query), {
+      const response = await this.fetch(this.url(options.path, options.query), {
         method: options.method ?? "GET",
         credentials: this.config.credentials,
         signal: options.signal ?? this.config.defaultSignal,
-        headers: await this.headers(options.headers, hasBody, options.correlationId),
+        headers: await this.headers({ headers: options.headers, hasBody, correlationId: options.correlationId }),
         ...(hasBody ? { body: JSON.stringify(options.body) } : null)
       });
       const headers = extractResponseHeaders(response.headers);
@@ -71,15 +83,15 @@ export class HttpTransport {
     return qs ? `${joined}?${qs}` : joined;
   }
 
-  private async headers(perCall: HeadersInit | undefined, hasBody: boolean, correlationId: string | undefined): Promise<Headers> {
+  async headers(options: HttpHeaderOptions = {}): Promise<Headers> {
     const headers = new Headers(await resolveHeaders(this.config.headers));
-    headers.set("Accept", headers.get("Accept") ?? "application/json");
-    if (hasBody && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+    if (options.accept !== false) headers.set("Accept", options.accept ?? headers.get("Accept") ?? "application/json");
+    if (options.hasBody && options.contentType !== false && !headers.has("Content-Type")) headers.set("Content-Type", options.contentType ?? "application/json");
     if (this.config.clientName) headers.set("X-HPD-Client", this.config.clientName);
     if (this.config.clientVersion) headers.set("X-HPD-Client-Version", this.config.clientVersion);
-    if (correlationId) headers.set("X-Correlation-ID", correlationId);
-    if (perCall) {
-      new Headers(perCall).forEach((value, key) => headers.set(key, value));
+    if (options.correlationId) headers.set("X-Correlation-ID", options.correlationId);
+    if (options.headers) {
+      new Headers(options.headers).forEach((value, key) => headers.set(key, value));
     }
     return headers;
   }

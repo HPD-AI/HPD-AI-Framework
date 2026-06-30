@@ -3,6 +3,8 @@ export type {
   BaseAdminClient,
   BaseBootstrapOptions,
   BaseClientConfig,
+  BaseClientExtensionContext,
+  BaseExtensionHeaderOptions,
   BootstrapRequestOptions,
   CollectionClient,
   CollectionOperation,
