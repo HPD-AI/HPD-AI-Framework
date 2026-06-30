@@ -76,9 +76,9 @@ public class EventLoopMailboxTests
         var stats = mailbox.GetStats();
         Assert.Equal(1, stats.Capacity);
         Assert.Equal(0, stats.Count);
-        Assert.Equal(2, stats.AcceptedWrites);
-        Assert.Equal(1, stats.DroppedWrites);
-        Assert.Equal(1, stats.Reads);
+        Assert.Equal(2, stats.Written);
+        Assert.Equal(1, stats.Dropped);
+        Assert.Equal(1, stats.Read);
         Assert.False(stats.IsDisposed);
 
         mailbox.Dispose();

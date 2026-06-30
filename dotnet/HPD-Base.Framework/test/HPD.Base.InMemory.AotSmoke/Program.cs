@@ -78,7 +78,10 @@ var streamCreate = await store.CreateAsync(Collection(), new RecordCreateRequest
 Require(streamCreate.Status == OperationStatus.Created, "Direct create failed.");
 
 var streamed = 0;
-await foreach (var _ in store.StreamAsync(Collection(), new RecordQuery { Count = QueryCountMode.None }, Operation(BaseOperationKind.List)))
+var stream = await store.OpenStreamAsync(Collection(), new RecordQuery { Count = QueryCountMode.None }, Operation(BaseOperationKind.List));
+Require(stream.Status == OperationStatus.Ok && stream.Value is not null, "Stream open failed.");
+var openedStream = stream.Value ?? throw new InvalidOperationException("Stream open returned no value.");
+await foreach (var _ in openedStream.Items)
 {
     streamed++;
 }

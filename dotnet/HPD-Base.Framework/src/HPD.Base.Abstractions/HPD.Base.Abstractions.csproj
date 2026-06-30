@@ -16,4 +16,8 @@
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
+  </ItemGroup>
 </Project>

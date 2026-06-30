@@ -7,6 +7,7 @@ using HPD.Base.Runtime;
 using HPD.Base.Runtime.Results;
 using HPD.Base.Schema;
 using HPD.Base.Stores;
+using HPD.Events;
 using Microsoft.Extensions.Options;
 using System.Buffers;
 using System.Globalization;
@@ -315,23 +316,56 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
         ReplaceCoreAsync(collection, id, request, expectedRevision, context, cancellationToken);
 
     /// <inheritdoc />
-    public async IAsyncEnumerable<RecordEnvelope> StreamAsync(
+    public ValueTask<OperationResult<AsyncStream<RecordEnvelope>>> OpenStreamAsync(
+        CollectionDefinition collection,
+        RecordQuery query,
+        OperationContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(collection);
+        ArgumentNullException.ThrowIfNull(query);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_options.EnableStreamingCapability)
+        {
+            return ValueTask.FromResult(InMemoryResultFactory.Unsupported<AsyncStream<RecordEnvelope>>(
+                InMemoryErrorCodes.UnsupportedQuery,
+                "Streaming is disabled for this HPD.BASE InMemory store.",
+                collection.Id));
+        }
+
+        if (ValidateUnsupportedQuery<RecordEnvelope>(query, allowCount: false) is { } queryError)
+        {
+            return ValueTask.FromResult(new OperationResult<AsyncStream<RecordEnvelope>>
+            {
+                Status = queryError.Status,
+                Error = queryError.Error,
+                Warnings = queryError.Warnings,
+                Diagnostics = queryError.Diagnostics,
+                Revision = queryError.Revision,
+                Events = queryError.Events
+            });
+        }
+
+        var stream = new AsyncStream<RecordEnvelope>
+        {
+            Items = StreamItemsAsync(collection, query, context, cancellationToken),
+            Descriptor = new AsyncStreamDescriptor
+            {
+                StreamId = $"{_options.StoreId}:{collection.Id}",
+                Backpressure = AsyncStreamBackpressureMode.Wait,
+                DeliveryGuarantee = AsyncStreamDeliveryGuarantee.BestEffort
+            }
+        };
+
+        return ValueTask.FromResult(OperationResults.Ok(stream));
+    }
+
+    private async IAsyncEnumerable<RecordEnvelope> StreamItemsAsync(
         CollectionDefinition collection,
         RecordQuery query,
         OperationContext context,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!_options.EnableStreamingCapability)
-        {
-            throw new InvalidOperationException("Streaming is disabled for this HPD.BASE InMemory store.");
-        }
-
-        if (ValidateUnsupportedQuery<RecordEnvelope>(query, allowCount: false) is { } queryError)
-        {
-            throw new InvalidOperationException(queryError.Error?.Message ?? "Stream query is unsupported.");
-        }
-
         var queryWithoutCount = query with { Count = QueryCountMode.None };
         var list = await ListAsync(collection, queryWithoutCount, context, cancellationToken).ConfigureAwait(false);
         if (!list.IsSuccess() || list.Value is null)

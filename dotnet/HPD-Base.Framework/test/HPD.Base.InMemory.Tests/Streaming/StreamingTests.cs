@@ -15,10 +15,13 @@ public sealed class StreamingTests
             InMemoryTestData.Operation(BaseOperationKind.Create));
 
         var items = new List<RecordEnvelope>();
-        await foreach (var item in store.StreamAsync(
+        var stream = await store.OpenStreamAsync(
             collection,
             new RecordQuery { Count = QueryCountMode.None },
-            InMemoryTestData.Operation(BaseOperationKind.List)))
+            InMemoryTestData.Operation(BaseOperationKind.List));
+
+        stream.Status.Should().Be(OperationStatus.Ok);
+        await foreach (var item in stream.Value!.Items)
         {
             items.Add(item);
         }
@@ -41,10 +44,13 @@ public sealed class StreamingTests
             new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", "two")) },
             InMemoryTestData.Operation(BaseOperationKind.Create));
 
-        await using var enumerator = store.StreamAsync(
+        var stream = await store.OpenStreamAsync(
             collection,
             new RecordQuery { Count = QueryCountMode.None },
-            InMemoryTestData.Operation(BaseOperationKind.List)).GetAsyncEnumerator();
+            InMemoryTestData.Operation(BaseOperationKind.List));
+        stream.Status.Should().Be(OperationStatus.Ok);
+
+        await using var enumerator = stream.Value!.Items.GetAsyncEnumerator();
 
         (await enumerator.MoveNextAsync()).Should().BeTrue();
         await store.CreateAsync(
@@ -66,17 +72,14 @@ public sealed class StreamingTests
     {
         var store = new InMemoryRecordStore();
 
-        var act = async () =>
-        {
-            await foreach (var _ in store.StreamAsync(
-                InMemoryTestData.Collection(),
-                new RecordQuery { Count = QueryCountMode.Exact },
-                InMemoryTestData.Operation(BaseOperationKind.List)))
-            {
-            }
-        };
+        var result = await store.OpenStreamAsync(
+            InMemoryTestData.Collection(),
+            new RecordQuery { Count = QueryCountMode.Exact },
+            InMemoryTestData.Operation(BaseOperationKind.List));
 
-        await act.Should().ThrowAsync<InvalidOperationException>();
+        result.Status.Should().Be(OperationStatus.Unsupported);
+        result.Error.Should().NotBeNull();
+        result.Value.Should().BeNull();
     }
 
     [Fact]
@@ -85,16 +88,13 @@ public sealed class StreamingTests
         var store = new InMemoryRecordStore(new HPDBaseInMemoryOptions { EnableStreamingCapability = false });
         store.Capabilities.Streaming!.Supported.Should().BeFalse();
 
-        var act = async () =>
-        {
-            await foreach (var _ in store.StreamAsync(
-                InMemoryTestData.Collection(),
-                new RecordQuery { Count = QueryCountMode.None },
-                InMemoryTestData.Operation(BaseOperationKind.List)))
-            {
-            }
-        };
+        var result = await store.OpenStreamAsync(
+            InMemoryTestData.Collection(),
+            new RecordQuery { Count = QueryCountMode.None },
+            InMemoryTestData.Operation(BaseOperationKind.List));
 
-        await act.Should().ThrowAsync<InvalidOperationException>();
+        result.Status.Should().Be(OperationStatus.Unsupported);
+        result.Error.Should().NotBeNull();
+        result.Value.Should().BeNull();
     }
 }

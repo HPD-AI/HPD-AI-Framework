@@ -1,3 +1,4 @@
+using HPD.Events;
 using HPD.Base.Query;
 using HPD.Base.Records;
 using HPD.Base.Results;
@@ -27,7 +28,7 @@ public interface IRevisionedRecordStore : IRecordStore
 
 public interface IStreamingRecordStore : IRecordStore
 {
-    IAsyncEnumerable<RecordEnvelope> StreamAsync(
+    ValueTask<OperationResult<AsyncStream<RecordEnvelope>>> OpenStreamAsync(
         CollectionDefinition collection,
         RecordQuery query,
         OperationContext context,

@@ -1,4 +1,7 @@
+global using System.Text.Json;
 global using HPD.Base;
+global using HPD.Base.Events;
+global using HPD.Base.Policy;
 global using HPD.Base.Query;
 global using HPD.Base.Records;
 global using HPD.Base.Results;
