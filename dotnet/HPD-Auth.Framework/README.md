@@ -173,4 +173,4 @@ documentation/               VitePress docs site
 
 ## License
 
-Apache-2.0 © HPD
+FSL-1.1-ALv2 with Apache-2.0 future license © HPD

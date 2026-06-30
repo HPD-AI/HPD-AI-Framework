@@ -1,5 +1,5 @@
 // Copyright 2026 Einstein Essibu
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Polyfill for C# 9 record types in .NET Standard 2.0
 // This type is required by the compiler to support init-only properties and records

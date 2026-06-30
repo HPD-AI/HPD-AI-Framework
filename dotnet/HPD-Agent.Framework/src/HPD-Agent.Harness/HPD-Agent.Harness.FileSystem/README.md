@@ -429,7 +429,7 @@ This ToolHarness is part of the HPD-Agent ToolHarness ecosystem. Contributions a
 
 ## 📄 License
 
-Apache-2.0 License - See LICENSE file for details
+FSL-1.1-ALv2 License - See LICENSE file for details
 
 ## 🔗 Related
 

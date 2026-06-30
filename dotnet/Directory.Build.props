@@ -33,8 +33,8 @@
     <Authors>HPD-Research; Einstein Essibu</Authors>
     <Company>HPD-Research</Company>
     <Product>HPD-Agent Framework</Product>
-    <Copyright>Copyright © 2024 Einstein Essibu. All rights reserved.</Copyright>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <Copyright>Copyright © 2024-2026 HPD-Research and Einstein Essibu. All rights reserved.</Copyright>
+    <PackageLicenseExpression>FSL-1.1-ALv2</PackageLicenseExpression>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile Condition="Exists('$(MSBuildProjectDirectory)\README.md') Or Exists('$(MSBuildThisFileDirectory)..\..\README.md')">README.md</PackageReadmeFile>

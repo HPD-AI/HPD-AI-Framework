@@ -33,7 +33,7 @@
     "typescript"
   ],
   "author": "HPD-AI",
-  "license": "Apache-2.0",
+  "license": "FSL-1.1-ALv2",
   "dependencies": {
     "@hpd-research/hpd-agent-client": "file:../hpd-agent-client",
     "diff": "^9.0.0",
