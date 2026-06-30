@@ -1,12 +1,12 @@
-#:project ../src/HPD-TextExtract/HPD-TextExtract.csproj
+#:project ../../HPD-Extract.Framework/src/HPD-Extract/HPD-Extract.csproj
 #:property TargetFramework=net10.0
 #:property PublishAot=false
 
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
-using HPD.TextExtract.Decoders;
-using HPD.TextExtract.Models;
+using HPD.Extract.Decoders;
+using HPD.Extract.Models;
 
 if (args.Length < 2 || args.Contains("--help", StringComparer.OrdinalIgnoreCase))
 {

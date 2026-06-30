@@ -12,14 +12,14 @@
 
   <PropertyGroup>
     <PackageId>HPD-Agent.TextExtraction</PackageId>
-    <Description>HPD Agent document handling middleware and builder extensions powered by HPD-TextExtract.</Description>
+    <Description>HPD Agent document handling middleware and builder extensions powered by HPD-Extract.</Description>
     <PackageTags>agent;middleware;text-extraction;document;hpd-text-extract</PackageTags>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../../../shared/src/HPD-TextExtract/HPD-TextExtract.csproj" />
+    <ProjectReference Include="../../../HPD-Extract.Framework/src/HPD-Extract/HPD-Extract.csproj" />
   </ItemGroup>
 
 </Project>

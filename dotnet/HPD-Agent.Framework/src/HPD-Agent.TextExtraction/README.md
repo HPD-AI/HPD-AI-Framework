@@ -1,6 +1,6 @@
 # HPD-Agent.TextExtraction
 
-HPD Agent document handling middleware and builder extensions powered by HPD-TextExtract.
+HPD Agent document handling middleware and builder extensions powered by HPD-Extract.
 
 ## Install
 

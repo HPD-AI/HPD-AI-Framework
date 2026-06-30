@@ -11,6 +11,6 @@
 
   <ItemGroup>
     <Compile Include="../extract-pdf-sections.cs" />
-    <ProjectReference Include="../../src/HPD-TextExtract/HPD-TextExtract.csproj" />
+    <ProjectReference Include="../../../HPD-Extract.Framework/src/HPD-Extract/HPD-Extract.csproj" />
   </ItemGroup>
 </Project>

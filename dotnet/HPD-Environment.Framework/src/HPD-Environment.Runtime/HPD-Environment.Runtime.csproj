@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>HPD.Environment.Runtime</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Environment.Runtime</PackageId>
+    <Description>Provider registry, planning, and in-memory runtime helpers for HPD execution environments.</Description>
+    <PackageTags>execution;environment;runtime;providers;planner;hpd</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Environment.Abstractions/HPD-Environment.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

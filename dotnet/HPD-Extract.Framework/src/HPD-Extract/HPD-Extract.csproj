@@ -1,0 +1,42 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <RootNamespace>HPD.Extract</RootNamespace>
+    <AssemblyName>HPD.Extract</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8604;RS2008;CS0628;CA2024</NoWarn>
+    <OutputType>Library</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>HPD-Extract</PackageId>
+    <Description>.NET-native text and document extraction library with rich PDF structure, diagnostics, OCR planning, and layout-aware outputs.</Description>
+    <PackageTags>text-extraction;pdf;docx;html;document;ocr;pdfium</PackageTags>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Extract.Abstractions/HPD-Extract.Abstractions.csproj" />
+    <ProjectReference Include="../HPD-Extract.Pdf/HPD-Extract.Pdf.csproj" />
+    <ProjectReference Include="../HPD-Extract.Web/HPD-Extract.Web.csproj" />
+    <ProjectReference Include="../HPD-Extract.Office/HPD-Extract.Office.csproj" />
+    <ProjectReference Include="../HPD-Extract.Images/HPD-Extract.Images.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="eng/**/*.cs" />
+  </ItemGroup>
+
+</Project>

@@ -1,5 +1,5 @@
 using HPD.Agent.Middleware;
-using HPD.TextExtract;
+using HPD.Extract;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Middleware.Document;

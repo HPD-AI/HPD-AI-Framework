@@ -1,0 +1,175 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="04efec74-22fa-4931-9cb4-b192c02e2d4c" name="@Einsteins-MacBook-Air 2026-06-30 12:24:00" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-06-30T12:24:00.7133490-05:00" queuing="2026-06-30T12:24:00.7133490-05:00" start="2026-06-30T12:24:00.3423050-05:00" finish="2026-06-30T12:24:01.0442480-05:00" />
+  <TestSettings name="default" id="973e3937-f792-4bef-98a6-070f1663fb1c">
+    <Deployment runDeploymentRoot="_Einsteins-MacBook-Air_2026-06-30_12_24_00" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="a467393d-b26d-4ae3-9126-93831e23c19b" testId="23757089-f4bf-2e95-078a-7ef0e99f9f11" testName="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Packaging.AspNetCorePackageBoundaryTests.AspNetCorePublicSurfaceStaysInsideAdapterNamespace" computerName="Einsteins-MacBook-Air" duration="00:00:00.0155457" startTime="2026-06-30T12:24:00.6655430-05:00" endTime="2026-06-30T12:24:00.6855360-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="a467393d-b26d-4ae3-9126-93831e23c19b" />
+    <UnitTestResult executionId="e1b38560-39ef-485f-a001-8e1fa86f5763" testId="f90d5cd1-a6af-8625-21b7-c7563f7806fe" testName="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Http.HPDAuthBaseHttpPrincipalMapperTests.CustomEnricherCanAddSafePrincipalFacts" computerName="Einsteins-MacBook-Air" duration="00:00:00.0013227" startTime="2026-06-30T12:24:00.6998560-05:00" endTime="2026-06-30T12:24:00.7003270-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e1b38560-39ef-485f-a001-8e1fa86f5763" />
+    <UnitTestResult executionId="9ff919f0-07a9-4888-825e-19b317db3088" testId="191399ae-2a0d-05e8-d659-ff5f2d457aab" testName="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.DependencyInjection.AddHPDBaseHPDAuthAspNetCoreTests.AdminPolicyBridgeUsesConfiguredRole" computerName="Einsteins-MacBook-Air" duration="00:00:00.0026270" startTime="2026-06-30T12:24:00.6895850-05:00" endTime="2026-06-30T12:24:00.6897710-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="9ff919f0-07a9-4888-825e-19b317db3088" />
+    <UnitTestResult executionId="5d704c66-f02d-4ad6-9c55-77bbba17a4d4" testId="d2a8139f-9873-f94e-29f2-c05deda1c881" testName="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Http.HPDAuthBaseHttpPrincipalMapperTests.MapsClaimsPrincipalAndUsesTenantContextFallback" computerName="Einsteins-MacBook-Air" duration="00:00:00.0036049" startTime="2026-06-30T12:24:00.6897500-05:00" endTime="2026-06-30T12:24:00.6898600-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="5d704c66-f02d-4ad6-9c55-77bbba17a4d4" />
+    <UnitTestResult executionId="21991c77-599b-4a17-89c2-074da6efc3e4" testId="34303ad6-2cc3-d07b-130d-eb1c9ccc55dc" testName="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.DependencyInjection.AddHPDBaseHPDAuthAspNetCoreTests.BridgeWithoutHPDAuthServicesReportsMissingAuthServicesDiagnostic" computerName="Einsteins-MacBook-Air" duration="00:00:00.0059316" startTime="2026-06-30T12:24:00.6898140-05:00" endTime="2026-06-30T12:24:00.7004740-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="21991c77-599b-4a17-89c2-074da6efc3e4" />
+    <UnitTestResult executionId="747bcd27-b9e6-482d-a4d7-68967bac0421" testId="4597b976-402a-17c7-c706-16fe23fcff7c" testName="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Http.HPDAuthBaseHttpPrincipalMapperTests.MapsAnonymousRequestWithoutTenantOrClaims" computerName="Einsteins-MacBook-Air" duration="00:00:00.0012327" startTime="2026-06-30T12:24:00.6896830-05:00" endTime="2026-06-30T12:24:00.6897040-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="747bcd27-b9e6-482d-a4d7-68967bac0421" />
+    <UnitTestResult executionId="46207196-1f3c-4d13-8efe-8d6032869dd2" testId="9a52879e-5a57-73af-ed10-bf4ba12b7add" testName="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.DependencyInjection.AddHPDBaseHPDAuthAspNetCoreTests.BaselineHPDAuthServicesSuppressMissingAuthServicesDiagnostic" computerName="Einsteins-MacBook-Air" duration="00:00:00.0007607" startTime="2026-06-30T12:24:00.7005390-05:00" endTime="2026-06-30T12:24:00.7005620-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="46207196-1f3c-4d13-8efe-8d6032869dd2" />
+    <UnitTestResult executionId="cfa92f5e-ecd6-40c6-8b54-ffc42585dd55" testId="dc62372d-7290-f97b-2227-1729c344cbe9" testName="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Integration.AdminEndpointGatingTests.AdminMetadataEndpointUsesHPDAuthAdminPolicyBridge" computerName="Einsteins-MacBook-Air" duration="00:00:00.2168960" startTime="2026-06-30T12:24:00.6649870-05:00" endTime="2026-06-30T12:24:00.8844370-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="cfa92f5e-ecd6-40c6-8b54-ffc42585dd55" />
+    <UnitTestResult executionId="f66fbe26-1cff-44de-a9f6-be9fc0e07ee9" testId="429c5c8d-6676-eae7-03ea-068d2a446fd4" testName="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Http.HPDAuthBaseHttpPrincipalMapperTests.TenantContextFallbackCanBeDisabled" computerName="Einsteins-MacBook-Air" duration="00:00:00.0177371" startTime="2026-06-30T12:24:00.6655580-05:00" endTime="2026-06-30T12:24:00.6896050-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="f66fbe26-1cff-44de-a9f6-be9fc0e07ee9" />
+    <UnitTestResult executionId="12683c57-5f19-4963-a2c6-cf3f22610887" testId="f86ad010-0e2d-0af5-cfac-1e7e15fd3587" testName="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.DependencyInjection.AddHPDBaseHPDAuthAspNetCoreTests.RegistersCorePolicyEvaluatorAndHttpPrincipalMapper" computerName="Einsteins-MacBook-Air" duration="00:00:00.0155419" startTime="2026-06-30T12:24:00.6655670-05:00" endTime="2026-06-30T12:24:00.6832030-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="12683c57-5f19-4963-a2c6-cf3f22610887" />
+    <UnitTestResult executionId="a94c8120-793e-480b-9b95-38a2d19f294f" testId="168fb266-4de5-103f-6a8f-06bce1890de0" testName="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Packaging.AspNetCorePackageBoundaryTests.AspNetCorePublicSurfaceDoesNotExposeDeferredFeatureTypes" computerName="Einsteins-MacBook-Air" duration="00:00:00.0058529" startTime="2026-06-30T12:24:00.6895600-05:00" endTime="2026-06-30T12:24:00.6898300-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="a94c8120-793e-480b-9b95-38a2d19f294f" />
+    <UnitTestResult executionId="89131000-2615-490a-8823-1c8ec30569cd" testId="4270df95-e142-86d6-e502-4367c0cc8f58" testName="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Integration.AdminEndpointGatingTests.AdminPolicyExplainEndpointUsesHPDAuthAdminPolicyBridgeAndServiceGate" computerName="Einsteins-MacBook-Air" duration="00:00:00.1370659" startTime="2026-06-30T12:24:00.8848270-05:00" endTime="2026-06-30T12:24:01.0220130-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="89131000-2615-490a-8823-1c8ec30569cd" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.DependencyInjection.AddHPDBaseHPDAuthAspNetCoreTests.BridgeWithoutHPDAuthServicesReportsMissingAuthServicesDiagnostic" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.auth.hpdauth.aspnetcore.tests/bin/debug/net10.0/hpd.base.auth.hpdauth.aspnetcore.tests.dll" id="34303ad6-2cc3-d07b-130d-eb1c9ccc55dc">
+      <Execution id="21991c77-599b-4a17-89c2-074da6efc3e4" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Auth.HPDAuth.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Auth.HPDAuth.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.DependencyInjection.AddHPDBaseHPDAuthAspNetCoreTests" name="BridgeWithoutHPDAuthServicesReportsMissingAuthServicesDiagnostic" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Http.HPDAuthBaseHttpPrincipalMapperTests.CustomEnricherCanAddSafePrincipalFacts" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.auth.hpdauth.aspnetcore.tests/bin/debug/net10.0/hpd.base.auth.hpdauth.aspnetcore.tests.dll" id="f90d5cd1-a6af-8625-21b7-c7563f7806fe">
+      <Execution id="e1b38560-39ef-485f-a001-8e1fa86f5763" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Auth.HPDAuth.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Auth.HPDAuth.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Http.HPDAuthBaseHttpPrincipalMapperTests" name="CustomEnricherCanAddSafePrincipalFacts" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Packaging.AspNetCorePackageBoundaryTests.AspNetCorePublicSurfaceStaysInsideAdapterNamespace" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.auth.hpdauth.aspnetcore.tests/bin/debug/net10.0/hpd.base.auth.hpdauth.aspnetcore.tests.dll" id="23757089-f4bf-2e95-078a-7ef0e99f9f11">
+      <Execution id="a467393d-b26d-4ae3-9126-93831e23c19b" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Auth.HPDAuth.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Auth.HPDAuth.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Packaging.AspNetCorePackageBoundaryTests" name="AspNetCorePublicSurfaceStaysInsideAdapterNamespace" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Http.HPDAuthBaseHttpPrincipalMapperTests.TenantContextFallbackCanBeDisabled" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.auth.hpdauth.aspnetcore.tests/bin/debug/net10.0/hpd.base.auth.hpdauth.aspnetcore.tests.dll" id="429c5c8d-6676-eae7-03ea-068d2a446fd4">
+      <Execution id="f66fbe26-1cff-44de-a9f6-be9fc0e07ee9" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Auth.HPDAuth.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Auth.HPDAuth.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Http.HPDAuthBaseHttpPrincipalMapperTests" name="TenantContextFallbackCanBeDisabled" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Integration.AdminEndpointGatingTests.AdminMetadataEndpointUsesHPDAuthAdminPolicyBridge" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.auth.hpdauth.aspnetcore.tests/bin/debug/net10.0/hpd.base.auth.hpdauth.aspnetcore.tests.dll" id="dc62372d-7290-f97b-2227-1729c344cbe9">
+      <Execution id="cfa92f5e-ecd6-40c6-8b54-ffc42585dd55" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Auth.HPDAuth.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Auth.HPDAuth.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Integration.AdminEndpointGatingTests" name="AdminMetadataEndpointUsesHPDAuthAdminPolicyBridge" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Http.HPDAuthBaseHttpPrincipalMapperTests.MapsClaimsPrincipalAndUsesTenantContextFallback" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.auth.hpdauth.aspnetcore.tests/bin/debug/net10.0/hpd.base.auth.hpdauth.aspnetcore.tests.dll" id="d2a8139f-9873-f94e-29f2-c05deda1c881">
+      <Execution id="5d704c66-f02d-4ad6-9c55-77bbba17a4d4" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Auth.HPDAuth.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Auth.HPDAuth.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Http.HPDAuthBaseHttpPrincipalMapperTests" name="MapsClaimsPrincipalAndUsesTenantContextFallback" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.DependencyInjection.AddHPDBaseHPDAuthAspNetCoreTests.RegistersCorePolicyEvaluatorAndHttpPrincipalMapper" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.auth.hpdauth.aspnetcore.tests/bin/debug/net10.0/hpd.base.auth.hpdauth.aspnetcore.tests.dll" id="f86ad010-0e2d-0af5-cfac-1e7e15fd3587">
+      <Execution id="12683c57-5f19-4963-a2c6-cf3f22610887" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Auth.HPDAuth.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Auth.HPDAuth.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.DependencyInjection.AddHPDBaseHPDAuthAspNetCoreTests" name="RegistersCorePolicyEvaluatorAndHttpPrincipalMapper" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.DependencyInjection.AddHPDBaseHPDAuthAspNetCoreTests.AdminPolicyBridgeUsesConfiguredRole" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.auth.hpdauth.aspnetcore.tests/bin/debug/net10.0/hpd.base.auth.hpdauth.aspnetcore.tests.dll" id="191399ae-2a0d-05e8-d659-ff5f2d457aab">
+      <Execution id="9ff919f0-07a9-4888-825e-19b317db3088" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Auth.HPDAuth.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Auth.HPDAuth.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.DependencyInjection.AddHPDBaseHPDAuthAspNetCoreTests" name="AdminPolicyBridgeUsesConfiguredRole" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Integration.AdminEndpointGatingTests.AdminPolicyExplainEndpointUsesHPDAuthAdminPolicyBridgeAndServiceGate" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.auth.hpdauth.aspnetcore.tests/bin/debug/net10.0/hpd.base.auth.hpdauth.aspnetcore.tests.dll" id="4270df95-e142-86d6-e502-4367c0cc8f58">
+      <Execution id="89131000-2615-490a-8823-1c8ec30569cd" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Auth.HPDAuth.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Auth.HPDAuth.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Integration.AdminEndpointGatingTests" name="AdminPolicyExplainEndpointUsesHPDAuthAdminPolicyBridgeAndServiceGate" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Packaging.AspNetCorePackageBoundaryTests.AspNetCorePublicSurfaceDoesNotExposeDeferredFeatureTypes" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.auth.hpdauth.aspnetcore.tests/bin/debug/net10.0/hpd.base.auth.hpdauth.aspnetcore.tests.dll" id="168fb266-4de5-103f-6a8f-06bce1890de0">
+      <Execution id="a94c8120-793e-480b-9b95-38a2d19f294f" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Auth.HPDAuth.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Auth.HPDAuth.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Packaging.AspNetCorePackageBoundaryTests" name="AspNetCorePublicSurfaceDoesNotExposeDeferredFeatureTypes" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.DependencyInjection.AddHPDBaseHPDAuthAspNetCoreTests.BaselineHPDAuthServicesSuppressMissingAuthServicesDiagnostic" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.auth.hpdauth.aspnetcore.tests/bin/debug/net10.0/hpd.base.auth.hpdauth.aspnetcore.tests.dll" id="9a52879e-5a57-73af-ed10-bf4ba12b7add">
+      <Execution id="46207196-1f3c-4d13-8efe-8d6032869dd2" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Auth.HPDAuth.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Auth.HPDAuth.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.DependencyInjection.AddHPDBaseHPDAuthAspNetCoreTests" name="BaselineHPDAuthServicesSuppressMissingAuthServicesDiagnostic" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Http.HPDAuthBaseHttpPrincipalMapperTests.MapsAnonymousRequestWithoutTenantOrClaims" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.auth.hpdauth.aspnetcore.tests/bin/debug/net10.0/hpd.base.auth.hpdauth.aspnetcore.tests.dll" id="4597b976-402a-17c7-c706-16fe23fcff7c">
+      <Execution id="747bcd27-b9e6-482d-a4d7-68967bac0421" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Auth.HPDAuth.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Auth.HPDAuth.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Http.HPDAuthBaseHttpPrincipalMapperTests" name="MapsAnonymousRequestWithoutTenantOrClaims" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="23757089-f4bf-2e95-078a-7ef0e99f9f11" executionId="a467393d-b26d-4ae3-9126-93831e23c19b" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="f90d5cd1-a6af-8625-21b7-c7563f7806fe" executionId="e1b38560-39ef-485f-a001-8e1fa86f5763" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="191399ae-2a0d-05e8-d659-ff5f2d457aab" executionId="9ff919f0-07a9-4888-825e-19b317db3088" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="d2a8139f-9873-f94e-29f2-c05deda1c881" executionId="5d704c66-f02d-4ad6-9c55-77bbba17a4d4" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="34303ad6-2cc3-d07b-130d-eb1c9ccc55dc" executionId="21991c77-599b-4a17-89c2-074da6efc3e4" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="4597b976-402a-17c7-c706-16fe23fcff7c" executionId="747bcd27-b9e6-482d-a4d7-68967bac0421" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="9a52879e-5a57-73af-ed10-bf4ba12b7add" executionId="46207196-1f3c-4d13-8efe-8d6032869dd2" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="dc62372d-7290-f97b-2227-1729c344cbe9" executionId="cfa92f5e-ecd6-40c6-8b54-ffc42585dd55" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="429c5c8d-6676-eae7-03ea-068d2a446fd4" executionId="f66fbe26-1cff-44de-a9f6-be9fc0e07ee9" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="f86ad010-0e2d-0af5-cfac-1e7e15fd3587" executionId="12683c57-5f19-4963-a2c6-cf3f22610887" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="168fb266-4de5-103f-6a8f-06bce1890de0" executionId="a94c8120-793e-480b-9b95-38a2d19f294f" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="4270df95-e142-86d6-e502-4367c0cc8f58" executionId="89131000-2615-490a-8823-1c8ec30569cd" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Completed">
+    <Counters total="12" executed="12" passed="12" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.5+1b188a7b0a (64-bit .NET 10.0.9)
+[xUnit.net 00:00:00.06]   Discovering: HPD.Base.Auth.HPDAuth.AspNetCore.Tests
+[xUnit.net 00:00:00.07]   Discovered:  HPD.Base.Auth.HPDAuth.AspNetCore.Tests
+[xUnit.net 00:00:00.08]   Starting:    HPD.Base.Auth.HPDAuth.AspNetCore.Tests
+     Warning:
+     The component "Fluent Assertions" is governed by the rules defined in the Xceed License Agreement and
+     the Xceed Fluent Assertions Community License. You may use Fluent Assertions free of charge for
+     non-commercial use only. An active subscription is required to use Fluent Assertions for commercial use.
+     Please contact Xceed Sales mailto:sales@xceed.com to acquire a subscription at a very low cost.
+     A paid commercial license supports the development and continued increasing support of
+     Fluent Assertions users under both commercial and community licenses. Help us
+     keep Fluent Assertions at the forefront of unit testing.
+     For more information, visit https://xceed.com/products/unit-testing/fluent-assertions/
+info: Microsoft.AspNetCore.DataProtection.KeyManagement.XmlKeyManager[62]
+      User profile is available. Using '/Users/ewoof/.aspnet/DataProtection-Keys' as key repository; keys will not be encrypted at rest.
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 GET http://localhost/base/admin/manifest - - -
+info: Microsoft.AspNetCore.Authorization.DefaultAuthorizationService[2]
+      Authorization failed. These requirements were not met:
+      DenyAnonymousAuthorizationRequirement: Requires an authenticated user.
+      RolesAuthorizationRequirement:User.IsInRole must be true for one of the following roles: (Admin)
+info: HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Integration.AdminEndpointGatingTests+TestAuthHandler[12]
+      AuthenticationScheme: Test was challenged.
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 GET http://localhost/base/admin/manifest - 401 - - 9.6568ms
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 GET http://localhost/base/admin/manifest - - -
+info: Microsoft.AspNetCore.Authorization.DefaultAuthorizationService[2]
+      Authorization failed. These requirements were not met:
+      RolesAuthorizationRequirement:User.IsInRole must be true for one of the following roles: (Admin)
+info: HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Integration.AdminEndpointGatingTests+TestAuthHandler[13]
+      AuthenticationScheme: Test was forbidden.
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 GET http://localhost/base/admin/manifest - 403 - - 2.0495ms
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 GET http://localhost/base/admin/manifest - - -
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
+      Executing endpoint 'HTTP: GET /base/admin/manifest'
+info: Microsoft.AspNetCore.Http.Result.JsonResult[1]
+      Setting HTTP status code 200.
+info: Microsoft.AspNetCore.Http.Result.JsonResult[3]
+      Writing value of type 'BaseManifest' as Json.
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
+      Executed endpoint 'HTTP: GET /base/admin/manifest'
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 GET http://localhost/base/admin/manifest - 200 - application/json;+charset=utf-8 83.1028ms
+info: Microsoft.AspNetCore.DataProtection.KeyManagement.XmlKeyManager[62]
+      User profile is available. Using '/Users/ewoof/.aspnet/DataProtection-Keys' as key repository; keys will not be encrypted at rest.
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 POST http://localhost/base/admin/policy/explain - application/json;+charset=utf-8 -
+info: Microsoft.AspNetCore.Authorization.DefaultAuthorizationService[2]
+      Authorization failed. These requirements were not met:
+      DenyAnonymousAuthorizationRequirement: Requires an authenticated user.
+      RolesAuthorizationRequirement:User.IsInRole must be true for one of the following roles: (Admin)
+info: HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Integration.AdminEndpointGatingTests+TestAuthHandler[12]
+      AuthenticationScheme: Test was challenged.
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 POST http://localhost/base/admin/policy/explain - 401 - - 2.5046ms
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 POST http://localhost/base/admin/policy/explain - application/json;+charset=utf-8 -
+info: Microsoft.AspNetCore.Authorization.DefaultAuthorizationService[2]
+      Authorization failed. These requirements were not met:
+      RolesAuthorizationRequirement:User.IsInRole must be true for one of the following roles: (Admin)
+info: HPD.Base.Auth.HPDAuth.AspNetCore.Tests.Integration.AdminEndpointGatingTests+TestAuthHandler[13]
+      AuthenticationScheme: Test was forbidden.
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 POST http://localhost/base/admin/policy/explain - 403 - - 1.3517ms
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 POST http://localhost/base/admin/policy/explain - application/json;+charset=utf-8 -
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
+      Executing endpoint 'HTTP: POST /base/admin/policy/explain'
+info: Microsoft.AspNetCore.Http.Result.JsonResult[1]
+      Setting HTTP status code 200.
+info: Microsoft.AspNetCore.Http.Result.JsonResult[3]
+      Writing value of type 'BasePolicyExplainResponse' as Json.
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
+      Executed endpoint 'HTTP: POST /base/admin/policy/explain'
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 POST http://localhost/base/admin/policy/explain - 200 - application/json;+charset=utf-8 60.7061ms
+[xUnit.net 00:00:00.44]   Finished:    HPD.Base.Auth.HPDAuth.AspNetCore.Tests
+</StdOut>
+    </Output>
+  </ResultSummary>
+</TestRun>

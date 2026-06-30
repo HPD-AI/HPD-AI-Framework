@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0</TargetFrameworks>
+    <RootNamespace>HPD.Environment.Contracts</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-Environment.Abstractions</PackageId>
+    <Description>Execution environment contracts, resource shapes, provider interfaces, and target handles for HPD.</Description>
+    <PackageTags>execution;environment;contracts;providers;sandbox;hpd</PackageTags>
+  </PropertyGroup>
+</Project>

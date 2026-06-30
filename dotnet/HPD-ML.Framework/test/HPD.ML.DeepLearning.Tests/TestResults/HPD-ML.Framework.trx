@@ -1,0 +1,106 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="96d20020-b7a1-4e57-944a-2be807ba9a3e" name="@Einsteins-MacBook-Air 2026-06-30 12:26:34" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-06-30T12:26:34.1378770-05:00" queuing="2026-06-30T12:26:34.1378770-05:00" start="2026-06-30T12:26:33.8267500-05:00" finish="2026-06-30T12:26:34.1469970-05:00" />
+  <TestSettings name="default" id="b01ccfd6-e207-4e4e-a5ac-2ca88503e233">
+    <Deployment runDeploymentRoot="_Einsteins-MacBook-Air_2026-06-30_12_26_34" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="25dae073-ea2f-4165-9d5f-bb19df2bef8c" testId="90960ca1-2b31-3042-4afc-c7a2b09b98be" testName="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests.Fit_UsesEnvironmentSeedForDeterministicInitialization" computerName="Einsteins-MacBook-Air" duration="00:00:00.0004395" startTime="2026-06-30T12:26:34.1264530-05:00" endTime="2026-06-30T12:26:34.1264720-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="25dae073-ea2f-4165-9d5f-bb19df2bef8c" />
+    <UnitTestResult executionId="10fa2cd9-b5d3-48e9-9f2d-7b9483aeb107" testId="08bf7e2f-d7d8-c9a1-28d8-0626ae4b696e" testName="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests.AdamStep_UpdatesParameterAndKeepsStateByReference" computerName="Einsteins-MacBook-Air" duration="00:00:00.0047113" startTime="2026-06-30T12:26:34.1017720-05:00" endTime="2026-06-30T12:26:34.1083010-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="10fa2cd9-b5d3-48e9-9f2d-7b9483aeb107" />
+    <UnitTestResult executionId="51349ff2-585e-4f98-b135-684388f4418f" testId="14695553-a5c8-e0bf-c0a3-0dc386301e79" testName="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests.HeliumTrainableTrainer_RejectsReLUWhenBackendDoesNotExposeActivation" computerName="Einsteins-MacBook-Air" duration="00:00:00.0020901" startTime="2026-06-30T12:26:34.1133010-05:00" endTime="2026-06-30T12:26:34.1153830-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="51349ff2-585e-4f98-b135-684388f4418f" />
+    <UnitTestResult executionId="acd8b87a-5078-4c50-8ee7-3f941773d74c" testId="01ff9619-6dcf-6317-843e-e5c06496e879" testName="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests.DenseLayer_ValidatesShapeAndExposesParameters" computerName="Einsteins-MacBook-Air" duration="00:00:00.0023475" startTime="2026-06-30T12:26:34.1119700-05:00" endTime="2026-06-30T12:26:34.1132610-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="acd8b87a-5078-4c50-8ee7-3f941773d74c" />
+    <UnitTestResult executionId="5e9b7629-eba2-4b42-8dfe-ec899e63825b" testId="0e9cca9e-0f84-fd6e-53be-b52fed0368c6" testName="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests.Fit_ThrowsForExplicitBackendWithoutRegisteredProvider" computerName="Einsteins-MacBook-Air" duration="00:00:00.0001689" startTime="2026-06-30T12:26:34.1263790-05:00" endTime="2026-06-30T12:26:34.1263990-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="5e9b7629-eba2-4b42-8dfe-ec899e63825b" />
+    <UnitTestResult executionId="478b71b5-88ad-4f75-80a6-f1e19cbb5357" testId="f72d83fb-db56-d410-8264-2128901e7ad4" testName="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests.Fit_UsesRegisteredProviderForRequestedBackend" computerName="Einsteins-MacBook-Air" duration="00:00:00.0004767" startTime="2026-06-30T12:26:34.1265160-05:00" endTime="2026-06-30T12:26:34.1265650-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="478b71b5-88ad-4f75-80a6-f1e19cbb5357" />
+    <UnitTestResult executionId="ca8ee9dd-4858-479d-b8bd-7fc06827d5ee" testId="1a9e2f28-6747-2efd-0f6b-b51e790cb1e6" testName="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests.Fit_LinearRegression_ReturnsModelThatScores" computerName="Einsteins-MacBook-Air" duration="00:00:00.0135432" startTime="2026-06-30T12:26:34.1011970-05:00" endTime="2026-06-30T12:26:34.1164820-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="ca8ee9dd-4858-479d-b8bd-7fc06827d5ee" />
+    <UnitTestResult executionId="3d288e75-a119-4235-b3b3-b101b8b6a8df" testId="84ab50f3-2a1f-cfaf-b77b-a321b0551d3f" testName="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests.Definition_RejectsDisconnectedLayers" computerName="Einsteins-MacBook-Air" duration="00:00:00.0001313" startTime="2026-06-30T12:26:34.1165300-05:00" endTime="2026-06-30T12:26:34.1166280-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="3d288e75-a119-4235-b3b3-b101b8b6a8df" />
+    <UnitTestResult executionId="01bbeb4e-5a3a-4253-9fd7-0d39fa811089" testId="c68c159c-8bdc-5c4e-5d7c-f5480069bc9d" testName="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests.SgdStep_UpdatesParameter" computerName="Einsteins-MacBook-Air" duration="00:00:00.0018038" startTime="2026-06-30T12:26:34.1116320-05:00" endTime="2026-06-30T12:26:34.1116580-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="01bbeb4e-5a3a-4253-9fd7-0d39fa811089" />
+    <UnitTestResult executionId="a2075e55-c939-4c38-8845-f921893ff8ef" testId="b46449d4-22a5-b205-f026-c06c862119bb" testName="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests.DenseLayer_RejectsInvalidWeightLength" computerName="Einsteins-MacBook-Air" duration="00:00:00.0005500" startTime="2026-06-30T12:26:34.1118390-05:00" endTime="2026-06-30T12:26:34.1118560-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="a2075e55-c939-4c38-8845-f921893ff8ef" />
+    <UnitTestResult executionId="de61ef51-6a07-4194-a026-3d5a872e656e" testId="478d9a25-699e-dbfd-00ff-b863a29cfded" testName="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests.HeliumTrainableTrainer_ReturnsMaterializedParameters" computerName="Einsteins-MacBook-Air" duration="00:00:00.0025304" startTime="2026-06-30T12:26:34.1154290-05:00" endTime="2026-06-30T12:26:34.1265350-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="de61ef51-6a07-4194-a026-3d5a872e656e" />
+    <UnitTestResult executionId="b48ad2bb-3443-4bcc-8a03-b11388bd61bb" testId="9e0cd140-3d56-e891-42a5-4d89329ee2f9" testName="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests.Fit_ThrowsBeforeTrainerCreationWhenBackendCannotTrain" computerName="Einsteins-MacBook-Air" duration="00:00:00.0004336" startTime="2026-06-30T12:26:34.1262180-05:00" endTime="2026-06-30T12:26:34.1262550-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="b48ad2bb-3443-4bcc-8a03-b11388bd61bb" />
+    <UnitTestResult executionId="46ea20ad-4b54-435a-8c05-591841415dce" testId="77daa8d9-1654-3c11-0e65-fd9e957ea59f" testName="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests.Sequential_RejectsEmptyModel" computerName="Einsteins-MacBook-Air" duration="00:00:00.0001268" startTime="2026-06-30T12:26:34.1118990-05:00" endTime="2026-06-30T12:26:34.1119310-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="46ea20ad-4b54-435a-8c05-591841415dce" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests.Fit_LinearRegression_ReturnsModelThatScores" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-ml.framework/test/hpd.ml.deeplearning.tests/bin/debug/net10.0/hpd.ml.deeplearning.tests.dll" id="1a9e2f28-6747-2efd-0f6b-b51e790cb1e6">
+      <Execution id="ca8ee9dd-4858-479d-b8bd-7fc06827d5ee" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-ML.Framework/test/HPD.ML.DeepLearning.Tests/bin/Debug/net10.0/HPD.ML.DeepLearning.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests" name="Fit_LinearRegression_ReturnsModelThatScores" />
+    </UnitTest>
+    <UnitTest name="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests.Fit_ThrowsBeforeTrainerCreationWhenBackendCannotTrain" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-ml.framework/test/hpd.ml.deeplearning.tests/bin/debug/net10.0/hpd.ml.deeplearning.tests.dll" id="9e0cd140-3d56-e891-42a5-4d89329ee2f9">
+      <Execution id="b48ad2bb-3443-4bcc-8a03-b11388bd61bb" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-ML.Framework/test/HPD.ML.DeepLearning.Tests/bin/Debug/net10.0/HPD.ML.DeepLearning.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests" name="Fit_ThrowsBeforeTrainerCreationWhenBackendCannotTrain" />
+    </UnitTest>
+    <UnitTest name="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests.Fit_ThrowsForExplicitBackendWithoutRegisteredProvider" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-ml.framework/test/hpd.ml.deeplearning.tests/bin/debug/net10.0/hpd.ml.deeplearning.tests.dll" id="0e9cca9e-0f84-fd6e-53be-b52fed0368c6">
+      <Execution id="5e9b7629-eba2-4b42-8dfe-ec899e63825b" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-ML.Framework/test/HPD.ML.DeepLearning.Tests/bin/Debug/net10.0/HPD.ML.DeepLearning.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests" name="Fit_ThrowsForExplicitBackendWithoutRegisteredProvider" />
+    </UnitTest>
+    <UnitTest name="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests.Fit_UsesEnvironmentSeedForDeterministicInitialization" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-ml.framework/test/hpd.ml.deeplearning.tests/bin/debug/net10.0/hpd.ml.deeplearning.tests.dll" id="90960ca1-2b31-3042-4afc-c7a2b09b98be">
+      <Execution id="25dae073-ea2f-4165-9d5f-bb19df2bef8c" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-ML.Framework/test/HPD.ML.DeepLearning.Tests/bin/Debug/net10.0/HPD.ML.DeepLearning.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests" name="Fit_UsesEnvironmentSeedForDeterministicInitialization" />
+    </UnitTest>
+    <UnitTest name="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests.Fit_UsesRegisteredProviderForRequestedBackend" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-ml.framework/test/hpd.ml.deeplearning.tests/bin/debug/net10.0/hpd.ml.deeplearning.tests.dll" id="f72d83fb-db56-d410-8264-2128901e7ad4">
+      <Execution id="478b71b5-88ad-4f75-80a6-f1e19cbb5357" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-ML.Framework/test/HPD.ML.DeepLearning.Tests/bin/Debug/net10.0/HPD.ML.DeepLearning.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests" name="Fit_UsesRegisteredProviderForRequestedBackend" />
+    </UnitTest>
+    <UnitTest name="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests.DenseLayer_ValidatesShapeAndExposesParameters" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-ml.framework/test/hpd.ml.deeplearning.tests/bin/debug/net10.0/hpd.ml.deeplearning.tests.dll" id="01ff9619-6dcf-6317-843e-e5c06496e879">
+      <Execution id="acd8b87a-5078-4c50-8ee7-3f941773d74c" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-ML.Framework/test/HPD.ML.DeepLearning.Tests/bin/Debug/net10.0/HPD.ML.DeepLearning.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests" name="DenseLayer_ValidatesShapeAndExposesParameters" />
+    </UnitTest>
+    <UnitTest name="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests.DenseLayer_RejectsInvalidWeightLength" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-ml.framework/test/hpd.ml.deeplearning.tests/bin/debug/net10.0/hpd.ml.deeplearning.tests.dll" id="b46449d4-22a5-b205-f026-c06c862119bb">
+      <Execution id="a2075e55-c939-4c38-8845-f921893ff8ef" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-ML.Framework/test/HPD.ML.DeepLearning.Tests/bin/Debug/net10.0/HPD.ML.DeepLearning.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests" name="DenseLayer_RejectsInvalidWeightLength" />
+    </UnitTest>
+    <UnitTest name="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests.SgdStep_UpdatesParameter" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-ml.framework/test/hpd.ml.deeplearning.tests/bin/debug/net10.0/hpd.ml.deeplearning.tests.dll" id="c68c159c-8bdc-5c4e-5d7c-f5480069bc9d">
+      <Execution id="01bbeb4e-5a3a-4253-9fd7-0d39fa811089" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-ML.Framework/test/HPD.ML.DeepLearning.Tests/bin/Debug/net10.0/HPD.ML.DeepLearning.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests" name="SgdStep_UpdatesParameter" />
+    </UnitTest>
+    <UnitTest name="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests.HeliumTrainableTrainer_ReturnsMaterializedParameters" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-ml.framework/test/hpd.ml.deeplearning.tests/bin/debug/net10.0/hpd.ml.deeplearning.tests.dll" id="478d9a25-699e-dbfd-00ff-b863a29cfded">
+      <Execution id="de61ef51-6a07-4194-a026-3d5a872e656e" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-ML.Framework/test/HPD.ML.DeepLearning.Tests/bin/Debug/net10.0/HPD.ML.DeepLearning.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests" name="HeliumTrainableTrainer_ReturnsMaterializedParameters" />
+    </UnitTest>
+    <UnitTest name="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests.Definition_RejectsDisconnectedLayers" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-ml.framework/test/hpd.ml.deeplearning.tests/bin/debug/net10.0/hpd.ml.deeplearning.tests.dll" id="84ab50f3-2a1f-cfaf-b77b-a321b0551d3f">
+      <Execution id="3d288e75-a119-4235-b3b3-b101b8b6a8df" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-ML.Framework/test/HPD.ML.DeepLearning.Tests/bin/Debug/net10.0/HPD.ML.DeepLearning.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.ML.DeepLearning.Tests.NeuralNetworkLearnerTests" name="Definition_RejectsDisconnectedLayers" />
+    </UnitTest>
+    <UnitTest name="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests.AdamStep_UpdatesParameterAndKeepsStateByReference" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-ml.framework/test/hpd.ml.deeplearning.tests/bin/debug/net10.0/hpd.ml.deeplearning.tests.dll" id="08bf7e2f-d7d8-c9a1-28d8-0626ae4b696e">
+      <Execution id="10fa2cd9-b5d3-48e9-9f2d-7b9483aeb107" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-ML.Framework/test/HPD.ML.DeepLearning.Tests/bin/Debug/net10.0/HPD.ML.DeepLearning.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests" name="AdamStep_UpdatesParameterAndKeepsStateByReference" />
+    </UnitTest>
+    <UnitTest name="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests.HeliumTrainableTrainer_RejectsReLUWhenBackendDoesNotExposeActivation" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-ml.framework/test/hpd.ml.deeplearning.tests/bin/debug/net10.0/hpd.ml.deeplearning.tests.dll" id="14695553-a5c8-e0bf-c0a3-0dc386301e79">
+      <Execution id="51349ff2-585e-4f98-b135-684388f4418f" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-ML.Framework/test/HPD.ML.DeepLearning.Tests/bin/Debug/net10.0/HPD.ML.DeepLearning.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests" name="HeliumTrainableTrainer_RejectsReLUWhenBackendDoesNotExposeActivation" />
+    </UnitTest>
+    <UnitTest name="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests.Sequential_RejectsEmptyModel" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-ml.framework/test/hpd.ml.deeplearning.tests/bin/debug/net10.0/hpd.ml.deeplearning.tests.dll" id="77daa8d9-1654-3c11-0e65-fd9e957ea59f">
+      <Execution id="46ea20ad-4b54-435a-8c05-591841415dce" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-ML.Framework/test/HPD.ML.DeepLearning.Tests/bin/Debug/net10.0/HPD.ML.DeepLearning.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.ML.DeepLearning.Tests.Training.TrainableTrainingApiTests" name="Sequential_RejectsEmptyModel" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="90960ca1-2b31-3042-4afc-c7a2b09b98be" executionId="25dae073-ea2f-4165-9d5f-bb19df2bef8c" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="08bf7e2f-d7d8-c9a1-28d8-0626ae4b696e" executionId="10fa2cd9-b5d3-48e9-9f2d-7b9483aeb107" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="14695553-a5c8-e0bf-c0a3-0dc386301e79" executionId="51349ff2-585e-4f98-b135-684388f4418f" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="01ff9619-6dcf-6317-843e-e5c06496e879" executionId="acd8b87a-5078-4c50-8ee7-3f941773d74c" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="0e9cca9e-0f84-fd6e-53be-b52fed0368c6" executionId="5e9b7629-eba2-4b42-8dfe-ec899e63825b" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="f72d83fb-db56-d410-8264-2128901e7ad4" executionId="478b71b5-88ad-4f75-80a6-f1e19cbb5357" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="1a9e2f28-6747-2efd-0f6b-b51e790cb1e6" executionId="ca8ee9dd-4858-479d-b8bd-7fc06827d5ee" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="84ab50f3-2a1f-cfaf-b77b-a321b0551d3f" executionId="3d288e75-a119-4235-b3b3-b101b8b6a8df" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="c68c159c-8bdc-5c4e-5d7c-f5480069bc9d" executionId="01bbeb4e-5a3a-4253-9fd7-0d39fa811089" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="b46449d4-22a5-b205-f026-c06c862119bb" executionId="a2075e55-c939-4c38-8845-f921893ff8ef" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="478d9a25-699e-dbfd-00ff-b863a29cfded" executionId="de61ef51-6a07-4194-a026-3d5a872e656e" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="9e0cd140-3d56-e891-42a5-4d89329ee2f9" executionId="b48ad2bb-3443-4bcc-8a03-b11388bd61bb" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="77daa8d9-1654-3c11-0e65-fd9e957ea59f" executionId="46ea20ad-4b54-435a-8c05-591841415dce" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Completed">
+    <Counters total="13" executed="13" passed="13" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.5+1b188a7b0a (64-bit .NET 10.0.9)
+[xUnit.net 00:00:00.03]   Discovering: HPD.ML.DeepLearning.Tests
+[xUnit.net 00:00:00.05]   Discovered:  HPD.ML.DeepLearning.Tests
+[xUnit.net 00:00:00.06]   Starting:    HPD.ML.DeepLearning.Tests
+[xUnit.net 00:00:00.09]   Finished:    HPD.ML.DeepLearning.Tests
+</StdOut>
+    </Output>
+  </ResultSummary>
+</TestRun>

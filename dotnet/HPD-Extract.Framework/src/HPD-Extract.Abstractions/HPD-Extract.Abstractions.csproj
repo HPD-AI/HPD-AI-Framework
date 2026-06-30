@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <RootNamespace>HPD.Extract</RootNamespace>
+    <AssemblyName>HPD.Extract.Abstractions</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <OutputType>Library</OutputType>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>HPD-Extract.Abstractions</PackageId>
+    <Description>Core contracts, models, MIME helpers, and shared utilities for HPD Extract.</Description>
+    <PackageTags>extract;abstractions;document;text;ocr</PackageTags>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="UTF.Unknown" Version="2.6.0" />
+  </ItemGroup>
+
+</Project>

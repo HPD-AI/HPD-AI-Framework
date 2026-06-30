@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <RootNamespace>HPD.Extract</RootNamespace>
+    <AssemblyName>HPD.Extract.Office</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8604;RS2008</NoWarn>
+    <OutputType>Library</OutputType>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>HPD-Extract.Office</PackageId>
+    <Description>Microsoft Word, Excel, and PowerPoint Open XML extraction for HPD Extract.</Description>
+    <PackageTags>extract;docx;xlsx;pptx;office;document</PackageTags>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.4.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD-Extract.Abstractions/HPD-Extract.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HPD-Environment.Abstractions/HPD-Environment.Abstractions.csproj" />
+    <Project Path="src/HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" />
+    <Project Path="src/HPD-Environment.AppleVirtualization/HPD-Environment.AppleVirtualization.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/HPD-Environment.Tests/HPD-Environment.Tests.csproj" />
+    <Project Path="test/HPD-Environment.AppleVirtualization.Tests/HPD-Environment.AppleVirtualization.Tests.csproj" />
+  </Folder>
+</Solution>

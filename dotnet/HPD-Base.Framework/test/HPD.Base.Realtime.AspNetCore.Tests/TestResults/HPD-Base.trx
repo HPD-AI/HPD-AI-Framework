@@ -1,0 +1,147 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="53b7f6ec-3981-425f-8a91-d6e870d71825" name="@Einsteins-MacBook-Air 2026-06-30 12:24:07" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-06-30T12:24:07.4673220-05:00" queuing="2026-06-30T12:24:07.4673220-05:00" start="2026-06-30T12:24:05.7330990-05:00" finish="2026-06-30T12:24:07.5484950-05:00" />
+  <TestSettings name="default" id="3eacb27c-e3b9-45b2-acde-5a2ab5c330ff">
+    <Deployment runDeploymentRoot="_Einsteins-MacBook-Air_2026-06-30_12_24_07" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="b2b8a23c-d40f-4540-a3f3-8f2a3c531d49" testId="59aaac63-2e79-36cc-7b35-1f2bea6c0352" testName="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests.JoinWithUnauthorizedTenantReturnsChannelUnauthorized" computerName="Einsteins-MacBook-Air" duration="00:00:00.0883734" startTime="2026-06-30T12:24:06.1881660-05:00" endTime="2026-06-30T12:24:06.2766650-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="b2b8a23c-d40f-4540-a3f3-8f2a3c531d49" />
+    <UnitTestResult executionId="ab6a8539-c56f-4a76-9090-27e5aa606a49" testId="483baf63-481a-3fe3-d921-352dc0440fea" testName="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests.HeartbeatTimeoutClosesSocket" computerName="Einsteins-MacBook-Air" duration="00:00:01.0420900" startTime="2026-06-30T12:24:06.3797390-05:00" endTime="2026-06-30T12:24:07.4223030-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="ab6a8539-c56f-4a76-9090-27e5aa606a49" />
+    <UnitTestResult executionId="038befba-1c36-46e9-a9ec-9fd9e625edb8" testId="803866de-6fed-319e-9061-734f97f2b9de" testName="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests.OutgoingPayloadLimitDropsSnapshotsBeforeEvent" computerName="Einsteins-MacBook-Air" duration="00:00:00.0418151" startTime="2026-06-30T12:24:07.4849590-05:00" endTime="2026-06-30T12:24:07.5268000-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="038befba-1c36-46e9-a9ec-9fd9e625edb8" />
+    <UnitTestResult executionId="4866aac8-2f6c-457c-9755-83464de8d703" testId="ab2497d5-450f-91c5-7096-fc71ecebe681" testName="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests.NonWebSocketRequestIsRejectedBeforeUpgrade" computerName="Einsteins-MacBook-Air" duration="00:00:00.1633011" startTime="2026-06-30T12:24:06.0219540-05:00" endTime="2026-06-30T12:24:06.1877420-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="4866aac8-2f6c-457c-9755-83464de8d703" />
+    <UnitTestResult executionId="1c59e222-8365-491c-b36e-19ee2d2b46c8" testId="fa8d392c-e7af-e6b1-18b9-d59fa4e8ca53" testName="HPD.Base.Realtime.AspNetCore.Tests.Descriptors.RealtimeAspNetCoreDescriptorTests.WebSocketEndpointCarriesModuleOpenApiMetadata" computerName="Einsteins-MacBook-Air" duration="00:00:00.1367004" startTime="2026-06-30T12:24:06.0225220-05:00" endTime="2026-06-30T12:24:06.1609720-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="1c59e222-8365-491c-b36e-19ee2d2b46c8" />
+    <UnitTestResult executionId="78dcbb32-f929-48b7-848d-dff401340c5a" testId="715128e1-ae4a-78f7-1e50-de7d2ee3f3ff" testName="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests.UnsupportedChannelKindReturnsProtocolError" computerName="Einsteins-MacBook-Air" duration="00:00:00.0413299" startTime="2026-06-30T12:24:06.3383070-05:00" endTime="2026-06-30T12:24:06.3796530-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="78dcbb32-f929-48b7-848d-dff401340c5a" />
+    <UnitTestResult executionId="e58c4987-e984-4d2e-8b5f-780f4a5f7060" testId="9df13a71-4477-a13a-ace1-de4d1a801d61" testName="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests.WebSocketConnectJoinAndReceiveProjectedEvent" computerName="Einsteins-MacBook-Air" duration="00:00:00.0613959" startTime="2026-06-30T12:24:06.2767970-05:00" endTime="2026-06-30T12:24:06.3382130-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e58c4987-e984-4d2e-8b5f-780f4a5f7060" />
+    <UnitTestResult executionId="2cb0679d-7b7a-4a59-a4c5-c4bf2c43d8bf" testId="0b3e2360-8499-434b-db84-1a5884576f2c" testName="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests.PayloadTooLargeReturnsProtocolError" computerName="Einsteins-MacBook-Air" duration="00:00:00.0623635" startTime="2026-06-30T12:24:07.4493200-05:00" endTime="2026-06-30T12:24:07.4848350-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="2cb0679d-7b7a-4a59-a4c5-c4bf2c43d8bf" />
+    <UnitTestResult executionId="012a319e-446d-4896-a386-1b97e9be7c19" testId="0de7e07a-0f60-d0e9-7040-116b06cf4a2d" testName="HPD.Base.Realtime.AspNetCore.Tests.Descriptors.RealtimeAspNetCoreDescriptorTests.DescriptorContributesWebSocketProjectionRoute" computerName="Einsteins-MacBook-Air" duration="00:00:00.0412547" startTime="2026-06-30T12:24:06.1645660-05:00" endTime="2026-06-30T12:24:06.2023260-05:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="012a319e-446d-4896-a386-1b97e9be7c19" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests.UnsupportedChannelKindReturnsProtocolError" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.realtime.aspnetcore.tests/bin/debug/net10.0/hpd.base.realtime.aspnetcore.tests.dll" id="715128e1-ae4a-78f7-1e50-de7d2ee3f3ff">
+      <Execution id="78dcbb32-f929-48b7-848d-dff401340c5a" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Realtime.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Realtime.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests" name="UnsupportedChannelKindReturnsProtocolError" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests.PayloadTooLargeReturnsProtocolError" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.realtime.aspnetcore.tests/bin/debug/net10.0/hpd.base.realtime.aspnetcore.tests.dll" id="0b3e2360-8499-434b-db84-1a5884576f2c">
+      <Execution id="2cb0679d-7b7a-4a59-a4c5-c4bf2c43d8bf" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Realtime.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Realtime.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests" name="PayloadTooLargeReturnsProtocolError" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests.NonWebSocketRequestIsRejectedBeforeUpgrade" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.realtime.aspnetcore.tests/bin/debug/net10.0/hpd.base.realtime.aspnetcore.tests.dll" id="ab2497d5-450f-91c5-7096-fc71ecebe681">
+      <Execution id="4866aac8-2f6c-457c-9755-83464de8d703" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Realtime.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Realtime.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests" name="NonWebSocketRequestIsRejectedBeforeUpgrade" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests.WebSocketConnectJoinAndReceiveProjectedEvent" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.realtime.aspnetcore.tests/bin/debug/net10.0/hpd.base.realtime.aspnetcore.tests.dll" id="9df13a71-4477-a13a-ace1-de4d1a801d61">
+      <Execution id="e58c4987-e984-4d2e-8b5f-780f4a5f7060" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Realtime.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Realtime.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests" name="WebSocketConnectJoinAndReceiveProjectedEvent" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests.HeartbeatTimeoutClosesSocket" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.realtime.aspnetcore.tests/bin/debug/net10.0/hpd.base.realtime.aspnetcore.tests.dll" id="483baf63-481a-3fe3-d921-352dc0440fea">
+      <Execution id="ab6a8539-c56f-4a76-9090-27e5aa606a49" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Realtime.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Realtime.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests" name="HeartbeatTimeoutClosesSocket" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests.JoinWithUnauthorizedTenantReturnsChannelUnauthorized" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.realtime.aspnetcore.tests/bin/debug/net10.0/hpd.base.realtime.aspnetcore.tests.dll" id="59aaac63-2e79-36cc-7b35-1f2bea6c0352">
+      <Execution id="b2b8a23c-d40f-4540-a3f3-8f2a3c531d49" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Realtime.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Realtime.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests" name="JoinWithUnauthorizedTenantReturnsChannelUnauthorized" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Realtime.AspNetCore.Tests.Descriptors.RealtimeAspNetCoreDescriptorTests.DescriptorContributesWebSocketProjectionRoute" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.realtime.aspnetcore.tests/bin/debug/net10.0/hpd.base.realtime.aspnetcore.tests.dll" id="0de7e07a-0f60-d0e9-7040-116b06cf4a2d">
+      <Execution id="012a319e-446d-4896-a386-1b97e9be7c19" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Realtime.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Realtime.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Realtime.AspNetCore.Tests.Descriptors.RealtimeAspNetCoreDescriptorTests" name="DescriptorContributesWebSocketProjectionRoute" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests.OutgoingPayloadLimitDropsSnapshotsBeforeEvent" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.realtime.aspnetcore.tests/bin/debug/net10.0/hpd.base.realtime.aspnetcore.tests.dll" id="803866de-6fed-319e-9061-734f97f2b9de">
+      <Execution id="038befba-1c36-46e9-a9ec-9fd9e625edb8" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Realtime.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Realtime.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Realtime.AspNetCore.Tests.Endpoints.WebSocketEndpointTests" name="OutgoingPayloadLimitDropsSnapshotsBeforeEvent" />
+    </UnitTest>
+    <UnitTest name="HPD.Base.Realtime.AspNetCore.Tests.Descriptors.RealtimeAspNetCoreDescriptorTests.WebSocketEndpointCarriesModuleOpenApiMetadata" storage="/users/ewoof/desktop/hpd-os/dotnet/hpd-base.framework/test/hpd.base.realtime.aspnetcore.tests/bin/debug/net10.0/hpd.base.realtime.aspnetcore.tests.dll" id="fa8d392c-e7af-e6b1-18b9-d59fa4e8ca53">
+      <Execution id="1c59e222-8365-491c-b36e-19ee2d2b46c8" />
+      <TestMethod codeBase="/Users/ewoof/Desktop/HPD-OS/dotnet/HPD-Base.Framework/test/HPD.Base.Realtime.AspNetCore.Tests/bin/Debug/net10.0/HPD.Base.Realtime.AspNetCore.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="HPD.Base.Realtime.AspNetCore.Tests.Descriptors.RealtimeAspNetCoreDescriptorTests" name="WebSocketEndpointCarriesModuleOpenApiMetadata" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="59aaac63-2e79-36cc-7b35-1f2bea6c0352" executionId="b2b8a23c-d40f-4540-a3f3-8f2a3c531d49" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="483baf63-481a-3fe3-d921-352dc0440fea" executionId="ab6a8539-c56f-4a76-9090-27e5aa606a49" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="803866de-6fed-319e-9061-734f97f2b9de" executionId="038befba-1c36-46e9-a9ec-9fd9e625edb8" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="ab2497d5-450f-91c5-7096-fc71ecebe681" executionId="4866aac8-2f6c-457c-9755-83464de8d703" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="fa8d392c-e7af-e6b1-18b9-d59fa4e8ca53" executionId="1c59e222-8365-491c-b36e-19ee2d2b46c8" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="715128e1-ae4a-78f7-1e50-de7d2ee3f3ff" executionId="78dcbb32-f929-48b7-848d-dff401340c5a" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="9df13a71-4477-a13a-ace1-de4d1a801d61" executionId="e58c4987-e984-4d2e-8b5f-780f4a5f7060" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="0b3e2360-8499-434b-db84-1a5884576f2c" executionId="2cb0679d-7b7a-4a59-a4c5-c4bf2c43d8bf" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="0de7e07a-0f60-d0e9-7040-116b06cf4a2d" executionId="012a319e-446d-4896-a386-1b97e9be7c19" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Completed">
+    <Counters total="9" executed="9" passed="9" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.5+1b188a7b0a (64-bit .NET 10.0.9)
+[xUnit.net 00:00:00.05]   Discovering: HPD.Base.Realtime.AspNetCore.Tests
+[xUnit.net 00:00:00.07]   Discovered:  HPD.Base.Realtime.AspNetCore.Tests
+[xUnit.net 00:00:00.07]   Starting:    HPD.Base.Realtime.AspNetCore.Tests
+     Warning:
+     The component "Fluent Assertions" is governed by the rules defined in the Xceed License Agreement and
+     the Xceed Fluent Assertions Community License. You may use Fluent Assertions free of charge for
+     non-commercial use only. An active subscription is required to use Fluent Assertions for commercial use.
+     Please contact Xceed Sales mailto:sales@xceed.com to acquire a subscription at a very low cost.
+     A paid commercial license supports the development and continued increasing support of
+     Fluent Assertions users under both commercial and community licenses. Help us
+     keep Fluent Assertions at the forefront of unit testing.
+     For more information, visit https://xceed.com/products/unit-testing/fluent-assertions/
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 GET http://localhost/base/realtime/v1/socket - - -
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
+      Executing endpoint 'HPD.BASE realtime WebSocket'
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
+      Executed endpoint 'HPD.BASE realtime WebSocket'
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 GET http://localhost/base/realtime/v1/socket - 400 - application/json 24.6780ms
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 GET http://localhost/base/realtime/v1/socket - - -
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
+      Executing endpoint 'HPD.BASE realtime WebSocket'
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
+      Executed endpoint 'HPD.BASE realtime WebSocket'
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 GET http://localhost/base/realtime/v1/socket - 101 - - 41.8203ms
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 GET http://localhost/base/realtime/v1/socket - - -
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
+      Executing endpoint 'HPD.BASE realtime WebSocket'
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
+      Executed endpoint 'HPD.BASE realtime WebSocket'
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 GET http://localhost/base/realtime/v1/socket - 101 - - 19.6426ms
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 GET http://localhost/base/realtime/v1/socket - - -
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
+      Executing endpoint 'HPD.BASE realtime WebSocket'
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
+      Executed endpoint 'HPD.BASE realtime WebSocket'
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 GET http://localhost/base/realtime/v1/socket - 101 - - 0.5067ms
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 GET http://localhost/base/realtime/v1/socket - - -
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
+      Executing endpoint 'HPD.BASE realtime WebSocket'
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
+      Executed endpoint 'HPD.BASE realtime WebSocket'
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 GET http://localhost/base/realtime/v1/socket - 101 - - 1002.5442ms
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 GET http://localhost/base/realtime/v1/socket - - -
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
+      Executing endpoint 'HPD.BASE realtime WebSocket'
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
+      Executed endpoint 'HPD.BASE realtime WebSocket'
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 GET http://localhost/base/realtime/v1/socket - 101 - - 0.6580ms
+info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+      Request starting HTTP/1.1 GET http://localhost/base/realtime/v1/socket - - -
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
+      Executing endpoint 'HPD.BASE realtime WebSocket'
+info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
+      Executed endpoint 'HPD.BASE realtime WebSocket'
+info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+      Request finished HTTP/1.1 GET http://localhost/base/realtime/v1/socket - 101 - - 1.3273ms
+[xUnit.net 00:00:01.59]   Finished:    HPD.Base.Realtime.AspNetCore.Tests
+</StdOut>
+    </Output>
+  </ResultSummary>
+</TestRun>

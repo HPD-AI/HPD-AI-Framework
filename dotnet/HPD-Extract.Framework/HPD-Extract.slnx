@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Core/">
+    <Project Path="src/HPD-Extract.Abstractions/HPD-Extract.Abstractions.csproj" />
+    <Project Path="src/HPD-Extract/HPD-Extract.csproj" />
+  </Folder>
+  <Folder Name="/Decoders/">
+    <Project Path="src/HPD-Extract.Pdf/HPD-Extract.Pdf.csproj" />
+    <Project Path="src/HPD-Extract.Web/HPD-Extract.Web.csproj" />
+    <Project Path="src/HPD-Extract.Office/HPD-Extract.Office.csproj" />
+    <Project Path="src/HPD-Extract.Images/HPD-Extract.Images.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="test/HPD-Extract.Tests/HPD-Extract.Tests.csproj" />
+    <Project Path="test/HPD-Extract.Pdf.Tests/HPD-Extract.Pdf.Tests.csproj" />
+  </Folder>
+</Solution>

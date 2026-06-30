@@ -121,7 +121,12 @@ test_package() {
 
 # Test each package (simple array approach for compatibility)
 test_package "HPD.Events" "HPD.Events/HPD.Events.csproj"
-test_package "HPD-TextExtract" "src/HPD-TextExtract/HPD-TextExtract.csproj"
+test_package "HPD-Extract.Abstractions" "../HPD-Extract.Framework/src/HPD-Extract.Abstractions/HPD-Extract.Abstractions.csproj"
+test_package "HPD-Extract.Pdf" "../HPD-Extract.Framework/src/HPD-Extract.Pdf/HPD-Extract.Pdf.csproj"
+test_package "HPD-Extract.Web" "../HPD-Extract.Framework/src/HPD-Extract.Web/HPD-Extract.Web.csproj"
+test_package "HPD-Extract.Office" "../HPD-Extract.Framework/src/HPD-Extract.Office/HPD-Extract.Office.csproj"
+test_package "HPD-Extract.Images" "../HPD-Extract.Framework/src/HPD-Extract.Images/HPD-Extract.Images.csproj"
+test_package "HPD-Extract" "../HPD-Extract.Framework/src/HPD-Extract/HPD-Extract.csproj"
 test_package "HPD-Agent.TextExtraction" "HPD-Agent.TextExtraction/HPD-Agent.TextExtraction.csproj"
 test_package "HPD-Agent.Framework" "HPD-Agent/HPD-Agent.csproj"
 test_package "HPD-Agent.FFI" "HPD-Agent.FFI/HPD-Agent.FFI.csproj"

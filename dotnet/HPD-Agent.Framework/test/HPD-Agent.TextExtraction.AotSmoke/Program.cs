@@ -1,8 +1,8 @@
 // Copyright 2026 Einstein Essibu
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
-using HPD.TextExtract.Models;
-using HPD.TextExtract.Pdf;
+using HPD.Extract.Models;
+using HPD.Extract.Pdf;
 
 var fixturePath = args.Length > 0
     ? args[0]
