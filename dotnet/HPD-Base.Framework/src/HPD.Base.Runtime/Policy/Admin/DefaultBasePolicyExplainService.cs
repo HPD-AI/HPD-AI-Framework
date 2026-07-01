@@ -321,7 +321,7 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
             ProposedPayload = validation.Value.Payload
         }, cancellationToken).ConfigureAwait(false);
 
-        return WritePolicyResult(request, context, policy, validation.Value.Payload, new BasePolicyExplainRuntimeSummary(), request.Options);
+        return WritePolicyResult(request, context, policy, validation.Value.Payload, validation.Value.Payload, new BasePolicyExplainRuntimeSummary(), request.Options);
     }
 
     private async ValueTask<OperationResult<BasePolicyExplainResponse>> ExplainPatchAsync(
@@ -386,7 +386,7 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
             ProposedRecordComputed = true
         };
 
-        return WritePolicyResult(request, context, policy, validation.Value.Payload, runtime, request.Options);
+        return WritePolicyResult(request, context, policy, proposedPayload, validation.Value.Payload, runtime, request.Options);
     }
 
     private async ValueTask<OperationResult<BasePolicyExplainResponse>> ExplainReplaceAsync(
@@ -433,7 +433,7 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
             ProposedPayload = validation.Value.Payload
         }, cancellationToken).ConfigureAwait(false);
 
-        return WritePolicyResult(request, context, policy, validation.Value.Payload, new BasePolicyExplainRuntimeSummary(), request.Options);
+        return WritePolicyResult(request, context, policy, validation.Value.Payload, validation.Value.Payload, new BasePolicyExplainRuntimeSummary(), request.Options);
     }
 
     private async ValueTask<OperationResult<BasePolicyExplainResponse>> ExplainDeleteAsync(
@@ -476,28 +476,51 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
             ExistingRecordFound = true
         };
 
-        return WritePolicyResult(request, context, policy, null, runtime, request.Options);
+        return WritePolicyResult(request, context, policy, existing.Value.Payload, null, runtime, request.Options);
     }
 
     private OperationResult<BasePolicyExplainResponse> WritePolicyResult(
         BasePolicyExplainRequest request,
         OperationContext context,
         OperationResult<BasePolicyEvaluation> policy,
+        RecordPayload? predicatePayload,
         RecordPayload? changedPayload,
         BasePolicyExplainRuntimeSummary runtime,
         BasePolicyExplainOptions? options)
     {
-        if (policy.IsSuccess() && policy.Value?.Decision.Constraints?.WriteCheck is not null)
+        if (policy.IsSuccess() && policy.Value?.Decision.Constraints?.WriteCheck is { } writeCheck)
         {
-            runtime = runtime with { WriteCheckUnsupportedByRuntime = true };
-            return OperationResults.Ok(Response(
-                request,
-                context,
-                BasePolicyExplainOutcome.Unsupported,
-                policy.Value.Decision,
-                changedPayload,
-                runtime,
-                options));
+            var writeCheckResult = BasePolicyWriteConstraintEvaluator.Evaluate(predicatePayload, writeCheck);
+            if (writeCheckResult == BasePolicyWriteCheckEvaluation.Unsupported)
+            {
+                runtime = runtime with { WriteCheckUnsupportedByRuntime = true };
+                return OperationResults.Ok(Response(
+                    request,
+                    context,
+                    BasePolicyExplainOutcome.Unsupported,
+                    policy.Value.Decision,
+                    changedPayload,
+                    runtime,
+                    options));
+            }
+
+            if (writeCheckResult == BasePolicyWriteCheckEvaluation.Denied)
+            {
+                return OperationResults.Ok(Response(
+                    request,
+                    context,
+                    BasePolicyExplainOutcome.Denied,
+                    policy.Value.Decision with
+                    {
+                        Effect = PolicyEffect.Deny,
+                        Outcome = PolicyOutcome.Denied,
+                        ReasonCode = "writeCheck",
+                        SafeMessage = "Policy write check denied the operation."
+                    },
+                    changedPayload,
+                    runtime,
+                    options));
+            }
         }
 
         if (policy.IsSuccess() && policy.Value?.EffectiveWriteMask is { } mask && changedPayload is not null)

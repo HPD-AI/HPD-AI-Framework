@@ -25,12 +25,17 @@ internal static class ServiceProviderBuilder
         // IHttpContextAccessor is required by SignInManager.
         services.AddHttpContextAccessor();
 
-        services.AddHPDAuth(o =>
-        {
-            o.AppName = appName;
-            configure?.Invoke(o);
-        });
+        services
+            .AddHPDAuth(o =>
+            {
+                o.AppName = appName;
+                configure?.Invoke(o);
+            })
+            .UseInMemorySqliteForTests();
 
-        return services.BuildServiceProvider();
+        var serviceProvider = services.BuildServiceProvider();
+        serviceProvider.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+
+        return serviceProvider;
     }
 }

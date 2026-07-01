@@ -1,4 +1,5 @@
 global using System.Security.Claims;
+global using System.Text.Json;
 global using FluentAssertions;
 global using HPD.Base;
 global using HPD.Base.Auth.HPDAuth;
@@ -10,6 +11,7 @@ global using HPD.Base.Auth.HPDAuth.Policy;
 global using HPD.Base.Descriptors;
 global using HPD.Base.Policy;
 global using HPD.Base.Query;
+global using HPD.Base.Records;
 global using HPD.Base.Results;
 global using HPD.Base.Runtime;
 global using HPD.Base.Runtime.DependencyInjection;

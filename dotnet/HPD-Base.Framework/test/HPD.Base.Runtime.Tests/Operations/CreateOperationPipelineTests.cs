@@ -101,14 +101,74 @@ public sealed class CreateOperationPipelineTests
     }
 
     [Fact]
-    public async Task WriteCheckFailsClosedBeforeCreateStoreCall()
+    public async Task WriteCheckDeniesCreateBeforeStoreCall()
     {
         var store = new FakeRecordStore("primary");
         using var provider = OperationTestServices.Build(
             store,
             new ConstrainedPolicyEvaluator(writeCheck: new FilterExpression
             {
-                Kind = FilterNodeKind.True
+                Kind = FilterNodeKind.Compare,
+                Field = "ownerId",
+                Operator = FilterOperator.Equal,
+                Value = new QueryValue
+                {
+                    Kind = QueryValueKind.String,
+                    String = "user-1"
+                }
+            }));
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().CreateAsync(
+            "items",
+            CreateRequest("""{"title":"hello","ownerId":"user-2"}"""),
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Create),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.PolicyDenied, result.Status);
+        Assert.Equal("base.runtime.policy.writeCheck.denied", result.Error!.Code);
+        Assert.Equal(0, store.CreateCalls);
+    }
+
+    [Fact]
+    public async Task WriteCheckAllowsCreateBeforeStoreCall()
+    {
+        var store = new FakeRecordStore("primary");
+        using var provider = OperationTestServices.Build(
+            store,
+            new ConstrainedPolicyEvaluator(writeCheck: new FilterExpression
+            {
+                Kind = FilterNodeKind.Compare,
+                Field = "ownerId",
+                Operator = FilterOperator.Equal,
+                Value = new QueryValue
+                {
+                    Kind = QueryValueKind.String,
+                    String = "user-1"
+                }
+            }));
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().CreateAsync(
+            "items",
+            CreateRequest("""{"title":"hello","ownerId":"user-1"}"""),
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Create),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Created, result.Status);
+        Assert.Equal(1, store.CreateCalls);
+    }
+
+    [Fact]
+    public async Task UnsupportedWriteCheckFailsClosedBeforeCreateStoreCall()
+    {
+        var store = new FakeRecordStore("primary");
+        using var provider = OperationTestServices.Build(
+            store,
+            new ConstrainedPolicyEvaluator(writeCheck: new FilterExpression
+            {
+                Kind = FilterNodeKind.Extension,
+                Name = "host-only"
             }));
 
         var result = await provider.GetRequiredService<IBaseRecordRuntime>().CreateAsync(

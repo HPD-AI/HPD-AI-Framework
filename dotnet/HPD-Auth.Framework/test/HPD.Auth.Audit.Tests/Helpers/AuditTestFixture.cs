@@ -31,12 +31,16 @@ public static class AuditTestFixture
             o.AppName = "AuditTest-" + Guid.NewGuid();
             o.Features.EnableAuditLog = true;
             configureOptions?.Invoke(o);
-        });
+        })
+        .UseInMemorySqliteForTests();
 
         builder.AddAudit();
         configureBuilder?.Invoke(builder);
 
-        return services.BuildServiceProvider();
+        var serviceProvider = services.BuildServiceProvider();
+        serviceProvider.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+
+        return serviceProvider;
     }
 }
 

@@ -65,11 +65,13 @@ public class OAuthSchemeRegistrarTests : IAsyncDisposable
                 o.Password.RequiredLength           = 1;
                 configureOAuth(o.OAuth);
             })
+            .UseInMemorySqliteForTests()
             .AddOAuth();
 
         builder.Services.AddAuthorization();
 
         _app = builder.Build();
+        await _app.Services.InitializeHPDAuthDevelopmentDatabaseAsync();
         await _app.StartAsync();
 
         return _app.Services.GetRequiredService<IAuthenticationSchemeProvider>();

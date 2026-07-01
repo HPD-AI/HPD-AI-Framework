@@ -34,7 +34,10 @@ public class Integration_Cookie_Tests
 
     private static (TestServer Server, IServiceProvider RootServices) CreateServer()
     {
-        var builder = WebApplication.CreateBuilder();
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = "Development"
+        });
         builder.WebHost.UseTestServer();
 
         var dbName = Guid.NewGuid().ToString();
@@ -48,11 +51,13 @@ public class Integration_Cookie_Tests
             opts.Cookie.CookieName           = ".HPDTest.Auth";
             opts.Cookie.UseSlidingExpiration = false;
         })
+        .UseInMemorySqliteForTests()
         .AddAuthentication();
 
         builder.Services.AddAuthorization();
 
         var app = builder.Build();
+        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();

@@ -36,7 +36,10 @@ public class JwtBearer_SecurityStamp_Tests
 
     private static (TestServer Server, IServiceProvider RootServices) CreateServer()
     {
-        var builder = WebApplication.CreateBuilder();
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = "Development"
+        });
         builder.WebHost.UseTestServer();
 
         var dbName = Guid.NewGuid().ToString(); // isolated in-memory DB per test
@@ -50,11 +53,13 @@ public class JwtBearer_SecurityStamp_Tests
             opts.Jwt.AccessTokenLifetime  = TimeSpan.FromMinutes(15);
             opts.Jwt.RefreshTokenLifetime = TimeSpan.FromDays(14);
         })
+        .UseInMemorySqliteForTests()
         .AddAuthentication();
 
         builder.Services.AddAuthorization();
 
         var app = builder.Build();
+        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
 
         app.UseRouting();
         app.UseAuthentication();

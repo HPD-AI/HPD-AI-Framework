@@ -370,13 +370,23 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
         var filter = action == HPDAuthBasePolicyActions.Read
             ? CombineFilters(allows.Select(grant => grant.Condition).Where(static condition => condition is not null)!)
             : null;
+        var writeCheck = IsWriteAction(action)
+            ? CombineFilters(allows.Select(grant => grant.WriteCondition).Where(static condition => condition is not null)!)
+            : null;
+        var constraints = filter is null && writeCheck is null
+            ? null
+            : new PolicyConstraints
+            {
+                RecordFilter = filter,
+                WriteCheck = writeCheck
+            };
 
         return Allow(
-            filter is null ? PolicyOutcome.Allowed : PolicyOutcome.AllowedWithConstraints,
+            constraints is null ? PolicyOutcome.Allowed : PolicyOutcome.AllowedWithConstraints,
             request,
             subjects,
             matchedGrantIds: allows.Select(static grant => grant.Id).ToArray(),
-            constraints: filter is null ? null : new PolicyConstraints { RecordFilter = filter });
+            constraints: constraints);
     }
 
     private PolicyDecision? EvaluateRule(
@@ -557,6 +567,11 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
 
     private static bool HasAnyRole(string[] roles, string[]? allowedRoles) =>
         allowedRoles is { Length: > 0 } && roles.Any(role => allowedRoles.Contains(role, StringComparer.Ordinal));
+
+    private static bool IsWriteAction(string action) =>
+        string.Equals(action, HPDAuthBasePolicyActions.Create, StringComparison.Ordinal)
+        || string.Equals(action, HPDAuthBasePolicyActions.Update, StringComparison.Ordinal)
+        || string.Equals(action, HPDAuthBasePolicyActions.Delete, StringComparison.Ordinal);
 
     private static string ActionFor(BaseOperationKind operation) => operation switch
     {

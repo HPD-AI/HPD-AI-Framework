@@ -27,7 +27,8 @@ public sealed class PolicyAbstainTests
     {
         var services = new ServiceCollection();
         services.AddSingleton<IPolicyEvaluator, AbstainPolicyEvaluator>();
-        services.AddHPDBaseRuntime(options => options.AllowPolicyAbstainAsAllow = true);
+        services.AddHPDBaseRuntime()
+            .UseDevelopmentPolicyAbstainAsAllow();
         using var provider = services.BuildServiceProvider();
 
         var result = await provider.GetRequiredService<IBasePolicyOrchestrator>().EvaluateReadAsync(Request());

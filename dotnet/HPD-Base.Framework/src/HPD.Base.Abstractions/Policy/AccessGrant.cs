@@ -9,7 +9,19 @@ public sealed record AccessGrant
     public required string Action { get; init; }
     public required ResourceScope Scope { get; init; }
     public GrantEffect Effect { get; init; } = GrantEffect.Allow;
+
+    /// <summary>
+    /// Gets the read-side record filter constraint for this grant.
+    /// </summary>
     public FilterExpression? Condition { get; init; }
+
+    /// <summary>
+    /// Gets the write-side predicate constraint for this grant.
+    /// The runtime evaluates this against the proposed record payload for create,
+    /// patch, and replace operations, and against the existing payload for delete.
+    /// </summary>
+    public FilterExpression? WriteCondition { get; init; }
+
     public DateTimeOffset? ExpiresAt { get; init; }
     public string? Source { get; init; }
 }

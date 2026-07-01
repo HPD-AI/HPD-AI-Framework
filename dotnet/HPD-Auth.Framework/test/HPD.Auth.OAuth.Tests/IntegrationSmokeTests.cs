@@ -68,6 +68,7 @@ public class IntegrationSmokeTests : IAsyncDisposable
                 o.Password.RequiredLength           = 1;
                 configure?.Invoke(o);
             })
+            .UseInMemorySqliteForTests()
             .AddOAuth();
 
         builder.Services.AddAuthentication(opts =>
@@ -90,6 +91,7 @@ public class IntegrationSmokeTests : IAsyncDisposable
     public async Task DI_ResolvesExternalLoginHandlerAndProviderService_WithoutException()
     {
         _app = CreateBuilder().Build();
+        await _app.Services.InitializeHPDAuthDevelopmentDatabaseAsync();
         await _app.StartAsync();
 
         using var scope = _app.Services.CreateScope();
@@ -164,11 +166,13 @@ public class IntegrationSmokeTests : IAsyncDisposable
                     ClientSecret = "test-google-client-secret",
                 };
             })
+            .UseInMemorySqliteForTests()
             .AddOAuth();
 
         builder.Services.AddAuthorization();
 
         _app = builder.Build();
+        await _app.Services.InitializeHPDAuthDevelopmentDatabaseAsync();
         await _app.StartAsync();
 
         var schemeProvider = _app.Services.GetRequiredService<IAuthenticationSchemeProvider>();

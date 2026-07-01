@@ -315,7 +315,7 @@ public sealed record BasePolicyExplainRuntimeSummary
     /// <summary>Gets whether hidden fields would be omitted from a normal result.</summary>
     public bool HiddenFieldsWouldBeOmitted { get; init; }
 
-    /// <summary>Gets whether a write check would fail closed because runtime evaluation is unsupported.</summary>
+    /// <summary>Gets whether a write check would fail closed because its shape is not runtime-evaluable.</summary>
     public bool WriteCheckUnsupportedByRuntime { get; init; }
 }
 

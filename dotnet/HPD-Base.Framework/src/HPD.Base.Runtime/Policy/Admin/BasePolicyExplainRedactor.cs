@@ -48,7 +48,7 @@ public sealed class BasePolicyExplainRedactor
         return new BasePolicyExplainConstraintSummary
         {
             RecordFilter = Filter(constraints?.RecordFilter, includeConstraintAst),
-            WriteCheck = Filter(constraints?.WriteCheck, includeConstraintAst, runtimeEvaluable: false),
+            WriteCheck = Filter(constraints?.WriteCheck, includeConstraintAst),
             ReadMask = Mask(constraints?.ReadMask),
             WriteMask = Mask(constraints?.WriteMask),
             Obligations = obligations is { Length: > 0 }

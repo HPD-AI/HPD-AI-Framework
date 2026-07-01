@@ -75,7 +75,6 @@ public sealed class PublicApiShapeTests
                 nameof(HPDBaseRuntimeOptions.ManifestVersion),
                 nameof(HPDBaseRuntimeOptions.DefaultManifestVisibility),
                 nameof(HPDBaseRuntimeOptions.FailFastOnDescriptorValidation),
-                nameof(HPDBaseRuntimeOptions.AllowPolicyAbstainAsAllow),
                 nameof(HPDBaseRuntimeOptions.Limits),
                 nameof(HPDBaseRuntimeOptions.Events),
                 nameof(HPDBaseRuntimeOptions.Redaction),

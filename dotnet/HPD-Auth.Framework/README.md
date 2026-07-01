@@ -33,7 +33,7 @@ Add it to any ASP.NET Core app and immediately get:
 - Admin API: user management, ban/unban, roles, claims, audit log
 - Event-driven audit logging
 
-No scaffolding. No migrations. No middleware ordering to think about.
+No scaffolding. Explicit storage. No middleware ordering to think about.
 
 ## Quick Start
 
@@ -48,16 +48,24 @@ builder.Services
     .AddHPDAuth(options =>
     {
         options.AppName = "MyApp";
-        options.Jwt.Secret = "your-secret-key-minimum-32-chars";
+        options.Jwt.Secret = builder.Configuration["Auth:Jwt:Secret"];
     })
+    .UseSqlite(builder.Configuration.GetConnectionString("auth-db")!)
     .AddAuthentication()
     .AddAudit()
     .AddTwoFactor()
     .AddAdmin();
 
-builder.Services.AddMemoryCache();
-
 var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    await app.Services.InitializeHPDAuthDevelopmentDatabaseAsync();
+}
+else
+{
+    await app.Services.MigrateHPDAuthDatabaseAsync();
+}
 
 app.UseHPDAuth();
 app.MapHPDAuthEndpoints();
@@ -68,6 +76,26 @@ app.Run();
 ```
 
 Your app now has a full auth API at `/api/auth/*` and `/api/admin/*`.
+
+When JWT authentication is enabled, `Auth:Jwt:Secret` must be a strong random
+secret of at least 32 UTF-8 bytes. Leave `Jwt.Secret` empty only for intentional
+cookie-only hosts.
+
+### Storage and Data Protection
+
+HPD.Auth requires an explicit storage provider. The configured auth database stores identity data, sessions, refresh tokens, audit state, and the ASP.NET Core Data Protection key ring.
+
+Use durable storage for any real host:
+
+```csharp
+builder.Services
+    .AddHPDAuth(options => options.AppName = "MyApp")
+    .UseSqlite(builder.Configuration.GetConnectionString("auth-db")!);
+```
+
+All instances of the same app must share the same durable auth database, or the host must intentionally override Data Protection with another shared key provider. Process-local storage from `UseInMemorySqliteForTests()` is only for tests and is not restart-safe.
+
+`InitializeHPDAuthDevelopmentDatabaseAsync()` is a development/test initializer. Production hosts should use `MigrateHPDAuthDatabaseAsync()` or an equivalent deployment migration step for their selected provider.
 
 ```bash
 # Sign up
@@ -157,7 +185,7 @@ Full documentation at **[hpd-ai.github.io/HPD.Auth](https://hpd-ai.github.io/HPD
 ```
 src/
 ├── HPD.Auth.Core/           Entities, interfaces, options, events
-├── HPD.Auth.Infrastructure/ DbContext (SQLite in-memory), 3 stores
+├── HPD.Auth.Infrastructure/ DbContext, explicit storage, migrations, 3 stores
 ├── HPD.Auth/                Core endpoints + DI registration
 ├── HPD.Auth.Authentication/ JWT + Cookie + PolicyScheme
 ├── HPD.Auth.Admin/          Admin endpoints (10 groups, 25+ endpoints)

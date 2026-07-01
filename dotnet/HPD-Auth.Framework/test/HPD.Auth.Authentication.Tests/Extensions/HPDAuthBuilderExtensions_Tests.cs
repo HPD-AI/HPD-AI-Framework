@@ -34,8 +34,12 @@ public class HPDAuthBuilderExtensions_Tests
             opts.Jwt.Issuer          = TokenServiceFixture.DefaultIssuer;
             opts.Jwt.Audience        = TokenServiceFixture.DefaultAudience;
         })
+        .UseInMemorySqliteForTests()
         .AddAuthentication();
-        return services.BuildServiceProvider();
+        var serviceProvider = services.BuildServiceProvider();
+        serviceProvider.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+
+        return serviceProvider;
     }
 
     private static IServiceProvider BuildCookieOnlyProvider()
@@ -47,8 +51,12 @@ public class HPDAuthBuilderExtensions_Tests
             opts.AppName    = Guid.NewGuid().ToString();
             opts.Jwt.Secret = null;  // cookie-only
         })
+        .UseInMemorySqliteForTests()
         .AddAuthentication();
-        return services.BuildServiceProvider();
+        var serviceProvider = services.BuildServiceProvider();
+        serviceProvider.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+
+        return serviceProvider;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -152,6 +160,39 @@ public class HPDAuthBuilderExtensions_Tests
         returnedBuilder.Should().BeSameAs(builder);
     }
 
+    [Fact]
+    public void AddAuthentication_JWT_Mode_Rejects_Short_Secret()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var builder = services.AddHPDAuth(opts =>
+        {
+            opts.AppName = Guid.NewGuid().ToString();
+            opts.Jwt.Secret = "too-short";
+        });
+
+        var act = () => builder.AddAuthentication();
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*JWT secret must be at least 32 UTF-8 bytes*");
+    }
+
+    [Fact]
+    public void AddAuthentication_CookieOnly_Mode_Allows_Null_Secret()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var builder = services.AddHPDAuth(opts =>
+        {
+            opts.AppName = Guid.NewGuid().ToString();
+            opts.Jwt.Secret = null;
+        });
+
+        var act = () => builder.AddAuthentication();
+
+        act.Should().NotThrow();
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Test 135 — JWT mode: "HPD" policy scheme is registered
     // ─────────────────────────────────────────────────────────────────────────
@@ -233,6 +274,7 @@ public class HPDAuthBuilderExtensions_Tests
             opts.AppName    = Guid.NewGuid().ToString();
             opts.Jwt.Secret = TokenServiceFixture.DefaultSecret;
         })
+        .UseInMemorySqliteForTests()
         .AddAuthentication();
 
         var descriptor = services.First(d => d.ServiceType == typeof(ITokenService));

@@ -2,6 +2,8 @@ using FluentAssertions;
 using HPD.Auth.Extensions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace HPD.Auth.Tests;
@@ -33,6 +35,61 @@ public class GuardClauseTests
 
         act.Should().Throw<ArgumentNullException>()
             .WithParameterName("configure");
+    }
+
+    [Fact]
+    public async Task AddHPDAuth_Without_Storage_Fails_Host_Startup()
+    {
+        using var host = Host.CreateDefaultBuilder()
+            .ConfigureServices(services =>
+            {
+                services.AddHttpContextAccessor();
+                services.AddHPDAuth(o => o.AppName = "MissingStorage");
+            })
+            .Build();
+
+        var act = () => host.StartAsync();
+
+        await act.Should().ThrowAsync<OptionsValidationException>()
+            .WithMessage("*HPD.Auth storage is required*");
+    }
+
+    [Fact]
+    public async Task AddHPDAuth_With_InMemoryStorage_Fails_Production_Host_Startup()
+    {
+        using var host = Host.CreateDefaultBuilder()
+            .UseEnvironment(Environments.Production)
+            .ConfigureServices(services =>
+            {
+                services.AddHttpContextAccessor();
+                services
+                    .AddHPDAuth(o => o.AppName = "ProductionInMemoryStorage")
+                    .UseInMemorySqliteForTests();
+            })
+            .Build();
+
+        var act = () => host.StartAsync();
+
+        await act.Should().ThrowAsync<OptionsValidationException>()
+            .WithMessage("*production hosts must use durable auth storage*");
+    }
+
+    [Fact]
+    public async Task AddHPDAuth_With_InMemoryStorage_Allows_Development_Host_Startup()
+    {
+        using var host = Host.CreateDefaultBuilder()
+            .UseEnvironment(Environments.Development)
+            .ConfigureServices(services =>
+            {
+                services.AddHttpContextAccessor();
+                services
+                    .AddHPDAuth(o => o.AppName = "DevelopmentInMemoryStorage")
+                    .UseInMemorySqliteForTests();
+            })
+            .Build();
+
+        await host.StartAsync();
+        await host.StopAsync();
     }
 
     // ── UseHPDAuth ────────────────────────────────────────────────────────────────

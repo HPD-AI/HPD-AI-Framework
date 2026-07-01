@@ -1,4 +1,4 @@
-using HPD.Base.AspNetCore.Http;
+                                                                                                                                                                                                   using HPD.Base.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 
 namespace HPD.Base.AspNetCore.EndpointMapping;
@@ -19,6 +19,11 @@ public sealed class HPDBaseEndpointOptions
     public bool MapMetadata { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets how much metadata is exposed on public BASE routes.
+    /// </summary>
+    public HPDBasePublicMetadataMode PublicMetadataMode { get; set; } = HPDBasePublicMetadataMode.Full;
+
+    /// <summary>
     /// Gets or sets whether collection metadata endpoints are mapped.
     /// </summary>
     public bool MapCollections { get; set; } = true;
@@ -27,6 +32,17 @@ public sealed class HPDBaseEndpointOptions
     /// Gets or sets whether record endpoints are mapped.
     /// </summary>
     public bool MapRecords { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the ASP.NET Core authorization policy used for record routes
+    /// when <see cref="RequireAuthorizationForRecordRoutes"/> is enabled.
+    /// </summary>
+    public string RecordPolicyName { get; set; } = HPDBasePolicies.Authenticated;
+
+    /// <summary>
+    /// Gets or sets whether record routes require ASP.NET Core authorization metadata.
+    /// </summary>
+    public bool RequireAuthorizationForRecordRoutes { get; set; }
 
     /// <summary>
     /// Gets or sets whether admin metadata endpoints are mapped.
@@ -62,4 +78,25 @@ public sealed class HPDBaseEndpointOptions
     /// Gets or sets an optional route customization callback invoked after built-in routes are mapped.
     /// </summary>
     public Action<RouteGroupBuilder>? ConfigureRoutes { get; set; }
+}
+
+/// <summary>
+/// Controls the public BASE metadata surface.
+/// </summary>
+public enum HPDBasePublicMetadataMode
+{
+    /// <summary>
+    /// Maps public manifest, capabilities, schema, and collection metadata routes.
+    /// </summary>
+    Full,
+
+    /// <summary>
+    /// Maps only compact public manifest and capabilities routes.
+    /// </summary>
+    Minimal,
+
+    /// <summary>
+    /// Maps no public metadata routes.
+    /// </summary>
+    Disabled
 }

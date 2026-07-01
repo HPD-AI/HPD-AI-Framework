@@ -21,13 +21,17 @@ public class DbIsolationTests
         var servicesA = new ServiceCollection();
         servicesA.AddLogging();
         servicesA.AddHttpContextAccessor();
-        servicesA.AddHPDAuth(o => o.AppName = "IsolationTestApp_A");
+        servicesA
+            .AddHPDAuth(o => o.AppName = "IsolationTestApp_A")
+            .UseInMemorySqliteForTests();
         var spA = servicesA.BuildServiceProvider();
 
         var servicesB = new ServiceCollection();
         servicesB.AddLogging();
         servicesB.AddHttpContextAccessor();
-        servicesB.AddHPDAuth(o => o.AppName = "IsolationTestApp_B");
+        servicesB
+            .AddHPDAuth(o => o.AppName = "IsolationTestApp_B")
+            .UseInMemorySqliteForTests();
         var spB = servicesB.BuildServiceProvider();
 
         // Write a user into provider A's database.

@@ -23,7 +23,7 @@ public sealed class DependencyContractTests
             .Select(reference => reference.Attribute("Include")?.Value)
             .ToArray();
 
-        packages.Should().BeEquivalentTo(["Microsoft.AspNetCore.OpenApi"]);
+        packages.Should().BeEquivalentTo(["Microsoft.AspNetCore.OpenApi", "Microsoft.OpenApi"]);
         packages.Where(package => package is not null)
             .Should()
             .NotContain(package => package!.Contains("Swashbuckle", StringComparison.OrdinalIgnoreCase));

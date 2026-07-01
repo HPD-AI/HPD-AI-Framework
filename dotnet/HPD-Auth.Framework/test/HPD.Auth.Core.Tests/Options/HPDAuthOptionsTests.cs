@@ -19,7 +19,6 @@ public class HPDAuthOptionsTests
     {
         var opts = new HPDAuthOptions();
 
-        opts.Database.Should().NotBeNull();
         opts.Jwt.Should().NotBeNull();
         opts.Cookie.Should().NotBeNull();
         opts.Password.Should().NotBeNull();

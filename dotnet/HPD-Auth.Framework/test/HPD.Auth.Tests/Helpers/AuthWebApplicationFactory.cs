@@ -26,7 +26,10 @@ internal sealed class AuthWebApplicationFactory : IAsyncDisposable
         bool requireEmailConfirmation = false,
         Action<IServiceCollection>? configureServices = null)
     {
-        var builder = WebApplication.CreateBuilder(Array.Empty<string>());
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = Environments.Development
+        });
 
         // Use the test server transport instead of real Kestrel
         builder.WebHost.UseTestServer();
@@ -50,6 +53,7 @@ internal sealed class AuthWebApplicationFactory : IAsyncDisposable
                 o.Jwt.Secret = "SuperSecretKeyForTestingPurposesOnly1234567890!";
                 o.Jwt.AccessTokenLifetime = TimeSpan.FromHours(1);
             })
+            .UseInMemorySqliteForTests()
             .AddAuthentication()
             .AddAudit();
 
@@ -57,6 +61,8 @@ internal sealed class AuthWebApplicationFactory : IAsyncDisposable
         configureServices?.Invoke(builder.Services);
 
         _app = builder.Build();
+
+        _app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
 
         _app.UseHPDAuth();
         _app.UseAuthEventObserver();

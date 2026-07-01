@@ -3,6 +3,7 @@ using HPD.Auth.Extensions;
 using HPD.Auth.Infrastructure.Data;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -16,15 +17,18 @@ public class DataProtectionTests
     // ── 11.1 ─────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void DataProtection_ApplicationName_Matches_Options_AppName()
+    public async Task DataProtection_ApplicationName_Matches_Options_AppName()
     {
         const string expectedAppName = "DataProtectionTestApp";
 
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddHttpContextAccessor();
-        services.AddHPDAuth(o => o.AppName = expectedAppName);
+        services
+            .AddHPDAuth(o => o.AppName = expectedAppName)
+            .UseInMemorySqliteForTests();
         var sp = services.BuildServiceProvider();
+        await sp.InitializeHPDAuthDevelopmentDatabaseAsync();
 
         // IDataProtectionProvider must be registered.
         var provider = sp.GetService<IDataProtectionProvider>();
@@ -47,13 +51,12 @@ public class DataProtectionTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddHttpContextAccessor();
-        services.AddHPDAuth(o => o.AppName = "KeyPersistenceTest");
+        services
+            .AddHPDAuth(o => o.AppName = "KeyPersistenceTest")
+            .UseInMemorySqliteForTests();
         var sp = services.BuildServiceProvider();
 
-        // Ensure the DB schema exists (in-memory provider: always ready).
-        using var setupScope = sp.CreateScope();
-        var db = setupScope.ServiceProvider.GetRequiredService<HPDAuthDbContext>();
-        await db.Database.EnsureCreatedAsync();
+        await sp.InitializeHPDAuthDevelopmentDatabaseAsync();
 
         // Protect something in one scope.
         using var scope1 = sp.CreateScope();
@@ -68,5 +71,58 @@ public class DataProtectionTests
         var decrypted = protector2.Unprotect(ciphertext);
 
         decrypted.Should().Be("sensitive-value");
+    }
+
+    [Fact]
+    public async Task DataProtection_Keys_Survive_FileBackedSqlite_ServiceProviderRestart()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"hpd-auth-dp-{Guid.NewGuid():N}.db");
+        var connectionString = $"Data Source={databasePath}";
+
+        try
+        {
+            await using (var firstProvider = BuildDurableSqliteProvider("DurableKeyPersistenceTest", connectionString))
+            {
+                await firstProvider.InitializeHPDAuthDevelopmentDatabaseAsync();
+
+                var protector = firstProvider
+                    .GetRequiredService<IDataProtectionProvider>()
+                    .CreateProtector("durable-persist-test");
+                var ciphertext = protector.Protect("restart-sensitive-value");
+
+                await using (var scope = firstProvider.CreateAsyncScope())
+                {
+                    var dbContext = scope.ServiceProvider.GetRequiredService<HPDAuthDbContext>();
+                    var keyCount = await dbContext.DataProtectionKeys.CountAsync();
+                    keyCount.Should().BeGreaterThan(0);
+                }
+
+                await using var secondProvider = BuildDurableSqliteProvider("DurableKeyPersistenceTest", connectionString);
+                var restartedProtector = secondProvider
+                    .GetRequiredService<IDataProtectionProvider>()
+                    .CreateProtector("durable-persist-test");
+
+                restartedProtector.Unprotect(ciphertext).Should().Be("restart-sensitive-value");
+            }
+        }
+        finally
+        {
+            if (File.Exists(databasePath))
+            {
+                File.Delete(databasePath);
+            }
+        }
+    }
+
+    private static ServiceProvider BuildDurableSqliteProvider(string appName, string connectionString)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHttpContextAccessor();
+        services
+            .AddHPDAuth(o => o.AppName = appName)
+            .UseSqlite(connectionString);
+
+        return services.BuildServiceProvider();
     }
 }

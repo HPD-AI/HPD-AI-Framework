@@ -64,6 +64,7 @@ public class TwoFactorWebFactory : IAsyncLifetime
                 o.Password.RequiredLength = 6;
                 o.Jwt.Secret = "test-secret-32-chars-minimum-len!!";
             })
+            .UseInMemorySqliteForTests()
             .AddAudit()
             .AddAuthentication()
             .AddTwoFactor();
@@ -81,6 +82,7 @@ public class TwoFactorWebFactory : IAsyncLifetime
         builder.Services.AddAuthorization();
 
         var app = builder.Build();
+        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
 
         app.UseAuthentication();
         app.UseAuthorization();

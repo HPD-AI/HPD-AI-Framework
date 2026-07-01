@@ -1,4 +1,5 @@
 using HPD.Auth.Core.Interfaces;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
@@ -6,14 +7,14 @@ using Microsoft.EntityFrameworkCore.Design;
 namespace HPD.Auth.Infrastructure.Data;
 
 /// <summary>
-/// Design-time and test factory for <see cref="HPDAuthDbContext"/> using
-/// SQLite in-memory databases.
+/// Design-time and test factory for <see cref="HPDAuthDbContext"/>.
 ///
 /// Serves two purposes:
 ///
 /// 1. <b>IDesignTimeDbContextFactory</b>: Satisfies the EF Core tooling contract so
 ///    that <c>dotnet ef</c> commands (migrations, scaffolding) can instantiate the
-///    DbContext without a running host.
+///    DbContext without a running host. The design-time path uses SQLite and does
+///    not create schema; migrations own schema changes.
 ///
 /// 2. <b>Test helper</b>: Tests call <see cref="CreateInMemory"/> to get an isolated
 ///    in-memory database instance. Each call with a unique <c>databaseName</c>
@@ -32,7 +33,17 @@ public sealed class HPDAuthDbContextFactory : IDesignTimeDbContextFactory<HPDAut
     /// </summary>
     public HPDAuthDbContext CreateDbContext(string[] args)
     {
-        return CreateInMemory("DesignTimeDb");
+        var connectionString = Environment.GetEnvironmentVariable("HPD_AUTH_DESIGN_TIME_CONNECTION_STRING");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            connectionString = "Data Source=hpd-auth-design-time.db";
+        }
+
+        var options = new DbContextOptionsBuilder<HPDAuthDbContext>()
+            .UseSqlite(connectionString)
+            .Options;
+
+        return new HPDAuthDbContext(options, new SingleTenantContext());
     }
 
     /// <summary>
@@ -48,6 +59,10 @@ public sealed class HPDAuthDbContextFactory : IDesignTimeDbContextFactory<HPDAut
     /// (InstanceId = Guid.Empty) if not provided.
     /// </param>
     /// <returns>A configured <see cref="HPDAuthDbContext"/> with schema created.</returns>
+    [UnconditionalSuppressMessage(
+        "AOT",
+        "IL3050",
+        Justification = "CreateInMemory is a design-time/test helper that explicitly initializes an ephemeral SQLite schema.")]
     public static HPDAuthDbContext CreateInMemory(
         string databaseName,
         ITenantContext? tenantContext = null)
@@ -67,7 +82,10 @@ public sealed class HPDAuthDbContextFactory : IDesignTimeDbContextFactory<HPDAut
             .Options;
 
         var context = tenantContext ?? new SingleTenantContext();
-        return new HPDAuthDbContext(options, context);
+        var dbContext = new HPDAuthDbContext(options, context);
+        dbContext.Database.EnsureCreated();
+
+        return dbContext;
     }
 
     /// <summary>

@@ -10,11 +10,12 @@ public sealed class HPDBaseRuntimeOptions
     public string ManifestVersion { get; set; } = "1.0";
     public VisibilityLevel DefaultManifestVisibility { get; set; } = VisibilityLevel.Public;
     public bool FailFastOnDescriptorValidation { get; set; } = true;
-    public bool AllowPolicyAbstainAsAllow { get; set; }
     public HPDBaseRuntimeLimitOptions Limits { get; set; } = new();
     public HPDBaseRuntimeEventOptions Events { get; set; } = new();
     public HPDBaseRuntimeRedactionOptions Redaction { get; set; } = new();
     public HPDBaseRuntimeObservabilityOptions Observability { get; set; } = new();
+
+    internal bool AllowPolicyAbstainAsAllowForDevelopment { get; set; }
 
     public static HPDBaseRuntimeOptions CreateDefault() => new()
     {

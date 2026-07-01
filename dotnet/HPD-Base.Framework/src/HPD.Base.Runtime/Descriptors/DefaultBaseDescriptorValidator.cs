@@ -235,7 +235,7 @@ internal sealed class DefaultBaseDescriptorValidator : IBaseDescriptorValidator
     }
 
     private static void AddInvalidIds(
-        IEnumerable<(string? Id, string Path)>? ids,
+        IEnumerable<(string Id, string Path)>? ids,
         List<BaseRuntimeValidationIssue> issues)
     {
         foreach (var (id, path) in ids ?? [])

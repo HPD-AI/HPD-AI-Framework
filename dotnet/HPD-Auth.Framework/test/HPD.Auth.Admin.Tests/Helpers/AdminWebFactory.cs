@@ -58,6 +58,7 @@ public class AdminWebFactory : IAsyncDisposable
                 o.Password.RequireNonAlphanumeric = false;
                 o.Password.RequiredLength = 6;
             })
+            .UseInMemorySqliteForTests()
             .AddAdmin();
 
         // Replace JWT Bearer with a test scheme that accepts any claim principal
@@ -76,6 +77,7 @@ public class AdminWebFactory : IAsyncDisposable
         });
 
         var app = builder.Build();
+        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
 
         app.UseAuthentication();
         app.UseAuthorization();

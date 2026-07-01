@@ -257,7 +257,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             return Finish(activity, Failure<RecordEnvelope, BasePolicyEvaluation>(policyResult), BaseOperationKind.Create, collectionId, context, startedAt);
         }
 
-        var writePolicy = EnforceWritePolicy<RecordEnvelope>(validation.Value.Payload, policyResult.Value);
+        var writePolicy = EnforceWritePolicy<RecordEnvelope>(validation.Value.Payload, validation.Value.Payload, policyResult.Value);
         if (writePolicy is not null)
         {
             return Finish(activity, writePolicy, BaseOperationKind.Create, collectionId, context, startedAt);
@@ -340,7 +340,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             return Finish(activity, Failure<RecordEnvelope, BasePolicyEvaluation>(policyResult), BaseOperationKind.Patch, collectionId, context, startedAt);
         }
 
-        var writePolicy = EnforceWritePolicy<RecordEnvelope>(validation.Value.Payload, policyResult.Value);
+        var writePolicy = EnforceWritePolicy<RecordEnvelope>(proposedPayload, validation.Value.Payload, policyResult.Value);
         if (writePolicy is not null)
         {
             return Finish(activity, writePolicy, BaseOperationKind.Patch, collectionId, context, startedAt);
@@ -403,7 +403,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             return Finish(activity, Failure<RecordEnvelope, BasePolicyEvaluation>(policyResult), BaseOperationKind.Replace, collectionId, context, startedAt);
         }
 
-        var writePolicy = EnforceWritePolicy<RecordEnvelope>(validation.Value.Payload, policyResult.Value);
+        var writePolicy = EnforceWritePolicy<RecordEnvelope>(validation.Value.Payload, validation.Value.Payload, policyResult.Value);
         if (writePolicy is not null)
         {
             return Finish(activity, writePolicy, BaseOperationKind.Replace, collectionId, context, startedAt);
@@ -487,7 +487,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             return Finish(activity, Failure<DeleteResult, BasePolicyEvaluation>(policyResult), BaseOperationKind.Delete, collectionId, context, startedAt);
         }
 
-        var deleteWritePolicy = EnforceWritePolicy<DeleteResult>(null, policyResult.Value);
+        var deleteWritePolicy = EnforceWritePolicy<DeleteResult>(existing.Value.Payload, null, policyResult.Value);
         if (deleteWritePolicy is not null)
         {
             return Finish(activity, deleteWritePolicy, BaseOperationKind.Delete, collectionId, context, startedAt);
@@ -540,17 +540,33 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             : result;
 
     private static OperationResult<T>? EnforceWritePolicy<T>(
-        RecordPayload? payload,
+        RecordPayload? predicatePayload,
+        RecordPayload? changedPayload,
         BasePolicyEvaluation? policy)
     {
-        if (policy?.Decision.Constraints?.WriteCheck is not null)
+        if (policy?.Decision.Constraints?.WriteCheck is { } writeCheck)
         {
-            return OperationResults.Unsupported<T>(new BaseError
+            var evaluation = BasePolicyWriteConstraintEvaluator.Evaluate(predicatePayload, writeCheck);
+            if (evaluation == BasePolicyWriteCheckEvaluation.Unsupported)
             {
-                Code = "base.runtime.policy.writeCheck.unsupported",
-                Message = "Policy write checks are not safely evaluable by this runtime.",
-                Category = ErrorCategory.Unsupported
-            });
+                return OperationResults.Unsupported<T>(new BaseError
+                {
+                    Code = "base.runtime.policy.writeCheck.unsupported",
+                    Message = "Policy write check is not safely evaluable by this runtime.",
+                    Category = ErrorCategory.Unsupported
+                });
+            }
+
+            if (evaluation == BasePolicyWriteCheckEvaluation.Denied)
+            {
+                return OperationResults.PolicyDenied<T>(new BaseError
+                {
+                    Code = "base.runtime.policy.writeCheck.denied",
+                    Message = "Policy write check denied the operation.",
+                    Category = ErrorCategory.Authorization,
+                    Policy = new PolicyErrorInfo { ReasonCode = "writeCheck" }
+                });
+            }
         }
 
         if (policy?.EffectiveWriteMask is not { } mask)
@@ -558,7 +574,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             return null;
         }
 
-        var fields = payload is null ? [] : BasePolicyRuntimeSimulation.PayloadFields(payload);
+        var fields = changedPayload is null ? [] : BasePolicyRuntimeSimulation.PayloadFields(changedPayload);
         if (fields.Length == 0)
         {
             return null;

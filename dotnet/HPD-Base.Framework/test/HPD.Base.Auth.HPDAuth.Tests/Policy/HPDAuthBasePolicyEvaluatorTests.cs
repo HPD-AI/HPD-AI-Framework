@@ -209,6 +209,107 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
     }
 
     [Fact]
+    public async Task WriteGrantCanAddExplicitWriteCondition()
+    {
+        var subject = new AccessSubject { Kind = AccessSubjectKind.User, Id = "user-1" };
+        using var provider = Services(options =>
+        {
+            options.StaticGrants =
+            [
+                Grant("write", GrantEffect.Allow, subject, HPDAuthBasePolicyActions.Create) with
+                {
+                    WriteCondition = OwnerFilter("user-1")
+                }
+            ];
+        }).BuildServiceProvider();
+        var evaluator = provider.GetRequiredService<IPolicyEvaluator>();
+
+        var decision = await evaluator.EvaluateAsync(Request(
+            new PrincipalContext
+            {
+                AuthenticationState = PrincipalAuthenticationState.Authenticated,
+                SubjectKind = AccessSubjectKind.User,
+                SubjectId = "user-1"
+            },
+            BaseOperationKind.Create));
+
+        decision.Effect.Should().Be(PolicyEffect.Allow);
+        decision.Outcome.Should().Be(PolicyOutcome.AllowedWithConstraints);
+        decision.Constraints!.WriteCheck!.Field.Should().Be("ownerId");
+        decision.Constraints.RecordFilter.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task WriteGrantDoesNotReuseReadConditionAsWriteCondition()
+    {
+        var subject = new AccessSubject { Kind = AccessSubjectKind.User, Id = "user-1" };
+        using var provider = Services(options =>
+        {
+            options.StaticGrants =
+            [
+                Grant("write", GrantEffect.Allow, subject, HPDAuthBasePolicyActions.Create) with
+                {
+                    Condition = OwnerFilter("user-1")
+                }
+            ];
+        }).BuildServiceProvider();
+        var evaluator = provider.GetRequiredService<IPolicyEvaluator>();
+
+        var decision = await evaluator.EvaluateAsync(Request(
+            new PrincipalContext
+            {
+                AuthenticationState = PrincipalAuthenticationState.Authenticated,
+                SubjectKind = AccessSubjectKind.User,
+                SubjectId = "user-1"
+            },
+            BaseOperationKind.Create));
+
+        decision.Effect.Should().Be(PolicyEffect.Allow);
+        decision.Outcome.Should().Be(PolicyOutcome.Allowed);
+        decision.Constraints.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GrantRequestExposesNormalizedWriteContext()
+    {
+        var grantProvider = new CapturingGrantProvider();
+        var services = Services();
+        services.AddSingleton<IHPDAuthBaseGrantProvider>(grantProvider);
+        using var provider = services.BuildServiceProvider();
+        var evaluator = provider.GetRequiredService<IPolicyEvaluator>();
+        var principal = new PrincipalContext
+        {
+            AuthenticationState = PrincipalAuthenticationState.Authenticated,
+            SubjectKind = AccessSubjectKind.User,
+            SubjectId = "user-1",
+            CurrentTenantId = "tenant-1"
+        };
+
+        await evaluator.EvaluateAsync(Request(principal, BaseOperationKind.Patch) with
+        {
+            Resource = new PolicyResource
+            {
+                Kind = PolicyResourceKind.UpdatePayload,
+                RecordId = "record-1",
+                ProposedPayload = Payload("ownerId", "user-1"),
+                ExistingRecord = Record("record-1", Payload("ownerId", "user-1"))
+            }
+        });
+
+        grantProvider.Request.Should().NotBeNull();
+        grantProvider.Request!.Action.Should().Be(BaseOperationKind.Patch);
+        grantProvider.Request.CollectionId.Should().Be("items");
+        grantProvider.Request.TargetRecordId.Should().Be("record-1");
+        grantProvider.Request.ProposedPayload.Should().NotBeNull();
+        grantProvider.Request.ExistingRecord.Should().NotBeNull();
+        grantProvider.Request.SubjectId.Should().Be("user-1");
+        grantProvider.Request.TenantId.Should().Be("tenant-1");
+        grantProvider.Request.SubjectFingerprint.Should().HaveLength(64);
+        grantProvider.Request.SubjectFingerprint.Should().NotContain("user-1");
+        grantProvider.Request.SubjectFingerprint.All(Uri.IsHexDigit).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task WriteRuleAddsWriteMaskForPatch()
     {
         using var provider = Services(options =>
@@ -373,16 +474,54 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
         UnknownFields = UnknownFieldPolicy.Preserve
     };
 
-    private static AccessGrant Grant(string id, GrantEffect effect, AccessSubject subject) => new()
+    private static AccessGrant Grant(
+        string id,
+        GrantEffect effect,
+        AccessSubject subject,
+        string action = HPDAuthBasePolicyActions.Read) => new()
     {
         Id = id,
         Effect = effect,
-        Action = HPDAuthBasePolicyActions.Read,
+        Action = action,
         Subject = subject,
         Scope = new ResourceScope
         {
             Kind = ResourceScopeKind.Collection,
             CollectionId = "items"
+        }
+    };
+
+    private static FilterExpression OwnerFilter(string ownerId) => new()
+    {
+        Kind = FilterNodeKind.Compare,
+        Field = "ownerId",
+        Operator = FilterOperator.Equal,
+        Value = new QueryValue
+        {
+            Kind = QueryValueKind.String,
+            String = ownerId
+        }
+    };
+
+    private static RecordPayload Payload(string field, string value) => new()
+    {
+        Kind = RecordPayloadKind.FieldMap,
+        Fields = new Dictionary<string, JsonElement>
+        {
+            [field] = JsonSerializer.SerializeToElement(value)
+        }
+    };
+
+    private static RecordEnvelope Record(string id, RecordPayload payload) => new()
+    {
+        CollectionId = "items",
+        Id = new RecordId(id),
+        Payload = payload,
+        Metadata = new RecordMetadata
+        {
+            CreatedAt = DateTimeOffset.UnixEpoch,
+            UpdatedAt = DateTimeOffset.UnixEpoch,
+            Revision = new RevisionToken("1")
         }
     };
 
@@ -434,6 +573,20 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
         public string Source => "test";
 
         public string[] MissingRequiredServiceNames => [];
+    }
+
+    private sealed class CapturingGrantProvider : IHPDAuthBaseGrantProvider
+    {
+        public HPDAuthBaseGrantRequest? Request { get; private set; }
+
+        public ValueTask<IReadOnlyList<AccessGrant>> GetGrantsAsync(
+            HPDAuthBaseGrantRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Request = request;
+            return ValueTask.FromResult<IReadOnlyList<AccessGrant>>([]);
+        }
     }
 
     private sealed class FixedInnerPolicyEvaluator : IHPDAuthBaseInnerPolicyEvaluator

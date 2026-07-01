@@ -1,6 +1,7 @@
 using System.Text.Json;
 using HPD.Base.Events;
 using HPD.Base.Policy;
+using HPD.Base.Query;
 using HPD.Base.Records;
 using HPD.Base.Results;
 using HPD.Base.Runtime.Operations;
@@ -168,6 +169,45 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
     }
 
     [Fact]
+    public async Task WriteCheckEvaluatesPatchAgainstMergedPayloadBeforeStoreCall()
+    {
+        var store = new FakeRecordStore("primary");
+        store.AddRecord(ExistingRecord("rec_1", ("title", "old"), ("ownerId", "user-1")));
+        using var provider = OperationTestServices.Build(store, new ConstrainedPolicyEvaluator(writeCheck: OwnerWriteCheck("user-1")));
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().PatchAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordPatchRequest { Patch = FieldMapPayload("title", "new") },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Patch),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Updated, result.Status);
+        Assert.Equal(1, store.PatchCalls);
+    }
+
+    [Fact]
+    public async Task WriteCheckDeniesPatchAgainstMergedPayloadBeforeStoreCall()
+    {
+        var store = new FakeRecordStore("primary");
+        store.AddRecord(ExistingRecord("rec_1", ("title", "old"), ("ownerId", "user-2")));
+        using var provider = OperationTestServices.Build(store, new ConstrainedPolicyEvaluator(writeCheck: OwnerWriteCheck("user-1")));
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().PatchAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordPatchRequest { Patch = FieldMapPayload("title", "new") },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Patch),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.PolicyDenied, result.Status);
+        Assert.Equal("base.runtime.policy.writeCheck.denied", result.Error!.Code);
+        Assert.Equal(0, store.PatchCalls);
+    }
+
+    [Fact]
     public async Task ReplacePassesSchemaValidatedPayloadToStore()
     {
         var store = new FakeRecordStore("primary");
@@ -185,6 +225,25 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
 
         Assert.Equal(OperationStatus.Updated, result.Status);
         Assert.Equal("replace-normalized", store.LastReplaceRequest!.Payload.Fields!["normalized"].GetString());
+    }
+
+    [Fact]
+    public async Task WriteCheckDeniesReplaceAgainstProposedPayloadBeforeStoreCall()
+    {
+        var store = new FakeRecordStore("primary");
+        using var provider = OperationTestServices.Build(store, new ConstrainedPolicyEvaluator(writeCheck: OwnerWriteCheck("user-1")));
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().ReplaceAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordReplaceRequest { Payload = JsonPayload("ownerId", "user-2") },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Replace),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.PolicyDenied, result.Status);
+        Assert.Equal("base.runtime.policy.writeCheck.denied", result.Error!.Code);
+        Assert.Equal(0, store.ReplaceCalls);
     }
 
     [Fact]
@@ -272,6 +331,27 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
     }
 
     [Fact]
+    public async Task WriteCheckDeniesDeleteAgainstExistingPayloadBeforeStoreCall()
+    {
+        var store = new FakeRecordStore("primary");
+        store.AddRecord(ExistingRecord("rec_1", ("title", "old"), ("ownerId", "user-2")));
+        using var provider = OperationTestServices.Build(store, new ConstrainedPolicyEvaluator(writeCheck: OwnerWriteCheck("user-1")));
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().DeleteAsync(
+            "items",
+            new RecordId("rec_1"),
+            new RecordDeleteRequest(),
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Delete),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.PolicyDenied, result.Status);
+        Assert.Equal("base.runtime.policy.writeCheck.denied", result.Error!.Code);
+        Assert.Equal(1, store.GetCalls);
+        Assert.Equal(0, store.DeleteCalls);
+    }
+
+    [Fact]
     public async Task DeleteRedactsReturnedPreviousAndEventSnapshot()
     {
         var store = new FakeRecordStore("primary");
@@ -344,6 +424,18 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
         using var document = JsonDocument.Parse($"\"{value}\"");
         return document.RootElement.Clone();
     }
+
+    private static FilterExpression OwnerWriteCheck(string ownerId) => new()
+    {
+        Kind = FilterNodeKind.Compare,
+        Field = "ownerId",
+        Operator = FilterOperator.Equal,
+        Value = new QueryValue
+        {
+            Kind = QueryValueKind.String,
+            String = ownerId
+        }
+    };
 
     private static RecordEnvelope ExistingRecord(string id = "rec_1", params (string Name, string Value)[] fields) => new()
     {

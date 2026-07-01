@@ -22,6 +22,40 @@ namespace HPD.Base.Runtime.DependencyInjection;
 
 public static class HPDBaseRuntimeServiceCollectionExtensions
 {
+    /// <summary>
+    /// Configures HPD.BASE runtime policy handling to fail closed when no evaluator
+    /// exists or when every evaluator abstains.
+    /// </summary>
+    /// <param name="builder">The runtime builder returned by <see cref="AddHPDBaseRuntime(IServiceCollection, Action{HPDBaseRuntimeOptions}?)"/>.</param>
+    /// <returns>The same <see cref="IHPDBaseRuntimeBuilder"/> for fluent chaining.</returns>
+    public static IHPDBaseRuntimeBuilder UseFailClosedPolicy(this IHPDBaseRuntimeBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Options.AllowPolicyAbstainAsAllowForDevelopment = false;
+        return builder;
+    }
+
+    /// <summary>
+    /// Allows policy abstain results to be treated as allowed for development-only hosts.
+    /// Production and control-plane hosts should keep the default fail-closed behavior.
+    /// </summary>
+    /// <param name="builder">The runtime builder returned by <see cref="AddHPDBaseRuntime(IServiceCollection, Action{HPDBaseRuntimeOptions}?)"/>.</param>
+    /// <returns>The same <see cref="IHPDBaseRuntimeBuilder"/> for fluent chaining.</returns>
+    public static IHPDBaseRuntimeBuilder UseDevelopmentPolicyAbstainAsAllow(this IHPDBaseRuntimeBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Options.AllowPolicyAbstainAsAllowForDevelopment = true;
+        return builder;
+    }
+
+    /// <summary>
+    /// Registers the core HPD.BASE runtime services.
+    /// </summary>
+    /// <param name="services">The service collection to register runtime services into.</param>
+    /// <param name="configure">Optional runtime configuration applied before services are registered.</param>
+    /// <returns>An HPD.BASE runtime builder for registering stores and host integrations.</returns>
     public static IHPDBaseRuntimeBuilder AddHPDBaseRuntime(
         this IServiceCollection services,
         Action<HPDBaseRuntimeOptions>? configure = null)

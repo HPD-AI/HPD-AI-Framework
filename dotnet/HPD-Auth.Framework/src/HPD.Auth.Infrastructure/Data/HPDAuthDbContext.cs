@@ -1,14 +1,11 @@
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
 using HPD.Auth.Infrastructure.Serialization;
-using System.Diagnostics.CodeAnalysis;
-using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace HPD.Auth.Infrastructure.Data;
 
@@ -53,7 +50,6 @@ public class HPDAuthDbContext
       IDataProtectionKeyContext
 {
     private readonly ITenantContext _tenantContext;
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _initializedDatabases = new();
 
     // ─────────────────────────────────────────────────────────────
     // Custom DbSets (beyond what IdentityDbContext provides)
@@ -103,37 +99,12 @@ public class HPDAuthDbContext
     /// returns Guid.Empty. In multi-tenant SaaS this is resolved from the JWT claim
     /// or HTTP header. Injected by DI — never hardcoded.
     /// </param>
-    [UnconditionalSuppressMessage(
-        "AOT",
-        "IL3050",
-        Justification = "SQLite in-memory EnsureCreated is guarded by RuntimeFeature.IsDynamicCodeSupported and is skipped in Native AOT.")]
     public HPDAuthDbContext(
         DbContextOptions<HPDAuthDbContext> options,
         ITenantContext tenantContext)
         : base(options)
     {
         _tenantContext = tenantContext ?? throw new ArgumentNullException(nameof(tenantContext));
-
-        // Auto-create schema for SQLite in-memory databases.
-        // EnsureCreated is idempotent but expensive to call every time,
-        // so we track initialization per connection string.
-        var connStr = Database.GetConnectionString();
-        if (RuntimeFeature.IsDynamicCodeSupported
-            && connStr != null
-            && connStr.Contains("mode=memory", StringComparison.OrdinalIgnoreCase))
-        {
-            _initializedDatabases.GetOrAdd(connStr, _ =>
-            {
-                EnsureInMemorySchemaCreated(Database);
-                return true;
-            });
-        }
-    }
-
-    [RequiresDynamicCode("EnsureCreated builds the EF design-time model and is only used for dynamic-code SQLite in-memory development/test databases.")]
-    private static void EnsureInMemorySchemaCreated(DatabaseFacade database)
-    {
-        database.EnsureCreated();
     }
 
     // ─────────────────────────────────────────────────────────────

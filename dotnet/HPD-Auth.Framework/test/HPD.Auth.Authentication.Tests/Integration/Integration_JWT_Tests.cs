@@ -35,7 +35,10 @@ public class Integration_JWT_Tests
 
     private static (TestServer Server, IServiceProvider RootServices) CreateServer()
     {
-        var builder = WebApplication.CreateBuilder();
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = "Development"
+        });
         builder.WebHost.UseTestServer();
 
         var dbName = Guid.NewGuid().ToString();
@@ -51,11 +54,13 @@ public class Integration_JWT_Tests
             opts.Jwt.ValidateLifetime     = true;
             opts.Jwt.ClockSkew            = TimeSpan.Zero;
         })
+        .UseInMemorySqliteForTests()
         .AddAuthentication();
 
         builder.Services.AddAuthorization();
 
         var app = builder.Build();
+        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();

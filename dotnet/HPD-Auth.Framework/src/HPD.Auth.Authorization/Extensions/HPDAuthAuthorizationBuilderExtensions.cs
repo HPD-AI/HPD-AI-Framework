@@ -20,6 +20,7 @@ namespace HPD.Auth.Authorization.Extensions;
 /// in <c>Program.cs</c>:
 /// <code>
 /// services.AddHPDAuth(options => { ... })
+///         .UseSqlite(connectionString)
 ///         .AddAuthentication()
 ///         .AddAuthorization();
 /// </code>

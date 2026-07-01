@@ -19,11 +19,6 @@ public class HPDAuthOptions
     public string AppName { get; set; } = "HPD";
 
     /// <summary>
-    /// Database connection and migration options.
-    /// </summary>
-    public DatabaseOptions Database { get; set; } = new();
-
-    /// <summary>
     /// JWT access and refresh token issuance options.
     /// </summary>
     public JwtOptions Jwt { get; set; } = new();

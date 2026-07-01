@@ -14,7 +14,7 @@ namespace HPD.Auth.Builder;
 ///
 /// <code>
 /// services.AddHPDAuth(options => { ... })
-///         .AddPostgreSQL()
+///         .UseSqlite(connectionString)
 ///         .AddAdminApi();
 /// </code>
 /// </summary>

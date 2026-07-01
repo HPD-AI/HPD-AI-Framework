@@ -39,7 +39,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
         var evaluator = _evaluators.FirstOrDefault();
         if (evaluator is null)
         {
-            if (_options.AllowPolicyAbstainAsAllow)
+            if (_options.AllowPolicyAbstainAsAllowForDevelopment)
             {
                 return OperationResults.Ok(Allowed());
             }
@@ -70,7 +70,7 @@ internal sealed class DefaultBasePolicyOrchestrator : IBasePolicyOrchestrator
             PolicyRefs = request.PolicyRefs
         }, cancellationToken).ConfigureAwait(false);
 
-        if (decision.Effect != PolicyEffect.Allow && (decision.Effect != PolicyEffect.Abstain || !_options.AllowPolicyAbstainAsAllow))
+        if (decision.Effect != PolicyEffect.Allow && (decision.Effect != PolicyEffect.Abstain || !_options.AllowPolicyAbstainAsAllowForDevelopment))
         {
             return OperationResults.PolicyDenied<BasePolicyEvaluation>(new BaseError
             {

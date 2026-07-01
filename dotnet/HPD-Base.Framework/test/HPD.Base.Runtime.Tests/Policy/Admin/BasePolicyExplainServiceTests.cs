@@ -110,8 +110,8 @@ public sealed class BasePolicyExplainServiceTests
         Assert.Equal(OperationStatus.Ok, result.Status);
         Assert.Equal(BasePolicyExplainOutcome.Allowed, result.Value!.Outcome);
         Assert.Equal("test.policy", result.Value.Decision!.EvaluatorId);
-        Assert.Equal(["Role", "User"], result.Value.Decision.MatchedSubjectKinds);
-        Assert.Equal(["grant_1"], result.Value.Decision.MatchedGrantRefs);
+        Assert.Equal(["Role", "User"], result.Value.Decision.MatchedSubjectKinds ?? []);
+        Assert.Equal(["grant_1"], result.Value.Decision.MatchedGrantRefs ?? []);
         Assert.Equal("corr_1", result.Value.CorrelationId);
     }
 
@@ -178,7 +178,10 @@ public sealed class BasePolicyExplainServiceTests
     [Fact]
     public async Task ExplainAsync_AbstainAllowedWhenRuntimeOptionAllowsIt()
     {
-        using var provider = BuildDirect(new FakeRecordStore("memory"), new AbstainPolicyEvaluator(), runtimeOptions: options => options.AllowPolicyAbstainAsAllow = true);
+        using var provider = BuildDirect(
+            new FakeRecordStore("memory"),
+            new AbstainPolicyEvaluator(),
+            configureRuntimeBuilder: builder => builder.UseDevelopmentPolicyAbstainAsAllow());
         var service = provider.GetRequiredService<IBasePolicyExplainService>();
 
         var result = await service.ExplainAsync(
@@ -438,7 +441,11 @@ public sealed class BasePolicyExplainServiceTests
     {
         using var provider = OperationTestServices.Build(
             store: new FakeRecordStore("memory"),
-            policy: new ConstrainedPolicyEvaluator(writeCheck: Compare("tenantId", QueryValueKind.String, "tenant-secret")));
+            policy: new ConstrainedPolicyEvaluator(writeCheck: new FilterExpression
+            {
+                Kind = FilterNodeKind.Extension,
+                Name = "host-only"
+            }));
         var service = provider.GetRequiredService<IBasePolicyExplainService>();
 
         var result = await service.ExplainAsync(
@@ -645,12 +652,14 @@ public sealed class BasePolicyExplainServiceTests
     private static ServiceProvider BuildDirect(
         IRecordStore store,
         IPolicyEvaluator policy,
-        Action<HPD.Base.Runtime.Configuration.HPDBaseRuntimeOptions>? runtimeOptions = null)
+        Action<HPD.Base.Runtime.Configuration.HPDBaseRuntimeOptions>? runtimeOptions = null,
+        Action<HPD.Base.Runtime.Builder.IHPDBaseRuntimeBuilder>? configureRuntimeBuilder = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionContributor());
         services.AddSingleton(policy);
-        services.AddHPDBaseRuntime(runtimeOptions);
+        var builder = services.AddHPDBaseRuntime(runtimeOptions);
+        configureRuntimeBuilder?.Invoke(builder);
         var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync().AsTask().GetAwaiter().GetResult();
         provider.GetRequiredService<IRecordStoreRegistry>().Add(new RecordStoreRegistration

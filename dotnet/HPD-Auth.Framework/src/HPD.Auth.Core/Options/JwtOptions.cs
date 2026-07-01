@@ -7,7 +7,7 @@ public class JwtOptions
 {
     /// <summary>
     /// Secret key used to sign JWTs (HS256).
-    /// Must be at least 32 characters in production.
+    /// Must be at least 32 UTF-8 bytes when JWT authentication is enabled.
     /// For asymmetric signing, use <see cref="RsaPrivateKey"/> instead.
     /// </summary>
     public string? Secret { get; set; }

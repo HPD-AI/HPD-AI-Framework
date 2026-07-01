@@ -49,7 +49,7 @@ internal sealed class PolicyAdminHealthContributor : IBaseHealthContributor, IBa
         var diagnostics = new List<DiagnosticDescriptor>
         {
             Diagnostic("hpd.base.policy.admin.redactionStrictMode", DiagnosticSeverity.Info, "Admin policy explain redaction is in strict mode.", now),
-            Diagnostic("hpd.base.policy.admin.writeCheckRuntimeUnsupported", DiagnosticSeverity.Info, "Policy write checks are reported as unsupported when present.", now),
+            Diagnostic("hpd.base.policy.admin.writeCheckRuntimeUnsupported", DiagnosticSeverity.Info, "Policy write checks fail closed when their shape is not runtime-evaluable.", now),
             Diagnostic("hpd.base.policy.admin.httpRouteNotMapped", DiagnosticSeverity.Info, "Admin policy explain HTTP route mapping is optional and may be disabled by the host.", now),
             Diagnostic("hpd.base.policy.admin.serviceGateMisconfigured", DiagnosticSeverity.Info, "Admin policy explain enforces a service-level admin gate.", now)
         };

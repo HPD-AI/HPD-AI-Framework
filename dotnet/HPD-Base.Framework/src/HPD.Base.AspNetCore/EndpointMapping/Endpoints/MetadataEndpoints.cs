@@ -15,11 +15,16 @@ namespace HPD.Base.AspNetCore.EndpointMapping.Endpoints;
 
 internal static class MetadataEndpoints
 {
-    public static void MapPublic(IEndpointRouteBuilder endpoints)
+    public static void MapPublic(IEndpointRouteBuilder endpoints, HPDBasePublicMetadataMode mode)
     {
+        if (mode == HPDBasePublicMetadataMode.Disabled)
+            return;
+
         endpoints.MapGet("/manifest", (RequestDelegate)ManifestPublic).WithHPDBaseOpenApi(BaseRouteIds.Manifest).WithName(BaseRouteIds.Manifest);
         endpoints.MapGet("/capabilities", (RequestDelegate)CapabilitiesPublic).WithHPDBaseOpenApi(BaseRouteIds.Capabilities).WithName(BaseRouteIds.Capabilities);
-        endpoints.MapGet("/schema", (RequestDelegate)SchemaPublic).WithHPDBaseOpenApi(BaseRouteIds.Schema).WithName(BaseRouteIds.Schema);
+
+        if (mode == HPDBasePublicMetadataMode.Full)
+            endpoints.MapGet("/schema", (RequestDelegate)SchemaPublic).WithHPDBaseOpenApi(BaseRouteIds.Schema).WithName(BaseRouteIds.Schema);
     }
 
     public static void MapAdmin(IEndpointRouteBuilder endpoints)

@@ -33,7 +33,10 @@ public class CookieOnlyMode_EndToEnd_Tests
 
     private static (TestServer Server, IServiceProvider RootServices) CreateCookieOnlyServer()
     {
-        var builder = WebApplication.CreateBuilder();
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            EnvironmentName = "Development"
+        });
         builder.WebHost.UseTestServer();
 
         var dbName = Guid.NewGuid().ToString();
@@ -43,11 +46,13 @@ public class CookieOnlyMode_EndToEnd_Tests
             opts.AppName    = dbName;
             opts.Jwt.Secret = null;  // cookie-only mode
         })
+        .UseInMemorySqliteForTests()
         .AddAuthentication();
 
         builder.Services.AddAuthorization();
 
         var app = builder.Build();
+        app.Services.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();

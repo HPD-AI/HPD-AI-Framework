@@ -6,6 +6,7 @@ using HPD.Auth.Core.Interfaces;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text;
 
 namespace HPD.Auth.Authentication.Extensions;
 
@@ -17,6 +18,7 @@ namespace HPD.Auth.Authentication.Extensions;
 /// Usage — chain after <c>AddHPDAuth()</c> in <c>Program.cs</c>:
 /// <code>
 /// services.AddHPDAuth(options => { ... })
+///         .UseSqlite(connectionString)
 ///         .AddAuthentication();
 /// </code>
 /// </para>
@@ -36,7 +38,7 @@ public static class HPDAuthAuthenticationBuilderExtensions
     ///
     /// <para>
     /// JWT support is enabled only when <c>options.Jwt.Secret</c> is non-null and
-    /// non-empty. When JWT is enabled the following schemes are registered:
+    /// non-empty. HS256 JWT secrets must be at least 32 UTF-8 bytes. When JWT is enabled the following schemes are registered:
     /// <list type="bullet">
     ///   <item><c>"HPD"</c> — PolicyScheme router (default authenticate/challenge scheme)</item>
     ///   <item><c>CookieAuthenticationDefaults.AuthenticationScheme</c> ("Cookies")</item>
@@ -54,6 +56,12 @@ public static class HPDAuthAuthenticationBuilderExtensions
         var services = builder.Services;
 
         var jwtKeyConfigured = !string.IsNullOrEmpty(options.Jwt.Secret);
+        if (jwtKeyConfigured && Encoding.UTF8.GetByteCount(options.Jwt.Secret!) < 32)
+        {
+            throw new InvalidOperationException(
+                "HPD.Auth JWT secret must be at least 32 UTF-8 bytes when JWT authentication is enabled. " +
+                "Set Jwt.Secret to a strong random value, or leave it empty for cookie-only mode.");
+        }
 
         if (jwtKeyConfigured)
         {

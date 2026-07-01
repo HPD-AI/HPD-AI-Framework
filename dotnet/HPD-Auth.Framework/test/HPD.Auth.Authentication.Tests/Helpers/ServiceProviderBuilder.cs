@@ -40,9 +40,13 @@ internal static class ServiceProviderBuilder
             opts.Jwt.RefreshTokenLifetime = TimeSpan.FromDays(14);
             configure?.Invoke(opts);
         })
+        .UseInMemorySqliteForTests()
         .AddAuthentication();
 
-        return services.BuildServiceProvider();
+        var serviceProvider = services.BuildServiceProvider();
+        serviceProvider.InitializeHPDAuthDevelopmentDatabaseAsync().GetAwaiter().GetResult();
+
+        return serviceProvider;
     }
 
     /// <summary>
