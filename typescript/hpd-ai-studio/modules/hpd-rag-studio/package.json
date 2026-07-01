@@ -2,7 +2,7 @@
   "name": "@hpd-research/hpd-rag-studio",
   "private": true,
   "version": "0.1.0",
-  "description": "HPD RAG module for HPD AI Studio.",
+  "description": "HPD RAG module for HPD AI Platform.",
   "type": "module",
   "exports": {
     ".": {

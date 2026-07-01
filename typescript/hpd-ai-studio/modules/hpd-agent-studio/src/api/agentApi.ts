@@ -27,7 +27,7 @@ export function createAgentApi(config: AgentStudioApiConfig) {
       agentId: string,
       sessionId: string,
       threadId: string,
-      reason = 'Interrupted from HPD AI Studio.'
+      reason = 'Interrupted from HPD AI Platform.'
     ) =>
       api.post(
         `/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}` +

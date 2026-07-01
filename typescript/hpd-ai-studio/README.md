@@ -1,10 +1,10 @@
-# HPD AI Studio
+# HPD AI Platform
 
 Unified TypeScript workspace for the HPD Studio UI surface.
 
 ## Layout
 
-- `shell`: HPD AI Studio host app. Owns app composition, runtime config, routing state, and the final Tailwind build.
+- `shell`: HPD AI Platform host app. Owns app composition, runtime config, routing state, and the final Tailwind build.
 - `modules/hpd-agent-studio`: HPD Agent Studio module package. Owns agent-specific API clients, module registration, routes, and components.
 - `modules/hpd-graph-studio`: HPD Graph and workflow module package.
 - `modules/hpd-rag-studio`: HPD RAG module package.
@@ -20,6 +20,6 @@ npm install
 npm run build
 ```
 
-The shell build writes embedded static assets to `dotnet/HPD-AI.Studio/wwwroot`.
+The shell build writes embedded static assets to `dotnet/HPD-AI.Platform/wwwroot`.
 
-The shell composes the module packages in `modules/*` at build time. `HPD-AI.Studio` hosts the built app and design contract; domain-specific `.Studio` .NET packages carry module source and fluent registration metadata.
+The shell composes the module packages in `modules/*` at build time. `HPD-AI.Platform` hosts the built app and design contract; domain-specific `.Studio` .NET packages carry module source and fluent registration metadata.

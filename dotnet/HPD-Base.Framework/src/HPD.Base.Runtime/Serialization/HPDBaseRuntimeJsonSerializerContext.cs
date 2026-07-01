@@ -7,6 +7,7 @@ using HPD.Base.Query;
 using HPD.Base.Records;
 using HPD.Base.Results;
 using HPD.Base.Runtime.Configuration;
+using HPD.Base.Runtime.Observability;
 using HPD.Base.Runtime.Descriptors;
 using HPD.Base.Runtime.Policy;
 using HPD.Base.Runtime.Policy.Admin;
@@ -71,6 +72,7 @@ using BaseRuntimeValidationSeverityConverter = LowerCamelJsonStringEnumConverter
 [JsonSerializable(typeof(OperationResult<BaseValidatedPayload>))]
 [JsonSerializable(typeof(OperationResult<ValidatedRecordQuery>))]
 [JsonSerializable(typeof(HPDBaseRuntimeOptions))]
+[JsonSerializable(typeof(HPDBaseRuntimeObservabilityOptions))]
 [JsonSerializable(typeof(HPDBaseRuntimeLimitOptions))]
 [JsonSerializable(typeof(HPDBaseRuntimeEventOptions))]
 [JsonSerializable(typeof(HPDBaseRuntimeRedactionOptions))]

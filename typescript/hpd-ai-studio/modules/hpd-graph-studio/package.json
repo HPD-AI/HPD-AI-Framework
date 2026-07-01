@@ -2,7 +2,7 @@
   "name": "@hpd-research/hpd-graph-studio",
   "private": true,
   "version": "0.1.0",
-  "description": "HPD Graph and workflow module for HPD AI Studio.",
+  "description": "HPD Graph and workflow module for HPD AI Platform.",
   "type": "module",
   "exports": {
     ".": {

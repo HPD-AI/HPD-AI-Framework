@@ -9,6 +9,7 @@
     <Project Path="src/HPD.Base.Abstractions/HPD.Base.Abstractions.csproj" />
     <Project Path="src/HPD.Base.Runtime/HPD.Base.Runtime.csproj" />
     <Project Path="src/HPD.Base.InMemory/HPD.Base.InMemory.csproj" />
+    <Project Path="src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
     <Project Path="src/HPD.Base.AspNetCore/HPD.Base.AspNetCore.csproj" />
     <Project Path="src/HPD.Base.Files.Abstractions/HPD.Base.Files.Abstractions.csproj" />
     <Project Path="src/HPD.Base.Files/HPD.Base.Files.csproj" />
@@ -17,6 +18,7 @@
     <Project Path="src/HPD.Base.Realtime.Abstractions/HPD.Base.Realtime.Abstractions.csproj" />
     <Project Path="src/HPD.Base.Realtime/HPD.Base.Realtime.csproj" />
     <Project Path="src/HPD.Base.Realtime.AspNetCore/HPD.Base.Realtime.AspNetCore.csproj" />
+    <Project Path="src/HPD.Base.Relational.Abstractions/HPD.Base.Relational.Abstractions.csproj" />
     <Project Path="src/HPD.Base.Studio/HPD.Base.Studio.csproj" />
   </Folder>
   <Folder Name="/Auth/">
@@ -30,6 +32,8 @@
     <Project Path="test/HPD.Base.Runtime.AotSmoke/HPD.Base.Runtime.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.StoreConformance/HPD.Base.StoreConformance.csproj" />
     <Project Path="test/HPD.Base.InMemory.Tests/HPD.Base.InMemory.Tests.csproj" />
+    <Project Path="test/HPD.Base.Sqlite.Tests/HPD.Base.Sqlite.Tests.csproj" />
+    <Project Path="test/HPD.Base.Sqlite.AotSmoke/HPD.Base.Sqlite.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.InMemory.AotSmoke/HPD.Base.InMemory.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.AspNetCore.Tests/HPD.Base.AspNetCore.Tests.csproj" />
     <Project Path="test/HPD.Base.AspNetCore.AotSmoke/HPD.Base.AspNetCore.AotSmoke.csproj" />
@@ -41,6 +45,7 @@
     <Project Path="test/HPD.Base.Realtime.Tests/HPD.Base.Realtime.Tests.csproj" />
     <Project Path="test/HPD.Base.Realtime.AotSmoke/HPD.Base.Realtime.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.Realtime.AspNetCore.Tests/HPD.Base.Realtime.AspNetCore.Tests.csproj" />
+    <Project Path="test/HPD.Base.Relational.Abstractions.Tests/HPD.Base.Relational.Abstractions.Tests.csproj" />
     <Project Path="test/HPD.Base.Auth.HPDAuth.Tests/HPD.Base.Auth.HPDAuth.Tests.csproj" />
     <Project Path="test/HPD.Base.Auth.HPDAuth.AotSmoke/HPD.Base.Auth.HPDAuth.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.Auth.HPDAuth.AspNetCore.Tests/HPD.Base.Auth.HPDAuth.AspNetCore.Tests.csproj" />

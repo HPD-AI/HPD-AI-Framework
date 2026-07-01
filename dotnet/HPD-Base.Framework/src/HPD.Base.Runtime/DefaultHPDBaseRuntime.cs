@@ -2,6 +2,7 @@ using HPD.Base.Runtime.Capabilities;
 using HPD.Base.Runtime.Descriptors;
 using HPD.Base.Runtime.Health;
 using HPD.Base.Runtime.Operations;
+using HPD.Base.Runtime.Observability;
 using HPD.Base.Runtime.Schema;
 using HPD.Base.Runtime.Serialization;
 
@@ -42,6 +43,7 @@ internal sealed class DefaultHPDBaseRuntime : IHPDBaseRuntime
     public ValueTask<BaseRuntimeValidationResult> ValidateAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(_descriptorRegistry.Current.Validation);
+        return HPDBaseRuntimeTelemetry.TraceRuntimeValidationAsync(() =>
+            ValueTask.FromResult(_descriptorRegistry.Current.Validation));
     }
 }

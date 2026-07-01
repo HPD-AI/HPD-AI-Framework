@@ -2,7 +2,7 @@
   "name": "@hpd-research/hpd-studio-design",
   "private": true,
   "version": "0.1.0",
-  "description": "Shared design tokens and CSS utilities for HPD AI Studio modules.",
+  "description": "Shared design tokens and CSS utilities for HPD AI Platform modules.",
   "type": "module",
   "exports": {
     "./theme.css": "./src/theme.css",

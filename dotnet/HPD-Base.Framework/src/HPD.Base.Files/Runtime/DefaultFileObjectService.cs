@@ -1,9 +1,11 @@
 using HPD.Base.Files.Buckets;
 using HPD.Base.Files.Configuration;
 using HPD.Base.Files.Objects;
+using HPD.Base.Files.Observability;
 using HPD.Base.Files.Policy;
 using HPD.Base.Files.Providers;
 using HPD.Base.Files.Validation;
+using HPD.Base.Observability;
 using HPD.Base.Results;
 using HPD.Base.Runtime.Results;
 using Microsoft.Extensions.Options;
@@ -35,7 +37,16 @@ internal sealed class DefaultFileObjectService : IFileObjectService
         _redactor = redactor;
     }
 
-    public async ValueTask<OperationResult<FileObjectUploadResult>> UploadAsync(FileObjectUploadRequest request, FileOperationContext context, CancellationToken cancellationToken = default)
+    public ValueTask<OperationResult<FileObjectUploadResult>> UploadAsync(FileObjectUploadRequest request, FileOperationContext context, CancellationToken cancellationToken = default) =>
+        HPDBaseFilesTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.FilesObjectUpload,
+            FileOperationValues.Upload,
+            context,
+            request.SizeBytes,
+            request.Overwrite,
+            () => UploadCoreAsync(request, context, cancellationToken));
+
+    private async ValueTask<OperationResult<FileObjectUploadResult>> UploadCoreAsync(FileObjectUploadRequest request, FileOperationContext context, CancellationToken cancellationToken = default)
     {
         if (request.Key is null)
             return Validation<FileObjectUploadResult>("key", "Object key is required for the first scaffold.");
@@ -63,7 +74,16 @@ internal sealed class DefaultFileObjectService : IFileObjectService
             : result;
     }
 
-    public async ValueTask<OperationResult<FileObjectDownloadResult>> OpenDownloadAsync(FileObjectDownloadRequest request, FileOperationContext context, CancellationToken cancellationToken = default)
+    public ValueTask<OperationResult<FileObjectDownloadResult>> OpenDownloadAsync(FileObjectDownloadRequest request, FileOperationContext context, CancellationToken cancellationToken = default) =>
+        HPDBaseFilesTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.FilesObjectDownloadOpen,
+            FileOperationValues.DownloadOpen,
+            context,
+            sizeBytes: null,
+            overwriteRequested: null,
+            () => OpenDownloadCoreAsync(request, context, cancellationToken));
+
+    private async ValueTask<OperationResult<FileObjectDownloadResult>> OpenDownloadCoreAsync(FileObjectDownloadRequest request, FileOperationContext context, CancellationToken cancellationToken = default)
     {
         var id = ValidateObjectId<FileObjectDownloadResult>(request.ObjectId);
         if (id is not null)
@@ -83,7 +103,16 @@ internal sealed class DefaultFileObjectService : IFileObjectService
             : result;
     }
 
-    public async ValueTask<OperationResult<FileObjectMetadata>> GetMetadataAsync(FileObjectMetadataRequest request, FileOperationContext context, CancellationToken cancellationToken = default)
+    public ValueTask<OperationResult<FileObjectMetadata>> GetMetadataAsync(FileObjectMetadataRequest request, FileOperationContext context, CancellationToken cancellationToken = default) =>
+        HPDBaseFilesTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.FilesObjectMetadataGet,
+            FileOperationValues.MetadataGet,
+            context,
+            sizeBytes: null,
+            overwriteRequested: null,
+            () => GetMetadataCoreAsync(request, context, cancellationToken));
+
+    private async ValueTask<OperationResult<FileObjectMetadata>> GetMetadataCoreAsync(FileObjectMetadataRequest request, FileOperationContext context, CancellationToken cancellationToken = default)
     {
         var id = ValidateObjectId<FileObjectMetadata>(request.ObjectId);
         if (id is not null)
@@ -103,7 +132,16 @@ internal sealed class DefaultFileObjectService : IFileObjectService
             : result;
     }
 
-    public async ValueTask<OperationResult> DeleteAsync(FileObjectDeleteRequest request, FileOperationContext context, CancellationToken cancellationToken = default)
+    public ValueTask<OperationResult> DeleteAsync(FileObjectDeleteRequest request, FileOperationContext context, CancellationToken cancellationToken = default) =>
+        HPDBaseFilesTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.FilesObjectDelete,
+            FileOperationValues.Delete,
+            context,
+            sizeBytes: null,
+            overwriteRequested: null,
+            () => DeleteCoreAsync(request, context, cancellationToken));
+
+    private async ValueTask<OperationResult> DeleteCoreAsync(FileObjectDeleteRequest request, FileOperationContext context, CancellationToken cancellationToken = default)
     {
         var id = ValidateObjectId<object>(request.ObjectId);
         if (id is not null)
@@ -117,7 +155,16 @@ internal sealed class DefaultFileObjectService : IFileObjectService
         return provider.IsSuccess ? await provider.Value.DeleteAsync(resolved.Bucket, request, context, cancellationToken) : new OperationResult { Status = provider.Failure.Status, Error = provider.Failure.Error };
     }
 
-    public async ValueTask<OperationResult<FileObjectListResult>> ListMetadataAsync(FileObjectListRequest request, FileOperationContext context, CancellationToken cancellationToken = default)
+    public ValueTask<OperationResult<FileObjectListResult>> ListMetadataAsync(FileObjectListRequest request, FileOperationContext context, CancellationToken cancellationToken = default) =>
+        HPDBaseFilesTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.FilesObjectList,
+            FileOperationValues.List,
+            context,
+            sizeBytes: null,
+            overwriteRequested: null,
+            () => ListMetadataCoreAsync(request, context, cancellationToken));
+
+    private async ValueTask<OperationResult<FileObjectListResult>> ListMetadataCoreAsync(FileObjectListRequest request, FileOperationContext context, CancellationToken cancellationToken = default)
     {
         if (request.Prefix is not null)
         {
@@ -162,6 +209,7 @@ internal sealed class DefaultFileObjectService : IFileObjectService
             Context = context,
             Resource = new FilePolicyResource { Bucket = bucket, ObjectKey = key, ObjectId = objectId }
         }, cancellationToken);
+        HPDBaseFilesTelemetry.RecordPolicyEvaluation(action, policy.Status, policy.Error);
 
         if (!policy.IsSuccess())
             return Resolved<T>.Fail(new OperationResult<T> { Status = policy.Status, Error = policy.Error });

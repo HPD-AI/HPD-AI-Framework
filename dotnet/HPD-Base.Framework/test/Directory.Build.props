@@ -1,0 +1,7 @@
+<Project>
+  <Import Project="../Directory.Build.props" />
+
+  <ItemGroup Condition="'$(IsTestProject)' == 'true'">
+    <Compile Include="$(MSBuildThisFileDirectory)Shared/Observability/*.cs" Link="Shared/Observability/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

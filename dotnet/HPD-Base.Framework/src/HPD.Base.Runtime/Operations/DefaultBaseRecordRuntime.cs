@@ -1,8 +1,12 @@
+using System.Diagnostics;
+using HPD.Base.Events;
 using HPD.Base.Policy;
 using HPD.Base.Query;
 using HPD.Base.Records;
 using HPD.Base.Results;
+using HPD.Base.Observability;
 using HPD.Base.Runtime.Events;
+using HPD.Base.Runtime.Observability;
 using HPD.Base.Runtime.Policy;
 using HPD.Base.Runtime.Query;
 using HPD.Base.Runtime.Results;
@@ -59,27 +63,29 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
     {
         cancellationToken.ThrowIfCancellationRequested();
         var context = Normalize(operation, BaseOperationKind.List, collectionId);
+        using var activity = HPDBaseRuntimeTelemetry.StartRuntimeOperation(HPDBaseTelemetrySpans.RuntimeRecordsList, BaseOperationKind.List, collectionId, context);
+        var startedAt = Stopwatch.GetTimestamp();
         var collectionResult = await ResolveCollectionAsync(collectionId, principal, context, cancellationToken).ConfigureAwait(false);
         if (!collectionResult.IsSuccess() || collectionResult.Value is null)
         {
-            return Failure<RecordPage, CollectionDefinition>(collectionResult);
+            return Finish(activity, Failure<RecordPage, CollectionDefinition>(collectionResult), BaseOperationKind.List, collectionId, context, startedAt);
         }
 
         var collection = collectionResult.Value;
         if (!Allows(collection, static matrix => matrix.List, collectionId, out var gate))
         {
-            return gate.As<RecordPage>();
+            return Finish(activity, gate.As<RecordPage>(), BaseOperationKind.List, collectionId, context, startedAt);
         }
 
         var storeResult = _storeResolver.Resolve(collection, context);
         if (!storeResult.IsSuccess() || storeResult.Value is null)
         {
-            return Failure<RecordPage, HPD.Base.Stores.IRecordStore>(storeResult);
+            return Finish(activity, Failure<RecordPage, HPD.Base.Stores.IRecordStore>(storeResult), BaseOperationKind.List, collectionId, context, startedAt);
         }
 
         if (!StoreAllows(storeResult.Value.Capabilities.Crud, BaseOperationKind.List, collectionId, out var storeGate))
         {
-            return storeGate.As<RecordPage>();
+            return Finish(activity, storeGate.As<RecordPage>(), BaseOperationKind.List, collectionId, context, startedAt);
         }
 
         var queryToRun = query ?? new RecordQuery();
@@ -92,10 +98,10 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             cancellationToken).ConfigureAwait(false);
         if (!queryValidation.IsSuccess() || queryValidation.Value is null)
         {
-            return Failure<RecordPage, ValidatedRecordQuery>(queryValidation);
+            return Finish(activity, Failure<RecordPage, ValidatedRecordQuery>(queryValidation), BaseOperationKind.List, collectionId, context, startedAt);
         }
 
-        var policyResult = await _policy.EvaluateReadAsync(new BasePolicyRequest
+        var policyResult = await EvaluateReadPolicyAsync(new BasePolicyRequest
         {
             Principal = principal,
             Operation = context,
@@ -105,7 +111,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         }, cancellationToken).ConfigureAwait(false);
         if (!policyResult.IsSuccess())
         {
-            return Failure<RecordPage, BasePolicyEvaluation>(policyResult);
+            return Finish(activity, Failure<RecordPage, BasePolicyEvaluation>(policyResult), BaseOperationKind.List, collectionId, context, startedAt);
         }
 
         var composedQuery = ComposePolicyFilter(queryValidation.Value.Query, policyResult.Value?.EffectiveRecordFilter);
@@ -120,7 +126,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
                 cancellationToken).ConfigureAwait(false);
             if (!composedValidation.IsSuccess() || composedValidation.Value is null)
             {
-                return Failure<RecordPage, ValidatedRecordQuery>(composedValidation);
+                return Finish(activity, Failure<RecordPage, ValidatedRecordQuery>(composedValidation), BaseOperationKind.List, collectionId, context, startedAt);
             }
 
             composedQuery = composedValidation.Value.Query;
@@ -130,9 +136,10 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             () => storeResult.Value.ListAsync(collection, composedQuery, context, cancellationToken),
             context).ConfigureAwait(false);
         result = _normalizer.NormalizeStoreResult(result, context);
-        return result.IsSuccess() && result.Value is not null && policyResult.Value is not null
+        result = result.IsSuccess() && result.Value is not null && policyResult.Value is not null
             ? result with { Value = _recordRedactor.RedactPage(result.Value, collection, policyResult.Value, ViewFor(principal, context)) }
             : result;
+        return Finish(activity, result, BaseOperationKind.List, collectionId, context, startedAt);
     }
 
     public async ValueTask<OperationResult<RecordEnvelope>> GetAsync(
@@ -144,19 +151,21 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
     {
         cancellationToken.ThrowIfCancellationRequested();
         var context = Normalize(operation, BaseOperationKind.Get, collectionId, id);
+        using var activity = HPDBaseRuntimeTelemetry.StartRuntimeOperation(HPDBaseTelemetrySpans.RuntimeRecordsGet, BaseOperationKind.Get, collectionId, context);
+        var startedAt = Stopwatch.GetTimestamp();
         var idValidation = ValidateRecordId<RecordEnvelope>(id);
         if (idValidation is not null)
         {
-            return idValidation;
+            return Finish(activity, idValidation, BaseOperationKind.Get, collectionId, context, startedAt);
         }
 
         var prepared = await PrepareStoreAsync<RecordEnvelope>(collectionId, principal, context, static matrix => matrix.Get, cancellationToken).ConfigureAwait(false);
         if (prepared.Result is not null)
         {
-            return prepared.Result;
+            return Finish(activity, prepared.Result, BaseOperationKind.Get, collectionId, context, startedAt);
         }
 
-        var policyResult = await _policy.EvaluateReadAsync(new BasePolicyRequest
+        var policyResult = await EvaluateReadPolicyAsync(new BasePolicyRequest
         {
             Principal = principal,
             Operation = context,
@@ -166,7 +175,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         }, cancellationToken).ConfigureAwait(false);
         if (!policyResult.IsSuccess())
         {
-            return Failure<RecordEnvelope, BasePolicyEvaluation>(policyResult);
+            return Finish(activity, Failure<RecordEnvelope, BasePolicyEvaluation>(policyResult), BaseOperationKind.Get, collectionId, context, startedAt);
         }
 
         var result = await InvokeStoreAsync(
@@ -175,10 +184,10 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         result = _normalizer.NormalizeStoreResult(result, context);
         if (!result.IsSuccess() || result.Value is null)
         {
-            return result;
+            return Finish(activity, result, BaseOperationKind.Get, collectionId, context, startedAt);
         }
 
-        var candidatePolicy = await _policy.EvaluateReadAsync(new BasePolicyRequest
+        var candidatePolicy = await EvaluateReadPolicyAsync(new BasePolicyRequest
         {
             Principal = principal,
             Operation = context,
@@ -189,7 +198,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         }, cancellationToken).ConfigureAwait(false);
         if (!candidatePolicy.IsSuccess())
         {
-            return ViewFor(principal, context) == VisibilityLevel.Public
+            var failure = ViewFor(principal, context) == VisibilityLevel.Public
                 ? OperationResults.NotFound<RecordEnvelope>(new BaseError
                 {
                     Code = "base.runtime.record.notFound",
@@ -198,11 +207,13 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
                     Target = id.Value
                 })
                 : Failure<RecordEnvelope, BasePolicyEvaluation>(candidatePolicy);
+            return Finish(activity, failure, BaseOperationKind.Get, collectionId, context, startedAt);
         }
 
-        return candidatePolicy.Value is not null
+        result = candidatePolicy.Value is not null
             ? result with { Value = _recordRedactor.RedactRecord(result.Value, prepared.Collection!, candidatePolicy.Value, ViewFor(principal, context)) }
             : result;
+        return Finish(activity, result, BaseOperationKind.Get, collectionId, context, startedAt);
     }
 
     public async ValueTask<OperationResult<RecordEnvelope>> CreateAsync(
@@ -214,16 +225,18 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
     {
         cancellationToken.ThrowIfCancellationRequested();
         var context = Normalize(operation, BaseOperationKind.Create, collectionId);
+        using var activity = HPDBaseRuntimeTelemetry.StartRuntimeOperation(HPDBaseTelemetrySpans.RuntimeRecordsCreate, BaseOperationKind.Create, collectionId, context);
+        var startedAt = Stopwatch.GetTimestamp();
         var prepared = await PrepareStoreAsync<RecordEnvelope>(collectionId, principal, context, static matrix => matrix.Create, cancellationToken).ConfigureAwait(false);
         if (prepared.Result is not null)
         {
-            return prepared.Result;
+            return Finish(activity, prepared.Result, BaseOperationKind.Create, collectionId, context, startedAt);
         }
 
         var createRequestGate = ValidateCreateRequest(request, prepared.Store!.Capabilities.Crud, collectionId);
         if (createRequestGate is not null)
         {
-            return createRequestGate;
+            return Finish(activity, createRequestGate, BaseOperationKind.Create, collectionId, context, startedAt);
         }
 
         var validation = await _schemaValidator.ValidateCreateAsync(new BasePayloadValidationRequest
@@ -235,19 +248,19 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         }, cancellationToken).ConfigureAwait(false);
         if (!validation.IsSuccess() || validation.Value is null)
         {
-            return Failure<RecordEnvelope, BaseValidatedPayload>(validation);
+            return Finish(activity, Failure<RecordEnvelope, BaseValidatedPayload>(validation), BaseOperationKind.Create, collectionId, context, startedAt);
         }
 
         var policyResult = await EvaluateWriteAsync(prepared.Collection!, principal, context, HPD.Base.Policy.PolicyResourceKind.CreatePayload, validation.Value.Payload, null, cancellationToken).ConfigureAwait(false);
         if (!policyResult.IsSuccess())
         {
-            return Failure<RecordEnvelope, BasePolicyEvaluation>(policyResult);
+            return Finish(activity, Failure<RecordEnvelope, BasePolicyEvaluation>(policyResult), BaseOperationKind.Create, collectionId, context, startedAt);
         }
 
         var writePolicy = EnforceWritePolicy<RecordEnvelope>(validation.Value.Payload, policyResult.Value);
         if (writePolicy is not null)
         {
-            return writePolicy;
+            return Finish(activity, writePolicy, BaseOperationKind.Create, collectionId, context, startedAt);
         }
 
         var requestToStore = request with { Payload = validation.Value.Payload };
@@ -256,7 +269,8 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             context).ConfigureAwait(false);
         result = _normalizer.NormalizeStoreResult(result, context);
         result = RedactMutationResult(result, prepared.Collection!, policyResult.Value, principal, context);
-        return await DispatchMutationIfSuccessfulAsync(BaseOperationKind.Create, result, context, principal, prepared.Collection!, null, result.Value, null, cancellationToken).ConfigureAwait(false);
+        result = await DispatchMutationIfSuccessfulAsync(BaseOperationKind.Create, result, context, principal, prepared.Collection!, null, result.Value, null, cancellationToken).ConfigureAwait(false);
+        return Finish(activity, result, BaseOperationKind.Create, collectionId, context, startedAt);
     }
 
     public async ValueTask<OperationResult<RecordEnvelope>> PatchAsync(
@@ -269,16 +283,18 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
     {
         cancellationToken.ThrowIfCancellationRequested();
         var context = Normalize(operation, BaseOperationKind.Patch, collectionId, id);
+        using var activity = HPDBaseRuntimeTelemetry.StartRuntimeOperation(HPDBaseTelemetrySpans.RuntimeRecordsPatch, BaseOperationKind.Patch, collectionId, context);
+        var startedAt = Stopwatch.GetTimestamp();
         var idValidation = ValidateRecordId<RecordEnvelope>(id);
         if (idValidation is not null)
         {
-            return idValidation;
+            return Finish(activity, idValidation, BaseOperationKind.Patch, collectionId, context, startedAt);
         }
 
         var prepared = await PrepareStoreAsync<RecordEnvelope>(collectionId, principal, context, static matrix => matrix.Patch, cancellationToken).ConfigureAwait(false);
         if (prepared.Result is not null)
         {
-            return prepared.Result;
+            return Finish(activity, prepared.Result, BaseOperationKind.Patch, collectionId, context, startedAt);
         }
 
         var validation = await _schemaValidator.ValidatePatchAsync(new BasePayloadValidationRequest
@@ -290,12 +306,12 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         }, cancellationToken).ConfigureAwait(false);
         if (!validation.IsSuccess() || validation.Value is null)
         {
-            return Failure<RecordEnvelope, BaseValidatedPayload>(validation);
+            return Finish(activity, Failure<RecordEnvelope, BaseValidatedPayload>(validation), BaseOperationKind.Patch, collectionId, context, startedAt);
         }
 
         if (request.ExpectedRevision is not null && prepared.Store is not HPD.Base.Stores.IRevisionedRecordStore)
         {
-            return OperationResults.Unsupported<RecordEnvelope>(RevisionRequiredError(collectionId));
+            return Finish(activity, OperationResults.Unsupported<RecordEnvelope>(RevisionRequiredError(collectionId)), BaseOperationKind.Patch, collectionId, context, startedAt);
         }
 
         var existing = await InvokeStoreAsync(
@@ -304,7 +320,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         existing = _normalizer.NormalizeStoreResult(existing, context);
         if (!existing.IsSuccess() || existing.Value is null)
         {
-            return existing;
+            return Finish(activity, existing, BaseOperationKind.Patch, collectionId, context, startedAt);
         }
 
         var proposedPayload = BasePolicyRuntimeSimulation.MergePatchPayload(existing.Value.Payload, validation.Value.Payload);
@@ -321,13 +337,13 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             cancellationToken).ConfigureAwait(false);
         if (!policyResult.IsSuccess())
         {
-            return Failure<RecordEnvelope, BasePolicyEvaluation>(policyResult);
+            return Finish(activity, Failure<RecordEnvelope, BasePolicyEvaluation>(policyResult), BaseOperationKind.Patch, collectionId, context, startedAt);
         }
 
         var writePolicy = EnforceWritePolicy<RecordEnvelope>(validation.Value.Payload, policyResult.Value);
         if (writePolicy is not null)
         {
-            return writePolicy;
+            return Finish(activity, writePolicy, BaseOperationKind.Patch, collectionId, context, startedAt);
         }
 
         var requestToStore = request with { Patch = validation.Value.Payload };
@@ -341,7 +357,8 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
 
         result = _normalizer.NormalizeStoreResult(result, context);
         result = RedactMutationResult(result, prepared.Collection!, policyResult.Value, principal, context);
-        return await DispatchMutationIfSuccessfulAsync(BaseOperationKind.Patch, result, context, principal, prepared.Collection!, existing.Value, result.Value, validation.Value.ChangedFields, cancellationToken).ConfigureAwait(false);
+        result = await DispatchMutationIfSuccessfulAsync(BaseOperationKind.Patch, result, context, principal, prepared.Collection!, existing.Value, result.Value, validation.Value.ChangedFields, cancellationToken).ConfigureAwait(false);
+        return Finish(activity, result, BaseOperationKind.Patch, collectionId, context, startedAt);
     }
 
     public async ValueTask<OperationResult<RecordEnvelope>> ReplaceAsync(
@@ -354,16 +371,18 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
     {
         cancellationToken.ThrowIfCancellationRequested();
         var context = Normalize(operation, BaseOperationKind.Replace, collectionId, id);
+        using var activity = HPDBaseRuntimeTelemetry.StartRuntimeOperation(HPDBaseTelemetrySpans.RuntimeRecordsReplace, BaseOperationKind.Replace, collectionId, context);
+        var startedAt = Stopwatch.GetTimestamp();
         var idValidation = ValidateRecordId<RecordEnvelope>(id);
         if (idValidation is not null)
         {
-            return idValidation;
+            return Finish(activity, idValidation, BaseOperationKind.Replace, collectionId, context, startedAt);
         }
 
         var prepared = await PrepareStoreAsync<RecordEnvelope>(collectionId, principal, context, static matrix => matrix.Replace, cancellationToken).ConfigureAwait(false);
         if (prepared.Result is not null)
         {
-            return prepared.Result;
+            return Finish(activity, prepared.Result, BaseOperationKind.Replace, collectionId, context, startedAt);
         }
 
         var validation = await _schemaValidator.ValidateReplaceAsync(new BasePayloadValidationRequest
@@ -375,35 +394,45 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         }, cancellationToken).ConfigureAwait(false);
         if (!validation.IsSuccess() || validation.Value is null)
         {
-            return Failure<RecordEnvelope, BaseValidatedPayload>(validation);
+            return Finish(activity, Failure<RecordEnvelope, BaseValidatedPayload>(validation), BaseOperationKind.Replace, collectionId, context, startedAt);
         }
 
         var policyResult = await EvaluateWriteAsync(prepared.Collection!, principal, context, HPD.Base.Policy.PolicyResourceKind.UpdatePayload, validation.Value.Payload, id, cancellationToken).ConfigureAwait(false);
         if (!policyResult.IsSuccess())
         {
-            return Failure<RecordEnvelope, BasePolicyEvaluation>(policyResult);
+            return Finish(activity, Failure<RecordEnvelope, BasePolicyEvaluation>(policyResult), BaseOperationKind.Replace, collectionId, context, startedAt);
         }
 
         var writePolicy = EnforceWritePolicy<RecordEnvelope>(validation.Value.Payload, policyResult.Value);
         if (writePolicy is not null)
         {
-            return writePolicy;
+            return Finish(activity, writePolicy, BaseOperationKind.Replace, collectionId, context, startedAt);
         }
 
         var requestToStore = request with { Payload = validation.Value.Payload };
-        var result = request.ExpectedRevision is { } expected
-            ? prepared.Store is HPD.Base.Stores.IRevisionedRecordStore revisioned
-                ? await InvokeStoreAsync(
-                    () => revisioned.ReplaceIfRevisionAsync(prepared.Collection!, id, requestToStore, expected, context, cancellationToken),
-                    context).ConfigureAwait(false)
-                : OperationResults.Unsupported<RecordEnvelope>(RevisionRequiredError(collectionId))
-            : await InvokeStoreAsync(
+        OperationResult<RecordEnvelope> result;
+        if (request.ExpectedRevision is { } expected)
+        {
+            if (prepared.Store is not HPD.Base.Stores.IRevisionedRecordStore revisioned)
+            {
+                return Finish(activity, OperationResults.Unsupported<RecordEnvelope>(RevisionRequiredError(collectionId)), BaseOperationKind.Replace, collectionId, context, startedAt);
+            }
+
+            result = await InvokeStoreAsync(
+                () => revisioned.ReplaceIfRevisionAsync(prepared.Collection!, id, requestToStore, expected, context, cancellationToken),
+                context).ConfigureAwait(false);
+        }
+        else
+        {
+            result = await InvokeStoreAsync(
                 () => prepared.Store!.ReplaceAsync(prepared.Collection!, id, requestToStore, context, cancellationToken),
                 context).ConfigureAwait(false);
+        }
 
         result = _normalizer.NormalizeStoreResult(result, context);
         result = RedactMutationResult(result, prepared.Collection!, policyResult.Value, principal, context);
-        return await DispatchMutationIfSuccessfulAsync(BaseOperationKind.Replace, result, context, principal, prepared.Collection!, null, result.Value, null, cancellationToken).ConfigureAwait(false);
+        result = await DispatchMutationIfSuccessfulAsync(BaseOperationKind.Replace, result, context, principal, prepared.Collection!, null, result.Value, null, cancellationToken).ConfigureAwait(false);
+        return Finish(activity, result, BaseOperationKind.Replace, collectionId, context, startedAt);
     }
 
     public async ValueTask<OperationResult<DeleteResult>> DeleteAsync(
@@ -416,21 +445,23 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
     {
         cancellationToken.ThrowIfCancellationRequested();
         var context = Normalize(operation, BaseOperationKind.Delete, collectionId, id);
+        using var activity = HPDBaseRuntimeTelemetry.StartRuntimeOperation(HPDBaseTelemetrySpans.RuntimeRecordsDelete, BaseOperationKind.Delete, collectionId, context);
+        var startedAt = Stopwatch.GetTimestamp();
         var idValidation = ValidateRecordId<DeleteResult>(id);
         if (idValidation is not null)
         {
-            return idValidation;
+            return Finish(activity, idValidation, BaseOperationKind.Delete, collectionId, context, startedAt);
         }
 
         var prepared = await PrepareStoreAsync<DeleteResult>(collectionId, principal, context, static matrix => matrix.Delete, cancellationToken).ConfigureAwait(false);
         if (prepared.Result is not null)
         {
-            return prepared.Result;
+            return Finish(activity, prepared.Result, BaseOperationKind.Delete, collectionId, context, startedAt);
         }
 
         if (request.ExpectedRevision is not null && !SupportsExpectedRevisionDelete(prepared.Store!))
         {
-            return OperationResults.Unsupported<DeleteResult>(RevisionRequiredError(collectionId));
+            return Finish(activity, OperationResults.Unsupported<DeleteResult>(RevisionRequiredError(collectionId)), BaseOperationKind.Delete, collectionId, context, startedAt);
         }
 
         var existing = await InvokeStoreAsync(
@@ -439,10 +470,10 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         existing = _normalizer.NormalizeStoreResult(existing, context);
         if (!existing.IsSuccess() || existing.Value is null)
         {
-            return Failure<DeleteResult, RecordEnvelope>(existing);
+            return Finish(activity, Failure<DeleteResult, RecordEnvelope>(existing), BaseOperationKind.Delete, collectionId, context, startedAt);
         }
 
-        var policyResult = await _policy.EvaluateWriteAsync(new BasePolicyRequest
+        var policyResult = await EvaluateWritePolicyAsync(new BasePolicyRequest
         {
             Principal = principal,
             Operation = context,
@@ -453,13 +484,13 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         }, cancellationToken).ConfigureAwait(false);
         if (!policyResult.IsSuccess())
         {
-            return Failure<DeleteResult, BasePolicyEvaluation>(policyResult);
+            return Finish(activity, Failure<DeleteResult, BasePolicyEvaluation>(policyResult), BaseOperationKind.Delete, collectionId, context, startedAt);
         }
 
         var deleteWritePolicy = EnforceWritePolicy<DeleteResult>(null, policyResult.Value);
         if (deleteWritePolicy is not null)
         {
-            return deleteWritePolicy;
+            return Finish(activity, deleteWritePolicy, BaseOperationKind.Delete, collectionId, context, startedAt);
         }
 
         var result = await InvokeStoreAsync(
@@ -468,7 +499,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         result = _normalizer.NormalizeStoreResult(result, context);
         if (!result.IsSuccess() || result.Value is null)
         {
-            return result;
+            return Finish(activity, result, BaseOperationKind.Delete, collectionId, context, startedAt);
         }
 
         var eventPreviousSnapshot = result.Value.Previous ?? (result.Value.Deleted ? existing.Value : null);
@@ -488,13 +519,14 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             eventPrevious,
             null,
             null);
-        var events = await _eventDispatcher.DispatchMutationAsync(@event, cancellationToken).ConfigureAwait(false);
-        return result with
+        var events = await DispatchMutationEventAsync(@event, context, cancellationToken).ConfigureAwait(false);
+        result = result with
         {
             Events = events.Value,
             Warnings = Combine(result.Warnings, events.Warnings),
             Diagnostics = result.Diagnostics ?? events.Diagnostics
         };
+        return Finish(activity, result, BaseOperationKind.Delete, collectionId, context, startedAt);
     }
 
     private OperationResult<RecordEnvelope> RedactMutationResult(
@@ -684,7 +716,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         RecordEnvelope? existingRecord,
         RecordEnvelope? proposedRecord,
         CancellationToken cancellationToken) =>
-        await _policy.EvaluateWriteAsync(new BasePolicyRequest
+        await EvaluateWritePolicyAsync(new BasePolicyRequest
         {
             Principal = principal,
             Operation = context,
@@ -710,18 +742,23 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         Func<ValueTask<OperationResult<T>>> invoke,
         OperationContext context)
     {
+        using var activity = HPDBaseRuntimeTelemetry.StartStoreInvocation(context);
+        var startedAt = Stopwatch.GetTimestamp();
+        OperationResult<T> result;
         try
         {
-            return await invoke().ConfigureAwait(false);
+            result = await invoke().ConfigureAwait(false);
         }
         catch (Exception exception) when (_failureMapper.TryMap(exception, context, out var error, out var status))
         {
-            return new OperationResult<T>
+            result = new OperationResult<T>
             {
                 Status = status,
                 Error = error
             };
         }
+
+        return HPDBaseRuntimeTelemetry.FinishStoreInvocation(activity, result, context, startedAt);
     }
 
     private async ValueTask<OperationResult<RecordEnvelope>> DispatchMutationIfSuccessfulAsync(
@@ -748,7 +785,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             before,
             after,
             changedFields);
-        var events = await _eventDispatcher.DispatchMutationAsync(@event, cancellationToken).ConfigureAwait(false);
+        var events = await DispatchMutationEventAsync(@event, context, cancellationToken).ConfigureAwait(false);
         return result with
         {
             Events = events.Value,
@@ -756,6 +793,46 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             Diagnostics = result.Diagnostics ?? events.Diagnostics
         };
     }
+
+    private async ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateReadPolicyAsync(
+        BasePolicyRequest request,
+        CancellationToken cancellationToken)
+    {
+        using var activity = HPDBaseRuntimeTelemetry.StartPolicyEvaluation(request.Operation, request.ResourceKind.ToString());
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = await _policy.EvaluateReadAsync(request, cancellationToken).ConfigureAwait(false);
+        return HPDBaseRuntimeTelemetry.FinishPolicyEvaluation(activity, result, request.Operation, startedAt);
+    }
+
+    private async ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateWritePolicyAsync(
+        BasePolicyRequest request,
+        CancellationToken cancellationToken)
+    {
+        using var activity = HPDBaseRuntimeTelemetry.StartPolicyEvaluation(request.Operation, request.ResourceKind.ToString());
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = await _policy.EvaluateWriteAsync(request, cancellationToken).ConfigureAwait(false);
+        return HPDBaseRuntimeTelemetry.FinishPolicyEvaluation(activity, result, request.Operation, startedAt);
+    }
+
+    private async ValueTask<OperationResult<EventReference[]>> DispatchMutationEventAsync(
+        BaseRecordMutationEvent @event,
+        OperationContext context,
+        CancellationToken cancellationToken)
+    {
+        using var activity = HPDBaseRuntimeTelemetry.StartEventDispatch(context, @event.Type);
+        var startedAt = Stopwatch.GetTimestamp();
+        var result = await _eventDispatcher.DispatchMutationAsync(@event, cancellationToken).ConfigureAwait(false);
+        return HPDBaseRuntimeTelemetry.FinishEventDispatch(activity, result, context, startedAt);
+    }
+
+    private static OperationResult<T> Finish<T>(
+        Activity? activity,
+        OperationResult<T> result,
+        BaseOperationKind operation,
+        string collectionId,
+        OperationContext context,
+        long startedAt) =>
+        HPDBaseRuntimeTelemetry.FinishRuntimeOperation(activity, result, operation, collectionId, context, startedAt);
 
     private static bool Allows(
         CollectionDefinition collection,

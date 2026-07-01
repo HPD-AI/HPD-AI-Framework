@@ -13,13 +13,13 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>HPD-Graph.Studio</PackageId>
-    <Description>HPD Graph Studio module package for HPD AI Studio.</Description>
+    <Description>HPD Graph Studio module package for HPD AI Platform.</Description>
     <PackageTags>ai;graph;workflow;studio;svelte</PackageTags>
     <StudioGraphModuleRoot>$(MSBuildThisFileDirectory)..\..\..\..\typescript\hpd-ai-studio\modules\hpd-graph-studio\</StudioGraphModuleRoot>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\HPD-AI.Studio\HPD-AI.Studio.csproj" />
+    <ProjectReference Include="..\..\..\HPD-AI.Platform\HPD-AI.Platform.csproj" />
   </ItemGroup>
 
   <ItemGroup>

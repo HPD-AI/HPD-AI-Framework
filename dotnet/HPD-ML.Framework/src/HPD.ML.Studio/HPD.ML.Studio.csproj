@@ -13,13 +13,13 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>HPD.ML.Studio</PackageId>
-    <Description>HPD ML Studio module package for HPD AI Studio.</Description>
+    <Description>HPD ML Studio module package for HPD AI Platform.</Description>
     <PackageTags>ml;models;training;evaluation;studio;svelte</PackageTags>
     <StudioMlModuleRoot>$(MSBuildThisFileDirectory)..\..\..\..\typescript\hpd-ai-studio\modules\hpd-ml-studio\</StudioMlModuleRoot>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\HPD-AI.Studio\HPD-AI.Studio.csproj" />
+    <ProjectReference Include="..\..\..\HPD-AI.Platform\HPD-AI.Platform.csproj" />
   </ItemGroup>
 
   <ItemGroup>

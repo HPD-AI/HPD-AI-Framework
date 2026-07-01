@@ -1,8 +1,8 @@
-namespace HPD.AI.Studio;
+namespace HPD.AI.Platform;
 
 public static class HPDAgentStudioBuilderExtensions
 {
-    public static HPDAIStudioBuilder AddAgentStudio(this HPDAIStudioBuilder builder)
+    public static HPDAIPlatformBuilder AddAgentStudio(this HPDAIPlatformBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
 

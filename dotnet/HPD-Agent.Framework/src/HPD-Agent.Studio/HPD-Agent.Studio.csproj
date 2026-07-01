@@ -13,13 +13,13 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>HPD-Agent.Studio</PackageId>
-    <Description>HPD Agent Studio module contribution for HPD-AI.Studio.</Description>
+    <Description>HPD Agent Studio module contribution for HPD-AI.Platform.</Description>
     <PackageTags>ai;agent;studio;svelte</PackageTags>
     <StudioAgentModuleRoot>$(MSBuildThisFileDirectory)..\..\..\..\typescript\hpd-ai-studio\modules\hpd-agent-studio\</StudioAgentModuleRoot>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\HPD-AI.Studio\HPD-AI.Studio.csproj" />
+    <ProjectReference Include="..\..\..\HPD-AI.Platform\HPD-AI.Platform.csproj" />
   </ItemGroup>
 
   <ItemGroup>

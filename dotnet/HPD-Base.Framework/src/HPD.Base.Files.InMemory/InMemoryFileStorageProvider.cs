@@ -3,8 +3,10 @@ using System.Security.Cryptography;
 using HPD.Base.Files.Buckets;
 using HPD.Base.Files.InMemory.Configuration;
 using HPD.Base.Files.InMemory.Internal;
+using HPD.Base.Files.InMemory.Observability;
 using HPD.Base.Files.Objects;
 using HPD.Base.Files.Providers;
+using HPD.Base.Observability;
 using HPD.Base.Results;
 using HPD.Base.Runtime.Results;
 using Microsoft.Extensions.Options;
@@ -29,7 +31,19 @@ public sealed class InMemoryFileStorageProvider : IFileStorageProvider
 
     public FileProviderRef ProviderRef { get; }
 
-    public async ValueTask<OperationResult<FileObjectUploadResult>> UploadAsync(
+    public ValueTask<OperationResult<FileObjectUploadResult>> UploadAsync(
+        FileBucketDescriptor bucket,
+        FileObjectUploadRequest request,
+        FileOperationContext context,
+        CancellationToken cancellationToken = default) =>
+        HPDBaseFilesInMemoryTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.FilesProviderUpload,
+            ProviderOperationValues.Upload,
+            request.SizeBytes,
+            request.Overwrite,
+            () => UploadCoreAsync(bucket, request, context, cancellationToken));
+
+    private async ValueTask<OperationResult<FileObjectUploadResult>> UploadCoreAsync(
         FileBucketDescriptor bucket,
         FileObjectUploadRequest request,
         FileOperationContext context,
@@ -87,6 +101,18 @@ public sealed class InMemoryFileStorageProvider : IFileStorageProvider
         FileBucketDescriptor bucket,
         FileObjectDownloadRequest request,
         FileOperationContext context,
+        CancellationToken cancellationToken = default) =>
+        HPDBaseFilesInMemoryTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.FilesProviderDownloadOpen,
+            ProviderOperationValues.DownloadOpen,
+            sizeBytes: null,
+            overwriteRequested: null,
+            () => OpenDownloadCoreAsync(bucket, request, context, cancellationToken));
+
+    private ValueTask<OperationResult<FileObjectDownloadResult>> OpenDownloadCoreAsync(
+        FileBucketDescriptor bucket,
+        FileObjectDownloadRequest request,
+        FileOperationContext context,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -111,6 +137,18 @@ public sealed class InMemoryFileStorageProvider : IFileStorageProvider
         FileBucketDescriptor bucket,
         FileObjectMetadataRequest request,
         FileOperationContext context,
+        CancellationToken cancellationToken = default) =>
+        HPDBaseFilesInMemoryTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.FilesProviderMetadataGet,
+            ProviderOperationValues.MetadataGet,
+            sizeBytes: null,
+            overwriteRequested: null,
+            () => GetMetadataCoreAsync(bucket, request, context, cancellationToken));
+
+    private ValueTask<OperationResult<FileObjectMetadata>> GetMetadataCoreAsync(
+        FileBucketDescriptor bucket,
+        FileObjectMetadataRequest request,
+        FileOperationContext context,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -120,6 +158,18 @@ public sealed class InMemoryFileStorageProvider : IFileStorageProvider
     }
 
     public ValueTask<OperationResult> DeleteAsync(
+        FileBucketDescriptor bucket,
+        FileObjectDeleteRequest request,
+        FileOperationContext context,
+        CancellationToken cancellationToken = default) =>
+        HPDBaseFilesInMemoryTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.FilesProviderDelete,
+            ProviderOperationValues.Delete,
+            sizeBytes: null,
+            overwriteRequested: null,
+            () => DeleteCoreAsync(bucket, request, context, cancellationToken));
+
+    private ValueTask<OperationResult> DeleteCoreAsync(
         FileBucketDescriptor bucket,
         FileObjectDeleteRequest request,
         FileOperationContext context,
@@ -139,6 +189,18 @@ public sealed class InMemoryFileStorageProvider : IFileStorageProvider
     }
 
     public ValueTask<OperationResult<FileObjectListResult>> ListMetadataAsync(
+        FileBucketDescriptor bucket,
+        FileObjectListRequest request,
+        FileOperationContext context,
+        CancellationToken cancellationToken = default) =>
+        HPDBaseFilesInMemoryTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.FilesProviderList,
+            ProviderOperationValues.List,
+            sizeBytes: null,
+            overwriteRequested: null,
+            () => ListMetadataCoreAsync(bucket, request, context, cancellationToken));
+
+    private ValueTask<OperationResult<FileObjectListResult>> ListMetadataCoreAsync(
         FileBucketDescriptor bucket,
         FileObjectListRequest request,
         FileOperationContext context,

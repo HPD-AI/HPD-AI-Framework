@@ -13,13 +13,13 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>HPD.Auth.Studio</PackageId>
-    <Description>HPD Auth Studio module package for HPD AI Studio.</Description>
+    <Description>HPD Auth Studio module package for HPD AI Platform.</Description>
     <PackageTags>auth;identity;access-control;studio;svelte</PackageTags>
     <StudioAuthModuleRoot>$(MSBuildThisFileDirectory)..\..\..\..\typescript\hpd-ai-studio\modules\hpd-auth-studio\</StudioAuthModuleRoot>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\HPD-AI.Studio\HPD-AI.Studio.csproj" />
+    <ProjectReference Include="..\..\..\HPD-AI.Platform\HPD-AI.Platform.csproj" />
   </ItemGroup>
 
   <ItemGroup>

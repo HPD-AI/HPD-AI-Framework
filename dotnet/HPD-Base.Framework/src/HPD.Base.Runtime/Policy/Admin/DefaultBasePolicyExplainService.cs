@@ -1,6 +1,8 @@
+using HPD.Base.Observability;
 using HPD.Base.Policy;
 using HPD.Base.Records;
 using HPD.Base.Results;
+using HPD.Base.Runtime.Observability;
 using HPD.Base.Runtime.Query;
 using HPD.Base.Runtime.Results;
 using HPD.Base.Runtime.Schema;
@@ -56,6 +58,23 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
         ArgumentNullException.ThrowIfNull(principal);
         ArgumentNullException.ThrowIfNull(operation);
 
+        return await HPDBaseRuntimeTelemetry.TraceRuntimeReadAsync(
+            HPDBaseTelemetrySpans.RuntimePolicyExplain,
+            BaseOperationKind.AdminInspect,
+            request.CollectionId,
+            VisibilityLevel.Admin,
+            !string.IsNullOrWhiteSpace(operation.CorrelationId),
+            countAsHealthRead: false,
+            countAsDiagnosticRead: false,
+            () => ExplainCoreAsync(request, principal, operation, cancellationToken)).ConfigureAwait(false);
+    }
+
+    private async ValueTask<OperationResult<BasePolicyExplainResponse>> ExplainCoreAsync(
+        BasePolicyExplainRequest request,
+        PrincipalContext principal,
+        OperationContext operation,
+        CancellationToken cancellationToken)
+    {
         if (!CanExplain(principal, operation))
         {
             return principal.AuthenticationState == PrincipalAuthenticationState.Anonymous

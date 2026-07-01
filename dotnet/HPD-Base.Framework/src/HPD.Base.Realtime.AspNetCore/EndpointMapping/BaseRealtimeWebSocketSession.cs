@@ -1,6 +1,7 @@
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using HPD.Base.Realtime.AspNetCore.Observability;
 using HPD.Base.Runtime;
 using HPD.Base.Realtime.Configuration;
 using HPD.Base.Realtime.Feeds;
@@ -43,10 +44,14 @@ internal sealed class BaseRealtimeWebSocketSession
         _stats.RecordConnectionOpened();
         try
         {
-            await SendAsync(new BaseRealtimeServerMessage
             {
-                Type = BaseRealtimeProtocolTypes.Connected
-            }, cancellationToken).ConfigureAwait(false);
+                using var connectionActivity = HPDBaseRealtimeAspNetCoreTelemetry.StartConnection();
+                await SendAsync(new BaseRealtimeServerMessage
+                {
+                    Type = BaseRealtimeProtocolTypes.Connected
+                }, cancellationToken).ConfigureAwait(false);
+                HPDBaseRealtimeAspNetCoreTelemetry.Finish(connectionActivity, "ok");
+            }
 
             while (_socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
             {
@@ -101,33 +106,39 @@ internal sealed class BaseRealtimeWebSocketSession
 
     private async Task JoinAsync(BaseRealtimeClientMessage message, CancellationToken cancellationToken)
     {
+        using var activity = HPDBaseRealtimeAspNetCoreTelemetry.StartJoin(ChannelKindValue(message.Config?.Kind));
         if (string.IsNullOrWhiteSpace(message.Channel) || message.Config is null)
         {
             await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.ProtocolInvalid, "Join messages require channel and config.", cancellationToken).ConfigureAwait(false);
+            HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "rejected");
             return;
         }
 
         if (_channels.Count >= _options.Limits.MaxChannelsPerConnection)
         {
             await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.TooManyChannels, "The connection has reached the channel limit.", cancellationToken).ConfigureAwait(false);
+            HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "rejected");
             return;
         }
 
         if (message.Config.Kind != BaseRealtimeChannelKinds.RecordChanges)
         {
             await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.ChannelUnsupported, "The requested channel kind is not supported.", cancellationToken).ConfigureAwait(false);
+            HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "rejected");
             return;
         }
 
         if (message.Config.Private && _options.RequireAuthenticatedPrivateChannels && _principal.AuthenticationState == PrincipalAuthenticationState.Anonymous)
         {
             await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.AuthRequired, "Authentication is required for private realtime channels.", cancellationToken).ConfigureAwait(false);
+            HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "rejected");
             return;
         }
 
         if (!TenantRequestAllowed(message.Config.TenantId))
         {
             await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.ChannelUnauthorized, "The requested tenant is not authorized for this realtime channel.", cancellationToken).ConfigureAwait(false);
+            HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "rejected");
             return;
         }
 
@@ -153,6 +164,7 @@ internal sealed class BaseRealtimeWebSocketSession
         if (!opened.Succeeded || opened.Value is null)
         {
             await SendErrorAsync(message.Ref, message.Channel, opened.Error?.Code ?? BaseRealtimeErrorCodes.CapabilityUnavailable, opened.Error?.Message ?? "Realtime channel could not be opened.", cancellationToken).ConfigureAwait(false);
+            HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "error");
             return;
         }
 
@@ -174,10 +186,12 @@ internal sealed class BaseRealtimeWebSocketSession
                 StreamId = opened.Value.Descriptor.StreamId
             }
         }, cancellationToken).ConfigureAwait(false);
+        HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "ok");
     }
 
     private async Task LeaveAsync(BaseRealtimeClientMessage message, CancellationToken cancellationToken)
     {
+        using var activity = HPDBaseRealtimeAspNetCoreTelemetry.StartLeave();
         if (message.Channel is not null && _channels.Remove(message.Channel, out var cts))
         {
             await cts.CancelAsync().ConfigureAwait(false);
@@ -190,6 +204,7 @@ internal sealed class BaseRealtimeWebSocketSession
             Ref = message.Ref,
             Channel = message.Channel
         }, cancellationToken).ConfigureAwait(false);
+        HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "ok");
     }
 
     private async Task PumpChannelAsync(string channel, IAsyncEnumerable<BaseRealtimeEvent> events, CancellationToken cancellationToken)
@@ -254,6 +269,7 @@ internal sealed class BaseRealtimeWebSocketSession
         }
 
         var json = Encoding.UTF8.GetString(stream.ToArray());
+        HPDBaseRealtimeAspNetCoreTelemetry.RecordReceived(stream.Length);
         try
         {
             _ = _json;
@@ -280,6 +296,7 @@ internal sealed class BaseRealtimeWebSocketSession
 
     private async Task SendEventAsync(string channel, BaseRealtimeEvent evt, CancellationToken cancellationToken)
     {
+        using var activity = HPDBaseRealtimeAspNetCoreTelemetry.StartSend("recordChanges");
         var message = new BaseRealtimeServerMessage
         {
             Type = BaseRealtimeProtocolTypes.Event,
@@ -290,6 +307,7 @@ internal sealed class BaseRealtimeWebSocketSession
         if (SerializedLength(message) <= _options.Limits.MaxPayloadBytes)
         {
             await SendAsync(message, cancellationToken).ConfigureAwait(false);
+            HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "ok");
             return;
         }
 
@@ -308,11 +326,13 @@ internal sealed class BaseRealtimeWebSocketSession
             {
                 _stats.RecordPayloadLimitDrop();
                 await SendAsync(message, cancellationToken).ConfigureAwait(false);
+                HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "ok");
                 return;
             }
         }
 
         _stats.RecordPayloadLimitDrop();
+        HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "dropped");
     }
 
     private static int SerializedLength(BaseRealtimeServerMessage message) =>
@@ -337,6 +357,7 @@ internal sealed class BaseRealtimeWebSocketSession
 
         _ = _json;
         var bytes = JsonSerializer.SerializeToUtf8Bytes(message, HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeServerMessage);
+        HPDBaseRealtimeAspNetCoreTelemetry.RecordSent(bytes.LongLength);
         await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -347,4 +368,10 @@ internal sealed class BaseRealtimeWebSocketSession
             _sendLock.Release();
         }
     }
+
+    private static string ChannelKindValue(string? value) => value switch
+    {
+        BaseRealtimeChannelKinds.RecordChanges => "recordChanges",
+        _ => "unknown"
+    };
 }

@@ -5,7 +5,7 @@ import './styles.css';
 const target = document.getElementById('app');
 
 if (!target) {
-  throw new Error('HPD AI Studio mount target was not found.');
+  throw new Error('HPD AI Platform mount target was not found.');
 }
 
 const app = mount(App, {

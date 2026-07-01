@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <RootNamespace>HPD.AI.Platform</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD-AI.Platform</PackageId>
+    <Description>All-in-one enterprise AI application platform shell for composing HPD backend services, agents, RAG, graph workflows, auth, storage, evaluations, Studio, and SDK access.</Description>
+    <PackageTags>ai;enterprise;platform;agent;graph;rag;auth;ml;aspnetcore;studio;dashboard;svelte</PackageTags>
+    <StudioClientAppRoot>$(MSBuildThisFileDirectory)..\..\typescript\hpd-ai-studio\shell\</StudioClientAppRoot>
+    <StudioDesignRoot>$(MSBuildThisFileDirectory)..\..\typescript\hpd-ai-studio\packages\hpd-studio-design\</StudioDesignRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="wwwroot\**\*" LogicalName="HPD.AI.Platform.wwwroot.%(RecursiveDir)%(Filename)%(Extension)" />
+    <None Include="$(StudioClientAppRoot)**\*" Exclude="$(StudioClientAppRoot)node_modules\**\*;$(StudioClientAppRoot)dist\**\*" Pack="true" PackagePath="clientapp\%(RecursiveDir)%(Filename)%(Extension)" />
+    <None Include="$(StudioDesignRoot)**\*" Exclude="$(StudioDesignRoot)node_modules\**\*;$(StudioDesignRoot)dist\**\*" Pack="true" PackagePath="clientapp-packages\hpd-studio-design\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

@@ -1,5 +1,7 @@
 using HPD.Base.InMemory.Configuration;
 using HPD.Base.InMemory.Internal;
+using HPD.Base.InMemory.Observability;
+using HPD.Base.Observability;
 using HPD.Base.Query;
 using HPD.Base.Records;
 using HPD.Base.Results;
@@ -50,6 +52,18 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
 
     /// <inheritdoc />
     public ValueTask<OperationResult<RecordPage>> ListAsync(
+        CollectionDefinition collection,
+        RecordQuery query,
+        OperationContext context,
+        CancellationToken cancellationToken = default) =>
+        HPDBaseInMemoryTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.StoreList,
+            BaseOperationKind.List,
+            _options.StoreId,
+            CollectionIdForTelemetry(collection),
+            () => ListCoreAsync(collection, query, context, cancellationToken));
+
+    private ValueTask<OperationResult<RecordPage>> ListCoreAsync(
         CollectionDefinition collection,
         RecordQuery query,
         OperationContext context,
@@ -124,6 +138,18 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
         CollectionDefinition collection,
         RecordId id,
         OperationContext context,
+        CancellationToken cancellationToken = default) =>
+        HPDBaseInMemoryTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.StoreGet,
+            BaseOperationKind.Get,
+            _options.StoreId,
+            CollectionIdForTelemetry(collection),
+            () => GetCoreAsync(collection, id, context, cancellationToken));
+
+    private ValueTask<OperationResult<RecordEnvelope>> GetCoreAsync(
+        CollectionDefinition collection,
+        RecordId id,
+        OperationContext context,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(collection);
@@ -154,6 +180,18 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
 
     /// <inheritdoc />
     public ValueTask<OperationResult<RecordEnvelope>> CreateAsync(
+        CollectionDefinition collection,
+        RecordCreateRequest request,
+        OperationContext context,
+        CancellationToken cancellationToken = default) =>
+        HPDBaseInMemoryTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.StoreCreate,
+            BaseOperationKind.Create,
+            _options.StoreId,
+            CollectionIdForTelemetry(collection),
+            () => CreateCoreAsync(collection, request, context, cancellationToken));
+
+    private ValueTask<OperationResult<RecordEnvelope>> CreateCoreAsync(
         CollectionDefinition collection,
         RecordCreateRequest request,
         OperationContext context,
@@ -237,7 +275,12 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
         RecordPatchRequest request,
         OperationContext context,
         CancellationToken cancellationToken = default) =>
-        PatchCoreAsync(collection, id, request, request.ExpectedRevision, context, cancellationToken);
+        HPDBaseInMemoryTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.StorePatch,
+            BaseOperationKind.Patch,
+            _options.StoreId,
+            CollectionIdForTelemetry(collection),
+            () => PatchCoreAsync(collection, id, request, request.ExpectedRevision, context, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask<OperationResult<RecordEnvelope>> ReplaceAsync(
@@ -246,10 +289,28 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
         RecordReplaceRequest request,
         OperationContext context,
         CancellationToken cancellationToken = default) =>
-        ReplaceCoreAsync(collection, id, request, request.ExpectedRevision, context, cancellationToken);
+        HPDBaseInMemoryTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.StoreReplace,
+            BaseOperationKind.Replace,
+            _options.StoreId,
+            CollectionIdForTelemetry(collection),
+            () => ReplaceCoreAsync(collection, id, request, request.ExpectedRevision, context, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask<OperationResult<DeleteResult>> DeleteAsync(
+        CollectionDefinition collection,
+        RecordId id,
+        RecordDeleteRequest request,
+        OperationContext context,
+        CancellationToken cancellationToken = default) =>
+        HPDBaseInMemoryTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.StoreDelete,
+            BaseOperationKind.Delete,
+            _options.StoreId,
+            CollectionIdForTelemetry(collection),
+            () => DeleteCoreAsync(collection, id, request, context, cancellationToken));
+
+    private ValueTask<OperationResult<DeleteResult>> DeleteCoreAsync(
         CollectionDefinition collection,
         RecordId id,
         RecordDeleteRequest request,
@@ -303,7 +364,12 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
         RevisionToken expectedRevision,
         OperationContext context,
         CancellationToken cancellationToken = default) =>
-        PatchCoreAsync(collection, id, request, expectedRevision, context, cancellationToken);
+        HPDBaseInMemoryTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.StorePatchIfRevision,
+            BaseOperationKind.Patch,
+            _options.StoreId,
+            CollectionIdForTelemetry(collection),
+            () => PatchCoreAsync(collection, id, request, expectedRevision, context, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask<OperationResult<RecordEnvelope>> ReplaceIfRevisionAsync(
@@ -313,10 +379,27 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
         RevisionToken expectedRevision,
         OperationContext context,
         CancellationToken cancellationToken = default) =>
-        ReplaceCoreAsync(collection, id, request, expectedRevision, context, cancellationToken);
+        HPDBaseInMemoryTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.StoreReplaceIfRevision,
+            BaseOperationKind.Replace,
+            _options.StoreId,
+            CollectionIdForTelemetry(collection),
+            () => ReplaceCoreAsync(collection, id, request, expectedRevision, context, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask<OperationResult<AsyncStream<RecordEnvelope>>> OpenStreamAsync(
+        CollectionDefinition collection,
+        RecordQuery query,
+        OperationContext context,
+        CancellationToken cancellationToken = default) =>
+        HPDBaseInMemoryTelemetry.TraceAsync(
+            HPDBaseTelemetrySpans.StoreStreamOpen,
+            BaseOperationKind.RealtimeSubscribe,
+            _options.StoreId,
+            CollectionIdForTelemetry(collection),
+            () => OpenStreamCoreAsync(collection, query, context, cancellationToken));
+
+    private ValueTask<OperationResult<AsyncStream<RecordEnvelope>>> OpenStreamCoreAsync(
         CollectionDefinition collection,
         RecordQuery query,
         OperationContext context,
@@ -1452,6 +1535,8 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
             RequiresStableSort = true
         }
     };
+
+    private static string CollectionIdForTelemetry(CollectionDefinition? collection) => collection?.Id ?? string.Empty;
 
     private readonly record struct PayloadNormalizeResult<T>(RecordPayload? Value, OperationResult<T>? Result)
     {

@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [svelte(), tailwindcss()],
   base: './',
   build: {
-    outDir: '../../../dotnet/HPD-AI.Studio/wwwroot',
+    outDir: '../../../dotnet/HPD-AI.Platform/wwwroot',
     emptyOutDir: true
   },
   server: {

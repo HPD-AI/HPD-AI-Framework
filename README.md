@@ -5,7 +5,13 @@
 
 A set of C# frameworks for building production AI applications. Use the package family that matches the thing you need to build: agents, RAG, graph workflows, terminal UIs, ML pipelines, authentication.
 
-Product documentation and websites live in their own repositories. Use the links under each architecture diagram for the canonical source and published docs when available.
+Product documentation, websites, and opinionated product layers live in their own repositories. Use the links under each architecture diagram for the canonical source and published docs when available.
+
+## HPD AI Platform
+
+HPD AI Platform is the all-in-one enterprise product layer over these frameworks. It assembles backend services, agents, RAG, graph workflows, auth, storage, evaluations, environments, Studio, and SDK access into one governed product surface.
+
+[GitHub](https://github.com/HPD-AI/HPD-AI-Platform)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/svg/overview-dark.svg">

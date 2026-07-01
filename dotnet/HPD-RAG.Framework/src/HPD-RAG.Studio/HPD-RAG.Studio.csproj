@@ -13,13 +13,13 @@
   <PropertyGroup>
     <IsPackable>true</IsPackable>
     <PackageId>HPD-RAG.Studio</PackageId>
-    <Description>HPD RAG Studio module package for HPD AI Studio.</Description>
+    <Description>HPD RAG Studio module package for HPD AI Platform.</Description>
     <PackageTags>ai;rag;retrieval;studio;svelte</PackageTags>
     <StudioRagModuleRoot>$(MSBuildThisFileDirectory)..\..\..\..\typescript\hpd-ai-studio\modules\hpd-rag-studio\</StudioRagModuleRoot>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\HPD-AI.Studio\HPD-AI.Studio.csproj" />
+    <ProjectReference Include="..\..\..\HPD-AI.Platform\HPD-AI.Platform.csproj" />
   </ItemGroup>
 
   <ItemGroup>

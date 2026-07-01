@@ -19,7 +19,8 @@ public sealed class PublicNamespaceTests
         "HPD.Base.Runtime.Results",
         "HPD.Base.Runtime.Events",
         "HPD.Base.Runtime.Health",
-        "HPD.Base.Runtime.Serialization"
+        "HPD.Base.Runtime.Serialization",
+        "HPD.Base.Runtime.Observability"
     };
 
     [Fact]

@@ -78,7 +78,8 @@ public sealed class PublicApiShapeTests
                 nameof(HPDBaseRuntimeOptions.AllowPolicyAbstainAsAllow),
                 nameof(HPDBaseRuntimeOptions.Limits),
                 nameof(HPDBaseRuntimeOptions.Events),
-                nameof(HPDBaseRuntimeOptions.Redaction)
+                nameof(HPDBaseRuntimeOptions.Redaction),
+                nameof(HPDBaseRuntimeOptions.Observability)
             ]);
     }
 

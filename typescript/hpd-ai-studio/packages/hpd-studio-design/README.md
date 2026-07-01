@@ -1,6 +1,6 @@
 # HPD Studio Design
 
-Shared Tailwind v4 theme tokens, base rules, and public `studio-*` utilities for HPD AI Studio module packages.
+Shared Tailwind v4 theme tokens, base rules, and public `studio-*` utilities for HPD AI Platform module packages.
 
 `hpd-ai-studio` owns the final CSS build and imports this package. Module packages use this package as their public visual contract.
 

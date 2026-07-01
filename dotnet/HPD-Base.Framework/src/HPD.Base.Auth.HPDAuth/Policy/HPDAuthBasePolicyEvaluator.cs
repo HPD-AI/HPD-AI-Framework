@@ -1,5 +1,7 @@
 using HPD.Base.Auth.HPDAuth.Configuration;
 using HPD.Base.Auth.HPDAuth.Health;
+using HPD.Base.Auth.HPDAuth.Observability;
+using HPD.Base.Observability;
 using HPD.Base.Policy;
 using HPD.Base.Query;
 using HPD.Base.Runtime;
@@ -44,12 +46,15 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return _options.PolicyCompositionMode switch
+        return await HPDBaseHPDAuthTelemetry.TracePolicyAsync(
+            request,
+            _options.PolicyCompositionMode,
+            async () => _options.PolicyCompositionMode switch
         {
             HPDAuthBasePolicyCompositionMode.HPDAuthThenInner => await EvaluateHPDAuthThenInnerAsync(request, cancellationToken).ConfigureAwait(false),
             HPDAuthBasePolicyCompositionMode.InnerThenHPDAuth => await EvaluateInnerThenHPDAuthAsync(request, cancellationToken).ConfigureAwait(false),
             _ => await EvaluateAdapterAsync(request, cancellationToken).ConfigureAwait(false)
-        };
+        }).ConfigureAwait(false);
     }
 
     private async ValueTask<PolicyDecision> EvaluateHPDAuthThenInnerAsync(
@@ -106,11 +111,13 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
 
         if (IsAdmin(request.Principal, subjects) && _options.AllowAdminBypass)
         {
+            HPDBaseHPDAuthTelemetry.RecordBypass(request, HPDBaseTelemetryValues.BypassAdmin);
             return Allow(PolicyOutcome.Bypassed, request, subjects, adminBypass: true);
         }
 
         if (IsService(request.Principal, subjects) && _options.AllowServiceBypass)
         {
+            HPDBaseHPDAuthTelemetry.RecordBypass(request, HPDBaseTelemetryValues.BypassService);
             return Allow(PolicyOutcome.Bypassed, request, subjects, serviceBypass: true);
         }
 
@@ -283,33 +290,51 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
             return false;
 
         var statuses = _hostStatuses.ToArray();
-        return statuses.Length == 0 || !statuses.Any(static status => status.HPDAuthServicesDetected);
+        return HPDBaseHPDAuthTelemetry.TraceHostCheck(
+            statuses.Length,
+            () => statuses.Length == 0 || !statuses.Any(static status => status.HPDAuthServicesDetected));
     }
 
     private async ValueTask<AccessGrant[]> GrantsForAsync(
         PolicyEvaluationRequest request,
         CancellationToken cancellationToken)
     {
-        var grants = new List<AccessGrant>();
-        if (request.Grants is { Length: > 0 })
-            grants.AddRange(request.Grants);
-        if (_options.StaticGrants is { Length: > 0 })
-            grants.AddRange(_options.StaticGrants);
-
-        foreach (var provider in _grantProviders)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var provided = await provider.GetGrantsAsync(new HPDAuthBaseGrantRequest
+        var providers = _grantProviders.ToArray();
+        return await HPDBaseHPDAuthTelemetry.TraceGrantsAsync(
+            request,
+            providers.Length,
+            async () =>
             {
-                Principal = request.Principal,
-                Operation = request.Operation,
-                Collection = request.Collection,
-                Resource = request.Resource
-            }, cancellationToken).ConfigureAwait(false);
-            grants.AddRange(provided);
-        }
+                var grants = new List<AccessGrant>();
+                if (request.Grants is { Length: > 0 })
+                    grants.AddRange(request.Grants);
+                if (_options.StaticGrants is { Length: > 0 })
+                    grants.AddRange(_options.StaticGrants);
 
-        return grants.ToArray();
+                foreach (var provider in providers)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
+                    {
+                        var provided = await provider.GetGrantsAsync(new HPDAuthBaseGrantRequest
+                        {
+                            Principal = request.Principal,
+                            Operation = request.Operation,
+                            Collection = request.Collection,
+                            Resource = request.Resource
+                        }, cancellationToken).ConfigureAwait(false);
+                        HPDBaseHPDAuthTelemetry.RecordGrantProviderCall(request, "ok");
+                        grants.AddRange(provided);
+                    }
+                    catch
+                    {
+                        HPDBaseHPDAuthTelemetry.RecordGrantProviderCall(request, "error");
+                        throw;
+                    }
+                }
+
+                return grants.ToArray();
+            }).ConfigureAwait(false);
     }
 
     private PolicyDecision? EvaluateGrants(
@@ -324,6 +349,7 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
         var applicable = grants
             .Where(grant => Applies(grant, request, subjects, action))
             .ToArray();
+        HPDBaseHPDAuthTelemetry.RecordMatchedGrants(request, applicable.Length, applicable.Any(static grant => grant.Effect == GrantEffect.Deny) ? PolicyEffect.Deny : PolicyEffect.Allow);
 
         var deny = applicable.FirstOrDefault(grant => grant.Effect == GrantEffect.Deny);
         if (deny is not null)

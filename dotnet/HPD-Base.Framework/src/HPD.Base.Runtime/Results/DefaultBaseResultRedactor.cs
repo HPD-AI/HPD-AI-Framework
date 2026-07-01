@@ -44,7 +44,9 @@ internal sealed class DefaultBaseResultRedactor : IBaseResultRedactor
                 : error.Store with
                 {
                     NativeCode = null,
-                    NativeCategory = null
+                    NativeSubcode = null,
+                    NativeCategory = null,
+                    NativeMessage = null
                 }
         };
     }

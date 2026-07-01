@@ -18,7 +18,7 @@ export function createStudioState({ config, modules }: CreateStudioStateOptions)
   const defaultRoute = defaultModule?.routes[0];
 
   if (!defaultModule || !defaultRoute) {
-    throw new Error('HPD AI Studio requires at least one module with one route.');
+    throw new Error('HPD AI Platform requires at least one module with one route.');
   }
 
   const defaultRouteWithModule: StudioRouteWithModule = { ...defaultRoute, module: defaultModule };

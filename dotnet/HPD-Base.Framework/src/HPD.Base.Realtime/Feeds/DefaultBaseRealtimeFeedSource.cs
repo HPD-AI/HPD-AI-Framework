@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using HPD.Base.Events;
 using HPD.Base.Realtime.Configuration;
+using HPD.Base.Realtime.Observability;
 using HPD.Base.Realtime.Projection;
 using HPD.Events;
 using Microsoft.Extensions.Options;
@@ -33,6 +34,15 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        return await HPDBaseRealtimeTelemetry.TraceJoinAsync(
+            ChannelKindValue(request.Join.Kind),
+            () => OpenCoreAsync(request, cancellationToken)).ConfigureAwait(false);
+    }
+
+    private async ValueTask<AsyncStreamOpenResult<AsyncStream<BaseRealtimeEvent>>> OpenCoreAsync(
+        BaseRealtimeFeedRequest request,
+        CancellationToken cancellationToken = default)
+    {
         cancellationToken.ThrowIfCancellationRequested();
 
         if (!_options.Enabled)
@@ -115,6 +125,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
                     continue;
                 }
 
+                HPDBaseRealtimeTelemetry.RecordEventProjected();
                 yield return projected;
             }
         }
@@ -149,4 +160,10 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
 
         return true;
     }
+
+    private static string ChannelKindValue(string value) => value switch
+    {
+        BaseRealtimeChannelKinds.RecordChanges => "recordChanges",
+        _ => "unknown"
+    };
 }

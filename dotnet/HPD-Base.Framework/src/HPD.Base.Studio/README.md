@@ -1,10 +1,10 @@
 # HPD.Base.Studio
 
-HPD BASE Studio module contribution for `HPD-AI.Studio`.
+HPD BASE Studio module contribution for `HPD-AI.Platform`.
 
 ## Use
 
 ```csharp
-builder.Services.AddHPDAIStudio()
+builder.Services.AddHPDAIPlatform()
     .AddBaseStudio();
 ```

@@ -30,6 +30,8 @@ public sealed record StoreErrorInfo
 {
     public string? StoreId { get; init; }
     public string? NativeCode { get; init; }
+    public string? NativeSubcode { get; init; }
     public string? NativeCategory { get; init; }
+    public string? NativeMessage { get; init; }
     public bool Retryable { get; init; }
 }

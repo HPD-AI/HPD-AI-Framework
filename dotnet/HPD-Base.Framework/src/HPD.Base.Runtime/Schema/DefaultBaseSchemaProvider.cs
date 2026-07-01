@@ -1,5 +1,7 @@
+using HPD.Base.Observability;
 using HPD.Base.Results;
 using HPD.Base.Runtime.Descriptors;
+using HPD.Base.Runtime.Observability;
 using HPD.Base.Runtime.Results;
 using HPD.Base.Schema;
 
@@ -22,8 +24,15 @@ internal sealed class DefaultBaseSchemaProvider : IBaseSchemaProvider
     {
         cancellationToken.ThrowIfCancellationRequested();
         _ = principal;
-        _ = operation;
-        return ValueTask.FromResult(OperationResults.Ok(DescriptorViewFilter.Schema(_registry.Current, view)));
+        return HPDBaseRuntimeTelemetry.TraceRuntimeReadAsync(
+            HPDBaseTelemetrySpans.RuntimeSchemaGet,
+            BaseOperationKind.SchemaRead,
+            operation.CollectionId,
+            view,
+            !string.IsNullOrWhiteSpace(operation.CorrelationId),
+            countAsHealthRead: false,
+            countAsDiagnosticRead: false,
+            () => ValueTask.FromResult(OperationResults.Ok(DescriptorViewFilter.Schema(_registry.Current, view))));
     }
 
     public ValueTask<OperationResult<CollectionDefinition>> GetCollectionAsync(
@@ -35,20 +44,30 @@ internal sealed class DefaultBaseSchemaProvider : IBaseSchemaProvider
     {
         cancellationToken.ThrowIfCancellationRequested();
         _ = principal;
-        _ = operation;
-        var schema = DescriptorViewFilter.Schema(_registry.Current, view);
-
-        var collection = schema.Collections?.FirstOrDefault(
-            item => string.Equals(item.Id, collectionId, StringComparison.Ordinal));
-
-        return ValueTask.FromResult(collection is null
-            ? OperationResults.NotFound<CollectionDefinition>(new BaseError
+        return HPDBaseRuntimeTelemetry.TraceRuntimeReadAsync(
+            HPDBaseTelemetrySpans.RuntimeSchemaCollectionGet,
+            BaseOperationKind.SchemaRead,
+            collectionId,
+            view,
+            !string.IsNullOrWhiteSpace(operation.CorrelationId),
+            countAsHealthRead: false,
+            countAsDiagnosticRead: false,
+            () =>
             {
-                Code = "base.runtime.collection.notFound",
-                Message = "Collection was not found.",
-                Category = ErrorCategory.NotFound,
-                Target = collectionId
-            })
-            : OperationResults.Ok(collection));
+                var schema = DescriptorViewFilter.Schema(_registry.Current, view);
+
+                var collection = schema.Collections?.FirstOrDefault(
+                    item => string.Equals(item.Id, collectionId, StringComparison.Ordinal));
+
+                return ValueTask.FromResult(collection is null
+                    ? OperationResults.NotFound<CollectionDefinition>(new BaseError
+                    {
+                        Code = "base.runtime.collection.notFound",
+                        Message = "Collection was not found.",
+                        Category = ErrorCategory.NotFound,
+                        Target = collectionId
+                    })
+                    : OperationResults.Ok(collection));
+            });
     }
 }

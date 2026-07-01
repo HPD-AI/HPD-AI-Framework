@@ -1,14 +1,14 @@
 import type { StudioModuleConfig, StudioRuntimeConfig } from '../types';
 
 declare global {
-  var HPD_AI_STUDIO_CONFIG: Partial<StudioRuntimeConfig> | undefined;
+  var HPD_AI_PLATFORM_CONFIG: Partial<StudioRuntimeConfig> | undefined;
 }
 
 export function readRuntimeConfig(): StudioRuntimeConfig {
   const fallback: StudioRuntimeConfig = {
     apiBasePath: '/api/hpd',
     routePrefix: '/studio',
-    productTitle: 'HPD AI Studio',
+    productTitle: 'HPD AI Platform',
     mode: 'development',
     capabilities: [],
     studioModules: []
@@ -16,10 +16,10 @@ export function readRuntimeConfig(): StudioRuntimeConfig {
 
   const config: StudioRuntimeConfig = {
     ...fallback,
-    ...(globalThis.HPD_AI_STUDIO_CONFIG ?? {})
+    ...(globalThis.HPD_AI_PLATFORM_CONFIG ?? {})
   };
 
-  config.productTitle = config.productTitle || 'HPD AI Studio';
+  config.productTitle = config.productTitle || 'HPD AI Platform';
   config.capabilities = Array.isArray(config.capabilities) ? config.capabilities : fallback.capabilities;
   config.studioModules = mergeStudioModules(fallback.studioModules, config.studioModules);
 

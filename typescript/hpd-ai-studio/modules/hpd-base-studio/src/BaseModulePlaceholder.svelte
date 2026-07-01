@@ -4,7 +4,7 @@
       <p class="studio-label mb-1">HPD BASE Studio</p>
       <h1 class="text-3xl font-extrabold leading-tight">BASE module ready</h1>
       <span class="studio-text-safe mt-2 block max-w-2xl text-sm text-studio-muted">
-        Records, schema, stores, files, realtime, policy, health, and diagnostics can now surface inside HPD AI Studio.
+        Records, schema, stores, files, realtime, policy, health, and diagnostics can now surface inside HPD AI Platform.
       </span>
     </div>
 

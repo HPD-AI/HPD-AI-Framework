@@ -2,6 +2,7 @@ using HPD.Auth.Core.Interfaces;
 using HPD.Base.AspNetCore.Http;
 using HPD.Base.Auth.HPDAuth;
 using HPD.Base.Auth.HPDAuth.AspNetCore.Configuration;
+using HPD.Base.Auth.HPDAuth.AspNetCore.Observability;
 using HPD.Base.Runtime;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,17 +43,34 @@ public sealed class HPDAuthBaseHttpPrincipalMapper : IBaseHttpPrincipalMapper
         ArgumentNullException.ThrowIfNull(httpContext);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var tenantIdFallback = _options.UseTenantContextFallback
-            ? httpContext.RequestServices.GetService<ITenantContext>()?.InstanceId.ToString()
-            : null;
+        var enrichers = _enrichers.ToArray();
+        return await HPDBaseHPDAuthAspNetCoreTelemetry.TraceMapAsync(
+            enrichers.Length,
+            async () =>
+            {
+                var tenantIdFallback = _options.UseTenantContextFallback
+                    ? httpContext.RequestServices.GetService<ITenantContext>()?.InstanceId.ToString()
+                    : null;
 
-        var principal = _subjectMapper.Map(httpContext.User, tenantIdFallback);
-        foreach (var enricher in _enrichers)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            principal = await enricher.EnrichAsync(httpContext, principal, cancellationToken).ConfigureAwait(false);
-        }
+                var principal = _subjectMapper.Map(httpContext.User, tenantIdFallback);
+                if (enrichers.Length > 0)
+                {
+                    principal = await HPDBaseHPDAuthAspNetCoreTelemetry.TraceEnrichAsync(
+                        principal,
+                        enrichers.Length,
+                        async () =>
+                        {
+                            foreach (var enricher in enrichers)
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+                                principal = await enricher.EnrichAsync(httpContext, principal, cancellationToken).ConfigureAwait(false);
+                            }
 
-        return principal;
+                            return principal;
+                        }).ConfigureAwait(false);
+                }
+
+                return principal;
+            }).ConfigureAwait(false);
     }
 }

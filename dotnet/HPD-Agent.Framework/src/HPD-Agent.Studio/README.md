@@ -1,13 +1,13 @@
 # HPD-Agent.Studio
 
-HPD Agent Studio module contribution for `HPD-AI.Studio`.
+HPD Agent Studio module contribution for `HPD-AI.Platform`.
 
 ## Use
 
-Use `HPD-AI.Studio` to host the composed Studio shell. This package carries only the Agent module source and metadata.
+Use `HPD-AI.Platform` to host the composed Studio shell. This package carries only the Agent module source and metadata.
 
 ```csharp
-builder.Services.AddHPDAIStudio()
+builder.Services.AddHPDAIPlatform()
     .AddAgentStudio();
 ```
 

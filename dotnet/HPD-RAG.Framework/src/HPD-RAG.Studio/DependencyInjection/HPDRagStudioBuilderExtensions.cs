@@ -1,8 +1,8 @@
-namespace HPD.AI.Studio;
+namespace HPD.AI.Platform;
 
 public static class HPDRagStudioBuilderExtensions
 {
-    public static HPDAIStudioBuilder AddRagStudio(this HPDAIStudioBuilder builder)
+    public static HPDAIPlatformBuilder AddRagStudio(this HPDAIPlatformBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
 

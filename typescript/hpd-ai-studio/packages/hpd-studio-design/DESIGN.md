@@ -1,10 +1,10 @@
 # HPD Studio Design
 
-HPD Studio Design is the shared visual contract for HPD AI Studio and its module packages.
+HPD Studio Design is the shared visual contract for HPD AI Platform and its module packages.
 
 ## Product Register
 
-HPD AI Studio is a product UI: a quiet, dense, task-focused workbench for building, testing, debugging, observing, and operating HPD systems. The design favors earned familiarity over novelty.
+HPD AI Platform is a product UI: a quiet, dense, task-focused workbench for building, testing, debugging, observing, and operating HPD systems. The design favors earned familiarity over novelty.
 
 ## Ownership
 

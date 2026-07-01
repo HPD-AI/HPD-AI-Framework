@@ -1,6 +1,8 @@
 using HPD.Base.Descriptors;
+using HPD.Base.Observability;
 using HPD.Base.Results;
 using HPD.Base.Runtime.Descriptors;
+using HPD.Base.Runtime.Observability;
 using HPD.Base.Runtime.Results;
 
 namespace HPD.Base.Runtime.Capabilities;
@@ -22,8 +24,15 @@ internal sealed class DefaultBaseCapabilityProvider : IBaseCapabilityProvider
     {
         cancellationToken.ThrowIfCancellationRequested();
         _ = principal;
-        _ = operation;
-        return ValueTask.FromResult(OperationResults.Ok(DescriptorViewFilter.Capabilities(_registry.Current, view)));
+        return HPDBaseRuntimeTelemetry.TraceRuntimeReadAsync(
+            HPDBaseTelemetrySpans.RuntimeCapabilitiesGet,
+            BaseOperationKind.AdminInspect,
+            operation.CollectionId,
+            view,
+            !string.IsNullOrWhiteSpace(operation.CorrelationId),
+            countAsHealthRead: false,
+            countAsDiagnosticRead: false,
+            () => ValueTask.FromResult(OperationResults.Ok(DescriptorViewFilter.Capabilities(_registry.Current, view))));
     }
 
     public bool SupportsFeature(string featureId, string? collectionId = null)

@@ -9,6 +9,7 @@ public sealed class DependencyContractTests
         "System.ComponentModel",
         "System.Linq",
         "System.Memory",
+        "System.Diagnostics.DiagnosticSource",
         "System.Text.Json",
         "System.Text.Encodings.Web",
         "System.Threading",

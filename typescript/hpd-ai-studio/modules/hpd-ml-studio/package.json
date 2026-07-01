@@ -2,7 +2,7 @@
   "name": "@hpd-research/hpd-ml-studio",
   "private": true,
   "version": "0.1.0",
-  "description": "HPD ML module for HPD AI Studio.",
+  "description": "HPD ML module for HPD AI Platform.",
   "type": "module",
   "exports": {
     ".": {

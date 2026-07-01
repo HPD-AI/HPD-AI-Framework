@@ -1,4 +1,5 @@
 using HPD.Base.Descriptors;
+using HPD.Base.Runtime.Observability;
 
 namespace HPD.Base.Runtime.Configuration;
 
@@ -13,6 +14,7 @@ public sealed class HPDBaseRuntimeOptions
     public HPDBaseRuntimeLimitOptions Limits { get; set; } = new();
     public HPDBaseRuntimeEventOptions Events { get; set; } = new();
     public HPDBaseRuntimeRedactionOptions Redaction { get; set; } = new();
+    public HPDBaseRuntimeObservabilityOptions Observability { get; set; } = new();
 
     public static HPDBaseRuntimeOptions CreateDefault() => new()
     {

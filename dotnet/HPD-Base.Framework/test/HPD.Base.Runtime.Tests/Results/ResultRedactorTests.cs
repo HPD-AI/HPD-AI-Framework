@@ -30,7 +30,9 @@ public sealed class ResultRedactorTests
                 {
                     StoreId = "primary",
                     NativeCode = "57P01",
-                    NativeCategory = "admin_shutdown"
+                    NativeSubcode = "57P01",
+                    NativeCategory = "admin_shutdown",
+                    NativeMessage = "terminating connection due to administrator command"
                 }
             },
             Diagnostics = new OperationDiagnostics { TraceId = "trace" }
@@ -42,6 +44,8 @@ public sealed class ResultRedactorTests
         Assert.Null(redacted.Error.Hint);
         Assert.Null(redacted.Error.TraceId);
         Assert.Null(redacted.Error.Store!.NativeCode);
+        Assert.Null(redacted.Error.Store.NativeSubcode);
+        Assert.Null(redacted.Error.Store.NativeMessage);
         Assert.Null(redacted.Diagnostics);
     }
 }
