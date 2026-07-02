@@ -77,7 +77,9 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
             config: _config,
             clientSet: _runtimeContext.ClientSet,
             contentStore: _runtimeContext.ContentStore,
-            structEvents: _runtimeContext.StructEvents);
+            structEvents: _runtimeContext.StructEvents,
+            interruptionHandler: async (interruption, ct) =>
+                await _runtimeContext.RunAsync(interruption, ct).ConfigureAwait(false));
 
         var results = new List<RuntimeFunctionExecutionResult>(calls.Count);
         var batchId = Guid.NewGuid().ToString("N");

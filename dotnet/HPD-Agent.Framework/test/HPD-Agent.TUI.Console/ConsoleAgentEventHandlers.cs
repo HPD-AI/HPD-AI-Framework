@@ -285,12 +285,16 @@ public sealed class ThreadRunStatusHandler : IAgentTuiEventHandler
     {
         foreach (var activity in context.Shell.Activities.Activities.Where(activity => activity.State == ActivityState.Running))
         {
-            activity.State = completed.ErrorMessage is null ? ActivityState.Completed : ActivityState.Failed;
-            activity.Severity = completed.ErrorMessage is null ? ActivitySeverity.Success : ActivitySeverity.Error;
+            activity.State = completed.ErrorMessage is not null
+                ? ActivityState.Failed
+                : completed.Cancelled ? ActivityState.Cancelled : ActivityState.Completed;
+            activity.Severity = completed.ErrorMessage is not null
+                ? ActivitySeverity.Error
+                : completed.Cancelled ? ActivitySeverity.Warning : ActivitySeverity.Success;
         }
 
         context.Shell.FooterText = completed.ErrorMessage is null
-            ? "state: idle | last run completed"
+            ? completed.Cancelled ? "state: idle | cancelled" : "state: idle | last run completed"
             : $"state: failed | {completed.ErrorMessage}";
     }
 

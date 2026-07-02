@@ -87,6 +87,7 @@ public sealed class ActivityView : IComponent
         {
             ActivityState.Pending => "○",
             ActivityState.Completed => "●",
+            ActivityState.Cancelled => "×",
             ActivityState.Failed => "×",
             _ when _model.IsIndeterminate => AnimationsEnabled ? SpinnerFrames[GetFrameIndex(context)] : "⋯",
             _ => "●"
@@ -109,6 +110,7 @@ public sealed class ActivityView : IComponent
             _ => _model.State switch
             {
                 ActivityState.Completed => context.Theme.Success,
+                ActivityState.Cancelled => context.Theme.Warning,
                 ActivityState.Failed => context.Theme.Error,
                 _ => context.Theme.Accent
             }

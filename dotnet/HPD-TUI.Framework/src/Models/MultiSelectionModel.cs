@@ -2,6 +2,8 @@ namespace HPD.TUI.Models;
 
 public sealed class MultiSelectionModel<T> : CollectionModel<T>
 {
+    public const int DefaultMaxVisibleItems = 12;
+
     public MultiSelectionState<T> Selection { get; private set; } = new();
 
     public IReadOnlySet<string> SelectedKeys => Selection.SelectedKeys;
@@ -22,11 +24,13 @@ public sealed class MultiSelectionModel<T> : CollectionModel<T>
 
     public MultiSelectionModel()
     {
+        MaxVisibleItems = DefaultMaxVisibleItems;
     }
 
     public MultiSelectionModel(ICollectionSource<T> source)
         : base(source)
     {
+        MaxVisibleItems = DefaultMaxVisibleItems;
     }
 
     public new MultiSelectionModel<T> Add(CollectionItem<T> item)

@@ -643,7 +643,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         }
     }
 
-    public async Task RespondAsync(
+    public async Task AnswerRequestAsync(
         AgentTuiRuntimeScope scope,
         AgentEvent response,
         CancellationToken cancellationToken = default)

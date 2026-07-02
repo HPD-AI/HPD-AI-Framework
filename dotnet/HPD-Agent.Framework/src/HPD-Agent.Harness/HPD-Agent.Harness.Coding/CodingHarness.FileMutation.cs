@@ -125,7 +125,7 @@ public partial class CodingToolHarness
         if (LooksBinary(sample, bomEncoding != null))
             throw new FileMutationException(FileMutationErrorKind.BinaryFile, "Cannot mutate binary file.");
 
-        var encoding = DetectTextEncoding(fullPath, sample, bomEncoding);
+        var encoding = DetectTextEncoding(sample, bomEncoding);
         string text;
         try
         {

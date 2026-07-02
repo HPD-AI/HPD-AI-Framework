@@ -9,6 +9,7 @@ using HPD.Agent.TUI.Views;
 using HPD.Events;
 using HPD.TUI.Controllers;
 using HPD.TUI.Core;
+using HPD.TUI.Models;
 using HPD.TUI.Rendering;
 using HPD.TUI.Terminal;
 using HPD.TUI.Views;
@@ -65,7 +66,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         return new HpdAgentTuiApp(runtime, scope, registry, terminal ?? new ProcessTerminal());
     }
 
-    public async Task RunAsync(CancellationToken cancellationToken = default)
+    public async Task RunAsync(
+        TuiRunOptions? options = null,
+        CancellationToken cancellationToken = default)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _runCancellationToken = linked.Token;
@@ -78,10 +81,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             StartObserver(initialScope.Scope, linked.Token);
         }
 
-        await _application.RunAsync(new ManagedTerminalRunOptions
-        {
-            Bounds = ManagedTerminalRenderBounds.ViewportAnchored(maxRows: 16_384)
-        }, linked.Token).ConfigureAwait(false);
+        await _application.RunAsync(options, linked.Token).ConfigureAwait(false);
         await linked.CancelAsync().ConfigureAwait(false);
         await StopObserverAsync().ConfigureAwait(false);
     }
@@ -204,6 +204,24 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 _state.Shell,
                 text));
         }
+        catch (AgentTuiRunConfigRejectedException ex)
+        {
+            _state.Shell.Transcript.AddFinal(new TranscriptEntry(
+                Id: $"run-config-rejected-{Guid.NewGuid():N}",
+                EntryKey: null,
+                Cell: new NoticeCell(
+                    ex.Title,
+                    string.IsNullOrWhiteSpace(ex.Detail)
+                        ? null
+                        : new HPD.TUI.Components.Text(ex.Detail),
+                    ex.Severity),
+                Metadata: new TranscriptEntryMetadata(
+                    AgentId: _scope.AgentId,
+                    AgentName: "tui",
+                    AgentChain: ["tui"])));
+            RequestRender();
+            return;
+        }
         catch (Exception ex)
         {
             _state.Shell.Transcript.AddFinal(new TranscriptEntry(
@@ -289,6 +307,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
         if (key.Key == KeyCode.Escape && key.Modifiers == KeyModifiers.None)
         {
+            if (_dialogs?.HasOpenDialog == true)
+            {
+                return false;
+            }
+
             if (TryGoBack())
             {
                 return true;
@@ -314,11 +337,6 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return false;
         }
 
-        if (_dialogs?.CloseTop() == true)
-        {
-            return true;
-        }
-
         return _state.Shell.Navigation.Back();
     }
 
@@ -336,20 +354,14 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 return;
             }
 
-            state.Shell.FooterText = "state: cancelling";
-            state.Shell.Transcript.UpsertLive(new TranscriptEntry(
-                    Id: $"run-{activeRun.RuntimeRunId}",
-                    EntryKey: $"run:{activeRun.RuntimeRunId}",
-                    Cell: new RunStatusCell(
-                        activeRun.RuntimeRunId,
-                        TranscriptRunState.Cancelling,
-                        Hint: "Waiting for the runtime to stop."),
-                    Metadata: new TranscriptEntryMetadata(
-                        AgentId: scope.AgentId,
-                        AgentName: "tui",
-                        AgentChain: ["tui"]),
-                    VerticalSpacing: 1)
-                .AsLive());
+            var shortRunId = ShortId(activeRun.RuntimeRunId);
+            state.Shell.FooterText = $"state: cancelling | run: {shortRunId}";
+            UpsertRunActivity(
+                state,
+                activeRun.RuntimeRunId,
+                $"run {shortRunId} cancelling",
+                ActivityState.Running,
+                ActivitySeverity.Warning);
             RequestRender();
             await _runtime.InterruptAsync(
                     scope,
@@ -377,6 +389,32 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                     AgentChain: ["tui"])));
             RequestRender();
         }
+    }
+
+    private static void UpsertRunActivity(
+        AgentTuiSessionState state,
+        string runtimeRunId,
+        string label,
+        ActivityState activityState,
+        ActivitySeverity severity)
+    {
+        var prefix = $"run {ShortId(runtimeRunId)}";
+        foreach (var activity in state.Shell.Activities.Activities)
+        {
+            if (activity.Label.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                activity.Label = label;
+                activity.State = activityState;
+                activity.Severity = severity;
+                return;
+            }
+        }
+
+        state.Shell.Activities.Add(new ActivityModel(label)
+        {
+            State = activityState,
+            Severity = severity
+        });
     }
 
     private static string ShortId(string value) => value[..Math.Min(8, value.Length)];
@@ -601,7 +639,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
         try
         {
-            var response = await handler.Value.HandleAsync(
+            var result = await handler.Value.HandleAsync(
                 new AgentTuiInteractionContext(
                     _scope,
                     _state.Shell,
@@ -611,10 +649,34 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                     evt),
                 cancellationToken).ConfigureAwait(false);
 
-            if (response is not null)
+            switch (result.Kind)
             {
-                await _runtime.RespondAsync(_scope, response, cancellationToken)
-                    .ConfigureAwait(false);
+                case AgentTuiInteractionResultKind.AnswerRequest when result.Response is not null:
+                    await _runtime.AnswerRequestAsync(_scope, result.Response, cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case AgentTuiInteractionResultKind.InterruptTurn:
+                    await _runtime.InterruptAsync(
+                            _scope,
+                            result.Reason ?? "Interrupted by TUI interaction.",
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+
+                case AgentTuiInteractionResultKind.Error:
+                    _state.Shell.Transcript.AddFinal(new TranscriptEntry(
+                        Id: $"interaction-error-{Guid.NewGuid():N}",
+                        EntryKey: null,
+                        Cell: new NoticeCell(
+                            "Interaction failed",
+                            new HPD.TUI.Components.Text(result.Reason ?? "Interaction failed."),
+                            TranscriptSeverity.Error),
+                        Metadata: new TranscriptEntryMetadata(
+                            AgentId: _scope.AgentId,
+                            AgentName: "tui",
+                            AgentChain: ["tui"])));
+                    break;
             }
 
             RequestRender();

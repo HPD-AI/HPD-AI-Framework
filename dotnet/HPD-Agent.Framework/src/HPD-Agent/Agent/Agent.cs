@@ -1864,7 +1864,9 @@ public sealed class Agent
                 config: Config,
                 clientSet: _clientSet,
                 contentStore: _contentStore,
-                structEvents: GetActiveStructEvents());
+                structEvents: GetActiveStructEvents(),
+                interruptionHandler: async (interruption, ct) =>
+                    await HandleInterruptionAsync(interruption, ct).ConfigureAwait(false));
 
             // IMPORTANT: Create runConfig instance ONCE and reuse it throughout the entire turn
             // Middleware may modify runConfig (e.g., AgentPlanAgentMiddleware sets AdditionalSystemInstructions)

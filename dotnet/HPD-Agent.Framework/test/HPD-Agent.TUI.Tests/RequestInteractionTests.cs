@@ -89,7 +89,7 @@ public sealed class RequestInteractionTests
         var dialogs = new TestDialogService { SelectIndex = 1 };
         var handler = new PermissionRequestInteractionHandler();
 
-        var response = await handler.HandleAsync(
+        var result = await handler.HandleAsync(
             CreateContext(
                 dialogs,
                 new PermissionRequestEvent(
@@ -101,11 +101,76 @@ public sealed class RequestInteractionTests
                     new Dictionary<string, object?> { ["cmd"] = "dotnet test" })),
             CancellationToken.None);
 
-        response.Should().BeOfType<PermissionResponseEvent>()
+        result.Kind.Should().Be(AgentTuiInteractionResultKind.AnswerRequest);
+        result.Response.Should().BeOfType<PermissionResponseEvent>()
             .Which.Should().Match<PermissionResponseEvent>(evt =>
                 evt.PermissionId == "permission-1" &&
                 evt.Approved &&
                 evt.Choice == PermissionChoice.AlwaysAllow);
+    }
+
+    [Fact]
+    public async Task PermissionHandler_FeedbackChoiceReturnsDeniedResponseWithInstruction()
+    {
+        var dialogs = new TestDialogService
+        {
+            SelectIndex = 3,
+            Input = "Use the read-only status tool instead."
+        };
+        var handler = new PermissionRequestInteractionHandler();
+
+        var result = await handler.HandleAsync(
+            CreateContext(
+                dialogs,
+                new PermissionRequestEvent(
+                    "permission-1",
+                    "permissions",
+                    "shell.exec",
+                    "Run command",
+                    "call-1",
+                    new Dictionary<string, object?> { ["cmd"] = "dotnet test" })),
+            CancellationToken.None);
+
+        result.Kind.Should().Be(AgentTuiInteractionResultKind.AnswerRequest);
+        result.Response.Should().BeOfType<PermissionResponseEvent>()
+            .Which.Should().Match<PermissionResponseEvent>(evt =>
+                evt.PermissionId == "permission-1" &&
+                !evt.Approved &&
+                evt.Choice == PermissionChoice.Ask &&
+                evt.Reason == "Use the read-only status tool instead." &&
+                evt.DeniedBehavior == PermissionDeniedBehavior.ReturnToModel);
+    }
+
+    [Fact]
+    public async Task PermissionHandler_FeedbackChoiceWithoutInputStillReturnsToModel()
+    {
+        var dialogs = new TestDialogService
+        {
+            SelectIndex = 3,
+            Input = null
+        };
+        var handler = new PermissionRequestInteractionHandler();
+
+        var result = await handler.HandleAsync(
+            CreateContext(
+                dialogs,
+                new PermissionRequestEvent(
+                    "permission-1",
+                    "permissions",
+                    "shell.exec",
+                    "Run command",
+                    "call-1",
+                    new Dictionary<string, object?> { ["cmd"] = "dotnet test" })),
+            CancellationToken.None);
+
+        result.Kind.Should().Be(AgentTuiInteractionResultKind.AnswerRequest);
+        result.Response.Should().BeOfType<PermissionResponseEvent>()
+            .Which.Should().Match<PermissionResponseEvent>(evt =>
+                evt.PermissionId == "permission-1" &&
+                !evt.Approved &&
+                evt.Choice == PermissionChoice.Ask &&
+                evt.Reason == "Permission dialog was canceled." &&
+                evt.DeniedBehavior == PermissionDeniedBehavior.ReturnToModel);
     }
 
     [Fact]
@@ -114,13 +179,14 @@ public sealed class RequestInteractionTests
         var dialogs = new TestDialogService { SelectIndex = 0 };
         var handler = new ContinuationRequestInteractionHandler();
 
-        var response = await handler.HandleAsync(
+        var result = await handler.HandleAsync(
             CreateContext(
                 dialogs,
                 new ContinuationRequestEvent("continue-1", "iteration", 50, 50)),
             CancellationToken.None);
 
-        response.Should().BeOfType<ContinuationResponseEvent>()
+        result.Kind.Should().Be(AgentTuiInteractionResultKind.AnswerRequest);
+        result.Response.Should().BeOfType<ContinuationResponseEvent>()
             .Which.Should().Match<ContinuationResponseEvent>(evt =>
                 evt.ContinuationId == "continue-1" &&
                 evt.Approved &&
@@ -133,7 +199,7 @@ public sealed class RequestInteractionTests
         var dialogs = new TestDialogService { SelectIndex = 1 };
         var handler = new ClarificationRequestInteractionHandler();
 
-        var response = await handler.HandleAsync(
+        var result = await handler.HandleAsync(
             CreateContext(
                 dialogs,
                 new ClarificationRequestEvent(
@@ -143,7 +209,8 @@ public sealed class RequestInteractionTests
                     Options: ["main", "feature"])),
             CancellationToken.None);
 
-        response.Should().BeOfType<ClarificationResponseEvent>()
+        result.Kind.Should().Be(AgentTuiInteractionResultKind.AnswerRequest);
+        result.Response.Should().BeOfType<ClarificationResponseEvent>()
             .Which.Should().Match<ClarificationResponseEvent>(evt =>
                 evt.RequestId == "clarify-1" &&
                 evt.Answer == "feature");
@@ -155,7 +222,7 @@ public sealed class RequestInteractionTests
         var dialogs = new TestDialogService { Input = "Use the safer path." };
         var handler = new ClarificationRequestInteractionHandler();
 
-        var response = await handler.HandleAsync(
+        var result = await handler.HandleAsync(
             CreateContext(
                 dialogs,
                 new ClarificationRequestEvent(
@@ -164,7 +231,8 @@ public sealed class RequestInteractionTests
                     "What should I do?")),
             CancellationToken.None);
 
-        response.Should().BeOfType<ClarificationResponseEvent>()
+        result.Kind.Should().Be(AgentTuiInteractionResultKind.AnswerRequest);
+        result.Response.Should().BeOfType<ClarificationResponseEvent>()
             .Which.Answer.Should().Be("Use the safer path.");
     }
 
@@ -187,19 +255,19 @@ public sealed class RequestInteractionTests
     {
         public bool CanHandle(AgentEvent request) => false;
 
-        public Task<AgentEvent?> HandleAsync(
+        public Task<AgentTuiInteractionResult> HandleAsync(
             AgentTuiInteractionContext context,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<AgentEvent?>(null);
+            => Task.FromResult(AgentTuiInteractionResult.NoOp);
     }
 
     private sealed class TypedClarificationHandler :
         AgentTuiInteractionHandler<ClarificationRequestEvent>
     {
-        protected override Task<AgentEvent?> HandleAsync(
+        protected override Task<AgentTuiInteractionResult> HandleAsync(
             AgentTuiInteractionContext<ClarificationRequestEvent> context,
             CancellationToken cancellationToken)
-            => Task.FromResult<AgentEvent?>(null);
+            => Task.FromResult(AgentTuiInteractionResult.NoOp);
     }
 
     private sealed class TestDialogService : IAgentTuiDialogService
@@ -210,41 +278,48 @@ public sealed class RequestInteractionTests
 
         public bool HasOpenDialog => false;
 
-        public Task<TResult?> ShowAsync<TResult>(
+        public Task<AgentTuiDialogResult<TResult>> ShowAsync<TResult>(
             string key,
             Func<AgentTuiDialogContext<TResult>, IComponent> componentFactory,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<TResult?>(default);
+            => Task.FromResult(AgentTuiDialogResult<TResult>.Dismissed());
 
         public bool Close(string key) => true;
 
         public bool CloseTop() => true;
 
-        public Task<bool?> ConfirmAsync(
+        public Task<AgentTuiDialogResult<bool>> ConfirmAsync(
             string title,
             bool? defaultValue = null,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<bool?>(defaultValue ?? true);
+            => Task.FromResult(AgentTuiDialogResult<bool>.Submitted(defaultValue ?? true));
 
-        public Task<T?> SelectAsync<T>(
+        public Task<AgentTuiDialogResult<T>> SelectAsync<T>(
             string title,
             IReadOnlyList<T> options,
             Func<T, string> titleSelector,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<T?>(options[SelectIndex]);
+            => Task.FromResult(AgentTuiDialogResult<T>.Submitted(options[SelectIndex]));
 
-        public Task<string?> InputAsync(
+        public Task<AgentTuiDialogResult<string>> InputAsync(
             string title,
             string? defaultValue = null,
             bool allowEmpty = false,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<string?>(Input ?? defaultValue);
+        {
+            var value = Input ?? defaultValue;
+            return Task.FromResult(value is null
+                ? AgentTuiDialogResult<string>.Dismissed()
+                : AgentTuiDialogResult<string>.Submitted(value));
+        }
 
-        public Task<string?> SecretInputAsync(
+        public Task<AgentTuiDialogResult<string>> SecretInputAsync(
             string title,
             bool allowEmpty = false,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<string?>(Input);
+            => Task.FromResult(Input is null
+                ? AgentTuiDialogResult<string>.Dismissed()
+                : AgentTuiDialogResult<string>.Submitted(Input));
     }
 
     private sealed class NoopRuntime : IHpdAgentTuiRuntime
@@ -281,7 +356,7 @@ public sealed class RequestInteractionTests
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
-        public Task RespondAsync(
+        public Task AnswerRequestAsync(
             AgentTuiRuntimeScope scope,
             AgentEvent response,
             CancellationToken cancellationToken = default)

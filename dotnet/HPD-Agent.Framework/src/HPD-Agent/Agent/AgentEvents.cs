@@ -1055,7 +1055,8 @@ public record PermissionResponseEvent(
     string SourceName,
     bool Approved,
     string? Reason = null,
-    PermissionChoice Choice = PermissionChoice.Ask) : AgentEvent, IAgentResponseEvent
+    PermissionChoice Choice = PermissionChoice.Ask,
+    PermissionDeniedBehavior DeniedBehavior = PermissionDeniedBehavior.InterruptTurn) : AgentEvent, IAgentResponseEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;

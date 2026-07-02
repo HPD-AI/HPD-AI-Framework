@@ -1,3 +1,5 @@
+using System.Text.Json;
+using HPD.Agent;
 using HPD.Agent.TUI;
 using HPD.Agent.TUI.Application;
 using HPD.Agent.TUI.Composition;
@@ -136,6 +138,24 @@ public sealed class FileMutationTuiTests
     }
 
     [Fact]
+    public async Task FileWriteCreate_RendersFullDiff()
+    {
+        var state = CreateState();
+
+        await state.ApplyEventAsync(WriteMutation(FileWriteMode.Create, lineCount: 24));
+
+        var cell = ReadRows(state.Shell.Transcript).Should().ContainSingle()
+            .Which.Cell.Should().BeOfType<CodingFileMutationTranscriptCell>().Subject;
+        cell.HunksTruncated.Should().BeFalse();
+        cell.Hunks.Sum(static hunk => hunk.Lines.Count).Should().Be(24);
+
+        var rendered = RenderTranscript(state, height: 36);
+        rendered.Should().Contain("1 +line 001");
+        rendered.Should().Contain("24 +line 024");
+        rendered.Should().NotContain("diff truncated");
+    }
+
+    [Fact]
     public async Task FileMutationReplay_DoesNotDoubleCountStatus()
     {
         var registry = new HpdAgentTuiBuilder()
@@ -155,6 +175,42 @@ public sealed class FileMutationTuiTests
         rendered.Should().Contain("files +2 -0");
         rendered.Should().NotContain("changed 2 files");
         rendered.Should().NotContain("+4 -0");
+    }
+
+    [Fact]
+    public async Task PersistedFileEditMutation_ReplaysDiffTranscript()
+    {
+        var state = CreateState();
+        var persisted = RoundTripThreadEvent(MultiHunkEditMutation());
+
+        await state.ApplyEventAsync(persisted);
+
+        var rows = ReadRows(state.Shell.Transcript);
+        rows.Should().ContainSingle();
+        rows[0].Cell.Should().BeOfType<CodingFileMutationTranscriptCell>()
+            .Which.Hunks.Should().HaveCount(2);
+
+        var rendered = RenderTranscript(state, height: 24);
+        rendered.Should().Contain("• Edited src/Foo.cs (+2 -2)");
+        rendered.Should().Contain("10 -old value");
+        rendered.Should().Contain("10 +new value");
+        rendered.Should().Contain("80 -old tail");
+        rendered.Should().Contain("80 +new tail");
+        rendered.Should().NotContain("diff truncated");
+    }
+
+    [Fact]
+    public async Task PersistedFileEditMutation_ReplaysTruncationMarker()
+    {
+        var state = CreateState();
+        var persisted = RoundTripThreadEvent(MultiHunkEditMutation(hunksTruncated: true));
+
+        await state.ApplyEventAsync(persisted);
+
+        var rendered = RenderTranscript(state, height: 24);
+        rendered.Should().Contain("10 +new value");
+        rendered.Should().Contain("80 +new tail");
+        rendered.Should().Contain("diff truncated");
     }
 
     [Fact]
@@ -287,8 +343,48 @@ public sealed class FileMutationTuiTests
             Normalizations = []
         };
 
-    private static FileWriteAppliedEvent WriteMutation(FileWriteMode mode)
-        => new()
+    private static FileEditAppliedEvent MultiHunkEditMutation(bool hunksTruncated = false)
+        => EditMutation() with
+        {
+            EventId = "evt-edit-multi-hunk",
+            ToolCallId = "call-edit-multi-hunk",
+            Before = Snapshot("old value\nold tail\n"),
+            After = Snapshot("new value\nnew tail\n"),
+            Hunks =
+            [
+                new FileMutationHunk(
+                    OldStart: 10,
+                    OldLines: 1,
+                    NewStart: 10,
+                    NewLines: 1,
+                    Lines:
+                    [
+                        "-old value",
+                        "+new value"
+                    ]),
+                new FileMutationHunk(
+                    OldStart: 80,
+                    OldLines: 1,
+                    NewStart: 80,
+                    NewLines: 1,
+                    Lines:
+                    [
+                        "-old tail",
+                        "+new tail"
+                    ])
+            ],
+            HunksTruncated = hunksTruncated,
+            DiffStat = new FileMutationDiffStat(AddedLines: 2, RemovedLines: 2, AddedChars: 18, RemovedChars: 18)
+        };
+
+    private static FileWriteAppliedEvent WriteMutation(FileWriteMode mode, int lineCount = 2)
+    {
+        var lines = lineCount == 2
+            ? ["+using Xunit;", "+public sealed class FooTests"]
+            : Enumerable.Range(1, lineCount).Select(static i => $"+line {i:D3}").ToArray();
+        var after = string.Join('\n', lines.Select(static line => line[1..])) + "\n";
+
+        return new FileWriteAppliedEvent
         {
             EventId = "evt-write-1",
             ToolCallId = "call-write-1",
@@ -299,7 +395,7 @@ public sealed class FileMutationTuiTests
             Created = true,
             Changed = true,
             Before = Snapshot(""),
-            After = Snapshot("using Xunit;\npublic sealed class FooTests\n"),
+            After = Snapshot(after),
             TextEdits = [],
             Hunks =
             [
@@ -307,18 +403,19 @@ public sealed class FileMutationTuiTests
                     OldStart: 0,
                     OldLines: 0,
                     NewStart: 1,
-                    NewLines: 2,
-                    Lines:
-                    [
-                        "+using Xunit;",
-                        "+public sealed class FooTests"
-                    ])
+                    NewLines: lineCount,
+                    Lines: lines)
             ],
             HunksTruncated = false,
-            DiffStat = new FileMutationDiffStat(AddedLines: 2, RemovedLines: 0, AddedChars: 40, RemovedChars: 0),
+            DiffStat = new FileMutationDiffStat(
+                AddedLines: lineCount,
+                RemovedLines: 0,
+                AddedChars: after.Length,
+                RemovedChars: 0),
             Notes = [],
             Mode = mode
         };
+    }
 
     private static LanguageServerDiagnosticsReceivedEvent Diagnostics(
         string path,
@@ -371,13 +468,45 @@ public sealed class FileMutationTuiTests
         return rows;
     }
 
+    private static AgentEvent RoundTripThreadEvent(AgentEvent evt)
+    {
+        var projected = ThreadEventFactory.FromAgentEvent(
+            "session-1",
+            "thread-1",
+            evt,
+            messageTurnId: "turn-1",
+            conversationId: "session-1",
+            iteration: 1,
+            inputMessageCount: 1,
+            isResume: false,
+            terminationReason: null,
+            turnMessageCount: 1);
+
+        projected.Should().NotBeNull();
+
+        var document = new ThreadEventDocument
+        {
+            SessionId = "session-1",
+            ThreadId = "thread-1",
+            Events = [projected!]
+        };
+        var json = JsonSerializer.Serialize(document, SessionJsonContext.Combined.ThreadEventDocument);
+        var roundTrip = JsonSerializer.Deserialize<ThreadEventDocument>(
+            json,
+            SessionJsonContext.Combined.ThreadEventDocument);
+
+        roundTrip.Should().NotBeNull();
+        roundTrip!.Events.Should().ContainSingle();
+        return roundTrip.Events[0];
+    }
+
     private static string RenderTranscript(
         AgentTuiSessionState state,
         AgentTuiTranscriptRendererRegistry? renderers = null,
         int width = 100,
         int height = 16)
         => TuiCapture.RenderToString(
-            new TranscriptView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 14),
+            new TranscriptView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: height - 2),
             width: width,
             height: height,
             trimTrailingBlankLines: true);
@@ -388,7 +517,7 @@ public sealed class FileMutationTuiTests
         int width = 100,
         int height = 16)
         => TuiCapture.RenderToAnsi(
-            new TranscriptView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 14),
+            new TranscriptView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: height - 2),
             width: width,
             height: height);
 

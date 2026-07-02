@@ -41,6 +41,18 @@ public sealed class TuiCaptureTests
     }
 
     [Fact]
+    public void GetUsedLineCount_PreservesStyledBlankRows()
+    {
+        var background = new Color(10, 20, 30);
+        using var grid = TuiCapture.RenderToGrid(
+            TextBlock.Create("x\n    ", new Style(Color.Default, background)),
+            width: 4,
+            height: 4);
+
+        Assert.Equal(2, TuiCapture.GetUsedLineCount(grid));
+    }
+
+    [Fact]
     public void RenderToAnsi_CapturesAnsiOutput()
     {
         var ansi = TuiCapture.RenderToAnsi(new Text("x"), width: 1, height: 1);

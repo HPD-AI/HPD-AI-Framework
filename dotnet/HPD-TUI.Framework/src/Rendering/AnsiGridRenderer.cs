@@ -95,7 +95,9 @@ internal static class AnsiGridRenderer
         for (var x = 0; x < grid.Width; x++)
         {
             var cell = grid.GetCell(x, y);
-            if (!cell.IsContinuation && cell.Rune.Value != 0 && cell.Rune.Value != ' ')
+            if (!cell.IsContinuation &&
+                cell.Rune.Value != 0 &&
+                (cell.Rune.Value != ' ' || cell.Style != Style.Default))
             {
                 lastNonBlank = x;
             }

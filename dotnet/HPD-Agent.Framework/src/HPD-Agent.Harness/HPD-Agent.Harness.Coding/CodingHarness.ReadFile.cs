@@ -79,7 +79,7 @@ public partial class CodingToolHarness
                 if (LooksBinary(sample, bomEncoding != null))
                     return FormatError(resolvedPath.FullPath, "Cannot read binary file.");
 
-                var encoding = DetectTextEncoding(resolvedPath.FullPath, sample, bomEncoding);
+                var encoding = DetectTextEncoding(sample, bomEncoding);
                 await using var stream = new FileStream(resolvedPath.FullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, useAsync: true);
                 using var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: false);
 

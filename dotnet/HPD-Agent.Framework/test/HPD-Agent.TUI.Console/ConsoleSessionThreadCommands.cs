@@ -145,18 +145,18 @@ internal static class ConsoleSessionThreadCommands
                 choice => FormatSessionChoice(choice, context.Scope.SessionId),
                 CancellationToken.None)
             .ConfigureAwait(false);
-        if (selected is null)
+        if (!selected.IsSubmitted || selected.Value is not { } choice)
         {
             return;
         }
 
-        if (selected.Kind == SessionDialogChoiceKind.Create)
+        if (choice.Kind == SessionDialogChoiceKind.Create)
         {
             await CreateUntitledSessionAsync(context, runtime).ConfigureAwait(false);
             return;
         }
 
-        if (selected.Session is { } session)
+        if (choice.Session is { } session)
         {
             PageState.SelectSession(session.Id);
             context.Navigation.GoToPage(SessionDetailPageId);
@@ -263,12 +263,12 @@ internal static class ConsoleSessionThreadCommands
                 thread => FormatThreadChoice(thread, context.Scope),
                 CancellationToken.None)
             .ConfigureAwait(false);
-        if (selected is null)
+        if (!selected.IsSubmitted || selected.Value is not { } thread)
         {
             return;
         }
 
-        PageState.SelectThread(selected.Id);
+        PageState.SelectThread(thread.Id);
         context.Navigation.GoToPage(ThreadDetailPageId);
     }
 

@@ -6,6 +6,26 @@ namespace HPD.Agent.TUI.Composition;
 
 public delegate AgentRunConfig? AgentTuiRunConfigComposer(AgentTuiRunConfigContext context);
 
+public sealed class AgentTuiRunConfigRejectedException : Exception
+{
+    public AgentTuiRunConfigRejectedException(
+        string title,
+        string? detail = null,
+        TranscriptSeverity severity = TranscriptSeverity.Warning)
+        : base(title)
+    {
+        Title = title;
+        Detail = detail;
+        Severity = severity;
+    }
+
+    public string Title { get; }
+
+    public string? Detail { get; }
+
+    public TranscriptSeverity Severity { get; }
+}
+
 public sealed class AgentTuiRunConfigContext
 {
     public AgentTuiRunConfigContext(

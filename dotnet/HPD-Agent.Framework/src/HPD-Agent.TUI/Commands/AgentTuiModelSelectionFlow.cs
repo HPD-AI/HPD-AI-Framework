@@ -1,3 +1,4 @@
+using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 using HPD.TUI.Components;
 
@@ -18,6 +19,47 @@ public static class AgentTuiModelSelectionFlow
         ArgumentNullException.ThrowIfNull(catalogContext);
         ArgumentNullException.ThrowIfNull(context);
 
+        var provider = await SelectProviderAsync(
+                catalog,
+                catalogContext,
+                context,
+                new AgentTuiDialogFlowContext(context.Dialogs),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return provider.Status == AgentTuiDialogStepStatus.Submitted
+            ? provider.Value
+            : null;
+    }
+
+    public static async ValueTask<bool> HasSingleConnectedProviderAsync(
+        IAgentTuiModelCatalog catalog,
+        AgentTuiModelCatalogContext catalogContext,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(catalogContext);
+
+        var providers = await catalog.GetProvidersAsync(catalogContext, cancellationToken)
+            .ConfigureAwait(false);
+        return providers.Count(static provider =>
+            provider.IsRegistered &&
+            provider.IsAuthenticated &&
+            !provider.IsExpired) == 1;
+    }
+
+    public static async ValueTask<AgentTuiDialogStepResult<AgentTuiProviderChoice>> SelectProviderAsync(
+        IAgentTuiModelCatalog catalog,
+        AgentTuiModelCatalogContext catalogContext,
+        AgentTuiCommandContext context,
+        AgentTuiDialogFlowContext dialogs,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(catalogContext);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(dialogs);
+
         var providers = await catalog.GetProvidersAsync(catalogContext, cancellationToken)
             .ConfigureAwait(false);
         var connected = providers
@@ -32,17 +74,26 @@ public static class AgentTuiModelSelectionFlow
                 "No providers connected",
                 "Register and authenticate a provider before choosing a model.",
                 TranscriptSeverity.Warning);
-            return null;
+            return AgentTuiDialogStepResult<AgentTuiProviderChoice>.Canceled();
         }
 
-        return connected.Length == 1
-            ? connected[0]
-            : await context.Dialogs.SelectAsync(
-                    "Select provider",
-                    connected,
-                    static candidate => candidate.DisplayName,
-                    cancellationToken)
-                .ConfigureAwait(false);
+        if (connected.Length == 1)
+        {
+            return AgentTuiDialogStepResult<AgentTuiProviderChoice>.Submitted(connected[0]);
+        }
+
+        var selected = await dialogs.SelectAsync(
+                "Select provider",
+                connected,
+                static candidate => candidate.DisplayName,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return selected.IsSubmitted
+            ? AgentTuiDialogStepResult<AgentTuiProviderChoice>.Submitted(selected.Value!)
+            : selected.IsBack
+                ? AgentTuiDialogStepResult<AgentTuiProviderChoice>.Back()
+                : AgentTuiDialogStepResult<AgentTuiProviderChoice>.Canceled();
     }
 
     public static async ValueTask<AgentTuiSelectedModel?> SelectModelAsync(
@@ -62,6 +113,42 @@ public static class AgentTuiModelSelectionFlow
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(provider);
 
+        var selected = await SelectModelAsync(
+                catalog,
+                catalogContext,
+                context,
+                new AgentTuiDialogFlowContext(context.Dialogs),
+                selection,
+                options,
+                provider,
+                title,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return selected.Status == AgentTuiDialogStepStatus.Submitted
+            ? selected.Value
+            : null;
+    }
+
+    public static async ValueTask<AgentTuiDialogStepResult<AgentTuiSelectedModel>> SelectModelAsync(
+        IAgentTuiModelCatalog catalog,
+        AgentTuiModelCatalogContext catalogContext,
+        AgentTuiCommandContext context,
+        AgentTuiDialogFlowContext dialogs,
+        AgentTuiModelSelectionState selection,
+        AgentTuiModelSelectionOptions options,
+        AgentTuiProviderChoice provider,
+        string? title = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(catalogContext);
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(dialogs);
+        ArgumentNullException.ThrowIfNull(selection);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(provider);
+
         var models = await catalog.GetModelsAsync(
                 catalogContext,
                 provider.ProviderKey,
@@ -74,48 +161,46 @@ public static class AgentTuiModelSelectionFlow
         var choices = BuildModelChoices(provider, initialModels, selection, options, selectableModels.Length > initialModels.Count);
         if (choices.Count == 0)
         {
-            return await ReadManualModelAsync(context, provider.ProviderKey, cancellationToken)
+            return await ReadManualModelAsync(context, dialogs, provider.ProviderKey, cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        var selected = await context.Dialogs.SelectAsync(
+        var selected = await dialogs.SelectAsync(
                 title ?? "Select model",
                 choices,
                 static choice => choice.Label,
                 cancellationToken)
             .ConfigureAwait(false);
 
-        if (selected is null)
+        if (selected.IsBack)
         {
-            return null;
+            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Back();
         }
 
-        return selected.Kind switch
+        if (selected.IsCanceled)
         {
-            ModelChoiceKind.Model => selected.Model is null ? null : CreateSelectedModel(selected.Model),
-            ModelChoiceKind.Recent => await SelectRecentModelAsync(context, selection, options, provider, cancellationToken)
+            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled();
+        }
+
+        if (!selected.IsSubmitted || selected.Value is null)
+        {
+            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled();
+        }
+
+        return selected.Value.Kind switch
+        {
+            ModelChoiceKind.Model => selected.Value.Model is null
+                ? AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled()
+                : AgentTuiDialogStepResult<AgentTuiSelectedModel>.Submitted(CreateSelectedModel(selected.Value.Model)),
+            ModelChoiceKind.Recent => await SelectRecentModelAsync(context, dialogs, selection, options, provider, cancellationToken)
                 .ConfigureAwait(false),
-            ModelChoiceKind.Manual => await ReadManualModelAsync(context, provider.ProviderKey, cancellationToken)
+            ModelChoiceKind.Manual => await ReadManualModelAsync(context, dialogs, provider.ProviderKey, cancellationToken)
                 .ConfigureAwait(false),
-            ModelChoiceKind.SearchAll => await SearchModelsAsync(
-                    catalog,
-                    catalogContext,
-                    context,
-                    provider,
-                    options,
-                    freeOnly: false,
-                    cancellationToken)
+            ModelChoiceKind.SearchAll => await SearchModelsAsync(context, dialogs, catalog, catalogContext, provider, options, freeOnly: false, cancellationToken)
                 .ConfigureAwait(false),
-            ModelChoiceKind.SearchFree => await SearchModelsAsync(
-                    catalog,
-                    catalogContext,
-                    context,
-                    provider,
-                    options,
-                    freeOnly: true,
-                    cancellationToken)
+            ModelChoiceKind.SearchFree => await SearchModelsAsync(context, dialogs, catalog, catalogContext, provider, options, freeOnly: true, cancellationToken)
                 .ConfigureAwait(false),
-            _ => null
+            _ => AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled()
         };
     }
 
@@ -191,8 +276,9 @@ public static class AgentTuiModelSelectionFlow
                 AgentChain: ["tui"])));
     }
 
-    private static async ValueTask<AgentTuiSelectedModel?> SelectRecentModelAsync(
+    private static async ValueTask<AgentTuiDialogStepResult<AgentTuiSelectedModel>> SelectRecentModelAsync(
         AgentTuiCommandContext context,
+        AgentTuiDialogFlowContext dialogs,
         AgentTuiModelSelectionState selection,
         AgentTuiModelSelectionOptions options,
         AgentTuiProviderChoice provider,
@@ -204,42 +290,52 @@ public static class AgentTuiModelSelectionFlow
             .ToArray();
         if (recent.Length == 0)
         {
-            return null;
+            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled();
         }
 
-        return await context.Dialogs.SelectAsync(
+        var selected = await dialogs.SelectAsync(
                 "Recent models",
                 recent,
                 FormatModel,
                 cancellationToken)
             .ConfigureAwait(false);
+
+        return selected.IsSubmitted
+            ? AgentTuiDialogStepResult<AgentTuiSelectedModel>.Submitted(selected.Value!)
+            : AgentTuiDialogStepResult<AgentTuiSelectedModel>.Back();
     }
 
-    private static async ValueTask<AgentTuiSelectedModel?> SearchModelsAsync(
+    private static async ValueTask<AgentTuiDialogStepResult<AgentTuiSelectedModel>> SearchModelsAsync(
+        AgentTuiCommandContext context,
+        AgentTuiDialogFlowContext dialogs,
         IAgentTuiModelCatalog catalog,
         AgentTuiModelCatalogContext catalogContext,
-        AgentTuiCommandContext context,
         AgentTuiProviderChoice provider,
         AgentTuiModelSelectionOptions options,
         bool freeOnly,
         CancellationToken cancellationToken)
     {
-        var search = await context.Dialogs.InputAsync(
+        var search = await dialogs.InputAsync(
                 freeOnly ? "Search free models" : "Search models",
                 allowEmpty: false,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
-        if (string.IsNullOrWhiteSpace(search))
+        if (search.IsBack)
         {
-            return null;
+            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Back();
+        }
+
+        if (string.IsNullOrWhiteSpace(search.Value))
+        {
+            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled();
         }
 
         var models = await catalog.GetModelsAsync(
                 catalogContext,
                 provider.ProviderKey,
                 new AgentTuiModelQuery(
-                    search.Trim(),
+                    search.Value.Trim(),
                     Live: true,
                     FreeOnly: freeOnly),
                 cancellationToken)
@@ -251,6 +347,7 @@ public static class AgentTuiModelSelectionFlow
             .ThenBy(static model => model.DisplayName ?? model.ModelId, StringComparer.OrdinalIgnoreCase)
             .Take(SearchModelChoiceLimit)
             .ToArray();
+
         if (choices.Length == 0)
         {
             AppendNotice(
@@ -260,36 +357,55 @@ public static class AgentTuiModelSelectionFlow
                     ? "Enter a model ID manually if you already know it supports tool calls."
                     : "Enter a model ID manually if you already know it.",
                 TranscriptSeverity.Warning);
-            return await ReadManualModelAsync(context, provider.ProviderKey, cancellationToken)
+
+            return await ReadManualModelAsync(context, dialogs, provider.ProviderKey, cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        var selected = await context.Dialogs.SelectAsync(
+        var selected = await dialogs.SelectAsync(
                 freeOnly ? "Select free model" : "Select model",
                 choices,
                 FormatModel,
                 cancellationToken)
             .ConfigureAwait(false);
-        return selected is null ? null : CreateSelectedModel(selected);
+
+        if (selected.IsSubmitted && selected.Value is not null)
+        {
+            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Submitted(CreateSelectedModel(selected.Value!));
+        }
+
+        return selected.IsBack
+            ? AgentTuiDialogStepResult<AgentTuiSelectedModel>.Back()
+            : AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled();
     }
 
-    private static async ValueTask<AgentTuiSelectedModel?> ReadManualModelAsync(
+    private static async ValueTask<AgentTuiDialogStepResult<AgentTuiSelectedModel>> ReadManualModelAsync(
         AgentTuiCommandContext context,
+        AgentTuiDialogFlowContext dialogs,
         string providerKey,
         CancellationToken cancellationToken)
     {
-        var modelId = await context.Dialogs.InputAsync(
+        ArgumentNullException.ThrowIfNull(context);
+        var modelId = await dialogs.InputAsync(
                 "Enter model ID",
                 allowEmpty: false,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
-        return string.IsNullOrWhiteSpace(modelId)
-            ? null
-            : new AgentTuiSelectedModel(
-                providerKey,
-                modelId.Trim(),
-                Capabilities: AgentTuiModelCapabilities.None);
+        if (modelId.IsBack)
+        {
+            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Back();
+        }
+
+        if (string.IsNullOrWhiteSpace(modelId.Value))
+        {
+            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled();
+        }
+
+        return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Submitted(new AgentTuiSelectedModel(
+            providerKey,
+            modelId.Value.Trim(),
+            Capabilities: AgentTuiModelCapabilities.None));
     }
 
     private static List<ModelDialogChoice> BuildModelChoices(

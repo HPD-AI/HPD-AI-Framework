@@ -7,7 +7,6 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.FileMutations;
 
 internal static class FileMutationTranscriptEntryFactory
 {
-    private const int MaxCellDiffLines = 64;
     private const int MaxCellDiagnostics = 64;
 
     public static string EntryKey(FileMutationAppliedEvent mutation)
@@ -63,8 +62,8 @@ internal static class FileMutationTranscriptEntryFactory
             new FileMutationDiffStat(
                 model.Mutation.DiffStat.AddedLines,
                 model.Mutation.DiffStat.RemovedLines),
-            CreateHunks(model.Mutation.Hunks),
-            model.Mutation.HunksTruncated || CountDiffLines(model.Mutation.Hunks) > MaxCellDiffLines,
+            model.Mutation.Hunks.Select(CreateHunk).ToArray(),
+            model.Mutation.HunksTruncated,
             model.Diagnostics is null ? [] : CreateDiagnostics(model.Diagnostics),
             model.Diagnostics is not null &&
             (model.Diagnostics.DiagnosticsTruncated || model.Diagnostics.Diagnostics.Count > MaxCellDiagnostics));
@@ -86,46 +85,6 @@ internal static class FileMutationTranscriptEntryFactory
             CodingFileMutationKind.Changed => mutation.Created ? FileMutationKind.Created : FileMutationKind.Modified,
             _ => FileMutationKind.Unknown
         };
-
-    private static IReadOnlyList<FileMutationHunk> CreateHunks(IReadOnlyList<MiddlewareFileMutationHunk> hunks)
-    {
-        var remaining = MaxCellDiffLines;
-        var result = new List<FileMutationHunk>();
-        foreach (var hunk in hunks)
-        {
-            if (remaining <= 0)
-            {
-                break;
-            }
-
-            var lines = hunk.Lines.Take(remaining).Select(CreateDiffLine).ToArray();
-            if (lines.Length == 0)
-            {
-                continue;
-            }
-
-            result.Add(new FileMutationHunk(
-                hunk.OldStart,
-                hunk.OldLines,
-                hunk.NewStart,
-                hunk.NewLines,
-                lines));
-            remaining -= lines.Length;
-        }
-
-        return result;
-    }
-
-    private static int CountDiffLines(IReadOnlyList<MiddlewareFileMutationHunk> hunks)
-    {
-        var count = 0;
-        foreach (var hunk in hunks)
-        {
-            count += hunk.Lines.Count;
-        }
-
-        return count;
-    }
 
     private static FileMutationHunk CreateHunk(MiddlewareFileMutationHunk hunk)
         => new(

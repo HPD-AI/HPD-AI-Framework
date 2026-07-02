@@ -98,7 +98,7 @@ public sealed class RunConfigComposerTests
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
-        public Task RespondAsync(
+        public Task AnswerRequestAsync(
             AgentTuiRuntimeScope scope,
             AgentEvent response,
             CancellationToken cancellationToken = default)

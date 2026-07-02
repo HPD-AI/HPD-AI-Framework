@@ -211,7 +211,7 @@ public sealed class ReadFileTests : IDisposable
     }
 
     [Fact]
-    public async Task ReadFile_UsesUdeDetectedNonUtfEncoding()
+    public async Task ReadFile_UsesDetectedLegacyEncoding()
     {
         var latin1Bytes = Encoding.Latin1.GetBytes("café déjà vu\nfaçade naïve\n");
         await File.WriteAllBytesAsync("latin1.txt", latin1Bytes);
@@ -224,7 +224,25 @@ public sealed class ReadFileTests : IDisposable
     }
 
     [Fact]
-    public async Task ReadFile_UsesUdeDetectedShiftJisEncoding()
+    public async Task ReadFile_UsesDetectedWindows1252Encoding()
+    {
+        var windows1252 = Encoding.GetEncoding("windows-1252");
+        var bytes = windows1252.GetBytes("""
+            “Smart quotes” and an em dash — encoded as Windows-1252.
+            This should not collapse into Latin1 control characters.
+            """);
+        await File.WriteAllBytesAsync("windows-1252.txt", bytes);
+
+        var result = await ReadFileTextAsync(new CodingToolHarness(), "windows-1252.txt");
+
+        result.Should().Contain("1\t“Smart quotes” and an em dash — encoded as Windows-1252.");
+        result.Should().Contain("2\tThis should not collapse into Latin1 control characters.");
+        result.Should().NotContain("Unable to decode file as text.");
+        result.Should().NotContain("\uFFFD");
+    }
+
+    [Fact]
+    public async Task ReadFile_UsesDetectedShiftJisEncoding()
     {
         byte[] shiftJisBytes =
         [
@@ -239,6 +257,33 @@ public sealed class ReadFileTests : IDisposable
         var result = await ReadFileTextAsync(new CodingToolHarness(), "shift-jis.txt");
 
         result.Should().Contain("1\tこんにちは、世界！日本語のテストです。");
+        result.Should().NotContain("Unable to decode file as text.");
+        result.Should().NotContain("\uFFFD");
+    }
+
+    [Fact]
+    public async Task ReadFile_PrefersStrictUtf8BeforeDetectedEncoding()
+    {
+        var html = """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <title>Cluck & Gather — café coop</title>
+            </head>
+            <body>
+              <h1>Backyard chickens 🐔</h1>
+              <p>Curly quotes, em dashes, and accents should stay UTF-8.</p>
+            </body>
+            </html>
+            """;
+        await File.WriteAllTextAsync("index.html", html, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        var result = await ReadFileTextAsync(new CodingToolHarness(), "index.html");
+
+        result.Should().Contain("Cluck &amp; Gather — café coop");
+        result.Should().Contain("Backyard chickens 🐔");
+        result.Should().Contain("Curly quotes, em dashes, and accents should stay UTF-8.");
         result.Should().NotContain("Unable to decode file as text.");
         result.Should().NotContain("\uFFFD");
     }

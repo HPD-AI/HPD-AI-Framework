@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Agent.TUI;
+using HPD.Agent.ToolHarness.Coding.TUI.Harness;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands.Handlers;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands.Pages;
@@ -24,9 +25,26 @@ public static class CodingHarnessTuiExtensions
         ArgumentNullException.ThrowIfNull(tui);
         theme ??= CodingHarnessTuiTheme.Default;
         return tui
+            .AddCodingHarnessExpansionTui(theme)
             .AddCodingExplorationTui(theme)
             .AddCodingCommandTui(theme)
             .AddCodingFileMutationTui(theme);
+    }
+
+    public static HpdAgentTuiBuilder AddCodingHarnessExpansionTui(
+        this HpdAgentTuiBuilder tui,
+        CodingHarnessTuiTheme? theme = null)
+    {
+        ArgumentNullException.ThrowIfNull(tui);
+        theme ??= CodingHarnessTuiTheme.Default;
+
+        return tui
+            .TryAddEventHandler(
+                "hpd.coding.harness.tool-call",
+                new CodingHarnessToolCallHandler())
+            .TryAddTranscriptRenderer<CodingHarnessToolCell>(
+                CodingHarnessTuiTranscriptRendererKeys.Harness,
+                new CodingHarnessToolCellRenderer(theme));
     }
 
     public static HpdAgentTuiBuilder AddCodingExplorationTui(
@@ -73,6 +91,8 @@ public static class CodingHarnessTuiExtensions
                 "hpd.coding.command.exited")
             .TryAddEventHandler<ExecuteCommandBackgroundListEvent, ExecuteCommandBackgroundListTuiHandler>(
                 "hpd.coding.command.background-list")
+            .TryAddEventHandler<ToolCallResultEvent, ExecuteCommandResultTuiHandler>(
+                "hpd.coding.command.result")
             .TryAddInteractionHandler<ExecuteCommandPermissionRequestEvent>(
                 "hpd.coding.command.permission",
                 new ExecuteCommandPermissionRequestTuiHandler(theme))

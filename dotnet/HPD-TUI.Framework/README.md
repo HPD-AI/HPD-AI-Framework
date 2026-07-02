@@ -42,7 +42,7 @@ app.SetRoot(root);
 await app.RunAsync();
 ```
 
-Use `ManagedTerminalTuiApplication` when the app should render in the managed terminal and preserve terminal scrollback:
+Use `ManagedTerminalTuiApplication` when the app should render in the normal terminal and keep a managed viewport without entering the alternate screen:
 
 ```csharp
 using HPD.TUI.Components;
@@ -52,7 +52,7 @@ using HPD.TUI.Terminal;
 using var app = new ManagedTerminalTuiApplication(new ProcessTerminal());
 
 app.SetRoot(new Text("Hello from the managed terminal"));
-await app.RunAsync(size => size.Height);
+await app.RunAsync();
 ```
 
 ## Rendering Model
@@ -73,7 +73,7 @@ IComponent
 ```
 
 `TuiRenderer` diffs full-screen cell grids for alternate-screen apps.
-`ManagedTerminalTuiRenderer` renders in the managed terminal and patches visible transcript lines while allowing native scrollback to grow.
+`ManagedTerminalTuiRenderer` renders logical component output in the normal terminal. It writes the full logical buffer on the first frame, patches visible changes when safe, scrolls naturally for appends, and falls back to a full reset when resize, shrink, or changed-above-viewport cases would leave stale rows.
 
 ## Native AOT
 

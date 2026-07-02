@@ -101,7 +101,11 @@ public sealed class TuiApplication : IDisposable
                     dirty = false;
                 }
 
-                await mailbox.WaitToReadAsync(loopCts.Token).ConfigureAwait(false);
+                dirty |= await WaitForEventOrFrameAsync(
+                        mailbox,
+                        options.AnimationTickInterval ?? options.MaxFrameInterval,
+                        loopCts.Token)
+                    .ConfigureAwait(false);
                 dirty |= DrainEvents(mailbox);
             }
         }
@@ -146,6 +150,39 @@ public sealed class TuiApplication : IDisposable
     public void RequestRender()
     {
         _mailbox?.TryWrite(new TuiLoopEvent(TuiLoopEventKind.RenderRequested));
+    }
+
+    private static async ValueTask<bool> WaitForEventOrFrameAsync(
+        EventLoopMailbox<TuiLoopEvent> mailbox,
+        TimeSpan? frameInterval,
+        CancellationToken cancellationToken)
+    {
+        if (frameInterval is null)
+        {
+            await mailbox.WaitToReadAsync(cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var waitTask = mailbox.WaitToReadAsync(waitCts.Token).AsTask();
+        var delayTask = Task.Delay(frameInterval.Value, cancellationToken);
+        var completed = await Task.WhenAny(waitTask, delayTask).ConfigureAwait(false);
+        if (completed == waitTask)
+        {
+            await waitTask.ConfigureAwait(false);
+            return false;
+        }
+
+        await waitCts.CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await waitTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+        }
+
+        return true;
     }
 
     private static EventLoopMailbox<TuiLoopEvent> CreateMailbox(TuiRunOptions options) =>

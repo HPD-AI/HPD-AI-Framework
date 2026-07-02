@@ -188,6 +188,11 @@ public static class TuiCapture
             {
                 return false;
             }
+
+            if (cell.Style != Style.Default)
+            {
+                return false;
+            }
         }
 
         return true;

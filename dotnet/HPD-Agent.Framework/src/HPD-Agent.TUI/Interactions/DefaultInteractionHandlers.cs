@@ -1,21 +1,22 @@
 using HPD.Agent;
+using HPD.Agent.TUI.Composition;
 
 namespace HPD.Agent.TUI.Interactions;
 
 public sealed class PermissionRequestInteractionHandler :
     AgentTuiInteractionHandler<PermissionRequestEvent>
 {
-    protected override async Task<AgentEvent?> HandleAsync(
+    protected override async Task<AgentTuiInteractionResult> HandleAsync(
         AgentTuiInteractionContext<PermissionRequestEvent> context,
         CancellationToken cancellationToken)
     {
         var request = context.Request;
         var options = new[]
         {
-            new PermissionDialogChoice("Allow once", true, PermissionChoice.Ask, null),
-            new PermissionDialogChoice("Always allow", true, PermissionChoice.AlwaysAllow, null),
-            new PermissionDialogChoice("Deny once", false, PermissionChoice.Ask, "Denied by the TUI."),
-            new PermissionDialogChoice("Always deny", false, PermissionChoice.AlwaysDeny, "Denied by the TUI.")
+            new PermissionDialogChoice("Allow once", PermissionDialogChoiceKind.Response, true, PermissionChoice.Ask, null),
+            new PermissionDialogChoice("Always allow", PermissionDialogChoiceKind.Response, true, PermissionChoice.AlwaysAllow, null),
+            new PermissionDialogChoice("Deny once", PermissionDialogChoiceKind.Response, false, PermissionChoice.Ask, "Denied by the TUI."),
+            new PermissionDialogChoice("Tell agent what to do instead", PermissionDialogChoiceKind.Feedback, false, PermissionChoice.Ask, null)
         };
         var selected = await context.Dialogs.SelectAsync(
             BuildTitle(request),
@@ -23,22 +24,40 @@ public sealed class PermissionRequestInteractionHandler :
             choice => choice.Title,
             cancellationToken).ConfigureAwait(false);
 
-        if (selected is null)
+        if (!selected.IsSubmitted || selected.Value is null)
         {
-            return new PermissionResponseEvent(
+            return AgentTuiInteractionResult.AnswerRequest(new PermissionResponseEvent(
                 request.PermissionId,
                 request.SourceName,
                 Approved: false,
                 Reason: "Permission dialog was canceled.",
-                Choice: PermissionChoice.Ask);
+                Choice: PermissionChoice.Ask));
         }
 
-        return new PermissionResponseEvent(
+        var choice = selected.Value;
+        if (choice.Kind == PermissionDialogChoiceKind.Feedback)
+        {
+            var feedback = await context.Dialogs.InputAsync(
+                "Tell agent what to do instead",
+                allowEmpty: false,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            return AgentTuiInteractionResult.AnswerRequest(new PermissionResponseEvent(
+                request.PermissionId,
+                request.SourceName,
+                Approved: false,
+                Reason: !feedback.IsSubmitted || string.IsNullOrWhiteSpace(feedback.Value)
+                    ? "Permission dialog was canceled."
+                    : feedback.Value,
+                Choice: PermissionChoice.Ask,
+                DeniedBehavior: PermissionDeniedBehavior.ReturnToModel));
+        }
+
+        return AgentTuiInteractionResult.AnswerRequest(new PermissionResponseEvent(
             request.PermissionId,
             request.SourceName,
-            selected.Approved,
-            selected.Reason,
-            selected.Choice);
+            choice.Approved,
+            choice.Reason,
+            choice.Choice));
     }
 
     private static string BuildTitle(PermissionRequestEvent request)
@@ -51,15 +70,22 @@ public sealed class PermissionRequestInteractionHandler :
 
     private sealed record PermissionDialogChoice(
         string Title,
+        PermissionDialogChoiceKind Kind,
         bool Approved,
         PermissionChoice Choice,
         string? Reason);
+
+    private enum PermissionDialogChoiceKind
+    {
+        Response,
+        Feedback
+    }
 }
 
 public sealed class ContinuationRequestInteractionHandler :
     AgentTuiInteractionHandler<ContinuationRequestEvent>
 {
-    protected override async Task<AgentEvent?> HandleAsync(
+    protected override async Task<AgentTuiInteractionResult> HandleAsync(
         AgentTuiInteractionContext<ContinuationRequestEvent> context,
         CancellationToken cancellationToken)
     {
@@ -76,20 +102,21 @@ public sealed class ContinuationRequestInteractionHandler :
             choice => choice.Title,
             cancellationToken).ConfigureAwait(false);
 
-        if (selected is null)
+        if (!selected.IsSubmitted || selected.Value is null)
         {
-            return new ContinuationResponseEvent(
+            return AgentTuiInteractionResult.AnswerRequest(new ContinuationResponseEvent(
                 request.ContinuationId,
                 request.SourceName,
                 Approved: false,
-                ExtensionAmount: 0);
+                ExtensionAmount: 0));
         }
 
-        return new ContinuationResponseEvent(
+        var choice = selected.Value;
+        return AgentTuiInteractionResult.AnswerRequest(new ContinuationResponseEvent(
             request.ContinuationId,
             request.SourceName,
-            selected.Approved,
-            selected.ExtensionAmount);
+            choice.Approved,
+            choice.ExtensionAmount));
     }
 
     private sealed record ContinuationDialogChoice(
@@ -101,12 +128,12 @@ public sealed class ContinuationRequestInteractionHandler :
 public sealed class ClarificationRequestInteractionHandler :
     AgentTuiInteractionHandler<ClarificationRequestEvent>
 {
-    protected override async Task<AgentEvent?> HandleAsync(
+    protected override async Task<AgentTuiInteractionResult> HandleAsync(
         AgentTuiInteractionContext<ClarificationRequestEvent> context,
         CancellationToken cancellationToken)
     {
         var request = context.Request;
-        string? answer;
+        AgentTuiDialogResult<string> answer;
         if (request.Options is { Length: > 0 } options)
         {
             answer = await context.Dialogs.SelectAsync(
@@ -122,15 +149,15 @@ public sealed class ClarificationRequestInteractionHandler :
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
-        if (answer is null)
+        if (!answer.IsSubmitted || answer.Value is null)
         {
-            return null;
+            return AgentTuiInteractionResult.Dismiss;
         }
 
-        return new ClarificationResponseEvent(
+        return AgentTuiInteractionResult.AnswerRequest(new ClarificationResponseEvent(
             request.RequestId,
             request.SourceName,
             request.Question,
-            answer);
+            answer.Value));
     }
 }

@@ -2,6 +2,7 @@ using FluentAssertions;
 using HPD.Agent.Middleware;
 using HPD.Agent.Permissions;
 using HPD.Agent.Tests.Middleware.V2;
+using HPD.Events.Core;
 using Microsoft.Extensions.AI;
 using Xunit;
 
@@ -74,6 +75,38 @@ public class PermissionMiddlewareRunConfigTests
         context.OverrideResult.Should().BeNull();
     }
 
+    [Fact]
+    public async Task BeforeFunction_ReturnToModelDenial_DoesNotInterruptTurn()
+    {
+        var middleware = new PermissionMiddleware();
+        var function = CreateFunction("SensitiveTool", requiresPermission: true);
+        var coordinator = new EventCoordinator();
+        var interruptions = new List<InterruptionRequestEvent>();
+        using var subscription = coordinator.Subscribe<PermissionRequestEvent>(request =>
+        {
+            coordinator.Respond(new PermissionResponseEvent(
+                request.PermissionId,
+                request.SourceName,
+                Approved: false,
+                Reason: "Use the read-only status tool instead.",
+                Choice: PermissionChoice.Ask,
+                DeniedBehavior: PermissionDeniedBehavior.ReturnToModel));
+            return ValueTask.CompletedTask;
+        });
+        var agentContext = CreateAgentContext(coordinator, interruptions);
+        var context = agentContext.AsBeforeFunction(
+            function,
+            "call-1",
+            new Dictionary<string, object?>(),
+            new AgentRunConfig());
+
+        await middleware.BeforeFunctionAsync(context, CancellationToken.None);
+
+        context.BlockExecution.Should().BeTrue();
+        context.OverrideResult.Should().Be("Use the read-only status tool instead.");
+        interruptions.Should().BeEmpty();
+    }
+
     private static AIFunction CreateFunction(string name, bool requiresPermission)
         => HPDAIFunctionFactory.Create(
             async (_, _, _) => "ok",
@@ -94,5 +127,30 @@ public class PermissionMiddlewareRunConfigTests
             "call-1",
             new Dictionary<string, object?>(),
             runConfig);
+    }
+
+    private static AgentContext CreateAgentContext(
+        EventCoordinator coordinator,
+        List<InterruptionRequestEvent> interruptions)
+    {
+        var state = AgentLoopState.InitialSafe(
+            new List<ChatMessage>(),
+            "test-run",
+            "test-conv",
+            "TestAgent");
+
+        return new AgentContext(
+            "TestAgent",
+            "test-conv",
+            state,
+            coordinator,
+            new Session("test-session"),
+            new Thread("test-session") { Id = "test-thread" },
+            CancellationToken.None,
+            interruptionHandler: (interruption, _) =>
+            {
+                interruptions.Add(interruption);
+                return ValueTask.CompletedTask;
+            });
     }
 }

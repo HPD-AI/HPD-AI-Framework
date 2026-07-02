@@ -1,3 +1,5 @@
+using HPD.TUI.Core;
+
 namespace HPD.TUI.Models;
 
 public sealed class PromptModel
@@ -16,6 +18,8 @@ public sealed class PromptModel
 
     public string Placeholder { get; set; } = "";
 
+    public string Prefix { get; set; } = "";
+
     public bool IsMultiline { get; set; }
 
     public char? MaskCharacter { get; set; }
@@ -23,6 +27,22 @@ public sealed class PromptModel
     public bool ShowVisualCursor { get; set; }
 
     public char VisualCursorCharacter { get; set; } = '|';
+
+    public Style? TextStyle { get; set; }
+
+    public Style? PrefixStyle { get; set; }
+
+    public Style? PlaceholderStyle { get; set; }
+
+    public Style? VisualCursorStyle { get; set; }
+
+    public Style? FillStyle { get; set; }
+
+    public bool ExpandToWidth { get; set; }
+
+    public int PaddingTop { get; set; }
+
+    public int PaddingBottom { get; set; }
 
     public string Value => Text.ToString();
 

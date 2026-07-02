@@ -76,12 +76,12 @@ internal static class ConsoleAgentCommands
                 agent => FormatAgentChoice(agent, context.Scope.AgentId),
                 CancellationToken.None)
             .ConfigureAwait(false);
-        if (selected is null)
+        if (!selected.IsSubmitted || selected.Value is not { } agent)
         {
             return;
         }
 
-        PageState.SelectAgent(selected.Id);
+        PageState.SelectAgent(agent.Id);
         context.Navigation.GoToPage(AgentDetailPageId);
     }
 

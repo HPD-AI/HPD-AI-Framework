@@ -23,7 +23,8 @@ public enum ActivityState
     Pending,
     Running,
     Completed,
-    Failed
+    Failed,
+    Cancelled
 }
 
 public enum ActivitySeverity

@@ -138,7 +138,10 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             }
             else
             {
-                batchState = batchState.RecordDenial(functionName, permissionResult.DenialReason);
+                batchState = batchState.RecordDenial(
+                    functionName,
+                    permissionResult.DenialReason,
+                    permissionResult.DeniedBehavior);
             }
         }
 
@@ -200,9 +203,15 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         if (batchState.DeniedFunctions.Contains(functionName))
         {
             context.BlockExecution = true;
-            context.OverrideResult = batchState.DenialReasons.GetValueOrDefault(
+            var denialReason = batchState.DenialReasons.GetValueOrDefault(
                 functionName,
                 "Permission denied in batch approval");
+            context.OverrideResult = denialReason;
+            var deniedBehavior = batchState.DenialBehaviors.GetValueOrDefault(
+                functionName,
+                PermissionDeniedBehavior.InterruptTurn);
+            if (deniedBehavior == PermissionDeniedBehavior.InterruptTurn)
+                await InterruptDeniedPermissionAsync(context, denialReason, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -244,6 +253,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 // Denied via stored preference - block execution
                 context.BlockExecution = true;
                 context.OverrideResult = denialReason;
+                await InterruptDeniedPermissionAsync(context, denialReason, cancellationToken).ConfigureAwait(false);
                 return;
             }
         }
@@ -276,7 +286,9 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 "Permission request timed out after 5 minutes"));
 
             context.BlockExecution = true;
-            context.OverrideResult = "Permission request timed out. Please respond to permission requests promptly.";
+            const string timeoutReason = "Permission request timed out. Please respond to permission requests promptly.";
+            context.OverrideResult = timeoutReason;
+            await InterruptDeniedPermissionAsync(context, timeoutReason, cancellationToken).ConfigureAwait(false);
             return;
         }
         catch (OperationCanceledException)
@@ -288,7 +300,9 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 "Permission request was cancelled"));
 
             context.BlockExecution = true;
-            context.OverrideResult = "Permission request was cancelled.";
+            const string cancelledReason = "Permission request was cancelled.";
+            context.OverrideResult = cancelledReason;
+            await InterruptDeniedPermissionAsync(context, cancelledReason, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -347,7 +361,10 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 denialReason));
 
             // Record denial in batch state (for parallel execution optimization)
-            var updatedBatchState = batchState.RecordDenial(functionName, denialReason);
+            var updatedBatchState = batchState.RecordDenial(
+                functionName,
+                denialReason,
+                response.DeniedBehavior);
             context.UpdateState(s => s with
             {
                 MiddlewareState = s.MiddlewareState.WithBatchPermission(updatedBatchState)
@@ -356,6 +373,29 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             // Block execution with denial reason
             context.BlockExecution = true;
             context.OverrideResult = denialReason;
+            if (response.DeniedBehavior == PermissionDeniedBehavior.InterruptTurn)
+                await InterruptDeniedPermissionAsync(context, denialReason, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task InterruptDeniedPermissionAsync(
+        BeforeFunctionContext context,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await context.RunAsync(
+                    new InterruptionRequestEvent(
+                        context.FunctionCallId,
+                        reason,
+                        InterruptionSource.Middleware),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            // Runtime may already be stopping; the blocked tool result still reports the denial.
         }
     }
 
@@ -364,7 +404,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
     /// Returns approval status and denial reason (if denied).
     /// Used by BeforeParallelBatchAsync to batch check permissions.
     /// </summary>
-    private async Task<(bool IsApproved, string DenialReason)> CheckSinglePermissionAsync(
+    private async Task<(bool IsApproved, string DenialReason, PermissionDeniedBehavior DeniedBehavior)> CheckSinglePermissionAsync(
         BeforeParallelBatchContext context,
         AIFunction function,
         string functionName,
@@ -380,12 +420,12 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
 
             if (storedChoice == PermissionChoice.AlwaysAllow)
             {
-                return (true, string.Empty);
+                return (true, string.Empty, PermissionDeniedBehavior.InterruptTurn);
             }
 
             if (storedChoice == PermissionChoice.AlwaysDeny)
             {
-                return (false, $"Execution of '{functionName}' was denied by a stored user preference.");
+                return (false, $"Execution of '{functionName}' was denied by a stored user preference.", PermissionDeniedBehavior.InterruptTurn);
             }
         }
 
@@ -413,7 +453,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 callId,
                 "Permission request timed out after 5 minutes"));
 
-            return (false, "Permission request timed out. Please respond to permission requests promptly.");
+            return (false, "Permission request timed out. Please respond to permission requests promptly.", PermissionDeniedBehavior.InterruptTurn);
         }
         catch (OperationCanceledException)
         {
@@ -423,7 +463,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 callId,
                 "Permission request was cancelled"));
 
-            return (false, "Permission request was cancelled.");
+            return (false, "Permission request was cancelled.", PermissionDeniedBehavior.InterruptTurn);
         }
 
         // Process response
@@ -448,7 +488,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 });
             }
 
-            return (true, string.Empty);
+            return (true, string.Empty, PermissionDeniedBehavior.InterruptTurn);
         }
         else
         {
@@ -464,7 +504,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 callId,
                 denialReason));
 
-            return (false, denialReason);
+            return (false, denialReason, response.DeniedBehavior);
         }
     }
 

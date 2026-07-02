@@ -1,4 +1,6 @@
+using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
+
 namespace HPD.Agent.TUI.Commands;
 
 internal static class ModelSelectionCommand
@@ -42,47 +44,105 @@ internal static class ModelSelectionCommand
             return;
         }
 
-        if (selection.Current is { } current)
-        {
-            AgentTuiModelSelectionFlow.AppendNotice(
-                context,
-                "Current model",
-                $"{current.ProviderKey} / {current.ModelId}",
-                TranscriptSeverity.Info);
-        }
-
         var catalogContext = new AgentTuiModelCatalogContext(context.Scope, context.Shell);
-        var provider = await AgentTuiModelSelectionFlow.SelectProviderAsync(
-                catalog,
-                catalogContext,
-                context,
+
+        await context.Dialogs.RunFlowAsync<object?>(
+                (flow, cancellationToken) => RunModelSelectionFlowAsync(
+                    catalog,
+                    catalogContext,
+                    context,
+                    selection,
+                    options,
+                    flow,
+                    cancellationToken),
                 CancellationToken.None)
             .ConfigureAwait(false);
-        if (provider is null)
-        {
-            return;
-        }
+    }
 
-        var model = await AgentTuiModelSelectionFlow.SelectModelAsync(
-                catalog,
-                catalogContext,
-                context,
-                selection,
-                options,
-                provider,
-                cancellationToken: CancellationToken.None)
-            .ConfigureAwait(false);
-        if (model is null)
+    private static async ValueTask<object?> RunModelSelectionFlowAsync(
+        IAgentTuiModelCatalog catalog,
+        AgentTuiModelCatalogContext catalogContext,
+        AgentTuiCommandContext context,
+        AgentTuiModelSelectionState selection,
+        AgentTuiModelSelectionOptions options,
+        AgentTuiDialogFlowContext flow,
+        CancellationToken cancellationToken)
+    {
+        while (true)
         {
-            return;
-        }
+            var providerWasImplicit = await AgentTuiModelSelectionFlow.HasSingleConnectedProviderAsync(
+                    catalog,
+                    catalogContext,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            var providerStep = await AgentTuiModelSelectionFlow.SelectProviderAsync(
+                    catalog,
+                    catalogContext,
+                    context,
+                    flow,
+                    cancellationToken)
+                .ConfigureAwait(false);
 
-        await AgentTuiModelSelectionFlow.CommitSelectionAsync(
-                selection,
-                context,
-                model,
-                options)
-            .ConfigureAwait(false);
+            if (!providerStep.IsSubmitted || providerStep.Value is null)
+            {
+                return null;
+            }
+
+            while (true)
+            {
+                var modelStep = await AgentTuiModelSelectionFlow.SelectModelAsync(
+                        catalog,
+                        catalogContext,
+                        context,
+                        flow,
+                        selection,
+                        options,
+                        providerStep.Value,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (modelStep.IsBack)
+                {
+                    if (providerWasImplicit)
+                    {
+                        return null;
+                    }
+
+                    break;
+                }
+
+                if (!modelStep.IsSubmitted || modelStep.Value is null)
+                {
+                    return null;
+                }
+
+                if (options.ConfigureSelection is null)
+                {
+                    await AgentTuiModelSelectionFlow.CommitSelectionAsync(
+                            selection,
+                            context,
+                            modelStep.Value,
+                            options)
+                        .ConfigureAwait(false);
+                    return null;
+                }
+
+                var configured = await options.ConfigureSelection(
+                        context,
+                        modelStep.Value)
+                    .ConfigureAwait(false);
+                if (configured is not null)
+                {
+                    await AgentTuiModelSelectionFlow.CommitSelectionAsync(
+                            selection,
+                            context,
+                            configured,
+                            options)
+                        .ConfigureAwait(false);
+                    return null;
+                }
+            }
+        }
     }
 
     private static IReadOnlyList<string> SplitArguments(string arguments)

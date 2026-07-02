@@ -26,7 +26,7 @@ public interface IHpdAgentTuiRuntime
         string reason,
         CancellationToken cancellationToken = default);
 
-    Task RespondAsync(
+    Task AnswerRequestAsync(
         AgentTuiRuntimeScope scope,
         AgentEvent response,
         CancellationToken cancellationToken = default);

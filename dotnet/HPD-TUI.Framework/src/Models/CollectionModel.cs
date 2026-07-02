@@ -26,6 +26,8 @@ public class CollectionModel<T>
 
     public FilterState<T> Filter { get; } = new();
 
+    public int? MaxVisibleItems { get; init; }
+
     public int VisibleCount
     {
         get

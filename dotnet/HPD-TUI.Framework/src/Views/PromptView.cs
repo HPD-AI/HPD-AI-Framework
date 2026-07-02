@@ -23,13 +23,18 @@ public sealed class PromptView : IFocusable
 
     public Measurement Measure(in RenderContext context, int maxWidth)
     {
-        var width = _model.Text.Length == 0 ? _model.Placeholder.Length : Math.Min(maxWidth, LongestRenderedLine(maxWidth));
+        var prefixWidth = GetPrefixWidth();
+        var width = _model.ExpandToWidth
+            ? maxWidth
+            : _model.Text.Length == 0
+                ? prefixWidth + _model.Placeholder.Length
+                : Math.Min(maxWidth, LongestRenderedLine(maxWidth));
         if (_model.ShowVisualCursor && IsFocused)
         {
             width = Math.Min(maxWidth, width + 1);
         }
 
-        var height = Math.Max(1, CountRenderedLines(maxWidth));
+        var height = GetPaddingTop() + Math.Max(1, CountRenderedLines(maxWidth)) + GetPaddingBottom();
         if (_controller.Autocomplete is { SuggestionCount: > 0 } autocomplete)
         {
             height += autocomplete.SuggestionCount;
@@ -49,26 +54,39 @@ public sealed class PromptView : IFocusable
         var startY = output.CursorY;
         var visualCursor = _model.ShowVisualCursor && IsFocused;
         var cursorSet = false;
+        var fillStyle = GetFillStyle(in context);
+
+        WriteTopPaddingRows(GetPaddingTop(), in context, maxWidth, ref output);
+
+        startX = output.CursorX;
+        startY = output.CursorY;
+        var prefixWidth = WritePrefix(in context, maxWidth, ref output);
 
         if (_model.Text.Length == 0)
         {
-            var used = 0;
+            var used = prefixWidth;
             if (visualCursor)
             {
-                output.Write(_model.VisualCursorCharacter, context.Theme.Accent);
-                output.SetTerminalCursor(startX, startY);
+                output.Write(_model.VisualCursorCharacter, GetVisualCursorStyle(in context));
+                output.SetTerminalCursor(startX + used, startY);
                 cursorSet = true;
                 used++;
+            }
+
+            if (IsFocused && !visualCursor && !cursorSet)
+            {
+                output.SetTerminalCursor(startX + used, startY);
+                cursorSet = true;
             }
 
             if (_model.Placeholder.Length > 0 && used < maxWidth)
             {
                 var length = Math.Min(maxWidth - used, _model.Placeholder.Length);
-                output.Write(_model.Placeholder.AsSpan(0, length), context.Theme.Border);
+                output.Write(_model.Placeholder.AsSpan(0, length), GetPlaceholderStyle(in context));
                 used += length;
             }
 
-            WriteSpaces(maxWidth - used, context.Theme.Text, ref output);
+            WriteSpaces(maxWidth - used, fillStyle, ref output);
         }
         else
         {
@@ -78,6 +96,7 @@ public sealed class PromptView : IFocusable
                 startX,
                 startY,
                 visualCursor,
+                prefixWidth,
                 ref cursorSet,
                 ref output);
         }
@@ -87,6 +106,8 @@ public sealed class PromptView : IFocusable
             var cursor = GetCursorPoint(maxWidth);
             output.SetTerminalCursor(startX + cursor.X, startY + cursor.Y);
         }
+
+        WriteBottomPaddingRows(GetPaddingBottom(), in context, maxWidth, ref output);
 
         if (_controller.Autocomplete is { SuggestionCount: > 0 } autocomplete)
         {
@@ -119,10 +140,11 @@ public sealed class PromptView : IFocusable
         int startX,
         int startY,
         bool visualCursor,
+        int prefixWidth,
         ref bool cursorSet,
         ref SegmentWriter output)
     {
-        var column = 0;
+        var column = prefixWidth;
         var line = 0;
         var partIndex = 0;
         for (var i = 0; i <= _model.Text.Length; i++)
@@ -131,13 +153,13 @@ public sealed class PromptView : IFocusable
             {
                 if (column == maxWidth)
                 {
-                    WriteSpaces(0, context.Theme.Text, ref output);
+                    WriteSpaces(0, GetFillStyle(in context), ref output);
                     output.WriteLineBreak();
                     column = 0;
                     line++;
                 }
 
-                output.Write(_model.VisualCursorCharacter, context.Theme.Accent);
+                output.Write(_model.VisualCursorCharacter, GetVisualCursorStyle(in context));
                 output.SetTerminalCursor(startX + column, startY + line);
                 cursorSet = true;
                 column++;
@@ -151,7 +173,7 @@ public sealed class PromptView : IFocusable
             var ch = _model.Text[i];
             if (ch == '\n')
             {
-                WriteSpaces(maxWidth - column, context.Theme.Text, ref output);
+                WriteSpaces(maxWidth - column, GetFillStyle(in context), ref output);
                 output.WriteLineBreak();
                 column = 0;
                 line++;
@@ -169,14 +191,14 @@ public sealed class PromptView : IFocusable
             column++;
         }
 
-        WriteSpaces(maxWidth - column, context.Theme.Text, ref output);
+        WriteSpaces(maxWidth - column, GetFillStyle(in context), ref output);
     }
 
     private void WritePromptCharacter(int index, ref int partIndex, in RenderContext context, ref SegmentWriter output)
     {
         if (_model.MaskCharacter is { } mask)
         {
-            output.Write(mask, context.Theme.Text);
+            output.Write(mask, GetTextStyle(in context));
             return;
         }
 
@@ -230,8 +252,23 @@ public sealed class PromptView : IFocusable
                     : context.Theme.Accent;
         }
 
-        return context.Theme.Text;
+        return GetTextStyle(in context);
     }
+
+    private Style GetTextStyle(in RenderContext context)
+        => _model.TextStyle ?? context.Theme.Text;
+
+    private Style GetPrefixStyle(in RenderContext context)
+        => _model.PrefixStyle ?? context.Theme.Accent;
+
+    private Style GetPlaceholderStyle(in RenderContext context)
+        => _model.PlaceholderStyle ?? context.Theme.Border;
+
+    private Style GetVisualCursorStyle(in RenderContext context)
+        => _model.VisualCursorStyle ?? context.Theme.Accent;
+
+    private Style GetFillStyle(in RenderContext context)
+        => _model.FillStyle ?? context.Theme.Text;
 
     private int CountRenderedLines(int maxWidth)
     {
@@ -241,7 +278,7 @@ public sealed class PromptView : IFocusable
         }
 
         var lines = 1;
-        var column = 0;
+        var column = GetPrefixWidth();
         var extraCursor = _model.ShowVisualCursor && IsFocused ? 1 : 0;
         for (var i = 0; i < _model.Text.Length + extraCursor; i++)
         {
@@ -274,7 +311,7 @@ public sealed class PromptView : IFocusable
         }
 
         var longest = 0;
-        var column = 0;
+        var column = GetPrefixWidth();
         for (var i = 0; i < _model.Text.Length; i++)
         {
             var ch = _model.Text[i];
@@ -299,7 +336,7 @@ public sealed class PromptView : IFocusable
 
     private (int X, int Y) GetCursorPoint(int maxWidth)
     {
-        var column = 0;
+        var column = GetPrefixWidth();
         var line = 0;
         for (var i = 0; i < _model.Cursor && i < _model.Text.Length; i++)
         {
@@ -326,6 +363,53 @@ public sealed class PromptView : IFocusable
         }
 
         return (column, line);
+    }
+
+    private int WritePrefix(in RenderContext context, int maxWidth, ref SegmentWriter output)
+    {
+        if (maxWidth <= 0 || _model.Prefix.Length == 0)
+        {
+            return 0;
+        }
+
+        var length = Math.Min(maxWidth, _model.Prefix.Length);
+        output.Write(_model.Prefix.AsSpan(0, length), GetPrefixStyle(in context));
+        return length;
+    }
+
+    private int GetPrefixWidth()
+        => _model.Prefix.Length;
+
+    private int GetPaddingTop()
+        => Math.Max(0, _model.PaddingTop);
+
+    private int GetPaddingBottom()
+        => Math.Max(0, _model.PaddingBottom);
+
+    private void WriteTopPaddingRows(
+        int count,
+        in RenderContext context,
+        int maxWidth,
+        ref SegmentWriter output)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            WriteSpaces(maxWidth, GetFillStyle(in context), ref output);
+            output.WriteLineBreak();
+        }
+    }
+
+    private void WriteBottomPaddingRows(
+        int count,
+        in RenderContext context,
+        int maxWidth,
+        ref SegmentWriter output)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            output.WriteLineBreak();
+            WriteSpaces(maxWidth, GetFillStyle(in context), ref output);
+        }
     }
 
     private static void WriteSpaces(int count, Style style, ref SegmentWriter output)

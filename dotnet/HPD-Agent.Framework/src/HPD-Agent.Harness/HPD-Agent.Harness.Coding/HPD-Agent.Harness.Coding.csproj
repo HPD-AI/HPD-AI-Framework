@@ -25,7 +25,7 @@
     <PackageReference Include="DiffPlex" Version="1.9.0" />
     <PackageReference Include="Markdig" Version="1.2.0" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="10.0.7" />
-    <PackageReference Include="Ude.NetStandard" Version="1.2.0" />
+    <PackageReference Include="UTF.Unknown" Version="2.6.0" />
 
     <!-- JSON Schema -->
     <PackageReference Include="JsonSchema.Net.Generation" Version="7.1.1" />

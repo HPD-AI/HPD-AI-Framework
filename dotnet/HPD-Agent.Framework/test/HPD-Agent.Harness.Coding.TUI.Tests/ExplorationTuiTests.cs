@@ -7,6 +7,7 @@ using HPD.Agent.TUI.Runtime;
 using HPD.Agent.TUI.Views;
 using HPD.Agent.ToolHarness.Coding.TUI;
 using HPD.Agent.ToolHarness.Coding.TUI.Exploration;
+using HPD.Agent.ToolHarness.Coding.TUI.Harness;
 using HPD.TUI.Components;
 using HPD.TUI.Core;
 using HPD.TUI.Rendering;
@@ -24,6 +25,7 @@ public sealed class ExplorationTuiTests
             .Build();
 
         registry.EventHandlers.Select(static handler => handler.Key).Should().Contain([
+            "hpd.coding.harness.tool-call",
             "hpd.coding.exploration.tool-start",
             "hpd.coding.exploration.tool-args",
             "hpd.coding.exploration.tool-result",
@@ -33,6 +35,86 @@ public sealed class ExplorationTuiTests
         registry.TranscriptRenderers.TryFindRenderer<CodingExplorationCell>(
             CodingHarnessTuiTranscriptRendererKeys.Exploration,
             out _).Should().BeTrue();
+        registry.TranscriptRenderers.TryFindRenderer<CodingHarnessToolCell>(
+            CodingHarnessTuiTranscriptRendererKeys.Harness,
+            out _).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CollapsedCodingHarnessToolCall_RendersAsCodingToolsTranscriptEntry()
+    {
+        var state = CreateState();
+        const string callId = "call-coding-harness";
+
+        await state.ApplyEventAsync(new ToolCallStartEvent(
+            callId,
+            "CodingToolHarness",
+            "msg-1",
+            ToolHarnessName: "CodingToolHarness"));
+
+        ReadRows(state.Shell.Transcript).Should().ContainSingle()
+            .Which.Cell.Should().BeOfType<CodingHarnessToolCell>()
+            .Which.IsActive.Should().BeTrue();
+
+        await state.ApplyEventAsync(new ToolCallResultEvent(
+            callId,
+            new ToolResultPayload(Text: "Contains tools for coding operations: file operations, code search, shell execution, and code analysis. expanded."),
+            ToolHarnessName: "CodingToolHarness",
+            Name: "CodingToolHarness")
+        {
+            MessageId = "msg-1"
+        });
+
+        var rows = ReadRows(state.Shell.Transcript);
+        rows.Should().ContainSingle();
+        rows[0].Cell.Should().BeOfType<CodingHarnessToolCell>()
+            .Which.IsActive.Should().BeFalse();
+
+        var rendered = RenderTranscript(state);
+        rendered.Should().Contain("• Coding tools");
+        rendered.Should().Contain("Ready: file operations, code search, shell execution, and code analysis");
+        rendered.Should().NotContain("Contains tools for coding operations");
+    }
+
+    [Fact]
+    public async Task CollapsedCodingHarnessToolCall_IsRenderedOnlyOnce()
+    {
+        var state = CreateState();
+        const string firstCallId = "call-coding-harness-1";
+        const string secondCallId = "call-coding-harness-2";
+
+        await state.ApplyEventAsync(new ToolCallStartEvent(
+            firstCallId,
+            "CodingToolHarness",
+            "msg-1",
+            ToolHarnessName: "CodingToolHarness"));
+        await state.ApplyEventAsync(new ToolCallResultEvent(
+            firstCallId,
+            new ToolResultPayload(Text: "expanded"),
+            ToolHarnessName: "CodingToolHarness",
+            Name: "CodingToolHarness")
+        {
+            MessageId = "msg-1"
+        });
+        await state.ApplyEventAsync(new ToolCallStartEvent(
+            secondCallId,
+            "CodingToolHarness",
+            "msg-1",
+            ToolHarnessName: "CodingToolHarness"));
+        await state.ApplyEventAsync(new ToolCallResultEvent(
+            secondCallId,
+            new ToolResultPayload(Text: "expanded again"),
+            ToolHarnessName: "CodingToolHarness",
+            Name: "CodingToolHarness")
+        {
+            MessageId = "msg-1"
+        });
+
+        var rows = ReadRows(state.Shell.Transcript);
+        rows.Should().ContainSingle();
+        rows[0].EntryKey.Should().Be("coding.harness");
+        rows[0].Cell.Should().BeOfType<CodingHarnessToolCell>();
+        RenderTranscript(state).Should().Contain("• Coding tools");
     }
 
     [Fact]

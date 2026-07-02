@@ -85,10 +85,8 @@ public sealed class AgentTuiTranscriptRenderServices
         {
             TranscriptRunState.Pending => "pending",
             TranscriptRunState.Running => "running",
-            TranscriptRunState.Cancelling => "cancelling",
             TranscriptRunState.Completed => "completed",
             TranscriptRunState.Failed => "failed",
-            TranscriptRunState.Cancelled => "cancelled",
             TranscriptRunState.Backgrounded => "backgrounded",
             _ => state.ToString().ToLowerInvariant()
         };
@@ -138,8 +136,6 @@ public sealed class AgentTuiTranscriptRenderServices
         {
             TranscriptRunState.Completed => Muted,
             TranscriptRunState.Failed => Error,
-            TranscriptRunState.Cancelled => Error,
-            TranscriptRunState.Cancelling => Accent,
             TranscriptRunState.Running => Accent,
             TranscriptRunState.Backgrounded => Accent,
             _ => Muted

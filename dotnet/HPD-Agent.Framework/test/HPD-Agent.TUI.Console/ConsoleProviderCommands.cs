@@ -66,12 +66,12 @@ internal static class ConsoleProviderCommands
                 FormatProviderChoice,
                 CancellationToken.None)
             .ConfigureAwait(false);
-        if (selected is null)
+        if (!selected.IsSubmitted || selected.Value is not { } selectedProvider)
         {
             return;
         }
 
-        PageState.SelectProvider(selected.Provider.ProviderKey);
+        PageState.SelectProvider(selectedProvider.Provider.ProviderKey);
         context.Navigation.GoToPage(ProviderDetailPageId);
     }
 

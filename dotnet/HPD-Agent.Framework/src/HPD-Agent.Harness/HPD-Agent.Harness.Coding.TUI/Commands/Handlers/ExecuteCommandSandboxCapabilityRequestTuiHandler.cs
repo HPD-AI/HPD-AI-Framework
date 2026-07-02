@@ -21,7 +21,7 @@ public sealed class ExecuteCommandSandboxCapabilityRequestTuiHandler :
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    protected override async Task<AgentEvent?> HandleAsync(
+    protected override async Task<AgentTuiInteractionResult> HandleAsync(
         AgentTuiInteractionContext<ExecuteCommandSandboxCapabilityRequestEvent> context,
         CancellationToken cancellationToken)
     {
@@ -31,10 +31,13 @@ public sealed class ExecuteCommandSandboxCapabilityRequestTuiHandler :
             dialog => new ExecuteCommandSandboxCapabilityDialogComponent(request, dialog, _theme),
             cancellationToken).ConfigureAwait(false);
 
-        return response ?? new ExecuteCommandSandboxCapabilityResponseEvent(
-            request.RequestId,
-            request.SourceName,
-            false);
+        return AgentTuiInteractionResult.AnswerRequest(
+            response.IsSubmitted && response.Value is not null
+                ? response.Value
+                : new ExecuteCommandSandboxCapabilityResponseEvent(
+                    request.RequestId,
+                    request.SourceName,
+                    false));
     }
 }
 

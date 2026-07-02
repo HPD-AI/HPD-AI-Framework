@@ -25,7 +25,7 @@ internal abstract class ExecuteCommandTuiHandlerBase<TEvent> : AgentTuiEventHand
                store.TryGetByToolCallId(evt.ToolCallId, out state);
     }
 
-    protected static void UpdateTranscript(AgentTuiEventContext context, CodingCommandExecutionState state, AgentEvent evt)
+    internal static void UpdateTranscript(AgentTuiEventContext context, CodingCommandExecutionState state, AgentEvent evt)
     {
         var hasSink = AgentTuiPerformanceDiagnostics.TryGetSink(context.State, out var sink);
         var startTimestamp = hasSink ? Stopwatch.GetTimestamp() : 0;

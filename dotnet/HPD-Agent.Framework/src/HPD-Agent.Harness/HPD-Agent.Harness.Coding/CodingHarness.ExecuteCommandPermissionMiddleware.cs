@@ -51,7 +51,11 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
         var plan = ExecuteCommandPermissionAnalyzer.Analyze(context.Arguments, context.RunConfig, DefaultOptions);
         if (plan is UntrustedCommandPermissionPlan { InvalidRequest: true } invalidPlan)
         {
-            ApplyDecision(context, ExecuteCommandPermissionDecision.InvalidArguments(plan.Fingerprint.Value, invalidPlan.FailureReason));
+            await ApplyDecisionAsync(
+                    context,
+                    ExecuteCommandPermissionDecision.InvalidArguments(plan.Fingerprint.Value, invalidPlan.FailureReason),
+                    cancellationToken)
+                .ConfigureAwait(false);
             return;
         }
 
@@ -61,7 +65,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
         var batchState = context.GetMiddlewareState<ExecuteCommandBatchPermissionStateData>() ?? new();
         if (batchState.DecisionsByFingerprint.TryGetValue(plan.Fingerprint.Value, out var batchDecision))
         {
-            ApplyDecision(context, batchDecision);
+            await ApplyDecisionAsync(context, batchDecision, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -75,7 +79,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
 
         context.UpdateMiddlewareState<ExecuteCommandBatchPermissionStateData>(state =>
             state.WithDecision(result.Fingerprint, result.Decision));
-        ApplyDecision(context, result.Decision);
+        await ApplyDecisionAsync(context, result.Decision, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<ExecuteCommandPermissionCheckResult> CheckPermissionAsync(
@@ -244,7 +248,10 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
                     BuildAuditDetails(plan, null, decision: "feedback", persistedRuleIds: [])));
                 return new ExecuteCommandPermissionCheckResult(
                     plan.Fingerprint.Value,
-                    ExecuteCommandPermissionDecision.Deny(plan.Fingerprint.Value, feedback));
+                    ExecuteCommandPermissionDecision.Deny(
+                        plan.Fingerprint.Value,
+                        feedback,
+                        deniedBehavior: PermissionDeniedBehavior.ReturnToModel));
 
             default:
                 context.Emit(new ExecuteCommandPermissionDeniedEvent(
@@ -283,7 +290,10 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
     private static bool IsExecuteCommand(string? functionName)
         => string.Equals(functionName, nameof(CodingToolHarness.ExecuteCommand), StringComparison.Ordinal);
 
-    private static void ApplyDecision(BeforeFunctionContext context, ExecuteCommandPermissionDecision decision)
+    private static async Task ApplyDecisionAsync(
+        BeforeFunctionContext context,
+        ExecuteCommandPermissionDecision decision,
+        CancellationToken cancellationToken)
     {
         if (decision.Approved)
             return;
@@ -301,6 +311,35 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
                   {reason}
                 </execute_command_permission_denied>
                 """;
+        if (decision.DeniedBehavior == PermissionDeniedBehavior.InterruptTurn)
+        {
+            await InterruptDeniedPermissionAsync(
+                    context,
+                    decision.Reason ?? "ExecuteCommand permission denied.",
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static async Task InterruptDeniedPermissionAsync(
+        BeforeFunctionContext context,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await context.RunAsync(
+                    new InterruptionRequestEvent(
+                        context.FunctionCallId,
+                        reason,
+                        InterruptionSource.Middleware),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            // Runtime may already be stopping; the blocked tool result still reports the denial.
+        }
     }
 
     private static string SecurityElementEscape(string value)
@@ -858,12 +897,24 @@ public sealed record ExecuteCommandPermissionDecision
     public required bool Approved { get; init; }
     public string? Reason { get; init; }
     public string ReasonCode { get; init; } = "user_denied";
+    public PermissionDeniedBehavior DeniedBehavior { get; init; } = PermissionDeniedBehavior.InterruptTurn;
 
     public static ExecuteCommandPermissionDecision AllowOnce(string fingerprint)
         => new() { Fingerprint = fingerprint, Approved = true };
 
-    public static ExecuteCommandPermissionDecision Deny(string fingerprint, string reason, string reasonCode = "user_denied")
-        => new() { Fingerprint = fingerprint, Approved = false, Reason = reason, ReasonCode = reasonCode };
+    public static ExecuteCommandPermissionDecision Deny(
+        string fingerprint,
+        string reason,
+        string reasonCode = "user_denied",
+        PermissionDeniedBehavior deniedBehavior = PermissionDeniedBehavior.InterruptTurn)
+        => new()
+        {
+            Fingerprint = fingerprint,
+            Approved = false,
+            Reason = reason,
+            ReasonCode = reasonCode,
+            DeniedBehavior = deniedBehavior
+        };
 
     public static ExecuteCommandPermissionDecision InvalidArguments(string fingerprint, string reason)
         => Deny(fingerprint, reason, "invalid_arguments");

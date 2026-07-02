@@ -20,6 +20,25 @@ internal sealed class CodingCommandExecutionState
         ApplyBase(evt);
     }
 
+    public CodingCommandExecutionState(
+        string commandId,
+        string toolCallId,
+        string functionName,
+        string command,
+        string baseCommand,
+        ExecuteCommandCategory category,
+        string workingDirectory)
+    {
+        CommandId = commandId;
+        ToolCallId = toolCallId;
+        FunctionName = functionName;
+        Command = command;
+        DisplayCommand = CodingCommandDisplayFormatter.Format(command);
+        BaseCommand = baseCommand;
+        Category = category;
+        WorkingDirectory = workingDirectory;
+    }
+
     public string CommandId { get; }
 
     public string ToolCallId { get; private set; }

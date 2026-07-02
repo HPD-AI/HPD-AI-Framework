@@ -219,7 +219,7 @@ public sealed class SlashCommandTests
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
-        public Task RespondAsync(
+        public Task AnswerRequestAsync(
             AgentTuiRuntimeScope scope,
             AgentEvent response,
             CancellationToken cancellationToken = default)
@@ -242,41 +242,47 @@ public sealed class SlashCommandTests
 
         public bool HasOpenDialog => false;
 
-        public Task<TResult?> ShowAsync<TResult>(
+        public Task<HPD.Agent.TUI.Composition.AgentTuiDialogResult<TResult>> ShowAsync<TResult>(
             string key,
             Func<HPD.Agent.TUI.Composition.AgentTuiDialogContext<TResult>, HPD.TUI.Core.IComponent> componentFactory,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<TResult?>(default);
+            => Task.FromResult(HPD.Agent.TUI.Composition.AgentTuiDialogResult<TResult>.Dismissed());
 
         public bool Close(string key) => false;
 
         public bool CloseTop() => false;
 
-        public Task<bool?> ConfirmAsync(
+        public Task<HPD.Agent.TUI.Composition.AgentTuiDialogResult<bool>> ConfirmAsync(
             string title,
             bool? defaultValue = null,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<bool?>(defaultValue);
+            => Task.FromResult(defaultValue is null
+                ? HPD.Agent.TUI.Composition.AgentTuiDialogResult<bool>.Dismissed()
+                : HPD.Agent.TUI.Composition.AgentTuiDialogResult<bool>.Submitted(defaultValue.Value));
 
-        public Task<T?> SelectAsync<T>(
+        public Task<HPD.Agent.TUI.Composition.AgentTuiDialogResult<T>> SelectAsync<T>(
             string title,
             IReadOnlyList<T> options,
             Func<T, string> titleSelector,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(options.Count > 0 ? options[0] : default);
+            => Task.FromResult(options.Count > 0
+                ? HPD.Agent.TUI.Composition.AgentTuiDialogResult<T>.Submitted(options[0])
+                : HPD.Agent.TUI.Composition.AgentTuiDialogResult<T>.Dismissed());
 
-        public Task<string?> InputAsync(
+        public Task<HPD.Agent.TUI.Composition.AgentTuiDialogResult<string>> InputAsync(
             string title,
             string? defaultValue = null,
             bool allowEmpty = false,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(defaultValue);
+            => Task.FromResult(defaultValue is null
+                ? HPD.Agent.TUI.Composition.AgentTuiDialogResult<string>.Dismissed()
+                : HPD.Agent.TUI.Composition.AgentTuiDialogResult<string>.Submitted(defaultValue));
 
-        public Task<string?> SecretInputAsync(
+        public Task<HPD.Agent.TUI.Composition.AgentTuiDialogResult<string>> SecretInputAsync(
             string title,
             bool allowEmpty = false,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<string?>(null);
+            => Task.FromResult(HPD.Agent.TUI.Composition.AgentTuiDialogResult<string>.Dismissed());
     }
 
     private static AutocompleteRequest CreateRequest(string text)

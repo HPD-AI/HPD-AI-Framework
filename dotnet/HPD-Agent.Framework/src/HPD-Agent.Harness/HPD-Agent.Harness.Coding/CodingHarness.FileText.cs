@@ -1,9 +1,11 @@
 using System.Text;
-using Ude;
+using UtfUnknown;
 
 public partial class CodingToolHarness
 {
     private const int BinarySniffBytes = 8192;
+    private const float MinDetectedEncodingConfidence = 0.20f;
+    private static readonly UTF8Encoding StrictUtf8NoBom = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     private static async Task<byte[]> ReadByteSampleAsync(string fullPath)
     {
@@ -71,38 +73,51 @@ public partial class CodingToolHarness
         return null;
     }
 
-    private static Encoding DetectTextEncoding(string fullPath, byte[] sample, Encoding? bomEncoding)
+    private static Encoding DetectTextEncoding(byte[] sample, Encoding? bomEncoding)
     {
         if (bomEncoding != null)
             return bomEncoding;
 
+        if (CanDecodeStrictly(sample, StrictUtf8NoBom))
+            return StrictUtf8NoBom;
+
         try
         {
-            var detector = new CharsetDetector();
-            using var sampleStream = new MemoryStream(sample, writable: false);
-            detector.Feed(sampleStream);
-            detector.DataEnd();
+            var result = CharsetDetector.DetectFromBytes(sample);
+            var detected = result.Detected;
 
-            if (!string.IsNullOrWhiteSpace(detector.Charset))
-                return GetEncodingByCharset(detector.Charset);
+            if (detected?.EncodingName is not null &&
+                detected.Confidence >= MinDetectedEncodingConfidence)
+            {
+                return GetStrictEncodingByName(detected.EncodingName);
+            }
         }
         catch
         {
             // Fall through to strict UTF-8.
         }
 
-        return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+        return StrictUtf8NoBom;
     }
 
-    private static Encoding GetEncodingByCharset(string charset)
+    private static bool CanDecodeStrictly(byte[] sample, Encoding encoding)
     {
-        if (charset.Equals("iso-8859-1", StringComparison.OrdinalIgnoreCase) ||
-            charset.Equals("latin1", StringComparison.OrdinalIgnoreCase) ||
-            charset.Equals("windows-1252", StringComparison.OrdinalIgnoreCase))
+        try
         {
-            return Encoding.Latin1;
+            _ = encoding.GetString(sample);
+            return true;
         }
+        catch (DecoderFallbackException)
+        {
+            return false;
+        }
+    }
 
-        return Encoding.GetEncoding(charset, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
+    private static Encoding GetStrictEncodingByName(string encodingName)
+    {
+        if (encodingName.Equals("latin1", StringComparison.OrdinalIgnoreCase))
+            encodingName = "iso-8859-1";
+
+        return Encoding.GetEncoding(encodingName, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
     }
 }

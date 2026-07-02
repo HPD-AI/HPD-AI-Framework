@@ -19,16 +19,10 @@ internal sealed class AssistantMessageCellRenderer : IAgentTuiTranscriptRenderer
     public IComponent Create(AgentTuiTranscriptRenderContext<AssistantMessageCell> context)
         => new TranscriptRenderComponent((in RenderContext renderContext, int maxWidth, ref SegmentWriter output) =>
         {
-            var name = string.IsNullOrWhiteSpace(context.Cell.Name)
-                ? context.Metadata.AgentName ?? "assistant"
-                : context.Cell.Name;
-            output.Write(context.DepthIndent.AsSpan(), renderContext.Theme.Text);
-            output.Write(name.AsSpan(), new Style(Color.Default, Color.Default, TextAttributes.Bold));
-            output.WriteLineBreak();
             context.Services.Prefix(
                     context.Cell.Body,
-                    $"{context.DepthIndent}  ",
-                    $"{context.DepthIndent}  ")
+                    context.DepthIndent,
+                    context.DepthIndent)
                 .Render(in renderContext, maxWidth, ref output);
         });
 }

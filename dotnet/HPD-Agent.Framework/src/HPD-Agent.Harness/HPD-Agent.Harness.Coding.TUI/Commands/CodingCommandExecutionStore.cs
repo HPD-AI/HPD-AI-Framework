@@ -32,6 +32,32 @@ internal sealed class CodingCommandExecutionStore
     public bool TryGetByCommandId(string commandId, out CodingCommandExecutionState state)
         => _byCommandId.TryGetValue(commandId, out state!);
 
+    public CodingCommandExecutionState GetOrCreateSynthetic(
+        string commandId,
+        string toolCallId,
+        string functionName,
+        string command,
+        string baseCommand,
+        ExecuteCommandCategory category,
+        string workingDirectory)
+    {
+        if (!_byCommandId.TryGetValue(commandId, out var state))
+        {
+            state = new CodingCommandExecutionState(
+                commandId,
+                toolCallId,
+                functionName,
+                command,
+                baseCommand,
+                category,
+                workingDirectory);
+            _byCommandId[commandId] = state;
+        }
+
+        _commandIdByToolCallId[toolCallId] = commandId;
+        return state;
+    }
+
     public bool TryGetByToolCallId(string toolCallId, out CodingCommandExecutionState state)
     {
         if (_commandIdByToolCallId.TryGetValue(toolCallId, out var commandId))

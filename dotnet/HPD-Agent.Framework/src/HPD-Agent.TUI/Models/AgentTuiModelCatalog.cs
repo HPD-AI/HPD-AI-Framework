@@ -85,7 +85,7 @@ public sealed class AgentTuiModelSelectionOptions
 
     public int Order { get; set; } = Commands.HpdAgentTuiCommandDescriptor.DefaultOrder;
 
-    public Func<AgentTuiCommandContext, AgentTuiSelectedModel, ValueTask<AgentTuiSelectedModel>>? ConfigureSelection { get; set; }
+    public Func<AgentTuiCommandContext, AgentTuiSelectedModel, ValueTask<AgentTuiSelectedModel?>>? ConfigureSelection { get; set; }
 
     public Func<AgentTuiCommandContext, AgentTuiSelectedModel, ValueTask>? SelectionCommitted { get; set; }
 }

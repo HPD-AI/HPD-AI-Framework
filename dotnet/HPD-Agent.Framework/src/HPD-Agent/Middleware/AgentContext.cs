@@ -44,6 +44,7 @@ public sealed class AgentContext
     private readonly IContentStore? _contentStore;
     private readonly Session? _session;
     private readonly Thread? _thread;
+    private readonly Func<InterruptionRequestEvent, CancellationToken, ValueTask>? _interruptionHandler;
     private readonly IServiceProvider? _services;
     private readonly IRuntimeCapabilityRegistry _runtimeCapabilities;
 
@@ -405,6 +406,21 @@ public sealed class AgentContext
             _cancellationToken);
     }
 
+    public async ValueTask RunAsync(
+        AgentInputEvent input,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+
+        if (input is InterruptionRequestEvent interruption && _interruptionHandler is not null)
+        {
+            await _interruptionHandler(interruption, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        throw new InvalidOperationException("This agent context does not support runtime input.");
+    }
+
     //
     // CONSTRUCTOR (internal - created by Agent.cs)
     //
@@ -440,7 +456,8 @@ public sealed class AgentContext
         AgentConfig? config = null,
         AgentClientSet? clientSet = null,
         IContentStore? contentStore = null,
-        IStructEventHub? structEvents = null)
+        IStructEventHub? structEvents = null,
+        Func<InterruptionRequestEvent, CancellationToken, ValueTask>? interruptionHandler = null)
     {
         AgentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
         ConversationId = conversationId;
@@ -453,6 +470,7 @@ public sealed class AgentContext
         _structEvents = structEvents ?? new StructEventHub();
         _session = session;
         _thread = thread;
+        _interruptionHandler = interruptionHandler;
         _cancellationToken = cancellationToken;
         _parentChatClient = parentChatClient;
         _parentAgentMetadata = parentAgentMetadata ?? CreateRootAgentMetadata(agentName, agentId);

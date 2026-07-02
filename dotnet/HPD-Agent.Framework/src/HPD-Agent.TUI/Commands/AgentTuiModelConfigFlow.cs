@@ -6,7 +6,7 @@ namespace HPD.Agent.TUI.Commands;
 
 public static class AgentTuiModelConfigFlow
 {
-    public static async ValueTask<AgentTuiSelectedModel> ConfigureAsync(
+    public static async ValueTask<AgentTuiSelectedModel?> ConfigureAsync(
         AgentTuiCommandContext context,
         AgentTuiSelectedModel model,
         IReadOnlyList<IAgentTuiModelConfigContributor>? contributors = null,
@@ -30,7 +30,7 @@ public static class AgentTuiModelConfigFlow
         return model;
     }
 
-    private static async ValueTask<AgentTuiSelectedModel> ConfigureReasoningAsync(
+    private static async ValueTask<AgentTuiSelectedModel?> ConfigureReasoningAsync(
         AgentTuiCommandContext context,
         AgentTuiSelectedModel model,
         IReadOnlyList<IAgentTuiModelConfigContributor>? contributors,
@@ -52,12 +52,18 @@ public static class AgentTuiModelConfigFlow
                 cancellationToken)
             .ConfigureAwait(false);
 
-        if (choice is null || choice.Kind == "continue")
+        if (!choice.IsSubmitted || choice.Value is null)
+        {
+            return null;
+        }
+
+        var selected = choice.Value;
+        if (selected.Kind == "continue")
         {
             return model;
         }
 
-        if (choice.Kind == "more")
+        if (selected.Kind == "more")
         {
             return await ConfigureMoreAsync(context, model, contributors, cancellationToken)
                 .ConfigureAwait(false);
@@ -65,11 +71,11 @@ public static class AgentTuiModelConfigFlow
 
         return model with
         {
-            Chat = WithReasoningEffort(model.Chat, choice.Effort)
+            Chat = WithReasoningEffort(model.Chat, selected.Effort)
         };
     }
 
-    private static async ValueTask<AgentTuiSelectedModel> ConfigureNonReasoningAsync(
+    private static async ValueTask<AgentTuiSelectedModel?> ConfigureNonReasoningAsync(
         AgentTuiCommandContext context,
         AgentTuiSelectedModel model,
         IReadOnlyList<IAgentTuiModelConfigContributor>? contributors,
@@ -86,7 +92,13 @@ public static class AgentTuiModelConfigFlow
                 cancellationToken)
             .ConfigureAwait(false);
 
-        if (choice?.Kind == "more")
+        if (!choice.IsSubmitted || choice.Value is null)
+        {
+            return null;
+        }
+
+        var selected = choice.Value;
+        if (selected.Kind == "more")
         {
             return await ConfigureMoreAsync(context, model, contributors, cancellationToken)
                 .ConfigureAwait(false);
@@ -95,7 +107,7 @@ public static class AgentTuiModelConfigFlow
         return model;
     }
 
-    private static async ValueTask<AgentTuiSelectedModel> ConfigureMoreAsync(
+    private static async ValueTask<AgentTuiSelectedModel?> ConfigureMoreAsync(
         AgentTuiCommandContext context,
         AgentTuiSelectedModel model,
         IReadOnlyList<IAgentTuiModelConfigContributor>? contributors,
@@ -112,12 +124,18 @@ public static class AgentTuiModelConfigFlow
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            if (section is null || section.Kind == "continue")
+            if (!section.IsSubmitted || section.Value is null)
+            {
+                return null;
+            }
+
+            var selected = section.Value;
+            if (selected.Kind == "continue")
             {
                 return model;
             }
 
-            model = section.Kind switch
+            var configured = selected.Kind switch
             {
                 "reasoning" => await ConfigureReasoningDetailsAsync(context, model, cancellationToken)
                     .ConfigureAwait(false),
@@ -136,6 +154,13 @@ public static class AgentTuiModelConfigFlow
                         .ConfigureAwait(false),
                 _ => model
             };
+
+            if (configured is null)
+            {
+                return null;
+            }
+
+            model = configured;
         }
     }
 
@@ -208,7 +233,7 @@ public static class AgentTuiModelConfigFlow
                 static choice => choice.Label,
                 cancellationToken)
             .ConfigureAwait(false);
-        if (effort is null)
+        if (!effort.IsSubmitted || effort.Value is null)
         {
             return model;
         }
@@ -229,8 +254,10 @@ public static class AgentTuiModelConfigFlow
         var chat = CloneChat(model.Chat) ?? new ChatRunConfig();
         chat.Reasoning = new ReasoningOptions
         {
-            Effort = effort.Effort,
-            Output = output?.Output ?? model.Chat?.Reasoning?.Output
+            Effort = effort.Value.Effort,
+            Output = output.IsSubmitted && output.Value is not null
+                ? output.Value.Output
+                : model.Chat?.Reasoning?.Output
         };
         return model with { Chat = chat };
     }
@@ -299,14 +326,14 @@ public static class AgentTuiModelConfigFlow
                 allowEmpty: true,
                 cancellationToken)
             .ConfigureAwait(false);
-        if (value is null)
+        if (!value.IsSubmitted || value.Value is null)
         {
             return model;
         }
 
-        chat.StopSequences = string.IsNullOrWhiteSpace(value)
+        chat.StopSequences = string.IsNullOrWhiteSpace(value.Value)
             ? null
-            : value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            : value.Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return model with { Chat = chat };
     }
 
@@ -361,17 +388,17 @@ public static class AgentTuiModelConfigFlow
                     allowEmpty: true,
                     cancellationToken)
                 .ConfigureAwait(false);
-            if (raw is null)
+            if (!raw.IsSubmitted || raw.Value is null)
             {
                 return current;
             }
 
-            if (string.IsNullOrWhiteSpace(raw))
+            if (string.IsNullOrWhiteSpace(raw.Value))
             {
                 return null;
             }
 
-            if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) &&
+            if (double.TryParse(raw.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) &&
                 (min is null || value >= min) &&
                 (max is null || value <= max))
             {
@@ -396,17 +423,17 @@ public static class AgentTuiModelConfigFlow
                     allowEmpty: true,
                     cancellationToken)
                 .ConfigureAwait(false);
-            if (raw is null)
+            if (!raw.IsSubmitted || raw.Value is null)
             {
                 return current;
             }
 
-            if (string.IsNullOrWhiteSpace(raw))
+            if (string.IsNullOrWhiteSpace(raw.Value))
             {
                 return null;
             }
 
-            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) &&
+            if (int.TryParse(raw.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) &&
                 (min is null || value >= min) &&
                 (max is null || value <= max))
             {
@@ -430,17 +457,17 @@ public static class AgentTuiModelConfigFlow
                     allowEmpty: true,
                     cancellationToken)
                 .ConfigureAwait(false);
-            if (raw is null)
+            if (!raw.IsSubmitted || raw.Value is null)
             {
                 return current;
             }
 
-            if (string.IsNullOrWhiteSpace(raw))
+            if (string.IsNullOrWhiteSpace(raw.Value))
             {
                 return null;
             }
 
-            if (long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) &&
+            if (long.TryParse(raw.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) &&
                 (min is null || value >= min))
             {
                 return value;
@@ -495,7 +522,7 @@ public interface IAgentTuiModelConfigContributor
 
     bool CanConfigure(AgentTuiSelectedModel model);
 
-    ValueTask<AgentTuiSelectedModel> ConfigureAsync(
+    ValueTask<AgentTuiSelectedModel?> ConfigureAsync(
         AgentTuiCommandContext context,
         AgentTuiSelectedModel model,
         CancellationToken cancellationToken = default);

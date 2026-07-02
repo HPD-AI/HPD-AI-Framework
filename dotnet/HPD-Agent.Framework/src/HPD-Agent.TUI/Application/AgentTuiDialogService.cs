@@ -33,7 +33,7 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
 
     public bool HasOpenDialog => _host.HasOpenDialog;
 
-    public Task<TResult?> ShowAsync<TResult>(
+    public Task<AgentTuiDialogResult<TResult>> ShowAsync<TResult>(
         string key,
         Func<AgentTuiDialogContext<TResult>, IComponent> componentFactory,
         CancellationToken cancellationToken = default)
@@ -47,14 +47,15 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
 
         if (cancellationToken.IsCancellationRequested)
         {
-            return Task.FromCanceled<TResult?>(cancellationToken);
+            return Task.FromCanceled<AgentTuiDialogResult<TResult>>(cancellationToken);
         }
 
-        var completion = new TaskCompletionSource<TResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource<AgentTuiDialogResult<TResult>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         var layerIndex = _host.Count;
         var completed = 0;
 
-        void Complete(TResult? result)
+        void Complete(AgentTuiDialogResult<TResult> result)
         {
             if (Interlocked.Exchange(ref completed, 1) != 0)
             {
@@ -86,14 +87,16 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
 
         _keys[key] = layerIndex;
         _inlineSlot.Add(card);
+        var frameId = _navigation.PushDialog(key, () => PopTo(layerIndex));
         _host.PushInline(card, component, () =>
         {
+            _navigation.RemoveDialog(frameId);
             _inlineSlot.Remove(card);
             _keys.Remove(key);
             _requestRender();
             if (Interlocked.Exchange(ref completed, 1) == 0)
             {
-                completion.TrySetResult(default);
+                completion.TrySetResult(AgentTuiDialogResult<TResult>.Dismissed());
             }
         });
         _requestRender();
@@ -115,7 +118,7 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
     public bool CloseTop()
         => _host.Pop();
 
-    public async Task<bool?> ConfirmAsync(
+    public async Task<AgentTuiDialogResult<bool>> ConfirmAsync(
         string title,
         bool? defaultValue = null,
         CancellationToken cancellationToken = default)
@@ -129,7 +132,7 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
         return await RunPromptAsync(flow, cancellationToken).ConfigureAwait(false);
     }
 
-    public Task<T?> SelectAsync<T>(
+    public Task<AgentTuiDialogResult<T>> SelectAsync<T>(
         string title,
         IReadOnlyList<T> options,
         Func<T, string> titleSelector,
@@ -139,13 +142,13 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
         ArgumentNullException.ThrowIfNull(titleSelector);
         if (options.Count == 0)
         {
-            return Task.FromResult<T?>(default);
+            return Task.FromResult(AgentTuiDialogResult<T>.Dismissed());
         }
 
         return RunPromptAsync(PromptFlow.Select(title, options, titleSelector), cancellationToken);
     }
 
-    public Task<string?> InputAsync(
+    public Task<AgentTuiDialogResult<string>> InputAsync(
         string title,
         string? defaultValue = null,
         bool allowEmpty = false,
@@ -160,7 +163,7 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
         return RunPromptAsync(flow, cancellationToken);
     }
 
-    public Task<string?> SecretInputAsync(
+    public Task<AgentTuiDialogResult<string>> SecretInputAsync(
         string title,
         bool allowEmpty = false,
         CancellationToken cancellationToken = default)
@@ -169,31 +172,76 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
         return RunPromptAsync(flow, cancellationToken);
     }
 
-    private Task<T?> RunPromptAsync<T>(
+    private Task<AgentTuiDialogResult<T>> RunPromptAsync<T>(
         PromptFlow<T> flow,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(flow);
 
-        var completion = new TaskCompletionSource<T?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource<AgentTuiDialogResult<T>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         var layerIndex = _host.Count;
-        var component = flow.CreateComponentForTesting(result =>
+        var completed = 0;
+        IComponent? card = null;
+        string? frameId = null;
+
+        void Cleanup()
         {
-            if (result.IsSubmitted)
+            if (frameId is not null)
             {
-                completion.TrySetResult(result.Value);
+                _navigation.RemoveDialog(frameId);
+            }
+
+            if (card is not null)
+            {
+                _inlineSlot.Remove(card);
+            }
+
+            _requestRender();
+        }
+
+        void CloseLayer()
+        {
+            if (_host.Count > layerIndex)
+            {
                 PopTo(layerIndex);
                 return;
             }
 
-            completion.TrySetResult(default);
-            PopTo(layerIndex);
+            Cleanup();
+        }
+
+        void Complete(AgentTuiDialogResult<T> result)
+        {
+            if (Interlocked.Exchange(ref completed, 1) != 0)
+            {
+                return;
+            }
+
+            completion.TrySetResult(result);
+            CloseLayer();
+        }
+
+        var component = flow.CreateComponentForTesting(result =>
+        {
+            if (result.IsSubmitted)
+            {
+                Complete(AgentTuiDialogResult<T>.Submitted(result.Value!));
+                return;
+            }
+
+            Complete(AgentTuiDialogResult<T>.Back());
         });
 
         var registration = cancellationToken.Register(() =>
         {
+            if (Interlocked.Exchange(ref completed, 1) != 0)
+            {
+                return;
+            }
+
             completion.TrySetCanceled(cancellationToken);
-            PopTo(layerIndex);
+            CloseLayer();
         });
         completion.Task.ContinueWith(
             _ => registration.Dispose(),
@@ -201,13 +249,16 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
 
-        var card = CreateDialogCard(component);
+        card = CreateDialogCard(component);
         _inlineSlot.Add(card);
+        frameId = _navigation.PushDialog("Prompt", CloseLayer);
         _host.PushInline(card, component, () =>
         {
-            _inlineSlot.Remove(card);
-            _requestRender();
-            completion.TrySetResult(default);
+            Cleanup();
+            if (Interlocked.Exchange(ref completed, 1) == 0)
+            {
+                completion.TrySetResult(AgentTuiDialogResult<T>.Dismissed());
+            }
         });
         _requestRender();
 

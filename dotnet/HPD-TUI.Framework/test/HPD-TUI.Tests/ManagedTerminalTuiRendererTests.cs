@@ -41,32 +41,33 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
-    public void Render_FirstFrame_DoesNotClearTerminalScrollback()
+    public void Render_FirstFrame_ClearsVisibleScreenWithoutClearingTerminalScrollback()
     {
         using var terminal = new TestTerminal(40, 8);
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
 
-        renderer.Render(new Text("hello"), Theme.Default, ManagedTerminalRenderBounds.ViewportAnchored());
+        renderer.Render(new Text("hello"), Theme.Default);
 
         Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
         Assert.DoesNotContain("\x1b[3J", terminal.Output);
         Assert.DoesNotContain("\x1b[?1049h", terminal.Output);
+        Assert.Contains("hello", terminal.Output);
     }
 
     [Fact]
-    public void Render_AfterResize_RedrawsWithoutClearingTerminalScrollback()
+    public void Render_AfterResize_RedrawsAndClearsStaleScrollback()
     {
         using var terminal = new TestTerminal(40, 8);
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
 
-        renderer.Render(new Text("hello"), Theme.Default, ManagedTerminalRenderBounds.ViewportAnchored());
+        renderer.Render(new Text("hello"), Theme.Default);
         terminal.ClearOutput();
         terminal.SetSize(24, 8);
 
-        renderer.Render(new Text("hello"), Theme.Default, ManagedTerminalRenderBounds.ViewportAnchored());
+        renderer.Render(new Text("hello"), Theme.Default);
 
         Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
-        Assert.DoesNotContain("\x1b[3J", terminal.Output);
+        Assert.Contains("\x1b[3J", terminal.Output);
         Assert.DoesNotContain("\x1b[?1049h", terminal.Output);
     }
 
@@ -76,14 +77,25 @@ public sealed class ManagedTerminalTuiRendererTests
         using var terminal = new TestTerminal(40, 8);
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
 
-        renderer.Render(new Text("hello"), Theme.Default, ManagedTerminalRenderBounds.ViewportAnchored());
+        renderer.Render(new Text("hello"), Theme.Default);
         terminal.ClearOutput();
 
-        renderer.Render(new Text("hello world"), Theme.Default, ManagedTerminalRenderBounds.ViewportAnchored());
+        renderer.Render(new Text("hello world"), Theme.Default);
 
         Assert.DoesNotContain("\x1b[2J\x1b[H", terminal.Output);
         Assert.Contains("\x1b[2K", terminal.Output);
         Assert.Contains("hello world", terminal.Output);
+    }
+
+    [Fact]
+    public void Render_PreservesStyledTrailingSpaces()
+    {
+        using var terminal = new TestTerminal(5, 2);
+        using var renderer = new ManagedTerminalTuiRenderer(terminal);
+
+        renderer.Render(new StyledFillLineComponent(), Theme.Default);
+
+        Assert.Contains("x    ", terminal.Output);
     }
 
     [Fact]
@@ -92,10 +104,10 @@ public sealed class ManagedTerminalTuiRendererTests
         using var terminal = new TestTerminal(40, 8);
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
 
-        renderer.Render(new LinesComponent("one"), Theme.Default, ManagedTerminalRenderBounds.ViewportAnchored());
+        renderer.Render(new LinesComponent("one"), Theme.Default);
         terminal.ClearOutput();
 
-        renderer.Render(new LinesComponent("one", "two"), Theme.Default, ManagedTerminalRenderBounds.ViewportAnchored());
+        renderer.Render(new LinesComponent("one", "two"), Theme.Default);
 
         Assert.DoesNotContain("\x1b[2J\x1b[H", terminal.Output);
         Assert.Contains("\r\n", terminal.Output);
@@ -103,21 +115,73 @@ public sealed class ManagedTerminalTuiRendererTests
     }
 
     [Fact]
-    public void Render_FullRenderWithVirtualHeight_WritesOnlyVisibleViewport()
+    public void Render_FirstFrameWithLongContent_WritesWholeLogicalBuffer()
     {
         using var terminal = new TestTerminal(40, 3);
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
 
-        renderer.Render(
-            new LinesComponent("one", "two", "three", "four", "five"),
-            Theme.Default,
-            ManagedTerminalRenderBounds.ViewportAnchored(maxRows: 16));
+        renderer.Render(new LinesComponent("one", "two", "three", "four", "five"), Theme.Default);
 
-        Assert.DoesNotContain("one", terminal.Output);
-        Assert.DoesNotContain("two", terminal.Output);
+        Assert.Contains("one", terminal.Output);
+        Assert.Contains("two", terminal.Output);
         Assert.Contains("three", terminal.Output);
         Assert.Contains("four", terminal.Output);
         Assert.Contains("five", terminal.Output);
+    }
+
+    [Fact]
+    public void Render_WhenContentShrinks_ClearsAndRendersWholeBuffer()
+    {
+        using var terminal = new TestTerminal(40, 5);
+        using var renderer = new ManagedTerminalTuiRenderer(terminal);
+
+        renderer.Render(new LinesComponent("zero", "one", "two", "three", "four", "five"), Theme.Default);
+        terminal.ClearOutput();
+
+        renderer.Render(new LinesComponent("zero", "one"), Theme.Default);
+
+        Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
+        Assert.Contains("\x1b[3J", terminal.Output);
+        Assert.Contains("zero", terminal.Output);
+        Assert.Contains("one", terminal.Output);
+    }
+
+    [Fact]
+    public void Render_AfterShrink_AppendsWithoutAnotherFullRedraw()
+    {
+        using var terminal = new TestTerminal(40, 5);
+        using var renderer = new ManagedTerminalTuiRenderer(terminal);
+
+        renderer.Render(new LinesComponent("zero", "one", "two", "three", "four", "five"), Theme.Default);
+        renderer.Render(new LinesComponent("zero", "one"), Theme.Default);
+        terminal.ClearOutput();
+
+        renderer.Render(new LinesComponent("zero", "one", "two"), Theme.Default);
+
+        Assert.DoesNotContain("\x1b[2J\x1b[H", terminal.Output);
+        Assert.Contains("two", terminal.Output);
+    }
+
+    [Fact]
+    public void Render_WhenTransientTallContentDisappears_ClearsStaleRows()
+    {
+        using var terminal = new TestTerminal(40, 10);
+        using var renderer = new ManagedTerminalTuiRenderer(terminal);
+
+        renderer.Render(new LinesComponent(
+            "Chat 0", "Chat 1", "Chat 2", "Chat 3", "Chat 4",
+            "Chat 5", "Chat 6", "Chat 7", "Chat 8", "Chat 9",
+            "Chat 10", "Chat 11", "Chat 12", "Selector 0", "Selector 1"), Theme.Default);
+        terminal.ClearOutput();
+
+        renderer.Render(new LinesComponent(
+            "Chat 0", "Chat 1", "Chat 2", "Chat 3", "Chat 4",
+            "Chat 5", "Chat 6", "Chat 7", "Chat 8", "Chat 9",
+            "Chat 10", "Chat 11"), Theme.Default);
+
+        Assert.Contains("\x1b[2J\x1b[H", terminal.Output);
+        Assert.Contains("\x1b[3J", terminal.Output);
+        Assert.DoesNotContain("Selector", terminal.Output);
     }
 
     [Fact]
@@ -126,7 +190,7 @@ public sealed class ManagedTerminalTuiRendererTests
         using var terminal = new TestTerminal(40, 8);
         using var renderer = new ManagedTerminalTuiRenderer(terminal);
 
-        renderer.Render(new CursorComponent(), Theme.Default, ManagedTerminalRenderBounds.ViewportAnchored());
+        renderer.Render(new CursorComponent(), Theme.Default);
 
         Assert.DoesNotContain("\x1b[4G", terminal.Output);
         Assert.Equal(0, terminal.ShowCursorCount);
@@ -142,7 +206,7 @@ public sealed class ManagedTerminalTuiRendererTests
             TrackHardwareCursor = true
         };
 
-        renderer.Render(new CursorComponent(), Theme.Default, ManagedTerminalRenderBounds.ViewportAnchored());
+        renderer.Render(new CursorComponent(), Theme.Default);
 
         Assert.Contains("\x1b[4G", terminal.Output);
         Assert.Equal(1, terminal.ShowCursorCount);
@@ -156,7 +220,7 @@ public sealed class ManagedTerminalTuiRendererTests
         var sink = new RecordingSink();
         renderer.PerformanceSink = sink;
 
-        renderer.Render(new Text("hello"), Theme.Default, ManagedTerminalRenderBounds.ViewportAnchored());
+        renderer.Render(new Text("hello"), Theme.Default);
 
         var evt = Assert.IsType<TuiRenderCompleted>(Assert.Single(sink.Events));
         Assert.Equal(EventKind.Diagnostic, evt.Kind);
@@ -175,7 +239,7 @@ public sealed class ManagedTerminalTuiRendererTests
         app.PerformanceSink = sink;
         app.SetRoot(new Text("hello"));
 
-        app.Render(new ManagedTerminalRunOptions());
+        app.Render();
 
         Assert.IsType<TuiRenderCompleted>(Assert.Single(sink.Events));
     }
@@ -338,6 +402,24 @@ public sealed class ManagedTerminalTuiRendererTests
         {
             output.Write("text", context.Theme.Text);
             output.SetTerminalCursor(3, 0);
+        }
+
+        public bool HandleInput(in TuiInputEvent key)
+        {
+            return false;
+        }
+    }
+
+    private sealed class StyledFillLineComponent : IComponent
+    {
+        private static readonly Style Fill = new(Color.White, new Color(10, 20, 30));
+
+        public Measurement Measure(in RenderContext context, int maxWidth) => new(maxWidth, maxWidth);
+
+        public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
+        {
+            output.Write("x", Fill);
+            output.Write(new string(' ', Math.Max(0, maxWidth - 1)), Fill);
         }
 
         public bool HandleInput(in TuiInputEvent key)

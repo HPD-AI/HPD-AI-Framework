@@ -62,7 +62,11 @@ public sealed class CollectionListView<T> : IFocusable
         }
 
         width = Math.Min(width, maxWidth);
-        return new Measurement(Math.Min(width, maxWidth), width);
+        var height = _model.VisibleCount == 0
+            ? 1
+            : ResolveWindowSize(context.Height, _model.VisibleCount);
+
+        return new Measurement(Math.Min(width, maxWidth), width, height);
     }
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
@@ -75,7 +79,7 @@ public sealed class CollectionListView<T> : IFocusable
 
         var visibleCount = _model.VisibleCount;
         var activeVisibleIndex = _model.GetVisibleIndex(_navigation.ActiveIndex);
-        _navigation.Viewport.SetWindowSize(Math.Min(context.Height, visibleCount), visibleCount);
+        _navigation.Viewport.SetWindowSize(ResolveWindowSize(context.Height, visibleCount), visibleCount);
         _navigation.Viewport.EnsureVisible(activeVisibleIndex, visibleCount);
 
         var end = Math.Min(visibleCount, _navigation.Viewport.Offset + _navigation.Viewport.WindowSize);
@@ -151,6 +155,17 @@ public sealed class CollectionListView<T> : IFocusable
             CollectionListMode.Checklist => 6,
             _ => 0
         };
+    }
+
+    private int ResolveWindowSize(int availableHeight, int visibleCount)
+    {
+        var windowSize = Math.Min(Math.Max(1, availableHeight), visibleCount);
+        if (_model.MaxVisibleItems is { } maxVisibleItems && maxVisibleItems > 0)
+        {
+            windowSize = Math.Min(windowSize, maxVisibleItems);
+        }
+
+        return Math.Max(1, windowSize);
     }
 }
 

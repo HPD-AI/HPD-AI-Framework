@@ -21,7 +21,10 @@ public sealed class ManagedTerminalTuiApplication : IDisposable
     public ManagedTerminalTuiApplication(ITerminal terminal)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
-        _renderer = new ManagedTerminalTuiRenderer(terminal);
+        _renderer = new ManagedTerminalTuiRenderer(terminal)
+        {
+            TrackHardwareCursor = true
+        };
         _renderer.PerformanceSink = TuiPerformanceDiagnostics.CreateTextWriterSinkFromEnvironment(Console.Error);
     }
 
@@ -72,11 +75,11 @@ public sealed class ManagedTerminalTuiApplication : IDisposable
     }
 
     public async Task RunAsync(
-        ManagedTerminalRunOptions? options = null,
+        TuiRunOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        options ??= new ManagedTerminalRunOptions();
+        options ??= new TuiRunOptions();
 
         _terminal.HideCursor();
 
@@ -93,11 +96,15 @@ public sealed class ManagedTerminalTuiApplication : IDisposable
             {
                 if (dirty)
                 {
-                    Render(options);
+                    Render();
                     dirty = false;
                 }
 
-                await mailbox.WaitToReadAsync(loopCts.Token).ConfigureAwait(false);
+                dirty |= await WaitForEventOrFrameAsync(
+                        mailbox,
+                        options.AnimationTickInterval ?? options.MaxFrameInterval,
+                        loopCts.Token)
+                    .ConfigureAwait(false);
                 dirty |= DrainEvents(mailbox);
             }
         }
@@ -113,18 +120,16 @@ public sealed class ManagedTerminalTuiApplication : IDisposable
         }
     }
 
-    public void Render(ManagedTerminalRunOptions options)
+    public void Render()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentNullException.ThrowIfNull(options);
 
         if (_root is null)
         {
             return;
         }
 
-        var size = _terminal.GetSize();
-        _renderer.Render(_root, _theme, options.Bounds);
+        _renderer.Render(_root, _theme);
     }
 
     public bool HandleInput(in TuiInputEvent key)
@@ -165,6 +170,39 @@ public sealed class ManagedTerminalTuiApplication : IDisposable
     public void RequestRender()
     {
         _mailbox?.TryWrite(new TuiLoopEvent(TuiLoopEventKind.RenderRequested));
+    }
+
+    private static async ValueTask<bool> WaitForEventOrFrameAsync(
+        EventLoopMailbox<TuiLoopEvent> mailbox,
+        TimeSpan? frameInterval,
+        CancellationToken cancellationToken)
+    {
+        if (frameInterval is null)
+        {
+            await mailbox.WaitToReadAsync(cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var waitTask = mailbox.WaitToReadAsync(waitCts.Token).AsTask();
+        var delayTask = Task.Delay(frameInterval.Value, cancellationToken);
+        var completed = await Task.WhenAny(waitTask, delayTask).ConfigureAwait(false);
+        if (completed == waitTask)
+        {
+            await waitTask.ConfigureAwait(false);
+            return false;
+        }
+
+        await waitCts.CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await waitTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+        }
+
+        return true;
     }
 
     private static EventLoopMailbox<TuiLoopEvent> CreateMailbox(TuiRunOptions options) =>

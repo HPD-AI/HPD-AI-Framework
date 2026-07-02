@@ -14,35 +14,47 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Tests;
 
 public sealed class FileMutationTuiPerformanceTests
 {
-    private const int MaxCellDiffLines = 64;
     private const int MaxCellDiagnostics = 64;
 
     [Fact]
-    public async Task FileMutation_LargeDiff_RenderedLinesAreCapped()
+    public async Task FileMutation_LargeDiff_RendersAllEventHunks()
     {
         var state = CreateState();
 
         await state.ApplyEventAsync(LargeMutation(hunkCount: 20, linesPerHunk: 20));
 
-        var rendered = RenderTranscript(state, height: 80);
-        var lines = rendered.Split('\n', StringSplitOptions.None);
-
-        lines.Length.Should().BeLessThan(48);
-        rendered.Should().Contain("diff truncated");
+        var rendered = RenderTranscript(state, width: 180, height: 440);
         rendered.Should().Contain("added 0017");
-        rendered.Should().NotContain("added 0018");
+        rendered.Should().Contain("added 0399");
+        rendered.Should().NotContain("diff truncated");
     }
 
     [Fact]
-    public async Task FileMutation_LargeDiff_CellSnapshotIsCapped()
+    public async Task FileMutation_LargeDiff_CellSnapshotKeepsEventHunks()
     {
         var state = CreateState();
 
         await state.ApplyEventAsync(LargeMutation(hunkCount: 20, linesPerHunk: 20));
 
         var cell = ReadSingleCell<FileMutationCell>(state);
-        cell.Hunks.Sum(static hunk => hunk.Lines.Count).Should().BeLessThanOrEqualTo(MaxCellDiffLines);
+        cell.Hunks.Sum(static hunk => hunk.Lines.Count).Should().Be(400);
+        cell.HunksTruncated.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task FileMutation_EventTruncated_RendersTruncationMarker()
+    {
+        var state = CreateState();
+
+        await state.ApplyEventAsync(LargeMutation(hunkCount: 2, linesPerHunk: 2, hunksTruncated: true));
+
+        var cell = ReadSingleCell<FileMutationCell>(state);
+        cell.Hunks.Sum(static hunk => hunk.Lines.Count).Should().Be(4);
         cell.HunksTruncated.Should().BeTrue();
+
+        var rendered = RenderTranscript(state, height: 20);
+        rendered.Should().Contain("added 0003");
+        rendered.Should().Contain("diff truncated");
     }
 
     [Fact]
@@ -89,7 +101,10 @@ public sealed class FileMutationTuiPerformanceTests
                 .AddCodingHarnessTui()
                 .Build());
 
-    private static FileEditAppliedEvent LargeMutation(int hunkCount, int linesPerHunk)
+    private static FileEditAppliedEvent LargeMutation(
+        int hunkCount,
+        int linesPerHunk,
+        bool hunksTruncated = false)
         => new()
         {
             EventId = "evt-large-edit",
@@ -113,7 +128,7 @@ public sealed class FileMutationTuiPerformanceTests
                         .Select(j => $"+added {((i * linesPerHunk) + j):D4} {new string('x', 120)}")
                         .ToArray()))
                 .ToArray(),
-            HunksTruncated = false,
+            HunksTruncated = hunksTruncated,
             DiffStat = new HPDOS.ToolHarnesses.Middleware.FileMutationDiffStat(
                 AddedLines: hunkCount * linesPerHunk,
                 RemovedLines: 0,

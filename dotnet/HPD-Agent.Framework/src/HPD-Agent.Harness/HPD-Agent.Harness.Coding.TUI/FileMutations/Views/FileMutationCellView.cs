@@ -6,7 +6,6 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Views;
 
 internal sealed class FileMutationCellView : IComponent
 {
-    private const int MaxRenderedDiffLines = 18;
     private const int MaxDiagnostics = 4;
     private readonly FileMutationCell _cell;
     private readonly CodingHarnessTuiTheme _theme;
@@ -19,7 +18,7 @@ internal sealed class FileMutationCellView : IComponent
 
     public Measurement Measure(in RenderContext context, int maxWidth)
     {
-        var rows = Math.Max(1, Math.Min(MaxRenderedDiffLines, CountDiffLines(_cell)));
+        var rows = Math.Max(1, CountDiffLines(_cell));
         if (_cell.Hunks.Count > 1)
         {
             rows += _cell.Hunks.Count - 1;
@@ -50,7 +49,6 @@ internal sealed class FileMutationCellView : IComponent
         }
 
         var gutterWidth = CalculateGutterWidth(_cell);
-        var renderedLines = 0;
         var wroteAny = false;
 
         foreach (var hunk in _cell.Hunks)
@@ -65,14 +63,6 @@ internal sealed class FileMutationCellView : IComponent
             var newLine = hunk.NewStart;
             foreach (var line in hunk.Lines)
             {
-                if (renderedLines >= MaxRenderedDiffLines)
-                {
-                    output.WriteLineBreak();
-                    WriteTruncation("diff truncated", _theme.ResolveMuted(context.Theme), ref output);
-                    RenderDiagnosticsIfNeeded(in context, maxWidth, ref output);
-                    return;
-                }
-
                 if (wroteAny)
                 {
                     output.WriteLineBreak();
@@ -92,7 +82,6 @@ internal sealed class FileMutationCellView : IComponent
                 }
 
                 WriteDiffLine(number, gutterWidth, sign, line.Text, _theme, in context, maxWidth, ref output);
-                renderedLines++;
                 wroteAny = true;
             }
         }

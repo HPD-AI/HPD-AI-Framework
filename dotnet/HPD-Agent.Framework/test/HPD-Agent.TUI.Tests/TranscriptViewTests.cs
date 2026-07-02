@@ -56,7 +56,25 @@ public sealed class TranscriptViewTests
     }
 
     [Fact]
-    public void Render_RunStatusCell_ShowsStateAndDuration()
+    public void Render_AssistantMessageCell_DoesNotRepeatAgentNameHeading()
+    {
+        var model = new TranscriptModel();
+        model.AddFinal(new TranscriptEntry(
+            Id: "assistant-1",
+            EntryKey: "assistant:1",
+            Cell: new AssistantMessageCell("assistant", new Text("hello")),
+            Metadata: new TranscriptEntryMetadata(AgentName: "assistant")));
+
+        var view = CreateView(model, height: 4);
+
+        var rendered = TuiCapture.RenderToString(view, width: 80, height: 6, trimTrailingBlankLines: true);
+
+        rendered.Should().Contain("hello");
+        rendered.Should().NotContain("assistant\n");
+    }
+
+    [Fact]
+    public void Render_RunStatusCell_ShowsFailureStateAndDuration()
     {
         var model = new TranscriptModel();
         model.UpsertLive(new TranscriptEntry(
@@ -64,7 +82,7 @@ public sealed class TranscriptViewTests
             EntryKey: "run:run-123456789",
             Cell: new RunStatusCell(
                 "run-123456789",
-                TranscriptRunState.Cancelled,
+                TranscriptRunState.Failed,
                 Duration: TimeSpan.FromSeconds(2.4)),
             Metadata: new TranscriptEntryMetadata()));
 
@@ -72,7 +90,7 @@ public sealed class TranscriptViewTests
 
         var rendered = TuiCapture.RenderToString(view, width: 80, height: 6, trimTrailingBlankLines: true);
 
-        rendered.Should().Contain("cancelled");
+        rendered.Should().Contain("failed");
         rendered.Should().NotContain("run-1234");
         rendered.Should().Contain("2.4s");
     }

@@ -46,6 +46,11 @@ public sealed record BatchPermissionStateData
     public Dictionary<string, string> DenialReasons { get; init; } = new();
 
     /// <summary>
+    /// Dictionary mapping denied function names to their runtime behavior.
+    /// </summary>
+    public Dictionary<string, PermissionDeniedBehavior> DenialBehaviors { get; init; } = new();
+
+    /// <summary>
     /// Indicates whether batch permission check has been performed for this iteration.
     /// Reset at the start of each iteration.
     /// </summary>
@@ -63,14 +68,19 @@ public sealed record BatchPermissionStateData
     /// <summary>
     /// Records a denied function in the batch with its denial reason.
     /// </summary>
-    public BatchPermissionStateData RecordDenial(string functionName, string reason)
+    public BatchPermissionStateData RecordDenial(
+        string functionName,
+        string reason,
+        PermissionDeniedBehavior behavior = PermissionDeniedBehavior.InterruptTurn)
     {
         var newDenied = new HashSet<string>(DeniedFunctions) { functionName };
         var newReasons = new Dictionary<string, string>(DenialReasons) { [functionName] = reason };
+        var newBehaviors = new Dictionary<string, PermissionDeniedBehavior>(DenialBehaviors) { [functionName] = behavior };
         return this with
         {
             DeniedFunctions = newDenied,
-            DenialReasons = newReasons
+            DenialReasons = newReasons,
+            DenialBehaviors = newBehaviors
         };
     }
 

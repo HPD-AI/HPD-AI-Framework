@@ -288,6 +288,12 @@ public abstract class HookContext
         => Base.RequestAsync<TRequest, TResponse>(request, timeout);
 
     /// <summary>
+    /// Submits runtime control input, such as an interruption request, to the active agent runtime.
+    /// </summary>
+    public ValueTask RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default)
+        => Base.RunAsync(input, cancellationToken);
+
+    /// <summary>
     /// Stream registry for managing interruptible operations.
     /// May be null if event coordination is not configured with stream support.
     /// </summary>

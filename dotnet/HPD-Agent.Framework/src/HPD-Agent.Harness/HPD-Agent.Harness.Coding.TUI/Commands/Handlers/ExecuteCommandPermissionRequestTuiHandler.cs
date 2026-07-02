@@ -20,17 +20,22 @@ public sealed class ExecuteCommandPermissionRequestTuiHandler :
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    protected override async Task<AgentEvent?> HandleAsync(
+    protected override async Task<AgentTuiInteractionResult> HandleAsync(
         AgentTuiInteractionContext<ExecuteCommandPermissionRequestEvent> context,
         CancellationToken cancellationToken)
     {
         var request = context.Request;
+        context.Shell.FooterText = $"state: awaiting permission | ExecuteCommand";
         var response = await context.Dialogs.ShowAsync<ExecuteCommandPermissionResponseEvent>(
             $"execute-command-permission:{request.PermissionId}",
             dialog => new ExecuteCommandPermissionDialogComponent(request, dialog, _theme),
             cancellationToken).ConfigureAwait(false);
+        context.Shell.FooterText = "state: running | Esc cancels";
 
-        return response ?? CreateDeniedResponse(request);
+        return AgentTuiInteractionResult.AnswerRequest(
+            response.IsSubmitted && response.Value is not null
+                ? response.Value
+                : CreateDeniedResponse(request));
     }
 
     private static ExecuteCommandPermissionResponseEvent CreateDeniedResponse(

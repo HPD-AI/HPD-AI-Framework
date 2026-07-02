@@ -43,6 +43,65 @@ public sealed class CollectionListViewTests
     }
 
     [Fact]
+    public void Measure_ReportsRenderedVisibleRowCount()
+    {
+        var model = new CollectionModel<int>()
+            .Add(1, "Alpha")
+            .Add(2, "Beta")
+            .Add(3, "Gamma");
+        var navigation = new CollectionNavigationController<int>(model);
+        var view = new CollectionListView<int>(model, navigation);
+        var context = new RenderContext(16, 12, Theme.Default, ColorSystem.Legacy);
+
+        var measurement = view.Measure(in context, 16);
+
+        Assert.Equal(3, measurement.Height);
+    }
+
+    [Fact]
+    public void SelectionModel_DefaultsToBoundedVisibleWindow()
+    {
+        var model = new SelectionModel<int>();
+        for (var i = 1; i <= 20; i++)
+        {
+            model.Add(i, $"Item {i:00}");
+        }
+
+        var navigation = new CollectionNavigationController<int>(model);
+        var view = new CollectionListView<int>(model, navigation);
+        var context = new RenderContext(16, 30, Theme.Default, ColorSystem.Legacy);
+
+        var measurement = view.Measure(in context, 16);
+
+        Assert.Equal(SelectionModel<int>.DefaultMaxVisibleItems, measurement.Height);
+        var rendered = TuiCapture.RenderToString(view, 16, 30);
+        Assert.Contains("Item 12", rendered);
+        Assert.DoesNotContain("Item 13", rendered);
+    }
+
+    [Fact]
+    public void Render_ScrollsBoundedSelectionWindowAsActiveItemMoves()
+    {
+        var model = new SelectionModel<int>();
+        for (var i = 1; i <= 20; i++)
+        {
+            model.Add(i, $"Item {i:00}");
+        }
+
+        var navigation = new CollectionNavigationController<int>(model);
+        for (var i = 0; i < SelectionModel<int>.DefaultMaxVisibleItems; i++)
+        {
+            navigation.Move(1);
+        }
+
+        var view = new CollectionListView<int>(model, navigation);
+        var rendered = TuiCapture.RenderToString(view, 16, 30);
+
+        Assert.DoesNotContain("Item 01", rendered);
+        Assert.Contains("> Item 13", rendered);
+    }
+
+    [Fact]
     public void FilterState_AllowsCustomPredicate()
     {
         var model = new CollectionModel<int> { AllowFilter = true }

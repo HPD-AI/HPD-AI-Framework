@@ -265,6 +265,74 @@ public sealed class CommandAndPromptTests
     }
 
     [Fact]
+    public void PromptView_RendersPromptStylesAcrossInputRow()
+    {
+        var background = new Color(10, 20, 30);
+        var foreground = new Color(220, 230, 240);
+        var model = new PromptModel
+        {
+            Placeholder = "Ask",
+            Prefix = "> ",
+            ExpandToWidth = true,
+            FillStyle = new Style(Color.Default, background),
+            PrefixStyle = new Style(Color.Cyan, background),
+            PlaceholderStyle = new Style(foreground, background),
+        };
+        var controller = new PromptController(model);
+        var view = new PromptView(model, controller) { IsFocused = true };
+        var context = new RenderContext(8, 1, Theme.Default);
+        using var grid = new TerminalGrid(8, 1);
+        var writer = new SegmentWriter(grid);
+
+        view.Render(in context, 8, ref writer);
+
+        Assert.Equal("> Ask   ", ReadLine(grid, 0));
+        Assert.Equal(background, grid.GetCell(0, 0).Style.Background);
+        Assert.Equal(Color.Cyan, grid.GetCell(0, 0).Style.Foreground);
+        Assert.Equal(background, grid.GetCell(2, 0).Style.Background);
+        Assert.Equal(foreground, grid.GetCell(2, 0).Style.Foreground);
+        Assert.Equal(background, grid.GetCell(7, 0).Style.Background);
+        Assert.True(grid.HasTerminalCursor);
+        Assert.Equal(2, grid.TerminalCursorX);
+    }
+
+    [Fact]
+    public void PromptView_RendersVerticalPaddingWithFillStyle()
+    {
+        var background = new Color(10, 20, 30);
+        var fill = new Style(Color.Default, background);
+        var model = new PromptModel
+        {
+            Placeholder = "Ask",
+            Prefix = "> ",
+            ExpandToWidth = true,
+            FillStyle = fill,
+            PrefixStyle = new Style(Color.Cyan, background),
+            PlaceholderStyle = new Style(Color.Gray, background),
+            PaddingTop = 1,
+            PaddingBottom = 1
+        };
+        var controller = new PromptController(model);
+        var view = new PromptView(model, controller) { IsFocused = true };
+        var context = new RenderContext(8, 3, Theme.Default);
+        using var grid = new TerminalGrid(8, 3);
+        var writer = new SegmentWriter(grid);
+
+        var measurement = view.Measure(in context, 8);
+        view.Render(in context, 8, ref writer);
+
+        Assert.Equal(3, measurement.Height);
+        Assert.Equal("        ", ReadLine(grid, 0));
+        Assert.Equal("> Ask   ", ReadLine(grid, 1));
+        Assert.Equal("        ", ReadLine(grid, 2));
+        Assert.Equal(background, grid.GetCell(0, 0).Style.Background);
+        Assert.Equal(background, grid.GetCell(7, 2).Style.Background);
+        Assert.True(grid.HasTerminalCursor);
+        Assert.Equal(2, grid.TerminalCursorX);
+        Assert.Equal(1, grid.TerminalCursorY);
+    }
+
+    [Fact]
     public void PromptView_WrapsLongInputAtBoundary()
     {
         var model = new PromptModel();

@@ -53,7 +53,7 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         return Task.CompletedTask;
     }
 
-    public Task RespondAsync(
+    public Task AnswerRequestAsync(
         AgentTuiRuntimeScope scope,
         AgentEvent response,
         CancellationToken cancellationToken = default)

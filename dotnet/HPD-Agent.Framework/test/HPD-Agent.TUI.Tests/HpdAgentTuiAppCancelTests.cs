@@ -6,6 +6,7 @@ using HPD.Agent.TUI.Application;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.TUI.Core;
+using HPD.TUI.Models;
 using HPD.TUI.Terminal;
 
 namespace HPD.Agent.TUI.Tests;
@@ -13,7 +14,7 @@ namespace HPD.Agent.TUI.Tests;
 public sealed class HpdAgentTuiAppCancelTests
 {
     [Fact]
-    public async Task Escape_WithActiveRun_RequestsInterruptAndMarksTranscriptCancelling()
+    public async Task Escape_WithActiveRun_RequestsInterruptAndMarksActivityCancelling()
     {
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
         var runtime = new CancelRuntime(scope)
@@ -45,13 +46,12 @@ public sealed class HpdAgentTuiAppCancelTests
 
         var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
         var entries = state.Shell.Transcript.Snapshot().Entries;
-        var runCell = entries
-            .Select(static entry => entry.Cell)
-            .OfType<RunStatusCell>()
-            .Single();
-        runCell.RuntimeRunId.Should().Be("run-123456789");
-        runCell.State.Should().Be(TranscriptRunState.Cancelling);
-        state.Shell.FooterText.Should().Be("state: cancelling");
+        entries.Select(static entry => entry.Cell).OfType<RunStatusCell>().Should().BeEmpty();
+        state.Shell.Activities.Activities.Should().ContainSingle(activity =>
+            activity.Label == "run run-1234 cancelling" &&
+            activity.State == ActivityState.Running &&
+            activity.Severity == ActivitySeverity.Warning);
+        state.Shell.FooterText.Should().Be("state: cancelling | run: run-1234");
     }
 
     [Fact]
@@ -79,6 +79,62 @@ public sealed class HpdAgentTuiAppCancelTests
         var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
         var entries = state.Shell.Transcript.Snapshot().Entries;
         entries.Select(static entry => entry.Cell).OfType<RunStatusCell>().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Escape_WithActivePage_GoesBackWithoutRequestingInterrupt()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CancelRuntime(scope);
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            static builder => builder.AddAgentTuiDefaults(),
+            new TestTerminal(80, 24));
+
+        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
+        state.Shell.Navigation.GoToPage("hpd.help");
+
+        var handled = InvokePrivate<bool>(
+            app,
+            "TryExecuteShortcut",
+            new KeyEvent(KeyCode.Escape));
+
+        handled.Should().BeTrue();
+        state.Shell.Navigation.IsTranscriptActive.Should().BeTrue();
+        runtime.ActiveRunRequested.Task.IsCompleted.Should().BeFalse();
+        runtime.Interrupted.Task.IsCompleted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Escape_WithOpenDialog_IsLeftForDialogInputHandling()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CancelRuntime(scope);
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            static builder => builder.AddAgentTuiDefaults(),
+            new TestTerminal(80, 24));
+
+        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
+        var dialogs = GetPrivateField<AgentTuiDialogService>(app, "_dialogs");
+        var pending = dialogs.InputAsync("Session title (optional)", allowEmpty: true);
+
+        var handled = InvokePrivate<bool>(
+            app,
+            "TryExecuteShortcut",
+            new KeyEvent(KeyCode.Escape));
+
+        handled.Should().BeFalse();
+        state.Shell.Navigation.Back().Should().BeTrue();
+        var result = await pending.WaitAsync(TimeSpan.FromSeconds(2));
+        result.IsDismissed.Should().BeTrue();
+        dialogs.HasOpenDialog.Should().BeFalse();
+        runtime.ActiveRunRequested.Task.IsCompleted.Should().BeFalse();
+        runtime.Interrupted.Task.IsCompleted.Should().BeFalse();
     }
 
     private static void InvokePrivate(
@@ -162,7 +218,7 @@ public sealed class HpdAgentTuiAppCancelTests
             return Task.CompletedTask;
         }
 
-        public Task RespondAsync(
+        public Task AnswerRequestAsync(
             AgentTuiRuntimeScope scope,
             AgentEvent response,
             CancellationToken cancellationToken = default)

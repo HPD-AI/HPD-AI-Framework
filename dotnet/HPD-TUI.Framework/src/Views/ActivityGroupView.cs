@@ -93,6 +93,7 @@ public sealed class ActivityGroupView : IComponent
         var running = 0;
         var completed = 0;
         var failed = 0;
+        var cancelled = 0;
         var pending = 0;
 
         foreach (var activity in activities)
@@ -105,6 +106,9 @@ public sealed class ActivityGroupView : IComponent
                 case ActivityState.Failed:
                     failed++;
                     break;
+                case ActivityState.Cancelled:
+                    cancelled++;
+                    break;
                 case ActivityState.Pending:
                     pending++;
                     break;
@@ -114,8 +118,13 @@ public sealed class ActivityGroupView : IComponent
             }
         }
 
-        var text = $"running {running}  done {completed}  failed {failed}  pending {pending}";
-        WriteClipped(text, maxWidth, failed > 0 ? context.Theme.Error : context.Theme.Text, ref output);
+        var text = cancelled > 0
+            ? $"running {running}  done {completed}  failed {failed}  cancelled {cancelled}  pending {pending}"
+            : $"running {running}  done {completed}  failed {failed}  pending {pending}";
+        var style = failed > 0
+            ? context.Theme.Error
+            : cancelled > 0 ? context.Theme.Warning : context.Theme.Text;
+        WriteClipped(text, maxWidth, style, ref output);
     }
 
     private static void WriteClipped(string value, int maxWidth, Style style, ref SegmentWriter output)

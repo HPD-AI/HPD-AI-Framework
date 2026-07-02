@@ -2,13 +2,17 @@ namespace HPD.TUI.Models;
 
 public sealed class SelectionModel<T> : CollectionModel<T>
 {
+    public const int DefaultMaxVisibleItems = 12;
+
     public SelectionModel()
     {
+        MaxVisibleItems = DefaultMaxVisibleItems;
     }
 
     public SelectionModel(ICollectionSource<T> source)
         : base(source)
     {
+        MaxVisibleItems = DefaultMaxVisibleItems;
     }
 
     public T? CurrentValue { get; set; }
