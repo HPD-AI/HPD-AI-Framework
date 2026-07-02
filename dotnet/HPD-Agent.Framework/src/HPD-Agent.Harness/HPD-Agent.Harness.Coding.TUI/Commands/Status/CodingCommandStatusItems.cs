@@ -5,30 +5,58 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Status;
 
 internal sealed class CodingCommandStatusItem : IAgentTuiStatusItem
 {
+    private readonly CodingHarnessTuiTheme _theme;
+
+    public CodingCommandStatusItem(CodingHarnessTuiTheme theme)
+    {
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
+    }
+
     public IComponent Create(AgentTuiStatusContext context)
-        => new CodingCommandStatusComponent(context.State);
+        => new CodingCommandStatusComponent(context.State, _theme);
 }
 
 internal sealed class CodingBackgroundTerminalStatusItem : IAgentTuiStatusItem
 {
+    private readonly CodingHarnessTuiTheme _theme;
+
+    public CodingBackgroundTerminalStatusItem(CodingHarnessTuiTheme theme)
+    {
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
+    }
+
     public IComponent Create(AgentTuiStatusContext context)
-        => new CodingBackgroundTerminalStatusComponent(context.State);
+        => new CodingBackgroundTerminalStatusComponent(context.State, _theme);
 }
 
 internal sealed class CodingCommandOutputStatusItem : IAgentTuiStatusItem
 {
+    private readonly CodingHarnessTuiTheme _theme;
+
+    public CodingCommandOutputStatusItem(CodingHarnessTuiTheme theme)
+    {
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
+    }
+
     public IComponent Create(AgentTuiStatusContext context)
-        => new CodingCommandOutputStatusComponent(context.State);
+        => new CodingCommandOutputStatusComponent(context.State, _theme);
 }
 
 internal abstract class CodingCommandStatusComponentBase : IComponent
 {
     protected CodingCommandStatusComponentBase(AgentTuiStateBag state)
+        : this(state, CodingHarnessTuiTheme.Default)
+    {
+    }
+
+    protected CodingCommandStatusComponentBase(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
     {
         State = state ?? throw new ArgumentNullException(nameof(state));
+        Theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
     protected AgentTuiStateBag State { get; }
+    protected CodingHarnessTuiTheme Theme { get; }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
     {
@@ -46,7 +74,7 @@ internal abstract class CodingCommandStatusComponentBase : IComponent
             return;
         }
 
-        output.Write(Clip(text, maxWidth).AsSpan(), context.Theme.Border);
+        output.Write(Clip(text, maxWidth).AsSpan(), Theme.ResolveMuted(context.Theme));
     }
 
     public bool HandleInput(in TuiInputEvent input)
@@ -77,8 +105,8 @@ internal abstract class CodingCommandStatusComponentBase : IComponent
 
 internal sealed class CodingCommandStatusComponent : CodingCommandStatusComponentBase
 {
-    public CodingCommandStatusComponent(AgentTuiStateBag state)
-        : base(state)
+    public CodingCommandStatusComponent(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
+        : base(state, theme)
     {
     }
 
@@ -129,8 +157,8 @@ internal sealed class CodingCommandStatusComponent : CodingCommandStatusComponen
 
 internal sealed class CodingBackgroundTerminalStatusComponent : CodingCommandStatusComponentBase
 {
-    public CodingBackgroundTerminalStatusComponent(AgentTuiStateBag state)
-        : base(state)
+    public CodingBackgroundTerminalStatusComponent(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
+        : base(state, theme)
     {
     }
 
@@ -153,8 +181,8 @@ internal sealed class CodingBackgroundTerminalStatusComponent : CodingCommandSta
 
 internal sealed class CodingCommandOutputStatusComponent : CodingCommandStatusComponentBase
 {
-    public CodingCommandOutputStatusComponent(AgentTuiStateBag state)
-        : base(state)
+    public CodingCommandOutputStatusComponent(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
+        : base(state, theme)
     {
     }
 

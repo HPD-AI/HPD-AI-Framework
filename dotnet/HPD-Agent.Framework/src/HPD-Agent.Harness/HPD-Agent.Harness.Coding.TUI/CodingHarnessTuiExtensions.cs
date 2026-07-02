@@ -17,18 +17,24 @@ namespace HPD.Agent.ToolHarness.Coding.TUI;
 
 public static class CodingHarnessTuiExtensions
 {
-    public static HpdAgentTuiBuilder AddCodingHarnessTui(this HpdAgentTuiBuilder tui)
+    public static HpdAgentTuiBuilder AddCodingHarnessTui(
+        this HpdAgentTuiBuilder tui,
+        CodingHarnessTuiTheme? theme = null)
     {
         ArgumentNullException.ThrowIfNull(tui);
+        theme ??= CodingHarnessTuiTheme.Default;
         return tui
-            .AddCodingExplorationTui()
-            .AddCodingCommandTui()
-            .AddCodingFileMutationTui();
+            .AddCodingExplorationTui(theme)
+            .AddCodingCommandTui(theme)
+            .AddCodingFileMutationTui(theme);
     }
 
-    public static HpdAgentTuiBuilder AddCodingExplorationTui(this HpdAgentTuiBuilder tui)
+    public static HpdAgentTuiBuilder AddCodingExplorationTui(
+        this HpdAgentTuiBuilder tui,
+        CodingHarnessTuiTheme? theme = null)
     {
         ArgumentNullException.ThrowIfNull(tui);
+        theme ??= CodingHarnessTuiTheme.Default;
 
         return tui
             .TryAddEventHandler<ToolCallStartEvent, CodingExplorationToolCallStartHandler>(
@@ -41,15 +47,18 @@ public static class CodingHarnessTuiExtensions
                 "hpd.coding.exploration.tool-end")
             .TryAddTranscriptRenderer<CodingExplorationCell>(
                 CodingHarnessTuiTranscriptRendererKeys.Exploration,
-                new CodingExplorationCellRenderer())
+                new CodingExplorationCellRenderer(theme))
             .TryAddStatusItem(
                 "hpd.coding.exploration",
-                new CodingExplorationStatusItem());
+                new CodingExplorationStatusItem(theme));
     }
 
-    public static HpdAgentTuiBuilder AddCodingCommandTui(this HpdAgentTuiBuilder tui)
+    public static HpdAgentTuiBuilder AddCodingCommandTui(
+        this HpdAgentTuiBuilder tui,
+        CodingHarnessTuiTheme? theme = null)
     {
         ArgumentNullException.ThrowIfNull(tui);
+        theme ??= CodingHarnessTuiTheme.Default;
 
         return tui
             .TryAddEventHandler<ExecuteCommandProcessStartedEvent, ExecuteCommandStartedTuiHandler>(
@@ -64,29 +73,34 @@ public static class CodingHarnessTuiExtensions
                 "hpd.coding.command.exited")
             .TryAddEventHandler<ExecuteCommandBackgroundListEvent, ExecuteCommandBackgroundListTuiHandler>(
                 "hpd.coding.command.background-list")
-            .TryAddInteractionHandler<ExecuteCommandPermissionRequestEvent, ExecuteCommandPermissionRequestTuiHandler>(
-                "hpd.coding.command.permission")
-            .TryAddInteractionHandler<ExecuteCommandSandboxCapabilityRequestEvent, ExecuteCommandSandboxCapabilityRequestTuiHandler>(
-                "hpd.coding.command.sandbox-capability")
+            .TryAddInteractionHandler<ExecuteCommandPermissionRequestEvent>(
+                "hpd.coding.command.permission",
+                new ExecuteCommandPermissionRequestTuiHandler(theme))
+            .TryAddInteractionHandler<ExecuteCommandSandboxCapabilityRequestEvent>(
+                "hpd.coding.command.sandbox-capability",
+                new ExecuteCommandSandboxCapabilityRequestTuiHandler(theme))
             .TryAddTranscriptRenderer<CodingCommandCell>(
                 CodingHarnessTuiTranscriptRendererKeys.Command,
-                new CodingCommandCellRenderer())
-            .TryAddPage(CodingCommandPages.CommandsPage())
-            .TryAddPage(CodingCommandPages.BackgroundPage())
+                new CodingCommandCellRenderer(theme))
+            .TryAddPage(CodingCommandPages.CommandsPage(theme))
+            .TryAddPage(CodingCommandPages.BackgroundPage(theme))
             .TryAddStatusItem(
                 "hpd.coding.commands",
-                new CodingCommandStatusItem())
+                new CodingCommandStatusItem(theme))
             .TryAddStatusItem(
                 "hpd.coding.background",
-                new CodingBackgroundTerminalStatusItem())
+                new CodingBackgroundTerminalStatusItem(theme))
             .TryAddStatusItem(
                 "hpd.coding.output",
-                new CodingCommandOutputStatusItem());
+                new CodingCommandOutputStatusItem(theme));
     }
 
-    public static HpdAgentTuiBuilder AddCodingFileMutationTui(this HpdAgentTuiBuilder tui)
+    public static HpdAgentTuiBuilder AddCodingFileMutationTui(
+        this HpdAgentTuiBuilder tui,
+        CodingHarnessTuiTheme? theme = null)
     {
         ArgumentNullException.ThrowIfNull(tui);
+        theme ??= CodingHarnessTuiTheme.Default;
 
         return tui
             .TryAddEventHandler<FileMutationAppliedEvent, FileMutationTuiHandler>(
@@ -95,15 +109,15 @@ public static class CodingHarnessTuiExtensions
                 "hpd.coding.diagnostics.received")
             .TryAddTranscriptRenderer<FileMutationCell>(
                 CodingHarnessTuiTranscriptRendererKeys.FileMutation,
-                new FileMutationCellRenderer())
+                new FileMutationCellRenderer(theme))
             .TryAddTranscriptRenderer<CodingDiagnosticsCell>(
                 CodingHarnessTuiTranscriptRendererKeys.Diagnostics,
-                new CodingDiagnosticsCellRenderer())
+                new CodingDiagnosticsCellRenderer(theme))
             .TryAddStatusItem(
                 "hpd.coding.files",
-                new FileMutationStatusItem())
+                new FileMutationStatusItem(theme))
             .TryAddStatusItem(
                 "hpd.coding.diagnostics",
-                new CodingDiagnosticsStatusItem());
+                new CodingDiagnosticsStatusItem(theme));
     }
 }

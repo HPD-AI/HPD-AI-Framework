@@ -6,10 +6,10 @@ It uses retained components, pooled terminal grids, growable ANSI frame output, 
 ## Current Surface
 
 - Core component contract: `IComponent`
-- Runtime: `TuiApplication` for alternate-screen apps, `NormalTerminalTuiApplication` for normal-terminal apps
+- Runtime: `TuiApplication` for alternate-screen apps, `ManagedTerminalTuiApplication` for managed-terminal apps
 - Non-interactive output: `TuiCapture`, `TuiOutput`
 - Terminal abstraction: `ITerminal`, `ProcessTerminal`
-- Rendering: `TuiRenderer`, `NormalTerminalTuiRenderer`
+- Rendering: `TuiRenderer`, `ManagedTerminalTuiRenderer`
 - Components: `Container`, `Text`, `Markdown`, `Viewport`, `Overlay`, `OverlayHost`
 - Layout primitives: `Stack`, `Grid`, `Separator`, `Frame`
 - Layout hardening: `LayoutRect`, `LayoutConstraints`, grid cell padding/alignment, row sizing, and clipped cell rendering
@@ -42,16 +42,16 @@ app.SetRoot(root);
 await app.RunAsync();
 ```
 
-Use `NormalTerminalTuiApplication` when the app should render in the normal terminal and preserve terminal scrollback:
+Use `ManagedTerminalTuiApplication` when the app should render in the managed terminal and preserve terminal scrollback:
 
 ```csharp
 using HPD.TUI.Components;
 using HPD.TUI.Rendering;
 using HPD.TUI.Terminal;
 
-using var app = new NormalTerminalTuiApplication(new ProcessTerminal());
+using var app = new ManagedTerminalTuiApplication(new ProcessTerminal());
 
-app.SetRoot(new Text("Hello from the normal terminal"));
+app.SetRoot(new Text("Hello from the managed terminal"));
 await app.RunAsync(size => size.Height);
 ```
 
@@ -73,7 +73,7 @@ IComponent
 ```
 
 `TuiRenderer` diffs full-screen cell grids for alternate-screen apps.
-`NormalTerminalTuiRenderer` renders in the normal terminal and patches visible transcript lines while allowing native scrollback to grow.
+`ManagedTerminalTuiRenderer` renders in the managed terminal and patches visible transcript lines while allowing native scrollback to grow.
 
 ## Native AOT
 

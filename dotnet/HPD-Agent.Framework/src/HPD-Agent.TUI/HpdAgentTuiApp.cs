@@ -21,7 +21,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private readonly IHpdAgentTuiRuntime _runtime;
     private readonly AgentTuiRuntimeScope? _requestedScope;
     private readonly HpdAgentTuiRegistry _registry;
-    private readonly NormalTerminalTuiApplication _application;
+    private readonly ManagedTerminalTuiApplication _application;
     private PromptView? _prompt;
     private AgentTuiSessionState? _state;
     private AgentTuiRuntimeScope? _scope;
@@ -41,7 +41,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _requestedScope = requestedScope;
         _registry = registry;
-        _application = new NormalTerminalTuiApplication(terminal);
+        _application = new ManagedTerminalTuiApplication(terminal);
         _application.ShortcutHandler = TryExecuteShortcut;
         if (_registry.Theme is { } theme)
         {
@@ -78,9 +78,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             StartObserver(initialScope.Scope, linked.Token);
         }
 
-        await _application.RunAsync(new NormalTerminalRunOptions
+        await _application.RunAsync(new ManagedTerminalRunOptions
         {
-            Bounds = NormalTerminalRenderBounds.ViewportAnchored(maxRows: 16_384)
+            Bounds = ManagedTerminalRenderBounds.ViewportAnchored(maxRows: 16_384)
         }, linked.Token).ConfigureAwait(false);
         await linked.CancelAsync().ConfigureAwait(false);
         await StopObserverAsync().ConfigureAwait(false);

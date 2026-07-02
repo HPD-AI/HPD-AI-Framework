@@ -6,6 +6,7 @@ using HPD.Agent.TUI.Runtime;
 using HPD.Agent.TUI.Views;
 using HPD.Agent.ToolHarness.Coding.TUI;
 using HPD.TUI.Components;
+using HPD.TUI.Core;
 using HPD.TUI.Rendering;
 using HPD.TUI.Views;
 using HPDOS.ToolHarnesses.Middleware;
@@ -93,6 +94,38 @@ public sealed class FileMutationTuiTests
     }
 
     [Fact]
+    public async Task CustomCodingTheme_StylesFileMutationDiff()
+    {
+        var codingTheme = new CodingHarnessTuiTheme
+        {
+            Label = new Style(new Color(201, 82, 221), Color.Default, TextAttributes.Bold),
+            DiffAdded = new Style(new Color(70, 220, 120), new Color(10, 40, 20)),
+            DiffRemoved = new Style(new Color(245, 95, 95), new Color(45, 15, 15)),
+            DiffContext = new Style(new Color(205, 210, 215), Color.Default),
+            DiffGutter = new Style(new Color(110, 120, 130), Color.Default)
+        };
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .AddCodingHarnessTui(codingTheme)
+            .Build();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            registry);
+
+        await state.ApplyEventAsync(EditMutation());
+
+        var rendered = RenderTranscriptAnsi(state, registry.TranscriptRenderers);
+
+        rendered.Should().Contain("38;2;201;82;221");
+        rendered.Should().Contain("38;2;70;220;120");
+        rendered.Should().Contain("48;2;10;40;20");
+        rendered.Should().Contain("38;2;245;95;95");
+        rendered.Should().Contain("48;2;45;15;15");
+        rendered.Should().Contain("38;2;205;210;215");
+        rendered.Should().Contain("38;2;110;120;130");
+    }
+
+    [Fact]
     public async Task FileWriteCreate_UsesCreatedAction()
     {
         var state = CreateState();
@@ -158,6 +191,37 @@ public sealed class FileMutationTuiTests
         var rendered = RenderTranscript(state);
         rendered.Should().Contain("• Diagnostics /repo/src/Foo.cs");
         rendered.Should().Contain("CS1002");
+    }
+
+    [Fact]
+    public async Task CustomCodingTheme_StylesDiagnostics()
+    {
+        var codingTheme = new CodingHarnessTuiTheme
+        {
+            Label = new Style(new Color(201, 82, 221), Color.Default, TextAttributes.Bold),
+            Muted = new Style(new Color(110, 120, 130), Color.Default),
+            DiagnosticError = new Style(new Color(255, 70, 80), Color.Default),
+            DiagnosticWarning = new Style(new Color(245, 190, 80), Color.Default)
+        };
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .AddCodingHarnessTui(codingTheme)
+            .Build();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            registry);
+
+        await state.ApplyEventAsync(Diagnostics(
+            path: "/repo/src/Foo.cs",
+            displayPath: "src/Foo.cs",
+            severity: LanguageServerDiagnosticSeverity.Warning,
+            code: "CS8618"));
+
+        var rendered = RenderTranscriptAnsi(state, registry.TranscriptRenderers);
+
+        rendered.Should().Contain("38;2;201;82;221");
+        rendered.Should().Contain("38;2;110;120;130");
+        rendered.Should().Contain("38;2;245;190;80");
     }
 
     [Fact]
@@ -256,14 +320,18 @@ public sealed class FileMutationTuiTests
             Mode = mode
         };
 
-    private static LanguageServerDiagnosticsReceivedEvent Diagnostics(string path, string displayPath)
+    private static LanguageServerDiagnosticsReceivedEvent Diagnostics(
+        string path,
+        string displayPath,
+        LanguageServerDiagnosticSeverity severity = LanguageServerDiagnosticSeverity.Error,
+        string code = "CS1002")
         => new()
         {
             EventId = "evt-diagnostics-1",
             Path = path,
             Uri = $"file://{path}",
-            ErrorCount = 1,
-            WarningCount = 0,
+            ErrorCount = severity == LanguageServerDiagnosticSeverity.Error ? 1 : 0,
+            WarningCount = severity == LanguageServerDiagnosticSeverity.Warning ? 1 : 0,
             InformationCount = 0,
             HintCount = 0,
             DiagnosticSetCount = 1,
@@ -274,10 +342,10 @@ public sealed class FileMutationTuiTests
                     Path = displayPath,
                     ServerId = "csharp",
                     Source = LanguageServerDiagnosticSource.Publish,
-                    Severity = LanguageServerDiagnosticSeverity.Error,
+                    Severity = severity,
                     Line = 2,
                     Character = 18,
-                    Code = "CS1002",
+                    Code = code,
                     Message = "Missing semicolon"
                 }
             ],
@@ -314,9 +382,13 @@ public sealed class FileMutationTuiTests
             height: height,
             trimTrailingBlankLines: true);
 
-    private static string RenderTranscriptAnsi(AgentTuiSessionState state, int width = 100, int height = 16)
+    private static string RenderTranscriptAnsi(
+        AgentTuiSessionState state,
+        AgentTuiTranscriptRendererRegistry? renderers = null,
+        int width = 100,
+        int height = 16)
         => TuiCapture.RenderToAnsi(
-            new TranscriptView(state.Shell.Transcript, DefaultTranscriptRenderers(), height: 14),
+            new TranscriptView(state.Shell.Transcript, renderers ?? DefaultTranscriptRenderers(), height: 14),
             width: width,
             height: height);
 

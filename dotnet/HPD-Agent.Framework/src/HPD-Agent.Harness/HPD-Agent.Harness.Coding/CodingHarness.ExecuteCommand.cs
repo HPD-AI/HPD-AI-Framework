@@ -39,7 +39,7 @@ public partial class CodingToolHarness
         string? command = null,
         [Description("Background task id returned by a previous background Run. Required when action is ReadOutput or Stop. Do not use for Run or ListBackground.")]
         string? backgroundTaskId = null,
-        [Description("Optional working directory for Run only. Relative paths are resolved from the selected workspace root shown as cwd in environment_context.")]
+        [Description("Optional working directory for Run only. Relative paths are resolved from the selected workspace root shown in environment_context.")]
         string? workingDirectory = null,
         [Description("Optional timeout in milliseconds for Run only. Defaults to 120000.")]
         int timeoutMilliseconds = DefaultExecuteCommandTimeoutMilliseconds,

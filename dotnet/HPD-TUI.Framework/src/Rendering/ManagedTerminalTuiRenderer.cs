@@ -5,7 +5,7 @@ using HPD.TUI.Terminal;
 
 namespace HPD.TUI.Rendering;
 
-public sealed class NormalTerminalTuiRenderer : IDisposable
+public sealed class ManagedTerminalTuiRenderer : IDisposable
 {
     private static readonly char[] BeginSynchronizedOutput = ['\x1b', '[', '?', '2', '0', '2', '6', 'h'];
     private static readonly char[] EndSynchronizedOutput = ['\x1b', '[', '?', '2', '0', '2', '6', 'l'];
@@ -24,7 +24,7 @@ public sealed class NormalTerminalTuiRenderer : IDisposable
     private bool _hasPreviousFrame;
     private bool _disposed;
 
-    public NormalTerminalTuiRenderer(ITerminal terminal)
+    public ManagedTerminalTuiRenderer(ITerminal terminal)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
     }
@@ -33,7 +33,7 @@ public sealed class NormalTerminalTuiRenderer : IDisposable
 
     public IHpdTuiPerformanceEventSink? PerformanceSink { get; set; }
 
-    public void Render(IComponent root, Theme? theme, NormalTerminalRenderBounds bounds)
+    public void Render(IComponent root, Theme? theme, ManagedTerminalRenderBounds bounds)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(root);
@@ -94,7 +94,7 @@ public sealed class NormalTerminalTuiRenderer : IDisposable
         }
 
         sink.Publish(new TuiRenderCompleted(
-            "normal-terminal",
+            "managed-terminal",
             Stopwatch.GetElapsedTime(startTimestamp),
             rowsRendered,
             segmentsWritten,

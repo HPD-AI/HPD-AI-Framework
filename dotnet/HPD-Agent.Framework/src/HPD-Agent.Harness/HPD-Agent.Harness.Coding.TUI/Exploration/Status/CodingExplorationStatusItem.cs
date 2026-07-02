@@ -5,17 +5,26 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration.Status;
 
 internal sealed class CodingExplorationStatusItem : IAgentTuiStatusItem
 {
+    private readonly CodingHarnessTuiTheme _theme;
+
+    public CodingExplorationStatusItem(CodingHarnessTuiTheme theme)
+    {
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
+    }
+
     public IComponent Create(AgentTuiStatusContext context)
-        => new CodingExplorationStatusComponent(context.State);
+        => new CodingExplorationStatusComponent(context.State, _theme);
 }
 
 internal sealed class CodingExplorationStatusComponent : IComponent
 {
     private readonly AgentTuiStateBag _state;
+    private readonly CodingHarnessTuiTheme _theme;
 
-    public CodingExplorationStatusComponent(AgentTuiStateBag state)
+    public CodingExplorationStatusComponent(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
     {
         _state = state ?? throw new ArgumentNullException(nameof(state));
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
@@ -34,7 +43,7 @@ internal sealed class CodingExplorationStatusComponent : IComponent
             return;
         }
 
-        output.Write(Clip(text, maxWidth).AsSpan(), context.Theme.Border);
+        output.Write(Clip(text, maxWidth).AsSpan(), _theme.ResolveMuted(context.Theme));
     }
 
     public bool HandleInput(in TuiInputEvent input)

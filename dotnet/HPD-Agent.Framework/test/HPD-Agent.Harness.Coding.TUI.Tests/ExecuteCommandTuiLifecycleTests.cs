@@ -66,7 +66,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
                 "ExecuteCommandPermissionMiddleware",
                 "allow_exact")
         };
-        var handler = new ExecuteCommandPermissionRequestTuiHandler();
+        var handler = new ExecuteCommandPermissionRequestTuiHandler(CodingHarnessTuiTheme.Default);
 
         var response = await handler.HandleAsync(
             CreateInteractionContext(dialogs, request),
@@ -87,7 +87,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
     {
         var request = CreatePermissionRequest();
         var dialogs = new TestDialogService { RenderDialog = false };
-        var handler = new ExecuteCommandPermissionRequestTuiHandler();
+        var handler = new ExecuteCommandPermissionRequestTuiHandler(CodingHarnessTuiTheme.Default);
 
         var response = await handler.HandleAsync(
             CreateInteractionContext(dialogs, request),
@@ -106,7 +106,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
     {
         var request = CreatePermissionRequest();
         var dialogs = new TestDialogService();
-        var handler = new ExecuteCommandPermissionRequestTuiHandler();
+        var handler = new ExecuteCommandPermissionRequestTuiHandler(CodingHarnessTuiTheme.Default);
 
         await handler.HandleAsync(
             CreateInteractionContext(dialogs, request),
@@ -138,7 +138,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
                 new KeyEvent(KeyCode.Enter)
             ]
         };
-        var handler = new ExecuteCommandPermissionRequestTuiHandler();
+        var handler = new ExecuteCommandPermissionRequestTuiHandler(CodingHarnessTuiTheme.Default);
 
         var response = await handler.HandleAsync(
             CreateInteractionContext(dialogs, request),
@@ -165,7 +165,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
                 new KeyEvent(KeyCode.Enter)
             ]
         };
-        var handler = new ExecuteCommandPermissionRequestTuiHandler();
+        var handler = new ExecuteCommandPermissionRequestTuiHandler(CodingHarnessTuiTheme.Default);
 
         var response = await handler.HandleAsync(
             CreateInteractionContext(dialogs, request),
@@ -220,6 +220,139 @@ public sealed class ExecuteCommandTuiLifecycleTests
         ReadRows(state.Shell.Transcript).Should().ContainSingle()
             .Which.Cell.Should().BeOfType<CodingCommandCell>();
         RenderTranscript(state, registry.TranscriptRenderers).Should().Contain("custom command row");
+    }
+
+    [Fact]
+    public async Task CustomCodingTheme_StylesCommandTranscript()
+    {
+        var codingTheme = new CodingHarnessTuiTheme
+        {
+            Label = new Style(new Color(201, 82, 221), Color.Default, TextAttributes.Bold),
+            CommandOutput = new Style(new Color(70, 210, 150), Color.Default),
+            CommandErrorOutput = new Style(new Color(245, 110, 95), Color.Default),
+            CommandCompleted = new Style(new Color(90, 230, 130), Color.Default),
+            CommandFailed = new Style(new Color(255, 80, 90), Color.Default)
+        };
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .AddCodingHarnessTui(codingTheme)
+            .Build();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            registry);
+
+        await state.ApplyEventAsync(Started(command: "dotnet test"));
+        await state.ApplyEventAsync(Output("restore complete\n"));
+        await state.ApplyEventAsync(Output("compiler warning\n", stream: ExecuteCommandStreamKind.Stderr));
+        await state.ApplyEventAsync(Exited(exitCode: 0));
+
+        var rendered = RenderTranscriptAnsi(state, registry.TranscriptRenderers);
+
+        rendered.Should().Contain("38;2;201;82;221");
+        rendered.Should().Contain("38;2;70;210;150");
+        rendered.Should().Contain("38;2;245;110;95");
+        rendered.Should().Contain("38;2;90;230;130");
+    }
+
+    [Fact]
+    public async Task CustomCodingTheme_StylesFailedCommandState()
+    {
+        var codingTheme = new CodingHarnessTuiTheme
+        {
+            CommandFailed = new Style(new Color(255, 80, 90), Color.Default)
+        };
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .AddCodingHarnessTui(codingTheme)
+            .Build();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            registry);
+
+        await state.ApplyEventAsync(Started(command: "dotnet build"));
+        await state.ApplyEventAsync(Exited(command: "dotnet build", exitCode: 1));
+
+        RenderTranscriptAnsi(state, registry.TranscriptRenderers)
+            .Should().Contain("38;2;255;80;90");
+    }
+
+    [Fact]
+    public async Task CustomCodingTheme_StylesCommandStatusAndPages()
+    {
+        var codingTheme = new CodingHarnessTuiTheme
+        {
+            CommandRunning = new Style(new Color(10, 180, 250), Color.Default),
+            CommandOutput = new Style(new Color(70, 210, 150), Color.Default),
+            Prefix = new Style(new Color(90, 100, 120), Color.Default)
+        };
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .AddCodingHarnessTui(codingTheme)
+            .Build();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            registry);
+
+        await state.ApplyEventAsync(Started(command: "dotnet test"));
+        await state.ApplyEventAsync(Output("tests running\n"));
+        state.Shell.Navigation.GoToPage("hpd.coding.commands");
+
+        var rendered = RenderShellAnsi(registry, state);
+
+        rendered.Should().Contain("38;2;10;180;250");
+        rendered.Should().Contain("38;2;70;210;150");
+        rendered.Should().Contain("38;2;90;100;120");
+    }
+
+    [Fact]
+    public async Task CustomCodingTheme_StylesPermissionDialog()
+    {
+        var request = CreatePermissionRequest();
+        var dialogs = new TestDialogService();
+        var handler = new ExecuteCommandPermissionRequestTuiHandler(new CodingHarnessTuiTheme
+        {
+            PermissionTitle = new Style(new Color(100, 210, 255), Color.Default),
+            PermissionDetail = new Style(new Color(110, 120, 135), Color.Default),
+            PermissionCommand = new Style(new Color(240, 245, 250), Color.Default)
+        });
+
+        await handler.HandleAsync(
+            CreateInteractionContext(dialogs, request),
+            CancellationToken.None);
+
+        dialogs.RenderedDialogAnsi.Should().Contain("38;2;100;210;255");
+        dialogs.RenderedDialogAnsi.Should().Contain("38;2;110;120;135");
+        dialogs.RenderedDialogAnsi.Should().Contain("38;2;240;245;250");
+    }
+
+    [Fact]
+    public async Task CustomCodingTheme_StylesSandboxCapabilityDialog()
+    {
+        var request = new ExecuteCommandSandboxCapabilityRequestEvent(
+            "sandbox-1",
+            "ExecuteCommandPermissionMiddleware",
+            "call-1",
+            "cmd-1",
+            "npm run dev",
+            "/repo",
+            ExecuteCommandSandboxCapabilityKind.NetworkEgress,
+            new AllowNetworkModeAmendment(ExecuteCommandNetworkMode.Filtered),
+            "network is blocked");
+        var dialogs = new TestDialogService();
+        var handler = new ExecuteCommandSandboxCapabilityRequestTuiHandler(new CodingHarnessTuiTheme
+        {
+            PermissionTitle = new Style(new Color(100, 210, 255), Color.Default),
+            PermissionDetail = new Style(new Color(110, 120, 135), Color.Default),
+            PermissionCommand = new Style(new Color(240, 245, 250), Color.Default)
+        });
+
+        await handler.HandleAsync(
+            CreateInteractionContext(dialogs, request),
+            CancellationToken.None);
+
+        dialogs.RenderedDialogAnsi.Should().Contain("38;2;100;210;255");
+        dialogs.RenderedDialogAnsi.Should().Contain("38;2;110;120;135");
+        dialogs.RenderedDialogAnsi.Should().Contain("38;2;240;245;250");
     }
 
     [Fact]
@@ -888,6 +1021,16 @@ public sealed class ExecuteCommandTuiLifecycleTests
             height: height,
             trimTrailingBlankLines: true);
 
+    private static string RenderTranscriptAnsi(
+        AgentTuiSessionState state,
+        AgentTuiTranscriptRendererRegistry renderers,
+        int width = 100,
+        int height = 14)
+        => TuiCapture.RenderToAnsi(
+            new TranscriptView(state.Shell.Transcript, renderers, height: 12),
+            width: width,
+            height: height);
+
     private static AgentTuiTranscriptRendererRegistry DefaultTranscriptRenderers()
         => new HpdAgentTuiBuilder()
             .AddDefaultTranscriptRenderers()
@@ -907,6 +1050,17 @@ public sealed class ExecuteCommandTuiLifecycleTests
             height: 24,
             trimTrailingBlankLines: true);
 
+    private static string RenderShellAnsi(HpdAgentTuiRegistry registry, AgentTuiSessionState state)
+        => TuiCapture.RenderToAnsi(
+            registry.ShellLayout.Create(new AgentTuiShellLayoutContext(
+                state.Shell,
+                PromptView.Create("Ask HPD..."),
+                registry,
+                registry.ShellChrome,
+                state.State)),
+            width: 100,
+            height: 24);
+
     private sealed class TestDialogService : IAgentTuiDialogService
     {
         public ExecuteCommandPermissionResponseEvent? ShowResult { get; init; }
@@ -914,6 +1068,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         public bool RenderDialog { get; init; } = true;
         public string LastShowKey { get; private set; } = "";
         public string RenderedDialog { get; private set; } = "";
+        public string RenderedDialogAnsi { get; private set; } = "";
         public int ShowPromptCount { get; private set; }
         public bool HasOpenDialog => false;
 
@@ -944,6 +1099,10 @@ public sealed class ExecuteCommandTuiLifecycleTests
                     width: 100,
                     height: 24,
                     trimTrailingBlankLines: true);
+                RenderedDialogAnsi = TuiCapture.RenderToAnsi(
+                    component,
+                    width: 100,
+                    height: 24);
             }
 
             foreach (var keyEvent in DialogKeys)

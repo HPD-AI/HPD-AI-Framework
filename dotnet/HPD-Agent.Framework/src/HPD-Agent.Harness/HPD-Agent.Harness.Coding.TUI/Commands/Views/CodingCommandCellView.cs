@@ -6,12 +6,14 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Views;
 internal sealed class CodingCommandCellView : IComponent
 {
     private readonly CodingCommandCell _cell;
+    private readonly CodingHarnessTuiTheme _theme;
     private int? _cachedOutputWidth;
     private DisplayOutputSnapshot? _cachedDisplaySnapshot;
 
-    public CodingCommandCellView(CodingCommandCell cell)
+    public CodingCommandCellView(CodingCommandCell cell, CodingHarnessTuiTheme theme)
     {
         _cell = cell ?? throw new ArgumentNullException(nameof(cell));
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
@@ -47,8 +49,8 @@ internal sealed class CodingCommandCellView : IComponent
                     output.WriteLineBreak();
                 }
 
-                WriteOutputPrefix(wroteLine, context.Theme.Border, ref output);
-                output.Write($"... +{snapshot.OmittedLineCount} lines".AsSpan(), context.Theme.Border);
+                WriteOutputPrefix(wroteLine, _theme.ResolvePrefix(context.Theme), ref output);
+                output.Write($"... +{snapshot.OmittedLineCount} lines".AsSpan(), _theme.ResolveMuted(context.Theme));
                 wroteLine = true;
             }
 
@@ -58,25 +60,25 @@ internal sealed class CodingCommandCellView : IComponent
                 output.WriteLineBreak();
             }
 
-            WriteOutputPrefix(wroteLine, context.Theme.Border, ref output);
+            WriteOutputPrefix(wroteLine, _theme.ResolvePrefix(context.Theme), ref output);
             var style = line.Stream == CodingCommandOutputStream.Stderr
-                ? context.Theme.Warning
-                : context.Theme.Border;
+                ? _theme.ResolveCommandErrorOutput(context.Theme)
+                : _theme.ResolveCommandOutput(context.Theme);
             WriteClipped(line.Text, outputWidth, style, ref output);
             wroteLine = true;
         }
 
         if (!wroteLine)
         {
-            output.Write("└ ".AsSpan(), context.Theme.Border);
-            output.Write("no output observed".AsSpan(), context.Theme.Border);
+            output.Write("└ ".AsSpan(), _theme.ResolvePrefix(context.Theme));
+            output.Write("no output observed".AsSpan(), _theme.ResolveMuted(context.Theme));
             wroteLine = true;
         }
 
         if (!string.IsNullOrWhiteSpace(_cell.Summary))
         {
             output.WriteLineBreak();
-            output.Write("  ".AsSpan(), context.Theme.Border);
+            output.Write("  ".AsSpan(), _theme.ResolvePrefix(context.Theme));
             output.Write(_cell.Summary.AsSpan(), StyleForState(context));
         }
     }
@@ -179,11 +181,7 @@ internal sealed class CodingCommandCellView : IComponent
     private Style StyleForState(in RenderContext context)
         => _cell.State switch
         {
-            CodingCommandTranscriptState.Completed => context.Theme.Success,
-            CodingCommandTranscriptState.Failed or CodingCommandTranscriptState.TimedOut => context.Theme.Error,
-            CodingCommandTranscriptState.Cancelled => context.Theme.Warning,
-            CodingCommandTranscriptState.Backgrounded => context.Theme.Accent,
-            _ => context.Theme.Border
+            _ => _theme.ResolveCommandState(_cell.State, context.Theme)
         };
 
     private static void WriteClipped(string text, int width, Style style, ref SegmentWriter output)

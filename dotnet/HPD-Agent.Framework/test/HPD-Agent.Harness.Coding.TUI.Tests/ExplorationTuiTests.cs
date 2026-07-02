@@ -8,6 +8,7 @@ using HPD.Agent.TUI.Views;
 using HPD.Agent.ToolHarness.Coding.TUI;
 using HPD.Agent.ToolHarness.Coding.TUI.Exploration;
 using HPD.TUI.Components;
+using HPD.TUI.Core;
 using HPD.TUI.Rendering;
 using HPD.TUI.Views;
 
@@ -85,6 +86,38 @@ public sealed class ExplorationTuiTests
             .Which.Cell.Should().BeOfType<CodingExplorationCell>();
         RenderTranscript(state, registry.TranscriptRenderers).Should().Contain("custom exploration row");
         RenderShell(registry, state).Should().Contain("exploring");
+    }
+
+    [Fact]
+    public async Task CustomCodingTheme_StylesExplorationTranscript()
+    {
+        var codingTheme = new CodingHarnessTuiTheme
+        {
+            Label = new Style(new Color(201, 82, 221), Color.Default, TextAttributes.Bold),
+            Prefix = new Style(new Color(90, 100, 120), Color.Default),
+            Text = new Style(new Color(220, 225, 230), Color.Default)
+        };
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .AddCodingHarnessTui(codingTheme)
+            .Build();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            registry);
+
+        await CompleteTool(
+            state,
+            callId: "call-read-1",
+            name: "ReadFile",
+            messageId: "msg-1",
+            argsJson: """{"path":"src/Agent.cs"}""",
+            resultXml: """<file path="src/Agent.cs" start_line="1" lines_read="100" total_lines="900" truncated="false" coverage="partial" />""");
+
+        var rendered = RenderTranscriptAnsi(state, registry.TranscriptRenderers);
+
+        rendered.Should().Contain("38;2;201;82;221");
+        rendered.Should().Contain("38;2;90;100;120");
+        rendered.Should().Contain("38;2;220;225;230");
     }
 
     [Fact]
@@ -191,6 +224,16 @@ public sealed class ExplorationTuiTests
             width: width,
             height: height,
             trimTrailingBlankLines: true);
+
+    private static string RenderTranscriptAnsi(
+        AgentTuiSessionState state,
+        AgentTuiTranscriptRendererRegistry renderers,
+        int width = 100,
+        int height = 12)
+        => TuiCapture.RenderToAnsi(
+            new TranscriptView(state.Shell.Transcript, renderers, height: 10),
+            width: width,
+            height: height);
 
     private static AgentTuiTranscriptRendererRegistry DefaultTranscriptRenderers()
         => new HpdAgentTuiBuilder()

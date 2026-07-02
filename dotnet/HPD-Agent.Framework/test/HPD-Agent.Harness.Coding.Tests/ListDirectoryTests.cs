@@ -70,7 +70,7 @@ public sealed class ListDirectoryTests : IDisposable
     }
 
     [Fact]
-    public async Task ListDirectory_RootQualifiedPath_ListsSecondaryWorkspaceRoot()
+    public async Task ListDirectory_RootQualifiedPath_IsTreatedAsLiteralPath()
     {
         var docsRoot = Path.Combine(_tempRoot, "docs");
         Directory.CreateDirectory(docsRoot);
@@ -80,12 +80,12 @@ public sealed class ListDirectoryTests : IDisposable
             "@docs",
             context: CreateFunctionContext(CreateWorkspaceRunConfig(_tempRoot, docsRoot)));
 
-        result.Should().Contain("path=\"notes.md\"");
-        result.Should().Contain(Path.GetFullPath(docsRoot));
+        result.Should().Contain("Directory does not exist");
+        result.Should().Contain("@docs");
     }
 
     [Fact]
-    public async Task ListDirectory_PathOutsideWorkspace_Rejects()
+    public async Task ListDirectory_AbsolutePathOutsideWorkspace_ListsWhenInvoked()
     {
         var outside = Path.Combine(Path.GetTempPath(), $"hpd-list-outside-{Guid.NewGuid():N}");
         Directory.CreateDirectory(outside);
@@ -95,8 +95,8 @@ public sealed class ListDirectoryTests : IDisposable
                 outside,
                 context: CreateFunctionContext(CreateWorkspaceRunConfig(_tempRoot)));
 
-            result.Should().Contain("Unable to list directory");
-            result.Should().Contain("outside the configured workspace");
+            result.Should().Contain("<empty_directory");
+            result.Should().Contain(outside);
         }
         finally
         {

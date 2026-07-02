@@ -9,17 +9,20 @@ internal sealed class CodingTranscriptLabeledComponent : IComponent
     private readonly string _depthIndent;
     private readonly IComponent _body;
     private readonly AgentTuiTranscriptRenderServices _services;
+    private readonly CodingHarnessTuiTheme _theme;
 
     public CodingTranscriptLabeledComponent(
         string label,
         string depthIndent,
         IComponent body,
-        AgentTuiTranscriptRenderServices services)
+        AgentTuiTranscriptRenderServices services,
+        CodingHarnessTuiTheme theme)
     {
         _label = label ?? throw new ArgumentNullException(nameof(label));
         _depthIndent = depthIndent ?? throw new ArgumentNullException(nameof(depthIndent));
         _body = body ?? throw new ArgumentNullException(nameof(body));
         _services = services ?? throw new ArgumentNullException(nameof(services));
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
@@ -32,8 +35,8 @@ internal sealed class CodingTranscriptLabeledComponent : IComponent
             return;
         }
 
-        output.Write(_depthIndent.AsSpan(), context.Theme.Text);
-        output.Write(_label.AsSpan(), new Style(Color.Default, Color.Default, TextAttributes.Bold));
+        output.Write(_depthIndent.AsSpan(), _theme.ResolveText(context.Theme));
+        output.Write(_label.AsSpan(), _theme.ResolveLabel(context.Theme));
         output.WriteLineBreak();
         _services.Prefix(
                 _body,

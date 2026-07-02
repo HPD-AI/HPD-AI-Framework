@@ -17,19 +17,19 @@ public record TuiRunOptions
     public bool RenderOnStart { get; init; } = true;
 }
 
-public sealed record NormalTerminalRunOptions : TuiRunOptions
+public sealed record ManagedTerminalRunOptions : TuiRunOptions
 {
-    public NormalTerminalRenderBounds Bounds { get; init; } =
-        NormalTerminalRenderBounds.ViewportAnchored();
+    public ManagedTerminalRenderBounds Bounds { get; init; } =
+        ManagedTerminalRenderBounds.ViewportAnchored();
 }
 
-public readonly record struct NormalTerminalRenderBounds(
+public readonly record struct ManagedTerminalRenderBounds(
     int MaxRows,
-    NormalTerminalAnchor Anchor)
+    ManagedTerminalAnchor Anchor)
 {
-    public static NormalTerminalRenderBounds ViewportAnchored(
+    public static ManagedTerminalRenderBounds ViewportAnchored(
         int maxRows = 0,
-        NormalTerminalAnchor anchor = NormalTerminalAnchor.Bottom) =>
+        ManagedTerminalAnchor anchor = ManagedTerminalAnchor.Bottom) =>
         new(maxRows, anchor);
 
     public int ResolveRows(TerminalSize size)
@@ -39,7 +39,7 @@ public readonly record struct NormalTerminalRenderBounds(
     }
 }
 
-public enum NormalTerminalAnchor
+public enum ManagedTerminalAnchor
 {
     Top,
     Bottom

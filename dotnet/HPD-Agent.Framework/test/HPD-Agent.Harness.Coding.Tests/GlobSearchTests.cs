@@ -115,7 +115,7 @@ public sealed class GlobSearchTests : IDisposable
     }
 
     [Fact]
-    public async Task GlobSearch_UsesRunConfigWorkspaceWhenContextIsProvided()
+    public async Task GlobSearch_UsesCurrentDirectoryWhenContextIsProvided()
     {
         var workspaceRoot = Path.Combine(_tempRoot, "workspace-root");
         Directory.CreateDirectory(workspaceRoot);
@@ -127,13 +127,13 @@ public sealed class GlobSearchTests : IDisposable
             "**/*.cs",
             context: CreateFunctionContext(CreateWorkspaceRunConfig(workspaceRoot)));
 
-        result.Should().Contain($"path=\"{workspaceRoot}");
-        result.Should().Contain("path=\"src/Workspace.cs\"");
-        result.Should().NotContain("Cwd.cs");
+        result.Should().Contain($"path=\"{Directory.GetCurrentDirectory()}");
+        result.Should().Contain("path=\"Cwd.cs\"");
+        result.Should().Contain("path=\"workspace-root/src/Workspace.cs\"");
     }
 
     [Fact]
-    public async Task GlobSearch_ResolvesRelativePathFromRunConfigWorkspace()
+    public async Task GlobSearch_DoesNotResolveRelativePathFromRunConfigWorkspace()
     {
         var workspaceRoot = Path.Combine(_tempRoot, "workspace-root");
         Directory.CreateDirectory(Path.Combine(workspaceRoot, "src"));
@@ -145,26 +145,26 @@ public sealed class GlobSearchTests : IDisposable
             path: "src",
             context: CreateFunctionContext(CreateWorkspaceRunConfig(workspaceRoot)));
 
-        result.Should().Contain($"path=\"{Path.Combine(workspaceRoot, "src")}");
-        result.Should().Contain("path=\"App.cs\"");
-        result.Should().NotContain("Root.cs");
+        result.Should().Contain("Directory does not exist");
+        result.Should().Contain(Path.Combine(_tempRoot, "src"));
     }
 
     [Fact]
-    public async Task GlobSearch_RejectsAbsolutePatternOutsideRunConfigWorkspace()
+    public async Task GlobSearch_AllowsAbsolutePatternOutsideRunConfigWorkspace()
     {
         var workspaceRoot = Path.Combine(_tempRoot, "workspace-root");
         var outsideRoot = Path.Combine(_tempRoot, "outside-root");
         Directory.CreateDirectory(workspaceRoot);
         Directory.CreateDirectory(outsideRoot);
+        await File.WriteAllTextAsync(Path.Combine(outsideRoot, "Outside.cs"), "class Outside {}\n");
         var outsidePattern = Path.Combine(outsideRoot, "*.cs");
 
         var result = await new CodingToolHarness().GlobSearch(
             outsidePattern,
             context: CreateFunctionContext(CreateWorkspaceRunConfig(workspaceRoot)));
 
-        result.Should().Contain("<error tool=\"GlobSearch\"");
-        result.Should().Contain("Path is outside the configured workspace.");
+        result.Should().Contain("path=\"Outside.cs\"");
+        result.Should().Contain(outsideRoot);
     }
 
     [Fact]
@@ -828,9 +828,9 @@ public sealed class GlobSearchTests : IDisposable
     private sealed class FakeGlobSearchPathResolver(ResolvedGlobSearch resolved) : IGlobSearchPathResolver
     {
         public ValueTask<ResolvedGlobSearch?> TryResolveAsync(
-            AgentWorkspace workspace,
             string path,
             string pattern,
+            string baseDirectory,
             CancellationToken cancellationToken)
             => ValueTask.FromResult<ResolvedGlobSearch?>(resolved);
     }

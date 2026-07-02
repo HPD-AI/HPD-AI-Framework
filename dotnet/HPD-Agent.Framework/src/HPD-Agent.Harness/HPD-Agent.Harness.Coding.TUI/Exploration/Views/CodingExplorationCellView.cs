@@ -7,10 +7,12 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration.Views;
 internal sealed class CodingExplorationCellView : IComponent
 {
     private readonly CodingExplorationCell _cell;
+    private readonly CodingHarnessTuiTheme _theme;
 
-    public CodingExplorationCellView(CodingExplorationCell cell)
+    public CodingExplorationCellView(CodingExplorationCell cell, CodingHarnessTuiTheme theme)
     {
         _cell = cell ?? throw new ArgumentNullException(nameof(cell));
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
@@ -35,8 +37,8 @@ internal sealed class CodingExplorationCellView : IComponent
             }
 
             var prefix = i == 0 ? "  └ " : "    ";
-            output.Write(prefix.AsSpan(), context.Theme.Border);
-            WriteWrapped(_cell.Rows[i], prefix.Length, maxWidth, context.Theme.Text, ref output);
+            output.Write(prefix.AsSpan(), _theme.ResolvePrefix(context.Theme));
+            WriteWrapped(_cell.Rows[i], prefix.Length, maxWidth, _theme.ResolveText(context.Theme), ref output);
         }
     }
 

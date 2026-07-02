@@ -77,10 +77,6 @@ public partial class CodingToolHarness
             var result = await ListLocalDirectoryAsync(request, CancellationToken.None).ConfigureAwait(false);
             return FormatDirectoryResult(result);
         }
-        catch (AgentWorkspaceException ex)
-        {
-            return FormatListDirectoryError(path ?? string.Empty, $"Unable to list directory: {ex.Message}");
-        }
         catch (UnauthorizedAccessException ex)
         {
             return FormatListDirectoryError(path ?? string.Empty, $"Unable to list directory: {ex.Message}");
@@ -142,17 +138,8 @@ public partial class CodingToolHarness
     private static ResolvedDirectoryPath ResolveDirectoryPath(string path, FunctionExecutionContext? context)
     {
         var trimmedPath = path.Trim();
-        var workspace = context is null
-            ? CreateDirectCallWorkspace()
-            : AgentWorkspace.From(context.RunConfig);
-        var fullPath = workspace.ResolvePath(trimmedPath);
+        var fullPath = Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
         return new ResolvedDirectoryPath(trimmedPath, fullPath);
-    }
-
-    private static AgentWorkspace CreateDirectCallWorkspace()
-    {
-        var cwd = Directory.GetCurrentDirectory();
-        return new AgentWorkspace("default", cwd, [new AgentWorkspaceRoot("default", cwd)]);
     }
 
     private static bool IsBlockedDirectoryPath(string fullPath)

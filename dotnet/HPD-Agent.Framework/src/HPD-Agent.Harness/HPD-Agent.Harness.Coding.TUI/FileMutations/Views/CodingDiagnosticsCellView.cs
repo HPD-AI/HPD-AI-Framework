@@ -6,10 +6,12 @@ internal sealed class CodingDiagnosticsCellView : IComponent
 {
     private const int MaxDiagnostics = 5;
     private readonly CodingDiagnosticsCell _cell;
+    private readonly CodingHarnessTuiTheme _theme;
 
-    public CodingDiagnosticsCellView(CodingDiagnosticsCell cell)
+    public CodingDiagnosticsCellView(CodingDiagnosticsCell cell, CodingHarnessTuiTheme theme)
     {
         _cell = cell ?? throw new ArgumentNullException(nameof(cell));
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
@@ -24,7 +26,7 @@ internal sealed class CodingDiagnosticsCellView : IComponent
     }
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
-        => RenderDiagnosticsBody(_cell.Diagnostics, _cell.Truncated, maxWidth, MaxDiagnostics, in context, ref output);
+        => RenderDiagnosticsBody(_cell.Diagnostics, _cell.Truncated, maxWidth, MaxDiagnostics, _theme, in context, ref output);
 
     public bool HandleInput(in TuiInputEvent input)
     {
@@ -36,43 +38,45 @@ internal sealed class CodingDiagnosticsCellView : IComponent
         bool diagnosticsTruncated,
         int maxWidth,
         int maxDiagnostics,
+        CodingHarnessTuiTheme theme,
         in RenderContext context,
         ref SegmentWriter output)
     {
-        output.Write("Diagnostics".AsSpan(), context.Theme.Border);
+        output.Write("Diagnostics".AsSpan(), theme.ResolveMuted(context.Theme));
 
         var rendered = 0;
         foreach (var diagnostic in VisibleDiagnostics(diagnostics).Take(maxDiagnostics))
         {
             output.WriteLineBreak();
-            RenderDiagnostic(diagnostic, maxWidth, in context, ref output);
+            RenderDiagnostic(diagnostic, maxWidth, theme, in context, ref output);
             rendered++;
         }
 
         if (rendered == 0)
         {
             output.WriteLineBreak();
-            output.Write("  no errors or warnings".AsSpan(), context.Theme.Border);
+            output.Write("  no errors or warnings".AsSpan(), theme.ResolveMuted(context.Theme));
         }
 
         if (diagnosticsTruncated)
         {
             output.WriteLineBreak();
-            output.Write("  ⋮ diagnostics omitted".AsSpan(), context.Theme.Border);
+            output.Write("  ⋮ diagnostics omitted".AsSpan(), theme.ResolveMuted(context.Theme));
         }
     }
 
     private static void RenderDiagnostic(
         CodingDiagnosticLine diagnostic,
         int maxWidth,
+        CodingHarnessTuiTheme theme,
         in RenderContext context,
         ref SegmentWriter output)
     {
         var style = diagnostic.Severity switch
         {
-            CodingDiagnosticSeverity.Error => context.Theme.Error,
-            CodingDiagnosticSeverity.Warning => context.Theme.Warning,
-            _ => context.Theme.Border
+            CodingDiagnosticSeverity.Error => theme.ResolveDiagnosticError(context.Theme),
+            CodingDiagnosticSeverity.Warning => theme.ResolveDiagnosticWarning(context.Theme),
+            _ => theme.ResolveMuted(context.Theme)
         };
         var marker = diagnostic.Severity == CodingDiagnosticSeverity.Warning ? "⚠" : "■";
         var code = string.IsNullOrWhiteSpace(diagnostic.Code) ? diagnostic.Source : diagnostic.Code;

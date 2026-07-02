@@ -5,24 +5,40 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Status;
 
 internal sealed class FileMutationStatusItem : IAgentTuiStatusItem
 {
+    private readonly CodingHarnessTuiTheme _theme;
+
+    public FileMutationStatusItem(CodingHarnessTuiTheme theme)
+    {
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
+    }
+
     public IComponent Create(AgentTuiStatusContext context)
-        => new FileMutationStatusComponent(context.State);
+        => new FileMutationStatusComponent(context.State, _theme);
 }
 
 internal sealed class CodingDiagnosticsStatusItem : IAgentTuiStatusItem
 {
+    private readonly CodingHarnessTuiTheme _theme;
+
+    public CodingDiagnosticsStatusItem(CodingHarnessTuiTheme theme)
+    {
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
+    }
+
     public IComponent Create(AgentTuiStatusContext context)
-        => new CodingDiagnosticsStatusComponent(context.State);
+        => new CodingDiagnosticsStatusComponent(context.State, _theme);
 }
 
 internal abstract class CodingFileStatusComponentBase : IComponent
 {
-    protected CodingFileStatusComponentBase(AgentTuiStateBag state)
+    protected CodingFileStatusComponentBase(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
     {
         State = state ?? throw new ArgumentNullException(nameof(state));
+        Theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
     protected AgentTuiStateBag State { get; }
+    protected CodingHarnessTuiTheme Theme { get; }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
     {
@@ -40,7 +56,7 @@ internal abstract class CodingFileStatusComponentBase : IComponent
             return;
         }
 
-        output.Write(Clip(text, maxWidth).AsSpan(), context.Theme.Border);
+        output.Write(Clip(text, maxWidth).AsSpan(), Theme.ResolveMuted(context.Theme));
     }
 
     public bool HandleInput(in TuiInputEvent input)
@@ -68,8 +84,8 @@ internal abstract class CodingFileStatusComponentBase : IComponent
 
 internal sealed class FileMutationStatusComponent : CodingFileStatusComponentBase
 {
-    public FileMutationStatusComponent(AgentTuiStateBag state)
-        : base(state)
+    public FileMutationStatusComponent(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
+        : base(state, theme)
     {
     }
 
@@ -89,8 +105,8 @@ internal sealed class FileMutationStatusComponent : CodingFileStatusComponentBas
 
 internal sealed class CodingDiagnosticsStatusComponent : CodingFileStatusComponentBase
 {
-    public CodingDiagnosticsStatusComponent(AgentTuiStateBag state)
-        : base(state)
+    public CodingDiagnosticsStatusComponent(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
+        : base(state, theme)
     {
     }
 

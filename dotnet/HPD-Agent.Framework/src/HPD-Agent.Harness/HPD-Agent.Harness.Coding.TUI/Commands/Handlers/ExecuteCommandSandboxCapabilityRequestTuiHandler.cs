@@ -14,6 +14,13 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Handlers;
 public sealed class ExecuteCommandSandboxCapabilityRequestTuiHandler :
     AgentTuiInteractionHandler<ExecuteCommandSandboxCapabilityRequestEvent>
 {
+    private readonly CodingHarnessTuiTheme _theme;
+
+    public ExecuteCommandSandboxCapabilityRequestTuiHandler(CodingHarnessTuiTheme theme)
+    {
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
+    }
+
     protected override async Task<AgentEvent?> HandleAsync(
         AgentTuiInteractionContext<ExecuteCommandSandboxCapabilityRequestEvent> context,
         CancellationToken cancellationToken)
@@ -21,7 +28,7 @@ public sealed class ExecuteCommandSandboxCapabilityRequestTuiHandler :
         var request = context.Request;
         var response = await context.Dialogs.ShowAsync<ExecuteCommandSandboxCapabilityResponseEvent>(
             $"execute-command-sandbox-capability:{request.RequestId}",
-            dialog => new ExecuteCommandSandboxCapabilityDialogComponent(request, dialog),
+            dialog => new ExecuteCommandSandboxCapabilityDialogComponent(request, dialog, _theme),
             cancellationToken).ConfigureAwait(false);
 
         return response ?? new ExecuteCommandSandboxCapabilityResponseEvent(
@@ -38,13 +45,16 @@ internal sealed class ExecuteCommandSandboxCapabilityDialogComponent : IFocusabl
     private readonly SelectionModel<SandboxCapabilityChoice> _choices = new();
     private readonly SelectionController<SandboxCapabilityChoice> _controller;
     private readonly SelectionView<SandboxCapabilityChoice> _view;
+    private readonly CodingHarnessTuiTheme _theme;
 
     public ExecuteCommandSandboxCapabilityDialogComponent(
         ExecuteCommandSandboxCapabilityRequestEvent request,
-        AgentTuiDialogContext<ExecuteCommandSandboxCapabilityResponseEvent> dialog)
+        AgentTuiDialogContext<ExecuteCommandSandboxCapabilityResponseEvent> dialog,
+        CodingHarnessTuiTheme theme)
     {
         _request = request;
         _dialog = dialog;
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
         _choices.Add(new CollectionItem<SandboxCapabilityChoice>(
             "allow_once",
             new SandboxCapabilityChoice(true),
@@ -73,16 +83,16 @@ internal sealed class ExecuteCommandSandboxCapabilityDialogComponent : IFocusabl
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
-        WriteLine(ref output, BuildTitle(_request.Capability), context.Theme.Accent, maxWidth);
+        WriteLine(ref output, BuildTitle(_request.Capability), _theme.ResolvePermissionTitle(context.Theme), maxWidth);
         output.WriteLineBreak();
-        WriteLine(ref output, $"$ {_request.Command}", context.Theme.Text, maxWidth);
-        WriteLine(ref output, $"cwd: {_request.WorkingDirectory}", context.Theme.Border, maxWidth);
-        WriteLine(ref output, $"reason: {_request.FailureSummary}", context.Theme.Border, maxWidth);
+        WriteLine(ref output, $"$ {_request.Command}", _theme.ResolvePermissionCommand(context.Theme), maxWidth);
+        WriteLine(ref output, $"cwd: {_request.WorkingDirectory}", _theme.ResolvePermissionDetail(context.Theme), maxWidth);
+        WriteLine(ref output, $"reason: {_request.FailureSummary}", _theme.ResolvePermissionDetail(context.Theme), maxWidth);
         output.WriteLineBreak();
         _view.Render(in context, maxWidth, ref output);
         output.WriteLineBreak();
         output.WriteLineBreak();
-        WriteLine(ref output, "Use arrows to choose. Enter confirms. Esc denies.", context.Theme.Border, maxWidth);
+        WriteLine(ref output, "Use arrows to choose. Enter confirms. Esc denies.", _theme.ResolvePermissionDetail(context.Theme), maxWidth);
     }
 
     public bool HandleInput(in TuiInputEvent input)

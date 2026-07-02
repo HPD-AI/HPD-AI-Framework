@@ -46,7 +46,7 @@ public sealed class EnvironmentContextMiddlewareTests
         var xml = context.SerializeToXml();
 
         xml.Should().Contain("<environment_context>");
-        xml.Should().Contain("<cwd>/tmp/repo</cwd>");
+        xml.Should().NotContain("<cwd>");
         xml.Should().Contain("<shell>zsh</shell>");
         xml.Should().Contain("<shell_executable>/bin/zsh</shell_executable>");
         xml.Should().Contain("<shell_kind>posix</shell_kind>");
@@ -98,7 +98,7 @@ public sealed class EnvironmentContextMiddlewareTests
 
         var xml = context.SerializeToXml();
 
-        xml.Should().Contain("<cwd>/tmp/&lt;repo&gt;&amp;&quot;&apos;</cwd>");
+        xml.Should().NotContain("<cwd>");
         xml.Should().Contain("<shell>zsh&amp;bash</shell>");
         xml.Should().Contain("<shell_executable>/bin/&lt;zsh&gt;&amp;</shell_executable>");
         xml.Should().Contain("<shell_kind>posix&amp;shell</shell_kind>");
@@ -114,7 +114,7 @@ public sealed class EnvironmentContextMiddlewareTests
     }
 
     [Fact]
-    public void SerializeToXml_UsesSelectedWorkspaceAsPrimaryCwd()
+    public void SerializeToXml_ReportsSelectedWorkspaceWithoutCwd()
     {
         var context = new EnvironmentContext
         {
@@ -141,9 +141,9 @@ public sealed class EnvironmentContextMiddlewareTests
 
         var xml = context.SerializeToXml(workspace);
 
-        xml.Should().Contain("<cwd>/tmp/selected-workspace</cwd>");
+        xml.Should().NotContain("<cwd>");
         xml.Should().Contain("<workspace_root>/tmp/selected-workspace</workspace_root>");
-        xml.Should().Contain("<host_process_cwd>/tmp/source-host</host_process_cwd>");
+        xml.Should().NotContain("<host_process_cwd>");
         xml.Should().Contain("<default_root_path>/tmp/selected-workspace</default_root_path>");
     }
 
@@ -212,11 +212,12 @@ public sealed class EnvironmentContextMiddlewareTests
         messages.Should().HaveCount(3);
         messages[2].Text.Should().Be("hello");
         context.Options.Instructions.Should().Contain("<environment_context>");
-        context.Options.Instructions.Should().Contain("<cwd>");
+        context.Options.Instructions.Should().Contain("<workspace_root>");
+        context.Options.Instructions.Should().NotContain("<cwd>");
     }
 
     [Fact]
-    public async Task BeforeIterationAsync_UsesRunConfigWorkspaceAsPrimaryCwd()
+    public async Task BeforeIterationAsync_ReportsSelectedWorkspaceWithoutCwd()
     {
         var originalCwd = Directory.GetCurrentDirectory();
         var tempRoot = Path.Combine(Path.GetTempPath(), $"hpd-coding-workspace-context-{Guid.NewGuid():N}");
@@ -248,9 +249,10 @@ public sealed class EnvironmentContextMiddlewareTests
 
             await middleware.BeforeIterationAsync(context, CancellationToken.None);
 
-            context.Options.Instructions.Should().Contain($"<cwd>{selectedWorkspace}</cwd>");
+            context.Options.Instructions.Should().NotContain("<cwd>");
             context.Options.Instructions.Should().Contain($"<workspace_root>{selectedWorkspace}</workspace_root>");
-            context.Options.Instructions.Should().Contain($"<host_process_cwd>{hostProcessCwd}</host_process_cwd>");
+            context.Options.Instructions.Should().NotContain("<host_process_cwd>");
+            context.Options.Instructions.Should().Contain($"<default_root_path>{selectedWorkspace}</default_root_path>");
         }
         finally
         {
@@ -308,8 +310,10 @@ public sealed class EnvironmentContextMiddlewareTests
             var secondContext = CreateBeforeIterationContext(agentContext, secondMessages);
             await middleware.BeforeIterationAsync(secondContext, CancellationToken.None);
 
-            firstContext.Options.Instructions.Should().Contain($"<cwd>{firstCwd}</cwd>");
-            secondContext.Options.Instructions.Should().Contain($"<cwd>{secondCwd}</cwd>");
+            firstContext.Options.Instructions.Should().Contain($"<workspace_root>{firstCwd}</workspace_root>");
+            secondContext.Options.Instructions.Should().Contain($"<workspace_root>{secondCwd}</workspace_root>");
+            firstContext.Options.Instructions.Should().NotContain("<cwd>");
+            secondContext.Options.Instructions.Should().NotContain("<cwd>");
         }
         finally
         {

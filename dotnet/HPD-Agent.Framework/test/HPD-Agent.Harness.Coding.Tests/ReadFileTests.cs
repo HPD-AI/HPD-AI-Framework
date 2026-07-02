@@ -466,7 +466,7 @@ public sealed class ReadFileTests : IDisposable
     }
 
     [Fact]
-    public async Task ReadFile_RootQualifiedPath_ReadsSecondaryWorkspaceRoot()
+    public async Task ReadFile_RootQualifiedPath_IsTreatedAsLiteralPath()
     {
         var docsRoot = Path.Combine(_tempRoot, "docs");
         Directory.CreateDirectory(docsRoot);
@@ -477,12 +477,12 @@ public sealed class ReadFileTests : IDisposable
             "@docs/notes.md",
             runConfig: CreateWorkspaceRunConfig(_tempRoot, docsRoot));
 
-        result.Should().Contain("# docs");
-        result.Should().Contain(Path.Combine(docsRoot, "notes.md"));
+        result.Should().Contain("File does not exist");
+        result.Should().Contain("@docs/notes.md");
     }
 
     [Fact]
-    public async Task ReadFile_PathOutsideWorkspace_Rejects()
+    public async Task ReadFile_AbsolutePathOutsideWorkspace_ReadsWhenInvoked()
     {
         var outside = Path.Combine(Path.GetTempPath(), $"hpd-read-outside-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(outside, "secret");
@@ -493,8 +493,8 @@ public sealed class ReadFileTests : IDisposable
                 outside,
                 runConfig: CreateWorkspaceRunConfig(_tempRoot));
 
-            result.Should().Contain("Unable to read file");
-            result.Should().Contain("outside the configured workspace");
+            result.Should().Contain("1\tsecret");
+            result.Should().Contain(outside);
         }
         finally
         {

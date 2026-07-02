@@ -13,6 +13,13 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Handlers;
 public sealed class ExecuteCommandPermissionRequestTuiHandler :
     AgentTuiInteractionHandler<ExecuteCommandPermissionRequestEvent>
 {
+    private readonly CodingHarnessTuiTheme _theme;
+
+    public ExecuteCommandPermissionRequestTuiHandler(CodingHarnessTuiTheme theme)
+    {
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
+    }
+
     protected override async Task<AgentEvent?> HandleAsync(
         AgentTuiInteractionContext<ExecuteCommandPermissionRequestEvent> context,
         CancellationToken cancellationToken)
@@ -20,7 +27,7 @@ public sealed class ExecuteCommandPermissionRequestTuiHandler :
         var request = context.Request;
         var response = await context.Dialogs.ShowAsync<ExecuteCommandPermissionResponseEvent>(
             $"execute-command-permission:{request.PermissionId}",
-            dialog => new ExecuteCommandPermissionDialogComponent(request, dialog),
+            dialog => new ExecuteCommandPermissionDialogComponent(request, dialog, _theme),
             cancellationToken).ConfigureAwait(false);
 
         return response ?? CreateDeniedResponse(request);
@@ -42,15 +49,18 @@ internal sealed class ExecuteCommandPermissionDialogComponent : IFocusable
     private readonly SelectionController<ExecuteCommandPermissionChoice> _choiceController;
     private readonly SelectionView<ExecuteCommandPermissionChoice> _choiceView;
     private readonly StringBuilder _feedback = new();
+    private readonly CodingHarnessTuiTheme _theme;
     private bool _feedbackMode;
     private string? _validationMessage;
 
     public ExecuteCommandPermissionDialogComponent(
         ExecuteCommandPermissionRequestEvent request,
-        AgentTuiDialogContext<ExecuteCommandPermissionResponseEvent> dialog)
+        AgentTuiDialogContext<ExecuteCommandPermissionResponseEvent> dialog,
+        CodingHarnessTuiTheme theme)
     {
         _request = request ?? throw new ArgumentNullException(nameof(request));
         _dialog = dialog ?? throw new ArgumentNullException(nameof(dialog));
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
         _choices = CreateChoiceModel(request.AvailableChoices);
         _choiceController = new SelectionController<ExecuteCommandPermissionChoice>(_choices)
         {
@@ -79,25 +89,25 @@ internal sealed class ExecuteCommandPermissionDialogComponent : IFocusable
 
     public void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
-        WriteLine(ref output, "Approve command?", context.Theme.Accent, maxWidth);
+        WriteLine(ref output, "Approve command?", _theme.ResolvePermissionTitle(context.Theme), maxWidth);
         output.WriteLineBreak();
 
-        WriteLine(ref output, $"Reason: {BuildReason(_request.Plan)}", context.Theme.Border, maxWidth);
+        WriteLine(ref output, $"Reason: {BuildReason(_request.Plan)}", _theme.ResolvePermissionDetail(context.Theme), maxWidth);
         output.WriteLineBreak();
 
         foreach (var line in BuildCommandLines(_request))
         {
             var style = line.StartsWith("$ ", StringComparison.Ordinal)
-                ? context.Theme.Text
-                : context.Theme.Border;
+                ? _theme.ResolvePermissionCommand(context.Theme)
+                : _theme.ResolvePermissionDetail(context.Theme);
             WriteLine(ref output, line, style, maxWidth);
         }
 
         output.WriteLineBreak();
-        WriteLine(ref output, "Security review", context.Theme.Accent, maxWidth);
+        WriteLine(ref output, "Security review", _theme.ResolvePermissionTitle(context.Theme), maxWidth);
         foreach (var line in BuildSecurityReviewLines(_request))
         {
-            WriteLine(ref output, line, context.Theme.Border, maxWidth);
+            WriteLine(ref output, line, _theme.ResolvePermissionDetail(context.Theme), maxWidth);
         }
 
         output.WriteLineBreak();
@@ -107,19 +117,19 @@ internal sealed class ExecuteCommandPermissionDialogComponent : IFocusable
 
         if (_feedbackMode)
         {
-            WriteLine(ref output, "Feedback for the agent:", context.Theme.Accent, maxWidth);
-            WriteLine(ref output, _feedback.Length == 0 ? "_" : _feedback.ToString(), context.Theme.Text, maxWidth);
-            WriteLine(ref output, "Enter submits feedback. Backspace edits. Esc cancels.", context.Theme.Border, maxWidth);
+            WriteLine(ref output, "Feedback for the agent:", _theme.ResolvePermissionTitle(context.Theme), maxWidth);
+            WriteLine(ref output, _feedback.Length == 0 ? "_" : _feedback.ToString(), _theme.ResolvePermissionCommand(context.Theme), maxWidth);
+            WriteLine(ref output, "Enter submits feedback. Backspace edits. Esc cancels.", _theme.ResolvePermissionDetail(context.Theme), maxWidth);
         }
         else
         {
-            WriteLine(ref output, "Use arrows to choose. Enter confirms. Esc denies.", context.Theme.Border, maxWidth);
+            WriteLine(ref output, "Use arrows to choose. Enter confirms. Esc denies.", _theme.ResolvePermissionDetail(context.Theme), maxWidth);
         }
 
         if (!string.IsNullOrWhiteSpace(_validationMessage))
         {
             output.WriteLineBreak();
-            WriteLine(ref output, _validationMessage, context.Theme.Warning, maxWidth);
+            WriteLine(ref output, _validationMessage, _theme.ResolveDiagnosticWarning(context.Theme), maxWidth);
         }
     }
 

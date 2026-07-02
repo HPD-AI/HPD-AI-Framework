@@ -5,16 +5,16 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Pages;
 
 internal static class CodingCommandPages
 {
-    public static HpdAgentTuiPageDescriptor CommandsPage()
-        => new("hpd.coding.commands", context => new CodingCommandsPageComponent(context.State))
+    public static HpdAgentTuiPageDescriptor CommandsPage(CodingHarnessTuiTheme theme)
+        => new("hpd.coding.commands", context => new CodingCommandsPageComponent(context.State, theme))
         {
             Title = "Coding Commands",
             Description = "Show coding command execution state.",
             Hidden = true
         };
 
-    public static HpdAgentTuiPageDescriptor BackgroundPage()
-        => new("hpd.coding.background", context => new CodingBackgroundCommandsPageComponent(context.State))
+    public static HpdAgentTuiPageDescriptor BackgroundPage(CodingHarnessTuiTheme theme)
+        => new("hpd.coding.background", context => new CodingBackgroundCommandsPageComponent(context.State, theme))
         {
             Title = "Background Commands",
             Description = "Show active background command state.",
@@ -24,12 +24,14 @@ internal static class CodingCommandPages
 
 internal abstract class CodingCommandPageComponentBase : IComponent
 {
-    protected CodingCommandPageComponentBase(AgentTuiStateBag state)
+    protected CodingCommandPageComponentBase(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
     {
         State = state ?? throw new ArgumentNullException(nameof(state));
+        Theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
     protected AgentTuiStateBag State { get; }
+    protected CodingHarnessTuiTheme Theme { get; }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
         => new(Math.Min(20, maxWidth), Math.Min(120, maxWidth), 1);
@@ -44,7 +46,7 @@ internal abstract class CodingCommandPageComponentBase : IComponent
     protected bool TryGetStore(out CodingCommandExecutionStore store)
         => State.TryGet(CodingCommandExecutionStore.StateKey, out store!);
 
-    protected static void WriteCommandBlock(
+    protected void WriteCommandBlock(
         CodingCommandExecutionState command,
         int maxWidth,
         int tailRows,
@@ -52,20 +54,20 @@ internal abstract class CodingCommandPageComponentBase : IComponent
         ref SegmentWriter output)
     {
         var title = $"{CodingCommandRenderText.VerbFor(command)} {command.DisplayCommand}";
-        CodingCommandPanelText.WriteClipped(title, maxWidth, context.Theme.Accent, ref output);
+        CodingCommandPanelText.WriteClipped(title, maxWidth, Theme.ResolveCommandState(MapState(command.DisplayState), context.Theme), ref output);
 
         WriteMetadataLine(command, maxWidth, in context, ref output);
         WriteOutputTail(command, maxWidth, tailRows, in context, ref output);
     }
 
-    protected static void WriteBackgroundCommandBlock(
+    protected void WriteBackgroundCommandBlock(
         CodingCommandExecutionState command,
         int maxWidth,
         int tailRows,
         in RenderContext context,
         ref SegmentWriter output)
     {
-        CodingCommandPanelText.WriteClipped($"• {command.DisplayCommand}", maxWidth, context.Theme.Accent, ref output);
+        CodingCommandPanelText.WriteClipped($"• {command.DisplayCommand}", maxWidth, Theme.ResolveCommandState(MapState(command.DisplayState), context.Theme), ref output);
         WriteBackgroundDetail("task", command.BackgroundTaskId ?? command.CommandId, maxWidth, in context, ref output);
         if (!string.IsNullOrWhiteSpace(command.WorkingDirectory))
         {
@@ -76,7 +78,7 @@ internal abstract class CodingCommandPageComponentBase : IComponent
         WriteOutputTail(command, maxWidth, tailRows, in context, ref output);
     }
 
-    private static void WriteBackgroundDetail(
+    private void WriteBackgroundDetail(
         string label,
         string value,
         int maxWidth,
@@ -84,8 +86,8 @@ internal abstract class CodingCommandPageComponentBase : IComponent
         ref SegmentWriter output)
     {
         output.WriteLineBreak();
-        output.Write($"  {label} ".AsSpan(), context.Theme.Border);
-        CodingCommandPanelText.WriteClipped(value, Math.Max(0, maxWidth - label.Length - 3), context.Theme.Border, ref output);
+        output.Write($"  {label} ".AsSpan(), Theme.ResolvePrefix(context.Theme));
+        CodingCommandPanelText.WriteClipped(value, Math.Max(0, maxWidth - label.Length - 3), Theme.ResolveMuted(context.Theme), ref output);
     }
 
     private static string BuildBackgroundStateText(CodingCommandExecutionState command)
@@ -127,7 +129,7 @@ internal abstract class CodingCommandPageComponentBase : IComponent
         return $"{(int)elapsed.TotalHours}h {elapsed.Minutes:D2}m";
     }
 
-    private static void WriteMetadataLine(
+    private void WriteMetadataLine(
         CodingCommandExecutionState command,
         int maxWidth,
         in RenderContext context,
@@ -157,15 +159,15 @@ internal abstract class CodingCommandPageComponentBase : IComponent
         parts.Add(CodingCommandPanelText.BuildMetadata(command, includeWorkingDirectory: false));
 
         output.WriteLineBreak();
-        output.Write("  ".AsSpan(), context.Theme.Border);
+        output.Write("  ".AsSpan(), Theme.ResolvePrefix(context.Theme));
         CodingCommandPanelText.WriteClipped(
             string.Join("  ", parts.Where(static part => !string.IsNullOrWhiteSpace(part))),
             Math.Max(0, maxWidth - 2),
-            context.Theme.Border,
+            Theme.ResolveMuted(context.Theme),
             ref output);
     }
 
-    private static void WriteOutputTail(
+    private void WriteOutputTail(
         CodingCommandExecutionState command,
         int maxWidth,
         int tailRows,
@@ -181,42 +183,54 @@ internal abstract class CodingCommandPageComponentBase : IComponent
         if (snapshot.Lines.Count == 0)
         {
             output.WriteLineBreak();
-            output.Write("  no output observed".AsSpan(), context.Theme.Border);
+            output.Write("  no output observed".AsSpan(), Theme.ResolveMuted(context.Theme));
             return;
         }
 
         foreach (var line in snapshot.Lines)
         {
             output.WriteLineBreak();
-            output.Write("  ".AsSpan(), context.Theme.Border);
+            output.Write("  ".AsSpan(), Theme.ResolvePrefix(context.Theme));
             var style = line.Stream == ExecuteCommandStreamKind.Stderr
-                ? context.Theme.Warning
-                : context.Theme.Border;
+                ? Theme.ResolveCommandErrorOutput(context.Theme)
+                : Theme.ResolveCommandOutput(context.Theme);
             CodingCommandPanelText.WriteClipped(line.Text, outputWidth, style, ref output);
         }
 
         if (snapshot.OmittedLineCount > 0)
         {
             output.WriteLineBreak();
-            output.Write($"  ... +{snapshot.OmittedLineCount} lines".AsSpan(), context.Theme.Border);
+            output.Write($"  ... +{snapshot.OmittedLineCount} lines".AsSpan(), Theme.ResolveMuted(context.Theme));
         }
     }
+
+    private static CodingCommandTranscriptState MapState(CodingCommandDisplayState state)
+        => state switch
+        {
+            CodingCommandDisplayState.Running => CodingCommandTranscriptState.Running,
+            CodingCommandDisplayState.Backgrounded => CodingCommandTranscriptState.Backgrounded,
+            CodingCommandDisplayState.Completed => CodingCommandTranscriptState.Completed,
+            CodingCommandDisplayState.Failed => CodingCommandTranscriptState.Failed,
+            CodingCommandDisplayState.Cancelled => CodingCommandTranscriptState.Cancelled,
+            CodingCommandDisplayState.TimedOut => CodingCommandTranscriptState.TimedOut,
+            _ => CodingCommandTranscriptState.Exited
+        };
 }
 
 internal sealed class CodingCommandsPageComponent : CodingCommandPageComponentBase
 {
-    public CodingCommandsPageComponent(AgentTuiStateBag state)
-        : base(state)
+    public CodingCommandsPageComponent(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
+        : base(state, theme)
     {
     }
 
     public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
-        output.Write("Coding commands".AsSpan(), context.Theme.Accent);
+        output.Write("Coding commands".AsSpan(), Theme.ResolveCommandState(CodingCommandTranscriptState.Running, context.Theme));
         if (!TryGetStore(out var store))
         {
             output.WriteLineBreak();
-            output.Write("No command state observed.".AsSpan(), context.Theme.Border);
+            output.Write("No command state observed.".AsSpan(), Theme.ResolveMuted(context.Theme));
             return;
         }
 
@@ -230,7 +244,7 @@ internal sealed class CodingCommandsPageComponent : CodingCommandPageComponentBa
         if (commands.Length == 0)
         {
             output.WriteLineBreak();
-            output.Write("No command state observed.".AsSpan(), context.Theme.Border);
+            output.Write("No command state observed.".AsSpan(), Theme.ResolveMuted(context.Theme));
             return;
         }
 
@@ -245,18 +259,18 @@ internal sealed class CodingCommandsPageComponent : CodingCommandPageComponentBa
 
 internal sealed class CodingBackgroundCommandsPageComponent : CodingCommandPageComponentBase
 {
-    public CodingBackgroundCommandsPageComponent(AgentTuiStateBag state)
-        : base(state)
+    public CodingBackgroundCommandsPageComponent(AgentTuiStateBag state, CodingHarnessTuiTheme theme)
+        : base(state, theme)
     {
     }
 
     public override void Render(in RenderContext context, int maxWidth, ref SegmentWriter output)
     {
-        output.Write("Background commands".AsSpan(), context.Theme.Accent);
+        output.Write("Background commands".AsSpan(), Theme.ResolveCommandState(CodingCommandTranscriptState.Backgrounded, context.Theme));
         if (!TryGetStore(out var store) || store.ActiveBackground.Count == 0)
         {
             output.WriteLineBreak();
-            output.Write("No active background commands.".AsSpan(), context.Theme.Border);
+            output.Write("No active background commands.".AsSpan(), Theme.ResolveMuted(context.Theme));
             return;
         }
 

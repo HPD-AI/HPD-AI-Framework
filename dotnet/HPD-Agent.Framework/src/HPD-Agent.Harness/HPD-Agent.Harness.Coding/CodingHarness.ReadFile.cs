@@ -126,10 +126,6 @@ public partial class CodingToolHarness
         {
             return FormatError(path ?? string.Empty, "Unable to decode file as text.");
         }
-        catch (AgentWorkspaceException ex)
-        {
-            return FormatError(path ?? string.Empty, $"Unable to read file: {ex.Message}");
-        }
         catch (UnauthorizedAccessException ex)
         {
             return FormatError(path ?? string.Empty, $"Unable to read file: {ex.Message}");
@@ -171,8 +167,7 @@ public partial class CodingToolHarness
     private static ResolvedReadPath ResolveReadPath(string path, FunctionExecutionContext context)
     {
         var trimmedPath = path.Trim();
-        var workspace = AgentWorkspace.From(context.RunConfig);
-        var fullPath = workspace.ResolvePath(trimmedPath);
+        var fullPath = Path.GetFullPath(trimmedPath, Directory.GetCurrentDirectory());
         return new ResolvedReadPath(trimmedPath, fullPath);
     }
 

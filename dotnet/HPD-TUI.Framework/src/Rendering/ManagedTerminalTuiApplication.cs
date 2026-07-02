@@ -6,22 +6,22 @@ using HPD.Events.Signals;
 
 namespace HPD.TUI.Rendering;
 
-public sealed class NormalTerminalTuiApplication : IDisposable
+public sealed class ManagedTerminalTuiApplication : IDisposable
 {
     public static readonly TimeSpan DefaultFrameInterval = TimeSpan.FromMilliseconds(16);
 
     private readonly ITerminal _terminal;
-    private readonly NormalTerminalTuiRenderer _renderer;
+    private readonly ManagedTerminalTuiRenderer _renderer;
     private IComponent? _root;
     private Theme _theme = Theme.Default;
     private EventLoopMailbox<TuiLoopEvent>? _mailbox;
     private bool _stopRequested;
     private bool _disposed;
 
-    public NormalTerminalTuiApplication(ITerminal terminal)
+    public ManagedTerminalTuiApplication(ITerminal terminal)
     {
         _terminal = terminal ?? throw new ArgumentNullException(nameof(terminal));
-        _renderer = new NormalTerminalTuiRenderer(terminal);
+        _renderer = new ManagedTerminalTuiRenderer(terminal);
         _renderer.PerformanceSink = TuiPerformanceDiagnostics.CreateTextWriterSinkFromEnvironment(Console.Error);
     }
 
@@ -72,11 +72,11 @@ public sealed class NormalTerminalTuiApplication : IDisposable
     }
 
     public async Task RunAsync(
-        NormalTerminalRunOptions? options = null,
+        ManagedTerminalRunOptions? options = null,
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        options ??= new NormalTerminalRunOptions();
+        options ??= new ManagedTerminalRunOptions();
 
         _terminal.HideCursor();
 
@@ -113,7 +113,7 @@ public sealed class NormalTerminalTuiApplication : IDisposable
         }
     }
 
-    public void Render(NormalTerminalRunOptions options)
+    public void Render(ManagedTerminalRunOptions options)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(options);

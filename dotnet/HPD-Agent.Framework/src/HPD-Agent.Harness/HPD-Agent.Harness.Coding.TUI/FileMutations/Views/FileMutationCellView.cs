@@ -9,10 +9,12 @@ internal sealed class FileMutationCellView : IComponent
     private const int MaxRenderedDiffLines = 18;
     private const int MaxDiagnostics = 4;
     private readonly FileMutationCell _cell;
+    private readonly CodingHarnessTuiTheme _theme;
 
-    public FileMutationCellView(FileMutationCell cell)
+    public FileMutationCellView(FileMutationCell cell, CodingHarnessTuiTheme theme)
     {
         _cell = cell ?? throw new ArgumentNullException(nameof(cell));
+        _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
@@ -56,7 +58,7 @@ internal sealed class FileMutationCellView : IComponent
             if (wroteAny)
             {
                 output.WriteLineBreak();
-                WriteHunkSeparator(context.Theme.Border, ref output);
+                WriteHunkSeparator(_theme.ResolveMuted(context.Theme), ref output);
             }
 
             var oldLine = hunk.OldStart;
@@ -66,7 +68,7 @@ internal sealed class FileMutationCellView : IComponent
                 if (renderedLines >= MaxRenderedDiffLines)
                 {
                     output.WriteLineBreak();
-                    WriteTruncation("diff truncated", context.Theme.Border, ref output);
+                    WriteTruncation("diff truncated", _theme.ResolveMuted(context.Theme), ref output);
                     RenderDiagnosticsIfNeeded(in context, maxWidth, ref output);
                     return;
                 }
@@ -89,7 +91,7 @@ internal sealed class FileMutationCellView : IComponent
                     oldLine++;
                 }
 
-                WriteDiffLine(number, gutterWidth, sign, line.Text, in context, maxWidth, ref output);
+                WriteDiffLine(number, gutterWidth, sign, line.Text, _theme, in context, maxWidth, ref output);
                 renderedLines++;
                 wroteAny = true;
             }
@@ -97,13 +99,13 @@ internal sealed class FileMutationCellView : IComponent
 
         if (!wroteAny)
         {
-            output.Write("no diff available".AsSpan(), context.Theme.Border);
+            output.Write("no diff available".AsSpan(), _theme.ResolveMuted(context.Theme));
         }
 
         if (_cell.HunksTruncated)
         {
             output.WriteLineBreak();
-            WriteTruncation("diff truncated", context.Theme.Border, ref output);
+            WriteTruncation("diff truncated", _theme.ResolveMuted(context.Theme), ref output);
         }
 
         RenderDiagnosticsIfNeeded(in context, maxWidth, ref output);
@@ -128,6 +130,7 @@ internal sealed class FileMutationCellView : IComponent
             _cell.DiagnosticsTruncated,
             maxWidth,
             MaxDiagnostics,
+            _theme,
             in context,
             ref output);
     }
@@ -137,6 +140,7 @@ internal sealed class FileMutationCellView : IComponent
         int gutterWidth,
         char sign,
         string text,
+        CodingHarnessTuiTheme theme,
         in RenderContext context,
         int maxWidth,
         ref SegmentWriter output)
@@ -149,13 +153,11 @@ internal sealed class FileMutationCellView : IComponent
         };
         var style = sign switch
         {
-            '+' => new Style(context.Theme.Success.Foreground, background),
-            '-' => new Style(context.Theme.Error.Foreground, background),
-            _ => context.Theme.Text
+            '+' => theme.ResolveDiffAdded(context.Theme, background),
+            '-' => theme.ResolveDiffRemoved(context.Theme, background),
+            _ => theme.ResolveDiffContext(context.Theme)
         };
-        var gutterStyle = sign is '+' or '-'
-            ? new Style(context.Theme.Border.Foreground, background)
-            : context.Theme.Border;
+        var gutterStyle = theme.ResolveDiffGutter(context.Theme, background);
 
         var prefix = $"{lineNumber.ToString().PadLeft(gutterWidth)} {sign}";
         output.Write(prefix.AsSpan(), gutterStyle);
