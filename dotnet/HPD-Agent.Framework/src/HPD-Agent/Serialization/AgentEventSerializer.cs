@@ -38,14 +38,11 @@ public static partial class AgentEventSerializer
         // Input Events
         [typeof(UserMessagesInputEvent)] = EventTypes.Input.USER_MESSAGES_INPUT,
         [typeof(BackgroundTaskNotificationInputEvent)] = EventTypes.Input.BACKGROUND_TASK_NOTIFICATION_INPUT,
+        [typeof(ClientTools.ClientToolBackgroundOperationOutcomeEvent)] = EventTypes.ClientTool.CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME,
 
         // Thread Events
         [typeof(ThreadCreatedEvent)] = ThreadEventTypes.ThreadCreated,
-        [typeof(ThreadForkedEvent)] = ThreadEventTypes.ThreadForked,
-        [typeof(ThreadMetadataUpdatedEvent)] = ThreadEventTypes.ThreadMetadataUpdated,
-        [typeof(ThreadTreeUpdatedEvent)] = ThreadEventTypes.ThreadTreeUpdated,
-        [typeof(MessageStartedEvent)] = ThreadEventTypes.MessageStarted,
-        [typeof(MessageCompletedEvent)] = ThreadEventTypes.MessageCompleted,
+        [typeof(ThreadUpdatedEvent)] = ThreadEventTypes.ThreadUpdated,
         [typeof(ContentAddedEvent)] = ThreadEventTypes.ContentAdded,
         [typeof(ThreadMiddlewareStateCommittedEvent)] = ThreadEventTypes.ThreadMiddlewareStateCommitted,
         [typeof(ThreadHistoryCompactedEvent)] = ThreadEventTypes.ThreadHistoryCompacted,
@@ -86,6 +83,8 @@ public static partial class AgentEventSerializer
         [typeof(BackgroundTaskCompletedEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_COMPLETED,
         [typeof(BackgroundTaskCancelledEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_CANCELLED,
         [typeof(BackgroundTaskFaultedEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_FAULTED,
+        [typeof(BackgroundHandleRegisteredEvent)] = EventTypes.BackgroundTask.BACKGROUND_HANDLE_REGISTERED,
+        [typeof(BackgroundHandleStatusChangedEvent)] = EventTypes.BackgroundTask.BACKGROUND_HANDLE_STATUS_CHANGED,
         [typeof(BackgroundTaskNotificationQueuedEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_NOTIFICATION_QUEUED,
         [typeof(BackgroundTaskNotificationDeliveredEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_NOTIFICATION_DELIVERED,
         [typeof(BackgroundTaskNotificationSuppressedEvent)] = EventTypes.BackgroundTask.BACKGROUND_TASK_NOTIFICATION_SUPPRESSED,
@@ -93,8 +92,6 @@ public static partial class AgentEventSerializer
         // Permission Events
         [typeof(PermissionRequestEvent)] = EventTypes.Permission.PERMISSION_REQUEST,
         [typeof(PermissionResponseEvent)] = EventTypes.Permission.PERMISSION_RESPONSE,
-        [typeof(PermissionApprovedEvent)] = EventTypes.Permission.PERMISSION_APPROVED,
-        [typeof(PermissionDeniedEvent)] = EventTypes.Permission.PERMISSION_DENIED,
         [typeof(ContinuationRequestEvent)] = EventTypes.Permission.CONTINUATION_REQUEST,
         [typeof(ContinuationResponseEvent)] = EventTypes.Permission.CONTINUATION_RESPONSE,
 
@@ -104,8 +101,7 @@ public static partial class AgentEventSerializer
 
         // Client Tool Events
         [typeof(ClientTools.ClientToolInvokeRequestEvent)] = EventTypes.ClientTool.CLIENT_TOOL_INVOKE_REQUEST,
-        [typeof(ClientTools.ClientToolInvokeResponseEvent)] = EventTypes.ClientTool.CLIENT_TOOL_INVOKE_RESPONSE,
-        [typeof(ClientTools.clientToolHarnessesRegisteredEvent)] = EventTypes.ClientTool.CLIENT_TOOL_GROUPS_REGISTERED,
+        [typeof(ClientTools.ClientToolInvokeOutcomeEvent)] = EventTypes.ClientTool.CLIENT_TOOL_INVOKE_OUTCOME,
 
         // Middleware Events
         [typeof(MiddlewareErrorEvent)] = EventTypes.Middleware.MIDDLEWARE_ERROR,
@@ -129,9 +125,7 @@ public static partial class AgentEventSerializer
         [typeof(PermissionCheckEvent)] = EventTypes.Observability.PERMISSION_CHECK,
         [typeof(IterationStartEvent)] = EventTypes.Observability.ITERATION_START,
         [typeof(CircuitBreakerTriggeredEvent)] = EventTypes.Observability.CIRCUIT_BREAKER_TRIGGERED,
-        [typeof(CompactionCacheEvent)] = EventTypes.Observability.COMPACTION_CACHE,
         [typeof(InternalParallelToolExecutionEvent)] = EventTypes.Observability.INTERNAL_PARALLEL_TOOL_EXECUTION,
-        [typeof(InternalRetryEvent)] = EventTypes.Observability.INTERNAL_RETRY,
         [typeof(FunctionRetryEvent)] = EventTypes.Observability.FUNCTION_RETRY,
         [typeof(ModelCallRetryEvent)] = EventTypes.Observability.MODEL_CALL_RETRY,
         [typeof(DeltaSendingActivatedEvent)] = EventTypes.Observability.DELTA_SENDING_ACTIVATED,
@@ -148,8 +142,8 @@ public static partial class AgentEventSerializer
         [typeof(MiddlewareStateChangedEvent)] = EventTypes.Observability.MIDDLEWARE_STATE_CHANGED,
         [typeof(CollapsingStateEvent)] = EventTypes.Observability.COLLAPSING_STATE,
         [typeof(EventDroppedEvent)] = EventTypes.Observability.EVENT_DROPPED,
-        [typeof(BackgroundOperationStartedEvent)] = EventTypes.Observability.BACKGROUND_OPERATION_STARTED,
-        [typeof(BackgroundOperationStatusEvent)] = EventTypes.Observability.BACKGROUND_OPERATION_STATUS,
+        [typeof(ModelBackgroundOperationStartedEvent)] = EventTypes.Observability.MODEL_BACKGROUND_OPERATION_STARTED,
+        [typeof(ModelBackgroundOperationStatusEvent)] = EventTypes.Observability.MODEL_BACKGROUND_OPERATION_STATUS,
         [typeof(StructuredOutputErrorEvent)] = EventTypes.Observability.STRUCTURED_OUTPUT_ERROR,
         [typeof(StructuredOutputStartEvent)] = EventTypes.Observability.STRUCTURED_OUTPUT_START,
         [typeof(StructuredOutputPartialEvent)] = EventTypes.Observability.STRUCTURED_OUTPUT_PARTIAL,

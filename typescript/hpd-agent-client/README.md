@@ -62,7 +62,7 @@ Handlers may return:
 - a string, converted to a text tool result
 - a JSON value, converted to a JSON tool result
 - `ToolResultContent[]`
-- a full `ClientToolInvokeResponse`
+- a full `ClientToolInvokeOutcome`
 
 ## Low-Level Runtime
 

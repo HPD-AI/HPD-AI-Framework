@@ -28,13 +28,13 @@ public class AgentMiddlewareResponseServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RespondAsync_UsesThreadRuntime_NotUnscopedAgent()
+    public async Task AnswerRequestAsync_UsesThreadRuntime_NotUnscopedAgent()
     {
         var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("session-1");
         var stored = await _agentManager.CreateDefinitionAsync(MakeConfig("agent-1"), "agent-1");
         await _agentManager.GetOrBuildAgentAsync(stored.Id);
 
-        var result = await _service.RespondAsync(
+        var result = await _service.AnswerRequestAsync(
             stored.Id,
             sessionId,
             threadId,
@@ -45,13 +45,13 @@ public class AgentMiddlewareResponseServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RespondAsync_TargetsThreadRuntime_WhenBuilt()
+    public async Task AnswerRequestAsync_TargetsThreadRuntime_WhenBuilt()
     {
         var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("session-1");
         var stored = await _agentManager.CreateDefinitionAsync(MakeConfig("agent-1"), "agent-1");
         await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, threadId);
 
-        var result = await _service.RespondAsync(
+        var result = await _service.AnswerRequestAsync(
             stored.Id,
             sessionId,
             threadId,

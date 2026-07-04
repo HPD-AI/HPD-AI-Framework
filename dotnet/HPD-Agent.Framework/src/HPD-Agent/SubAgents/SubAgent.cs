@@ -38,6 +38,18 @@ public class SubAgent
     public SubAgentExecutionPolicy ExecutionPolicy { get; init; } = SubAgentExecutionPolicy.Default;
 
     /// <summary>
+    /// Defines whether this subagent runs synchronously, in the background, or lets the model choose per call.
+    /// </summary>
+    public AgentInvocationModePolicy InvocationModePolicy { get; init; } =
+        AgentInvocationModePolicy.SynchronousOnly;
+
+    /// <summary>
+    /// Rule used when this subagent is invoked as runtime-owned background work.
+    /// </summary>
+    public BackgroundTaskNotificationRule BackgroundNotification { get; init; } =
+        new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true);
+
+    /// <summary>
     /// ToolHarness types to register with the sub-agent.
     /// </summary>
     public Type[] ToolHarnessTypes { get; init; } = Array.Empty<Type>();
@@ -53,7 +65,15 @@ public class SubAgent
         AgentConfig agentConfig,
         SubAgentExecutionPolicy? executionPolicy = null,
         params Type[] toolharnessTypes)
-        => FromConfig(name, description, agentConfig, executionPolicy, metadata: null, toolharnessTypes);
+        => FromConfig(
+            name,
+            description,
+            agentConfig,
+            executionPolicy,
+            metadata: null,
+            invocationModePolicy: AgentInvocationModePolicy.SynchronousOnly,
+            backgroundNotification: null,
+            toolharnessTypes);
 
     public static SubAgent FromConfig(
         string name,
@@ -61,6 +81,37 @@ public class SubAgent
         AgentConfig agentConfig,
         SubAgentExecutionPolicy? executionPolicy,
         Dictionary<string, object>? metadata,
+        params Type[] toolharnessTypes)
+        => FromConfig(
+            name,
+            description,
+            agentConfig,
+            executionPolicy,
+            metadata,
+            AgentInvocationModePolicy.SynchronousOnly,
+            backgroundNotification: null,
+            toolharnessTypes);
+
+    /// <summary>
+    /// Creates an inline-config subagent definition.
+    /// </summary>
+    /// <param name="name">The model-facing subagent tool name.</param>
+    /// <param name="description">The model-facing subagent tool description.</param>
+    /// <param name="agentConfig">The child agent configuration.</param>
+    /// <param name="executionPolicy">The child session and thread routing policy.</param>
+    /// <param name="metadata">Optional metadata applied to subagent-created threads.</param>
+    /// <param name="invocationModePolicy">The allowed synchronous/background invocation policy.</param>
+    /// <param name="backgroundNotification">The notification rule used for background invocations.</param>
+    /// <param name="toolharnessTypes">Tool harness types registered on the child agent.</param>
+    /// <returns>The subagent definition.</returns>
+    public static SubAgent FromConfig(
+        string name,
+        string description,
+        AgentConfig agentConfig,
+        SubAgentExecutionPolicy? executionPolicy,
+        Dictionary<string, object>? metadata,
+        AgentInvocationModePolicy invocationModePolicy,
+        BackgroundTaskNotificationRule? backgroundNotification,
         params Type[] toolharnessTypes)
     {
         ValidateNameAndDescription(name, description);
@@ -77,6 +128,9 @@ public class SubAgent
             AgentConfig = agentConfig,
             AgentId = null,
             ExecutionPolicy = policy,
+            InvocationModePolicy = invocationModePolicy,
+            BackgroundNotification = backgroundNotification
+                ?? new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true),
             ToolHarnessTypes = toolharnessTypes ?? Array.Empty<Type>(),
             Metadata = metadata
         };
@@ -88,7 +142,44 @@ public class SubAgent
         string agentId,
         SubAgentExecutionPolicy? executionPolicy = null,
         params Type[] toolharnessTypes)
-        => FromAgentId(name, description, agentId, executionPolicy, metadata: null, toolharnessTypes);
+        => FromAgentId(
+            name,
+            description,
+            agentId,
+            executionPolicy,
+            metadata: null,
+            invocationModePolicy: AgentInvocationModePolicy.SynchronousOnly,
+            backgroundNotification: null,
+            toolharnessTypes);
+
+    /// <summary>
+    /// Creates a stored-agent subagent definition.
+    /// </summary>
+    /// <param name="name">The model-facing subagent tool name.</param>
+    /// <param name="description">The model-facing subagent tool description.</param>
+    /// <param name="agentId">The stored child agent id.</param>
+    /// <param name="executionPolicy">The child session and thread routing policy.</param>
+    /// <param name="metadata">Optional metadata applied to subagent-created threads.</param>
+    /// <param name="invocationModePolicy">The allowed synchronous/background invocation policy.</param>
+    /// <param name="backgroundNotification">The notification rule used for background invocations.</param>
+    /// <param name="toolharnessTypes">Tool harness types registered on the child agent.</param>
+    /// <returns>The subagent definition.</returns>
+    public static SubAgent FromAgentId(
+        string name,
+        string description,
+        string agentId,
+        SubAgentExecutionPolicy? executionPolicy,
+        Dictionary<string, object>? metadata,
+        params Type[] toolharnessTypes)
+        => FromAgentId(
+            name,
+            description,
+            agentId,
+            executionPolicy,
+            metadata,
+            AgentInvocationModePolicy.SynchronousOnly,
+            backgroundNotification: null,
+            toolharnessTypes);
 
     public static SubAgent FromAgentId(
         string name,
@@ -96,6 +187,8 @@ public class SubAgent
         string agentId,
         SubAgentExecutionPolicy? executionPolicy,
         Dictionary<string, object>? metadata,
+        AgentInvocationModePolicy invocationModePolicy,
+        BackgroundTaskNotificationRule? backgroundNotification,
         params Type[] toolharnessTypes)
     {
         ValidateNameAndDescription(name, description);
@@ -112,6 +205,9 @@ public class SubAgent
             AgentConfig = null,
             AgentId = agentId,
             ExecutionPolicy = policy,
+            InvocationModePolicy = invocationModePolicy,
+            BackgroundNotification = backgroundNotification
+                ?? new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true),
             ToolHarnessTypes = toolharnessTypes ?? Array.Empty<Type>(),
             Metadata = metadata
         };

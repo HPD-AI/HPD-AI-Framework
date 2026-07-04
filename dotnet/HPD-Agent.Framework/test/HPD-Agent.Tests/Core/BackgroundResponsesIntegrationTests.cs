@@ -33,8 +33,8 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         var events = await RunAndCollectAsync(agent, messages, session, thread);
 
         // Assert: Should not contain any background events
-        Assert.DoesNotContain(events, e => e is BackgroundOperationStartedEvent);
-        Assert.DoesNotContain(events, e => e is BackgroundOperationStatusEvent);
+        Assert.DoesNotContain(events, e => e is ModelBackgroundOperationStartedEvent);
+        Assert.DoesNotContain(events, e => e is ModelBackgroundOperationStatusEvent);
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         var events = await RunAndCollectAsync(agent, messages, session, thread, options);
 
         // Assert: Background events should not be emitted when disabled at run level
-        Assert.DoesNotContain(events, e => e is BackgroundOperationStartedEvent);
+        Assert.DoesNotContain(events, e => e is ModelBackgroundOperationStartedEvent);
     }
 
     [Fact]

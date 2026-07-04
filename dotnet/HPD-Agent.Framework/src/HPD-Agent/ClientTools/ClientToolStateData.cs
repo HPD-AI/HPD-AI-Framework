@@ -70,6 +70,12 @@ public sealed record ClientToolStateData
         = ImmutableDictionary<string, ContextItem>.Empty;
 
     /// <summary>
+    /// Provider-backed tool bindings keyed by the model-visible tool name.
+    /// </summary>
+    public ImmutableDictionary<string, ClientToolProviderToolBinding> ProviderToolBindings { get; init; }
+        = ImmutableDictionary<string, ClientToolProviderToolBinding>.Empty;
+
+    /// <summary>
     /// Application state from the Client.
     /// Opaque to the agent but available to tools.
     /// </summary>
@@ -149,6 +155,28 @@ public sealed record ClientToolStateData
         return this with
         {
             HiddenTools = HiddenTools.Remove(toolName)
+        };
+    }
+
+    /// <summary>
+    /// Adds or replaces a provider-backed tool binding.
+    /// </summary>
+    public ClientToolStateData WithProviderToolBinding(ClientToolProviderToolBinding binding)
+    {
+        return this with
+        {
+            ProviderToolBindings = ProviderToolBindings.SetItem(binding.VisibleToolName, binding)
+        };
+    }
+
+    /// <summary>
+    /// Removes a provider-backed tool binding.
+    /// </summary>
+    public ClientToolStateData WithoutProviderToolBinding(string visibleToolName)
+    {
+        return this with
+        {
+            ProviderToolBindings = ProviderToolBindings.Remove(visibleToolName)
         };
     }
 

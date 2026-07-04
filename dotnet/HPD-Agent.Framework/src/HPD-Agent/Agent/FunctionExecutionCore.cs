@@ -1,4 +1,5 @@
 using HPD.Agent.Middleware;
+using HPD.Agent.ClientTools;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
@@ -53,19 +54,22 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
     private readonly IList<AITool>? _serverConfiguredTools;
     private readonly AgenticLoopConfig? _agenticLoopConfig;
     private readonly Func<Middleware.IAgentBackgroundTaskRegistry?> _getBackgroundTaskRegistry;
+    private readonly Func<Middleware.IAgentBackgroundHandleRegistry?> _getBackgroundHandleRegistry;
 
     public FunctionExecutionCore(
         AgentMiddlewarePipeline middlewarePipeline,
         ErrorHandlingConfig? errorHandlingConfig = null,
         IList<AITool>? serverConfiguredTools = null,
         AgenticLoopConfig? agenticLoopConfig = null,
-        Func<Middleware.IAgentBackgroundTaskRegistry?>? getBackgroundTaskRegistry = null)
+        Func<Middleware.IAgentBackgroundTaskRegistry?>? getBackgroundTaskRegistry = null,
+        Func<Middleware.IAgentBackgroundHandleRegistry?>? getBackgroundHandleRegistry = null)
     {
         _middlewarePipeline = middlewarePipeline ?? throw new ArgumentNullException(nameof(middlewarePipeline));
         _errorHandlingConfig = errorHandlingConfig;
         _serverConfiguredTools = serverConfiguredTools;
         _agenticLoopConfig = agenticLoopConfig;
         _getBackgroundTaskRegistry = getBackgroundTaskRegistry ?? (() => null);
+        _getBackgroundHandleRegistry = getBackgroundHandleRegistry ?? (() => null);
     }
 
     public Dictionary<string, AIFunction>? BuildMergedMap(IList<AITool>? requestTools) =>
@@ -332,7 +336,10 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
             runConfig: runConfig,
             toolharnessName: toolharnessName,
             skillName: null,
-            invocation: invocation);
+            invocation: invocation,
+            backgroundTasks: _getBackgroundTaskRegistry(),
+            backgroundHandles: _getBackgroundHandleRegistry(),
+            clientToolBackgroundOperations: _getBackgroundTaskRegistry() as IClientToolBackgroundOperationRegistry);
 
         await _middlewarePipeline.ExecuteBeforeFunctionAsync(
             beforeFunctionContext, cancellationToken).ConfigureAwait(false);
@@ -422,7 +429,8 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 SkillName = null,
                 EventCoordinator = agentContext.EventCoordinator,
                 StructEvents = agentContext.StructEvents,
-                BackgroundTasks = _getBackgroundTaskRegistry()
+                BackgroundTasks = _getBackgroundTaskRegistry(),
+                BackgroundHandles = _getBackgroundHandleRegistry()
             };
 
             var executionResult = await _middlewarePipeline.ExecuteFunctionCallAsync(

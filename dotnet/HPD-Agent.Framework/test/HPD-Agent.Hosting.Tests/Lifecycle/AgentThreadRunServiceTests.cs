@@ -37,7 +37,7 @@ public class AgentThreadRunServiceTests : IDisposable
             SessionId = "session-1",
             ThreadId = "main"
         });
-        await _store.AppendThreadEventAsync("session-1", "main", new BackgroundOperationStartedEvent(
+        await _store.AppendThreadEventAsync("session-1", "main", new ModelBackgroundOperationStartedEvent(
             token,
             OperationStatus.InProgress,
             "op-1")
@@ -54,7 +54,7 @@ public class AgentThreadRunServiceTests : IDisposable
             TaskId = "task-1",
             Name = "compile",
             SourceKind = BackgroundTaskSourceKind.ToolCall,
-            NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault,
+            Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true),
             Invocation = Invocation(),
             StartedAt = DateTimeOffset.Parse("2026-05-28T10:00:01Z")
         });
@@ -66,7 +66,7 @@ public class AgentThreadRunServiceTests : IDisposable
             TaskId = "task-1",
             Name = "compile",
             SourceKind = BackgroundTaskSourceKind.ToolCall,
-            NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault,
+            Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true),
             Invocation = Invocation(),
             CompletedAt = DateTimeOffset.Parse("2026-05-28T10:00:02Z"),
             DurationMilliseconds = 1000
@@ -87,8 +87,8 @@ public class AgentThreadRunServiceTests : IDisposable
         var run = result.Value.Should().ContainSingle().Subject;
         run.RuntimeRunId.Should().Be("run-1");
         run.Status.Should().Be("completed");
-        run.BackgroundOperation.Should().NotBeNull();
-        run.BackgroundOperation!.OperationId.Should().Be("op-1");
+        run.ModelBackgroundOperation.Should().NotBeNull();
+        run.ModelBackgroundOperation!.OperationId.Should().Be("op-1");
         run.BackgroundTasks.Should().ContainSingle(task =>
             task.TaskId == "task-1" && task.Status == "completed");
     }

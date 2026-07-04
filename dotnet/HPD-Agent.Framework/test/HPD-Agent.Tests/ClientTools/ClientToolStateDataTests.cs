@@ -389,10 +389,11 @@ public class ClientToolStateDataTests
 
     private static ClientToolDefinition CreateTestTool(string name)
     {
-        return new ClientToolDefinition(
-            Name: name,
-            Description: $"Test tool {name}",
-            ParametersSchema: System.Text.Json.JsonDocument.Parse("{}").RootElement
-        );
+        return new ClientToolDefinition
+        {
+            Name = name,
+            Description = $"Test tool {name}",
+            ParametersSchema = System.Text.Json.JsonDocument.Parse("{}").RootElement
+        };
     }
 }

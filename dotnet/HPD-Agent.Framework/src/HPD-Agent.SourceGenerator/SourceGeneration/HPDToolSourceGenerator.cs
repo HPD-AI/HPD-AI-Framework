@@ -1211,7 +1211,7 @@ namespace HPD.Agent.Diagnostics {{
         var sb = new StringBuilder();
         var contextSerializableTypes = new List<string>();
 
-        // Generate SubAgentQueryArgs if there are sub-agents (Collapsed per ToolHarness to avoid conflicts)
+        // Generate SubAgentInputArgs if there are sub-agents (Collapsed per ToolHarness to avoid conflicts)
         if (ToolHarness.SubAgentCapabilities.Any())
         {
             sb.AppendLine(
@@ -1219,11 +1219,26 @@ $@"    /// <summary>
     /// Represents the arguments for sub-agent invocations, generated at compile-time.
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCodeAttribute(""HPDToolSourceGenerator"", ""1.0.0.0"")]
-    public class {ToolHarness.ClassName}SubAgentQueryArgs
+    public class {ToolHarness.ClassName}SubAgentInputArgs
     {{
-        [System.Text.Json.Serialization.JsonPropertyName(""query"")]
-        [System.ComponentModel.Description(""Query for the sub-agent"")]
-        public string Query {{ get; set; }} = string.Empty;
+        [System.Text.Json.Serialization.JsonPropertyName(""input"")]
+        [System.ComponentModel.Description(""The user's question or task for the sub-agent. Pass the full request here."")]
+        public string Input {{ get; set; }} = string.Empty;
+    }}
+
+    /// <summary>
+    /// Represents the arguments for model-choice sub-agent invocations, generated at compile-time.
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCodeAttribute(""HPDToolSourceGenerator"", ""1.0.0.0"")]
+    public class {ToolHarness.ClassName}SubAgentInputWithModeArgs
+    {{
+        [System.Text.Json.Serialization.JsonPropertyName(""input"")]
+        [System.ComponentModel.Description(""The user's question or task for the sub-agent. Pass the full request here."")]
+        public string Input {{ get; set; }} = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName(""invocationMode"")]
+        [System.ComponentModel.Description(""Whether to wait for the result now or run in the background. Use synchronous unless the task can continue independently."")]
+        public string? InvocationMode {{ get; set; }}
     }}
 ");
         }
@@ -1241,6 +1256,21 @@ $@"    /// <summary>
         [System.Text.Json.Serialization.JsonPropertyName(""input"")]
         [System.ComponentModel.Description(""The user's question or task to process through the multi-agent workflow. Pass the full user message here."")]
         public string Input {{ get; set; }} = string.Empty;
+    }}
+
+    /// <summary>
+    /// Represents the arguments for model-choice multi-agent workflow invocations, generated at compile-time.
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCodeAttribute(""HPDToolSourceGenerator"", ""1.0.0.0"")]
+    public class {ToolHarness.ClassName}MultiAgentInputWithModeArgs
+    {{
+        [System.Text.Json.Serialization.JsonPropertyName(""input"")]
+        [System.ComponentModel.Description(""The user's question or task to process through the multi-agent workflow. Pass the full user message here."")]
+        public string Input {{ get; set; }} = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName(""invocationMode"")]
+        [System.ComponentModel.Description(""Whether to wait for the workflow result now or run it in the background. Use synchronous unless the workflow can continue independently."")]
+        public string? InvocationMode {{ get; set; }}
     }}
 ");
         }

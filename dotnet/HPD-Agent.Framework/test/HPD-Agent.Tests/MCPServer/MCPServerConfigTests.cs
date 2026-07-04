@@ -110,6 +110,8 @@ public class MCPServerConfigTests
         config.EnablePrompts.Should().BeTrue();
         config.MaxPromptListResults.Should().Be(25);
         config.MaxPromptContentLength.Should().Be(6789);
+        config.InvocationModePolicy.Should().Be(AgentInvocationModePolicy.SynchronousOnly);
+        config.BackgroundNotification.Should().BeOfType<BackgroundTaskNotificationRule.OnFinalStateRule>();
         config.ProcessIsolation.Should().NotBeNull();
         config.ProcessIsolation!.Profile.Should().Be("filesystem-only");
         config.ProcessIsolation.AllowWrite.Should().Contain(".");
@@ -119,6 +121,40 @@ public class MCPServerConfigTests
         // ToolHarness-awareness fields should have defaults
         config.ParentToolHarness.Should().BeNull();
         config.CollapseWithinToolHarness.Should().BeFalse();
+    }
+
+    [Fact]
+    public void JsonDeserialization_WithInvocationModePolicy_DeserializesBackgroundSettings()
+    {
+        var json = @"{
+            ""name"": ""filesystem"",
+            ""transport"": ""stdio"",
+            ""command"": ""npx"",
+            ""invocationModePolicy"": ""modelChoice"",
+            ""toolInvocationModePolicies"": {
+                ""read_file"": ""synchronousOnly"",
+                ""long_running_search"": ""backgroundOnly""
+            },
+            ""backgroundNotification"": {
+                ""kind"": ""on_final_state"",
+                ""completed"": true,
+                ""faulted"": true,
+                ""cancelled"": false
+            }
+        }";
+
+        var config = JsonSerializer.Deserialize<MCPServerConfig>(json, MCPJsonSerializerContext.Default.MCPServerConfig);
+
+        config.Should().NotBeNull();
+        config!.InvocationModePolicy.Should().Be(AgentInvocationModePolicy.ModelChoice);
+        config.ToolInvocationModePolicies.Should().ContainKey("read_file")
+            .WhoseValue.Should().Be(AgentInvocationModePolicy.SynchronousOnly);
+        config.ToolInvocationModePolicies.Should().ContainKey("long_running_search")
+            .WhoseValue.Should().Be(AgentInvocationModePolicy.BackgroundOnly);
+        config.BackgroundNotification.Should().Be(new BackgroundTaskNotificationRule.OnFinalStateRule(
+            Completed: true,
+            Faulted: true,
+            Cancelled: false));
     }
 
     [Fact]

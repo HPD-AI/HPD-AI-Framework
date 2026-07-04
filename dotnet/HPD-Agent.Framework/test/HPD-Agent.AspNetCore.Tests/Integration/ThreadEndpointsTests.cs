@@ -60,7 +60,7 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
         using var document = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
         foreach (var evt in document.RootElement.EnumerateArray())
         {
-            if (evt.GetProperty("type").GetString() != ThreadEventTypes.MessageStarted)
+            if (evt.GetProperty("type").GetString() != "TEXT_MESSAGE_START")
                 continue;
 
             if (evt.TryGetProperty("role", out var role) &&
@@ -510,12 +510,12 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var events = document.RootElement.EnumerateArray().ToList();
-        events.Should().Contain(e => e.GetProperty("type").GetString() == ThreadEventTypes.ThreadForked);
+        events.Should().Contain(e => e.GetProperty("type").GetString() == ThreadEventTypes.ThreadCreated);
 
-        var forked = events.Single(e => e.GetProperty("type").GetString() == ThreadEventTypes.ThreadForked);
-        forked.GetProperty("sourceThreadId").GetString().Should().Be("main");
-        forked.GetProperty("fromMessageId").GetString().Should().Be(forkMessageId);
-        forked.GetProperty("resolvedMessageIndex").GetInt32().Should().Be(0);
+        var created = events.Single(e => e.GetProperty("type").GetString() == ThreadEventTypes.ThreadCreated);
+        created.GetProperty("forkedFrom").GetString().Should().Be("main");
+        created.GetProperty("forkedAtMessageId").GetString().Should().Be(forkMessageId);
+        created.GetProperty("forkedAtMessageIndex").GetInt32().Should().Be(0);
     }
 
     #endregion

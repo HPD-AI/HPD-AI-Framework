@@ -63,7 +63,7 @@ internal static class MiddlewareResponseEndpoints
                 });
             }
 
-            return ToHttpResult(await responses.RespondAsync(agentId, sid, bid, response, ct));
+            return ToHttpResult(await responses.AnswerRequestAsync(agentId, sid, bid, response, ct));
         }
         catch (Exception ex)
         {

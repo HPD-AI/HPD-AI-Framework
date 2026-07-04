@@ -10,21 +10,9 @@ internal static class McpLiveUpdateEventSerialization
     internal static void RegisterEvents()
     {
         AgentEventSerializer.RegisterEventType(
-            typeof(McpServerToolsChangedEvent),
-            "MCP_SERVER_TOOLS_CHANGED",
-            McpLiveUpdateEventJsonContext.Default.McpServerToolsChangedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(McpServerPromptsChangedEvent),
-            "MCP_SERVER_PROMPTS_CHANGED",
-            McpLiveUpdateEventJsonContext.Default.McpServerPromptsChangedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(McpServerResourcesChangedEvent),
-            "MCP_SERVER_RESOURCES_CHANGED",
-            McpLiveUpdateEventJsonContext.Default.McpServerResourcesChangedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(McpResourceUpdatedEvent),
-            "MCP_RESOURCE_UPDATED",
-            McpLiveUpdateEventJsonContext.Default.McpResourceUpdatedEvent);
+            typeof(McpServerChangedEvent),
+            "MCP_SERVER_CHANGED",
+            McpLiveUpdateEventJsonContext.Default.McpServerChangedEvent);
         AgentEventSerializer.RegisterEventType(
             typeof(McpLiveUpdatesStartedEvent),
             "MCP_LIVE_UPDATES_STARTED",
@@ -45,10 +33,7 @@ internal static class McpLiveUpdateEventSerialization
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     WriteIndented = false)]
 [JsonSerializable(typeof(McpLiveUpdateKind))]
-[JsonSerializable(typeof(McpServerToolsChangedEvent))]
-[JsonSerializable(typeof(McpServerPromptsChangedEvent))]
-[JsonSerializable(typeof(McpServerResourcesChangedEvent))]
-[JsonSerializable(typeof(McpResourceUpdatedEvent))]
+[JsonSerializable(typeof(McpServerChangedEvent))]
 [JsonSerializable(typeof(McpLiveUpdatesStartedEvent))]
 [JsonSerializable(typeof(McpLiveUpdatesStoppedEvent))]
 [JsonSerializable(typeof(McpLiveUpdatesErrorEvent))]

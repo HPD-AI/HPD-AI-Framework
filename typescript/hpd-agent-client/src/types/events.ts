@@ -1,7 +1,13 @@
-import type { ClientToolAugmentation, ToolResultContent } from './client-tools.js';
+import type {
+  BackgroundHandleKind,
+  BackgroundHandleOperation,
+  ClientToolAugmentation,
+  ClientToolInvokeOutcomeKind,
+  ToolResultContent,
+} from './client-tools.js';
 import type { AIContent } from './session.js';
 import type { ThreadKind, ThreadVisibility } from './session.js';
-import type { BackgroundOperationStatus } from './thread-run.js';
+import type { ModelBackgroundOperationStatus } from './thread-run.js';
 
 export interface UsageDetails {
   inputTokenCount?: number | null;
@@ -16,6 +22,34 @@ export interface UsageDetails {
   additionalCounts?: Record<string, number> | null;
 }
 
+export type AgentMessageSource =
+  | 'Unspecified'
+  | 'UserInput'
+  | 'AssistantOutput'
+  | 'SystemInstruction'
+  | 'RuntimeContext'
+  | 'BackgroundNotification'
+  | 'ToolResult'
+  | 'PermissionResponse'
+  | 'Steering'
+  | 'Internal';
+
+export type AgentMessageVisibility =
+  | 'Transcript'
+  | 'Hidden'
+  | 'Diagnostic';
+
+export type AgentMessagePersistence =
+  | 'ThreadHistory'
+  | 'ModelContextOnly'
+  | 'None';
+
+export const AgentMessagePolicyProperties = {
+  SOURCE: 'hpd.message.source',
+  VISIBILITY: 'hpd.message.visibility',
+  PERSISTENCE: 'hpd.message.persistence',
+} as const;
+
 /**
  * Event type constants matching C# EventTypes.cs
  * Uses SCREAMING_SNAKE_CASE for JSON discriminators
@@ -27,11 +61,7 @@ export const EventTypes = {
 
   // Durable Thread Events
   THREAD_CREATED: 'THREAD_CREATED',
-  THREAD_FORKED: 'THREAD_FORKED',
-  THREAD_METADATA_UPDATED: 'THREAD_METADATA_UPDATED',
-  THREAD_TREE_UPDATED: 'THREAD_TREE_UPDATED',
-  MESSAGE_STARTED: 'MESSAGE_STARTED',
-  MESSAGE_COMPLETED: 'MESSAGE_COMPLETED',
+  THREAD_UPDATED: 'THREAD_UPDATED',
   CONTENT_ADDED: 'CONTENT_ADDED',
   THREAD_MIDDLEWARE_STATE_COMMITTED: 'THREAD_MIDDLEWARE_STATE_COMMITTED',
   THREAD_HISTORY_COMPACTED: 'THREAD_HISTORY_COMPACTED',
@@ -74,8 +104,6 @@ export const EventTypes = {
   // Permissions
   PERMISSION_REQUEST: 'PERMISSION_REQUEST',
   PERMISSION_RESPONSE: 'PERMISSION_RESPONSE',
-  PERMISSION_APPROVED: 'PERMISSION_APPROVED',
-  PERMISSION_DENIED: 'PERMISSION_DENIED',
 
   // Continuation (for long-running tasks)
   CONTINUATION_REQUEST: 'CONTINUATION_REQUEST',
@@ -86,26 +114,22 @@ export const EventTypes = {
   CLARIFICATION_RESPONSE: 'CLARIFICATION_RESPONSE',
 
   // Middleware
-  MIDDLEWARE_PROGRESS: 'MIDDLEWARE_PROGRESS',
   MIDDLEWARE_ERROR: 'MIDDLEWARE_ERROR',
 
   // Client Tools
   CLIENT_TOOL_INVOKE_REQUEST: 'CLIENT_TOOL_INVOKE_REQUEST',
-  CLIENT_TOOL_INVOKE_RESPONSE: 'CLIENT_TOOL_INVOKE_RESPONSE',
-  CLIENT_TOOL_GROUPS_REGISTERED: 'CLIENT_TOOL_GROUPS_REGISTERED',
+  CLIENT_TOOL_INVOKE_OUTCOME: 'CLIENT_TOOL_INVOKE_OUTCOME',
+  CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME: 'CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME',
 
   // Observability (optional, for debugging)
   COLLAPSED_TOOLS_VISIBLE: 'COLLAPSED_TOOLS_VISIBLE',
   CONTAINER_EXPANDED: 'CONTAINER_EXPANDED',
-  MIDDLEWARE_PIPELINE_START: 'MIDDLEWARE_PIPELINE_START',
-  MIDDLEWARE_PIPELINE_END: 'MIDDLEWARE_PIPELINE_END',
   PERMISSION_CHECK: 'PERMISSION_CHECK',
   ITERATION_START: 'ITERATION_START',
   CIRCUIT_BREAKER_TRIGGERED: 'CIRCUIT_BREAKER_TRIGGERED',
-  HISTORY_REDUCTION_CACHE: 'HISTORY_REDUCTION_CACHE',
   INTERNAL_PARALLEL_TOOL_EXECUTION: 'INTERNAL_PARALLEL_TOOL_EXECUTION',
-  INTERNAL_RETRY: 'INTERNAL_RETRY',
   FUNCTION_RETRY: 'FUNCTION_RETRY',
+  MODEL_CALL_RETRY: 'MODEL_CALL_RETRY',
   DELTA_SENDING_ACTIVATED: 'DELTA_SENDING_ACTIVATED',
   PLAN_MODE_ACTIVATED: 'PLAN_MODE_ACTIVATED',
   NESTED_AGENT_INVOKED: 'NESTED_AGENT_INVOKED',
@@ -118,12 +142,14 @@ export const EventTypes = {
   MIDDLEWARE_STATE_SNAPSHOT: 'MIDDLEWARE_STATE_SNAPSHOT',
   MIDDLEWARE_STATE_CHANGED: 'MIDDLEWARE_STATE_CHANGED',
   COLLAPSING_STATE: 'COLLAPSING_STATE',
-  BACKGROUND_OPERATION_STARTED: 'BACKGROUND_OPERATION_STARTED',
-  BACKGROUND_OPERATION_STATUS: 'BACKGROUND_OPERATION_STATUS',
+  MODEL_BACKGROUND_OPERATION_STARTED: 'MODEL_BACKGROUND_OPERATION_STARTED',
+  MODEL_BACKGROUND_OPERATION_STATUS: 'MODEL_BACKGROUND_OPERATION_STATUS',
   BACKGROUND_TASK_STARTED: 'BACKGROUND_TASK_STARTED',
   BACKGROUND_TASK_COMPLETED: 'BACKGROUND_TASK_COMPLETED',
   BACKGROUND_TASK_CANCELLED: 'BACKGROUND_TASK_CANCELLED',
   BACKGROUND_TASK_FAULTED: 'BACKGROUND_TASK_FAULTED',
+  BACKGROUND_HANDLE_REGISTERED: 'BACKGROUND_HANDLE_REGISTERED',
+  BACKGROUND_HANDLE_STATUS_CHANGED: 'BACKGROUND_HANDLE_STATUS_CHANGED',
   BACKGROUND_TASK_NOTIFICATION_QUEUED: 'BACKGROUND_TASK_NOTIFICATION_QUEUED',
   BACKGROUND_TASK_NOTIFICATION_DELIVERED: 'BACKGROUND_TASK_NOTIFICATION_DELIVERED',
   BACKGROUND_TASK_NOTIFICATION_SUPPRESSED: 'BACKGROUND_TASK_NOTIFICATION_SUPPRESSED',
@@ -284,18 +310,15 @@ export interface ThreadCreatedEvent extends BaseEvent {
   parentToolCallId?: string | null;
   sessionPolicy?: string | null;
   threadPolicy?: string | null;
-}
-
-export interface ThreadForkedEvent extends BaseEvent {
-  type: typeof EventTypes.THREAD_FORKED;
-  sourceThreadId: string;
-  fromMessageId?: string | null;
-  resolvedMessageIndex?: number | null;
+  forkedFrom?: string | null;
+  forkedAtMessageId?: string | null;
+  forkedAtMessageIndex?: number | null;
+  childThreads?: string[] | null;
   ancestors?: Record<string, string> | null;
 }
 
-export interface ThreadMetadataUpdatedEvent extends BaseEvent {
-  type: typeof EventTypes.THREAD_METADATA_UPDATED;
+export interface ThreadUpdatedEvent extends BaseEvent {
+  type: typeof EventTypes.THREAD_UPDATED;
   name?: string | null;
   description?: string | null;
   tags?: string[] | null;
@@ -310,35 +333,25 @@ export interface ThreadMetadataUpdatedEvent extends BaseEvent {
   parentToolCallId?: string | null;
   sessionPolicy?: string | null;
   threadPolicy?: string | null;
-}
-
-export interface ThreadTreeUpdatedEvent extends BaseEvent {
-  type: typeof EventTypes.THREAD_TREE_UPDATED;
   forkedFrom?: string | null;
   forkedAtMessageId?: string | null;
   forkedAtMessageIndex?: number | null;
-  childThreads: string[];
-}
-
-export interface MessageStartedEvent extends BaseEvent {
-  type: typeof EventTypes.MESSAGE_STARTED;
-  messageId: string;
-  role: string;
-  authorName?: string | null;
-  createdAt?: string | null;
-  clientInputId?: string | null;
-  additionalProperties?: Record<string, unknown> | null;
-}
-
-export interface MessageCompletedEvent extends BaseEvent {
-  type: typeof EventTypes.MESSAGE_COMPLETED;
-  messageId: string;
+  childThreads?: string[] | null;
+  ancestors?: Record<string, string> | null;
 }
 
 export interface ContentAddedEvent extends BaseEvent {
   type: typeof EventTypes.CONTENT_ADDED;
   messageId: string;
+  role: string;
   content: unknown;
+  authorName?: string | null;
+  createdAt?: string | null;
+  clientInputId?: string | null;
+  source?: AgentMessageSource;
+  visibility?: AgentMessageVisibility;
+  persistence?: AgentMessagePersistence;
+  additionalProperties?: Record<string, unknown> | null;
 }
 
 export interface ThreadMiddlewareStateCommittedEvent extends BaseEvent {
@@ -434,17 +447,17 @@ export interface ThreadRunCompletedEvent extends BaseEvent {
   errorMessage?: string | null;
 }
 
-export interface BackgroundOperationStartedEvent extends BaseEvent {
-  type: typeof EventTypes.BACKGROUND_OPERATION_STARTED;
+export interface ModelBackgroundOperationStartedEvent extends BaseEvent {
+  type: typeof EventTypes.MODEL_BACKGROUND_OPERATION_STARTED;
   continuationToken: unknown;
-  status: BackgroundOperationStatus;
+  status: ModelBackgroundOperationStatus;
   operationId?: string | null;
 }
 
-export interface BackgroundOperationStatusEvent extends BaseEvent {
-  type: typeof EventTypes.BACKGROUND_OPERATION_STATUS;
+export interface ModelBackgroundOperationStatusEvent extends BaseEvent {
+  type: typeof EventTypes.MODEL_BACKGROUND_OPERATION_STATUS;
   continuationToken: unknown;
-  status: BackgroundOperationStatus;
+  status: ModelBackgroundOperationStatus;
   statusMessage?: string | null;
 }
 
@@ -457,13 +470,21 @@ export type BackgroundTaskSourceKind =
   | 'Other'
   | string;
 
-export type BackgroundTaskNotificationPolicy =
-  | 'None'
-  | 'OnFault'
-  | 'OnCompletion'
-  | 'OnCompletionOrFault'
-  | 'Custom'
-  | string;
+export type BackgroundTaskNotificationRule =
+  | { kind: 'none' }
+  | {
+      kind: 'on_final_state';
+      completed?: boolean;
+      faulted?: boolean;
+      cancelled?: boolean;
+    }
+  | {
+      kind: 'strategy';
+      name: string;
+      parameters?: Record<string, string> | null;
+      fallback?: BackgroundTaskNotificationRule | null;
+    }
+  | ({ kind: string } & Record<string, unknown>);
 
 export interface ToolInvocationInfo {
   batchId: string;
@@ -491,7 +512,7 @@ export interface BackgroundTaskEvent extends Omit<BaseEvent, 'metadata'> {
   sourceKind: BackgroundTaskSourceKind;
   sourceId?: string | null;
   parentRuntimeRunId?: string | null;
-  notificationPolicy: BackgroundTaskNotificationPolicy;
+  notification: BackgroundTaskNotificationRule;
   invocation?: FunctionInvocationSnapshot | null;
   metadata?: Record<string, string> | null;
 }
@@ -519,6 +540,27 @@ export interface BackgroundTaskFaultedEvent extends BackgroundTaskEvent {
   faultedAt: string;
   exceptionType: string;
   errorMessage: string;
+}
+
+export interface BackgroundHandleRegisteredEvent extends Omit<BaseEvent, 'metadata'> {
+  type: typeof EventTypes.BACKGROUND_HANDLE_REGISTERED;
+  handleId: string;
+  name: string;
+  handleKind: string;
+  sourceKind: BackgroundTaskSourceKind;
+  sourceId?: string | null;
+  invocation?: FunctionInvocationSnapshot | null;
+  supportedOperations: string;
+  metadata?: Record<string, string> | null;
+  registeredAt: string;
+}
+
+export interface BackgroundHandleStatusChangedEvent extends Omit<BaseEvent, 'metadata'> {
+  type: typeof EventTypes.BACKGROUND_HANDLE_STATUS_CHANGED;
+  handleId: string;
+  status: string;
+  observedAt: string;
+  metadata?: Record<string, string> | null;
 }
 
 export interface BackgroundTaskNotificationQueuedEvent extends BaseEvent {
@@ -637,7 +679,13 @@ export interface TextMessageStartEvent extends BaseEvent {
   type: typeof EventTypes.TEXT_MESSAGE_START;
   messageId: string;
   role: string;
+  source?: AgentMessageSource;
+  visibility?: AgentMessageVisibility;
+  persistence?: AgentMessagePersistence;
+  authorName?: string | null;
+  createdAt?: string | null;
   clientInputId?: string | null;
+  additionalProperties?: Record<string, unknown> | null;
   optimistic?: boolean;
 }
 
@@ -805,19 +853,6 @@ export interface PermissionResponseEvent extends BaseEvent, ResponseMetadata {
   choice?: PermissionChoice;
 }
 
-export interface PermissionApprovedEvent extends BaseEvent {
-  type: typeof EventTypes.PERMISSION_APPROVED;
-  permissionId: string;
-  sourceName: string;
-}
-
-export interface PermissionDeniedEvent extends BaseEvent {
-  type: typeof EventTypes.PERMISSION_DENIED;
-  permissionId: string;
-  sourceName: string;
-  reason: string;
-}
-
 // ============================================
 // Continuation Events
 // ============================================
@@ -863,13 +898,6 @@ export interface ClarificationResponseEvent extends BaseEvent, ResponseMetadata 
 // Middleware Events
 // ============================================
 
-export interface MiddlewareProgressEvent extends BaseEvent {
-  type: typeof EventTypes.MIDDLEWARE_PROGRESS;
-  sourceName: string;
-  message: string;
-  percentComplete?: number;
-}
-
 export interface MiddlewareErrorEvent extends BaseEvent {
   type: typeof EventTypes.MIDDLEWARE_ERROR;
   sourceName: string;
@@ -893,13 +921,33 @@ export interface ClientToolInvokeRequestEvent extends BaseEvent {
   visibility?: RequestVisibility;
 }
 
-export interface ClientToolInvokeResponseEvent extends BaseEvent, ResponseMetadata {
-  type: typeof EventTypes.CLIENT_TOOL_INVOKE_RESPONSE;
+export interface ClientToolInvokeOutcomeEvent extends BaseEvent, ResponseMetadata {
+  type: typeof EventTypes.CLIENT_TOOL_INVOKE_OUTCOME;
   requestId: string;
-  content: ToolResultContent[];
-  success: boolean;
+  outcome: ClientToolInvokeOutcomeKind;
+  content?: ToolResultContent[];
   errorMessage?: string;
+  clientOperationId?: string;
+  handleKind?: BackgroundHandleKind | null;
+  supportedOperations?: BackgroundHandleOperation[] | number;
   augmentation?: ClientToolAugmentation;
+}
+
+export type ClientToolBackgroundOperationOutcomeState =
+  | 'Completed'
+  | 'Faulted'
+  | 'Cancelled';
+
+export interface ClientToolBackgroundOperationOutcomeEvent extends AgentInputEvent {
+  type: typeof EventTypes.CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME;
+  clientOperationId: string;
+  state: ClientToolBackgroundOperationOutcomeState;
+  content?: ToolResultContent[];
+  augmentation?: ClientToolAugmentation;
+  errorMessage?: string | null;
+  errorType?: string | null;
+  cancellationReason?: string | null;
+  metadata?: Record<string, string> | null;
 }
 
 // ============================================
@@ -912,13 +960,6 @@ export interface InterruptionRequestEvent extends AgentInputEvent {
   type: typeof EventTypes.INTERRUPTION_REQUEST;
   reason: string;
   source: InterruptionSource;
-}
-
-export interface clientToolHarnessesRegisteredEvent extends BaseEvent {
-  type: typeof EventTypes.CLIENT_TOOL_GROUPS_REGISTERED;
-  registeredToolHarnesses: string[];
-  totalTools: number;
-  timestamp: string;
 }
 
 // ============================================
@@ -935,11 +976,7 @@ export type KnownAgentEvent =
   | BackgroundTaskNotificationInputEvent
   // Durable Thread Events
   | ThreadCreatedEvent
-  | ThreadForkedEvent
-  | ThreadMetadataUpdatedEvent
-  | ThreadTreeUpdatedEvent
-  | MessageStartedEvent
-  | MessageCompletedEvent
+  | ThreadUpdatedEvent
   | ContentAddedEvent
   | ThreadMiddlewareStateCommittedEvent
   | ThreadHistoryCompactedEvent
@@ -953,12 +990,14 @@ export type KnownAgentEvent =
   | StateSnapshotEvent
   | ThreadRunStartedEvent
   | ThreadRunCompletedEvent
-  | BackgroundOperationStartedEvent
-  | BackgroundOperationStatusEvent
+  | ModelBackgroundOperationStartedEvent
+  | ModelBackgroundOperationStatusEvent
   | BackgroundTaskStartedEvent
   | BackgroundTaskCompletedEvent
   | BackgroundTaskCancelledEvent
   | BackgroundTaskFaultedEvent
+  | BackgroundHandleRegisteredEvent
+  | BackgroundHandleStatusChangedEvent
   | BackgroundTaskNotificationQueuedEvent
   | BackgroundTaskNotificationDeliveredEvent
   | BackgroundTaskNotificationSuppressedEvent
@@ -987,8 +1026,6 @@ export type KnownAgentEvent =
   // Permission Events
   | PermissionRequestEvent
   | PermissionResponseEvent
-  | PermissionApprovedEvent
-  | PermissionDeniedEvent
   // Continuation Events
   | ContinuationRequestEvent
   | ContinuationResponseEvent
@@ -996,12 +1033,11 @@ export type KnownAgentEvent =
   | ClarificationRequestEvent
   | ClarificationResponseEvent
   // Middleware Events
-  | MiddlewareProgressEvent
   | MiddlewareErrorEvent
   // Client Tool Events
   | ClientToolInvokeRequestEvent
-  | ClientToolInvokeResponseEvent
-  | clientToolHarnessesRegisteredEvent
+  | ClientToolInvokeOutcomeEvent
+  | ClientToolBackgroundOperationOutcomeEvent
   // Control Events
   | InterruptionRequestEvent;
 
@@ -1012,7 +1048,8 @@ export type AgentRunInputEvent =
   | PermissionResponseEvent
   | ContinuationResponseEvent
   | ClarificationResponseEvent
-  | ClientToolInvokeResponseEvent
+  | ClientToolInvokeOutcomeEvent
+  | ClientToolBackgroundOperationOutcomeEvent
   | InterruptionRequestEvent;
 
 export type AgentEventOfType<TType extends KnownAgentEvent['type']> =
@@ -1084,12 +1121,6 @@ export function isAgentRequestCancelledEvent(event: BaseEvent): event is AgentRe
   return event.type === EventTypes.AGENT_REQUEST_CANCELLED;
 }
 
-export function isclientToolHarnessesRegisteredEvent(
-  event: BaseEvent
-): event is clientToolHarnessesRegisteredEvent {
-  return event.type === EventTypes.CLIENT_TOOL_GROUPS_REGISTERED;
-}
-
 export function isAgentRequestEvent(event: AgentEvent): event is AgentEvent & AgentRequestEvent {
   return hasStringProperty(event, 'requestId') &&
     hasStringProperty(event, 'sourceName') &&
@@ -1115,7 +1146,7 @@ function isKnownResponseEvent(event: BaseEvent): boolean {
   return event.type === EventTypes.PERMISSION_RESPONSE ||
     event.type === EventTypes.CONTINUATION_RESPONSE ||
     event.type === EventTypes.CLARIFICATION_RESPONSE ||
-    event.type === EventTypes.CLIENT_TOOL_INVOKE_RESPONSE;
+    event.type === EventTypes.CLIENT_TOOL_INVOKE_OUTCOME;
 }
 
 function hasStringProperty(event: BaseEvent, property: string): boolean {

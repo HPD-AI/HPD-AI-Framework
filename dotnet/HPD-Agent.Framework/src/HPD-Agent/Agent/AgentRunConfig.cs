@@ -257,6 +257,15 @@ public class AgentRunConfig
     public ClientTools.AgentClientInput? ClientToolInput { get; set; }
 
     /// <summary>
+    /// Live client app providers to bind for this run.
+    /// </summary>
+    /// <remarks>
+    /// These references do not define tools. They select connected providers whose manifests
+    /// advertise client tool harnesses that can be exposed after a binding lease is created.
+    /// </remarks>
+    public List<ClientTools.ClientAppProviderReference>? ClientAppProviders { get; set; }
+
+    /// <summary>
     /// Conversation ID override (for multi-tenant scenarios or threading).
     /// Null = use thread's conversation ID.
     /// </summary>

@@ -22,15 +22,20 @@ public abstract record McpLiveUpdateEvent : AgentEvent
     public required DateTimeOffset ObservedAt { get; init; }
 }
 
-public sealed record McpServerToolsChangedEvent : McpLiveUpdateEvent;
-
-public sealed record McpServerPromptsChangedEvent : McpLiveUpdateEvent;
-
-public sealed record McpServerResourcesChangedEvent : McpLiveUpdateEvent;
-
-public sealed record McpResourceUpdatedEvent : McpLiveUpdateEvent
+/// <summary>
+/// Emitted when an MCP server reports a live update for tools, prompts, resources, or a subscribed resource.
+/// </summary>
+public sealed record McpServerChangedEvent : McpLiveUpdateEvent
 {
-    public required string Uri { get; init; }
+    /// <summary>
+    /// Gets the kind of live update reported by the server.
+    /// </summary>
+    public required McpLiveUpdateKind ChangeKind { get; init; }
+
+    /// <summary>
+    /// Gets the resource URI when <see cref="ChangeKind"/> is <see cref="McpLiveUpdateKind.ResourceUpdated"/>.
+    /// </summary>
+    public string? Uri { get; init; }
 }
 
 public sealed record McpLiveUpdatesStartedEvent : McpLiveUpdateEvent

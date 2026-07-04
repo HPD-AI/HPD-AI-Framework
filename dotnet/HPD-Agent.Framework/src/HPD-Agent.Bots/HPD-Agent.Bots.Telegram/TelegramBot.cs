@@ -679,7 +679,7 @@ public partial class TelegramBot
                     CompleteTextAsync = UpdateTelegramTextAsync,
                     CompleteCardAsync = CompleteTelegramCardAsync,
                     HandlePermissionAsync = async (_, agent, req, token) =>
-                        await agent.RespondAsync(new PermissionResponseEvent(
+                        await agent.AnswerRequestAsync(new PermissionResponseEvent(
                             PermissionId: req.PermissionId,
                             SourceName: "telegram",
                             Approved: false), token),

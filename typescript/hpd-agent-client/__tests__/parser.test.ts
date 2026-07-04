@@ -116,10 +116,10 @@ describe('SseParser', () => {
     expect(events).toHaveLength(0);
   });
 
-  it('should parse durable thread metadata events with threadMetadata payloads', () => {
+  it('should parse durable thread update events with threadMetadata payloads', () => {
     const parser = new SseParser();
     const chunk = new TextEncoder().encode(
-      'data: {"version":"1.0","type":"THREAD_METADATA_UPDATED","name":"Reviewer","threadKind":"SubAgent","visibility":"Hidden","parentSessionId":"session-1","parentThreadId":"main","subAgentName":"Reviewer","subAgentRunId":"run-1","subAgentSourceKind":"InlineConfig","parentToolCallId":"call-1","sessionPolicy":"ParentSession","threadPolicy":"ForkFromParentThread","threadMetadata":{"purpose":"review"}}\n\n'
+      'data: {"version":"1.0","type":"THREAD_UPDATED","name":"Reviewer","threadKind":"SubAgent","visibility":"Hidden","parentSessionId":"session-1","parentThreadId":"main","subAgentName":"Reviewer","subAgentRunId":"run-1","subAgentSourceKind":"InlineConfig","parentToolCallId":"call-1","sessionPolicy":"ParentSession","threadPolicy":"ForkFromParentThread","forkedFrom":"main","forkedAtMessageId":"message-1","forkedAtMessageIndex":0,"childThreads":["child-1"],"ancestors":{"main":"message-1"},"threadMetadata":{"purpose":"review"}}\n\n'
     );
 
     const events = parser.processChunk(chunk);
@@ -127,7 +127,7 @@ describe('SseParser', () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
       version: '1.0',
-      type: 'THREAD_METADATA_UPDATED',
+      type: 'THREAD_UPDATED',
       name: 'Reviewer',
       threadKind: 'SubAgent',
       visibility: 'Hidden',
@@ -139,6 +139,13 @@ describe('SseParser', () => {
       parentToolCallId: 'call-1',
       sessionPolicy: 'ParentSession',
       threadPolicy: 'ForkFromParentThread',
+      forkedFrom: 'main',
+      forkedAtMessageId: 'message-1',
+      forkedAtMessageIndex: 0,
+      childThreads: ['child-1'],
+      ancestors: {
+        main: 'message-1',
+      },
       threadMetadata: {
         purpose: 'review',
       },

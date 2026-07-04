@@ -309,7 +309,7 @@ public partial class SlackBot(
                 if (agent is not null)
                 {
                     var approved = action.Value == "approve";
-                    await agent.RespondAsync(new PermissionResponseEvent(
+                    await agent.AnswerRequestAsync(new PermissionResponseEvent(
                         PermissionId: action.ActionId,
                         SourceName:   "slack",
                         Approved:     approved));
@@ -358,7 +358,7 @@ public partial class SlackBot(
     /// Posts Approve/Deny Block Kit buttons when the agent yields a
     /// <see cref="PermissionRequestEvent"/>. The block_id encodes the sessionId so
     /// <see cref="HandleBlockActionsAsync"/> can route the button click back to the
-    /// waiting agent loop via <c>agent.RespondAsync(PermissionResponseEvent)</c>.
+    /// waiting agent loop via <c>agent.AnswerRequestAsync(PermissionResponseEvent)</c>.
     /// </summary>
     [HpdPermissionHandler]
     private async Task RenderPermissionAsync(
@@ -699,7 +699,7 @@ public partial class SlackBot(
                             if (agent is not null)
                             {
                                 var approved = action.Value == "approve";
-                                await agent.RespondAsync(new PermissionResponseEvent(
+                                await agent.AnswerRequestAsync(new PermissionResponseEvent(
                                     PermissionId: action.ActionId,
                                     SourceName:   "slack",
                                     Approved:     approved));

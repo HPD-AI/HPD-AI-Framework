@@ -96,14 +96,16 @@ public class MiddlewareResponseEndpointsTests : IClassFixture<TestWebApplication
     }
 
     [Fact]
-    public async Task Respond_AcceptsClientToolResponseEvent()
+    public async Task Respond_AcceptsClientToolOutcomeEvent()
     {
         // Arrange
         var sessionId = await CreateTestSession();
-        var evt = new ClientToolInvokeResponseEvent(
-            RequestId: "tool-req-123",
-            Content: new[] { new TextContent("Tool execution succeeded") },
-            Success: true);
+        var evt = new ClientToolInvokeOutcomeEvent
+        {
+            RequestId = "tool-req-123",
+            Outcome = ClientToolInvokeOutcomeKind.Completed,
+            Content = new[] { new TextContent("Tool execution succeeded") }
+        };
 
         // Act
         var response = await PostEventAsync(

@@ -26,7 +26,6 @@ public class TelemetryEventObserver : IDisposable
     private readonly Counter<int> _stateSnapshots;
     private readonly Counter<int> _parallelToolExecutions;
     private readonly Counter<int> _permissionDenials;
-    private readonly Counter<int> _retryExhaustions;
 
     // Histograms
     private readonly Histogram<double> _iterationDuration;
@@ -41,7 +40,7 @@ public class TelemetryEventObserver : IDisposable
     private readonly Histogram<double> _permissionCheckDuration;
     private readonly Histogram<int> _containerMemberCountHistogram;
     private readonly Histogram<double> _retryDelayHistogram;
-    private readonly Histogram<int> _compactionTokenSavingsHistogram;
+    private readonly Histogram<int> _compactionMessagesRemovedHistogram;
     private readonly Histogram<int> _nestingDepthHistogram;
     private readonly Histogram<long> _usageInputTokensHistogram;
     private readonly Histogram<long> _usageOutputTokensHistogram;
@@ -125,10 +124,6 @@ public class TelemetryEventObserver : IDisposable
             "agent.permission_denials",
             description: "Number of permission denials");
 
-        _retryExhaustions = _meter.CreateCounter<int>(
-            "agent.retry_exhaustions",
-            description: "Number of retry exhaustion events");
-
         _completionDuration = _meter.CreateHistogram<double>(
             "agent.completion.duration",
             unit: "ms",
@@ -174,9 +169,9 @@ public class TelemetryEventObserver : IDisposable
             unit: "ms",
             description: "Retry delay durations");
 
-        _compactionTokenSavingsHistogram = _meter.CreateHistogram<int>(
-            "agent.compaction.token_savings",
-            description: "Distribution of token savings from compaction");
+        _compactionMessagesRemovedHistogram = _meter.CreateHistogram<int>(
+            "agent.compaction.messages_removed",
+            description: "Distribution of messages removed by compaction");
 
         _nestingDepthHistogram = _meter.CreateHistogram<int>(
             "agent.nesting.depth",
@@ -295,32 +290,22 @@ public class TelemetryEventObserver : IDisposable
                     new KeyValuePair<string, object?>("container.type", e.Type.ToString()));
                 break;
 
-            // Retries (consolidated)
-            case InternalRetryEvent e:
-                switch (e.Status)
-                {
-                    case RetryStatus.Attempting:
-                        _retryAttempts.Add(1,
-                            new KeyValuePair<string, object?>("agent.name", e.AgentName),
-                            new KeyValuePair<string, object?>("function.name", e.FunctionName),
-                            new KeyValuePair<string, object?>("attempt", e.AttemptNumber));
+            case FunctionRetryEvent e:
+                _retryAttempts.Add(1,
+                    new KeyValuePair<string, object?>("function.name", e.FunctionName),
+                    new KeyValuePair<string, object?>("attempt", e.Attempt));
 
-                        if (e.RetryDelay.HasValue)
-                        {
-                            _retryDelayHistogram.Record(e.RetryDelay.Value.TotalMilliseconds,
-                                new KeyValuePair<string, object?>("agent.name", e.AgentName),
-                                new KeyValuePair<string, object?>("function.name", e.FunctionName));
-                        }
-                        break;
+                _retryDelayHistogram.Record(e.Delay.TotalMilliseconds,
+                    new KeyValuePair<string, object?>("function.name", e.FunctionName));
+                break;
 
-                    case RetryStatus.Exhausted:
-                        _retryExhaustions.Add(1,
-                            new KeyValuePair<string, object?>("agent.name", e.AgentName),
-                            new KeyValuePair<string, object?>("function.name", e.FunctionName),
-                            new KeyValuePair<string, object?>("total.attempts", e.AttemptNumber),
-                            new KeyValuePair<string, object?>("error", e.ErrorMessage ?? "unknown"));
-                        break;
-                }
+            case ModelCallRetryEvent e:
+                _retryAttempts.Add(1,
+                    new KeyValuePair<string, object?>("operation.kind", "model"),
+                    new KeyValuePair<string, object?>("attempt", e.Attempt));
+
+                _retryDelayHistogram.Record(e.Delay.TotalMilliseconds,
+                    new KeyValuePair<string, object?>("operation.kind", "model"));
                 break;
 
             // Parallel tool execution
@@ -341,24 +326,24 @@ public class TelemetryEventObserver : IDisposable
                 }
                 break;
 
-            // Cache tracking
-            case CompactionCacheEvent e:
-                if (e.IsHit)
+            // Compaction cache tracking
+            case CompactionEvent e:
+                if (e.Status == CompactionStatus.CacheHit)
                 {
                     _compactionCacheHits.Add(1,
                         new KeyValuePair<string, object?>("agent.name", e.AgentName));
                 }
-                else
+                else if (e.Status == CompactionStatus.Performed)
                 {
                     _compactionCacheMisses.Add(1,
                         new KeyValuePair<string, object?>("agent.name", e.AgentName));
                 }
 
-                if (e.TokenSavings.HasValue)
+                if (e.MessagesRemoved.HasValue)
                 {
-                    _compactionTokenSavingsHistogram.Record(e.TokenSavings.Value,
+                    _compactionMessagesRemovedHistogram.Record(e.MessagesRemoved.Value,
                         new KeyValuePair<string, object?>("agent.name", e.AgentName),
-                        new KeyValuePair<string, object?>("is.hit", e.IsHit));
+                        new KeyValuePair<string, object?>("status", e.Status.ToString()));
                 }
                 break;
 

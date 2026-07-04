@@ -89,8 +89,6 @@ public static class CodingHarnessTuiExtensions
                 "hpd.coding.command.backgrounded")
             .TryAddEventHandler<ExecuteCommandProcessExitedEvent, ExecuteCommandExitedTuiHandler>(
                 "hpd.coding.command.exited")
-            .TryAddEventHandler<ExecuteCommandBackgroundListEvent, ExecuteCommandBackgroundListTuiHandler>(
-                "hpd.coding.command.background-list")
             .TryAddEventHandler<ToolCallResultEvent, ExecuteCommandResultTuiHandler>(
                 "hpd.coding.command.result")
             .TryAddInteractionHandler<ExecuteCommandPermissionRequestEvent>(

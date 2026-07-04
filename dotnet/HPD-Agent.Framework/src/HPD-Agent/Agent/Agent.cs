@@ -1,10 +1,11 @@
-﻿ using Microsoft.Extensions.AI;
+﻿using Microsoft.Extensions.AI;
 using HPD.Agent.Middleware;
 using System.Runtime.CompilerServices;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -17,6 +18,8 @@ using HPD.Agent.Providers;
 using HPD.Agent.StructuredOutput;
 using HPD.Events;
 using HPD.Events.Struct;
+using ClientToolBackgroundOperationOutcomeEvent = HPD.Agent.ClientTools.ClientToolBackgroundOperationOutcomeEvent;
+using IClientToolBackgroundOperationRegistry = HPD.Agent.ClientTools.IClientToolBackgroundOperationRegistry;
 
 
 namespace HPD.Agent;
@@ -59,6 +62,7 @@ public sealed class Agent
     private Task? _runtimeLoopTask;
     private Middleware.AgentRuntimeContext? _runtimeContext;
     private HPD.Events.IEventCoordinator? _runtimeEventCoordinator;
+    private IDisposable? _runtimePersistenceBridge;
     private StructEventHub? _runtimeStructEvents;
     private BackgroundTaskNotificationDispatcher? _runtimeNotificationDispatcher;
     private bool _runtimeStarting;
@@ -229,7 +233,8 @@ public sealed class Agent
             config.ErrorHandling,
             config.ServerConfiguredTools,
             config.AgenticLoop,
-            GetCurrentRuntimeBackgroundTaskRegistry);
+            GetCurrentRuntimeBackgroundTaskRegistry,
+            GetCurrentRuntimeBackgroundHandleRegistry);
         _functionCallProcessor = new FunctionCallProcessor(
             _eventCoordinator, // Pass IEventCoordinator for decoupled event emission
             _middlewarePipeline, // Pass unified middleware pipeline for permission checks
@@ -240,7 +245,8 @@ public sealed class Agent
             config.AgenticLoop,  // Pass agentic loop config for TerminateOnUnknownCalls
             _name,
             _stateFactories,
-            GetCurrentRuntimeBackgroundTaskRegistry);
+            GetCurrentRuntimeBackgroundTaskRegistry,
+            GetCurrentRuntimeBackgroundHandleRegistry);
         _agentTurn = new AgentTurn(
             _baseClient,
             config.ConfigureOptions,
@@ -330,7 +336,8 @@ public sealed class Agent
                 Config?.ErrorHandling,
                 Config?.ServerConfiguredTools,
                 Config?.AgenticLoop,
-                GetCurrentRuntimeBackgroundTaskRegistry);
+                GetCurrentRuntimeBackgroundTaskRegistry,
+                GetCurrentRuntimeBackgroundHandleRegistry);
 
         return new FunctionCallProcessor(
             eventCoordinator,
@@ -342,7 +349,8 @@ public sealed class Agent
             Config?.AgenticLoop,
             _name,
             _stateFactories,
-            GetCurrentRuntimeBackgroundTaskRegistry);
+            GetCurrentRuntimeBackgroundTaskRegistry,
+            GetCurrentRuntimeBackgroundHandleRegistry);
     }
 
     private sealed class RuntimeStructHandlerSubscription(
@@ -633,6 +641,7 @@ public sealed class Agent
 
         foreach (var message in newMessages.Where(ShouldPersistMessageSnapshotAsThreadEvents))
         {
+            AgentMessagePolicy.StampDefaults(message);
             foreach (var evt in ThreadMessageEventConverter.ToThreadEvents(
                 thread.SessionId,
                 thread.Id,
@@ -716,7 +725,9 @@ public sealed class Agent
     }
 
     private static bool ShouldPersistMessageSnapshotAsThreadEvents(ChatMessage message)
-        => message.Role == ChatRole.User || message.Role == ChatRole.System;
+        => message.GetPersistence() == AgentMessagePersistence.ThreadHistory &&
+           message.Role != ChatRole.Assistant &&
+           message.Role != ChatRole.Tool;
 
     private async Task AppendThreadRuntimeEventAsync(
         Session? session,
@@ -813,6 +824,15 @@ public sealed class Agent
         Session? session,
         AgentEvent evt,
         CancellationToken cancellationToken)
+        => await PersistAgentEventContentAsync(
+            session?.Id,
+            evt,
+            cancellationToken).ConfigureAwait(false);
+
+    private async Task PersistAgentEventContentAsync(
+        string? sessionId,
+        AgentEvent evt,
+        CancellationToken cancellationToken)
     {
         if (_contentStore == null || evt.GetContentPersistenceRequest() == null)
             return;
@@ -822,7 +842,7 @@ public sealed class Agent
             await AgentEventContentPersistence.PersistAsync(
                 _contentStore,
                 evt,
-                session?.Id,
+                sessionId,
                 cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -835,6 +855,84 @@ public sealed class Agent
                 "Agent event content persistence failed for {EventType}",
                 evt.GetType().Name);
             // Event content persistence is opt-in telemetry/storage and should not break streaming.
+        }
+    }
+
+    private IDisposable CreateRuntimeThreadPersistenceBridge(
+        HPD.Events.IEventCoordinator runtimeCoordinator)
+    {
+        var persistedEventIds = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+
+        return runtimeCoordinator.Subscribe<AgentEvent>(async evt =>
+        {
+            if (!TryPrepareRuntimeCoordinatorEventForPersistence(
+                    evt,
+                    persistedEventIds,
+                    out var persistableEvent))
+            {
+                return;
+            }
+
+            await PersistRuntimeCoordinatorEventAsync(persistableEvent).ConfigureAwait(false);
+        });
+    }
+
+    private static bool TryPrepareRuntimeCoordinatorEventForPersistence(
+        AgentEvent evt,
+        ConcurrentDictionary<string, byte> persistedEventIds,
+        [NotNullWhen(true)] out AgentEvent? persistableEvent)
+    {
+        persistableEvent = null;
+
+        if (!evt.ShouldPersistToThread())
+            return false;
+
+        if (string.IsNullOrWhiteSpace(evt.SessionId) ||
+            string.IsNullOrWhiteSpace(evt.ThreadId))
+        {
+            return false;
+        }
+
+        persistableEvent = evt with
+        {
+            EventId = string.IsNullOrWhiteSpace(evt.EventId)
+                ? Guid.NewGuid().ToString("N")
+                : evt.EventId
+        };
+
+        if (!persistedEventIds.TryAdd(persistableEvent.EventId!, 0))
+        {
+            persistableEvent = null;
+            return false;
+        }
+
+        return true;
+    }
+
+    private async ValueTask PersistRuntimeCoordinatorEventAsync(AgentEvent evt)
+    {
+        var store = Config?.SessionStore;
+        if (store is null)
+            return;
+
+        try
+        {
+            await store.AppendThreadEventAsync(
+                evt.SessionId!,
+                evt.ThreadId!,
+                evt,
+                cancellationToken: CancellationToken.None).ConfigureAwait(false);
+
+            await PersistAgentEventContentAsync(
+                evt.SessionId,
+                evt,
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _agentLogger?.LogDebug(ex,
+                "Runtime coordinator thread persistence failed for {EventType}",
+                evt.GetType().Name);
         }
     }
 
@@ -973,6 +1071,14 @@ public sealed class Agent
         }
     }
 
+    private Middleware.IAgentBackgroundHandleRegistry? GetCurrentRuntimeBackgroundHandleRegistry()
+    {
+        lock (_runtimeLock)
+        {
+            return _runtimeContext;
+        }
+    }
+
     private async Task<AgentTurnResult> RunInputDirectAsync(AgentInputEvent input, CancellationToken cancellationToken)
         => await RunInputDirectAsync(input, GetActiveEventCoordinator(), cancellationToken).ConfigureAwait(false);
 
@@ -992,6 +1098,10 @@ public sealed class Agent
                     eventCoordinator,
                     cancellationToken).ConfigureAwait(false);
 
+            case ClientToolBackgroundOperationOutcomeEvent outcome:
+                ResolveClientToolBackgroundOperation(outcome);
+                return AgentTurnResult.Empty;
+
             case InterruptionRequestEvent interruption:
                 await HandleInterruptionAsync(interruption, cancellationToken).ConfigureAwait(false);
                 return AgentTurnResult.Empty;
@@ -1000,6 +1110,13 @@ public sealed class Agent
                 throw new NotSupportedException(
                     $"Event type {input.GetType().Name} cannot be used as agent input.");
         }
+    }
+
+    private void ResolveClientToolBackgroundOperation(ClientToolBackgroundOperationOutcomeEvent input)
+    {
+        var registry = GetCurrentRuntimeBackgroundTaskRegistry() as IClientToolBackgroundOperationRegistry;
+        if (registry?.TryResolveClientToolBackgroundOperation(input) != true)
+            throw new InvalidOperationException($"No client tool background operation '{input.ClientOperationId}' is active.");
     }
 
     private async Task RunRuntimeLoopAsync(
@@ -1021,10 +1138,10 @@ public sealed class Agent
 
                 try
                 {
-                    await PublishRuntimeInputStartedAsync(input).ConfigureAwait(false);
+                    PublishRuntimeInputStarted(input, eventCoordinator);
                     await RunInputDirectAsync(input, eventCoordinator, activeTurnCts.Token).ConfigureAwait(false);
                     if (input is BackgroundTaskNotificationInputEvent notificationInput)
-                        await PublishBackgroundTaskNotificationDeliveredAsync(notificationInput).ConfigureAwait(false);
+                        PublishBackgroundTaskNotificationDelivered(notificationInput, eventCoordinator);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -1049,7 +1166,7 @@ public sealed class Agent
                         _activeRuntimeTurnCts.Remove(activeTurnCts);
                     }
 
-                    await PublishRuntimeInputCompletedAsync(input, runCancelled, runError).ConfigureAwait(false);
+                    PublishRuntimeInputCompleted(input, runCancelled, runError, eventCoordinator);
                 }
             }
         }
@@ -1059,7 +1176,9 @@ public sealed class Agent
         }
     }
 
-    private async Task PublishRuntimeInputStartedAsync(AgentInputEvent input)
+    private void PublishRuntimeInputStarted(
+        AgentInputEvent input,
+        HPD.Events.IEventCoordinator runtimeCoordinator)
     {
         if (string.IsNullOrWhiteSpace(input.RuntimeRunId) ||
             string.IsNullOrWhiteSpace(input.SessionId) ||
@@ -1077,30 +1196,14 @@ public sealed class Agent
             ThreadId = input.ThreadId
         };
 
-        var store = Config?.SessionStore;
-        if (store != null)
-        {
-            try
-            {
-                await store.AppendThreadEventAsync(
-                    input.SessionId!,
-                    input.ThreadId!,
-                    evt,
-                    cancellationToken: CancellationToken.None).ConfigureAwait(false);
-            }
-            catch
-            {
-                // The live event still lets hosting observe run state.
-            }
-        }
-
-        PublishOutputEvent(evt);
+        runtimeCoordinator.Emit(evt);
     }
 
-    private async Task PublishRuntimeInputCompletedAsync(
+    private void PublishRuntimeInputCompleted(
         AgentInputEvent input,
         bool cancelled,
-        Exception? error)
+        Exception? error,
+        HPD.Events.IEventCoordinator runtimeCoordinator)
     {
         if (string.IsNullOrWhiteSpace(input.RuntimeRunId) ||
             string.IsNullOrWhiteSpace(input.SessionId) ||
@@ -1120,28 +1223,12 @@ public sealed class Agent
             ThreadId = input.ThreadId
         };
 
-        var store = Config?.SessionStore;
-        if (store != null)
-        {
-            try
-            {
-                await store.AppendThreadEventAsync(
-                    input.SessionId!,
-                    input.ThreadId!,
-                    evt,
-                    cancellationToken: CancellationToken.None).ConfigureAwait(false);
-            }
-            catch
-            {
-                // Completion is still emitted live so hosting can release the active slot.
-            }
-        }
-
-        PublishOutputEvent(evt);
+        runtimeCoordinator.Emit(evt);
     }
 
-    private async Task PublishBackgroundTaskNotificationDeliveredAsync(
-        BackgroundTaskNotificationInputEvent input)
+    private static void PublishBackgroundTaskNotificationDelivered(
+        BackgroundTaskNotificationInputEvent input,
+        HPD.Events.IEventCoordinator runtimeCoordinator)
     {
         if (string.IsNullOrWhiteSpace(input.SessionId) ||
             string.IsNullOrWhiteSpace(input.ThreadId))
@@ -1151,39 +1238,15 @@ public sealed class Agent
 
         foreach (var notification in input.Notifications)
         {
-            await PublishRuntimeControlEventAsync(new BackgroundTaskNotificationDeliveredEvent
+            runtimeCoordinator.Emit(new BackgroundTaskNotificationDeliveredEvent
             {
                 NotificationId = notification.NotificationId,
                 DeliveredAt = DateTimeOffset.UtcNow,
                 RuntimeRunId = input.RuntimeRunId,
                 SessionId = input.SessionId,
                 ThreadId = input.ThreadId
-            }).ConfigureAwait(false);
+            });
         }
-    }
-
-    private async Task PublishRuntimeControlEventAsync(AgentEvent evt)
-    {
-        if (evt.ShouldPersistToThread() &&
-            !string.IsNullOrWhiteSpace(evt.SessionId) &&
-            !string.IsNullOrWhiteSpace(evt.ThreadId) &&
-            Config?.SessionStore is { } store)
-        {
-            try
-            {
-                await store.AppendThreadEventAsync(
-                    evt.SessionId!,
-                    evt.ThreadId!,
-                    evt,
-                    cancellationToken: CancellationToken.None).ConfigureAwait(false);
-            }
-            catch
-            {
-                // Live emission still gives observers a chance to react.
-            }
-        }
-
-        PublishOutputEvent(evt);
     }
 
     /// <summary>
@@ -1195,6 +1258,7 @@ public sealed class Agent
 
         Middleware.AgentRuntimeContext runtimeContext;
         HPD.Events.IEventCoordinator runtimeCoordinator;
+        IDisposable runtimePersistenceBridge;
         StructEventHub runtimeStructEvents;
         CancellationTokenSource runtimeCts;
         Channel<AgentInputEvent> runtimeInbox;
@@ -1213,6 +1277,7 @@ public sealed class Agent
             runtimeCts = new CancellationTokenSource();
             runtimeCoordinator = new HPD.Events.Core.EventCoordinator();
             runtimeCoordinator.SetParent(_eventCoordinator);
+            runtimePersistenceBridge = CreateRuntimeThreadPersistenceBridge(runtimeCoordinator);
             runtimeStructEvents = new StructEventHub();
             runtimeInbox = Channel.CreateUnbounded<AgentInputEvent>(new UnboundedChannelOptions
             {
@@ -1247,11 +1312,11 @@ public sealed class Agent
                 _name,
                 runtimeCoordinator,
                 runtimeInbox.Writer,
-                runConfig,
-                PublishRuntimeControlEventAsync);
+                runConfig);
 
             _runtimeCts = runtimeCts;
             _runtimeEventCoordinator = runtimeCoordinator;
+            _runtimePersistenceBridge = runtimePersistenceBridge;
             _runtimeStructEvents = runtimeStructEvents;
             _runtimeContext = runtimeContext;
             _runtimeNotificationDispatcher = runtimeNotificationDispatcher;
@@ -1299,6 +1364,7 @@ public sealed class Agent
             await StopRuntimeAsync(
                 runtimeContext,
                 runtimeCoordinator,
+                runtimePersistenceBridge,
                 runtimeStructEvents,
                 runtimeCts,
                 RuntimeStopReason.Faulted,
@@ -1315,6 +1381,7 @@ public sealed class Agent
     {
         Middleware.AgentRuntimeContext? runtimeContext;
         HPD.Events.IEventCoordinator? runtimeCoordinator;
+        IDisposable? runtimePersistenceBridge;
         StructEventHub? runtimeStructEvents;
         CancellationTokenSource? runtimeCts;
 
@@ -1322,10 +1389,11 @@ public sealed class Agent
         {
             runtimeContext = _runtimeContext;
             runtimeCoordinator = _runtimeEventCoordinator;
+            runtimePersistenceBridge = _runtimePersistenceBridge;
             runtimeStructEvents = _runtimeStructEvents;
             runtimeCts = _runtimeCts;
 
-            if (_runtimeStopping || runtimeContext == null || runtimeCoordinator == null || runtimeStructEvents == null || runtimeCts == null)
+            if (_runtimeStopping || runtimeContext == null || runtimeCoordinator == null || runtimePersistenceBridge == null || runtimeStructEvents == null || runtimeCts == null)
                 return;
 
             _runtimeStopping = true;
@@ -1334,6 +1402,7 @@ public sealed class Agent
         await StopRuntimeAsync(
             runtimeContext,
             runtimeCoordinator,
+            runtimePersistenceBridge,
             runtimeStructEvents,
             runtimeCts,
             RuntimeStopReason.UserRequested,
@@ -1344,6 +1413,7 @@ public sealed class Agent
     private async Task StopRuntimeAsync(
         Middleware.AgentRuntimeContext runtimeContext,
         HPD.Events.IEventCoordinator runtimeCoordinator,
+        IDisposable runtimePersistenceBridge,
         StructEventHub runtimeStructEvents,
         CancellationTokenSource runtimeCts,
         RuntimeStopReason reason,
@@ -1485,6 +1555,7 @@ public sealed class Agent
                 _runtimeCts = null;
                 _runtimeContext = null;
                 _runtimeEventCoordinator = null;
+                _runtimePersistenceBridge = null;
                 _runtimeStructEvents = null;
                 _runtimeNotificationDispatcher = null;
                 _runtimeStarting = false;
@@ -1497,6 +1568,7 @@ public sealed class Agent
         }
 
         runtimeCts.Dispose();
+        runtimePersistenceBridge.Dispose();
         (runtimeCoordinator as IDisposable)?.Dispose();
         runtimeStructEvents.Dispose();
 
@@ -1588,7 +1660,7 @@ public sealed class Agent
     /// <summary>
     /// Routes a response event to the request session matching its request ID.
     /// </summary>
-    public Task<HPD.Events.RespondResult> RespondAsync(
+    public Task<HPD.Events.RespondResult> AnswerRequestAsync(
         HPD.Events.IResponseEvent response,
         CancellationToken cancellationToken = default)
     {
@@ -1604,7 +1676,7 @@ public sealed class Agent
     /// <summary>
     /// Attempts to route a response event to the request session matching its request ID.
     /// </summary>
-    public Task<HPD.Events.RespondResult> RespondIfPendingAsync(
+    public Task<HPD.Events.RespondResult> TryAnswerRequestAsync(
         HPD.Events.IResponseEvent response,
         CancellationToken cancellationToken = default)
     {
@@ -2201,7 +2273,7 @@ public sealed class Agent
 
                                     if (!messageStarted)
                                     {
-                                        yield return new TextMessageStartEvent(assistantMessageId, "assistant") { TraceId = traceId };
+                                        yield return new TextMessageStartEvent(assistantMessageId, "assistant", AgentMessageSource.AssistantOutput, AgentMessageVisibility.Transcript) { TraceId = traceId };
                                         messageStarted = true;
                                     }
                                     yield return new TextDeltaEvent(textContent.Text, assistantMessageId) { TraceId = traceId };
@@ -2218,7 +2290,7 @@ public sealed class Agent
 
                                     if (!messageStarted)
                                     {
-                                        yield return new TextMessageStartEvent(assistantMessageId, "assistant") { TraceId = traceId };
+                                        yield return new TextMessageStartEvent(assistantMessageId, "assistant", AgentMessageSource.AssistantOutput, AgentMessageVisibility.Transcript) { TraceId = traceId };
                                         messageStarted = true;
                                     }
                                     yield return new ToolCallStartEvent(
@@ -2472,7 +2544,7 @@ public sealed class Agent
                                     if (!backgroundOperationEventEmitted && allowBackgroundResponses)
                                     {
                                         backgroundOperationEventEmitted = true;
-                                        yield return new BackgroundOperationStartedEvent(
+                                        yield return new ModelBackgroundOperationStartedEvent(
                                             ContinuationToken: continuationToken,
                                             Status: OperationStatus.InProgress,
                                             OperationId: assistantMessageId)
@@ -2544,7 +2616,7 @@ public sealed class Agent
                                     }
                                     if (!messageStarted)
                                     {
-                                        yield return new TextMessageStartEvent(assistantMessageId, "assistant") { TraceId = traceId };
+                                        yield return new TextMessageStartEvent(assistantMessageId, "assistant", AgentMessageSource.AssistantOutput, AgentMessageVisibility.Transcript) { TraceId = traceId };
                                         messageStarted = true;
                                     }
                                     yield return new TextDeltaEvent(textContent.Text, assistantMessageId) { TraceId = traceId };
@@ -2560,7 +2632,7 @@ public sealed class Agent
                                     }
                                     if (!messageStarted)
                                     {
-                                        yield return new TextMessageStartEvent(assistantMessageId, "assistant") { TraceId = traceId };
+                                        yield return new TextMessageStartEvent(assistantMessageId, "assistant", AgentMessageSource.AssistantOutput, AgentMessageVisibility.Transcript) { TraceId = traceId };
                                         messageStarted = true;
                                     }
 
@@ -2658,7 +2730,7 @@ public sealed class Agent
                                     if (!backgroundOperationEventEmitted && allowBackgroundResponses)
                                     {
                                         backgroundOperationEventEmitted = true;
-                                        yield return new BackgroundOperationStartedEvent(
+                                        yield return new ModelBackgroundOperationStartedEvent(
                                             ContinuationToken: continuationToken,
                                             Status: OperationStatus.InProgress,
                                             OperationId: assistantMessageId)
@@ -2711,7 +2783,7 @@ public sealed class Agent
 
                                             if (!messageStarted)
                                             {
-                                                yield return new TextMessageStartEvent(assistantMessageId, "assistant") { TraceId = traceId };
+                                                yield return new TextMessageStartEvent(assistantMessageId, "assistant", AgentMessageSource.AssistantOutput, AgentMessageVisibility.Transcript) { TraceId = traceId };
                                                 messageStarted = true;
                                             }
 
@@ -2722,7 +2794,7 @@ public sealed class Agent
                                         {
                                             if (!messageStarted)
                                             {
-                                                yield return new TextMessageStartEvent(assistantMessageId, "assistant") { TraceId = traceId };
+                                                yield return new TextMessageStartEvent(assistantMessageId, "assistant", AgentMessageSource.AssistantOutput, AgentMessageVisibility.Transcript) { TraceId = traceId };
                                                 messageStarted = true;
                                             }
 
@@ -2787,7 +2859,7 @@ public sealed class Agent
                         state = state.WithBackgroundOperation(null);
 
                         // Emit completion status event
-                        yield return new BackgroundOperationStatusEvent(
+                        yield return new ModelBackgroundOperationStatusEvent(
                             ContinuationToken: null!,  // null indicates completion
                             Status: OperationStatus.Completed,
                             StatusMessage: "Background operation completed successfully")
@@ -4989,7 +5061,7 @@ public sealed class Agent
             // Check timeout
             if (timeout.HasValue && DateTimeOffset.UtcNow - startTime > timeout.Value)
             {
-                yield return new BackgroundOperationStatusEvent(
+                yield return new ModelBackgroundOperationStatusEvent(
                     ContinuationToken: lastToken!,
                     Status: OperationStatus.Failed,
                     StatusMessage: $"Background operation timed out after {timeout.Value}");
@@ -4999,7 +5071,7 @@ public sealed class Agent
             // Check max attempts (only after first run)
             if (!isFirstRun && attempts >= maxAttempts)
             {
-                yield return new BackgroundOperationStatusEvent(
+                yield return new ModelBackgroundOperationStatusEvent(
                     ContinuationToken: lastToken!,
                     Status: OperationStatus.Failed,
                     StatusMessage: $"Background operation exceeded max poll attempts ({maxAttempts})");
@@ -5013,7 +5085,7 @@ public sealed class Agent
                 attempts++;
 
                 // Emit polling status event
-                yield return new BackgroundOperationStatusEvent(
+                yield return new ModelBackgroundOperationStatusEvent(
                     ContinuationToken: lastToken,
                     Status: OperationStatus.InProgress,
                     StatusMessage: $"Polling attempt {attempts}/{maxAttempts}");
@@ -5028,11 +5100,11 @@ public sealed class Agent
                 yield return evt;
 
                 // Capture continuation token from events
-                if (evt is BackgroundOperationStartedEvent started)
+                if (evt is ModelBackgroundOperationStartedEvent started)
                 {
                     lastToken = started.ContinuationToken;
                 }
-                else if (evt is BackgroundOperationStatusEvent status && status.ContinuationToken != null)
+                else if (evt is ModelBackgroundOperationStatusEvent status && status.ContinuationToken != null)
                 {
                     lastToken = status.ContinuationToken;
                 }
@@ -5578,7 +5650,7 @@ public sealed class Agent
         {
             sourceThread.ChildThreads.Add(newThread.Id);
             sourceThread.LastActivity = now;
-            await store.AppendThreadTreeUpdatedAsync(sourceThread, cancellationToken);
+            await store.AppendThreadUpdatedAsync(sourceThread, cancellationToken);
         }
 
         //  Update session's LastActivity
@@ -5823,9 +5895,7 @@ public sealed class Agent
 
         var events = new List<AgentEvent>
         {
-            ThreadEventFactory.ThreadForked(newThread),
-            ThreadEventFactory.ThreadMetadataUpdated(newThread),
-            ThreadEventFactory.ThreadTreeUpdated(newThread)
+            ThreadEventFactory.ThreadCreated(newThread)
         };
 
         if (copyThroughSequence is long sequenceNumber)
@@ -5960,8 +6030,6 @@ public sealed class Agent
             MessageTurnFinishedEvent data => copiedTurnIds.Contains(data.MessageTurnId),
             MessageTurnErrorEvent data => !string.IsNullOrWhiteSpace(data.MessageTurnId) &&
                                           copiedTurnIds.Contains(data.MessageTurnId),
-            MessageStartedEvent data => copiedMessageIds.Contains(data.MessageId),
-            MessageCompletedEvent data => copiedMessageIds.Contains(data.MessageId),
             ContentAddedEvent data => copiedMessageIds.Contains(data.MessageId),
             TextMessageStartEvent data => copiedMessageIds.Contains(data.MessageId),
             TextDeltaEvent data => copiedMessageIds.Contains(data.MessageId),
@@ -5979,9 +6047,7 @@ public sealed class Agent
     private static bool IsThreadStructuralEvent(AgentEvent evt) => evt switch
     {
         ThreadCreatedEvent => true,
-        ThreadForkedEvent => true,
-        ThreadMetadataUpdatedEvent => true,
-        ThreadTreeUpdatedEvent => true,
+        ThreadUpdatedEvent => true,
         ThreadMiddlewareStateCommittedEvent => true,
         ThreadHistoryCompactedEvent => true,
         _ => false
@@ -6258,7 +6324,7 @@ public sealed class Agent
             {
                 parent.ChildThreads.Remove(threadId);
                 parent.LastActivity = DateTime.UtcNow;
-                await store.AppendThreadTreeUpdatedAsync(parent, cancellationToken);
+                await store.AppendThreadUpdatedAsync(parent, cancellationToken);
             }
         }
 
@@ -7515,6 +7581,7 @@ internal class FunctionCallProcessor
     private readonly string _agentName;
     private readonly IReadOnlyDictionary<string, MiddlewareStateFactory> _stateFactories;
     private readonly Func<Middleware.IAgentBackgroundTaskRegistry?> _getBackgroundTaskRegistry;
+    private readonly Func<Middleware.IAgentBackgroundHandleRegistry?> _getBackgroundHandleRegistry;
 
     public FunctionCallProcessor(
         HPD.Events.IEventCoordinator eventCoordinator,
@@ -7526,7 +7593,8 @@ internal class FunctionCallProcessor
         AgenticLoopConfig? agenticLoopConfig = null,
         string agentName = "Agent",
         IReadOnlyDictionary<string, MiddlewareStateFactory>? stateFactories = null,
-        Func<Middleware.IAgentBackgroundTaskRegistry?>? getBackgroundTaskRegistry = null)
+        Func<Middleware.IAgentBackgroundTaskRegistry?>? getBackgroundTaskRegistry = null,
+        Func<Middleware.IAgentBackgroundHandleRegistry?>? getBackgroundHandleRegistry = null)
     {
         _eventCoordinator = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
         _middlewarePipeline = middlewarePipeline ?? throw new ArgumentNullException(nameof(middlewarePipeline));
@@ -7537,6 +7605,7 @@ internal class FunctionCallProcessor
         _agentName = agentName;
         _stateFactories = stateFactories ?? ImmutableDictionary<string, MiddlewareStateFactory>.Empty;
         _getBackgroundTaskRegistry = getBackgroundTaskRegistry ?? (() => null);
+        _getBackgroundHandleRegistry = getBackgroundHandleRegistry ?? (() => null);
     }
 
     // Helpers moved here from FunctionMapBuilder to keep lookup logic next to caller

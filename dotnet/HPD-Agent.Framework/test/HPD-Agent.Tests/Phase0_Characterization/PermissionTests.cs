@@ -83,10 +83,6 @@ public class PermissionTests : AgentTestBase
         var permissionRequest = permissionHandler.CapturedRequests[0];
         permissionRequest.FunctionName.Should().Be("SensitiveTool", "correct function should request permission");
 
-        // Permission denied event should be emitted
-        var permissionDenied = capturedEvents.OfType<PermissionDeniedEvent>().ToList();
-        permissionDenied.Should().ContainSingle("permission denial should be recorded");
-
         // CURRENT BEHAVIOR: Check what actually happens with tool execution
         var toolResults = capturedEvents.OfType<ToolCallResultEvent>().ToList();
 
@@ -156,10 +152,6 @@ public class PermissionTests : AgentTestBase
         // Assert - Permission request should be captured
         permissionHandler.CapturedRequests.Should().ContainSingle("permission should be requested once");
 
-        // Permission approved event should be emitted
-        var permissionApproved = capturedEvents.OfType<PermissionApprovedEvent>().ToList();
-        permissionApproved.Should().ContainSingle("permission approval should be recorded");
-
         // Tool SHOULD be executed successfully
         var toolResults = capturedEvents.OfType<ToolCallResultEvent>().ToList();
         toolResults.Should().ContainSingle("tool should execute after approval");
@@ -225,10 +217,6 @@ public class PermissionTests : AgentTestBase
 
         // Assert - Two permission requests
         permissionHandler.CapturedRequests.Should().HaveCount(2, "both tools should request permission");
-
-        // One approval, one denial
-        capturedEvents.OfType<PermissionApprovedEvent>().Should().ContainSingle("one approval");
-        capturedEvents.OfType<PermissionDeniedEvent>().Should().ContainSingle("one denial");
 
         // Tool results should reflect approval/denial
         var toolResults = capturedEvents.OfType<ToolCallResultEvent>().ToList();
@@ -300,14 +288,6 @@ public class PermissionTests : AgentTestBase
         // Assert - Three permission requests (one per tool in batch check)
         permissionHandler.CapturedRequests.Should().HaveCount(3,
             "BeforeParallelFunctionsAsync should check permission for each tool sequentially");
-
-        // All should be approved
-        var permissionApproved = capturedEvents.OfType<PermissionApprovedEvent>().ToList();
-        permissionApproved.Should().HaveCount(3, "all three tools should be approved");
-
-        // No denials
-        var permissionDenied = capturedEvents.OfType<PermissionDeniedEvent>().ToList();
-        permissionDenied.Should().BeEmpty("no tools should be denied");
 
         // All tools should execute successfully
         var toolResults = capturedEvents.OfType<ToolCallResultEvent>().ToList();
@@ -385,13 +365,6 @@ public class PermissionTests : AgentTestBase
         // Assert - Three permission requests
         permissionHandler.CapturedRequests.Should().HaveCount(3,
             "BeforeParallelFunctionsAsync should check permission for each tool");
-
-        // Two approvals, one denial
-        var permissionApproved = capturedEvents.OfType<PermissionApprovedEvent>().ToList();
-        permissionApproved.Should().HaveCount(2, "two tools should be approved");
-
-        var permissionDenied = capturedEvents.OfType<PermissionDeniedEvent>().ToList();
-        permissionDenied.Should().ContainSingle("one tool should be denied");
 
         // Tool results should reflect mixed outcomes
         var toolResults = capturedEvents.OfType<ToolCallResultEvent>().ToList();

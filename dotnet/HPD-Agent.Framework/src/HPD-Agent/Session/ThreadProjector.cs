@@ -62,74 +62,14 @@ public static class ThreadProjector
         {
             case ThreadCreatedEvent data:
             {
-                thread.Name = data.Name;
-                thread.Description = data.Description;
-                thread.Tags = data.Tags;
-                ReplaceMetadata(thread.Metadata, data.ThreadMetadata);
-                ApplyHeader(thread, data.ThreadKind, data.Visibility, data.ParentSessionId, data.ParentThreadId,
-                    data.SubAgentName, data.SubAgentRunId, data.SubAgentSourceKind, data.ParentToolCallId,
-                    data.SessionPolicy, data.ThreadPolicy);
+                ApplyHeader(thread, data);
                 thread.LastActivity = data.CreatedAt;
                 break;
             }
 
-            case ThreadForkedEvent data:
+            case ThreadUpdatedEvent data:
             {
-                thread.SetForkMetadata(
-                    data.SourceThreadId,
-                    data.FromMessageId,
-                    data.ResolvedMessageIndex,
-                    data.Ancestors);
-                break;
-            }
-
-            case ThreadMetadataUpdatedEvent data:
-            {
-                thread.Name = data.Name;
-                thread.Description = data.Description;
-                thread.Tags = data.Tags;
-                ReplaceMetadata(thread.Metadata, data.ThreadMetadata);
-                ApplyHeader(thread, data.ThreadKind, data.Visibility, data.ParentSessionId, data.ParentThreadId,
-                    data.SubAgentName, data.SubAgentRunId, data.SubAgentSourceKind, data.ParentToolCallId,
-                    data.SessionPolicy, data.ThreadPolicy);
-                thread.LastActivity = evt.Timestamp.UtcDateTime;
-                break;
-            }
-
-            case ThreadTreeUpdatedEvent data:
-            {
-                thread.SetTreeMetadata(
-                    data.ForkedFrom,
-                    data.ForkedAtMessageId,
-                    data.ForkedAtMessageIndex,
-                    data.ChildThreads.ToList());
-                thread.LastActivity = evt.Timestamp.UtcDateTime;
-                break;
-            }
-
-            case MessageStartedEvent data:
-            {
-                if (string.IsNullOrWhiteSpace(data.MessageId))
-                    return;
-
-                var projection = new MessageProjection(
-                    data.MessageId,
-                    ParseRole(data.Role),
-                    data.AuthorName,
-                    data.CreatedAt);
-
-                projection.AdditionalProperties = data.AdditionalProperties?.Clone();
-
-                if (messages.TryGetValue(data.MessageId, out var existing))
-                {
-                    projection.Contents.AddRange(existing.Contents);
-                    projection.AdditionalProperties ??= existing.AdditionalProperties?.Clone();
-                }
-
-                if (!messages.ContainsKey(data.MessageId))
-                    messageOrder.Add(data.MessageId);
-
-                messages[data.MessageId] = projection;
+                ApplyHeader(thread, data);
                 thread.LastActivity = evt.Timestamp.UtcDateTime;
                 break;
             }
@@ -138,7 +78,16 @@ public static class ThreadProjector
             {
                 if (data.Content is null)
                     return;
-                GetMessage(messages, messageOrder, data.MessageId, ChatRole.Assistant)
+                GetOrStartMessage(
+                        messages,
+                        messageOrder,
+                        data.MessageId,
+                        ParseRole(data.Role),
+                        data.AuthorName,
+                        data.CreatedAt,
+                        data.AdditionalProperties)
+                    .SetPolicy(data.Source, data.Visibility, data.Persistence)
+                    .SetMessageTurnId(evt.EventFlowId)
                     .Contents.Add(data.Content);
                 thread.LastActivity = evt.Timestamp.UtcDateTime;
                 break;
@@ -146,7 +95,15 @@ public static class ThreadProjector
 
             case TextMessageStartEvent data:
             {
-                GetMessage(messages, messageOrder, data.MessageId, ParseRole(data.Role))
+                GetOrStartMessage(
+                        messages,
+                        messageOrder,
+                        data.MessageId,
+                        ParseRole(data.Role),
+                        data.AuthorName,
+                        data.CreatedAt,
+                        data.AdditionalProperties)
+                    .SetPolicy(data.Source, data.Visibility, data.Persistence)
                     .SetMessageTurnId(evt.EventFlowId);
                 break;
             }
@@ -263,8 +220,62 @@ public static class ThreadProjector
         messageOrder.InsertRange(insertIndex, replacementIds);
     }
 
+    private static void ApplyHeader(Thread thread, ThreadCreatedEvent data)
+    {
+        ApplyHeader(
+            thread,
+            data.Name,
+            data.Description,
+            data.Tags,
+            data.ThreadMetadata,
+            data.ThreadKind,
+            data.Visibility,
+            data.ParentSessionId,
+            data.ParentThreadId,
+            data.SubAgentName,
+            data.SubAgentRunId,
+            data.SubAgentSourceKind,
+            data.ParentToolCallId,
+            data.SessionPolicy,
+            data.ThreadPolicy,
+            data.ForkedFrom,
+            data.ForkedAtMessageId,
+            data.ForkedAtMessageIndex,
+            data.ChildThreads ?? [],
+            data.Ancestors);
+    }
+
+    private static void ApplyHeader(Thread thread, ThreadUpdatedEvent data)
+    {
+        ApplyHeader(
+            thread,
+            data.Name,
+            data.Description,
+            data.Tags,
+            data.ThreadMetadata,
+            data.ThreadKind,
+            data.Visibility,
+            data.ParentSessionId,
+            data.ParentThreadId,
+            data.SubAgentName,
+            data.SubAgentRunId,
+            data.SubAgentSourceKind,
+            data.ParentToolCallId,
+            data.SessionPolicy,
+            data.ThreadPolicy,
+            data.ForkedFrom,
+            data.ForkedAtMessageId,
+            data.ForkedAtMessageIndex,
+            data.ChildThreads ?? [],
+            data.Ancestors);
+    }
+
     private static void ApplyHeader(
         Thread thread,
+        string? name,
+        string? description,
+        List<string>? tags,
+        Dictionary<string, object>? threadMetadata,
         ThreadKind kind,
         ThreadVisibility visibility,
         string? parentSessionId,
@@ -274,8 +285,17 @@ public static class ThreadProjector
         string? subAgentSourceKind,
         string? parentToolCallId,
         string? sessionPolicy,
-        string? threadPolicy)
+        string? threadPolicy,
+        string? forkedFrom,
+        string? forkedAtMessageId,
+        int? forkedAtMessageIndex,
+        List<string> childThreads,
+        Dictionary<string, string>? ancestors)
     {
+        thread.Name = name;
+        thread.Description = description;
+        thread.Tags = tags;
+        ReplaceMetadata(thread.Metadata, threadMetadata);
         thread.Kind = kind;
         thread.Visibility = visibility;
         thread.ParentSessionId = parentSessionId;
@@ -286,6 +306,8 @@ public static class ThreadProjector
         thread.ParentToolCallId = parentToolCallId;
         thread.SessionPolicy = sessionPolicy;
         thread.ThreadPolicy = threadPolicy;
+        thread.SetForkMetadata(forkedFrom, forkedAtMessageId, forkedAtMessageIndex, ancestors);
+        thread.SetTreeMetadata(forkedFrom, forkedAtMessageId, forkedAtMessageIndex, childThreads);
     }
 
     private static void ReplaceMetadata(
@@ -312,6 +334,31 @@ public static class ThreadProjector
         projection = new MessageProjection(messageId, role, null, null);
         messages[messageId] = projection;
         messageOrder.Add(messageId);
+        return projection;
+    }
+
+    private static MessageProjection GetOrStartMessage(
+        Dictionary<string, MessageProjection> messages,
+        List<string> messageOrder,
+        string messageId,
+        ChatRole role,
+        string? authorName,
+        DateTimeOffset? createdAt,
+        AdditionalPropertiesDictionary? additionalProperties)
+    {
+        if (!messages.TryGetValue(messageId, out var projection))
+        {
+            projection = new MessageProjection(messageId, role, authorName, createdAt);
+            messages[messageId] = projection;
+            messageOrder.Add(messageId);
+        }
+        else
+        {
+            projection.AuthorName ??= authorName;
+            projection.CreatedAt ??= createdAt;
+        }
+
+        projection.MergeAdditionalProperties(additionalProperties);
         return projection;
     }
 
@@ -347,14 +394,38 @@ public static class ThreadProjector
         return payload.Text;
     }
 
-    private sealed record MessageProjection(
-        string MessageId,
-        ChatRole Role,
-        string? AuthorName,
-        DateTimeOffset? CreatedAt)
+    private sealed class MessageProjection
     {
+        public MessageProjection(
+            string messageId,
+            ChatRole role,
+            string? authorName,
+            DateTimeOffset? createdAt)
+        {
+            MessageId = messageId;
+            Role = role;
+            AuthorName = authorName;
+            CreatedAt = createdAt;
+        }
+
+        public string MessageId { get; }
+        public ChatRole Role { get; }
+        public string? AuthorName { get; set; }
+        public DateTimeOffset? CreatedAt { get; set; }
         public List<AIContent> Contents { get; } = [];
         public AdditionalPropertiesDictionary? AdditionalProperties { get; set; }
+
+        public MessageProjection MergeAdditionalProperties(AdditionalPropertiesDictionary? additionalProperties)
+        {
+            if (additionalProperties is null)
+                return this;
+
+            AdditionalProperties ??= [];
+            foreach (var (key, value) in additionalProperties)
+                AdditionalProperties.TryAdd(key, value);
+
+            return this;
+        }
 
         public MessageProjection SetMessageTurnId(string? messageTurnId)
         {
@@ -363,6 +434,18 @@ public static class ThreadProjector
 
             AdditionalProperties ??= [];
             AdditionalProperties[ThreadHistoryCompactionMetadata.MessageTurnIdPropertyName] = messageTurnId;
+            return this;
+        }
+
+        public MessageProjection SetPolicy(
+            AgentMessageSource source,
+            AgentMessageVisibility visibility,
+            AgentMessagePersistence persistence)
+        {
+            AdditionalProperties ??= [];
+            AdditionalProperties[AgentMessagePolicy.SourcePropertyName] = source.ToString();
+            AdditionalProperties[AgentMessagePolicy.VisibilityPropertyName] = visibility.ToString();
+            AdditionalProperties[AgentMessagePolicy.PersistencePropertyName] = persistence.ToString();
             return this;
         }
 

@@ -95,7 +95,7 @@ function fakeThread(initialSnapshot = snapshot()): ThreadState {
     approve: vi.fn(async () => undefined),
     deny: vi.fn(async () => undefined),
     clarify: vi.fn(async () => undefined),
-    respondToClientTool: vi.fn(async () => undefined),
+    answerClientToolRequest: vi.fn(async () => undefined),
   };
 }
 

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using HPD.Agent.ClientTools;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Middleware;
@@ -406,6 +407,24 @@ public sealed class BeforeFunctionContext : HookContext
     /// </summary>
     public AgentRunConfig RunConfig { get; }
 
+    /// <summary>
+    /// Runtime-owned background task registry available to function interception middleware.
+    /// May be null when the function is not running inside an agent runtime.
+    /// </summary>
+    public IAgentBackgroundTaskRegistry? BackgroundTasks { get; }
+
+    /// <summary>
+    /// Runtime-owned background handle registry available to function interception middleware.
+    /// May be null when the function is not running inside an agent runtime.
+    /// </summary>
+    public IAgentBackgroundHandleRegistry? BackgroundHandles { get; }
+
+    /// <summary>
+    /// Runtime-owned registry for client-owned background tool operations.
+    /// May be null when the function is not running inside an agent runtime.
+    /// </summary>
+    public IClientToolBackgroundOperationRegistry? ClientToolBackgroundOperations { get; }
+
     //
     // CONTROL SIGNALS
     //
@@ -443,7 +462,10 @@ public sealed class BeforeFunctionContext : HookContext
         string? toolharnessName,
         string? skillName,
         AgentRunConfig runConfig,
-        ToolInvocationInfo? invocation = null)
+        ToolInvocationInfo? invocation = null,
+        IAgentBackgroundTaskRegistry? backgroundTasks = null,
+        IAgentBackgroundHandleRegistry? backgroundHandles = null,
+        IClientToolBackgroundOperationRegistry? clientToolBackgroundOperations = null)
         : base(baseContext)
     {
         Function = function; // Can be null for unknown functions
@@ -453,6 +475,9 @@ public sealed class BeforeFunctionContext : HookContext
         ToolHarnessName = toolharnessName;
         SkillName = skillName;
         RunConfig = runConfig ?? throw new ArgumentNullException(nameof(runConfig));
+        BackgroundTasks = backgroundTasks;
+        BackgroundHandles = backgroundHandles;
+        ClientToolBackgroundOperations = clientToolBackgroundOperations;
     }
 }
 

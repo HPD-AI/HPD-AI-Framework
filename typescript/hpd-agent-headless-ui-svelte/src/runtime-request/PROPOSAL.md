@@ -88,7 +88,7 @@ Direct leaves:
 - `approve(choice?)`
 - `deny(reason?)`
 - `clarify(answer)`
-- `respondToClientTool(response, options?)`
+- `answerClientToolRequest(response, options?)`
 - `respond(input)`
 
 `respond(input)` is the path for custom response events.

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Buffers/">
+    <Project Path="src/HPD-Buffers/HPD-Buffers.csproj" />
+  </Folder>
+  <Folder Name="/Audio/">
+    <Project Path="src/HPD-Audio.Primitives/HPD-Audio.Primitives.csproj" />
+    <Project Path="src/HPD-Audio.Codecs/HPD-Audio.Codecs.csproj" />
+    <Project Path="src/HPD-Audio.Codecs.G711/HPD-Audio.Codecs.G711.csproj" />
+    <Project Path="src/HPD-Audio.Codecs.Opus/HPD-Audio.Codecs.Opus.csproj" />
+    <Project Path="src/HPD-Audio.Connections/HPD-Audio.Connections.csproj" />
+    <Project Path="src/HPD-Audio.WebRTC/HPD-Audio.WebRTC.csproj" />
+  </Folder>
+  <Folder Name="/Media/">
+    <Project Path="src/HPD-Media.Diagnostics/HPD-Media.Diagnostics.csproj" />
+    <Project Path="src/HPD-Media.Sdp/HPD-Media.Sdp.csproj" />
+    <Project Path="src/HPD-Media.Transport/HPD-Media.Transport.csproj" />
+    <Project Path="src/HPD-Media.Rtp/HPD-Media.Rtp.csproj" />
+    <Project Path="src/HPD-Media.Rtp.Audio/HPD-Media.Rtp.Audio.csproj" />
+    <Project Path="src/HPD-Media.Rtp.Audio.Sdp/HPD-Media.Rtp.Audio.Sdp.csproj" />
+    <Project Path="src/HPD-Media.Rtp.Repair/HPD-Media.Rtp.Repair.csproj" />
+    <Project Path="src/HPD-Media.Rtcp/HPD-Media.Rtcp.csproj" />
+    <Project Path="src/HPD-Media.Rtcp.Feedback/HPD-Media.Rtcp.Feedback.csproj" />
+    <Project Path="src/HPD-Media.Rtcp.Twcc/HPD-Media.Rtcp.Twcc.csproj" />
+    <Project Path="src/HPD-Media.Srtp/HPD-Media.Srtp.csproj" />
+    <Project Path="src/HPD-Media.WebRTC/HPD-Media.WebRTC.csproj" />
+  </Folder>
+  <Folder Name="/Tests/Buffers/">
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Buffers.Tests.Ownership/HPD.Buffers.Tests.Ownership.csproj" />
+  </Folder>
+  <Folder Name="/Tests/Audio/">
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Audio.Codecs.Tests.Allocation/HPD.Audio.Codecs.Tests.Allocation.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Audio.Pump.Tests.Allocation/HPD.Audio.Pump.Tests.Allocation.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Audio.WebRTC.Tests.Pipeline/HPD.Audio.WebRTC.Tests.Pipeline.csproj" />
+  </Folder>
+  <Folder Name="/Tests/Media/">
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Media.Architecture.Tests/HPD.Media.Architecture.Tests.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Media.Diagnostics.Tests.Telemetry/HPD.Media.Diagnostics.Tests.Telemetry.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Media.Rtp.Tests.Vectors/HPD.Media.Rtp.Tests.Vectors.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Media.Rtp.Audio.Tests.Vectors/HPD.Media.Rtp.Audio.Tests.Vectors.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Media.Rtp.Audio.Sdp.Tests.Vectors/HPD.Media.Rtp.Audio.Sdp.Tests.Vectors.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Media.Rtp.Repair.Tests.Vectors/HPD.Media.Rtp.Repair.Tests.Vectors.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Media.Rtcp.Tests.Vectors/HPD.Media.Rtcp.Tests.Vectors.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Media.Rtcp.Feedback.Tests.Vectors/HPD.Media.Rtcp.Feedback.Tests.Vectors.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Media.Rtcp.Twcc.Tests.Vectors/HPD.Media.Rtcp.Twcc.Tests.Vectors.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Media.Sdp.Tests.Vectors/HPD.Media.Sdp.Tests.Vectors.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Media.Srtp.Tests.Vectors/HPD.Media.Srtp.Tests.Vectors.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Media.Transport.Tests.Datagrams/HPD.Media.Transport.Tests.Datagrams.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Media.WebRTC.Tests.AotSmoke/HPD.Media.WebRTC.Tests.AotSmoke.csproj" />
+    <Project Path="../../test/HPD-RealtimeMedia/HPD.Media.AotSmoke.App/HPD.Media.AotSmoke.App.csproj" />
+  </Folder>
+</Solution>

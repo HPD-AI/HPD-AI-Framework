@@ -6,11 +6,7 @@ namespace HPD.Agent;
 public static class ThreadEventTypes
 {
     public const string ThreadCreated = "THREAD_CREATED";
-    public const string ThreadForked = "THREAD_FORKED";
-    public const string ThreadMetadataUpdated = "THREAD_METADATA_UPDATED";
-    public const string ThreadTreeUpdated = "THREAD_TREE_UPDATED";
-    public const string MessageStarted = "MESSAGE_STARTED";
-    public const string MessageCompleted = "MESSAGE_COMPLETED";
+    public const string ThreadUpdated = "THREAD_UPDATED";
     public const string ContentAdded = "CONTENT_ADDED";
     public const string ThreadMiddlewareStateCommitted = "THREAD_MIDDLEWARE_STATE_COMMITTED";
     public const string ThreadHistoryCompacted = "THREAD_HISTORY_COMPACTED";
@@ -82,15 +78,14 @@ public sealed record ThreadCreatedEvent(
     string? SubAgentSourceKind = null,
     string? ParentToolCallId = null,
     string? SessionPolicy = null,
-    string? ThreadPolicy = null) : AgentEvent;
+    string? ThreadPolicy = null,
+    string? ForkedFrom = null,
+    string? ForkedAtMessageId = null,
+    int? ForkedAtMessageIndex = null,
+    List<string>? ChildThreads = null,
+    Dictionary<string, string>? Ancestors = null) : AgentEvent;
 
-public sealed record ThreadForkedEvent(
-    string SourceThreadId,
-    string? FromMessageId,
-    int? ResolvedMessageIndex,
-    Dictionary<string, string>? Ancestors) : AgentEvent;
-
-public sealed record ThreadMetadataUpdatedEvent(
+public sealed record ThreadUpdatedEvent(
     string? Name,
     string? Description,
     List<string>? Tags,
@@ -104,27 +99,24 @@ public sealed record ThreadMetadataUpdatedEvent(
     string? SubAgentSourceKind = null,
     string? ParentToolCallId = null,
     string? SessionPolicy = null,
-    string? ThreadPolicy = null) : AgentEvent;
-
-public sealed record ThreadTreeUpdatedEvent(
-    string? ForkedFrom,
-    string? ForkedAtMessageId,
-    int? ForkedAtMessageIndex,
-    List<string> ChildThreads) : AgentEvent;
-
-public sealed record MessageStartedEvent(
-    string MessageId,
-    string Role,
-    string? AuthorName,
-    DateTimeOffset? CreatedAt,
-    string? ClientInputId = null,
-    AdditionalPropertiesDictionary? AdditionalProperties = null) : AgentEvent;
-
-public sealed record MessageCompletedEvent(string MessageId) : AgentEvent;
+    string? ThreadPolicy = null,
+    string? ForkedFrom = null,
+    string? ForkedAtMessageId = null,
+    int? ForkedAtMessageIndex = null,
+    List<string>? ChildThreads = null,
+    Dictionary<string, string>? Ancestors = null) : AgentEvent;
 
 public sealed record ContentAddedEvent(
     string MessageId,
-    AIContent Content) : AgentEvent;
+    string Role,
+    AIContent Content,
+    string? AuthorName = null,
+    DateTimeOffset? CreatedAt = null,
+    string? ClientInputId = null,
+    AgentMessageSource Source = AgentMessageSource.Unspecified,
+    AgentMessageVisibility Visibility = AgentMessageVisibility.Transcript,
+    AgentMessagePersistence Persistence = AgentMessagePersistence.ThreadHistory,
+    AdditionalPropertiesDictionary? AdditionalProperties = null) : AgentEvent;
 
 public sealed record ThreadMiddlewareStateCommittedEvent(
     IReadOnlyDictionary<string, string> State) : AgentEvent;
@@ -158,19 +150,15 @@ public static class ThreadEventFactory
             thread.SubAgentSourceKind,
             thread.ParentToolCallId,
             thread.SessionPolicy,
-            thread.ThreadPolicy));
+            thread.ThreadPolicy,
+            thread.ForkedFrom,
+            thread.ForkedAtMessageId,
+            thread.ForkedAtMessageIndex,
+            thread.ChildThreads.ToList(),
+            thread.Ancestors));
 
-    public static AgentEvent ThreadForked(Thread thread) =>
-        thread.ForkedFrom is null
-            ? ThreadCreated(thread)
-            : Scope(thread.SessionId, thread.Id, new ThreadForkedEvent(
-                thread.ForkedFrom,
-                thread.ForkedAtMessageId,
-                thread.ForkedAtMessageIndex,
-                thread.Ancestors));
-
-    public static AgentEvent ThreadMetadataUpdated(Thread thread) =>
-        Scope(thread.SessionId, thread.Id, new ThreadMetadataUpdatedEvent(
+    public static AgentEvent ThreadUpdated(Thread thread) =>
+        Scope(thread.SessionId, thread.Id, new ThreadUpdatedEvent(
             thread.Name,
             thread.Description,
             thread.Tags,
@@ -184,31 +172,45 @@ public static class ThreadEventFactory
             thread.SubAgentSourceKind,
             thread.ParentToolCallId,
             thread.SessionPolicy,
-            thread.ThreadPolicy));
-
-    public static AgentEvent ThreadTreeUpdated(Thread thread) =>
-        Scope(thread.SessionId, thread.Id, new ThreadTreeUpdatedEvent(
+            thread.ThreadPolicy,
             thread.ForkedFrom,
             thread.ForkedAtMessageId,
             thread.ForkedAtMessageIndex,
-            thread.ChildThreads.ToList()));
+            thread.ChildThreads.ToList(),
+            thread.Ancestors));
 
-    public static AgentEvent MessageStarted(string sessionId, string threadId, ChatMessage message, string? clientInputId = null) =>
-        Scope(sessionId, threadId, new MessageStartedEvent(
+    public static AgentEvent ContentAdded(
+        string sessionId,
+        string threadId,
+        ChatMessage message,
+        AIContent content,
+        string? clientInputId = null) =>
+        Scope(sessionId, threadId, new ContentAddedEvent(
             message.MessageId ?? string.Empty,
             message.Role.Value,
+            content,
             message.AuthorName,
             message.CreatedAt,
             clientInputId,
+            message.GetSource(),
+            message.GetVisibility(),
+            message.GetPersistence(),
             message.AdditionalProperties is null
                 ? null
                 : SanitizeAdditionalProperties(message.AdditionalProperties)));
 
-    public static AgentEvent MessageCompleted(string sessionId, string threadId, string messageId) =>
-        Scope(sessionId, threadId, new MessageCompletedEvent(messageId));
-
-    public static AgentEvent ContentAdded(string sessionId, string threadId, string messageId, AIContent content) =>
-        Scope(sessionId, threadId, new ContentAddedEvent(messageId, content));
+    public static AgentEvent ContentAdded(
+        string sessionId,
+        string threadId,
+        string messageId,
+        AIContent content,
+        string role = "assistant",
+        string? clientInputId = null) =>
+        Scope(sessionId, threadId, new ContentAddedEvent(
+            messageId,
+            role,
+            content,
+            ClientInputId: clientInputId));
 
     private static AdditionalPropertiesDictionary SanitizeAdditionalProperties(
         AdditionalPropertiesDictionary properties)
@@ -235,10 +237,60 @@ public static class ThreadEventFactory
         string messageId,
         string role,
         int iteration) =>
-        Scope(sessionId, threadId, new TextMessageStartEvent(messageId, role)
+        TextMessageStarted(
+            sessionId,
+            threadId,
+            messageTurnId,
+            messageId,
+            role,
+            SourceFromRole(role),
+            VisibilityFromRole(role),
+            iteration);
+
+    public static AgentEvent TextMessageStarted(
+        string sessionId,
+        string threadId,
+        string? messageTurnId,
+        string messageId,
+        string role,
+        AgentMessageSource source,
+        AgentMessageVisibility visibility,
+        int iteration,
+        AgentMessagePersistence persistence = AgentMessagePersistence.ThreadHistory,
+        string? authorName = null,
+        DateTimeOffset? createdAt = null,
+        string? clientInputId = null,
+        AdditionalPropertiesDictionary? additionalProperties = null) =>
+        Scope(sessionId, threadId, new TextMessageStartEvent(
+            messageId,
+            role,
+            source,
+            visibility,
+            persistence,
+            authorName,
+            createdAt,
+            clientInputId,
+            additionalProperties is null ? null : SanitizeAdditionalProperties(additionalProperties))
         {
             EventFlowId = messageTurnId
         });
+
+    private static AgentMessageSource SourceFromRole(string role) =>
+        string.Equals(role, ChatRole.User.Value, StringComparison.OrdinalIgnoreCase)
+            ? AgentMessageSource.UserInput
+            : string.Equals(role, ChatRole.Assistant.Value, StringComparison.OrdinalIgnoreCase)
+                ? AgentMessageSource.AssistantOutput
+                : string.Equals(role, ChatRole.System.Value, StringComparison.OrdinalIgnoreCase)
+                    ? AgentMessageSource.SystemInstruction
+                    : string.Equals(role, ChatRole.Tool.Value, StringComparison.OrdinalIgnoreCase)
+                        ? AgentMessageSource.ToolResult
+                        : AgentMessageSource.Unspecified;
+
+    private static AgentMessageVisibility VisibilityFromRole(string role) =>
+        string.Equals(role, ChatRole.System.Value, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(role, ChatRole.Tool.Value, StringComparison.OrdinalIgnoreCase)
+            ? AgentMessageVisibility.Hidden
+            : AgentMessageVisibility.Transcript;
 
     public static AgentEvent TextDelta(
         string sessionId,

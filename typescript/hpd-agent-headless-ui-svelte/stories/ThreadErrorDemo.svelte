@@ -52,7 +52,7 @@
       approve: async () => undefined,
       deny: async () => undefined,
       clarify: async () => undefined,
-      respondToClientTool: async () => undefined,
+      answerClientToolRequest: async () => undefined,
     };
   }
 

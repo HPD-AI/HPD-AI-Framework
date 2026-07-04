@@ -330,11 +330,11 @@ describe('AgentClient', () => {
         method: 'POST',
         body: JSON.stringify({
           version: '1.0',
-          type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
+          type: EventTypes.CLIENT_TOOL_INVOKE_OUTCOME,
           requestId: 'req-1',
           capabilities: ['client-tool:echo'],
+          outcome: 'Completed',
           content: [{ type: 'text', text: 'done' }],
-          success: true,
         }),
       })
     );

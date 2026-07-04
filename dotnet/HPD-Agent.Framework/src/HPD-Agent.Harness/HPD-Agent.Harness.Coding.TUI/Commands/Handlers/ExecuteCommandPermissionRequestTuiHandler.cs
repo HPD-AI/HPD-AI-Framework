@@ -258,7 +258,7 @@ internal sealed class ExecuteCommandPermissionDialogComponent : IFocusable
         };
 
     private static string BuildReason(ExecuteCommandPermissionPlan plan)
-        => plan.RunInBackground
+        => plan.StartsInBackground
             ? "start a background shell command"
             : plan.Action switch
             {
@@ -291,7 +291,7 @@ internal sealed class ExecuteCommandPermissionDialogComponent : IFocusable
             $"rule: {FormatRuleStatus(request)}"
         };
 
-        if (plan.RunInBackground)
+        if (plan.StartsInBackground)
         {
             details.Add("mode: background command");
         }

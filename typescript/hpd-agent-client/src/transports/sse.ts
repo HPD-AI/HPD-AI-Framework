@@ -178,7 +178,7 @@ export class SseTransport implements AgentTransport {
     return input.type === EventTypes.PERMISSION_RESPONSE ||
       input.type === EventTypes.CONTINUATION_RESPONSE ||
       input.type === EventTypes.CLARIFICATION_RESPONSE ||
-      input.type === EventTypes.CLIENT_TOOL_INVOKE_RESPONSE;
+      input.type === EventTypes.CLIENT_TOOL_INVOKE_OUTCOME;
   }
 
   private async postResponse(input: AgentRunInputEvent): Promise<RespondResult> {

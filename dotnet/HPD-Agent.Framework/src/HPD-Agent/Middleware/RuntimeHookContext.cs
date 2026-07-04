@@ -1,5 +1,6 @@
 using HPD.Events;
 using HPD.Events.Struct;
+using HPD.Agent.ClientTools;
 using System.Threading.Channels;
 
 namespace HPD.Agent.Middleware;
@@ -18,11 +19,17 @@ public enum RuntimeStopReason
 /// <summary>
 /// Runtime-scoped context used by start/stop middleware hooks.
 /// </summary>
-public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTaskRegistry
+public sealed class AgentRuntimeContext :
+    IAsyncDisposable,
+    IAgentBackgroundTaskRegistry,
+    IAgentBackgroundHandleRegistry,
+    IClientToolBackgroundOperationRegistry
 {
     private readonly List<Task> _backgroundTasks = new();
     private readonly List<IDisposable> _disposables = new();
     private readonly List<IAsyncDisposable> _asyncDisposables = new();
+    private readonly Dictionary<string, RegisteredBackgroundHandle> _backgroundHandles = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PendingClientToolBackgroundOperation> _clientToolBackgroundOperations = new(StringComparer.Ordinal);
     private readonly ChannelWriter<AgentInputEvent> _runtimeInputWriter;
     private readonly Func<InterruptionRequestEvent, CancellationToken, ValueTask> _runtimeInterruptionHandler;
     private readonly Func<bool> _hasActiveRuntimeTurns;
@@ -136,7 +143,7 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
         }
     }
 
-    public void RegisterBackgroundTask(
+    public BackgroundTaskRegistration RegisterBackgroundTask(
         BackgroundTaskDescriptor descriptor,
         Func<BackgroundTaskContext, CancellationToken, Task> taskFactory)
     {
@@ -164,7 +171,7 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
                 ParentRuntimeRunId = backgroundContext.ParentRuntimeRunId,
                 SessionId = backgroundContext.SessionId ?? backgroundContext.Invocation?.SessionId,
                 ThreadId = backgroundContext.ThreadId ?? backgroundContext.Invocation?.ThreadId,
-                NotificationPolicy = backgroundContext.NotificationPolicy,
+                Notification = backgroundContext.Notification,
                 Invocation = backgroundContext.Invocation,
                 Metadata = backgroundContext.Metadata,
                 StartedAt = backgroundContext.StartedAt
@@ -175,6 +182,7 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
                 await taskFactory(backgroundContext, runtimeToken).ConfigureAwait(false);
 
                 var completedAt = DateTimeOffset.UtcNow;
+                var completion = backgroundContext.Completion;
                 Emit(new BackgroundTaskCompletedEvent
                 {
                     TaskId = backgroundContext.TaskId,
@@ -184,14 +192,15 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
                     ParentRuntimeRunId = backgroundContext.ParentRuntimeRunId,
                     SessionId = backgroundContext.SessionId ?? backgroundContext.Invocation?.SessionId,
                     ThreadId = backgroundContext.ThreadId ?? backgroundContext.Invocation?.ThreadId,
-                    NotificationPolicy = backgroundContext.NotificationPolicy,
+                    Notification = backgroundContext.Notification,
                     Invocation = backgroundContext.Invocation,
-                    Metadata = backgroundContext.Metadata,
+                    Metadata = MergeMetadata(backgroundContext.Metadata, completion?.Metadata),
                     CompletedAt = completedAt,
-                    DurationMilliseconds = Math.Max(0, (long)(completedAt - backgroundContext.StartedAt).TotalMilliseconds)
+                    DurationMilliseconds = Math.Max(0, (long)(completedAt - backgroundContext.StartedAt).TotalMilliseconds),
+                    Summary = completion?.Summary
                 });
             }
-            catch (OperationCanceledException) when (runtimeToken.IsCancellationRequested)
+            catch (OperationCanceledException ex)
             {
                 Emit(new BackgroundTaskCancelledEvent
                 {
@@ -202,11 +211,15 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
                     ParentRuntimeRunId = backgroundContext.ParentRuntimeRunId,
                     SessionId = backgroundContext.SessionId ?? backgroundContext.Invocation?.SessionId,
                     ThreadId = backgroundContext.ThreadId ?? backgroundContext.Invocation?.ThreadId,
-                    NotificationPolicy = backgroundContext.NotificationPolicy,
+                    Notification = backgroundContext.Notification,
                     Invocation = backgroundContext.Invocation,
-                    Metadata = backgroundContext.Metadata,
+                    Metadata = MergeMetadata(
+                        backgroundContext.Metadata,
+                        backgroundContext.Completion?.Metadata),
                     CancelledAt = DateTimeOffset.UtcNow,
-                    Reason = runtimeToken.IsCancellationRequested ? "runtime-stopping" : null
+                    Reason = runtimeToken.IsCancellationRequested
+                        ? "runtime-stopping"
+                        : ex.Message
                 });
                 throw;
             }
@@ -221,7 +234,7 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
                     ParentRuntimeRunId = backgroundContext.ParentRuntimeRunId,
                     SessionId = backgroundContext.SessionId ?? backgroundContext.Invocation?.SessionId,
                     ThreadId = backgroundContext.ThreadId ?? backgroundContext.Invocation?.ThreadId,
-                    NotificationPolicy = backgroundContext.NotificationPolicy,
+                    Notification = backgroundContext.Notification,
                     Invocation = backgroundContext.Invocation,
                     Metadata = backgroundContext.Metadata,
                     FaultedAt = DateTimeOffset.UtcNow,
@@ -231,6 +244,236 @@ public sealed class AgentRuntimeContext : IAsyncDisposable, IAgentBackgroundTask
                 throw;
             }
         });
+
+        return new BackgroundTaskRegistration(
+            backgroundContext.TaskId,
+            backgroundContext.Name,
+            backgroundContext.SourceKind);
+    }
+
+    public BackgroundHandleRegistration RegisterHandle(
+        BackgroundHandleDescriptor descriptor,
+        IBackgroundHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentException.ThrowIfNullOrWhiteSpace(descriptor.Name);
+        ArgumentNullException.ThrowIfNull(handle);
+
+        var handleId = string.IsNullOrWhiteSpace(descriptor.HandleId)
+            ? Guid.NewGuid().ToString("N")
+            : descriptor.HandleId;
+        var registeredAt = DateTimeOffset.UtcNow;
+        var normalizedDescriptor = descriptor with
+        {
+            HandleId = handleId,
+            SourceId = descriptor.SourceId ?? handleId,
+            SupportedOperations = descriptor.SupportedOperations == BackgroundHandleOperation.None
+                ? BackgroundHandleOperation.Status
+                : descriptor.SupportedOperations
+        };
+        var registered = new RegisteredBackgroundHandle(
+            handleId,
+            normalizedDescriptor,
+            handle,
+            registeredAt);
+
+        lock (_lock)
+        {
+            ThrowIfBackgroundRegistrationClosed();
+            if (!_backgroundHandles.TryAdd(handleId, registered))
+                throw new InvalidOperationException($"A background handle with id '{handleId}' is already registered.");
+        }
+
+        if (handle is IAsyncDisposable asyncDisposable)
+            RegisterAsyncDisposable(asyncDisposable);
+        else if (handle is IDisposable disposable)
+            RegisterDisposable(disposable);
+
+        Emit(new BackgroundHandleRegisteredEvent
+        {
+            HandleId = handleId,
+            Name = normalizedDescriptor.Name,
+            HandleKind = normalizedDescriptor.Kind,
+            SourceKind = normalizedDescriptor.SourceKind,
+            SourceId = normalizedDescriptor.SourceId,
+            SessionId = normalizedDescriptor.SessionId ?? normalizedDescriptor.Invocation?.SessionId,
+            ThreadId = normalizedDescriptor.ThreadId ?? normalizedDescriptor.Invocation?.ThreadId,
+            Invocation = normalizedDescriptor.Invocation,
+            SupportedOperations = normalizedDescriptor.SupportedOperations,
+            Metadata = normalizedDescriptor.Metadata,
+            RegisteredAt = registeredAt
+        });
+
+        return new BackgroundHandleRegistration(
+            handleId,
+            normalizedDescriptor.Name,
+            normalizedDescriptor.Kind,
+            normalizedDescriptor.SourceKind);
+    }
+
+    public bool TryGetHandle(
+        string handleId,
+        BackgroundHandleScope scope,
+        out RegisteredBackgroundHandle handle)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(handleId);
+        ArgumentNullException.ThrowIfNull(scope);
+
+        lock (_lock)
+        {
+            if (_backgroundHandles.TryGetValue(handleId, out var registered) &&
+                IsHandleInScope(registered.Descriptor, scope))
+            {
+                handle = registered;
+                return true;
+            }
+        }
+
+        handle = null!;
+        return false;
+    }
+
+    public IReadOnlyList<RegisteredBackgroundHandle> ListHandles(BackgroundHandleQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        lock (_lock)
+        {
+            return _backgroundHandles.Values
+                .Where(handle => MatchesQuery(handle.Descriptor, query))
+                .ToList();
+        }
+    }
+
+    public ClientToolBackgroundOperationRegistration RegisterClientToolBackgroundOperation(
+        ClientToolBackgroundOperationDescriptor descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentException.ThrowIfNullOrWhiteSpace(descriptor.ClientOperationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(descriptor.ToolName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(descriptor.RequestId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(descriptor.CallId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(descriptor.TaskId);
+
+        var pending = new PendingClientToolBackgroundOperation(descriptor);
+
+        lock (_lock)
+        {
+            ThrowIfBackgroundRegistrationClosed();
+            if (!_clientToolBackgroundOperations.TryAdd(descriptor.ClientOperationId, pending))
+            {
+                throw new InvalidOperationException(
+                    $"A client tool background operation with id '{descriptor.ClientOperationId}' is already registered.");
+            }
+        }
+
+        return new ClientToolBackgroundOperationRegistration(
+            descriptor.ClientOperationId,
+            descriptor.TaskId,
+            pending.Completion);
+    }
+
+    public bool TryResolveClientToolBackgroundOperation(ClientToolBackgroundOperationOutcomeEvent input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentException.ThrowIfNullOrWhiteSpace(input.ClientOperationId);
+
+        if (!TryRemoveClientToolBackgroundOperation(input.ClientOperationId, out var pending))
+            return false;
+
+        return pending.TrySetResult(new ClientToolBackgroundOperationResult
+        {
+            State = input.State,
+            Content = input.Content,
+            Augmentation = input.Augmentation,
+            ErrorMessage = input.ErrorMessage,
+            ErrorType = input.ErrorType,
+            CancellationReason = input.CancellationReason,
+            Metadata = input.Metadata
+        });
+    }
+
+    private bool TryRemoveClientToolBackgroundOperation(
+        string clientOperationId,
+        out PendingClientToolBackgroundOperation pending)
+    {
+        lock (_lock)
+        {
+            if (_clientToolBackgroundOperations.Remove(clientOperationId, out pending!))
+                return true;
+        }
+
+        pending = null!;
+        return false;
+    }
+
+    private static IReadOnlyDictionary<string, string>? MergeMetadata(
+        IReadOnlyDictionary<string, string>? descriptorMetadata,
+        IReadOnlyDictionary<string, string>? completionMetadata)
+    {
+        if ((descriptorMetadata is null || descriptorMetadata.Count == 0) &&
+            (completionMetadata is null || completionMetadata.Count == 0))
+            return null;
+
+        var merged = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (descriptorMetadata is not null)
+        {
+            foreach (var (key, value) in descriptorMetadata)
+                merged[key] = value;
+        }
+
+        if (completionMetadata is not null)
+        {
+            foreach (var (key, value) in completionMetadata)
+                merged[key] = value;
+        }
+
+        return merged;
+    }
+
+    private static bool IsHandleInScope(
+        BackgroundHandleDescriptor descriptor,
+        BackgroundHandleScope scope)
+    {
+        var sessionId = descriptor.SessionId ?? descriptor.Invocation?.SessionId;
+        if (scope.SessionId is not null &&
+            !string.Equals(sessionId, scope.SessionId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var threadId = descriptor.ThreadId ?? descriptor.Invocation?.ThreadId;
+        if (scope.ThreadId is not null &&
+            !string.Equals(threadId, scope.ThreadId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool MatchesQuery(
+        BackgroundHandleDescriptor descriptor,
+        BackgroundHandleQuery query)
+    {
+        if (!IsHandleInScope(
+            descriptor,
+            new BackgroundHandleScope
+            {
+                SessionId = query.SessionId,
+                ThreadId = query.ThreadId
+            }))
+        {
+            return false;
+        }
+
+        if (query.Kind is not null && descriptor.Kind != query.Kind)
+            return false;
+
+        if (query.SourceKind is not null && descriptor.SourceKind != query.SourceKind)
+            return false;
+
+        return true;
     }
 
     public void RegisterDisposable(IDisposable disposable)
@@ -401,7 +644,12 @@ public abstract class RuntimeHookContext
     /// </remarks>
     public ValueTask RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default) =>
         Base.RunAsync(input, cancellationToken);
-    public void RegisterBackgroundTask(BackgroundTaskDescriptor descriptor, Func<BackgroundTaskContext, CancellationToken, Task> taskFactory) => Base.RegisterBackgroundTask(descriptor, taskFactory);
+    public BackgroundTaskRegistration RegisterBackgroundTask(BackgroundTaskDescriptor descriptor, Func<BackgroundTaskContext, CancellationToken, Task> taskFactory) => Base.RegisterBackgroundTask(descriptor, taskFactory);
+    public BackgroundHandleRegistration RegisterHandle(BackgroundHandleDescriptor descriptor, IBackgroundHandle handle) => Base.RegisterHandle(descriptor, handle);
+    public bool TryGetHandle(string handleId, BackgroundHandleScope scope, out RegisteredBackgroundHandle handle) => Base.TryGetHandle(handleId, scope, out handle);
+    public IReadOnlyList<RegisteredBackgroundHandle> ListHandles(BackgroundHandleQuery query) => Base.ListHandles(query);
+    public ClientToolBackgroundOperationRegistration RegisterClientToolBackgroundOperation(ClientToolBackgroundOperationDescriptor descriptor) => Base.RegisterClientToolBackgroundOperation(descriptor);
+    public bool TryResolveClientToolBackgroundOperation(ClientToolBackgroundOperationOutcomeEvent input) => Base.TryResolveClientToolBackgroundOperation(input);
     public void RegisterDisposable(IDisposable disposable) => Base.RegisterDisposable(disposable);
     public void RegisterAsyncDisposable(IAsyncDisposable disposable) => Base.RegisterAsyncDisposable(disposable);
 
@@ -409,6 +657,24 @@ public abstract class RuntimeHookContext
     {
         Base = baseContext ?? throw new ArgumentNullException(nameof(baseContext));
     }
+}
+
+internal sealed class PendingClientToolBackgroundOperation
+{
+    private readonly TaskCompletionSource<ClientToolBackgroundOperationResult> _completion =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public PendingClientToolBackgroundOperation(ClientToolBackgroundOperationDescriptor descriptor)
+    {
+        Descriptor = descriptor ?? throw new ArgumentNullException(nameof(descriptor));
+    }
+
+    public ClientToolBackgroundOperationDescriptor Descriptor { get; }
+
+    public Task<ClientToolBackgroundOperationResult> Completion => _completion.Task;
+
+    public bool TrySetResult(ClientToolBackgroundOperationResult result)
+        => _completion.TrySetResult(result);
 }
 
 public sealed class BeforeStartContext : RuntimeHookContext

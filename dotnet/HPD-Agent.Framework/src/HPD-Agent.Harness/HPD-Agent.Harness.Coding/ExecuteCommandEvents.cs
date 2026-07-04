@@ -126,7 +126,7 @@ public sealed record ExecuteCommandProcessExitedEvent : ExecuteCommandEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 
-    public required int? ExitCode { get; init; }
+    public int? ExitCode { get; init; }
 
     public required ExecuteCommandCompletionKind CompletionKind { get; init; }
 
@@ -150,41 +150,32 @@ public sealed record ExecuteCommandProcessExitedEvent : ExecuteCommandEvent
 
     public required bool OutputEventsSuppressed { get; init; }
 
-    public required string? StdoutArtifactPath { get; init; }
+    public string? StdoutArtifactPath { get; init; }
 
-    public required string? StderrArtifactPath { get; init; }
+    public string? StderrArtifactPath { get; init; }
 
-    public required string? CombinedOutputArtifactPath { get; init; }
+    public string? CombinedOutputArtifactPath { get; init; }
 
-    public required string? StdoutContentId { get; init; }
+    public string? StdoutContentId { get; init; }
 
-    public required string? StderrContentId { get; init; }
+    public string? StderrContentId { get; init; }
 
-    public required string? CombinedOutputContentId { get; init; }
+    public string? CombinedOutputContentId { get; init; }
 
-    public required string? StdoutLocalPath { get; init; }
+    public string? StdoutLocalPath { get; init; }
 
-    public required string? StderrLocalPath { get; init; }
+    public string? StderrLocalPath { get; init; }
 
-    public required string? CombinedOutputLocalPath { get; init; }
+    public string? CombinedOutputLocalPath { get; init; }
 }
 
 public sealed record ExecuteCommandAutoBackgroundedEvent : ExecuteCommandEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 
-    public required string BackgroundTaskId { get; init; }
+    public required string BackgroundHandleId { get; init; }
 
     public required DateTimeOffset BackgroundedAt { get; init; }
 
     public required long ElapsedMilliseconds { get; init; }
-}
-
-public sealed record ExecuteCommandBackgroundListEvent : ExecuteCommandEvent
-{
-    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
-
-    public override bool ShouldPersistToThread() => false;
-
-    public required int Count { get; init; }
 }

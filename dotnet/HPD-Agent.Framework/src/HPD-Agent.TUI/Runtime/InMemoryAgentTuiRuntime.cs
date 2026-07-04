@@ -333,7 +333,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             request.Description,
             request.Tags,
             request.Metadata));
-        await store.AppendThreadMetadataUpdatedAsync(thread, cancellationToken).ConfigureAwait(false);
+        await store.AppendThreadUpdatedAsync(thread, cancellationToken).ConfigureAwait(false);
         return ToThreadInfo(thread, sessionId);
     }
 
@@ -368,7 +368,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             request.Description,
             request.Tags,
             request.Metadata));
-        await store.AppendThreadMetadataUpdatedAsync(thread, cancellationToken).ConfigureAwait(false);
+        await store.AppendThreadUpdatedAsync(thread, cancellationToken).ConfigureAwait(false);
         return ToThreadInfo(thread, sessionId);
     }
 
@@ -385,7 +385,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var thread = await store.LoadThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Thread '{threadId}' was not found.");
         ApplyThreadUpdate(thread, update);
-        await store.AppendThreadMetadataUpdatedAsync(thread, cancellationToken).ConfigureAwait(false);
+        await store.AppendThreadUpdatedAsync(thread, cancellationToken).ConfigureAwait(false);
         return ToThreadInfo(thread, sessionId);
     }
 
@@ -749,7 +749,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             throw new ArgumentException("Response event must implement IResponseEvent.", nameof(response));
         }
 
-        await _agent.RespondIfPendingAsync(responseEvent, cancellationToken)
+        await _agent.TryAnswerRequestAsync(responseEvent, cancellationToken)
             .ConfigureAwait(false);
     }
 

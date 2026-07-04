@@ -31,8 +31,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../../shared/src/HPD-OpenApi.Core/HPD-OpenApi.Core.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-OpenApi.Core/HPD-OpenApi.Core.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
+    <PackageReference Include="HPD-OpenApi.Core" Version="$(HPDOpenApiCoreVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 
 </Project>

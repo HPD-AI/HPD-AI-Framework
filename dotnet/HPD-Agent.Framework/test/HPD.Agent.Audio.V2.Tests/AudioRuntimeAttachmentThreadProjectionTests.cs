@@ -151,9 +151,8 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
         Assert.NotNull(document);
         Assert.DoesNotContain(document.Events.OfType<ContentAddedEvent>(), e => e.Content is AudioContent or DataContent);
 
-        var contentEvent = Assert.Single(document.Events.OfType<ContentAddedEvent>());
-        var text = Assert.IsType<TextContent>(contentEvent.Content);
-        Assert.Equal("middleware transcript:middleware.wav", text.Text);
+        var textDelta = Assert.Single(document.Events.OfType<TextDeltaEvent>());
+        Assert.Equal("middleware transcript:middleware.wav", textDelta.Text);
     }
 
     [Fact]
@@ -576,9 +575,8 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
 
         Assert.NotNull(document);
         Assert.DoesNotContain(document.Events.OfType<ContentAddedEvent>(), e => e.Content is AudioContent or DataContent);
-        var contentEvent = Assert.Single(document.Events.OfType<ContentAddedEvent>());
-        var text = Assert.IsType<TextContent>(contentEvent.Content);
-        Assert.Equal("provider registry transcript", text.Text);
+        var textDelta = Assert.Single(document.Events.OfType<TextDeltaEvent>());
+        Assert.Equal("provider registry transcript", textDelta.Text);
     }
 
     [Fact]

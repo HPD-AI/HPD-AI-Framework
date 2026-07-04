@@ -1,20 +1,20 @@
 import type { ClientToolInvokeRequestEvent } from './types/events.js';
 import type {
   ClientToolHarnessDefinition,
-  ClientToolInvokeResponse,
+  ClientToolInvokeOutcome,
   ToolResultContent,
 } from './types/client-tools.js';
 import {
-  createErrorResponse,
+  completeClientTool,
+  failClientTool,
   createJsonResult,
-  createSuccessResponse,
   createTextResult,
 } from './types/client-tools.js';
 
 type MaybePromise<T> = T | Promise<T>;
 
 export type ClientToolHandlerResult =
-  | ClientToolInvokeResponse
+  | ClientToolInvokeOutcome
   | ToolResultContent[]
   | string
   | unknown;
@@ -71,17 +71,17 @@ export class ClientToolRegistry {
     return this.handlers.has(normalizeClientToolName(toolName)) || this.fallbackHandler !== null;
   }
 
-  async handleInvoke(request: ClientToolInvokeRequestEvent): Promise<ClientToolInvokeResponse> {
+  async handleInvoke(request: ClientToolInvokeRequestEvent): Promise<ClientToolInvokeOutcome> {
     const toolName = normalizeClientToolName(request.toolName);
     const handler = this.handlers.get(toolName) ?? this.fallbackHandler;
     if (!handler) {
-      return createErrorResponse(request.requestId, `Unknown client tool: ${request.toolName}`);
+      return failClientTool(request.requestId, `Unknown client tool: ${request.toolName}`);
     }
 
     try {
       return normalizeToolResult(request.requestId, await handler(request));
     } catch (error) {
-      return createErrorResponse(request.requestId, messageOf(error));
+      return failClientTool(request.requestId, messageOf(error));
     }
   }
 }
@@ -90,20 +90,19 @@ export function normalizeClientToolName(value: string): string {
   return value.trim().split('.').filter(Boolean).pop() || value.trim();
 }
 
-function normalizeToolResult(requestId: string, result: ClientToolHandlerResult): ClientToolInvokeResponse {
-  if (isClientToolResponse(result)) return result;
-  if (typeof result === 'string') return createSuccessResponse(requestId, createTextResult(result));
-  if (Array.isArray(result)) return createSuccessResponse(requestId, result);
-  return createSuccessResponse(requestId, createJsonResult(result));
+function normalizeToolResult(requestId: string, result: ClientToolHandlerResult): ClientToolInvokeOutcome {
+  if (isClientToolOutcome(result)) return result;
+  if (typeof result === 'string') return completeClientTool(requestId, createTextResult(result));
+  if (Array.isArray(result)) return completeClientTool(requestId, result);
+  return completeClientTool(requestId, createJsonResult(result));
 }
 
-function isClientToolResponse(value: unknown): value is ClientToolInvokeResponse {
+function isClientToolOutcome(value: unknown): value is ClientToolInvokeOutcome {
   return Boolean(
     value &&
       typeof value === 'object' &&
       'requestId' in value &&
-      'success' in value &&
-      'content' in value,
+      'outcome' in value,
   );
 }
 

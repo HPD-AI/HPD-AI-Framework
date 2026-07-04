@@ -65,7 +65,7 @@ export interface ThreadState extends ReadableStore<ThreadStateSnapshot> {
   approve: ThreadController['approve'];
   deny: ThreadController['deny'];
   clarify: ThreadController['clarify'];
-  respondToClientTool: ThreadController['respondToClientTool'];
+  answerClientToolRequest: ThreadController['answerClientToolRequest'];
 }
 
 export function createThreadState(options: ThreadStateOptions): ThreadState {
@@ -113,8 +113,8 @@ export function createThreadState(options: ThreadStateOptions): ThreadState {
     approve: (permissionId, choice) => withStateUpdate(() => controller.approve(permissionId, choice)),
     deny: (permissionId, reason) => withStateUpdate(() => controller.deny(permissionId, reason)),
     clarify: (requestId, answer) => withStateUpdate(() => controller.clarify(requestId, answer)),
-    respondToClientTool: (requestId, response, options) =>
-      withStateUpdate(() => controller.respondToClientTool(requestId, response, options)),
+    answerClientToolRequest: (requestId, outcome, options) =>
+      withStateUpdate(() => controller.answerClientToolRequest(requestId, outcome, options)),
   };
 
   return state;

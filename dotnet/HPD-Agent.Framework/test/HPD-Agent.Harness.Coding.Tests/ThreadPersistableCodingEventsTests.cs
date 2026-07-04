@@ -84,13 +84,70 @@ public sealed class ThreadPersistableCodingEventsTests
     }
 
     [Fact]
+    public void ThreadEventDocument_DeserializesExecuteCommandExitedWithoutNullableOutputHandles()
+    {
+        const string json = """
+        {
+          "schema": "hpd.agent.thread.events",
+          "version": 2,
+          "sessionId": "session-1",
+          "threadId": "thread-1",
+          "events": [
+            {
+              "type": "EXECUTE_COMMAND_PROCESS_EXITED",
+              "completionKind": "TimedOut",
+              "durationMilliseconds": 120020,
+              "stdoutBytes": 0,
+              "stderrBytes": 1327,
+              "combinedOutputBytes": 1327,
+              "stdoutBytesDiscarded": 0,
+              "stderrBytesDiscarded": 0,
+              "combinedBytesDiscarded": 0,
+              "outputTruncated": false,
+              "outputDrainTimedOut": false,
+              "outputEventsSuppressed": false,
+              "stdoutContentId": "stdout-content",
+              "stderrContentId": "stderr-content",
+              "combinedOutputContentId": "combined-content",
+              "stdoutLocalPath": "/tmp/stdout.txt",
+              "stderrLocalPath": "/tmp/stderr.txt",
+              "combinedOutputLocalPath": "/tmp/combined.log",
+              "toolCallId": "call-1",
+              "functionName": "ExecuteCommand",
+              "commandId": "cmd-1",
+              "command": "python3 -m http.server 8000",
+              "baseCommand": "python3",
+              "category": "Unknown",
+              "workingDirectory": "/repo",
+              "eventId": "evt-1",
+              "sequenceNumber": 1
+            }
+          ]
+        }
+        """;
+
+        var roundTrip = JsonSerializer.Deserialize<ThreadEventDocument>(
+            json,
+            SessionJsonContext.Combined.Options);
+
+        roundTrip.Should().NotBeNull();
+        var exited = roundTrip!.Events.Should().ContainSingle().Subject
+            .Should().BeOfType<ExecuteCommandProcessExitedEvent>().Subject;
+        exited.ExitCode.Should().BeNull();
+        exited.StdoutArtifactPath.Should().BeNull();
+        exited.StderrArtifactPath.Should().BeNull();
+        exited.CombinedOutputArtifactPath.Should().BeNull();
+        exited.StdoutContentId.Should().Be("stdout-content");
+        exited.CombinedOutputLocalPath.Should().Be("/tmp/combined.log");
+    }
+
+    [Fact]
     public void NoisyExecuteCommandEvents_DoNotPersistToThread()
     {
         var events = new AgentEvent[]
         {
             CreateExecuteCommandOutputChunkEvent(),
-            CreateExecuteCommandProgressEvent(),
-            CreateExecuteCommandBackgroundListEvent()
+            CreateExecuteCommandProgressEvent()
         };
 
         foreach (var evt in events)
@@ -163,18 +220,6 @@ public sealed class ThreadPersistableCodingEventsTests
         CombinedBytesDiscarded = 0,
         OutputObserved = true,
         OutputEventsSuppressed = false
-    };
-
-    private static ExecuteCommandBackgroundListEvent CreateExecuteCommandBackgroundListEvent() => new()
-    {
-        ToolCallId = "call-1",
-        FunctionName = "ExecuteCommand",
-        CommandId = "cmd-1",
-        Command = "dotnet test",
-        BaseCommand = "dotnet",
-        Category = ExecuteCommandCategory.Test,
-        WorkingDirectory = "/repo",
-        Count = 1
     };
 
     private static FileWriteAppliedEvent CreateFileMutationEvent()

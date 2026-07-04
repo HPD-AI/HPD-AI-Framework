@@ -28,9 +28,10 @@ public sealed class MCPLiveUpdateTests
     [Fact]
     public void McpLiveUpdateEvents_RoundTripThroughAgentEventSerializer()
     {
-        var evt = new McpResourceUpdatedEvent
+        var evt = new McpServerChangedEvent
         {
             ServerName = "fixture",
+            ChangeKind = McpLiveUpdateKind.ResourceUpdated,
             Uri = "fixture://hello",
             ObservedAt = DateTimeOffset.Parse("2026-06-28T12:00:00Z")
         };
@@ -38,10 +39,11 @@ public sealed class MCPLiveUpdateTests
         var json = AgentEventSerializer.ToJson(evt);
         var roundTrip = AgentEventSerializer.FromJson(json);
 
-        json.Should().Contain("\"type\":\"MCP_RESOURCE_UPDATED\"");
-        roundTrip.Should().BeOfType<McpResourceUpdatedEvent>()
-            .Which.Should().Match<McpResourceUpdatedEvent>(e =>
+        json.Should().Contain("\"type\":\"MCP_SERVER_CHANGED\"");
+        roundTrip.Should().BeOfType<McpServerChangedEvent>()
+            .Which.Should().Match<McpServerChangedEvent>(e =>
                 e.ServerName == "fixture" &&
+                e.ChangeKind == McpLiveUpdateKind.ResourceUpdated &&
                 e.Uri == "fixture://hello");
     }
 

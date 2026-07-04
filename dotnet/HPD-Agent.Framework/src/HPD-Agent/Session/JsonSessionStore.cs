@@ -420,7 +420,7 @@ public class JsonSessionStore : ISessionStore
                 SessionPolicy = data.SessionPolicy,
                 ThreadPolicy = data.ThreadPolicy
             },
-            ThreadMetadataUpdatedEvent data => metadata with
+            ThreadUpdatedEvent data => metadata with
             {
                 Name = data.Name,
                 Description = data.Description,
@@ -436,7 +436,8 @@ public class JsonSessionStore : ISessionStore
                 SessionPolicy = data.SessionPolicy,
                 ThreadPolicy = data.ThreadPolicy
             },
-            MessageStartedEvent => metadata with { MessageCount = metadata.MessageCount + 1 },
+            TextMessageStartEvent or ReasoningMessageStartEvent or ContentAddedEvent
+                => metadata with { MessageCount = metadata.MessageCount + 1 },
             ThreadHistoryCompactedEvent data => metadata with { MessageCount = data.ReplacementMessages.Count },
             _ => metadata
         };

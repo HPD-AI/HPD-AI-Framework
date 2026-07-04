@@ -6,7 +6,7 @@ internal sealed class CodingCommandExecutionStore
 
     private readonly Dictionary<string, CodingCommandExecutionState> _byCommandId = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _commandIdByToolCallId = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _commandIdByBackgroundTaskId = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _commandIdByBackgroundHandleId = new(StringComparer.Ordinal);
 
     public CodingCommandExecutionState GetOrCreate(ExecuteCommandEvent evt)
     {
@@ -21,9 +21,9 @@ internal sealed class CodingCommandExecutionStore
         }
 
         _commandIdByToolCallId[evt.ToolCallId] = evt.CommandId;
-        if (state.BackgroundTaskId is not null)
+        if (state.BackgroundHandleId is not null)
         {
-            _commandIdByBackgroundTaskId[state.BackgroundTaskId] = evt.CommandId;
+            _commandIdByBackgroundHandleId[state.BackgroundHandleId] = evt.CommandId;
         }
 
         return state;
@@ -69,9 +69,9 @@ internal sealed class CodingCommandExecutionStore
         return false;
     }
 
-    public bool TryGetByBackgroundTaskId(string backgroundTaskId, out CodingCommandExecutionState state)
+    public bool TryGetByBackgroundHandleId(string backgroundHandleId, out CodingCommandExecutionState state)
     {
-        if (_commandIdByBackgroundTaskId.TryGetValue(backgroundTaskId, out var commandId))
+        if (_commandIdByBackgroundHandleId.TryGetValue(backgroundHandleId, out var commandId))
         {
             return TryGetByCommandId(commandId, out state);
         }
@@ -80,11 +80,11 @@ internal sealed class CodingCommandExecutionStore
         return false;
     }
 
-    public void IndexBackgroundTask(CodingCommandExecutionState state)
+    public void IndexBackgroundHandle(CodingCommandExecutionState state)
     {
-        if (state.BackgroundTaskId is not null)
+        if (state.BackgroundHandleId is not null)
         {
-            _commandIdByBackgroundTaskId[state.BackgroundTaskId] = state.CommandId;
+            _commandIdByBackgroundHandleId[state.BackgroundHandleId] = state.CommandId;
         }
     }
 

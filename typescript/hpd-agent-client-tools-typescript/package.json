@@ -1,0 +1,46 @@
+{
+  "name": "@hpd-research/hpd-agent-client-tools-typescript",
+  "version": "0.1.0",
+  "description": "TypeScript provider SDK for HPD-Agent client tools",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "npm run clean && tsc",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "hpd-agent",
+    "client-tools",
+    "provider",
+    "websocket",
+    "typescript"
+  ],
+  "author": "HPD-AI",
+  "license": "FSL-1.1-ALv2",
+  "dependencies": {
+    "@hpd-research/hpd-agent-client": "file:../hpd-agent-client"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

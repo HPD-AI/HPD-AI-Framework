@@ -128,7 +128,7 @@ public class RecursiveThreadDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
         using var document = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
         foreach (var evt in document.RootElement.EnumerateArray())
         {
-            if (evt.GetProperty("type").GetString() != ThreadEventTypes.MessageStarted)
+            if (evt.GetProperty("type").GetString() != "TEXT_MESSAGE_START")
                 continue;
 
             if (evt.TryGetProperty("role", out var role) &&
@@ -402,7 +402,7 @@ public class RecursiveThreadDeleteGuardTests : IClassFixture<TestWebApplicationF
         using var document = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
         foreach (var evt in document.RootElement.EnumerateArray())
         {
-            if (evt.GetProperty("type").GetString() != ThreadEventTypes.MessageStarted)
+            if (evt.GetProperty("type").GetString() != "TEXT_MESSAGE_START")
                 continue;
 
             if (evt.TryGetProperty("role", out var role) &&

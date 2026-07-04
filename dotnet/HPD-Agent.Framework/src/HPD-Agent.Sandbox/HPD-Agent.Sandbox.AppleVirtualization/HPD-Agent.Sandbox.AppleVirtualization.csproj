@@ -16,6 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
     <ProjectReference Include="../HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj" />
-    <ProjectReference Include="../../../../HPD-Environment.Framework/src/HPD-Environment.AppleVirtualization/HPD-Environment.AppleVirtualization.csproj" />
+    <ProjectReference Include="../../../../HPD-Environment.Framework/src/HPD-Environment.AppleVirtualization/HPD-Environment.AppleVirtualization.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <PackageReference Include="HPD-Environment.AppleVirtualization" Version="$(HPDEnvironmentVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 </Project>

@@ -1,11 +1,11 @@
 import {
-  createSuccessResponse,
+  completeClientTool,
   EventTypes,
   type AIContent,
   type AgentClient,
   type AgentEvent,
   type AgentRunInputEvent,
-  type ClientToolInvokeResponse,
+  type ClientToolInvokeOutcome,
   type EventSubscription,
   type PermissionChoice,
   type SubmitInputResult,
@@ -19,12 +19,12 @@ import type {
   ThreadController,
   ThreadControllerOptions,
   ConnectOptions,
-  ClientToolResponseInput,
+  ClientToolOutcomeInput,
   ClientToolRuntimeRequest,
   ClarificationRuntimeRequest,
   InterruptOptions,
   PermissionRuntimeRequest,
-  RespondToClientToolOptions,
+  AnswerClientToolRequestOptions,
   RehydrateOptions,
   SendMessageInput,
   SendMessageOptions,
@@ -247,10 +247,10 @@ class ThreadControllerImpl implements ThreadController {
     });
   }
 
-  async respondToClientTool(
+  async answerClientToolRequest(
     requestId: string,
-    response: ClientToolResponseInput,
-    options: RespondToClientToolOptions = {},
+    outcome: ClientToolOutcomeInput,
+    options: AnswerClientToolRequestOptions = {},
   ): Promise<SubmitInputResult> {
     this.throwIfDisposed();
     const pending = this.projection.getSnapshot().pendingRuntimeRequests
@@ -258,14 +258,17 @@ class ThreadControllerImpl implements ThreadController {
         request.kind === 'client-tool' && request.id === requestId);
     if (!pending) return;
 
-    const normalized = normalizeClientToolResponse(requestId, response);
+    const normalized = normalizeClientToolOutcome(requestId, outcome);
 
     return this.run({
-      type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
+      type: EventTypes.CLIENT_TOOL_INVOKE_OUTCOME,
       requestId,
+      outcome: normalized.outcome,
       content: normalized.content,
-      success: normalized.success,
       errorMessage: normalized.errorMessage,
+      clientOperationId: normalized.clientOperationId,
+      handleKind: normalized.handleKind,
+      supportedOperations: normalized.supportedOperations,
       augmentation: normalized.augmentation ?? options.augmentation,
       responderId: options.responderId,
       responderGroup: options.responderGroup,
@@ -288,9 +291,12 @@ class ThreadControllerImpl implements ThreadController {
     const messageId = `optimistic:user:${clientInputId}`;
 
     this.projection.project(withThreadScope({
-      type: EventTypes.MESSAGE_STARTED,
+      type: EventTypes.TEXT_MESSAGE_START,
       messageId,
       role: 'user',
+      source: 'UserInput',
+      visibility: 'Transcript',
+      persistence: 'ThreadHistory',
       clientInputId,
       optimistic: true,
       additionalProperties,
@@ -334,17 +340,17 @@ function stampInputScope(input: AgentRunInputEvent, scope: ThreadController['sco
   return withThreadScope(input, scope) as AgentRunInputEvent;
 }
 
-function normalizeClientToolResponse(
+function normalizeClientToolOutcome(
   requestId: string,
-  response: ClientToolResponseInput,
-): ClientToolInvokeResponse {
-  if (typeof response === 'string' || Array.isArray(response)) {
-    return createSuccessResponse(requestId, response as string | ToolResultContent[]);
+  outcome: ClientToolOutcomeInput,
+): ClientToolInvokeOutcome {
+  if (typeof outcome === 'string' || Array.isArray(outcome)) {
+    return completeClientTool(requestId, outcome as string | ToolResultContent[]);
   }
 
-  if (response.requestId !== requestId) {
-    throw new Error('Client tool response requestId must match the pending request.');
+  if (outcome.requestId !== requestId) {
+    throw new Error('Client tool outcome requestId must match the pending request.');
   }
 
-  return response;
+  return outcome;
 }

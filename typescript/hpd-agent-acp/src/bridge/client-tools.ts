@@ -1,5 +1,5 @@
-import type { ClientToolInvokeRequestEvent, ClientToolInvokeResponse, ClientToolHarnessDefinition } from '@hpd-research/hpd-agent-client';
-import { createTextResult } from '@hpd-research/hpd-agent-client';
+import type { ClientToolInvokeRequestEvent, ClientToolInvokeOutcome, ClientToolHarnessDefinition } from '@hpd-research/hpd-agent-client';
+import { completeClientToolWithText, failClientTool } from '@hpd-research/hpd-agent-client';
 import type { AcpSessionState, ClientToolResult } from './session.js';
 import type { AcpWriter } from '../acp/writer.js';
 import type { AcpClientCapabilities } from '../types/acp.js';
@@ -63,12 +63,12 @@ export function capsToToolHarnesses(caps: AcpClientCapabilities): ClientToolHarn
   return [{ name: 'editor', tools, startCollapsed: false }];
 }
 
-function ok(requestId: string, text: string): ClientToolInvokeResponse {
-  return { requestId, content: createTextResult(text), success: true };
+function ok(requestId: string, text: string): ClientToolInvokeOutcome {
+  return completeClientToolWithText(requestId, text);
 }
 
-function err(requestId: string, message: string): ClientToolInvokeResponse {
-  return { requestId, content: createTextResult(message), success: false, errorMessage: message };
+function err(requestId: string, message: string): ClientToolInvokeOutcome {
+  return failClientTool(requestId, message);
 }
 
 /**
@@ -81,7 +81,7 @@ export function handleClientToolInvoke(
   session: AcpSessionState,
   writer: AcpWriter,
   clientCapabilities: AcpClientCapabilities,
-): Promise<ClientToolInvokeResponse> {
+): Promise<ClientToolInvokeOutcome> {
   const { toolName } = request;
 
   if (isFileRead(toolName))  return handleFileRead(request, session, writer, clientCapabilities);
@@ -98,7 +98,7 @@ function handleFileRead(
   session: AcpSessionState,
   writer: AcpWriter,
   caps: AcpClientCapabilities,
-): Promise<ClientToolInvokeResponse> {
+): Promise<ClientToolInvokeOutcome> {
   if (!caps.fs?.readTextFile) {
     return Promise.resolve(err(request.requestId, 'Editor does not support fs/read_text_file'));
   }
@@ -121,7 +121,7 @@ function handleFileWrite(
   session: AcpSessionState,
   writer: AcpWriter,
   caps: AcpClientCapabilities,
-): Promise<ClientToolInvokeResponse> {
+): Promise<ClientToolInvokeOutcome> {
   if (!caps.fs?.writeTextFile) {
     return Promise.resolve(err(request.requestId, 'Editor does not support fs/write_text_file'));
   }
@@ -143,7 +143,7 @@ function handleTerminal(
   session: AcpSessionState,
   writer: AcpWriter,
   caps: AcpClientCapabilities,
-): Promise<ClientToolInvokeResponse> {
+): Promise<ClientToolInvokeOutcome> {
   if (!caps.terminal) {
     return Promise.resolve(err(request.requestId, 'Editor does not support terminal operations'));
   }

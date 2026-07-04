@@ -816,11 +816,12 @@ public class ClientToolMiddlewareTests
 
     private static ClientToolDefinition CreateTestTool(string name)
     {
-        return new ClientToolDefinition(
-            Name: name,
-            Description: $"Test tool {name}",
-            ParametersSchema: JsonDocument.Parse("{}").RootElement
-        );
+        return new ClientToolDefinition
+        {
+            Name = name,
+            Description = $"Test tool {name}",
+            ParametersSchema = JsonDocument.Parse("{}").RootElement
+        };
     }
 
     private static AgentContext CreateAgentContext(AgentLoopState? state = null)

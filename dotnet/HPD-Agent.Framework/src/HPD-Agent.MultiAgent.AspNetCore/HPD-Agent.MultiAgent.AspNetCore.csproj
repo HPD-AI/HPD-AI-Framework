@@ -19,7 +19,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj" />
-    <ProjectReference Include="../../../HPD-Graph.Framework/src/HPD-Graph.Hosting/HPD-Graph.Hosting.csproj" />
+    <ProjectReference Include="../../../HPD-Graph.Framework/src/HPD-Graph.Hosting/HPD-Graph.Hosting.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <PackageReference Include="HPD-Graph.Hosting" Version="$(HPDGraphVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 
   <ItemGroup>

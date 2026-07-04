@@ -82,7 +82,7 @@ The action object exposes:
 actions.approve(choice)
 actions.deny(reason)
 actions.clarify(answer)
-actions.respondToClientTool(response, options)
+actions.answerClientToolRequest(response, options)
 actions.respond(input)
 ```
 

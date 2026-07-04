@@ -38,8 +38,8 @@
 
   async function submitClientTool(event: SubmitEvent) {
     event.preventDefault();
-    await actions.respondToClientTool(responseValue);
-    await onClientToolRespond?.({ item, response: responseValue });
+    await actions.answerClientToolRequest(responseValue);
+    await onClientToolRespond?.({ item, outcome: responseValue });
   }
 
   function formatUnknown(value: unknown): string {

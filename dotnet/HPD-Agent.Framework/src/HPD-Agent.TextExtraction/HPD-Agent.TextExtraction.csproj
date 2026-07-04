@@ -19,7 +19,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../../../HPD-Extract.Framework/src/HPD-Extract/HPD-Extract.csproj" />
+    <ProjectReference Include="../../../HPD-Extract.Framework/src/HPD-Extract/HPD-Extract.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <PackageReference Include="HPD-Extract" Version="$(HPDExtractVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 
 </Project>

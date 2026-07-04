@@ -44,6 +44,6 @@ public static class AgentAnnotationExtensions
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentNullException.ThrowIfNull(response);
 
-        return agent.RespondAsync(response, cancellationToken);
+        return agent.AnswerRequestAsync(response, cancellationToken);
     }
 }

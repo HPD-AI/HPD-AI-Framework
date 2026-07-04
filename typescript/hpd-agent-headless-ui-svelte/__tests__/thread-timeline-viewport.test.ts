@@ -94,7 +94,7 @@ function fakeThread(initialSnapshot: ThreadStateSnapshot = snapshot()): ThreadSt
     approve: vi.fn(async () => undefined),
     deny: vi.fn(async () => undefined),
     clarify: vi.fn(async () => undefined),
-    respondToClientTool: vi.fn(async () => undefined),
+    answerClientToolRequest: vi.fn(async () => undefined),
     emit(nextSnapshot: ThreadStateSnapshot) {
       current = nextSnapshot;
       for (const subscriber of subscribers) subscriber(current);

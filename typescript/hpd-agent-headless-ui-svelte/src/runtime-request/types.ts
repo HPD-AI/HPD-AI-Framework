@@ -10,8 +10,8 @@ type DivProps = Omit<SvelteHTMLElements['div'], 'children'>;
 type ButtonProps = Omit<SvelteHTMLElements['button'], 'children'>;
 
 type ApproveChoice = Parameters<ThreadState['approve']>[1];
-type ClientToolResponse = Parameters<ThreadState['respondToClientTool']>[1];
-type ClientToolResponseOptions = Parameters<ThreadState['respondToClientTool']>[2];
+type ClientToolOutcome = Parameters<ThreadState['answerClientToolRequest']>[1];
+type ClientToolOutcomeOptions = Parameters<ThreadState['answerClientToolRequest']>[2];
 type ResponseInput = Parameters<ThreadState['respond']>[0];
 
 export interface RuntimeRequestActions {
@@ -19,7 +19,7 @@ export interface RuntimeRequestActions {
   clarify(answer: string): Promise<unknown>;
   deny(reason?: string): Promise<unknown>;
   respond(input: ResponseInput): Promise<unknown>;
-  respondToClientTool(response: ClientToolResponse, options?: ClientToolResponseOptions): Promise<unknown>;
+  answerClientToolRequest(outcome: ClientToolOutcome, options?: ClientToolOutcomeOptions): Promise<unknown>;
 }
 
 export interface RuntimeRequestElementProps extends DivProps {
@@ -85,8 +85,8 @@ export interface RuntimeRequestRespondDetails extends RuntimeRequestActionDetail
 }
 
 export interface RuntimeRequestClientToolRespondDetails extends RuntimeRequestActionDetails {
-  options?: ClientToolResponseOptions;
-  response: ClientToolResponse;
+  options?: ClientToolOutcomeOptions;
+  outcome: ClientToolOutcome;
 }
 
 export interface RuntimeRequestProps extends DivProps {

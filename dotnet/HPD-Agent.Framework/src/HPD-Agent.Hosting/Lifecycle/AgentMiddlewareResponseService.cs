@@ -13,7 +13,7 @@ public sealed class AgentMiddlewareResponseService : IAgentMiddlewareResponseSer
         _agentManager = agentManager ?? throw new ArgumentNullException(nameof(agentManager));
     }
 
-    public async Task<AgentServiceResult<RespondResult>> RespondAsync(
+    public async Task<AgentServiceResult<RespondResult>> AnswerRequestAsync(
         string agentId,
         string sessionId,
         string threadId,
@@ -31,7 +31,7 @@ public sealed class AgentMiddlewareResponseService : IAgentMiddlewareResponseSer
                 $"Thread '{threadId}' in session '{sessionId}' does not have an active runtime for agent '{agentId}'.");
         }
 
-        var result = await agent.RespondIfPendingAsync(response, cancellationToken)
+        var result = await agent.TryAnswerRequestAsync(response, cancellationToken)
             .ConfigureAwait(false);
 
         return result.Accepted

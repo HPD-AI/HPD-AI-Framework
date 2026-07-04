@@ -1,11 +1,14 @@
 import type {
   AgentClient,
   AgentEvent,
+  AgentMessagePersistence,
+  AgentMessageSource,
+  AgentMessageVisibility,
   AgentRequestEvent,
   AgentRunInputEvent,
   AIContent,
   ClientToolAugmentation,
-  ClientToolInvokeResponse,
+  ClientToolInvokeOutcome,
   ForkThreadRequest,
   Thread,
   ThreadEvent,
@@ -49,6 +52,9 @@ export interface Message {
   content: string;
   contents: AIContent[];
   additionalProperties?: Record<string, unknown>;
+  source?: AgentMessageSource;
+  visibility?: AgentMessageVisibility;
+  persistence?: AgentMessagePersistence;
   streaming: boolean;
   thinking: boolean;
   timestamp: Date;
@@ -259,12 +265,12 @@ export interface ClientToolRequest {
   visibility?: RequestVisibility;
 }
 
-export type ClientToolResponseInput =
-  | ClientToolInvokeResponse
+export type ClientToolOutcomeInput =
+  | ClientToolInvokeOutcome
   | ToolResultContent[]
   | string;
 
-export interface RespondToClientToolOptions extends ResponseMetadata {
+export interface AnswerClientToolRequestOptions extends ResponseMetadata {
   augmentation?: ClientToolAugmentation;
 }
 
@@ -321,8 +327,9 @@ export interface ThreadRunView {
   completedAt?: string | null;
   errorType?: string | null;
   errorMessage?: string | null;
-  backgroundOperation?: ThreadRun['backgroundOperation'];
+  modelBackgroundOperation?: ThreadRun['modelBackgroundOperation'];
   backgroundTasks?: ThreadRun['backgroundTasks'];
+  backgroundHandles?: ThreadRun['backgroundHandles'];
 }
 
 export interface ThreadActivity {
@@ -431,10 +438,10 @@ export interface ThreadController {
   approve(permissionId: string, choice?: PermissionChoice): Promise<SubmitInputResult>;
   deny(permissionId: string, reason?: string): Promise<SubmitInputResult>;
   clarify(requestId: string, answer: string): Promise<SubmitInputResult>;
-  respondToClientTool(
+  answerClientToolRequest(
     requestId: string,
-    response: ClientToolResponseInput,
-    options?: RespondToClientToolOptions,
+    outcome: ClientToolOutcomeInput,
+    options?: AnswerClientToolRequestOptions,
   ): Promise<SubmitInputResult>;
 }
 

@@ -35,10 +35,6 @@ public sealed class MockPermissionHandler : IDisposable
         _agent = agent;
         _subscriptions.Add(agent.EventCoordinator.Subscribe<PermissionRequestEvent>(
             evt => new ValueTask(HandleEventAsync(evt))));
-        _subscriptions.Add(agent.EventCoordinator.Subscribe<PermissionApprovedEvent>(
-            evt => new ValueTask(CaptureMiddlewareEventAsync(evt))));
-        _subscriptions.Add(agent.EventCoordinator.Subscribe<PermissionDeniedEvent>(
-            evt => new ValueTask(CaptureMiddlewareEventAsync(evt))));
         _subscriptions.Add(agent.EventCoordinator.Subscribe<ContinuationRequestEvent>(
             evt => new ValueTask(HandleEventAsync(evt))));
         _handlerTask = Task.Run(async () => await HandleEventsAsync(eventStream));
@@ -167,19 +163,10 @@ public sealed class MockPermissionHandler : IDisposable
 
     private async Task HandleEventAsync(AgentEvent evt)
     {
-        // Capture ALL events from the run stream. Middleware-emitted permission lifecycle
-        // events arrive through EventCoordinator subscriptions because the runtime can be
-        // waiting inside the middleware hook when they are emitted.
-        if (evt is not PermissionApprovedEvent and not PermissionDeniedEvent)
+        // Capture ALL events from the run stream.
+        lock (_lock)
         {
-            lock (_lock)
-            {
-                _capturedEvents.Add(evt);
-            }
-        }
-        else
-        {
-            await CaptureMiddlewareEventAsync(evt);
+            _capturedEvents.Add(evt);
         }
 
         if (evt is PermissionRequestEvent permissionRequest)
@@ -210,7 +197,7 @@ public sealed class MockPermissionHandler : IDisposable
                 }
             }
 
-            await _agent.RespondAsync(new PermissionResponseEvent(
+            await _agent.AnswerRequestAsync(new PermissionResponseEvent(
                 permissionRequest.PermissionId,
                 "MockPermissionHandler",
                 response.Approved,
@@ -228,7 +215,7 @@ public sealed class MockPermissionHandler : IDisposable
                 approved = _autoApproveContinuation && !_autoDenyContinuation;
             }
 
-            await _agent.RespondAsync(new ContinuationResponseEvent(
+            await _agent.AnswerRequestAsync(new ContinuationResponseEvent(
                 continuationRequest.ContinuationId,
                 "MockPermissionHandler",
                 approved));
@@ -236,12 +223,7 @@ public sealed class MockPermissionHandler : IDisposable
     }
 
     private static string GetMiddlewareEventKey(AgentEvent evt) =>
-        evt switch
-        {
-            PermissionApprovedEvent approved => $"{nameof(PermissionApprovedEvent)}:{approved.PermissionId}",
-            PermissionDeniedEvent denied => $"{nameof(PermissionDeniedEvent)}:{denied.PermissionId}",
-            _ => $"{evt.GetType().FullName}:{evt.GetHashCode()}"
-        };
+        $"{evt.GetType().FullName}:{evt.GetHashCode()}";
 
     /// <summary>
     /// Waits for a specific number of permission requests to be captured.

@@ -142,6 +142,12 @@ public sealed record FunctionRequest
     public IAgentBackgroundTaskRegistry? BackgroundTasks { get; init; }
 
     /// <summary>
+    /// Runtime-owned background handle registry available to function bodies.
+    /// May be null for direct/test execution paths that are not running inside an agent runtime.
+    /// </summary>
+    public IAgentBackgroundHandleRegistry? BackgroundHandles { get; init; }
+
+    /// <summary>
     /// Creates a modified copy of this request.
     /// </summary>
     /// <param name="function">Optional new function (null = keep original)</param>

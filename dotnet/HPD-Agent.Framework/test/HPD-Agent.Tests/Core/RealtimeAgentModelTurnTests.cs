@@ -730,7 +730,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         var capture = SubscribeEvents(agent);
         using var continuationResponder = agent.Subscribe<ContinuationRequestEvent>(async ValueTask (ContinuationRequestEvent request) =>
         {
-            await agent.RespondAsync(
+            await agent.AnswerRequestAsync(
                 new ContinuationResponseEvent(request.ContinuationId, request.SourceName, Approved: false),
                 TestCancellationToken);
         });

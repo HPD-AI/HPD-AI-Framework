@@ -368,10 +368,10 @@ public class BackgroundResponsesTests : AgentTestBase
 
     #endregion
 
-    #region BackgroundOperationStartedEvent Tests
+    #region ModelBackgroundOperationStartedEvent Tests
 
     [Fact]
-    public void BackgroundOperationStartedEvent_CanBeCreated()
+    public void ModelBackgroundOperationStartedEvent_CanBeCreated()
     {
         // Arrange
         #pragma warning disable MEAI001 // Experimental API
@@ -379,7 +379,7 @@ public class BackgroundResponsesTests : AgentTestBase
         #pragma warning restore MEAI001
 
         // Act
-        var evt = new BackgroundOperationStartedEvent(
+        var evt = new ModelBackgroundOperationStartedEvent(
             ContinuationToken: token,
             Status: OperationStatus.InProgress,
             OperationId: "op-123");
@@ -391,7 +391,7 @@ public class BackgroundResponsesTests : AgentTestBase
     }
 
     [Fact]
-    public void BackgroundOperationStartedEvent_OperationId_IsOptional()
+    public void ModelBackgroundOperationStartedEvent_OperationId_IsOptional()
     {
         // Arrange
         #pragma warning disable MEAI001 // Experimental API
@@ -399,7 +399,7 @@ public class BackgroundResponsesTests : AgentTestBase
         #pragma warning restore MEAI001
 
         // Act
-        var evt = new BackgroundOperationStartedEvent(
+        var evt = new ModelBackgroundOperationStartedEvent(
             ContinuationToken: token,
             Status: OperationStatus.Queued);
 
@@ -409,10 +409,10 @@ public class BackgroundResponsesTests : AgentTestBase
 
     #endregion
 
-    #region BackgroundOperationStatusEvent Tests
+    #region ModelBackgroundOperationStatusEvent Tests
 
     [Fact]
-    public void BackgroundOperationStatusEvent_CanBeCreated()
+    public void ModelBackgroundOperationStatusEvent_CanBeCreated()
     {
         // Arrange
         #pragma warning disable MEAI001 // Experimental API
@@ -420,7 +420,7 @@ public class BackgroundResponsesTests : AgentTestBase
         #pragma warning restore MEAI001
 
         // Act
-        var evt = new BackgroundOperationStatusEvent(
+        var evt = new ModelBackgroundOperationStatusEvent(
             ContinuationToken: token,
             Status: OperationStatus.InProgress,
             StatusMessage: "Still processing...");
@@ -432,10 +432,10 @@ public class BackgroundResponsesTests : AgentTestBase
     }
 
     [Fact]
-    public void BackgroundOperationStatusEvent_Completed_HasNullToken()
+    public void ModelBackgroundOperationStatusEvent_Completed_HasNullToken()
     {
         // Act - When operation completes, token becomes null
-        var evt = new BackgroundOperationStatusEvent(
+        var evt = new ModelBackgroundOperationStatusEvent(
             ContinuationToken: null!,
             Status: OperationStatus.Completed,
             StatusMessage: "Background operation completed successfully");

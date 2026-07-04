@@ -69,7 +69,7 @@ function fakeThread(initialSnapshot: ThreadStateSnapshot = snapshot()): ThreadSt
   deny: ReturnType<typeof vi.fn>;
   emit(nextSnapshot: ThreadStateSnapshot): void;
   respond: ReturnType<typeof vi.fn>;
-  respondToClientTool: ReturnType<typeof vi.fn>;
+  answerClientToolRequest: ReturnType<typeof vi.fn>;
 } {
   let current = initialSnapshot;
   const subscribers = new Set<(value: ThreadStateSnapshot) => void>();
@@ -96,7 +96,7 @@ function fakeThread(initialSnapshot: ThreadStateSnapshot = snapshot()): ThreadSt
     approve: vi.fn(async () => undefined),
     deny: vi.fn(async () => undefined),
     clarify: vi.fn(async () => undefined),
-    respondToClientTool: vi.fn(async () => undefined),
+    answerClientToolRequest: vi.fn(async () => undefined),
     emit(nextSnapshot: ThreadStateSnapshot) {
       current = nextSnapshot;
       for (const subscriber of subscribers) subscriber(current);
@@ -108,7 +108,7 @@ function fakeThread(initialSnapshot: ThreadStateSnapshot = snapshot()): ThreadSt
     deny: ReturnType<typeof vi.fn>;
     emit(nextSnapshot: ThreadStateSnapshot): void;
     respond: ReturnType<typeof vi.fn>;
-    respondToClientTool: ReturnType<typeof vi.fn>;
+    answerClientToolRequest: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -152,7 +152,7 @@ function clientToolRequest(): RuntimeRequest {
     kind: 'client-tool',
     sourceName: 'HPD.Agent.ClientTools',
     requestEventType: 'CLIENT_TOOL_INVOKE_REQUEST',
-    expectedResponseEventType: 'CLIENT_TOOL_INVOKE_RESPONSE',
+    expectedResponseEventType: 'CLIENT_TOOL_INVOKE_OUTCOME',
     responsePolicy: 'targetedResponder',
     visibility: 'allObservers',
     request: {
@@ -274,7 +274,7 @@ describe('RuntimeRequest', () => {
       .dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
     await tick();
 
-    expect(thread.respondToClientTool).toHaveBeenCalledWith('tool-1', 'selected file', undefined);
+    expect(thread.answerClientToolRequest).toHaveBeenCalledWith('tool-1', 'selected file', undefined);
 
     await unmount(component);
     target.remove();

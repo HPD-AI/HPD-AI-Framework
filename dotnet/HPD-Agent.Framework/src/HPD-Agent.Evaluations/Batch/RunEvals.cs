@@ -706,6 +706,7 @@ public static class RunEvals
             RuntimeMiddleware = source.RuntimeMiddleware,
             PermissionOverrides = source.PermissionOverrides is null ? null : new(source.PermissionOverrides),
             ClientToolInput = source.ClientToolInput,
+            ClientAppProviders = source.ClientAppProviders is null ? null : new(source.ClientAppProviders),
             ConversationIdOverride = source.ConversationIdOverride,
             CustomStreamCallback = source.CustomStreamCallback,
             ContextInstances = source.ContextInstances is null ? null : new(source.ContextInstances),

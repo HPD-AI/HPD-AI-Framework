@@ -164,7 +164,7 @@ Controller helpers exist for common responses:
 await thread.approve(permissionId);
 await thread.deny(permissionId, 'Not allowed');
 await thread.clarify(requestId, 'Use the production tenant');
-await thread.respondToClientTool(requestId, result);
+await thread.answerClientToolRequest(requestId, result);
 ```
 
 Custom response events use the generic response path:

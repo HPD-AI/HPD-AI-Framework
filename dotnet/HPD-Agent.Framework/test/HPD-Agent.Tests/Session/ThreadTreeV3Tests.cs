@@ -389,8 +389,8 @@ public class ThreadTreeV3Tests : AgentTestBase
         forkToolResult.Name.Should().Be("ListDirectory");
         forkToolResult.ThreadId.Should().Be("fork-1");
 
-        forkDocument.Events.OfType<ThreadCreatedEvent>().Should().BeEmpty();
-        forkDocument.Events.OfType<ThreadForkedEvent>().Should().ContainSingle();
+        forkDocument.Events.OfType<ThreadCreatedEvent>()
+            .Should().ContainSingle(evt => evt.ForkedFrom == "main");
     }
 
     [Fact]
@@ -517,16 +517,13 @@ public class ThreadTreeV3Tests : AgentTestBase
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TurnStarted(sessionId, threadId, turnId, sessionId, "agent-1", "Agent", 1, false));
 
-        await store.AppendThreadEventAsync(sessionId, threadId, ThreadEventFactory.MessageStarted(sessionId, threadId, user));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TextMessageStarted(sessionId, threadId, turnId, "user-1", ChatRole.User.Value, 0));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TextDelta(sessionId, threadId, turnId, "user-1", "Use a tool", 0));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TextMessageCompleted(sessionId, threadId, turnId, "user-1", 0));
-        await store.AppendThreadEventAsync(sessionId, threadId, ThreadEventFactory.MessageCompleted(sessionId, threadId, "user-1"));
 
-        await store.AppendThreadEventAsync(sessionId, threadId, ThreadEventFactory.MessageStarted(sessionId, threadId, assistantTool));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.ToolCallStarted(
                 sessionId,
@@ -550,10 +547,7 @@ public class ThreadTreeV3Tests : AgentTestBase
                 "assistant-tool-call",
                 "ListDirectory",
                 """{"path":"/workspace"}"""));
-        await store.AppendThreadEventAsync(sessionId, threadId,
-            ThreadEventFactory.MessageCompleted(sessionId, threadId, "assistant-tool-call"));
 
-        await store.AppendThreadEventAsync(sessionId, threadId, ThreadEventFactory.MessageStarted(sessionId, threadId, tool));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.ToolCallResult(
                 sessionId,
@@ -566,18 +560,13 @@ public class ThreadTreeV3Tests : AgentTestBase
                 ToolCallType.Skill,
                 0,
                 "ListDirectory"));
-        await store.AppendThreadEventAsync(sessionId, threadId,
-            ThreadEventFactory.MessageCompleted(sessionId, threadId, "tool-result"));
 
-        await store.AppendThreadEventAsync(sessionId, threadId, ThreadEventFactory.MessageStarted(sessionId, threadId, assistantFinal));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TextMessageStarted(sessionId, threadId, turnId, "assistant-final", ChatRole.Assistant.Value, 0));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TextDelta(sessionId, threadId, turnId, "assistant-final", "The answer from the tool", 0));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TextMessageCompleted(sessionId, threadId, turnId, "assistant-final", 0));
-        await store.AppendThreadEventAsync(sessionId, threadId,
-            ThreadEventFactory.MessageCompleted(sessionId, threadId, "assistant-final"));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TurnCompleted(sessionId, threadId, turnId, sessionId, "agent-1", "Agent", 1, "done", TimeSpan.FromMilliseconds(10), 4));
     }
@@ -589,13 +578,8 @@ public class ThreadTreeV3Tests : AgentTestBase
         string runtimeRunId,
         string turnId)
     {
-        var user = new ChatMessage(ChatRole.User, "who are you") { MessageId = "user-1" };
-        var assistant = new ChatMessage(ChatRole.Assistant, []) { MessageId = "assistant-1" };
-
         await store.AppendThreadEventAsync(sessionId, threadId,
             new ThreadRunStartedEvent(runtimeRunId, "agent-1", DateTimeOffset.UtcNow));
-        await store.AppendThreadEventAsync(sessionId, threadId,
-            ThreadEventFactory.MessageStarted(sessionId, threadId, user));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TextMessageStarted(sessionId, threadId, null, "user-1", ChatRole.User.Value, 0));
         await store.AppendThreadEventAsync(sessionId, threadId,
@@ -603,11 +587,7 @@ public class ThreadTreeV3Tests : AgentTestBase
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TextMessageCompleted(sessionId, threadId, null, "user-1", 0));
         await store.AppendThreadEventAsync(sessionId, threadId,
-            ThreadEventFactory.MessageCompleted(sessionId, threadId, "user-1"));
-        await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TurnStarted(sessionId, threadId, turnId, sessionId, "agent-1", "Agent", 1, false));
-        await store.AppendThreadEventAsync(sessionId, threadId,
-            ThreadEventFactory.MessageStarted(sessionId, threadId, assistant));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.ReasoningStarted(sessionId, threadId, turnId, "assistant-1", ChatRole.Assistant.Value, 0));
         await store.AppendThreadEventAsync(sessionId, threadId,
@@ -620,8 +600,6 @@ public class ThreadTreeV3Tests : AgentTestBase
             ThreadEventFactory.TextDelta(sessionId, threadId, turnId, "assistant-1", "I am HPD-OS.", 0));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TextMessageCompleted(sessionId, threadId, turnId, "assistant-1", 0));
-        await store.AppendThreadEventAsync(sessionId, threadId,
-            ThreadEventFactory.MessageCompleted(sessionId, threadId, "assistant-1"));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TurnCompleted(sessionId, threadId, turnId, sessionId, "agent-1", "Agent", 1, "done", TimeSpan.FromMilliseconds(10), 2));
         await store.AppendThreadEventAsync(sessionId, threadId,

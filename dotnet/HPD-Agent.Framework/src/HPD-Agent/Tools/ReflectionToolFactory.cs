@@ -132,6 +132,8 @@ internal static class ReflectionToolFactory
                     .Where(parameter => GetDescription(parameter) is not null)
                     .ToDictionary(parameter => parameter.Name!, parameter => GetDescription(parameter)!),
                 RequiresPermission = HasAttribute(method, "RequiresPermissionAttribute"),
+                InvocationModePolicy = GetInvocationModePolicy(GetAIFunctionAttribute(method)),
+                InvocationModeHandling = GetInvocationModeHandling(GetAIFunctionAttribute(method)),
                 SerializerOptions = serializerOptions,
                 ResultType = resultType,
                 Validator = (json, options) => ValidateArguments(json, options, parameters, parameterNames),
@@ -192,82 +194,39 @@ internal static class ReflectionToolFactory
         object? instance,
         JsonSerializerOptions serializerOptions)
     {
-        var subAgent = InvokeCapabilityMethod<SubAgent>(method, instance);
+        var registrationDefinition = InvokeCapabilityMethod<SubAgent>(method, instance);
 
         return HPDAIFunctionFactory.Create(
             async (arguments, functionContext, cancellationToken) =>
             {
+                var subAgent = InvokeCapabilityMethod<SubAgent>(method, instance);
                 var jsonArgs = arguments.GetJson();
-                var query = jsonArgs.TryGetProperty("query", out var queryProperty)
-                    ? queryProperty.GetString() ?? string.Empty
+                var input = jsonArgs.TryGetProperty("input", out var inputProperty)
+                    ? inputProperty.GetString() ?? string.Empty
                     : string.Empty;
+                var requestedMode = AgentInvocationModes.ReadRequestedMode(jsonArgs);
 
-                var agentBuilder = subAgent.SourceKind == SubAgentSourceKind.StoredAgent
-                    ? CreateStoredSubAgentBuilder(subAgent, functionContext)
-                    : CreateInlineSubAgentBuilder(subAgent, functionContext);
-
-                foreach (var toolType in subAgent.ToolHarnessTypes ?? Array.Empty<Type>())
-                {
-                    agentBuilder.WithToolHarness(toolType);
-                }
-
-                var parentStore = functionContext?.GetParentSessionStore();
-                if (parentStore != null)
-                {
-                    agentBuilder.WithSessionStore(parentStore);
-                }
-
-                var agent = await agentBuilder.BuildAsync(cancellationToken).ConfigureAwait(false);
-
-                var parentCoordinator = functionContext?.GetParentEventCoordinator();
-                if (parentCoordinator != null)
-                {
-                    agent.EventCoordinator.SetParent(parentCoordinator);
-                }
-
-                agent.AgentMetadata = CreateSubAgentMetadata(agent, subAgent, functionContext?.GetParentAgentMetadata());
-
-                var textResult = new StringBuilder();
-                var route = await SubAgentRuntime.ResolveRouteAsync(agent, subAgent, functionContext, cancellationToken)
-                    .ConfigureAwait(false);
-
-                try
-                {
-                    using var outputSubscription = agent.SubscribeAny(evt =>
+                var result = await SubAgentRuntime.InvokeAsync(
+                    new SubAgentRuntime.SubAgentInvocationRequest
                     {
-                        if (evt is TextDeltaEvent textDelta)
-                        {
-                            textResult.Append(textDelta.Text);
-                        }
+                        Definition = subAgent,
+                        Input = input,
+                        ParentContext = functionContext,
+                        RequestedMode = requestedMode
+                    },
+                    cancellationToken).ConfigureAwait(false);
 
-                        return ValueTask.CompletedTask;
-                    });
-
-                    await agent.RunAsync(new UserMessagesInputEvent([
-                        new ChatMessage(ChatRole.User, query)
-                    ])
-                    {
-                        SessionId = route.SessionId,
-                        ThreadId = route.ThreadId
-                    }, cancellationToken).ConfigureAwait(false);
-
-                    SubAgentRuntime.MarkCompleted(functionContext, route);
-                    return textResult.Length > 0 ? textResult.ToString() : string.Empty;
-                }
-                catch (Exception ex)
-                {
-                    SubAgentRuntime.MarkFailed(functionContext, route, ex);
-                    throw;
-                }
+                return result.ToToolResult();
             },
             new HPDAIFunctionFactoryOptions
             {
-                Name = subAgent.Name,
-                Description = subAgent.Description,
+                Name = registrationDefinition.Name,
+                Description = registrationDefinition.Description,
                 RequiresPermission = true,
                 SerializerOptions = serializerOptions,
-                ResultType = typeof(string),
-                SchemaProvider = CreateQuerySchema,
+                ResultType = typeof(object),
+                SchemaProvider = () => CreateSubAgentInputSchema(
+                    registrationDefinition.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice),
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["CapabilityType"] = "SubAgent",
@@ -278,25 +237,6 @@ internal static class ReflectionToolFactory
                     ["RequiresPermission"] = true
                 }
             });
-    }
-
-    private static AgentMetadata CreateSubAgentMetadata(
-        Agent agent,
-        SubAgent subAgent,
-        AgentMetadata? parentMetadata)
-    {
-        var agentChain = parentMetadata is not null
-            ? parentMetadata.AgentChain.Concat([subAgent.Name]).ToArray()
-            : [subAgent.Name];
-
-        return new AgentMetadata
-        {
-            AgentName = subAgent.Name,
-            AgentId = agent.AgentId,
-            ParentAgentId = parentMetadata?.AgentId,
-            AgentChain = agentChain,
-            Depth = (parentMetadata?.Depth ?? -1) + 1
-        };
     }
 
     private static AIFunction CreateMultiAgent(
@@ -311,6 +251,7 @@ internal static class ReflectionToolFactory
             ?? $"Runs the {method.Name} workflow.";
         var streamEvents = GetBooleanProperty(attribute, "StreamEvents") ?? true;
         var timeoutSeconds = GetIntProperty(attribute, "TimeoutSeconds") ?? 300;
+        var invocationModePolicy = GetInvocationModePolicy(attribute);
 
         return HPDAIFunctionFactory.Create(
             async (arguments, functionContext, cancellationToken) =>
@@ -319,9 +260,23 @@ internal static class ReflectionToolFactory
                 var input = jsonArgs.TryGetProperty("input", out var inputProperty)
                     ? inputProperty.GetString() ?? string.Empty
                     : string.Empty;
+                var requestedMode = AgentInvocationModes.ReadRequestedMode(jsonArgs);
 
                 var workflow = await InvokeCapabilityMethodAsync(method, instance).ConfigureAwait(false);
-                return await RunWorkflowAsync(workflow, input, cancellationToken).ConfigureAwait(false);
+                var result = await MultiAgentRuntime.InvokeAsync(
+                    new MultiAgentRuntime.MultiAgentInvocationRequest
+                    {
+                        Workflow = workflow ?? throw new InvalidOperationException("Multi-agent method returned null."),
+                        Name = name,
+                        Input = input,
+                        ParentContext = functionContext,
+                        StreamEvents = streamEvents,
+                        InvocationModePolicy = invocationModePolicy,
+                        RequestedMode = requestedMode
+                    },
+                    cancellationToken).ConfigureAwait(false);
+
+                return result.ToToolResult();
             },
             new HPDAIFunctionFactoryOptions
             {
@@ -329,8 +284,9 @@ internal static class ReflectionToolFactory
                 Description = description,
                 RequiresPermission = true,
                 SerializerOptions = serializerOptions,
-                ResultType = typeof(string),
-                SchemaProvider = CreateInputSchema,
+                ResultType = typeof(object),
+                SchemaProvider = () => CreateInputSchema(
+                    invocationModePolicy == AgentInvocationModePolicy.ModelChoice),
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["CapabilityType"] = "MultiAgent",
@@ -339,6 +295,7 @@ internal static class ReflectionToolFactory
                     ["ParentToolHarness"] = method.DeclaringType?.Name,
                     ["StreamEvents"] = streamEvents,
                     ["TimeoutSeconds"] = timeoutSeconds,
+                    ["InvocationModePolicy"] = invocationModePolicy.ToString(),
                     ["RequiresPermission"] = true
                 }
             });
@@ -833,6 +790,22 @@ internal static class ReflectionToolFactory
         return attribute?.GetType().GetProperty(propertyName)?.GetValue(attribute) as int?;
     }
 
+    private static AgentInvocationModePolicy GetInvocationModePolicy(object? attribute)
+    {
+        var value = attribute?.GetType().GetProperty("InvocationModePolicy")?.GetValue(attribute);
+        return Enum.TryParse<AgentInvocationModePolicy>(value?.ToString(), out var policy)
+            ? policy
+            : AgentInvocationModePolicy.SynchronousOnly;
+    }
+
+    private static AgentInvocationModeHandling GetInvocationModeHandling(object? attribute)
+    {
+        var value = attribute?.GetType().GetProperty("InvocationModeHandling")?.GetValue(attribute);
+        return Enum.TryParse<AgentInvocationModeHandling>(value?.ToString(), out var handling)
+            ? handling
+            : AgentInvocationModeHandling.Runtime;
+    }
+
     private static IEnumerable<MethodInfo> GetCapabilityMethods(Type toolharnessType)
     {
         const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
@@ -880,40 +853,6 @@ internal static class ReflectionToolFactory
         };
     }
 
-    private static AgentBuilder CreateStoredSubAgentBuilder(SubAgent subAgent, FunctionExecutionContext? functionContext)
-    {
-        if (string.IsNullOrWhiteSpace(subAgent.AgentId))
-        {
-            throw new InvalidOperationException("Stored-agent subagents require AgentId.");
-        }
-
-        var builder = new AgentBuilder().WithAgentId(subAgent.AgentId);
-        var parentAgentStore = functionContext?.GetParentAgentStore();
-        if (parentAgentStore != null)
-        {
-            builder.WithAgentStore(parentAgentStore);
-        }
-
-        return builder;
-    }
-
-    private static AgentBuilder CreateInlineSubAgentBuilder(SubAgent subAgent, FunctionExecutionContext? functionContext)
-    {
-        if (subAgent.AgentConfig == null)
-        {
-            throw new InvalidOperationException("Inline-config subagents require AgentConfig.");
-        }
-
-        var builder = new AgentBuilder(subAgent.AgentConfig);
-        var parentChatClient = functionContext?.GetParentChatClient();
-        if (subAgent.AgentConfig.ResolveClientConfig(Providers.ProviderClientFamily.Chat) == null && parentChatClient != null)
-        {
-            builder.WithChatClient(parentChatClient);
-        }
-
-        return builder;
-    }
-
     private static T InvokeCapabilityMethod<T>(MethodInfo method, object? instance)
     {
         if (!typeof(T).IsAssignableFrom(UnwrapReturnType(method.ReturnType) ?? method.ReturnType))
@@ -959,27 +898,6 @@ internal static class ReflectionToolFactory
         return await AwaitIfNeededAsync(result).ConfigureAwait(false);
     }
 
-    private static async Task<string> RunWorkflowAsync(object? workflow, string input, CancellationToken cancellationToken)
-    {
-        if (workflow == null)
-        {
-            throw new InvalidOperationException("Multi-agent method returned null.");
-        }
-
-        var runAsync = workflow.GetType().GetMethod("RunAsync", new[] { typeof(string), typeof(CancellationToken) })
-            ?? throw new InvalidOperationException("Multi-agent workflow must expose RunAsync(string, CancellationToken).");
-
-        var result = await AwaitIfNeededAsync(runAsync.Invoke(workflow, new object?[] { input, cancellationToken })).ConfigureAwait(false);
-        if (result == null)
-        {
-            return string.Empty;
-        }
-
-        return result.GetType().GetProperty("FinalAnswer")?.GetValue(result) as string
-            ?? result.GetType().GetProperty("Outputs")?.GetValue(result)?.ToString()
-            ?? string.Empty;
-    }
-
     private static JsonElement CreateEmptySchema()
     {
         using var document = JsonDocument.Parse(
@@ -989,21 +907,29 @@ internal static class ReflectionToolFactory
         return document.RootElement.Clone();
     }
 
-    private static JsonElement CreateQuerySchema()
+    private static JsonElement CreateSubAgentInputSchema(bool includeInvocationMode = false)
     {
-        using var document = JsonDocument.Parse(
-            """
-            {"type":"object","properties":{"query":{"type":"string","description":"The user's question or task for the sub-agent."}},"required":["query"],"additionalProperties":false}
-            """);
+        var schema = includeInvocationMode
+            ? """
+              {"type":"object","properties":{"input":{"type":"string","description":"The user's question or task for the sub-agent. Pass the full request here."},"invocationMode":{"type":"string","enum":["synchronous","background"],"description":"Whether to wait for the result now or run in the background. Use synchronous unless the task can continue independently."}},"required":["input"],"additionalProperties":false}
+              """
+            : """
+              {"type":"object","properties":{"input":{"type":"string","description":"The user's question or task for the sub-agent. Pass the full request here."}},"required":["input"],"additionalProperties":false}
+              """;
+        using var document = JsonDocument.Parse(schema);
         return document.RootElement.Clone();
     }
 
-    private static JsonElement CreateInputSchema()
+    private static JsonElement CreateInputSchema(bool includeInvocationMode = false)
     {
-        using var document = JsonDocument.Parse(
-            """
-            {"type":"object","properties":{"input":{"type":"string","description":"The user's request for the workflow."}},"required":["input"],"additionalProperties":false}
-            """);
+        var schema = includeInvocationMode
+            ? """
+              {"type":"object","properties":{"input":{"type":"string","description":"The user's request for the workflow."},"invocationMode":{"type":"string","enum":["synchronous","background"],"description":"Whether to wait for the workflow result now or run it in the background. Use synchronous unless the workflow can continue independently."}},"required":["input"],"additionalProperties":false}
+              """
+            : """
+              {"type":"object","properties":{"input":{"type":"string","description":"The user's request for the workflow."}},"required":["input"],"additionalProperties":false}
+              """;
+        using var document = JsonDocument.Parse(schema);
         return document.RootElement.Clone();
     }
 }

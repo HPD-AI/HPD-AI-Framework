@@ -133,6 +133,18 @@ public class MultiAgentSourceGeneratorTests
         Assert.Equal(600, attr.TimeoutSeconds);
     }
 
+    [Fact]
+    public void MultiAgentAttribute_InvocationModePolicy_IsExtracted()
+    {
+        var methodInfo = typeof(TestMultiAgentToolHarness).GetMethod(nameof(TestMultiAgentToolHarness.BackgroundChoiceWorkflow));
+
+        var attrs = methodInfo?.GetCustomAttributes(typeof(MultiAgentAttribute), false);
+
+        Assert.NotNull(attrs);
+        var attr = (MultiAgentAttribute)attrs![0];
+        Assert.Equal(AgentInvocationModePolicy.ModelChoice, attr.InvocationModePolicy);
+    }
+
     // ===== P1: Static vs Instance Methods =====
 
     [Fact]
@@ -289,6 +301,17 @@ public class TestMultiAgentToolHarness
         return AgentWorkflow.Create()
             .WithName("TimeoutWorkflow")
             .AddAgent("test", CreateTestAgent("TimeoutAgent"))
+            .From("START").To("test")
+            .From("test").To("END")
+            .BuildAsync();
+    }
+
+    [MultiAgent("Background choice workflow", InvocationModePolicy = AgentInvocationModePolicy.ModelChoice)]
+    public Task<AgentWorkflowInstance> BackgroundChoiceWorkflow()
+    {
+        return AgentWorkflow.Create()
+            .WithName("BackgroundChoiceWorkflow")
+            .AddAgent("test", CreateTestAgent("BackgroundChoiceAgent"))
             .From("START").To("test")
             .From("test").To("END")
             .BuildAsync();

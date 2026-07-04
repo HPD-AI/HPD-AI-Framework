@@ -237,11 +237,14 @@ export function createBridge(
         client.on(EventTypes.CLIENT_TOOL_INVOKE_REQUEST, (request) => {
           void handleClientToolInvoke(request, session, writer, clientCapabilities)
             .then((response) => respond({
-              type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
+              type: EventTypes.CLIENT_TOOL_INVOKE_OUTCOME,
               requestId: response.requestId,
+              outcome: response.outcome,
               content: response.content,
-              success: response.success,
               errorMessage: response.errorMessage,
+              clientOperationId: response.clientOperationId,
+              handleKind: response.handleKind,
+              supportedOperations: response.supportedOperations,
               augmentation: response.augmentation,
             }))
             .catch(fail);
@@ -266,7 +269,7 @@ export function createBridge(
           });
         }),
         client.on(EventTypes.MESSAGE_TURN_FINISHED, () => finish('end_turn')),
-        client.on(EventTypes.MESSAGE_TURN_ERROR, (event) => fail(event.message)),
+        client.on(EventTypes.MESSAGE_TURN_ERROR, (event) => fail(event.errorMessage)),
         client.onError(fail),
       );
 

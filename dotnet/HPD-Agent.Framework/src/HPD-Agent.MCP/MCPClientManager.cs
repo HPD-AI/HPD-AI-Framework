@@ -4,6 +4,7 @@ using HPD.Agent.Secrets;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Authentication;
 using ModelContextProtocol.Protocol;
+using HPD.Agent;
 using HPD.Environment.Contracts;
 using System.Collections;
 using System.Text.Json;
@@ -356,12 +357,37 @@ public class MCPClientManager : IDisposable
                 Func<AIFunctionArguments, FunctionExecutionContext, CancellationToken, Task<object?>> invocationWrapper =
                     async (args, functionContext, ct) =>
                     {
-                        if (originalAIFunction is HPDAIFunctionFactory.HPDAIFunction hpdFunction)
-                        {
-                            return await hpdFunction.InvokeAsync(args, functionContext, ct).ConfigureAwait(false);
-                        }
+                        var result = await McpToolInvocationRuntime.InvokeAsync(
+                            new McpToolInvocationRuntime.McpToolInvocationRequest
+                            {
+                                ServerConfig = serverConfig,
+                                ToolName = originalAIFunction.Name,
+                                Arguments = args,
+                                ParentContext = functionContext,
+                                InvokeToolAsync = InvokeOriginalMcpToolAsync
+                            },
+                            ct).ConfigureAwait(false);
 
-                        return await originalAIFunction.InvokeAsync(args, ct).ConfigureAwait(false);
+                        return result.ToToolResult();
+
+                        async Task<object?> InvokeOriginalMcpToolAsync(
+                            AIFunctionArguments invocationArgs,
+                            FunctionExecutionContext? invocationContext,
+                            CancellationToken invocationToken)
+                        {
+                            if (originalAIFunction is HPDAIFunctionFactory.HPDAIFunction hpdFunction &&
+                                invocationContext is not null)
+                            {
+                                return await hpdFunction.InvokeAsync(
+                                    invocationArgs,
+                                    invocationContext,
+                                    invocationToken).ConfigureAwait(false);
+                            }
+
+                            return await originalAIFunction.InvokeAsync(
+                                invocationArgs,
+                                invocationToken).ConfigureAwait(false);
+                        }
                     };
 
                 var options = new HPDAIFunctionFactoryOptions
@@ -372,7 +398,11 @@ public class MCPClientManager : IDisposable
                     // MCP tools don't have validation since they're external - just pass through
                     Validator = (_, _) => new List<ValidationError>(),
                     // Copy schema from original MCP tool for proper parameter handling
-                    SchemaProvider = () => originalAIFunction.JsonSchema
+                    SchemaProvider = () => CreateMcpToolSchema(
+                        originalAIFunction.JsonSchema,
+                        McpToolInvocationRuntime.ResolveInvocationModePolicy(
+                            serverConfig,
+                            originalAIFunction.Name))
                 };
 
                 // Attempt to copy schema information if the external tool exposes it
@@ -993,6 +1023,11 @@ public class MCPClientManager : IDisposable
         return document.RootElement.Clone();
     }
 
+    internal static JsonElement CreateMcpToolSchema(
+        JsonElement originalSchema,
+        AgentInvocationModePolicy invocationModePolicy)
+        => AgentInvocationModes.CreateSchema(originalSchema, invocationModePolicy);
+
     private static string SanitizeFunctionNamePart(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -1512,9 +1547,10 @@ public class MCPClientManager : IDisposable
                 NotificationMethods.ToolListChangedNotification,
                 (_, _) =>
                 {
-                    eventCoordinator.Emit(new McpServerToolsChangedEvent
+                    eventCoordinator.Emit(new McpServerChangedEvent
                     {
                         ServerName = config.Name,
+                        ChangeKind = McpLiveUpdateKind.ToolsChanged,
                         ObservedAt = DateTimeOffset.UtcNow
                     });
                     return ValueTask.CompletedTask;
@@ -1527,9 +1563,10 @@ public class MCPClientManager : IDisposable
                 NotificationMethods.PromptListChangedNotification,
                 (_, _) =>
                 {
-                    eventCoordinator.Emit(new McpServerPromptsChangedEvent
+                    eventCoordinator.Emit(new McpServerChangedEvent
                     {
                         ServerName = config.Name,
+                        ChangeKind = McpLiveUpdateKind.PromptsChanged,
                         ObservedAt = DateTimeOffset.UtcNow
                     });
                     return ValueTask.CompletedTask;
@@ -1542,9 +1579,10 @@ public class MCPClientManager : IDisposable
                 NotificationMethods.ResourceListChangedNotification,
                 (_, _) =>
                 {
-                    eventCoordinator.Emit(new McpServerResourcesChangedEvent
+                    eventCoordinator.Emit(new McpServerChangedEvent
                     {
                         ServerName = config.Name,
+                        ChangeKind = McpLiveUpdateKind.ResourcesChanged,
                         ObservedAt = DateTimeOffset.UtcNow
                     });
                     return ValueTask.CompletedTask;
@@ -1575,9 +1613,10 @@ public class MCPClientManager : IDisposable
                 uri,
                 (notification, _) =>
                 {
-                    eventCoordinator.Emit(new McpResourceUpdatedEvent
+                    eventCoordinator.Emit(new McpServerChangedEvent
                     {
                         ServerName = config.Name,
+                        ChangeKind = McpLiveUpdateKind.ResourceUpdated,
                         ObservedAt = DateTimeOffset.UtcNow,
                         Uri = notification.Uri
                     });

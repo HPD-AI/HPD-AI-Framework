@@ -18,6 +18,34 @@ public class SubAgentRuntimeTests
     };
 
     [Fact]
+    public async Task InvokeAsync_BackgroundOnly_WithoutRuntime_ReturnsUnavailableReceipt()
+    {
+        var subAgent = SubAgent.FromConfig(
+            "Reviewer",
+            "Reviews in the background.",
+            MinimalConfig(),
+            executionPolicy: null,
+            metadata: null,
+            invocationModePolicy: AgentInvocationModePolicy.BackgroundOnly,
+            backgroundNotification: null);
+
+        var result = await SubAgentRuntime.InvokeAsync(
+            new SubAgentRuntime.SubAgentInvocationRequest
+            {
+                Definition = subAgent,
+                Input = "review this",
+                ParentContext = null
+            },
+            CancellationToken.None);
+
+        result.Mode.Should().Be(AgentInvocationMode.Background);
+        result.Background.Should().NotBeNull();
+        result.Background!.Status.Should().Be("background_unavailable");
+        result.Background.SourceKind.Should().Be(BackgroundTaskSourceKind.SubAgent);
+        result.Background.Name.Should().Be("Reviewer");
+    }
+
+    [Fact]
     public async Task DefaultPolicy_ForksParentThread_WithSubAgentMetadata()
     {
         var store = new InMemorySessionStore();
@@ -37,7 +65,7 @@ public class SubAgentRuntimeTests
             executionPolicy: null,
             metadata: new Dictionary<string, object> { ["purpose"] = "review-current-thread" });
 
-        var route = await SubAgentRuntime.ResolveRouteAsync(agent, subAgent, context, CancellationToken.None);
+        var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
         route.SessionId.Should().Be("parent-session");
         route.ThreadId.Should().StartWith("subagent/reviewer/");
@@ -80,7 +108,7 @@ public class SubAgentRuntimeTests
             MinimalConfig(),
             SubAgentExecutionPolicies.ParentSessionFreshThread());
 
-        var route = await SubAgentRuntime.ResolveRouteAsync(agent, subAgent, context, CancellationToken.None);
+        var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
         route.SessionId.Should().Be("parent-session");
         route.ThreadId.Should().StartWith("subagent/researcher/");
@@ -126,7 +154,7 @@ public class SubAgentRuntimeTests
             MinimalConfig(),
             SubAgentExecutionPolicies.ParentSessionForkedThread(SubAgentThreadCompaction.Enabled));
 
-        var route = await SubAgentRuntime.ResolveRouteAsync(agent, subAgent, context, CancellationToken.None);
+        var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
         var childThread = await store.LoadThreadAsync(route.SessionId, route.ThreadId);
         childThread!.Messages.Select(message => message.MessageId)
@@ -167,7 +195,7 @@ public class SubAgentRuntimeTests
             MinimalConfig(),
             SubAgentExecutionPolicies.ParentSessionForkedThread(SubAgentThreadCompaction.Disabled));
 
-        var route = await SubAgentRuntime.ResolveRouteAsync(agent, subAgent, context, CancellationToken.None);
+        var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
         var childThread = await store.LoadThreadAsync(route.SessionId, route.ThreadId);
         childThread!.Messages.Select(message => message.MessageId)
@@ -216,7 +244,7 @@ public class SubAgentRuntimeTests
             MinimalConfig(),
             SubAgentExecutionPolicies.ParentSessionForkedThread(SubAgentThreadCompaction.PreferCache));
 
-        var route = await SubAgentRuntime.ResolveRouteAsync(agent, subAgent, context, CancellationToken.None);
+        var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
         var childThread = await store.LoadThreadAsync(route.SessionId, route.ThreadId);
         childThread!.Messages.Select(message => message.MessageId)
@@ -265,7 +293,7 @@ public class SubAgentRuntimeTests
             MinimalConfig(),
             SubAgentExecutionPolicies.ParentSessionForkedThread(SubAgentThreadCompaction.PreferCache));
 
-        var route = await SubAgentRuntime.ResolveRouteAsync(agent, subAgent, context, CancellationToken.None);
+        var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
         var childThread = await store.LoadThreadAsync(route.SessionId, route.ThreadId);
         childThread!.Messages.Select(message => message.MessageId)

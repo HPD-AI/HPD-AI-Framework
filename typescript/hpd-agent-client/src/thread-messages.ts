@@ -1,4 +1,11 @@
-import { EventTypes, type ToolResultPayload } from './types/events.js';
+import {
+  AgentMessagePolicyProperties,
+  EventTypes,
+  type AgentMessagePersistence,
+  type AgentMessageSource,
+  type AgentMessageVisibility,
+  type ToolResultPayload,
+} from './types/events.js';
 import type {
   AIContent,
   AiFunctionCallContent,
@@ -24,6 +31,9 @@ export interface ThreadMessageReadModel {
   text: string;
   contents: AIContent[];
   additionalProperties?: Record<string, unknown>;
+  source?: AgentMessageSource;
+  visibility?: AgentMessageVisibility;
+  persistence?: AgentMessagePersistence;
   reasoningText?: string;
   timestamp: string;
   toolCalls: ThreadToolCallReadModel[];
@@ -42,6 +52,7 @@ export function projectThreadEventsToMessages(events: readonly ThreadEvent[]): T
       if (role) existing.role = role;
       const additionalProperties = getRecordProperty(event, 'additionalProperties');
       if (additionalProperties) existing.additionalProperties = additionalProperties;
+      applyMessagePolicy(existing, event);
       return existing;
     }
 
@@ -56,14 +67,13 @@ export function projectThreadEventsToMessages(events: readonly ThreadEvent[]): T
         new Date().toISOString(),
       authorName: getStringProperty(event, 'authorName'),
     };
+    applyMessagePolicy(message, event);
     byId.set(messageId, message);
     return message;
   };
 
   for (const event of events) {
-    if (event.type === EventTypes.MESSAGE_STARTED) {
-      ensureMessage(event);
-    } else if (event.type === EventTypes.TEXT_MESSAGE_START) {
+    if (event.type === EventTypes.TEXT_MESSAGE_START) {
       ensureMessage(event);
     } else if (event.type === EventTypes.TEXT_DELTA) {
       const message = ensureMessage(event);
@@ -92,7 +102,7 @@ export function projectThreadEventsToMessages(events: readonly ThreadEvent[]): T
 
 export function mapThreadMessages(messages: readonly ThreadMessage[]): ThreadMessageReadModel[] {
   return messages
-    .filter((message) => message.role !== 'tool')
+    .filter((message) => message.role !== 'tool' && message.visibility !== 'Hidden')
     .map(mapThreadMessage);
 }
 
@@ -141,6 +151,9 @@ export function mapThreadMessage(message: ThreadMessage): ThreadMessageReadModel
     additionalProperties: message.additionalProperties
       ? { ...message.additionalProperties }
       : undefined,
+    source: message.source,
+    visibility: message.visibility,
+    persistence: message.persistence,
     reasoningText,
     timestamp: message.timestamp,
     toolCalls,
@@ -184,4 +197,63 @@ function getRecordProperty(value: object, key: string): Record<string, unknown> 
   return property && typeof property === 'object' && !Array.isArray(property)
     ? property as Record<string, unknown>
     : undefined;
+}
+
+function applyMessagePolicy(message: ThreadMessage, event: ThreadEvent): void {
+  const rawSource = getStringProperty(event, 'source') ?? getStringPropertyFromRecord(
+    message.additionalProperties,
+    AgentMessagePolicyProperties.SOURCE,
+  );
+  const rawVisibility = getStringProperty(event, 'visibility') ?? getStringPropertyFromRecord(
+    message.additionalProperties,
+    AgentMessagePolicyProperties.VISIBILITY,
+  );
+  const rawPersistence = getStringProperty(event, 'persistence') ?? getStringPropertyFromRecord(
+    message.additionalProperties,
+    AgentMessagePolicyProperties.PERSISTENCE,
+  );
+  const source = isAgentMessageSource(rawSource) ? rawSource : undefined;
+  const visibility = isAgentMessageVisibility(rawVisibility) ? rawVisibility : undefined;
+  const persistence = isAgentMessagePersistence(rawPersistence) ? rawPersistence : undefined;
+
+  if (source) message.source = source;
+  if (visibility) message.visibility = visibility;
+  if (persistence) message.persistence = persistence;
+
+  if (message.source || message.visibility || message.persistence) {
+    message.additionalProperties ??= {};
+    if (message.source) message.additionalProperties[AgentMessagePolicyProperties.SOURCE] = message.source;
+    if (message.visibility) message.additionalProperties[AgentMessagePolicyProperties.VISIBILITY] = message.visibility;
+    if (message.persistence) message.additionalProperties[AgentMessagePolicyProperties.PERSISTENCE] = message.persistence;
+  }
+}
+
+function getStringPropertyFromRecord(value: Record<string, unknown> | undefined, key: string): string | undefined {
+  const property = value?.[key];
+  return typeof property === 'string' ? property : undefined;
+}
+
+function isAgentMessageSource(value: string | undefined): value is AgentMessageSource {
+  return value === 'Unspecified' ||
+    value === 'UserInput' ||
+    value === 'AssistantOutput' ||
+    value === 'SystemInstruction' ||
+    value === 'RuntimeContext' ||
+    value === 'BackgroundNotification' ||
+    value === 'ToolResult' ||
+    value === 'PermissionResponse' ||
+    value === 'Steering' ||
+    value === 'Internal';
+}
+
+function isAgentMessageVisibility(value: string | undefined): value is AgentMessageVisibility {
+  return value === 'Transcript' ||
+    value === 'Hidden' ||
+    value === 'Diagnostic';
+}
+
+function isAgentMessagePersistence(value: string | undefined): value is AgentMessagePersistence {
+  return value === 'ThreadHistory' ||
+    value === 'ModelContextOnly' ||
+    value === 'None';
 }

@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using HPD.Agent;
 using HPD.Environment.Contracts;
 
 namespace HPD.Agent.MCP;
@@ -120,6 +121,28 @@ public class MCPServerConfig
     /// </summary>
     [JsonPropertyName("requiresPermission")]
     public bool RequiresPermission { get; set; } = false;
+
+    /// <summary>
+    /// Defines whether tools from this MCP server run synchronously, in the background, or let the model choose per call.
+    /// </summary>
+    [JsonPropertyName("invocationModePolicy")]
+    public AgentInvocationModePolicy InvocationModePolicy { get; set; } =
+        AgentInvocationModePolicy.SynchronousOnly;
+
+    /// <summary>
+    /// Rule used when tools from this MCP server are invoked as runtime-owned background work.
+    /// </summary>
+    [JsonPropertyName("backgroundNotification")]
+    public BackgroundTaskNotificationRule BackgroundNotification { get; set; } =
+        new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true);
+
+    /// <summary>
+    /// Optional exact MCP tool-name overrides for invocation mode policy.
+    /// When a tool name is not present, <see cref="InvocationModePolicy"/> is used.
+    /// </summary>
+    [JsonPropertyName("toolInvocationModePolicies")]
+    public Dictionary<string, AgentInvocationModePolicy> ToolInvocationModePolicies { get; set; } =
+        new(StringComparer.Ordinal);
 
     /// <summary>
     /// Expose MCP resources through generic HPD functions for this server.
@@ -391,6 +414,11 @@ public sealed class MCPDynamicClientRegistrationConfig
 /// </summary>
 [JsonSerializable(typeof(MCPManifest))]
 [JsonSerializable(typeof(MCPServerConfig))]
+[JsonSerializable(typeof(AgentInvocationModePolicy))]
+[JsonSerializable(typeof(BackgroundTaskNotificationRule))]
+[JsonSerializable(typeof(BackgroundTaskNotificationRule.NoneRule))]
+[JsonSerializable(typeof(BackgroundTaskNotificationRule.OnFinalStateRule))]
+[JsonSerializable(typeof(BackgroundTaskNotificationRule.StrategyRule))]
 [JsonSerializable(typeof(MCPProcessIsolationConfig))]
 [JsonSerializable(typeof(MCPOAuthConfig))]
 [JsonSerializable(typeof(MCPDynamicClientRegistrationConfig))]
@@ -418,6 +446,7 @@ public sealed class MCPDynamicClientRegistrationConfig
 [JsonSerializable(typeof(List<MCPPromptMessageSummary>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 [JsonSerializable(typeof(Dictionary<string, string?>))]
+[JsonSerializable(typeof(Dictionary<string, AgentInvocationModePolicy>))]
 [JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true)]
 public partial class MCPJsonSerializerContext : JsonSerializerContext
 {

@@ -37,6 +37,12 @@ public class MultiAgentAttribute : Attribute
     public int TimeoutSeconds { get; set; } = 300;
 
     /// <summary>
+    /// Defines whether this workflow runs synchronously, in the background, or lets the model choose per call.
+    /// </summary>
+    public AgentInvocationModePolicy InvocationModePolicy { get; set; } =
+        AgentInvocationModePolicy.SynchronousOnly;
+
+    /// <summary>
     /// Creates a new MultiAgent attribute with no description.
     /// </summary>
     public MultiAgentAttribute() { }
@@ -80,6 +86,12 @@ public sealed class MultiAgentAttribute<TMetadata> : Attribute where TMetadata :
     /// Timeout for workflow execution in seconds. Default: 300 (5 min).
     /// </summary>
     public int TimeoutSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Defines whether this workflow runs synchronously, in the background, or lets the model choose per call.
+    /// </summary>
+    public AgentInvocationModePolicy InvocationModePolicy { get; set; } =
+        AgentInvocationModePolicy.SynchronousOnly;
 
     /// <summary>
     /// Creates a new MultiAgent attribute with no description.

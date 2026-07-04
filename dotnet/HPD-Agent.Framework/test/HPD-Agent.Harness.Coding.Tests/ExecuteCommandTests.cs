@@ -144,7 +144,7 @@ public sealed class ExecuteCommandTests : IDisposable
             RequestedSandbox = sandbox,
             FilesystemEffects = [],
             NetworkEffects = [],
-            RunInBackground = false,
+            StartsInBackground = false,
             Risk = ExecuteCommandPermissionRisk.None,
             CommandPlan = new ExecuteCommandSubcommandPlan
             {
@@ -195,53 +195,6 @@ public sealed class ExecuteCommandTests : IDisposable
         roundTrip.Should().NotBeNull();
         roundTrip!.Plan.Should().BeOfType<SimpleCommandPermissionPlan>();
         roundTrip.AvailableChoices.Should().Contain(choice => choice is PersistRuleChoice);
-    }
-
-    [Fact]
-    public void CodingToolHarnessJsonContext_RoundTripsExecuteCommandPermissionLifecycleAuditEvent()
-    {
-        var details = new ExecuteCommandPermissionAuditDetails
-        {
-            AnalyzerVersion = ExecuteCommandPermissionAnalyzerVersions.Analyzer,
-            NormalizationVersion = ExecuteCommandPermissionAnalyzerVersions.Normalization,
-            RuleSchemaVersion = ExecuteCommandPermissionAnalyzerVersions.RuleSchema,
-            Shell = new ExecuteCommandShellScope
-            {
-                Executable = "/bin/zsh",
-                Family = ExecuteCommandShellFamily.Zsh
-            },
-            Workspace = new ExecuteCommandPermissionWorkspaceScope
-            {
-                RootId = "default",
-                RootPath = _tempRoot,
-                RelativeWorkingDirectory = "."
-            },
-            MatchedRuleId = "rule-1",
-            MatchedRuleSchemaVersion = ExecuteCommandPermissionAnalyzerVersions.RuleSchema,
-            Decision = "approved_by_rule",
-            TrustLevel = ExecuteCommandAnalysisTrustLevel.Simple,
-            Risk = ExecuteCommandPermissionRisk.NetworkLikely,
-            UnsupportedShellFeatures = [],
-            PersistedRuleIds = ["rule-1"]
-        };
-        var evt = new ExecuteCommandPermissionApprovedEvent(
-            "perm-1",
-            "ExecuteCommandPermissionMiddleware",
-            "call-1",
-            "fingerprint",
-            "rule-1",
-            details);
-
-        var json = JsonSerializer.Serialize(
-            evt,
-            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionApprovedEvent);
-        var roundTrip = JsonSerializer.Deserialize(
-            json,
-            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionApprovedEvent);
-
-        roundTrip.Should().NotBeNull();
-        roundTrip!.Details.Decision.Should().Be("approved_by_rule");
-        roundTrip.Details.PersistedRuleIds.Should().ContainSingle().Which.Should().Be("rule-1");
     }
 
     [Fact]
@@ -612,19 +565,19 @@ public sealed class ExecuteCommandTests : IDisposable
     }
 
     [Theory]
-    [InlineData(ExecuteCommandAction.Run, "dotnet test", "cmd_1", null, false, 200, 0, "Run does not accept backgroundTaskId.")]
+    [InlineData(ExecuteCommandAction.Run, "dotnet test", "cmd_1", null, false, 200, 0, "Run does not accept backgroundHandleId.")]
     [InlineData(ExecuteCommandAction.ListBackground, "dotnet test", null, null, false, 200, 0, "ListBackground accepts no command")]
     [InlineData(ExecuteCommandAction.ListBackground, null, null, null, false, 10, 0, "ListBackground accepts no command")]
-    [InlineData(ExecuteCommandAction.ReadOutput, null, null, null, false, 200, 0, "ReadOutput requires backgroundTaskId.")]
+    [InlineData(ExecuteCommandAction.ReadOutput, null, null, null, false, 200, 0, "ReadOutput requires backgroundHandleId.")]
     [InlineData(ExecuteCommandAction.ReadOutput, "tail", "cmd_1", null, false, 200, 0, "ReadOutput does not accept command")]
-    [InlineData(ExecuteCommandAction.Stop, null, null, null, false, 200, 0, "Stop requires backgroundTaskId.")]
+    [InlineData(ExecuteCommandAction.Stop, null, null, null, false, 200, 0, "Stop requires backgroundHandleId.")]
     [InlineData(ExecuteCommandAction.Stop, null, "cmd_1", null, false, 10, 0, "Stop does not accept command")]
     public async Task ExecuteCommand_InvalidActionArguments_ReturnValidationErrors(
         ExecuteCommandAction action,
         string? command,
-        string? backgroundTaskId,
+        string? backgroundHandleId,
         string? workingDirectory,
-        bool runInBackground,
+        bool startsInBackground,
         int tailLines,
         int delayMilliseconds,
         string expectedMessage)
@@ -634,9 +587,9 @@ public sealed class ExecuteCommandTests : IDisposable
         var result = await new CodingToolHarness().ExecuteCommand(
             action: action,
             command: command,
-            backgroundTaskId: backgroundTaskId,
+            backgroundHandleId: backgroundHandleId,
             workingDirectory: workingDirectory,
-            runInBackground: runInBackground,
+            invocationMode: startsInBackground ? "background" : null,
             tailLines: tailLines,
             delayMilliseconds: delayMilliseconds,
             context: CreateContext(runner));
@@ -663,7 +616,7 @@ public sealed class ExecuteCommandTests : IDisposable
 
         var result = await new CodingToolHarness().ExecuteCommand(
             action: ExecuteCommandAction.ReadOutput,
-            backgroundTaskId: "cmd_1",
+            backgroundHandleId: "cmd_1",
             timeoutMilliseconds: timeoutMilliseconds,
             tailLines: tailLines,
             delayMilliseconds: delayMilliseconds,
@@ -916,27 +869,27 @@ public sealed class ExecuteCommandTests : IDisposable
         var registry = new TestBackgroundTaskRegistry();
         var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
-            BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
+            BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(100)
         });
 
         var start = await toolharness.ExecuteCommand(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId),
             command: "npm run dev",
-            runInBackground: true);
+            invocationMode: "background");
         var startXml = start.ToString();
 
         startXml.Should().Contain("background=\"true\"");
-        startXml.Should().Contain("background_task_id=\"");
+        startXml.Should().Contain("background_handle_id=\"");
         startXml.Should().Contain("startup_status=\"launched_not_verified\"");
         startXml.Should().Contain("Background start only means the process launched.");
         startXml.Should().Contain("action=\"ReadOutput\"");
-        var taskId = ExtractAttribute(startXml!, "background_task_id");
+        var handleId = ExtractAttribute(startXml!, "background_handle_id");
 
         var list = await toolharness.ExecuteCommand(
             action: ExecuteCommandAction.ListBackground,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId));
         var listXml = list.ToString();
-        listXml.Should().Contain(taskId);
+        listXml.Should().Contain(handleId);
         listXml.Should().Contain("npm run dev");
 
         var otherSessionList = await toolharness.ExecuteCommand(
@@ -949,7 +902,7 @@ public sealed class ExecuteCommandTests : IDisposable
 
         var read = await toolharness.ExecuteCommand(
             action: ExecuteCommandAction.ReadOutput,
-            backgroundTaskId: taskId,
+            backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId));
         var readXml = read.ToString();
         readXml.Should().Contain("server ready");
@@ -968,29 +921,21 @@ public sealed class ExecuteCommandTests : IDisposable
         };
         var registry = new TestBackgroundTaskRegistry();
         var context = CreateContext(runner, backgroundTasks: registry, sessionId: sessionId);
-        var exited = new List<ExecuteCommandProcessExitedEvent>();
-        using var exitedSub = context.EventCoordinator!.Subscribe<ExecuteCommandProcessExitedEvent>(evt =>
-        {
-            exited.Add(evt);
-            return ValueTask.CompletedTask;
-        });
         var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
         {
-            BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
+            BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(100)
         });
 
         var result = await toolharness.ExecuteCommand(
             context: context,
             command: "python3 -m http.server 8080",
-            runInBackground: true);
+            invocationMode: "background");
         var xml = result.ToString();
 
-        xml.Should().NotContain("background_task_id=\"");
+        xml.Should().NotContain("background_handle_id=\"");
         xml.Should().Contain("exit_code=\"1\"");
         xml.Should().Contain("PermissionError");
         xml.Should().Contain("Command failed with exit code 1.");
-        exited.Should().ContainSingle()
-            .Which.ExitCode.Should().Be(1);
     }
 
     [Fact]
@@ -1028,11 +973,11 @@ public sealed class ExecuteCommandTests : IDisposable
         var start = await toolharness.ExecuteCommand(
             context: CreateContext(runner, backgroundTasks: registry, eventCoordinator: coordinator, sessionId: sessionId),
             command: "python3 -m http.server 8000",
-            runInBackground: true);
+            invocationMode: "background");
         var startXml = start.ToString();
 
         startXml.Should().Contain("background=\"true\"");
-        startXml.Should().Contain("background_task_id=\"");
+        startXml.Should().Contain("background_handle_id=\"");
         runner.StartCalls.Should().Be(2);
         runner.LastSpec.Should().NotBeNull();
         runner.LastSpec!.Isolation.Interactive.AllowLocalBinding.Should().BeTrue();
@@ -1060,19 +1005,19 @@ public sealed class ExecuteCommandTests : IDisposable
         var start = await toolharness.ExecuteCommand(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: ownerSessionId),
             command: "npm run dev",
-            runInBackground: true);
-        var taskId = ExtractAttribute(start.ToString()!, "background_task_id");
+            invocationMode: "background");
+        var handleId = ExtractAttribute(start.ToString()!, "background_handle_id");
 
         completion.SetResult(CreateResult(stdout: "private output\n", exitCode: 0));
         await registry.WhenIdleAsync();
 
         var otherSessionRead = await toolharness.ExecuteCommand(
             action: ExecuteCommandAction.ReadOutput,
-            backgroundTaskId: taskId,
+            backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: otherSessionId));
         var ownerRead = await toolharness.ExecuteCommand(
             action: ExecuteCommandAction.ReadOutput,
-            backgroundTaskId: taskId,
+            backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: ownerSessionId));
 
         otherSessionRead.ToString().Should().Contain("kind=\"background_task_not_found\"");
@@ -1100,12 +1045,12 @@ public sealed class ExecuteCommandTests : IDisposable
         var start = await toolharness.ExecuteCommand(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: ownerSessionId),
             command: "npm run dev",
-            runInBackground: true);
-        var taskId = ExtractAttribute(start.ToString()!, "background_task_id");
+            invocationMode: "background");
+        var handleId = ExtractAttribute(start.ToString()!, "background_handle_id");
 
         var otherSessionStop = await toolharness.ExecuteCommand(
             action: ExecuteCommandAction.Stop,
-            backgroundTaskId: taskId,
+            backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: otherSessionId));
 
         otherSessionStop.ToString().Should().Contain("kind=\"background_task_not_found\"");
@@ -1115,7 +1060,7 @@ public sealed class ExecuteCommandTests : IDisposable
         completion.SetResult(CreateResult(stdout: "stopped\n", exitCode: null, completionKind: ProcessCompletionKind.Stopped));
         var ownerStop = await toolharness.ExecuteCommand(
             action: ExecuteCommandAction.Stop,
-            backgroundTaskId: taskId,
+            backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: ownerSessionId));
 
         ownerStop.ToString().Should().Contain("completion_kind=\"stopped\"");
@@ -1128,7 +1073,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [InlineData(ExecuteCommandAction.Stop, "cmd_missing")]
     public async Task ExecuteCommandPermissionBoundary_NonRunActionsDoNotPromptOrStartNewProcess(
         ExecuteCommandAction action,
-        string? backgroundTaskId)
+        string? backgroundHandleId)
     {
         var runner = new FakeProcessProvider();
         var promptCount = 0;
@@ -1151,8 +1096,8 @@ public sealed class ExecuteCommandTests : IDisposable
             CancellationToken.None);
         agentContext.RuntimeCapabilities.Set<IProcessProvider>(runner);
         var arguments = new Dictionary<string, object?> { ["action"] = action };
-        if (backgroundTaskId is not null)
-            arguments["backgroundTaskId"] = backgroundTaskId;
+        if (backgroundHandleId is not null)
+            arguments["backgroundHandleId"] = backgroundHandleId;
 
         var beforeContext = agentContext.AsBeforeFunction(
             function,
@@ -1183,7 +1128,7 @@ public sealed class ExecuteCommandTests : IDisposable
         var result = await new CodingToolHarness()
             .ExecuteCommand(
                 action: action,
-                backgroundTaskId: backgroundTaskId,
+                backgroundHandleId: backgroundHandleId,
                 context: executionContext)
             .ConfigureAwait(false);
 
@@ -1210,11 +1155,11 @@ public sealed class ExecuteCommandTests : IDisposable
         var first = await toolharness.ExecuteCommand(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId),
             command: "npm run dev",
-            runInBackground: true);
+            invocationMode: "background");
         var second = await toolharness.ExecuteCommand(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId),
             command: "npm run dev",
-            runInBackground: true);
+            invocationMode: "background");
 
         first.ToString().Should().Contain("background=\"true\"");
         second.ToString().Should().Contain("kind=\"background_limit_exceeded\"");
@@ -1241,22 +1186,27 @@ public sealed class ExecuteCommandTests : IDisposable
         var start = await toolharness.ExecuteCommand(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId),
             command: "npm run dev",
-            runInBackground: true);
-        var taskId = ExtractAttribute(start.ToString()!, "background_task_id");
+            invocationMode: "background");
+        var handleId = ExtractAttribute(start.ToString()!, "background_handle_id");
 
         completion.SetResult(CreateResult(stdout: "stopped\n", exitCode: null, completionKind: ProcessCompletionKind.Stopped));
         var stop = await toolharness.ExecuteCommand(
             action: ExecuteCommandAction.Stop,
-            backgroundTaskId: taskId,
+            backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId));
 
         runner.LastHandle.Should().NotBeNull();
         runner.LastHandle!.StopCalls.Should().Be(1);
         stop.ToString().Should().Contain("completion_kind=\"stopped\"");
+        registry.LastDescriptor.Should().NotBeNull();
+        registry.LastDescriptor!.Metadata.Should().ContainKey(BackgroundTaskNotificationMetadataKeys.SuppressNotification)
+            .WhoseValue.Should().Be("true");
+        registry.LastDescriptor.Metadata.Should().ContainKey(BackgroundTaskNotificationMetadataKeys.SuppressNotificationReason)
+            .WhoseValue.Should().Be("handled-by-foreground-stop");
 
         var secondStop = await toolharness.ExecuteCommand(
             action: ExecuteCommandAction.Stop,
-            backgroundTaskId: taskId,
+            backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId));
 
         runner.LastHandle.StopCalls.Should().Be(1);
@@ -1290,10 +1240,10 @@ public sealed class ExecuteCommandTests : IDisposable
         completion.SetResult(CreateResult(stdout: "auto ready\n", exitCode: 0));
         await registry.WhenIdleAsync();
 
-        var taskId = ExtractAttribute(startXml!, "background_task_id");
+        var handleId = ExtractAttribute(startXml!, "background_handle_id");
         var read = await toolharness.ExecuteCommand(
             action: ExecuteCommandAction.ReadOutput,
-            backgroundTaskId: taskId,
+            backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId));
 
         read.ToString().Should().Contain("auto ready");
@@ -1439,6 +1389,7 @@ public sealed class ExecuteCommandTests : IDisposable
         IProcessProvider? runner,
         ISessionStore? sessionStore = null,
         IAgentBackgroundTaskRegistry? backgroundTasks = null,
+        IAgentBackgroundHandleRegistry? backgroundHandles = null,
         string sessionId = "session-1",
         AgentRunConfig? runConfig = null,
         IContentStore? contentStore = null,
@@ -1486,7 +1437,8 @@ public sealed class ExecuteCommandTests : IDisposable
             RunConfig = runConfig,
             ResultMetadata = new ToolResultMetadata(),
             EventCoordinator = eventCoordinator,
-            BackgroundTasks = backgroundTasks
+            BackgroundTasks = backgroundTasks,
+            BackgroundHandles = backgroundHandles ?? backgroundTasks as IAgentBackgroundHandleRegistry
         };
 
         return new FunctionExecutionContext(beforeContext, request);
@@ -1785,16 +1737,20 @@ public sealed class ExecuteCommandTests : IDisposable
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private sealed class TestBackgroundTaskRegistry(bool startTasks = true) : IAgentBackgroundTaskRegistry
+    private sealed class TestBackgroundTaskRegistry(bool startTasks = true) : IAgentBackgroundTaskRegistry, IAgentBackgroundHandleRegistry
     {
         private readonly List<Task> _tasks = [];
+        private readonly Dictionary<string, RegisteredBackgroundHandle> _handles = new(StringComparer.Ordinal);
+        public BackgroundTaskDescriptor? LastDescriptor { get; private set; }
 
-        public void RegisterBackgroundTask(
+        public BackgroundTaskRegistration RegisterBackgroundTask(
             BackgroundTaskDescriptor descriptor,
             Func<BackgroundTaskContext, CancellationToken, Task> taskFactory)
         {
+            LastDescriptor = descriptor;
+
             if (!startTasks)
-                return;
+                return new BackgroundTaskRegistration("task-1", descriptor.Name, descriptor.SourceKind);
 
             var backgroundContext = new BackgroundTaskContext
             {
@@ -1803,7 +1759,61 @@ public sealed class ExecuteCommandTests : IDisposable
                 EventCoordinator = new EventCoordinator()
             };
             _tasks.Add(taskFactory(backgroundContext, CancellationToken.None));
+            return new BackgroundTaskRegistration(backgroundContext.TaskId, descriptor.Name, descriptor.SourceKind);
         }
+
+        public BackgroundHandleRegistration RegisterHandle(
+            BackgroundHandleDescriptor descriptor,
+            IBackgroundHandle handle)
+        {
+            var handleId = descriptor.HandleId ?? Guid.NewGuid().ToString("N");
+            var normalized = descriptor with
+            {
+                HandleId = handleId,
+                SourceId = descriptor.SourceId ?? handleId
+            };
+            var registered = new RegisteredBackgroundHandle(
+                handleId,
+                normalized,
+                handle,
+                DateTimeOffset.UtcNow);
+            _handles.Add(handleId, registered);
+            return new BackgroundHandleRegistration(
+                handleId,
+                descriptor.Name,
+                descriptor.Kind,
+                descriptor.SourceKind);
+        }
+
+        public bool TryGetHandle(
+            string handleId,
+            BackgroundHandleScope scope,
+            out RegisteredBackgroundHandle handle)
+        {
+            if (_handles.TryGetValue(handleId, out var registered) &&
+                (scope.SessionId is null ||
+                 string.Equals(registered.Descriptor.SessionId, scope.SessionId, StringComparison.Ordinal)) &&
+                (scope.ThreadId is null ||
+                 string.Equals(registered.Descriptor.ThreadId, scope.ThreadId, StringComparison.Ordinal)))
+            {
+                handle = registered;
+                return true;
+            }
+
+            handle = null!;
+            return false;
+        }
+
+        public IReadOnlyList<RegisteredBackgroundHandle> ListHandles(BackgroundHandleQuery query)
+            => _handles.Values
+                .Where(handle =>
+                    (query.SessionId is null ||
+                     string.Equals(handle.Descriptor.SessionId, query.SessionId, StringComparison.Ordinal)) &&
+                    (query.ThreadId is null ||
+                     string.Equals(handle.Descriptor.ThreadId, query.ThreadId, StringComparison.Ordinal)) &&
+                    (query.Kind is null || handle.Descriptor.Kind == query.Kind) &&
+                    (query.SourceKind is null || handle.Descriptor.SourceKind == query.SourceKind))
+                .ToList();
 
         public async Task WhenIdleAsync()
         {

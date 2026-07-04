@@ -136,7 +136,7 @@ public sealed class TeamsBot(
         var approved = string.Equals(actionId, PermissionApproveActionId, StringComparison.Ordinal);
         var agent = await _agentManager.GetOrBuildAgentAsync(_config.ResolveAgentId(), ct);
 
-        await agent.RespondIfPendingAsync(new PermissionResponseEvent(
+        await agent.TryAnswerRequestAsync(new PermissionResponseEvent(
             PermissionId: permissionId,
             SourceName: "teams",
             Approved: approved,

@@ -43,6 +43,9 @@ describe('thread message helpers', () => {
             messageId: 'source-1',
           },
         },
+        source: undefined,
+        visibility: undefined,
+        persistence: undefined,
         timestamp: '2026-01-01T00:00:00.000Z',
         authorName: 'Agent',
       },
@@ -105,6 +108,9 @@ describe('thread message helpers', () => {
           { $type: 'text', text: 'are you' },
         ],
         reasoningText: undefined,
+        source: undefined,
+        visibility: undefined,
+        persistence: undefined,
         timestamp: '2026-01-01T00:00:00.000Z',
         toolCalls: [],
         authorName: undefined,
@@ -118,11 +124,54 @@ describe('thread message helpers', () => {
           { $type: 'text', text: 'I am HPD-OS.' },
         ],
         reasoningText: 'thinking',
+        source: undefined,
+        visibility: undefined,
+        persistence: undefined,
         timestamp: '2026-01-01T00:00:01.000Z',
         toolCalls: [],
         authorName: undefined,
       },
     ]);
+  });
+
+  it('preserves HPD message policy from message and text-start events', () => {
+    const events: ThreadEvent[] = [
+      {
+        type: EventTypes.MESSAGE_STARTED,
+        messageId: 'sys1',
+        role: 'system',
+        source: 'BackgroundNotification',
+        visibility: 'Hidden',
+        persistence: 'ThreadHistory',
+        additionalProperties: {
+          'hpd.message.source': 'BackgroundNotification',
+          'hpd.message.visibility': 'Hidden',
+          'hpd.message.persistence': 'ThreadHistory',
+        },
+      },
+      {
+        type: EventTypes.TEXT_MESSAGE_START,
+        messageId: 'sys1',
+        role: 'system',
+        source: 'BackgroundNotification',
+        visibility: 'Hidden',
+      },
+      {
+        type: EventTypes.TEXT_DELTA,
+        messageId: 'sys1',
+        text: '<background-task-notifications />',
+      },
+    ];
+
+    const message = projectThreadEventsToMessages(events)[0]!;
+    expect(message.source).toBe('BackgroundNotification');
+    expect(message.visibility).toBe('Hidden');
+    expect(message.persistence).toBe('ThreadHistory');
+    expect(message.additionalProperties).toMatchObject({
+      'hpd.message.source': 'BackgroundNotification',
+      'hpd.message.visibility': 'Hidden',
+      'hpd.message.persistence': 'ThreadHistory',
+    });
   });
 
   it('maps structured thread contents into a client read model', () => {
@@ -171,6 +220,9 @@ describe('thread message helpers', () => {
         },
       ],
       reasoningText: 'think more',
+      source: undefined,
+      visibility: undefined,
+      persistence: undefined,
       timestamp: '2026-01-01T00:00:00.000Z',
       toolCalls: [{
         callId: 'call1',
@@ -197,6 +249,13 @@ describe('thread message helpers', () => {
         role: 'tool',
         timestamp: '2026-01-01T00:00:01.000Z',
         contents: [{ $type: 'text', text: 'tool chatter' }],
+      },
+      {
+        id: 'sys1',
+        role: 'system',
+        visibility: 'Hidden',
+        timestamp: '2026-01-01T00:00:02.000Z',
+        contents: [{ $type: 'text', text: '<background-task-notifications />' }],
       },
     ];
 

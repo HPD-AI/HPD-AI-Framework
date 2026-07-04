@@ -23,7 +23,7 @@ public sealed record CodingCommandCell(
     TimeSpan? Duration,
     bool IsBackground,
     bool AutoBackgroundEligible,
-    string? BackgroundTaskId,
+    string? BackgroundHandleId,
     bool OutputObserved,
     bool OutputTruncated,
     bool OutputEventsSuppressed,

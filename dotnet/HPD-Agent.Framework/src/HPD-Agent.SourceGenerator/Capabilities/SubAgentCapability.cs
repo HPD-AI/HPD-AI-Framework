@@ -70,117 +70,23 @@ internal class SubAgentCapability : BaseCapability
             sb.AppendLine($"        var subAgentDef = instance.{MethodName}();");
         }
         sb.AppendLine();
-        sb.AppendLine("        // Use the explicit runtime context supplied by the agent runtime");
-        sb.AppendLine("        var parentCoordinator = functionContext?.GetParentEventCoordinator();");
-        sb.AppendLine();
-        sb.AppendLine("        // Build agent from inline config or stored agent id");
-        sb.AppendLine("        AgentBuilder agentBuilder;");
-        sb.AppendLine("        if (subAgentDef.SourceKind == SubAgentSourceKind.StoredAgent)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            if (string.IsNullOrWhiteSpace(subAgentDef.AgentId))");
-        sb.AppendLine("                throw new System.InvalidOperationException(\"Stored-agent subagents require AgentId.\");");
-        sb.AppendLine("            agentBuilder = new AgentBuilder().WithAgentId(subAgentDef.AgentId);");
-        sb.AppendLine("            var parentAgentStore = functionContext?.GetParentAgentStore();");
-        sb.AppendLine("            if (parentAgentStore != null)");
-        sb.AppendLine("                agentBuilder.WithAgentStore(parentAgentStore);");
-        sb.AppendLine("        }");
-        sb.AppendLine("        else");
-        sb.AppendLine("        {");
-        sb.AppendLine("            if (subAgentDef.AgentConfig == null)");
-        sb.AppendLine("                throw new System.InvalidOperationException(\"Inline-config subagents require AgentConfig.\");");
-        sb.AppendLine("            agentBuilder = new AgentBuilder(subAgentDef.AgentConfig);");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-        sb.AppendLine("        // Inline-config subagents inherit parent's chat client only when no provider is specified");
-        sb.AppendLine("        var parentChatClient = functionContext?.GetParentChatClient();");
-        sb.AppendLine("        if (subAgentDef.SourceKind == SubAgentSourceKind.InlineConfig &&");
-        sb.AppendLine("            subAgentDef.AgentConfig?.ResolveClientConfig(HPD.Agent.Providers.ProviderClientFamily.Chat) == null && parentChatClient != null)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            agentBuilder.WithChatClient(parentChatClient);");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-        sb.AppendLine("        // Register ToolHarnesses if any are specified (uses AOT-compatible catalog)");
-        sb.AppendLine("        if (subAgentDef.ToolHarnessTypes != null && subAgentDef.ToolHarnessTypes.Length > 0)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            foreach (var toolType in subAgentDef.ToolHarnessTypes)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                agentBuilder.WithToolHarness(toolType);");
-        sb.AppendLine("            }");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-        // Extract query before BuildAsync so the generated function can resolve routing cleanly.
-        sb.AppendLine("        // Extract query from arguments");
+        sb.AppendLine("        // Extract input from arguments");
         sb.AppendLine("        var jsonArgs = arguments.GetJson();");
-        sb.AppendLine("        var query = jsonArgs.TryGetProperty(\"query\", out var queryProp)");
-        sb.AppendLine("            ? queryProp.GetString() ?? string.Empty");
+        sb.AppendLine("        var input = jsonArgs.TryGetProperty(\"input\", out var inputProp)");
+        sb.AppendLine("            ? inputProp.GetString() ?? string.Empty");
         sb.AppendLine("            : string.Empty;");
+        sb.AppendLine("        var requestedMode = global::HPD.Agent.AgentInvocationModes.ReadRequestedMode(jsonArgs);");
         sb.AppendLine();
-
-        sb.AppendLine("        // Use the parent session store when available so subagent threads remain inspectable");
-        sb.AppendLine("        var parentStore = functionContext?.GetParentSessionStore();");
-        sb.AppendLine("        if (parentStore != null)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            agentBuilder.WithSessionStore(parentStore);");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
-        sb.AppendLine("        var agent = await agentBuilder.BuildAsync();");
-        sb.AppendLine();
-
-        // Set up event bubbling via parent-child linking
-        sb.AppendLine("        // Set up event bubbling through the parent coordinator");
-        sb.AppendLine("        if (parentCoordinator != null)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            agent.EventCoordinator.SetParent(parentCoordinator);");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
-        // Build execution context for event attribution
-        sb.AppendLine("        // Build hierarchical execution context for event attribution");
-        sb.AppendLine("        var parenTMetadata = functionContext?.GetParentAgentMetadata();");
-        sb.AppendLine("        var agentId = agent.AgentId;");
-        sb.AppendLine();
-        sb.AppendLine("        var agentChain = parenTMetadata != null");
-        sb.AppendLine($"            ? new System.Collections.Generic.List<string>(parenTMetadata.AgentChain) {{ \"{SubAgentName}\" }}");
-        sb.AppendLine($"            : new System.Collections.Generic.List<string> {{ \"{SubAgentName}\" }};");
-        sb.AppendLine();
-        sb.AppendLine("        agent.AgentMetadata = new HPD.Agent.AgentMetadata");
-        sb.AppendLine("        {");
-        sb.AppendLine($"            AgentName = \"{SubAgentName}\",");
-        sb.AppendLine("            AgentId = agentId,");
-        sb.AppendLine("            ParentAgentId = parenTMetadata?.AgentId,");
-        sb.AppendLine("            AgentChain = agentChain,");
-        sb.AppendLine("            Depth = (parenTMetadata?.Depth ?? -1) + 1");
-        sb.AppendLine("        };");
-        sb.AppendLine();
-        sb.AppendLine("        var textResult = new System.Text.StringBuilder();");
-        sb.AppendLine();
-
-        sb.AppendLine("        var route = await SubAgentRuntime.ResolveRouteAsync(agent, subAgentDef, functionContext, cancellationToken);");
-        sb.AppendLine("        try");
-        sb.AppendLine("        {");
-        sb.AppendLine("            using var outputSubscription = agent.SubscribeAny(evt =>");
+        sb.AppendLine("        var result = await global::HPD.Agent.SubAgentRuntime.InvokeAsync(");
+        sb.AppendLine("            new global::HPD.Agent.SubAgentRuntime.SubAgentInvocationRequest");
         sb.AppendLine("            {");
-        sb.AppendLine("                if (evt is HPD.Agent.TextDeltaEvent textDelta) textResult.Append(textDelta.Text);");
-        sb.AppendLine("                return System.Threading.Tasks.ValueTask.CompletedTask;");
-        sb.AppendLine("            });");
-        sb.AppendLine("            await agent.RunAsync(new HPD.Agent.UserMessagesInputEvent([");
-        sb.AppendLine("                new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, query)");
-        sb.AppendLine("            ])");
-        sb.AppendLine("            {");
-        sb.AppendLine("                SessionId = route.SessionId,");
-        sb.AppendLine("                ThreadId = route.ThreadId");
-        sb.AppendLine("            }, cancellationToken);");
-        sb.AppendLine("            SubAgentRuntime.MarkCompleted(functionContext, route);");
-        sb.AppendLine("            if (textResult.Length > 0) return textResult.ToString();");
-        sb.AppendLine("            var fallbackThread = await agent.Config.SessionStore!.LoadThreadAsync(route.SessionId, route.ThreadId, cancellationToken);");
-        sb.AppendLine("            return fallbackThread?.Messages.LastOrDefault(m => m.Role == ChatRole.Assistant)?.Text ?? string.Empty;");
-        sb.AppendLine("        }");
-        sb.AppendLine("        catch (System.Exception ex)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            SubAgentRuntime.MarkFailed(functionContext, route, ex);");
-        sb.AppendLine("            throw;");
-        sb.AppendLine("        }");
+        sb.AppendLine("                Definition = subAgentDef,");
+        sb.AppendLine("                Input = input,");
+        sb.AppendLine("                ParentContext = functionContext,");
+        sb.AppendLine("                RequestedMode = requestedMode");
+        sb.AppendLine("            },");
+        sb.AppendLine("            cancellationToken).ConfigureAwait(false);");
+        sb.AppendLine("        return result.ToToolResult();");
         sb.AppendLine("    },");
         sb.AppendLine("    new HPDAIFunctionFactoryOptions");
         sb.AppendLine("    {");
@@ -190,11 +96,18 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("        SchemaProvider = () =>");
         sb.AppendLine("        {");
         sb.AppendLine("            var options = new global::Microsoft.Extensions.AI.AIJsonSchemaCreateOptions { IncludeSchemaKeyword = false };");
-        sb.AppendLine($"            var method = typeof({ParentToolHarnessName}).GetMethod(\"{MethodName}\")");
-        sb.AppendLine("                ?.GetCustomAttributes(typeof(SubAgentAttribute), false)");
-        sb.AppendLine("                ?.FirstOrDefault();");
+        if (IsStatic)
+        {
+            sb.AppendLine($"            var schemaSubAgentDef = {ToolHarness.ClassName}.{MethodName}();");
+        }
+        else
+        {
+            sb.AppendLine($"            var schemaSubAgentDef = instance.{MethodName}();");
+        }
         sb.AppendLine("            return global::Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(");
-        sb.AppendLine($"                typeof({ToolHarness.ClassName}SubAgentQueryArgs),");
+        sb.AppendLine("                schemaSubAgentDef.InvocationModePolicy == global::HPD.Agent.AgentInvocationModePolicy.ModelChoice");
+        sb.AppendLine($"                    ? typeof({ToolHarness.ClassName}SubAgentInputWithModeArgs)");
+        sb.AppendLine($"                    : typeof({ToolHarness.ClassName}SubAgentInputArgs),");
         sb.AppendLine("                serializerOptions: global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions,");
         sb.AppendLine("                inferenceOptions: options");
         sb.AppendLine("            );");

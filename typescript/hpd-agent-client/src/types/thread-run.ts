@@ -1,6 +1,6 @@
 export type ThreadRunStatus = "active" | "completed" | "cancelled" | "failed" | "interrupted";
 
-export type BackgroundOperationStatus =
+export type ModelBackgroundOperationStatus =
   | "Queued"
   | "InProgress"
   | "Completed"
@@ -13,11 +13,16 @@ export interface ThreadRunError {
   message?: string | null;
 }
 
-export interface ThreadRunBackgroundOperation {
-  status: BackgroundOperationStatus;
+export interface ThreadRunModelBackgroundOperation {
+  status: ModelBackgroundOperationStatus;
   operationId?: string | null;
   statusMessage?: string | null;
   continuationToken?: string | null;
+}
+
+export interface ThreadRunBackgroundTaskNotification {
+  kind: string;
+  strategyName?: string | null;
 }
 
 export interface ThreadRunBackgroundTask {
@@ -25,7 +30,7 @@ export interface ThreadRunBackgroundTask {
   name: string;
   sourceKind: string;
   sourceId?: string | null;
-  notificationPolicy: string;
+  notification: ThreadRunBackgroundTaskNotification;
   status: "started" | "completed" | "cancelled" | "faulted" | string;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -33,6 +38,19 @@ export interface ThreadRunBackgroundTask {
   faultedAt?: string | null;
   errorType?: string | null;
   errorMessage?: string | null;
+}
+
+export interface ThreadRunBackgroundHandle {
+  handleId: string;
+  name: string;
+  handleKind: string;
+  sourceKind: string;
+  sourceId?: string | null;
+  status: string;
+  supportedOperations: string;
+  registeredAt: string;
+  updatedAt?: string | null;
+  metadata?: Record<string, string> | null;
 }
 
 export interface ThreadRun {
@@ -44,6 +62,7 @@ export interface ThreadRun {
   startedAt: string;
   completedAt?: string | null;
   error?: ThreadRunError | null;
-  backgroundOperation?: ThreadRunBackgroundOperation | null;
+  modelBackgroundOperation?: ThreadRunModelBackgroundOperation | null;
   backgroundTasks: ThreadRunBackgroundTask[];
+  backgroundHandles: ThreadRunBackgroundHandle[];
 }

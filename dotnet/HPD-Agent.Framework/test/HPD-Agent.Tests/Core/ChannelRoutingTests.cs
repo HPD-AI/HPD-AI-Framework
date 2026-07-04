@@ -253,7 +253,12 @@ public class ChannelRoutingTests
         { new PermissionRequestEvent("perm1", "source", "tool", null, "call1", null), EventChannel.Interactive, EventKind.Control },
         { new PermissionResponseEvent("perm1", "source", true), EventChannel.Interactive, EventKind.Control },
         { new ClarificationRequestEvent("req1", "source", "question"), EventChannel.Interactive, EventKind.Control },
-        { new HPD.Agent.ClientTools.ClientToolInvokeResponseEvent("req1", "ok"), EventChannel.Interactive, EventKind.Control },
+        { new HPD.Agent.ClientTools.ClientToolInvokeOutcomeEvent
+            {
+                RequestId = "req1",
+                Outcome = HPD.Agent.ClientTools.ClientToolInvokeOutcomeKind.Completed,
+                Content = [new HPD.Agent.ClientTools.TextContent("ok")]
+            }, EventChannel.Interactive, EventKind.Control },
         { new StateSnapshotEvent(1, 10, false, null, 0, [], "agent"), EventChannel.Synchronous, EventKind.Diagnostic },
         { new EventDroppedEvent("stream1", "TextDeltaEvent", 1), EventChannel.Synchronous, EventKind.Diagnostic },
         { new InterruptionHandledEvent(null, "stop", InterruptionSource.User), EventChannel.Control, EventKind.Control },

@@ -110,6 +110,8 @@ public static partial class EventTypes
         public const string BACKGROUND_TASK_COMPLETED = "BACKGROUND_TASK_COMPLETED";
         public const string BACKGROUND_TASK_CANCELLED = "BACKGROUND_TASK_CANCELLED";
         public const string BACKGROUND_TASK_FAULTED = "BACKGROUND_TASK_FAULTED";
+        public const string BACKGROUND_HANDLE_REGISTERED = "BACKGROUND_HANDLE_REGISTERED";
+        public const string BACKGROUND_HANDLE_STATUS_CHANGED = "BACKGROUND_HANDLE_STATUS_CHANGED";
         public const string BACKGROUND_TASK_NOTIFICATION_QUEUED = "BACKGROUND_TASK_NOTIFICATION_QUEUED";
         public const string BACKGROUND_TASK_NOTIFICATION_DELIVERED = "BACKGROUND_TASK_NOTIFICATION_DELIVERED";
         public const string BACKGROUND_TASK_NOTIFICATION_SUPPRESSED = "BACKGROUND_TASK_NOTIFICATION_SUPPRESSED";
@@ -142,8 +144,6 @@ public static partial class EventTypes
     {
         public const string PERMISSION_REQUEST = "PERMISSION_REQUEST";
         public const string PERMISSION_RESPONSE = "PERMISSION_RESPONSE";
-        public const string PERMISSION_APPROVED = "PERMISSION_APPROVED";
-        public const string PERMISSION_DENIED = "PERMISSION_DENIED";
         public const string CONTINUATION_REQUEST = "CONTINUATION_REQUEST";
         public const string CONTINUATION_RESPONSE = "CONTINUATION_RESPONSE";
     }
@@ -187,8 +187,8 @@ public static partial class EventTypes
     public static class ClientTool
     {
         public const string CLIENT_TOOL_INVOKE_REQUEST = "CLIENT_TOOL_INVOKE_REQUEST";
-        public const string CLIENT_TOOL_INVOKE_RESPONSE = "CLIENT_TOOL_INVOKE_RESPONSE";
-        public const string CLIENT_TOOL_GROUPS_REGISTERED = "CLIENT_TOOL_GROUPS_REGISTERED";
+        public const string CLIENT_TOOL_INVOKE_OUTCOME = "CLIENT_TOOL_INVOKE_OUTCOME";
+        public const string CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME = "CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME";
     }
 
     #endregion
@@ -205,9 +205,7 @@ public static partial class EventTypes
         public const string PERMISSION_CHECK = "PERMISSION_CHECK";
         public const string ITERATION_START = "ITERATION_START";
         public const string CIRCUIT_BREAKER_TRIGGERED = "CIRCUIT_BREAKER_TRIGGERED";
-        public const string COMPACTION_CACHE = "COMPACTION_CACHE";
         public const string INTERNAL_PARALLEL_TOOL_EXECUTION = "INTERNAL_PARALLEL_TOOL_EXECUTION";
-        public const string INTERNAL_RETRY = "INTERNAL_RETRY";
         public const string FUNCTION_RETRY = "FUNCTION_RETRY";
         public const string MODEL_CALL_RETRY = "MODEL_CALL_RETRY";
         public const string DELTA_SENDING_ACTIVATED = "DELTA_SENDING_ACTIVATED";
@@ -224,8 +222,8 @@ public static partial class EventTypes
         public const string MIDDLEWARE_STATE_CHANGED = "MIDDLEWARE_STATE_CHANGED";
         public const string COLLAPSING_STATE = "COLLAPSING_STATE";
         public const string EVENT_DROPPED = "EVENT_DROPPED";
-        public const string BACKGROUND_OPERATION_STARTED = "BACKGROUND_OPERATION_STARTED";
-        public const string BACKGROUND_OPERATION_STATUS = "BACKGROUND_OPERATION_STATUS";
+        public const string MODEL_BACKGROUND_OPERATION_STARTED = "MODEL_BACKGROUND_OPERATION_STARTED";
+        public const string MODEL_BACKGROUND_OPERATION_STATUS = "MODEL_BACKGROUND_OPERATION_STATUS";
         public const string STRUCTURED_OUTPUT_ERROR = "STRUCTURED_OUTPUT_ERROR";
         public const string STRUCTURED_OUTPUT_START = "STRUCTURED_OUTPUT_START";
         public const string STRUCTURED_OUTPUT_PARTIAL = "STRUCTURED_OUTPUT_PARTIAL";

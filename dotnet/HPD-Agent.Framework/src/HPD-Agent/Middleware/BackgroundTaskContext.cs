@@ -11,7 +11,11 @@ public sealed record BackgroundTaskDescriptor
 
     public required BackgroundTaskSourceKind SourceKind { get; init; }
 
-    public required BackgroundTaskNotificationPolicy NotificationPolicy { get; init; }
+    /// <summary>
+    /// Rule that controls whether final-state task events should wake the model.
+    /// </summary>
+    public BackgroundTaskNotificationRule Notification { get; init; } =
+        BackgroundTaskNotificationRule.None;
 
     public string? SourceId { get; init; }
 
@@ -27,10 +31,45 @@ public sealed record BackgroundTaskDescriptor
 }
 
 /// <summary>
+/// Completion details reported by runtime-owned background work.
+/// </summary>
+public sealed record BackgroundTaskCompletion
+{
+    /// <summary>
+    /// Gets the model-facing summary used by final-state notifications.
+    /// </summary>
+    public string? Summary { get; init; }
+
+    /// <summary>
+    /// Gets metadata merged into the final completed event.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
+}
+
+/// <summary>
+/// Well-known metadata keys for transitional background task notification controls.
+/// </summary>
+public static class BackgroundTaskNotificationMetadataKeys
+{
+    /// <summary>
+    /// Metadata key used to explicitly suppress a final-state notification.
+    /// </summary>
+    public const string SuppressNotification = "notification.suppress";
+
+    /// <summary>
+    /// Metadata key containing the machine-readable reason for explicit notification suppression.
+    /// </summary>
+    public const string SuppressNotificationReason = "notification.suppressReason";
+}
+
+/// <summary>
 /// Safe runtime context supplied to background work.
 /// </summary>
 public sealed record BackgroundTaskContext
 {
+    private readonly object _completionLock = new();
+    private BackgroundTaskCompletion? _completion;
+
     public required string TaskId { get; init; }
 
     public required BackgroundTaskDescriptor Descriptor { get; init; }
@@ -39,7 +78,10 @@ public sealed record BackgroundTaskContext
 
     public BackgroundTaskSourceKind SourceKind => Descriptor.SourceKind;
 
-    public BackgroundTaskNotificationPolicy NotificationPolicy => Descriptor.NotificationPolicy;
+    /// <summary>
+    /// Rule that controls whether this task's final-state events should wake the model.
+    /// </summary>
+    public BackgroundTaskNotificationRule Notification => Descriptor.Notification;
 
     public string? SourceId => Descriptor.SourceId;
 
@@ -53,6 +95,18 @@ public sealed record BackgroundTaskContext
 
     public IReadOnlyDictionary<string, string>? Metadata => Descriptor.Metadata;
 
+    /// <summary>
+    /// Gets completion details reported by the background task body.
+    /// </summary>
+    public BackgroundTaskCompletion? Completion
+    {
+        get
+        {
+            lock (_completionLock)
+                return _completion;
+        }
+    }
+
     public IEventCoordinator? EventCoordinator { get; init; }
 
     public IEventFlowRegistry? EventFlows => EventCoordinator?.EventFlows;
@@ -60,4 +114,23 @@ public sealed record BackgroundTaskContext
     public IServiceProvider? Services { get; init; }
 
     public DateTimeOffset StartedAt { get; init; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    /// Reports completion details for the background task.
+    /// </summary>
+    /// <param name="summary">The model-facing completion summary.</param>
+    /// <param name="metadata">Additional metadata to merge into the completed event.</param>
+    public void SetCompletion(
+        string? summary = null,
+        IReadOnlyDictionary<string, string>? metadata = null)
+    {
+        lock (_completionLock)
+        {
+            _completion = new BackgroundTaskCompletion
+            {
+                Summary = summary,
+                Metadata = metadata
+            };
+        }
+    }
 }

@@ -16,9 +16,10 @@
   <ItemGroup>
     <ProjectReference Include="../../HPD-Agent/HPD-Agent.csproj" />
     <ProjectReference Include="../HPD-Agent.Sandbox.Core/HPD-Agent.Sandbox.Core.csproj" />
-    <ProjectReference Include="../../../../shared/src/HPD-Events/HPD-Events.csproj" />
+    <ProjectReference Include="../../../../shared/src/HPD-Events/HPD-Events.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
 
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.9" />
+    <PackageReference Include="HPD-Events" Version="$(HPDEventsVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 
   <ItemGroup>

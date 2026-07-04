@@ -22,10 +22,10 @@ internal static class ThreadMessageEventConverter
 
         var messageId = message.MessageId;
         var role = message.Role.Value;
-        var events = new List<AgentEvent>
-        {
-            ThreadEventFactory.MessageStarted(sessionId, threadId, message, clientInputId)
-        };
+        var source = message.GetSource();
+        var visibility = message.GetVisibility();
+        var persistence = message.GetPersistence();
+        var events = new List<AgentEvent>();
 
         foreach (var content in CoalesceTextContents(message.Contents.ToList()))
         {
@@ -65,7 +65,14 @@ internal static class ThreadMessageEventConverter
                         messageTurnId,
                         messageId,
                         role,
-                        iteration));
+                        source,
+                        visibility,
+                        iteration,
+                        persistence,
+                        message.AuthorName,
+                        message.CreatedAt,
+                        clientInputId,
+                        message.AdditionalProperties));
                     if (!string.IsNullOrEmpty(text.Text))
                     {
                         events.Add(ThreadEventFactory.TextDelta(
@@ -130,12 +137,16 @@ internal static class ThreadMessageEventConverter
                     break;
 
                 default:
-                    events.Add(ThreadEventFactory.ContentAdded(sessionId, threadId, messageId, content));
+                    events.Add(ThreadEventFactory.ContentAdded(
+                        sessionId,
+                        threadId,
+                        message,
+                        content,
+                        clientInputId));
                     break;
             }
         }
 
-        events.Add(ThreadEventFactory.MessageCompleted(sessionId, threadId, messageId));
         return events;
     }
 

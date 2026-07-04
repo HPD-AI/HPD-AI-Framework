@@ -45,7 +45,9 @@ public class HPDAIFunctionFactory
             _method = invocationHandler.Method; // For metadata
             HPDOptions = options;
 
-            JsonSchema = options.SchemaProvider?.Invoke() ?? default;
+            JsonSchema = AgentInvocationModes.CreateSchema(
+                options.SchemaProvider?.Invoke() ?? default,
+                options.InvocationModePolicy);
             Name = options.Name ?? _method?.Name ?? "Unknown";
             Description = options.Description ?? "";
         }
@@ -103,10 +105,22 @@ public class HPDAIFunctionFactory
                 jsonArgs = JsonDocument.Parse(jsonString).RootElement;
             }
 
+            arguments.SetJson(jsonArgs);
+            arguments.SetJsonSerializerOptions(JsonSerializerOptions);
             var serializerOptions = JsonSerializerOptions;
+            var runtimeHandlesInvocationMode =
+                HPDOptions.InvocationModeHandling == AgentInvocationModeHandling.Runtime;
+            var validationJsonArgs = jsonArgs;
+            if (runtimeHandlesInvocationMode)
+            {
+                var sanitizedArguments = AgentInvocationModes.CreateSanitizedArguments(
+                    arguments,
+                    out _);
+                validationJsonArgs = sanitizedArguments.GetJson();
+            }
 
             // 2. Use the validator.
-            var validationErrors = HPDOptions.Validator?.Invoke(jsonArgs, serializerOptions);
+            var validationErrors = HPDOptions.Validator?.Invoke(validationJsonArgs, serializerOptions);
 
             // TODO: Add container-specific parameter validation
             // Edge case: LLMs sometimes try to invoke containers with parameters like Math({function: "Add", a: 5, b: 10})
@@ -119,7 +133,7 @@ public class HPDAIFunctionFactory
                 var errorResponse = new ValidationErrorResponse();
                 foreach (var error in validationErrors)
                 {
-                    if (jsonArgs.TryGetProperty(error.Property, out var propertyNode))
+                    if (validationJsonArgs.TryGetProperty(error.Property, out var propertyNode))
                     {
                         error.AttemptedValue = propertyNode.Clone();
                     }
@@ -129,10 +143,42 @@ public class HPDAIFunctionFactory
             }
 
             // 4. Invoke the function using the delegate approach only.
-            arguments.SetJson(jsonArgs);
-            arguments.SetJsonSerializerOptions(serializerOptions);
-            var result = await _invocationHandler(arguments, functionContext, cancellationToken);
-            return await MarshalResultAsync(result, HPDOptions, serializerOptions, cancellationToken);
+            if (!runtimeHandlesInvocationMode)
+            {
+                var directResult = await _invocationHandler(
+                    arguments,
+                    functionContext,
+                    cancellationToken).ConfigureAwait(false);
+                return await MarshalResultAsync(directResult, HPDOptions, serializerOptions, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            var invocation = await FunctionInvocationRuntime.InvokeAsync(
+                new FunctionInvocationRuntime.FunctionInvocationRequest
+                {
+                    Name = Name,
+                    Arguments = arguments,
+                    ParentContext = functionContext,
+                    InvocationModePolicy = HPDOptions.InvocationModePolicy,
+                    BackgroundNotification = HPDOptions.BackgroundNotification,
+                    InvokeFunctionAsync = InvokeFunctionBodyAsync
+                },
+                cancellationToken).ConfigureAwait(false);
+
+            return invocation.ToToolResult();
+
+            async Task<object?> InvokeFunctionBodyAsync(
+                AIFunctionArguments invocationArguments,
+                FunctionExecutionContext invocationContext,
+                CancellationToken invocationToken)
+            {
+                var result = await _invocationHandler(
+                    invocationArguments,
+                    invocationContext,
+                    invocationToken).ConfigureAwait(false);
+                return await MarshalResultAsync(result, HPDOptions, serializerOptions, invocationToken)
+                    .ConfigureAwait(false);
+            }
         }
     }
 
@@ -425,6 +471,12 @@ public class HPDAIFunctionFactoryOptions
     public JsonSerializerOptions? SerializerOptions { get; set; }
     public Type? ResultType { get; set; }
     public Func<object?, Type?, CancellationToken, ValueTask<object?>>? MarshalResult { get; set; }
+    public AgentInvocationModePolicy InvocationModePolicy { get; set; } =
+        AgentInvocationModePolicy.SynchronousOnly;
+    public AgentInvocationModeHandling InvocationModeHandling { get; set; } =
+        AgentInvocationModeHandling.Runtime;
+    public BackgroundTaskNotificationRule BackgroundNotification { get; set; } =
+        new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true);
 
     // The validator now returns a list of detailed, structured errors.
     public Func<JsonElement, JsonSerializerOptions, List<ValidationError>>? Validator { get; set; }

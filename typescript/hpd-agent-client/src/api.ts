@@ -6,6 +6,10 @@ import type {
   UpdateAgentRequest,
 } from './types/agent.js';
 import type {
+  ClientToolProviderQuery,
+  ClientToolProviderSnapshot,
+} from './types/client-tool-providers.js';
+import type {
   AgentComparisonResult,
   ThreadComparisonResult,
   CostBreakdown,
@@ -258,6 +262,27 @@ export class AgentHttpApi {
       },
     );
     return this.readJson(response, 'Failed to get thread runs');
+  }
+
+  async listClientToolProviders(query?: ClientToolProviderQuery): Promise<ClientToolProviderSnapshot[]> {
+    const response = await this.fetch(this.url('/client-tool-providers', {
+      appProviderName: query?.appProviderName,
+      appKind: query?.appKind,
+      includeDisconnected: query?.includeDisconnected,
+    }), {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return this.readJson(response, 'Failed to list client tool providers');
+  }
+
+  async getClientToolProvider(clientRuntimeId: string): Promise<ClientToolProviderSnapshot | null> {
+    const response = await this.fetch(this.url(`/client-tool-providers/${clientRuntimeId}`), {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (response.status === 404) return null;
+    return this.readJson(response, 'Failed to get client tool provider');
   }
 
   async getActiveThreadRun(agentId: string, sessionId: string, threadId: string): Promise<ThreadRun | null> {

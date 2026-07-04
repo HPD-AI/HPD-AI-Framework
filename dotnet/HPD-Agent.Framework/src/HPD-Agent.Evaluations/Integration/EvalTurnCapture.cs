@@ -100,8 +100,12 @@ internal sealed class EvalTurnCapture
                 buffer.RecordToolCallEnded(e.CallId, e.Timestamp);
                 break;
 
-            case PermissionDeniedEvent e:
-                buffer.RecordPermissionDenied(e.CallId);
+            case PermissionRequestEvent e:
+                buffer.RecordPermissionRequest(e.PermissionId, e.CallId);
+                break;
+
+            case PermissionResponseEvent e:
+                buffer.RecordPermissionResponse(e.PermissionId, e.Approved);
                 break;
         }
 

@@ -9,18 +9,7 @@ public static class ThreadEventDocumentBuilder
 
         var createdAt = new DateTimeOffset(thread.CreatedAt, TimeSpan.Zero);
         var events = new List<AgentEvent>();
-        if (thread.ForkedFrom is null)
-        {
-            events.Add(ThreadEventFactory.ThreadCreated(thread));
-            if (!HasDefaultRootTreeState(thread))
-                events.Add(ThreadEventFactory.ThreadTreeUpdated(thread));
-        }
-        else
-        {
-            events.Add(ThreadEventFactory.ThreadForked(thread));
-            events.Add(ThreadEventFactory.ThreadMetadataUpdated(thread));
-            events.Add(ThreadEventFactory.ThreadTreeUpdated(thread));
-        }
+        events.Add(ThreadEventFactory.ThreadCreated(thread));
 
         foreach (var message in thread.Messages)
             events.AddRange(ThreadMessageEventConverter.ToThreadEvents(thread.SessionId, thread.Id, message));
@@ -40,12 +29,6 @@ public static class ThreadEventDocumentBuilder
             createdAt,
             new DateTimeOffset(thread.LastActivity, TimeSpan.Zero));
     }
-
-    private static bool HasDefaultRootTreeState(Thread thread) =>
-        thread.ForkedFrom is null &&
-        thread.ForkedAtMessageId is null &&
-        thread.ForkedAtMessageIndex is null &&
-        thread.ChildThreads.Count == 0;
 
     public static ThreadEventDocument Create(
         string sessionId,

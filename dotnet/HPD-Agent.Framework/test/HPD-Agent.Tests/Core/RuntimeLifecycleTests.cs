@@ -160,6 +160,17 @@ public class RuntimeLifecycleTests : AgentTestBase
         public override EventKind Kind { get; init; } = EventKind.Diagnostic;
     }
 
+    private sealed record RuntimeBridgePersistableEvent(string Value) : AgentEvent
+    {
+        public override EventKind Kind { get; init; } = EventKind.Diagnostic;
+        public override bool ShouldPersistToThread() => true;
+    }
+
+    private sealed record RuntimeBridgeLiveOnlyEvent(string Value) : AgentEvent
+    {
+        public override EventKind Kind { get; init; } = EventKind.Diagnostic;
+    }
+
     private sealed class RuntimeHookRecordingMiddleware(
         string name,
         List<string> order) : IAgentMiddleware
@@ -297,23 +308,66 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     private static string GetSingleNotificationSystemMessage(FakeChatClient fakeClient)
+        => GetSingleNotificationSystemChatMessage(fakeClient).Text!;
+
+    private static ChatMessage GetSingleNotificationSystemChatMessage(FakeChatClient fakeClient)
     {
         var notificationMessages = fakeClient.CapturedRequests
             .SelectMany(request => request)
             .Where(message =>
                 message.Role == ChatRole.System &&
                 message.Text?.Contains("<background-task-notifications>", StringComparison.Ordinal) == true)
-            .Select(message => message.Text!)
             .ToList();
 
         Assert.Single(notificationMessages);
         return notificationMessages[0];
     }
 
+    [Fact]
+    public void BackgroundTaskNotificationInput_CreatesHiddenModelContextOnlySystemMessage()
+    {
+        var input = new BackgroundTaskNotificationInputEvent([
+            new BackgroundTaskNotification(
+                "notification-1",
+                ["task-1"],
+                "Background task completed.",
+                new Dictionary<string, string>
+                {
+                    ["status"] = "completed"
+                })
+        ]);
+
+        var messagesInput = BackgroundTaskNotificationDispatcher.ToUserMessagesInput(input);
+        var message = Assert.Single(messagesInput.Messages);
+
+        Assert.Equal(ChatRole.System, message.Role);
+        Assert.Equal(AgentMessageSource.BackgroundNotification, message.GetSource());
+        Assert.Equal(AgentMessageVisibility.Hidden, message.GetVisibility());
+        Assert.Equal(AgentMessagePersistence.ModelContextOnly, message.GetPersistence());
+        Assert.Contains("<background-task-notifications>", message.Text);
+    }
+
+    [Fact]
+    public void ThreadMessageEventConverter_PreservesMessagePolicyOnTextEvents()
+    {
+        var message = new ChatMessage(ChatRole.System, "hidden context")
+            .WithPolicy(
+                AgentMessageSource.RuntimeContext,
+                AgentMessageVisibility.Hidden,
+                AgentMessagePersistence.ThreadHistory);
+
+        var events = ThreadMessageEventConverter.ToThreadEvents("session-1", "thread-1", message);
+
+        var textStarted = Assert.Single(events.OfType<TextMessageStartEvent>());
+        Assert.Equal(AgentMessageSource.RuntimeContext, textStarted.Source);
+        Assert.Equal(AgentMessageVisibility.Hidden, textStarted.Visibility);
+        Assert.Equal(AgentMessagePersistence.ThreadHistory, textStarted.Persistence);
+    }
+
     private static BackgroundTaskCompletedEvent CreateCompletedBackgroundTaskEvent(
         string taskId,
         string name,
-        BackgroundTaskNotificationPolicy policy,
+        BackgroundTaskNotificationRule policy,
         string? sessionId = "session-1",
         string? threadId = "thread-1",
         FunctionInvocationSnapshot? invocation = null,
@@ -331,7 +385,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             SessionId = sessionId,
             ThreadId = threadId,
             Invocation = includeInvocation ? invocation ?? CreateInvocationSnapshot(sourceId ?? "call-1") : null,
-            NotificationPolicy = policy,
+            Notification = policy,
             Metadata = metadata,
             CompletedAt = DateTimeOffset.UtcNow,
             DurationMilliseconds = 1,
@@ -341,7 +395,7 @@ public class RuntimeLifecycleTests : AgentTestBase
     private static BackgroundTaskFaultedEvent CreateFaultedBackgroundTaskEvent(
         string taskId,
         string name,
-        BackgroundTaskNotificationPolicy policy,
+        BackgroundTaskNotificationRule policy,
         string? sessionId = "session-1",
         string? threadId = "thread-1",
         FunctionInvocationSnapshot? invocation = null,
@@ -355,7 +409,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             SessionId = sessionId,
             ThreadId = threadId,
             Invocation = invocation ?? CreateInvocationSnapshot(sourceId ?? "call-1"),
-            NotificationPolicy = policy,
+            Notification = policy,
             FaultedAt = DateTimeOffset.UtcNow,
             ExceptionType = typeof(InvalidOperationException).FullName!,
             ErrorMessage = "boom"
@@ -366,7 +420,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         {
             Name = name,
             SourceKind = BackgroundTaskSourceKind.Runtime,
-            NotificationPolicy = BackgroundTaskNotificationPolicy.None
+            Notification = BackgroundTaskNotificationRule.None
         };
 
     private static void RegisterRuntimeBackgroundTask(
@@ -1819,13 +1873,14 @@ public class RuntimeLifecycleTests : AgentTestBase
             return ValueTask.CompletedTask;
         });
         var invocation = CreateInvocationSnapshot();
+        var registrations = new List<BackgroundTaskRegistration>();
 
         for (var i = 0; i < 5; i++)
         {
-            RegisterDescriptorBackgroundTask(runtimeContext,
+            registrations.Add(RegisterDescriptorBackgroundTask(runtimeContext,
                 $"task-{i}",
                 invocation,
-                (_, _) => Task.CompletedTask);
+                (_, _) => Task.CompletedTask));
         }
 
         await runtimeContext.DisposeRegisteredResourcesAsync(TestCancellationToken);
@@ -1834,8 +1889,41 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         Assert.Equal(5, startedEvents.Count);
         Assert.Equal(5, completedEvents.Count);
+        Assert.Equal(5, registrations.Select(registration => registration.TaskId).Distinct().Count());
+        Assert.Empty(registrations.Select(registration => registration.TaskId).Except(startedEvents.Select(evt => evt.TaskId)));
         Assert.Equal(5, startedEvents.Select(evt => evt.TaskId).Distinct().Count());
         Assert.Empty(startedEvents.Select(evt => evt.TaskId).Except(completedEvents.Select(evt => evt.TaskId)));
+    }
+
+    [Fact]
+    public async Task BackgroundTaskCompletion_PopulatesCompletedEventSummaryAndMetadata()
+    {
+        using var runtimeCts = new CancellationTokenSource();
+        var runtimeContext = CreateRuntimeContext(runtimeCts.Token);
+        var completed = new TaskCompletionSource<BackgroundTaskCompletedEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var completedSubscription = runtimeContext.EventCoordinator.Subscribe<BackgroundTaskCompletedEvent>(evt =>
+        {
+            completed.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        RegisterDescriptorBackgroundTask(runtimeContext,
+            "summarize",
+            CreateInvocationSnapshot(),
+            (background, _) =>
+            {
+                background.SetCompletion(
+                    "done with useful details",
+                    new Dictionary<string, string> { ["result.kind"] = "summary" });
+                return Task.CompletedTask;
+            });
+
+        await runtimeContext.DisposeRegisteredResourcesAsync(TestCancellationToken);
+
+        var completedEvent = await completed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        Assert.Equal("done with useful details", completedEvent.Summary);
+        Assert.NotNull(completedEvent.Metadata);
+        Assert.Equal("summary", completedEvent.Metadata!["result.kind"]);
     }
 
     [Fact]
@@ -2214,7 +2302,161 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
-    public async Task BackgroundTaskCompletion_WithNotificationPolicy_QueuesNotificationTurn()
+    public async Task RuntimeCoordinator_PersistsScopedPersistableEvents()
+    {
+        var store = new InMemorySessionStore();
+        var session = new global::HPD.Agent.Session("session-bridge");
+        var thread = new global::HPD.Agent.Thread(session.Id, "thread-bridge") { Session = session };
+        await store.SaveSessionAsync(session, TestCancellationToken);
+        await store.AppendThreadEventAsync(
+            session.Id,
+            thread.Id,
+            ThreadEventFactory.ThreadCreated(thread),
+            cancellationToken: TestCancellationToken);
+
+        var config = DefaultConfig();
+        config.SessionStore = store;
+        var middleware = new RuntimeHookRecordingMiddleware("A", [])
+        {
+            OnAfterStarted = (context, _) =>
+            {
+                context.Emit(new RuntimeBridgePersistableEvent("durable-runtime-event")
+                {
+                    SessionId = session.Id,
+                    ThreadId = thread.Id
+                });
+                return Task.CompletedTask;
+            }
+        };
+        var agent = CreateAgentWithMiddlewares(
+            config: config,
+            client: new FakeChatClient(),
+            middlewares: [middleware]);
+
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
+
+        var events = await WaitForThreadEventsAsync(
+            store,
+            session.Id,
+            thread.Id,
+            snapshot => snapshot.OfType<RuntimeBridgePersistableEvent>().Any(),
+            TestCancellationToken);
+
+        await agent.StopAsync(TestCancellationToken);
+
+        var persisted = Assert.Single(events.OfType<RuntimeBridgePersistableEvent>());
+        Assert.Equal("durable-runtime-event", persisted.Value);
+        Assert.False(string.IsNullOrWhiteSpace(persisted.EventId));
+        Assert.Equal(session.Id, persisted.SessionId);
+        Assert.Equal(thread.Id, persisted.ThreadId);
+    }
+
+    [Fact]
+    public async Task RuntimeCoordinator_DoesNotPersistScopedLiveOnlyEvents()
+    {
+        var store = new InMemorySessionStore();
+        var session = new global::HPD.Agent.Session("session-live-only");
+        var thread = new global::HPD.Agent.Thread(session.Id, "thread-live-only") { Session = session };
+        await store.SaveSessionAsync(session, TestCancellationToken);
+        await store.AppendThreadEventAsync(
+            session.Id,
+            thread.Id,
+            ThreadEventFactory.ThreadCreated(thread),
+            cancellationToken: TestCancellationToken);
+
+        var config = DefaultConfig();
+        config.SessionStore = store;
+        var observed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var middleware = new RuntimeHookRecordingMiddleware("A", [])
+        {
+            OnAfterStarted = (context, _) =>
+            {
+                context.Emit(new RuntimeBridgeLiveOnlyEvent("live-runtime-event")
+                {
+                    SessionId = session.Id,
+                    ThreadId = thread.Id
+                });
+                return Task.CompletedTask;
+            }
+        };
+        var agent = CreateAgentWithMiddlewares(
+            config: config,
+            client: new FakeChatClient(),
+            middlewares: [middleware]);
+
+        using var subscription = agent.Subscribe<RuntimeBridgeLiveOnlyEvent>(_ =>
+        {
+            observed.TrySetResult();
+            return ValueTask.CompletedTask;
+        });
+
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
+        await observed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        await Task.Delay(100, TestCancellationToken);
+
+        var events = await ReadThreadEventsAsync(store, session.Id, thread.Id, TestCancellationToken);
+        await agent.StopAsync(TestCancellationToken);
+
+        Assert.DoesNotContain(events, evt => evt is RuntimeBridgeLiveOnlyEvent);
+    }
+
+    [Fact]
+    public async Task RuntimeCoordinator_PersistsRuntimeInputLifecycleEventsOnce()
+    {
+        var fakeClient = new FakeChatClient();
+        fakeClient.EnqueueTextResponse("runtime input response");
+        var store = new InMemorySessionStore();
+        var session = new global::HPD.Agent.Session("session-runtime-input");
+        var thread = new global::HPD.Agent.Thread(session.Id, "thread-runtime-input") { Session = session };
+        await store.SaveSessionAsync(session, TestCancellationToken);
+        await store.AppendThreadEventAsync(
+            session.Id,
+            thread.Id,
+            ThreadEventFactory.ThreadCreated(thread),
+            cancellationToken: TestCancellationToken);
+
+        var config = DefaultConfig();
+        config.SessionStore = store;
+        var agent = CreateAgentWithMiddlewares(config: config, client: fakeClient);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        const string runtimeRunId = "runtime-run-bridge";
+
+        using var subscription = agent.Subscribe<ThreadRunCompletedEvent>(evt =>
+        {
+            if (evt.RuntimeRunId == runtimeRunId)
+                completed.TrySetResult();
+
+            return ValueTask.CompletedTask;
+        });
+
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
+        await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "hello runtime")])
+        {
+            Session = session,
+            Thread = thread,
+            SessionId = session.Id,
+            ThreadId = thread.Id,
+            RuntimeRunId = runtimeRunId
+        }, TestCancellationToken);
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+
+        var events = await WaitForThreadEventsAsync(
+            store,
+            session.Id,
+            thread.Id,
+            snapshot =>
+                snapshot.OfType<ThreadRunStartedEvent>().Count(evt => evt.RuntimeRunId == runtimeRunId) == 1 &&
+                snapshot.OfType<ThreadRunCompletedEvent>().Count(evt => evt.RuntimeRunId == runtimeRunId) == 1,
+            TestCancellationToken);
+
+        await agent.StopAsync(TestCancellationToken);
+
+        Assert.Single(events.OfType<ThreadRunStartedEvent>(), evt => evt.RuntimeRunId == runtimeRunId);
+        Assert.Single(events.OfType<ThreadRunCompletedEvent>(), evt => evt.RuntimeRunId == runtimeRunId);
+    }
+
+    [Fact]
+    public async Task BackgroundTaskCompletion_WithNotificationRule_QueuesNotificationTurn()
     {
         var fakeClient = new FakeChatClient();
         fakeClient.EnqueueTextResponse("notification response");
@@ -2242,7 +2484,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                         SourceKind = BackgroundTaskSourceKind.ToolCall,
                         SourceId = "call-1",
                         Invocation = CreateInvocationSnapshot(),
-                        NotificationPolicy = BackgroundTaskNotificationPolicy.OnCompletion
+                        Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true)
                     },
                     (_, _) => Task.CompletedTask);
                 return Task.CompletedTask;
@@ -2323,7 +2565,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                             SourceKind = BackgroundTaskSourceKind.ToolCall,
                             SourceId = callId,
                             Invocation = CreateInvocationSnapshot(callId, i),
-                            NotificationPolicy = BackgroundTaskNotificationPolicy.OnCompletion
+                            Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true)
                         },
                         (_, _) => Task.CompletedTask);
                 }
@@ -2363,7 +2605,7 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
-    public async Task BackgroundTaskNotificationPolicy_None_SuppressesNotificationTurn()
+    public async Task BackgroundTaskNotificationRule_None_SuppressesNotificationTurn()
     {
         var fakeClient = new FakeChatClient();
         var config = await CreateBackgroundNotificationConfigAsync();
@@ -2374,7 +2616,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                 context.Emit(CreateCompletedBackgroundTaskEvent(
                     taskId: "task-none",
                     name: "quiet-work",
-                    policy: BackgroundTaskNotificationPolicy.None));
+                    policy: BackgroundTaskNotificationRule.None));
                 return Task.CompletedTask;
             }
         };
@@ -2396,12 +2638,12 @@ public class RuntimeLifecycleTests : AgentTestBase
         var suppressedEvent = await suppressed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
-        Assert.Equal("policy-suppressed:None:completed", suppressedEvent.Reason);
+        Assert.Equal("rule-suppressed:none:completed", suppressedEvent.Reason);
         Assert.Empty(fakeClient.CapturedRequests);
     }
 
     [Fact]
-    public async Task BackgroundTaskNotificationPolicy_OnFault_QueuesOnlyFaultedTasks()
+    public async Task BackgroundTaskNotificationRule_OnFault_QueuesOnlyFaultedTasks()
     {
         var fakeClient = new FakeChatClient();
         fakeClient.EnqueueTextResponse("fault notification response");
@@ -2413,11 +2655,11 @@ public class RuntimeLifecycleTests : AgentTestBase
                 context.Emit(CreateCompletedBackgroundTaskEvent(
                     taskId: "task-completed",
                     name: "completed-work",
-                    policy: BackgroundTaskNotificationPolicy.OnFault));
+                    policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true)));
                 context.Emit(CreateFaultedBackgroundTaskEvent(
                     taskId: "task-faulted",
                     name: "faulted-work",
-                    policy: BackgroundTaskNotificationPolicy.OnFault));
+                    policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true)));
                 return Task.CompletedTask;
             }
         };
@@ -2446,7 +2688,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         await delivered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
-        Assert.Equal("policy-suppressed:OnFault:completed", suppressedEvent.Reason);
+        Assert.Equal("rule-suppressed:on-final-state:completed", suppressedEvent.Reason);
         var notificationText = GetSingleNotificationSystemMessage(fakeClient);
         Assert.Contains("task-faulted", notificationText);
         Assert.DoesNotContain("task-completed", notificationText);
@@ -2465,7 +2707,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                 context.Emit(CreateCompletedBackgroundTaskEvent(
                     taskId: "task-missing-scope",
                     name: "orphan-work",
-                    policy: BackgroundTaskNotificationPolicy.OnCompletion,
+                    policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true),
                     sessionId: null,
                     threadId: null,
                     includeInvocation: false));
@@ -2512,7 +2754,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                     SessionId = "session-1",
                     ThreadId = "thread-1",
                     Invocation = CreateInvocationSnapshot("call-cancelled"),
-                    NotificationPolicy = BackgroundTaskNotificationPolicy.OnCompletionOrFault,
+                    Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true),
                     CancelledAt = DateTimeOffset.UtcNow,
                     Reason = "runtime-stopping"
                 });
@@ -2542,6 +2784,49 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
+    public async Task BackgroundTaskNotification_MetadataSuppression_SuppressesNotificationTurn()
+    {
+        var fakeClient = new FakeChatClient();
+        var config = await CreateBackgroundNotificationConfigAsync();
+        var middleware = new RuntimeHookRecordingMiddleware("A", [])
+        {
+            OnAfterStarted = (context, _) =>
+            {
+                context.Emit(CreateCompletedBackgroundTaskEvent(
+                    taskId: "task-handled",
+                    name: "handled-work",
+                    policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true),
+                    metadata: new Dictionary<string, string>
+                    {
+                        [BackgroundTaskNotificationMetadataKeys.SuppressNotification] = "true",
+                        [BackgroundTaskNotificationMetadataKeys.SuppressNotificationReason] = "handled-by-foreground-stop"
+                    }));
+                return Task.CompletedTask;
+            }
+        };
+        var agent = CreateAgentWithMiddlewares(
+            config: config,
+            client: fakeClient,
+            middlewares: [middleware]);
+        var suppressed = new TaskCompletionSource<BackgroundTaskNotificationSuppressedEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var subscription = agent.Subscribe<BackgroundTaskNotificationSuppressedEvent>(evt =>
+        {
+            suppressed.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
+
+        var suppressedEvent = await suppressed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        await agent.StopAsync(TestCancellationToken);
+
+        Assert.Equal("handled-by-foreground-stop", suppressedEvent.Reason);
+        Assert.Empty(fakeClient.CapturedRequests);
+    }
+
+    [Fact]
     public async Task StopAsync_DrainsPendingBackgroundTaskNotificationBatch()
     {
         var fakeClient = new FakeChatClient();
@@ -2554,7 +2839,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                 context.Emit(CreateCompletedBackgroundTaskEvent(
                     taskId: "task-drained",
                     name: "drained-work",
-                    policy: BackgroundTaskNotificationPolicy.OnCompletion,
+                    policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true),
                     summary: "Drained background task completed."));
                 return Task.CompletedTask;
             }
@@ -2584,7 +2869,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                 context.Emit(CreateCompletedBackgroundTaskEvent(
                     taskId: "task-command",
                     name: "dotnet-test",
-                    policy: BackgroundTaskNotificationPolicy.OnCompletionOrFault,
+                    policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true),
                     sourceKind: BackgroundTaskSourceKind.Command,
                     sourceId: "command-1",
                     metadata: new Dictionary<string, string>
@@ -2678,7 +2963,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         runtimeContext!.Emit(CreateCompletedBackgroundTaskEvent(
             taskId: "task-runtime-config",
             name: "runtime-config-work",
-            policy: BackgroundTaskNotificationPolicy.OnCompletion));
+            policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true)));
 
         await delivered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
@@ -2689,21 +2974,21 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
-    public async Task BackgroundTaskNotification_DuplicateTerminalEvent_IsSuppressed()
+    public async Task BackgroundTaskNotification_DuplicateFinalStateEvent_IsSuppressed()
     {
         var fakeClient = new FakeChatClient();
         fakeClient.EnqueueTextResponse("duplicate notification response");
         var config = await CreateBackgroundNotificationConfigAsync();
-        var terminalEvent = CreateCompletedBackgroundTaskEvent(
+        var finalStateEvent = CreateCompletedBackgroundTaskEvent(
             taskId: "task-duplicate",
             name: "duplicate-work",
-            policy: BackgroundTaskNotificationPolicy.OnCompletion);
+            policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true));
         var middleware = new RuntimeHookRecordingMiddleware("A", [])
         {
             OnAfterStarted = (context, _) =>
             {
-                context.Emit(terminalEvent);
-                context.Emit(terminalEvent);
+                context.Emit(finalStateEvent);
+                context.Emit(finalStateEvent);
                 return Task.CompletedTask;
             }
         };
@@ -2721,7 +3006,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             if (evt is BackgroundTaskNotificationDeliveredEvent deliveredEvent)
                 delivered.TrySetResult(deliveredEvent);
             if (evt is BackgroundTaskNotificationSuppressedEvent suppressedEvent &&
-                suppressedEvent.Reason == "duplicate-terminal-notification")
+                suppressedEvent.Reason == "duplicate-final-state-notification")
             {
                 duplicateSuppressed.TrySetResult(suppressedEvent);
             }
@@ -2735,7 +3020,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         var suppressed = await duplicateSuppressed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
-        Assert.Equal("duplicate-terminal-notification", suppressed.Reason);
+        Assert.Equal("duplicate-final-state-notification", suppressed.Reason);
         var notificationText = GetSingleNotificationSystemMessage(fakeClient);
         Assert.Equal(1, CountOccurrences(notificationText, "<notification id=\""));
     }
@@ -3293,7 +3578,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.RespondIfPendingAsync(new PermissionResponseEvent("perm-1", "source", true), TestCancellationToken);
+        await agent.TryAnswerRequestAsync(new PermissionResponseEvent("perm-1", "source", true), TestCancellationToken);
 
         Assert.Equal(0, middleware.BeforeMessageTurnCalls);
     }
@@ -3306,7 +3591,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.RespondIfPendingAsync(new ClarificationResponseEvent("clar-1", "source", "question?", "answer"), TestCancellationToken);
+        await agent.TryAnswerRequestAsync(new ClarificationResponseEvent("clar-1", "source", "question?", "answer"), TestCancellationToken);
 
         Assert.Equal(0, middleware.BeforeMessageTurnCalls);
     }
@@ -3319,20 +3604,25 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.RespondIfPendingAsync(new ContinuationResponseEvent("cont-1", "source", true), TestCancellationToken);
+        await agent.TryAnswerRequestAsync(new ContinuationResponseEvent("cont-1", "source", true), TestCancellationToken);
 
         Assert.Equal(0, middleware.BeforeMessageTurnCalls);
     }
 
     [Fact]
-    public async Task ClientToolInvokeResponseEvent_DoesNotRunBeforeMessageTurn()
+    public async Task ClientToolInvokeOutcomeEvent_DoesNotRunBeforeMessageTurn()
     {
         var middleware = new TurnCountingMiddleware();
         var agent = CreateAgentWithMiddlewares(
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        await agent.RespondIfPendingAsync(new ClientToolInvokeResponseEvent("client-tool-1", "done"), TestCancellationToken);
+        await agent.TryAnswerRequestAsync(new ClientToolInvokeOutcomeEvent
+        {
+            RequestId = "client-tool-1",
+            Outcome = ClientToolInvokeOutcomeKind.Completed,
+            Content = [new HPD.Agent.ClientTools.TextContent("done")]
+        }, TestCancellationToken);
 
         Assert.Equal(0, middleware.BeforeMessageTurnCalls);
     }
@@ -3375,29 +3665,34 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
-    public async Task RespondAsync_NonEventResponseEvent_ThrowsArgumentException()
+    public async Task AnswerRequestAsync_NonEventResponseEvent_ThrowsArgumentException()
     {
         var agent = CreateAgent(client: new FakeChatClient());
 
         var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
-            agent.RespondAsync(new NonEventResponseEvent(), TestCancellationToken));
+            agent.AnswerRequestAsync(new NonEventResponseEvent(), TestCancellationToken));
 
         Assert.Contains("must also be an HPD.Events.Event", ex.Message);
     }
 
     [Fact]
-    public async Task RespondIfPendingAsync_ResponseEvents_WithNoActiveWaiter_ReturnsNotFound()
+    public async Task TryAnswerRequestAsync_ResponseEvents_WithNoActiveWaiter_ReturnsNotFound()
     {
         var agent = CreateAgent(client: new FakeChatClient());
 
-        Assert.Equal(RespondStatus.NotFound, (await agent.RespondIfPendingAsync(new PermissionResponseEvent("perm-1", "source", true), TestCancellationToken)).Status);
-        Assert.Equal(RespondStatus.NotFound, (await agent.RespondIfPendingAsync(new ContinuationResponseEvent("cont-1", "source", true), TestCancellationToken)).Status);
-        Assert.Equal(RespondStatus.NotFound, (await agent.RespondIfPendingAsync(new ClarificationResponseEvent("clar-1", "source", "question?", "answer"), TestCancellationToken)).Status);
-        Assert.Equal(RespondStatus.NotFound, (await agent.RespondIfPendingAsync(new ClientToolInvokeResponseEvent("client-tool-1", "done"), TestCancellationToken)).Status);
+        Assert.Equal(RespondStatus.NotFound, (await agent.TryAnswerRequestAsync(new PermissionResponseEvent("perm-1", "source", true), TestCancellationToken)).Status);
+        Assert.Equal(RespondStatus.NotFound, (await agent.TryAnswerRequestAsync(new ContinuationResponseEvent("cont-1", "source", true), TestCancellationToken)).Status);
+        Assert.Equal(RespondStatus.NotFound, (await agent.TryAnswerRequestAsync(new ClarificationResponseEvent("clar-1", "source", "question?", "answer"), TestCancellationToken)).Status);
+        Assert.Equal(RespondStatus.NotFound, (await agent.TryAnswerRequestAsync(new ClientToolInvokeOutcomeEvent
+        {
+            RequestId = "client-tool-1",
+            Outcome = ClientToolInvokeOutcomeKind.Completed,
+            Content = [new HPD.Agent.ClientTools.TextContent("done")]
+        }, TestCancellationToken)).Status);
     }
 
     [Fact]
-    public async Task RespondAsync_CustomRequestEvent_RoutesByRequestId()
+    public async Task AnswerRequestAsync_CustomRequestEvent_RoutesByRequestId()
     {
         var agent = CreateAgent(client: new FakeChatClient());
         var waitTask = agent.EventCoordinator.RequestAsync<CustomRequestEvent, CustomRequestResponseEvent>(
@@ -3405,7 +3700,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             TimeSpan.FromSeconds(5),
             TestCancellationToken);
 
-        await agent.RespondAsync(new CustomRequestResponseEvent(
+        await agent.AnswerRequestAsync(new CustomRequestResponseEvent(
             "custom-request",
             "custom-source",
             "done"), TestCancellationToken);
@@ -3436,7 +3731,7 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         await requestSeen.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
 
-        await agent.RespondAsync(new PermissionResponseEvent(
+        await agent.AnswerRequestAsync(new PermissionResponseEvent(
             PermissionWaitMiddleware.PermissionId,
             "PermissionWaitMiddleware",
             Approved: true), TestCancellationToken);
@@ -3466,7 +3761,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             TimeSpan.FromSeconds(5),
             TestCancellationToken);
 
-        await agent.RespondAsync(new PermissionResponseEvent(
+        await agent.AnswerRequestAsync(new PermissionResponseEvent(
             "root-permission",
             "root",
             Approved: true), TestCancellationToken);
@@ -3490,7 +3785,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             TimeSpan.FromSeconds(5),
             TestCancellationToken);
 
-        await agent.RespondAsync(new PermissionResponseEvent(
+        await agent.AnswerRequestAsync(new PermissionResponseEvent(
             "one-shot-permission",
             "root",
             Approved: true), TestCancellationToken);
@@ -3655,20 +3950,59 @@ public class RuntimeLifecycleTests : AgentTestBase
             Invocation = new ToolInvocationInfo("batch-1", functionCallId, "TestFunction", toolCallIndex)
         };
 
-    private static void RegisterDescriptorBackgroundTask(
+    private static async Task<List<AgentEvent>> WaitForThreadEventsAsync(
+        ISessionStore store,
+        string sessionId,
+        string threadId,
+        Func<IReadOnlyList<AgentEvent>, bool> predicate,
+        CancellationToken cancellationToken)
+    {
+        var timeoutAt = DateTimeOffset.UtcNow.AddSeconds(5);
+        while (DateTimeOffset.UtcNow < timeoutAt)
+        {
+            var events = await ReadThreadEventsAsync(store, sessionId, threadId, cancellationToken);
+            if (predicate(events))
+                return events;
+
+            await Task.Delay(25, cancellationToken);
+        }
+
+        return await ReadThreadEventsAsync(store, sessionId, threadId, cancellationToken);
+    }
+
+    private static async Task<List<AgentEvent>> ReadThreadEventsAsync(
+        ISessionStore store,
+        string sessionId,
+        string threadId,
+        CancellationToken cancellationToken)
+    {
+        var events = new List<AgentEvent>();
+        await foreach (var evt in store.ReadThreadEventsAsync(
+                           sessionId,
+                           threadId,
+                           ReplayReadOptions.All,
+                           cancellationToken).ConfigureAwait(false))
+        {
+            events.Add(evt);
+        }
+
+        return events;
+    }
+
+    private static BackgroundTaskRegistration RegisterDescriptorBackgroundTask(
         AgentRuntimeContext runtimeContext,
         string name,
         FunctionInvocationSnapshot invocation,
         Func<BackgroundTaskContext, CancellationToken, Task> taskFactory)
     {
-        runtimeContext.RegisterBackgroundTask(
+        return runtimeContext.RegisterBackgroundTask(
             new BackgroundTaskDescriptor
             {
                 Name = name,
                 SourceKind = BackgroundTaskSourceKind.ToolCall,
                 SourceId = invocation.FunctionCallId,
                 Invocation = invocation,
-                NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault
+                Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true)
             },
             taskFactory);
     }

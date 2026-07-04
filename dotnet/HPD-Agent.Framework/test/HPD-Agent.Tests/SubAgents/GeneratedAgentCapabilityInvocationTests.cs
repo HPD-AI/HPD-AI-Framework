@@ -13,7 +13,7 @@ public sealed class GeneratedAgentCapabilityInvocationTests
         parentClient.EnqueueToolCall(
             "GeneratedReviewer",
             "call-subagent",
-            new Dictionary<string, object?> { ["query"] = "review this fixture" });
+            new Dictionary<string, object?> { ["input"] = "review this fixture" });
         parentClient.EnqueueToolCall(
             "GeneratedWorkflow",
             "call-multiagent",
@@ -58,8 +58,8 @@ public sealed class GeneratedAgentCapabilityInvocationTests
         HPDAIFunctionFactory.Create(
             static (arguments, _, cancellationToken) =>
             {
-                var query = ReadArgument(arguments, "query");
-                return Task.FromResult<object?>($"generated subagent saw: {query}");
+                var input = ReadArgument(arguments, "input");
+                return Task.FromResult<object?>($"generated subagent saw: {input}");
             },
             new HPDAIFunctionFactoryOptions
             {

@@ -77,7 +77,7 @@ internal sealed class CodingCommandExecutionState
 
     public bool AutoBackgroundEligible { get; set; }
 
-    public string? BackgroundTaskId { get; set; }
+    public string? BackgroundHandleId { get; set; }
 
     public bool OutputObserved { get; set; }
 

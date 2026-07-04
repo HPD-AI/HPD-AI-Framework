@@ -17,7 +17,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.7.0" />
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
-    <ProjectReference Include="../../../shared/src/HPD-RealtimeMedia/src/HPD-Audio.Primitives/HPD-Audio.Primitives.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-RealtimeMedia/src/HPD-Audio.Primitives/HPD-Audio.Primitives.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <PackageReference Include="HPD-Audio.Primitives" Version="$(HPDRealtimeMediaVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 
 </Project>

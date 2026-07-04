@@ -192,11 +192,13 @@ describe('createThreadController', () => {
     const input = vi.mocked(client.run).mock.calls[0][0];
 
     await client.__emit({
-      type: EventTypes.MESSAGE_STARTED,
+      type: EventTypes.TEXT_MESSAGE_START,
       sessionId: 's1',
       threadId: 'main',
       messageId: 'm-user-1',
       role: 'user',
+      source: 'UserInput',
+      visibility: 'Transcript',
       clientInputId: input.clientInputId,
     } as never);
     await client.__emit({
@@ -205,6 +207,8 @@ describe('createThreadController', () => {
       threadId: 'main',
       messageId: 'm-user-1',
       role: 'user',
+      source: 'UserInput',
+      visibility: 'Transcript',
       clientInputId: input.clientInputId,
     } as never);
     await client.__emit({
@@ -278,20 +282,23 @@ describe('createThreadController', () => {
       responsePolicy: 'targetedResponder',
     });
 
-    await controller.respondToClientTool('tool-1', 'selected screenshot.png', {
+    await controller.answerClientToolRequest('tool-1', 'selected screenshot.png', {
       responderId: 'desktop',
       capabilities: ['client-tool:pickFile'],
     });
 
     expect(client.run).toHaveBeenCalledWith({
-      type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
+      type: EventTypes.CLIENT_TOOL_INVOKE_OUTCOME,
       agentId: 'agent',
       sessionId: 's1',
       threadId: 'main',
       requestId: 'tool-1',
+      outcome: 'Completed',
       content: [{ type: 'text', text: 'selected screenshot.png' }],
-      success: true,
       errorMessage: undefined,
+      clientOperationId: undefined,
+      handleKind: undefined,
+      supportedOperations: undefined,
       augmentation: undefined,
       responderId: 'desktop',
       responderGroup: undefined,
@@ -345,7 +352,7 @@ describe('createThreadController', () => {
       threadId: 'main',
     });
 
-    await controller.respondToClientTool('missing', 'ignored');
+    await controller.answerClientToolRequest('missing', 'ignored');
 
     expect(client.run).not.toHaveBeenCalled();
   });
@@ -366,11 +373,15 @@ describe('createThreadController', () => {
       type: EventTypes.TEXT_MESSAGE_START,
       messageId: 'a0',
       role: 'assistant',
+      source: 'AssistantOutput',
+      visibility: 'Transcript',
     });
     await client.__emit({
       type: EventTypes.TEXT_MESSAGE_START,
       messageId: 'a1',
       role: 'assistant',
+      source: 'AssistantOutput',
+      visibility: 'Transcript',
       sessionId: 's1',
       threadId: 'other',
     });
@@ -378,6 +389,8 @@ describe('createThreadController', () => {
       type: EventTypes.TEXT_MESSAGE_START,
       messageId: 'a2',
       role: 'assistant',
+      source: 'AssistantOutput',
+      visibility: 'Transcript',
       sessionId: 's1',
       threadId: 'main',
     });
@@ -402,6 +415,8 @@ describe('createThreadController', () => {
       type: EventTypes.TEXT_MESSAGE_START,
       messageId: 'a1',
       role: 'assistant',
+      source: 'AssistantOutput',
+      visibility: 'Transcript',
     });
 
     expect(controller.projection.getSnapshot().transcriptMessages.map((message) => message.id)).toEqual(['a1']);
@@ -425,6 +440,8 @@ describe('createThreadController', () => {
       type: EventTypes.TEXT_MESSAGE_START,
       messageId: 'a1',
       role: 'assistant',
+      source: 'AssistantOutput',
+      visibility: 'Transcript',
       agentId: 'agent',
       sessionId: 's1',
       threadId: 'main',

@@ -6,7 +6,12 @@
  * - Thread: Conversation path with messages (multiple threads per session)
  */
 
-import type { AgentEvent } from './events.js';
+import type {
+  AgentEvent,
+  AgentMessagePersistence,
+  AgentMessageSource,
+  AgentMessageVisibility,
+} from './events.js';
 
 // ============================================
 // SESSION
@@ -412,6 +417,15 @@ export interface ThreadMessage {
 
   /** Message-level metadata/additional properties. */
   additionalProperties?: Record<string, unknown>;
+
+  /** HPD-owned message source. This is separate from the provider-facing chat role. */
+  source?: AgentMessageSource;
+
+  /** HPD-owned transcript visibility. Hidden messages are model/runtime context, not transcript rows. */
+  visibility?: AgentMessageVisibility;
+
+  /** HPD-owned persistence policy for this message. */
+  persistence?: AgentMessagePersistence;
 
   /** Message timestamp as ISO 8601. */
   timestamp: string;

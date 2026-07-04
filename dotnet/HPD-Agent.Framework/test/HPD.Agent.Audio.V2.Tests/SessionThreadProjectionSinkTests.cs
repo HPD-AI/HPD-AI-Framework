@@ -39,9 +39,8 @@ public sealed class SessionThreadProjectionSinkTests
         Assert.True(projected.SequenceNumber > 0);
         Assert.DoesNotContain(document.Events.OfType<ContentAddedEvent>(), e => e.Content is AudioContent or DataContent);
 
-        var contentEvent = Assert.Single(document.Events.OfType<ContentAddedEvent>());
-        var text = Assert.IsType<TextContent>(contentEvent.Content);
-        Assert.Equal("transcript from real session seam", text.Text);
+        var textDelta = Assert.Single(document.Events.OfType<TextDeltaEvent>());
+        Assert.Equal("transcript from real session seam", textDelta.Text);
     }
 
     [Fact]
@@ -71,9 +70,9 @@ public sealed class SessionThreadProjectionSinkTests
         Assert.Equal("transcript projected once", message.Text);
 
         Assert.NotNull(document);
-        Assert.Single(document.Events.OfType<MessageStartedEvent>());
-        Assert.Single(document.Events.OfType<ContentAddedEvent>());
-        Assert.Single(document.Events.OfType<MessageCompletedEvent>());
+        Assert.Single(document.Events.OfType<TextMessageStartEvent>());
+        Assert.Single(document.Events.OfType<TextDeltaEvent>());
+        Assert.Single(document.Events.OfType<TextMessageEndEvent>());
     }
 
     [Fact]

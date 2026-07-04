@@ -44,6 +44,11 @@ internal class MultiAgentCapability : BaseCapability
     public int TimeoutSeconds { get; set; } = 300;
 
     /// <summary>
+    /// Invocation mode policy declared by the [MultiAgent] attribute.
+    /// </summary>
+    public string InvocationModePolicy { get; set; } = "SynchronousOnly";
+
+    /// <summary>
     /// Whether the multi-agent requires permission to invoke.
     /// Defaults to true since orchestrating multiple agents is a significant action.
     /// </summary>
@@ -91,51 +96,26 @@ internal class MultiAgentCapability : BaseCapability
         }
         sb.AppendLine();
 
-        // Get parent context for event bubbling, execution hierarchy, and chat client inheritance
-        sb.AppendLine("        // Use the explicit runtime context supplied by the agent runtime");
-        sb.AppendLine("        var parentCoordinator = functionContext?.GetParentEventCoordinator();");
-        sb.AppendLine("        var parentAgentMetadata = functionContext?.GetParentAgentMetadata();");
-        sb.AppendLine("        var parentChatClient = functionContext?.GetParentChatClient();");
-        sb.AppendLine();
-
-        // Get input from arguments OR fall back to last user message from conversation
-        sb.AppendLine("        // Extract input from arguments, fall back to last user message if not provided");
+        sb.AppendLine("        // Extract input from arguments");
         sb.AppendLine("        var jsonArgs = arguments.GetJson();");
         sb.AppendLine("        var input = jsonArgs.TryGetProperty(\"input\", out var inputProp)");
         sb.AppendLine("            ? inputProp.GetString() ?? string.Empty");
         sb.AppendLine("            : string.Empty;");
+        sb.AppendLine("        var requestedMode = global::HPD.Agent.AgentInvocationModes.ReadRequestedMode(jsonArgs);");
         sb.AppendLine();
-        sb.AppendLine("        // If LLM didn't pass input, get last user message from conversation context");
-        sb.AppendLine("        if (string.IsNullOrEmpty(input) && functionContext != null)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            var messages = functionContext.Analyze(s => s.CurrentMessages);");
-        sb.AppendLine("            var lastUserMsg = messages?.LastOrDefault(m => m.Role == ChatRole.User);");
-        sb.AppendLine("            input = lastUserMsg?.Text ?? string.Empty;");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
-        if (StreamEvents)
-        {
-            // Streaming execution with full hierarchical context and chat client inheritance
-            sb.AppendLine("        // Execute with streaming, capturing text output");
-            sb.AppendLine("        var textResult = new System.Text.StringBuilder();");
-            sb.AppendLine("        await foreach (var evt in workflow.ExecuteStreamingAsync(input, parentCoordinator, parentAgentMetadata, parentChatClient, cancellationToken))");
-            sb.AppendLine("        {");
-            sb.AppendLine("            // TextDeltaEvent is in HPD.Agent namespace");
-            sb.AppendLine("            if (evt is HPD.Agent.TextDeltaEvent textDelta)");
-            sb.AppendLine("            {");
-            sb.AppendLine("                textResult.Append(textDelta.Text);");
-            sb.AppendLine("            }");
-            sb.AppendLine("        }");
-            sb.AppendLine("        return textResult.ToString();");
-        }
-        else
-        {
-            // Non-streaming execution
-            sb.AppendLine("        // Execute and return result");
-            sb.AppendLine("        var result = await workflow.RunAsync(input, cancellationToken);");
-            sb.AppendLine("        return result.FinalAnswer ?? result.Outputs.ToString();");
-        }
+        sb.AppendLine("        var result = await global::HPD.Agent.MultiAgentRuntime.InvokeAsync(");
+        sb.AppendLine("            new global::HPD.Agent.MultiAgentRuntime.MultiAgentInvocationRequest");
+        sb.AppendLine("            {");
+        sb.AppendLine("                Workflow = workflow,");
+        sb.AppendLine($"                Name = \"{Name}\",");
+        sb.AppendLine("                Input = input,");
+        sb.AppendLine("                ParentContext = functionContext,");
+        sb.AppendLine($"                StreamEvents = {StreamEvents.ToString().ToLower()},");
+        sb.AppendLine($"                InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{InvocationModePolicy},");
+        sb.AppendLine("                RequestedMode = requestedMode");
+        sb.AppendLine("            },");
+        sb.AppendLine("            cancellationToken).ConfigureAwait(false);");
+        sb.AppendLine("        return result.ToToolResult();");
 
         sb.AppendLine("    },");
         sb.AppendLine("    new HPDAIFunctionFactoryOptions");
@@ -147,7 +127,7 @@ internal class MultiAgentCapability : BaseCapability
         sb.AppendLine("        {");
         sb.AppendLine("            var options = new global::Microsoft.Extensions.AI.AIJsonSchemaCreateOptions { IncludeSchemaKeyword = false };");
         sb.AppendLine($"            return global::Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(");
-        sb.AppendLine($"                typeof({toolharness.ClassName}MultiAgentInputArgs),");
+        sb.AppendLine($"                typeof({toolharness.ClassName}{(InvocationModePolicy == "ModelChoice" ? "MultiAgentInputWithModeArgs" : "MultiAgentInputArgs")}),");
         sb.AppendLine("                serializerOptions: global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions,");
         sb.AppendLine("                inferenceOptions: options");
         sb.AppendLine("            );");
@@ -159,7 +139,8 @@ internal class MultiAgentCapability : BaseCapability
         sb.AppendLine("            [\"IsContainer\"] = false,");  // NOT a container - same as SubAgent
         sb.AppendLine($"            [\"ParentToolHarness\"] = \"{toolharness.EffectiveName}\",");  // Required for collapsing visibility
         sb.AppendLine($"            [\"StreamEvents\"] = {StreamEvents.ToString().ToLower()},");
-        sb.AppendLine($"            [\"TimeoutSeconds\"] = {TimeoutSeconds}");
+        sb.AppendLine($"            [\"TimeoutSeconds\"] = {TimeoutSeconds},");
+        sb.AppendLine($"            [\"InvocationModePolicy\"] = \"{InvocationModePolicy}\"");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
         sb.AppendLine(")");
@@ -191,6 +172,7 @@ internal class MultiAgentCapability : BaseCapability
         props["ParentToolHarness"] = ParentToolHarnessName;  // Required for collapsing visibility
         props["StreamEvents"] = StreamEvents;
         props["TimeoutSeconds"] = TimeoutSeconds;
+        props["InvocationModePolicy"] = InvocationModePolicy;
         props["RequiresPermission"] = RequiresPermission;
 
         return props;

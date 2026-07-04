@@ -235,7 +235,7 @@ public sealed class FunctionExecutionContextTests
 
         var act = () => context.RegisterBackgroundTask(
             "work",
-            BackgroundTaskNotificationPolicy.OnFault,
+            new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true),
             (_, _) => Task.CompletedTask);
 
         act.Should().Throw<InvalidOperationException>()
@@ -254,20 +254,43 @@ public sealed class FunctionExecutionContextTests
 
         context.CanRegisterBackgroundTasks.Should().BeTrue();
 
-        context.RegisterBackgroundTask(
+        var registration = context.RegisterBackgroundTask(
             "work",
-            BackgroundTaskNotificationPolicy.OnFault,
+            new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true),
             (_, _) => Task.CompletedTask);
 
+        registration.Should().Be(new BackgroundTaskRegistration("task-1", "work", BackgroundTaskSourceKind.ToolCall));
         registry.Descriptor.Should().NotBeNull();
         registry.Descriptor!.Name.Should().Be("work");
         registry.Descriptor.SourceKind.Should().Be(BackgroundTaskSourceKind.ToolCall);
         registry.Descriptor.SourceId.Should().Be("call-1");
-        registry.Descriptor.NotificationPolicy.Should().Be(BackgroundTaskNotificationPolicy.OnFault);
+        registry.Descriptor.Notification.Should().Be(new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true));
         registry.Descriptor.Invocation.Should().BeSameAs(context.InvocationSnapshot);
         registry.Descriptor.Invocation!.BatchId.Should().Be("batch-1");
         registry.Descriptor.Invocation.ToolCallIndex.Should().Be(3);
         registry.TaskFactory.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void RegisterBackgroundTask_WithDescriptor_AllowsExplicitSourceKind()
+    {
+        var registry = new CapturingBackgroundTaskRegistry();
+        var context = CreateContext(backgroundTasks: registry);
+
+        var registration = context.RegisterBackgroundTask(
+            new BackgroundTaskDescriptor
+            {
+                Name = "reviewer",
+                SourceKind = BackgroundTaskSourceKind.SubAgent,
+                Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true)
+            },
+            (_, _) => Task.CompletedTask);
+
+        registration.SourceKind.Should().Be(BackgroundTaskSourceKind.SubAgent);
+        registry.Descriptor.Should().NotBeNull();
+        registry.Descriptor!.SourceKind.Should().Be(BackgroundTaskSourceKind.SubAgent);
+        registry.Descriptor.SourceId.Should().Be(context.FunctionCallId);
+        registry.Descriptor.Invocation.Should().BeSameAs(context.InvocationSnapshot);
     }
 
     [Fact]
@@ -370,12 +393,13 @@ public sealed class FunctionExecutionContextTests
         public BackgroundTaskDescriptor? Descriptor { get; private set; }
         public Func<BackgroundTaskContext, CancellationToken, Task>? TaskFactory { get; private set; }
 
-        public void RegisterBackgroundTask(
+        public BackgroundTaskRegistration RegisterBackgroundTask(
             BackgroundTaskDescriptor descriptor,
             Func<BackgroundTaskContext, CancellationToken, Task> taskFactory)
         {
             Descriptor = descriptor;
             TaskFactory = taskFactory;
+            return new BackgroundTaskRegistration("task-1", descriptor.Name, descriptor.SourceKind);
         }
     }
 }

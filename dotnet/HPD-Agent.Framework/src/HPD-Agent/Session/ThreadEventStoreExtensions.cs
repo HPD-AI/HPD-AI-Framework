@@ -27,7 +27,7 @@ public static class ThreadEventStoreExtensions
         }
     }
 
-    public static Task AppendThreadMetadataUpdatedAsync(
+    public static Task AppendThreadUpdatedAsync(
         this ISessionStore store,
         Thread thread,
         CancellationToken cancellationToken = default)
@@ -38,22 +38,7 @@ public static class ThreadEventStoreExtensions
         return store.AppendThreadEventAsync(
             thread.SessionId,
             thread.Id,
-            ThreadEventFactory.ThreadMetadataUpdated(thread),
-            cancellationToken: cancellationToken);
-    }
-
-    public static Task AppendThreadTreeUpdatedAsync(
-        this ISessionStore store,
-        Thread thread,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(store);
-        ArgumentNullException.ThrowIfNull(thread);
-
-        return store.AppendThreadEventAsync(
-            thread.SessionId,
-            thread.Id,
-            ThreadEventFactory.ThreadTreeUpdated(thread),
+            ThreadEventFactory.ThreadUpdated(thread),
             cancellationToken: cancellationToken);
     }
 }

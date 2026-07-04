@@ -7,6 +7,38 @@ on:
         description: 'Version to publish (e.g., 0.2.0 or 0.2.0-alpha)'
         required: true
         type: string
+      hpd_environment_version:
+        description: 'HPD-Environment package version to validate against. Defaults to latest stable on NuGet.'
+        required: false
+        type: string
+      hpd_extract_version:
+        description: 'HPD-Extract package version to validate against. Defaults to latest stable on NuGet.'
+        required: false
+        type: string
+      hpd_graph_version:
+        description: 'HPD-Graph package version to validate against. Defaults to latest stable on NuGet.'
+        required: false
+        type: string
+      hpd_tui_version:
+        description: 'HPD-TUI package version to validate against. Defaults to latest stable on NuGet.'
+        required: false
+        type: string
+      hpd_realtime_media_version:
+        description: 'HPD-RealtimeMedia package version to validate against. Defaults to latest stable on NuGet.'
+        required: false
+        type: string
+      hpd_events_version:
+        description: 'HPD-Events package version to validate against. Defaults to latest stable on NuGet.'
+        required: false
+        type: string
+      hpd_serialization_version:
+        description: 'HPD-Serialization package version to validate against. Defaults to latest stable on NuGet.'
+        required: false
+        type: string
+      hpd_openapi_core_version:
+        description: 'HPD-OpenApi.Core package version to validate against. Defaults to latest stable on NuGet.'
+        required: false
+        type: string
 
 jobs:
   determine-version:
@@ -78,35 +110,20 @@ jobs:
       - name: Build bundled coding TUI assets
         run: dotnet build dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding.TUI/HPD-Agent.Harness.Coding.TUI.csproj --configuration Release
 
-      - name: Pack packages
+      - name: Validate and pack Agent packages
+        env:
+          INPUT_HPD_ENVIRONMENT_VERSION: ${{ inputs.hpd_environment_version }}
+          INPUT_HPD_EXTRACT_VERSION: ${{ inputs.hpd_extract_version }}
+          INPUT_HPD_GRAPH_VERSION: ${{ inputs.hpd_graph_version }}
+          INPUT_HPD_TUI_VERSION: ${{ inputs.hpd_tui_version }}
+          INPUT_HPD_REALTIME_MEDIA_VERSION: ${{ inputs.hpd_realtime_media_version }}
+          INPUT_HPD_EVENTS_VERSION: ${{ inputs.hpd_events_version }}
+          INPUT_HPD_SERIALIZATION_VERSION: ${{ inputs.hpd_serialization_version }}
+          INPUT_HPD_OPENAPI_CORE_VERSION: ${{ inputs.hpd_openapi_core_version }}
         run: |
           mkdir -p ./nupkg
 
           PROJECTS=(
-            # Shared foundations
-            "dotnet/shared/src/HPD-Serialization/HPD-Serialization.csproj"
-            "dotnet/shared/src/HPD-Events/HPD-Events.csproj"
-            "dotnet/HPD-TUI.Framework/src/HPD-TUI.csproj"
-            # Realtime media
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Buffers/HPD-Buffers.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Primitives/HPD-Audio.Primitives.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Codecs/HPD-Audio.Codecs.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Codecs.G711/HPD-Audio.Codecs.G711.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Codecs.Opus/HPD-Audio.Codecs.Opus.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.Connections/HPD-Audio.Connections.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Diagnostics/HPD-Media.Diagnostics.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Sdp/HPD-Media.Sdp.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Transport/HPD-Media.Transport.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp/HPD-Media.Rtp.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtcp/HPD-Media.Rtcp.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtcp.Feedback/HPD-Media.Rtcp.Feedback.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtcp.Twcc/HPD-Media.Rtcp.Twcc.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp.Audio/HPD-Media.Rtp.Audio.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp.Audio.Sdp/HPD-Media.Rtp.Audio.Sdp.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Rtp.Repair/HPD-Media.Rtp.Repair.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.Srtp/HPD-Media.Srtp.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Media.WebRTC/HPD-Media.WebRTC.csproj"
-            "dotnet/shared/src/HPD-RealtimeMedia/src/HPD-Audio.WebRTC/HPD-Audio.WebRTC.csproj"
             # Core
             "dotnet/HPD-Agent.Framework/src/HPD-Agent/HPD-Agent.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Audio/HPD-Agent.Audio.csproj"
@@ -123,7 +140,6 @@ jobs:
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.OpenApi/HPD-Agent.OpenApi.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.TUI/HPD-Agent.TUI.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.ModelsDev/HPD-Agent.ModelsDev.csproj"
-            "dotnet/shared/src/HPD-OpenApi.Core/HPD-OpenApi.Core.csproj"
             # ToolHarnesses
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.WebSearch/HPD-Agent.Harness.WebSearch.csproj"
             "dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/HPD-Agent.Harness.Coding.csproj"
@@ -152,15 +168,79 @@ jobs:
 
           dotnet/eng/nuget/validate-package-identities.sh "${PROJECTS[@]}"
 
+          resolve_nuget_version() {
+            local package_id="$1"
+            local override="$2"
+            if [ -n "$override" ]; then
+              echo "$override"
+              return
+            fi
+
+            local package_id_lower
+            package_id_lower="$(printf '%s' "$package_id" | tr '[:upper:]' '[:lower:]')"
+            local response
+            if ! response="$(curl -fsSL "https://api.nuget.org/v3-flatcontainer/$package_id_lower/index.json")"; then
+              echo "::error::NuGet package '$package_id' is not published yet or could not be resolved."
+              echo "::error::Publish that dependency package first, or provide an explicit version input if the package ID changed."
+              exit 1
+            fi
+
+            printf '%s' "$response" | python3 -c 'import json, sys; versions = json.load(sys.stdin)["versions"]; stable = [version for version in versions if "-" not in version]; print((stable or versions)[-1])'
+          }
+
+          HPD_ENVIRONMENT_VERSION="$(resolve_nuget_version "HPD-Environment.Abstractions" "$INPUT_HPD_ENVIRONMENT_VERSION")"
+          HPD_EXTRACT_VERSION="$(resolve_nuget_version "HPD-Extract" "$INPUT_HPD_EXTRACT_VERSION")"
+          HPD_GRAPH_VERSION="$(resolve_nuget_version "HPD-Graph.Core" "$INPUT_HPD_GRAPH_VERSION")"
+          HPD_TUI_VERSION="$(resolve_nuget_version "HPD-TUI" "$INPUT_HPD_TUI_VERSION")"
+          HPD_REALTIME_MEDIA_VERSION="$(resolve_nuget_version "HPD-Audio.Primitives" "$INPUT_HPD_REALTIME_MEDIA_VERSION")"
+          HPD_EVENTS_VERSION="$(resolve_nuget_version "HPD-Events" "$INPUT_HPD_EVENTS_VERSION")"
+          HPD_SERIALIZATION_VERSION="$(resolve_nuget_version "HPD-Serialization" "$INPUT_HPD_SERIALIZATION_VERSION")"
+          HPD_OPENAPI_CORE_VERSION="$(resolve_nuget_version "HPD-OpenApi.Core" "$INPUT_HPD_OPENAPI_CORE_VERSION")"
+
+          echo "Using published HPD dependency versions:"
+          echo "  HPD-Environment.*: $HPD_ENVIRONMENT_VERSION"
+          echo "  HPD-Extract: $HPD_EXTRACT_VERSION"
+          echo "  HPD-Graph.*: $HPD_GRAPH_VERSION"
+          echo "  HPD-TUI: $HPD_TUI_VERSION"
+          echo "  HPD-RealtimeMedia: $HPD_REALTIME_MEDIA_VERSION"
+          echo "  HPD-Events: $HPD_EVENTS_VERSION"
+          echo "  HPD-Serialization: $HPD_SERIALIZATION_VERSION"
+          echo "  HPD-OpenApi.Core: $HPD_OPENAPI_CORE_VERSION"
+
+          PUBLISHED_HPD_PROPS=(
+            "-p:UsePublishedHpdDependencies=true"
+            "-p:HPDEnvironmentVersion=$HPD_ENVIRONMENT_VERSION"
+            "-p:HPDExtractVersion=$HPD_EXTRACT_VERSION"
+            "-p:HPDGraphVersion=$HPD_GRAPH_VERSION"
+            "-p:HPDTuiVersion=$HPD_TUI_VERSION"
+            "-p:HPDRealtimeMediaVersion=$HPD_REALTIME_MEDIA_VERSION"
+            "-p:HPDEventsVersion=$HPD_EVENTS_VERSION"
+            "-p:HPDSerializationVersion=$HPD_SERIALIZATION_VERSION"
+            "-p:HPDOpenApiCoreVersion=$HPD_OPENAPI_CORE_VERSION"
+          )
+
+          echo "Validating Agent packages against published HPD dependencies..."
+          for PROJECT in "${PROJECTS[@]}"; do
+            echo "Validating $PROJECT..."
+            if ! dotnet build "$PROJECT" -c Release --nologo -v:q /clp:ErrorsOnly "${PUBLISHED_HPD_PROPS[@]}"; then
+              echo "::error::Agent does not build against the currently published HPD dependency packages."
+              echo "::error::This release likely depends on unpublished HPD framework/package changes, or one of the dependency version inputs is wrong."
+              echo "::error::Publish/update the dependency package first, then rerun the Agent release."
+              exit 1
+            fi
+          done
+
           for PROJECT in "${PROJECTS[@]}"; do
             echo "Packing $PROJECT..."
             if [ -n "$VERSION_SUFFIX" ]; then
               dotnet pack "$PROJECT" -c Release -o ./nupkg \
                 -p:VersionPrefix="$VERSION_PREFIX" \
-                -p:VersionSuffix="$VERSION_SUFFIX"
+                -p:VersionSuffix="$VERSION_SUFFIX" \
+                "${PUBLISHED_HPD_PROPS[@]}"
             else
               dotnet pack "$PROJECT" -c Release -o ./nupkg \
-                -p:VersionPrefix="$VERSION_PREFIX"
+                -p:VersionPrefix="$VERSION_PREFIX" \
+                "${PUBLISHED_HPD_PROPS[@]}"
             fi
           done
 

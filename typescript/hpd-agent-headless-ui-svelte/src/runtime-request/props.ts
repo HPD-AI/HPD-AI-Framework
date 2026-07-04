@@ -94,9 +94,9 @@ export function createRuntimeRequestActions(
     respond(input) {
       return thread ? thread.respond(input) : Promise.resolve(undefined);
     },
-    respondToClientTool(response, options) {
+    answerClientToolRequest(outcome, options) {
       return item.kind === 'client-tool' && thread
-        ? thread.respondToClientTool(item.id, response, options)
+        ? thread.answerClientToolRequest(item.id, outcome, options)
         : Promise.resolve(undefined);
     },
   };

@@ -43,6 +43,9 @@ internal sealed class TurnEventBuffer
     // Set of callIds that were permission-denied this turn
     private readonly ConcurrentDictionary<string, bool> _deniedCallIds = new();
 
+    // Key = permissionId
+    private readonly ConcurrentDictionary<string, string> _permissionCallIds = new();
+
     // ── Mutation methods (called from the event subscription) ─────────────────
 
     public void RecordTurnStarted(string messageTurnId, DateTimeOffset at)
@@ -87,6 +90,22 @@ internal sealed class TurnEventBuffer
     {
         RecordEvent();
         _deniedCallIds[callId] = true;
+    }
+
+    public void RecordPermissionRequest(string permissionId, string callId)
+    {
+        RecordEvent();
+        _permissionCallIds[permissionId] = callId;
+    }
+
+    public void RecordPermissionResponse(string permissionId, bool approved)
+    {
+        RecordEvent();
+        if (approved)
+            return;
+
+        if (_permissionCallIds.TryGetValue(permissionId, out var callId))
+            _deniedCallIds[callId] = true;
     }
 
     // ── Query methods (called from AfterMessageTurnAsync) ────────────────────

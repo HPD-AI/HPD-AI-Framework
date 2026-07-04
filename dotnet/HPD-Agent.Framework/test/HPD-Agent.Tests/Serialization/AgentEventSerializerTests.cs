@@ -418,16 +418,11 @@ public class AgentEventSerializerTests
         Assert.Contains("\"type\":\"PERMISSION_REQUEST\"", reqJson);
         Assert.Contains("\"permissionId\":\"perm-1\"", reqJson);
 
-        // PermissionApprovedEvent
-        var approvedEvt = new PermissionApprovedEvent("perm-1", "Source");
-        var approvedJson = AgentEventSerializer.ToJson(approvedEvt);
-        Assert.Contains("\"type\":\"PERMISSION_APPROVED\"", approvedJson);
-
-        // PermissionDeniedEvent
-        var deniedEvt = new PermissionDeniedEvent("perm-1", "Source", "call-1", "User rejected");
-        var deniedJson = AgentEventSerializer.ToJson(deniedEvt);
-        Assert.Contains("\"type\":\"PERMISSION_DENIED\"", deniedJson);
-        Assert.Contains("\"reason\":\"User rejected\"", deniedJson);
+        // PermissionResponseEvent
+        var responseEvt = new PermissionResponseEvent("perm-1", "Source", Approved: false, Reason: "User rejected");
+        var responseJson = AgentEventSerializer.ToJson(responseEvt);
+        Assert.Contains("\"type\":\"PERMISSION_RESPONSE\"", responseJson);
+        Assert.Contains("\"reason\":\"User rejected\"", responseJson);
     }
 
     [Fact]
@@ -660,7 +655,7 @@ public class AgentEventSerializerTests
                 TaskId = "task-1",
                 Name = "work",
                 SourceKind = BackgroundTaskSourceKind.ToolCall,
-                NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault,
+                Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true),
                 Invocation = invocation,
                 StartedAt = DateTimeOffset.UnixEpoch
             },
@@ -669,7 +664,7 @@ public class AgentEventSerializerTests
                 TaskId = "task-1",
                 Name = "work",
                 SourceKind = BackgroundTaskSourceKind.ToolCall,
-                NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault,
+                Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true),
                 Invocation = invocation,
                 CompletedAt = DateTimeOffset.UnixEpoch.AddMilliseconds(12),
                 DurationMilliseconds = 12
@@ -679,7 +674,7 @@ public class AgentEventSerializerTests
                 TaskId = "task-1",
                 Name = "work",
                 SourceKind = BackgroundTaskSourceKind.ToolCall,
-                NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault,
+                Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true),
                 Invocation = invocation,
                 CancelledAt = DateTimeOffset.UnixEpoch
             },
@@ -688,7 +683,7 @@ public class AgentEventSerializerTests
                 TaskId = "task-1",
                 Name = "work",
                 SourceKind = BackgroundTaskSourceKind.ToolCall,
-                NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault,
+                Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true),
                 Invocation = invocation,
                 FaultedAt = DateTimeOffset.UnixEpoch,
                 ExceptionType = "System.InvalidOperationException",
@@ -720,7 +715,7 @@ public class AgentEventSerializerTests
             TaskId = "task-1",
             Name = "work",
             SourceKind = BackgroundTaskSourceKind.ToolCall,
-            NotificationPolicy = BackgroundTaskNotificationPolicy.OnFault,
+            Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true),
             Invocation = CreateInvocationSnapshot(),
             StartedAt = DateTimeOffset.UnixEpoch
         };
@@ -732,7 +727,7 @@ public class AgentEventSerializerTests
         Assert.Equal(evt.TaskId, result.TaskId);
         Assert.Equal(evt.Name, result.Name);
         Assert.Equal(evt.SourceKind, result.SourceKind);
-        Assert.Equal(evt.NotificationPolicy, result.NotificationPolicy);
+        Assert.Equal(evt.Notification, result.Notification);
         Assert.NotNull(result.Invocation);
         Assert.Equal(evt.Invocation.BatchId, result.Invocation!.BatchId);
         Assert.Equal(evt.Invocation.ToolCallIndex, result.Invocation.ToolCallIndex);

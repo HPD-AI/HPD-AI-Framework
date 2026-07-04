@@ -1,4 +1,5 @@
 import type { AgentClientInput } from './client-tools.js';
+import type { ClientAppProviderReference } from './client-tool-providers.js';
 
 /**
  * Chat-level sampling parameters.
@@ -134,4 +135,6 @@ export interface RunConfig {
   structuredOutput?: Record<string, unknown>;
   /** Client tools, context, state, and metadata available to this run */
   clientToolInput?: AgentClientInput;
+  /** Live client app providers to bind for this run */
+  clientAppProviders?: ClientAppProviderReference[];
 }

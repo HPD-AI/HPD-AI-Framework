@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
 using System.Text.Json.Serialization;
+using HPD.Agent.Middleware;
 using HPD.Events;
 
 namespace HPD.Agent.ClientTools;
@@ -9,7 +10,7 @@ namespace HPD.Agent.ClientTools;
 /// <summary>
 /// Emitted by agent when a Client tool needs to be invoked.
 /// The middleware detects Client tools and emits this event.
-/// Client must respond with <see cref="ClientToolInvokeResponseEvent"/>.
+/// Client must respond with <see cref="ClientToolInvokeOutcomeEvent"/>.
 /// </summary>
 /// <param name="RequestId">Unique identifier for this request (used to correlate response)</param>
 /// <param name="ToolName">Name of the tool to invoke</param>
@@ -33,69 +34,139 @@ public record ClientToolInvokeRequestEvent(
 }
 
 /// <summary>
-/// Response from Client after executing a tool.
-/// Supports rich content types: text, binary (images/files), JSON.
+/// Defines the immediate outcome of a client tool invocation request.
 /// </summary>
-/// <param name="RequestId">Must match the RequestId from the corresponding request</param>
-/// <param name="Content">The tool result content (text, binary, or JSON)</param>
-/// <param name="Success">Whether the tool execution succeeded</param>
-/// <param name="ErrorMessage">Error message if Success is false</param>
-/// <param name="Augmentation">Optional state changes to apply before next iteration</param>
-[method: JsonConstructor]
-public record ClientToolInvokeResponseEvent(
-    string RequestId,
-    IReadOnlyList<IToolResultContent> Content,
-    bool Success = true,
-    string? ErrorMessage = null,
-    ClientToolAugmentation? Augmentation = null
-) : AgentEvent, IAgentResponseEvent
+[JsonConverter(typeof(JsonStringEnumConverter<ClientToolInvokeOutcomeKind>))]
+public enum ClientToolInvokeOutcomeKind
+{
+    /// <summary>The client completed the tool call during the initial request.</summary>
+    Completed,
+
+    /// <summary>The client accepted the request as background work that will complete later.</summary>
+    AcceptedBackground,
+
+    /// <summary>The client declined to perform the request.</summary>
+    Rejected,
+
+    /// <summary>The client failed while handling the request.</summary>
+    Failed
+}
+
+/// <summary>
+/// Immediate outcome from a client after it receives a client tool invocation request.
+/// </summary>
+public record ClientToolInvokeOutcomeEvent : AgentEvent, IAgentResponseEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Interactive;
     public override EventKind Kind { get; init; } = EventKind.Control;
     public override EventDirection Direction { get; init; } = EventDirection.Upstream;
+
+    /// <summary>
+    /// Gets the request id from the corresponding <see cref="ClientToolInvokeRequestEvent"/>.
+    /// </summary>
+    public required string RequestId { get; init; }
+
+    /// <summary>
+    /// Gets the immediate outcome kind.
+    /// </summary>
+    public required ClientToolInvokeOutcomeKind Outcome { get; init; }
+
+    /// <summary>
+    /// Gets the final content for completed outcomes or optional launch content for background outcomes.
+    /// </summary>
+    public IReadOnlyList<IToolResultContent>? Content { get; init; }
+
+    /// <summary>
+    /// Gets the error or rejection message when the outcome did not complete successfully.
+    /// </summary>
+    public string? ErrorMessage { get; init; }
+
+    /// <summary>
+    /// Gets the client-owned id for accepted background work.
+    /// </summary>
+    public string? ClientOperationId { get; init; }
+
+    /// <summary>
+    /// Gets the optional handle kind when the accepted background operation is controllable.
+    /// </summary>
+    public BackgroundHandleKind? HandleKind { get; init; }
+
+    /// <summary>
+    /// Gets the optional operations supported by the background handle.
+    /// </summary>
+    public BackgroundHandleOperation SupportedOperations { get; init; } =
+        BackgroundHandleOperation.None;
+
+    /// <summary>
+    /// Gets optional client tool state changes to apply before the next iteration.
+    /// </summary>
+    public ClientToolAugmentation? Augmentation { get; init; }
+
     public string SourceName => "HPD.Agent.ClientTools";
     public string? ResponderId { get; init; }
     public string? ResponderGroup { get; init; }
     public HashSet<string> Capabilities { get; init; } = [];
     IReadOnlySet<string> IResponseEvent.Capabilities => Capabilities;
-
-    /// <summary>
-    /// Convenience constructor for simple text results.
-    /// </summary>
-    public ClientToolInvokeResponseEvent(
-        string requestId,
-        string textResult,
-        bool success = true,
-        string? errorMessage = null,
-        ClientToolAugmentation? augmentation = null)
-        : this(requestId, new IToolResultContent[] { new TextContent(textResult) }, success, errorMessage, augmentation)
-    { }
-
-    /// <summary>
-    /// Convenience constructor for single content item.
-    /// </summary>
-    public ClientToolInvokeResponseEvent(
-        string requestId,
-        IToolResultContent content,
-        bool success = true,
-        string? errorMessage = null,
-        ClientToolAugmentation? augmentation = null)
-        : this(requestId, new[] { content }, success, errorMessage, augmentation)
-    { }
 }
 
 /// <summary>
-/// Emitted after Client ToolHarnesses are successfully registered.
-/// Useful for debugging and observability.
+/// Terminal state reported by a client-owned background tool operation.
 /// </summary>
-/// <param name="RegisteredToolHarnesses">Names of all registered tool groups</param>
-/// <param name="TotalTools">Total number of tools across all tool groups</param>
-/// <param name="Timestamp">When registration completed</param>
-public record clientToolHarnessesRegisteredEvent(
-    IReadOnlyList<string>RegisteredToolHarnesses,
-    int TotalTools,
-    DateTimeOffset Timestamp
-) : AgentEvent
+[JsonConverter(typeof(JsonStringEnumConverter<ClientToolBackgroundOperationOutcomeState>))]
+public enum ClientToolBackgroundOperationOutcomeState
 {
-    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
+    /// <summary>The operation completed successfully.</summary>
+    Completed,
+
+    /// <summary>The operation faulted.</summary>
+    Faulted,
+
+    /// <summary>The operation was cancelled.</summary>
+    Cancelled
+}
+
+/// <summary>
+/// Input sent by a client when accepted background client-tool work reaches a terminal state.
+/// </summary>
+public sealed record ClientToolBackgroundOperationOutcomeEvent : AgentInputEvent
+{
+    /// <summary>
+    /// Gets the client-owned background operation id.
+    /// </summary>
+    public required string ClientOperationId { get; init; }
+
+    /// <summary>
+    /// Gets the terminal state reported by the client.
+    /// </summary>
+    public required ClientToolBackgroundOperationOutcomeState State { get; init; }
+
+    /// <summary>
+    /// Gets the final content produced by the client operation when <see cref="State"/> is <see cref="ClientToolBackgroundOperationOutcomeState.Completed"/>.
+    /// </summary>
+    public IReadOnlyList<IToolResultContent>? Content { get; init; }
+
+    /// <summary>
+    /// Gets optional client tool state changes to apply after completion.
+    /// </summary>
+    public ClientToolAugmentation? Augmentation { get; init; }
+
+    /// <summary>
+    /// Gets the error message when <see cref="State"/> is <see cref="ClientToolBackgroundOperationOutcomeState.Faulted"/>.
+    /// </summary>
+    public string? ErrorMessage { get; init; }
+
+    /// <summary>
+    /// Gets the optional error type when <see cref="State"/> is <see cref="ClientToolBackgroundOperationOutcomeState.Faulted"/>.
+    /// </summary>
+    public string? ErrorType { get; init; }
+
+    /// <summary>
+    /// Gets the optional cancellation reason when <see cref="State"/> is <see cref="ClientToolBackgroundOperationOutcomeState.Cancelled"/>.
+    /// </summary>
+    public string? CancellationReason { get; init; }
+
+    /// <summary>
+    /// Gets optional terminal metadata.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
 }

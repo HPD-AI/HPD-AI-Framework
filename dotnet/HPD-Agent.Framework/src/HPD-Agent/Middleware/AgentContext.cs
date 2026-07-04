@@ -1,4 +1,5 @@
 using Microsoft.Extensions.AI;
+using HPD.Agent.ClientTools;
 using HPD.Events;
 using HPD.Events.Struct;
 
@@ -562,8 +563,22 @@ public sealed class AgentContext
         AgentRunConfig runConfig,
         string? toolharnessName = null,
         string? skillName = null,
-        ToolInvocationInfo? invocation = null)
-        => new(this, function, callId, arguments, toolharnessName, skillName, runConfig, invocation);
+        ToolInvocationInfo? invocation = null,
+        IAgentBackgroundTaskRegistry? backgroundTasks = null,
+        IAgentBackgroundHandleRegistry? backgroundHandles = null,
+        IClientToolBackgroundOperationRegistry? clientToolBackgroundOperations = null)
+        => new(
+            this,
+            function,
+            callId,
+            arguments,
+            toolharnessName,
+            skillName,
+            runConfig,
+            invocation,
+            backgroundTasks,
+            backgroundHandles,
+            clientToolBackgroundOperations);
 
     /// <summary>
     /// Creates a typed context for AfterFunction hook.

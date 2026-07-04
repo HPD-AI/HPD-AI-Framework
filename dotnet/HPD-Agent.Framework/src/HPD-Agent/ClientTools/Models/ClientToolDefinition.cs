@@ -10,17 +10,42 @@ namespace HPD.Agent.ClientTools;
 /// Mirrors the structure Clients provide: name, description, parameters (JSON Schema).
 /// Tools are always registered inside a <see cref="clientToolHarnessDefinition"/> (container).
 /// </summary>
-/// <param name="Name">Unique name for the tool (used in function calls)</param>
-/// <param name="Description">Human-readable description shown to the LLM</param>
-/// <param name="ParametersSchema">JSON Schema defining the tool's parameters</param>
-/// <param name="RequiresPermission">Whether this tool requires permission before execution (uses existing PermissionMiddleware)</param>
-public record ClientToolDefinition(
-    string Name,
-    string Description,
-    JsonElement ParametersSchema,
-    bool RequiresPermission = false
-)
+public sealed record ClientToolDefinition
 {
+    /// <summary>
+    /// Gets the unique tool name used in function calls.
+    /// </summary>
+    public required string Name { get; init; }
+
+    /// <summary>
+    /// Gets the human-readable description shown to the model.
+    /// </summary>
+    public required string Description { get; init; }
+
+    /// <summary>
+    /// Gets the JSON schema defining the tool parameters.
+    /// </summary>
+    public required JsonElement ParametersSchema { get; init; }
+
+    /// <summary>
+    /// Gets whether this tool requires permission before execution.
+    /// </summary>
+    public bool RequiresPermission { get; init; }
+
+    /// <summary>
+    /// Gets the invocation modes supported by this client tool.
+    /// </summary>
+    public AgentInvocationModePolicy InvocationModePolicy { get; init; } =
+        AgentInvocationModePolicy.SynchronousOnly;
+
+    /// <summary>
+    /// Gets the notification rule used when this client tool accepts background work.
+    /// </summary>
+    public BackgroundTaskNotificationRule BackgroundNotification { get; init; } =
+        new BackgroundTaskNotificationRule.OnFinalStateRule(
+            Completed: true,
+            Faulted: true);
+
     /// <summary>
     /// Validates the tool definition.
     /// </summary>

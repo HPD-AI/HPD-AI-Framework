@@ -53,6 +53,7 @@ namespace HPD.Agent;
 [JsonSerializable(typeof(ImmutableDictionary<string, object?>), TypeInfoPropertyName = "ImmutableDictionaryStringObjectNullable")]
 [JsonSerializable(typeof(ImmutableDictionary<string, int>))]
 [JsonSerializable(typeof(ImmutableDictionary<string, clientToolHarnessDefinition>), TypeInfoPropertyName = "ImmutableDictionaryStringClientToolHarnessDefinition")]
+[JsonSerializable(typeof(ImmutableDictionary<string, ClientToolProviderToolBinding>), TypeInfoPropertyName = "ImmutableDictionaryStringClientToolProviderToolBinding")]
 [JsonSerializable(typeof(ImmutableDictionary<string, ContextItem>), TypeInfoPropertyName = "ImmutableDictionaryStringContextItem")]
 [JsonSerializable(typeof(IReadOnlyList<clientToolHarnessDefinition>))]
 [JsonSerializable(typeof(IReadOnlyList<ContextItem>))]

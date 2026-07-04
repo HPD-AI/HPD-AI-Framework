@@ -115,14 +115,13 @@ public sealed class TracingObserver : IDisposable
                     ["permission_id", e.PermissionId, "function", e.FunctionName]);
                 break;
 
-            case PermissionApprovedEvent e:
-                AddEventToIteration(e.TraceId!, "permission.approved",
-                    ["permission_id", e.PermissionId]);
-                break;
-
-            case PermissionDeniedEvent e:
-                AddEventToIteration(e.TraceId!, "permission.denied",
-                    ["permission_id", e.PermissionId, "reason", e.Reason]);
+            case PermissionResponseEvent e:
+                AddEventToIteration(e.TraceId!, "permission.response",
+                    [
+                        "permission_id", e.PermissionId,
+                        "approved", e.Approved.ToString(),
+                        "reason", e.Reason ?? string.Empty
+                    ]);
                 break;
 
             case CircuitBreakerTriggeredEvent e:

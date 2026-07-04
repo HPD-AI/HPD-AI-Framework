@@ -574,6 +574,7 @@ internal static class CapabilityAnalyzer
         string? customName = null;
         bool streamEvents = true;
         int timeoutSeconds = 300;
+        string invocationModePolicy = "SynchronousOnly";
 
         if (multiAgentAttr?.ArgumentList != null)
         {
@@ -607,6 +608,9 @@ internal static class CapabilityAnalyzer
                         case "TimeoutSeconds":
                             if (arg.Expression is LiteralExpressionSyntax timeoutLit && int.TryParse(timeoutLit.Token.ValueText, out var timeout))
                                 timeoutSeconds = timeout;
+                            break;
+                        case "InvocationModePolicy":
+                            invocationModePolicy = ExtractEnumMemberName(arg.Expression) ?? invocationModePolicy;
                             break;
                     }
                 }
@@ -646,12 +650,22 @@ internal static class CapabilityAnalyzer
             IsAsync = isAsync,
             StreamEvents = streamEvents,
             TimeoutSeconds = timeoutSeconds,
+            InvocationModePolicy = invocationModePolicy,
             RequiresPermission = requiresPermission,
 
             // Context and conditionals (feature parity!)
             ContextTypeName = contextTypeName,
             ConditionalExpression = conditionalExpression,
         };
+    }
+
+    private static string? ExtractEnumMemberName(ExpressionSyntax expression)
+    {
+        var text = expression.ToString();
+        var memberName = text.Split('.').LastOrDefault();
+        return memberName is "SynchronousOnly" or "BackgroundOnly" or "ModelChoice"
+            ? memberName
+            : null;
     }
 
     // ========== MCPServer Analysis ==========
@@ -896,6 +910,8 @@ internal static class CapabilityAnalyzer
 
         // Extract Kind from [AIFunction(Kind = ...)]
         var kind = GetToolKind(attrs);
+        var invocationModePolicy = GetInvocationModePolicy(attrs);
+        var invocationModeHandling = GetInvocationModeHandling(attrs);
 
         var functionCapability = new FunctionCapability
         {
@@ -916,6 +932,8 @@ internal static class CapabilityAnalyzer
             RequiresPermission = requiresPermission,
             RequiredPermissions = requiredPermissions.ToList(),
             Kind = kind,
+            InvocationModePolicy = invocationModePolicy,
+            InvocationModeHandling = invocationModeHandling,
 
             // TODO Phase 2: Add validation data
         };
@@ -1088,6 +1106,40 @@ internal static class CapabilityAnalyzer
         }
 
         return "Function"; // Default
+    }
+
+    /// <summary>
+    /// Extracts invocation mode policy from [AIFunction(InvocationModePolicy = ...)].
+    /// </summary>
+    private static string GetInvocationModePolicy(List<AttributeSyntax> attrs)
+    {
+        var aiFunctionAttr = attrs.FirstOrDefault(a =>
+            a.Name.ToString().Contains("AIFunction"));
+
+        var policyArg = aiFunctionAttr?.ArgumentList?.Arguments
+            .FirstOrDefault(a => a.NameEquals?.Name.Identifier.ValueText == "InvocationModePolicy");
+
+        if (policyArg?.Expression is MemberAccessExpressionSyntax memberAccess)
+            return memberAccess.Name.Identifier.ValueText;
+
+        return "SynchronousOnly";
+    }
+
+    /// <summary>
+    /// Extracts invocation mode handling from [AIFunction(InvocationModeHandling = ...)].
+    /// </summary>
+    private static string GetInvocationModeHandling(List<AttributeSyntax> attrs)
+    {
+        var aiFunctionAttr = attrs.FirstOrDefault(a =>
+            a.Name.ToString().Contains("AIFunction"));
+
+        var handlingArg = aiFunctionAttr?.ArgumentList?.Arguments
+            .FirstOrDefault(a => a.NameEquals?.Name.Identifier.ValueText == "InvocationModeHandling");
+
+        if (handlingArg?.Expression is MemberAccessExpressionSyntax memberAccess)
+            return memberAccess.Name.Identifier.ValueText;
+
+        return "Runtime";
     }
 
     /// <summary>

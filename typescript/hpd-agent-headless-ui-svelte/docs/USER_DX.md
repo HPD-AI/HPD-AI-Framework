@@ -340,7 +340,7 @@ Use `ThreadRuntimeRequests` with the same `thread`:
 ```
 
 Known request kinds receive typed actions such as `approve`, `deny`, `clarify`,
-and `respondToClientTool`. Custom request kinds use the generic `respond`
+and `answerClientToolRequest`. Custom request kinds use the generic `respond`
 method.
 
 ## Errors

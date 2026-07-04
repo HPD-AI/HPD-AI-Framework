@@ -115,7 +115,7 @@ public enum AgentStopKind
 /// Constructed by TurnEvaluationContextBuilder from:
 /// - FunctionCallContent + FunctionResultContent pairs in TurnHistory
 /// - ToolCallStartEvent / ToolCallEndEvent timestamps buffered by LiveEvaluationMiddleware
-/// - PermissionDeniedEvent.CallId records buffered by LiveEvaluationMiddleware
+/// - PermissionRequestEvent / PermissionResponseEvent pairs buffered by LiveEvaluationMiddleware
 /// </summary>
 public sealed record ToolCallRecord(
     string CallId,

@@ -28,10 +28,6 @@ internal static class CodingToolHarnessEventSerialization
             "EXECUTE_COMMAND_AUTO_BACKGROUNDED",
             CodingToolHarnessJsonContext.Default.ExecuteCommandAutoBackgroundedEvent);
         AgentEventSerializer.RegisterEventType(
-            typeof(ExecuteCommandBackgroundListEvent),
-            "EXECUTE_COMMAND_BACKGROUND_LIST",
-            CodingToolHarnessJsonContext.Default.ExecuteCommandBackgroundListEvent);
-        AgentEventSerializer.RegisterEventType(
             typeof(ExecuteCommandPermissionRequestEvent),
             "EXECUTE_COMMAND_PERMISSION_REQUEST",
             CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionRequestEvent);
@@ -39,14 +35,6 @@ internal static class CodingToolHarnessEventSerialization
             typeof(ExecuteCommandPermissionResponseEvent),
             "EXECUTE_COMMAND_PERMISSION_RESPONSE",
             CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionResponseEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(ExecuteCommandPermissionApprovedEvent),
-            "EXECUTE_COMMAND_PERMISSION_APPROVED",
-            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionApprovedEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(ExecuteCommandPermissionDeniedEvent),
-            "EXECUTE_COMMAND_PERMISSION_DENIED",
-            CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionDeniedEvent);
         AgentEventSerializer.RegisterEventType(
             typeof(ExecuteCommandSandboxCapabilityRequestEvent),
             "EXECUTE_COMMAND_SANDBOX_CAPABILITY_REQUEST",

@@ -190,7 +190,7 @@
         resolveRequest(id, `clarify ${id}: ${answer}`);
         return undefined;
       },
-      respondToClientTool: async (id) => {
+      answerClientToolRequest: async (id) => {
         resolveRequest(id, `client-tool ${id}`);
         return undefined;
       },
@@ -425,7 +425,7 @@
       kind: 'client-tool',
       sourceName: 'HPD.Agent.ClientTools',
       requestEventType: 'CLIENT_TOOL_INVOKE_REQUEST',
-      expectedResponseEventType: 'CLIENT_TOOL_INVOKE_RESPONSE',
+      expectedResponseEventType: 'CLIENT_TOOL_INVOKE_OUTCOME',
       responsePolicy: 'targetedResponder',
       visibility: 'allObservers',
       request: {

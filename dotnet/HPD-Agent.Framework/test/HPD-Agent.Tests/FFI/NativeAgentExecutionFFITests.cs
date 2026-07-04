@@ -104,7 +104,6 @@ public sealed class NativeAgentExecutionFFITests
             Assert.True(sawEndOfStream);
             Assert.NotEmpty(approvedPermissionId);
             Assert.Contains(streamEvents, json => json.Contains("\"type\":\"PERMISSION_REQUEST\"", StringComparison.Ordinal));
-            Assert.Contains(streamEvents, json => json.Contains("\"type\":\"PERMISSION_APPROVED\"", StringComparison.Ordinal));
             Assert.Contains(streamEvents, json => json.Contains("\"type\":\"TOOL_CALL_RESULT\"", StringComparison.Ordinal));
             Assert.Contains(streamEvents, json => json.Contains("\"type\":\"TEXT_DELTA\"", StringComparison.Ordinal) &&
                                                   json.Contains("permission accepted", StringComparison.Ordinal));

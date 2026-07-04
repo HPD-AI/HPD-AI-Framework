@@ -105,42 +105,35 @@ public class LoggingEventObserver
                 // Skip to avoid duplication
                 break;
 
-            // History compaction cache
-            case CompactionCacheEvent e:
+            // History compaction
+            case CompactionEvent e:
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
-                    if (e.IsHit)
+                    if (e.Status == CompactionStatus.CacheHit)
                     {
                         _logger.LogDebug(
-                            "Agent '{AgentName}' compaction cache HIT: Reusing compaction from {CreatedAt}, " +
-                            "summarized {SummarizedCount} messages, current count: {CurrentCount}",
-                            e.AgentName, e.CompactionCreatedAt, e.SummarizedUpToIndex, e.CurrentMessageCount);
+                            "Agent '{AgentName}' compaction cache HIT: removed {MessagesRemoved} messages, cache age: {CacheAge}",
+                            e.AgentName, e.MessagesRemoved, e.CacheAge);
                     }
                     else
                     {
                         _logger.LogDebug(
-                            "Agent '{AgentName}' compaction cache MISS: Current count: {CurrentCount}",
-                            e.AgentName, e.CurrentMessageCount);
+                            "Agent '{AgentName}' compaction {Status}: {Reason}",
+                            e.AgentName, e.Status, e.Reason);
                     }
                 }
                 break;
 
-            // Retry events (consolidated)
-            case InternalRetryEvent e:
-                switch (e.Status)
-                {
-                    case RetryStatus.Attempting:
-                        _logger.LogWarning(
-                            "Agent '{AgentName}' retrying function '{Function}' (attempt {Attempt}/{MaxRetries}): {Error}",
-                            e.AgentName, e.FunctionName, e.AttemptNumber, e.MaxRetries, e.ErrorMessage);
-                        break;
+            case FunctionRetryEvent e:
+                _logger.LogWarning(
+                    "Retrying function '{Function}' (attempt {Attempt}/{MaxRetries}) after {Delay}ms: {Error}",
+                    e.FunctionName, e.Attempt, e.MaxRetries, e.Delay.TotalMilliseconds, e.ErrorMessage);
+                break;
 
-                    case RetryStatus.Exhausted:
-                        _logger.LogError(
-                            "Agent '{AgentName}' retry exhausted for function '{Function}' after {Attempts} attempts: {Error}",
-                            e.AgentName, e.FunctionName, e.AttemptNumber, e.ErrorMessage);
-                        break;
-                }
+            case ModelCallRetryEvent e:
+                _logger.LogWarning(
+                    "Retrying model call (attempt {Attempt}/{MaxRetries}) after {Delay}ms: {Error}",
+                    e.Attempt, e.MaxRetries, e.Delay.TotalMilliseconds, e.ErrorMessage);
                 break;
 
             // Parallel tool execution

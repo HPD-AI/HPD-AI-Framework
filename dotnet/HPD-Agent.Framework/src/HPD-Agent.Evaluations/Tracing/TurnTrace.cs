@@ -47,8 +47,8 @@ public sealed class IterationSpan
 
 /// <summary>
 /// One tool call within an iteration. Timing sourced from ToolCallStartEvent /
-/// ToolCallEndEvent; permission denial from PermissionDeniedEvent.CallId — all
-/// buffered by TurnEventBuffer.
+/// ToolCallEndEvent; permission denial from PermissionRequestEvent /
+/// PermissionResponseEvent pairs buffered by TurnEventBuffer.
 /// </summary>
 public sealed class ToolCallSpan
 {
@@ -61,6 +61,6 @@ public sealed class ToolCallSpan
     /// <summary>ToolCallEndEvent.Timestamp - ToolCallStartEvent.Timestamp.</summary>
     public TimeSpan Duration { get; init; }
 
-    /// <summary>True if a PermissionDeniedEvent with matching CallId was buffered.</summary>
+    /// <summary>True if a denied PermissionResponseEvent matched this call.</summary>
     public bool WasPermissionDenied { get; init; }
 }

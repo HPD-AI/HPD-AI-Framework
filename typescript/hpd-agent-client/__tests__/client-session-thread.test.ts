@@ -422,6 +422,7 @@ describe('AgentClient — session/thread passthroughs', () => {
         status: 'active',
         startedAt: '2026-05-28T00:00:00Z',
         backgroundTasks: [],
+        backgroundHandles: [],
       }];
       mockFetchJson(runs);
 
@@ -457,6 +458,7 @@ describe('AgentClient — session/thread passthroughs', () => {
         startedAt: '2026-05-28T00:00:00Z',
         completedAt: '2026-05-28T00:00:02Z',
         backgroundTasks: [],
+        backgroundHandles: [],
       };
       mockFetchJson(run);
 

@@ -42,6 +42,19 @@ public sealed class AIFunctionAttribute<TMetadata> : Attribute where TMetadata :
     /// Set to Output for structured output tools.
     /// </summary>
     public ToolKind Kind { get; set; } = ToolKind.Function;
+
+    /// <summary>
+    /// Defines whether this function runs synchronously, in the background, or lets the model choose per call.
+    /// </summary>
+    public AgentInvocationModePolicy InvocationModePolicy { get; set; } =
+        AgentInvocationModePolicy.SynchronousOnly;
+
+    /// <summary>
+    /// Defines whether HPD runtime or the function body handles invocation mode.
+    /// </summary>
+    public AgentInvocationModeHandling InvocationModeHandling { get; set; } =
+        AgentInvocationModeHandling.Runtime;
+
 }
 
 /// <summary>
@@ -66,5 +79,18 @@ public sealed class AIFunctionAttribute : Attribute
     /// Set to Output for structured output tools.
     /// </summary>
     public ToolKind Kind { get; set; } = ToolKind.Function;
+
+    /// <summary>
+    /// Defines whether this function runs synchronously, in the background, or lets the model choose per call.
+    /// </summary>
+    public AgentInvocationModePolicy InvocationModePolicy { get; set; } =
+        AgentInvocationModePolicy.SynchronousOnly;
+
+    /// <summary>
+    /// Defines whether HPD runtime or the function body handles invocation mode.
+    /// </summary>
+    public AgentInvocationModeHandling InvocationModeHandling { get; set; } =
+        AgentInvocationModeHandling.Runtime;
+
 }
 

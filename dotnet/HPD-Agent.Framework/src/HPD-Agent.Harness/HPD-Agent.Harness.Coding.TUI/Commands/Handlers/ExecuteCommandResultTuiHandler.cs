@@ -49,14 +49,14 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
         CodingCommandExecutionStore store,
         XElement root)
     {
-        var backgroundTaskId = Attr(root, "background_task_id");
+        var backgroundHandleId = Attr(root, "background_handle_id");
         var command = Attr(root, "command") ?? "Stop background command";
         var workingDirectory = Attr(root, "cwd") ?? "";
-        var state = !string.IsNullOrWhiteSpace(backgroundTaskId) &&
-                    store.TryGetByBackgroundTaskId(backgroundTaskId, out var existing)
+        var state = !string.IsNullOrWhiteSpace(backgroundHandleId) &&
+                    store.TryGetByBackgroundHandleId(backgroundHandleId, out var existing)
             ? existing
             : store.GetOrCreateSynthetic(
-                backgroundTaskId ?? $"stop-{evt.CallId}",
+                backgroundHandleId ?? $"stop-{evt.CallId}",
                 evt.CallId,
                 "ExecuteCommand",
                 command,
@@ -65,13 +65,13 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
                 workingDirectory);
 
         state.IsBackground = true;
-        state.BackgroundTaskId = backgroundTaskId ?? state.BackgroundTaskId;
+        state.BackgroundHandleId = backgroundHandleId ?? state.BackgroundHandleId;
         state.CompletedAt = DateTimeOffset.UtcNow;
         state.ExitCode = ParseInt(Attr(root, "exit_code"));
         state.CompletionKind = ParseCompletionKind(Attr(root, "completion_kind"));
         state.DisplayState = ResolveDisplayState(Attr(root, "status"), state.CompletionKind, state.ExitCode);
         ApplyOutputHandle(state, root.Element("combined_output"));
-        store.IndexBackgroundTask(state);
+        store.IndexBackgroundHandle(state);
 
         ExecuteCommandTuiHandlerBase<ExecuteCommandProcessStartedEvent>.UpdateTranscript(context, state, evt);
     }
@@ -82,14 +82,14 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
         CodingCommandExecutionStore store,
         XElement root)
     {
-        var backgroundTaskId = Attr(root, "background_task_id");
+        var backgroundHandleId = Attr(root, "background_handle_id");
         var command = Attr(root, "command") ?? "Read background output";
         var workingDirectory = Attr(root, "cwd") ?? "";
-        var state = !string.IsNullOrWhiteSpace(backgroundTaskId) &&
-                    store.TryGetByBackgroundTaskId(backgroundTaskId, out var existing)
+        var state = !string.IsNullOrWhiteSpace(backgroundHandleId) &&
+                    store.TryGetByBackgroundHandleId(backgroundHandleId, out var existing)
             ? existing
             : store.GetOrCreateSynthetic(
-                backgroundTaskId ?? $"output-{evt.CallId}",
+                backgroundHandleId ?? $"output-{evt.CallId}",
                 evt.CallId,
                 "ExecuteCommand",
                 command,
@@ -98,7 +98,7 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
                 workingDirectory);
 
         state.IsBackground = true;
-        state.BackgroundTaskId = backgroundTaskId ?? state.BackgroundTaskId;
+        state.BackgroundHandleId = backgroundHandleId ?? state.BackgroundHandleId;
         state.ExitCode = ParseInt(Attr(root, "exit_code"));
         state.DisplayState = ResolveDisplayState(Attr(root, "status"), state.CompletionKind, state.ExitCode);
 
@@ -115,7 +115,7 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
             ApplyOutputHandle(state, combined);
         }
 
-        store.IndexBackgroundTask(state);
+        store.IndexBackgroundHandle(state);
         ExecuteCommandTuiHandlerBase<ExecuteCommandProcessStartedEvent>.UpdateTranscript(context, state, evt);
     }
 
@@ -139,7 +139,7 @@ internal sealed class ExecuteCommandResultTuiHandler : AgentTuiEventHandler<Tool
         var rows = root.Elements("command")
             .Select(static command =>
             {
-                var id = Attr(command, "background_task_id") ?? "(unknown)";
+                var id = Attr(command, "background_handle_id") ?? "(unknown)";
                 var status = Attr(command, "status") ?? "unknown";
                 var text = Attr(command, "command") ?? "";
                 return $"{status} {id} {text}".TrimEnd();

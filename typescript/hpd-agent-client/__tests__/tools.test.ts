@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ClientToolRegistry, normalizeClientToolName } from '../src/tools.js';
-import { createJsonResponse, createTextResponse } from '../src/types/client-tools.js';
+import { completeClientToolWithJson, completeClientToolWithText } from '../src/types/client-tools.js';
 import { EventTypes } from '../src/types/events.js';
 
 describe('ClientToolRegistry', () => {
@@ -22,7 +22,7 @@ describe('ClientToolRegistry', () => {
 
     expect(response).toEqual({
       requestId: 'r1',
-      success: true,
+      outcome: 'Completed',
       content: [{ type: 'json', value: { activeView: 'chat' } }],
       augmentation: undefined,
     });
@@ -44,12 +44,12 @@ describe('ClientToolRegistry', () => {
       arguments: {},
     })).toMatchObject({
       requestId: 'r1',
-      success: true,
+      outcome: 'Completed',
       content: [{ type: 'text', text: 'pong' }],
     });
   });
 
-  it('returns an error response for unknown tools', async () => {
+  it('returns a failed outcome for unknown tools', async () => {
     const registry = new ClientToolRegistry();
     const response = await registry.handleInvoke({
       type: EventTypes.CLIENT_TOOL_INVOKE_REQUEST,
@@ -61,7 +61,7 @@ describe('ClientToolRegistry', () => {
 
     expect(response).toMatchObject({
       requestId: 'r1',
-      success: false,
+      outcome: 'Failed',
       errorMessage: 'Unknown client tool: missing',
     });
   });
@@ -79,22 +79,22 @@ describe('ClientToolRegistry', () => {
       arguments: {},
     })).resolves.toMatchObject({
       requestId: 'r1',
-      success: true,
+      outcome: 'Completed',
       content: [{ type: 'json', value: { toolName: 'browser.dynamic_tool' } }],
     });
   });
 
-  it('creates direct text and JSON client tool responses', () => {
-    expect(createTextResponse('r1', 'done')).toEqual({
+  it('creates direct text and JSON client tool outcomes', () => {
+    expect(completeClientToolWithText('r1', 'done')).toEqual({
       requestId: 'r1',
-      success: true,
+      outcome: 'Completed',
       content: [{ type: 'text', text: 'done' }],
       augmentation: undefined,
     });
 
-    expect(createJsonResponse('r2', { ok: true })).toEqual({
+    expect(completeClientToolWithJson('r2', { ok: true })).toEqual({
       requestId: 'r2',
-      success: true,
+      outcome: 'Completed',
       content: [{ type: 'json', value: { ok: true } }],
       augmentation: undefined,
     });

@@ -80,9 +80,20 @@ public sealed class BotStreamingRunner(
 
             var agent = await agentManager.GetOrBuildAgentAsync(request.AgentId, ct);
             var buffer = new StringBuilder();
+            var lastUpdatedText = string.Empty;
             using var debounce = new BotDebounceTimer(request.DebounceMs);
 
             await using var subscription = ((IEventInboxSource)agent.EventCoordinator).CreateInbox<AgentEvent>();
+
+            async Task FlushTextUpdateAsync()
+            {
+                var text = buffer.ToString();
+                if (string.IsNullOrEmpty(text) || string.Equals(text, lastUpdatedText, StringComparison.Ordinal))
+                    return;
+
+                lastUpdatedText = text;
+                await callbacks.UpdateTextAsync(request.Context, text, ct).ConfigureAwait(false);
+            }
 
             async Task HandleEventAsync(AgentEvent evt)
             {
@@ -92,13 +103,15 @@ public sealed class BotStreamingRunner(
                         buffer.Append(delta.Text);
                         if (request.Strategy != StreamingStrategy.BufferAndPost)
                         {
-                            debounce.Schedule(async () =>
-                                await callbacks.UpdateTextAsync(request.Context, buffer.ToString(), ct));
+                            debounce.Schedule(FlushTextUpdateAsync);
                         }
                         break;
 
                     case TextMessageEndEvent:
                         debounce.Cancel();
+                        if (request.Strategy != StreamingStrategy.BufferAndPost)
+                            await FlushTextUpdateAsync().ConfigureAwait(false);
+
                         if (callbacks.CompleteTextAsync is not null)
                             await callbacks.CompleteTextAsync(request.Context, buffer.ToString(), ct);
                         else

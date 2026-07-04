@@ -225,7 +225,7 @@ internal static class StreamingEndpoints
                 }
                 else
                 {
-                    var respondResult = await agent.RespondIfPendingAsync(response!, ct);
+                    var respondResult = await agent.TryAnswerRequestAsync(response!, ct);
                     if (!respondResult.Accepted)
                     {
                         var resultJson = JsonSerializer.Serialize(respondResult, CaseInsensitiveJson);

@@ -261,7 +261,7 @@ The controller provides response helpers for common request kinds:
 await thread.approve(permissionId);
 await thread.deny(permissionId, 'Not allowed');
 await thread.clarify(requestId, 'Use the production tenant');
-await thread.respondToClientTool(requestId, 'Selected screenshot.png');
+await thread.answerClientToolRequest(requestId, 'Selected screenshot.png');
 ```
 
 For custom response events, use the generic response path:
@@ -325,7 +325,7 @@ blocking runtime requests.
 
 `input.reason === 'runtime-request'` means the user should answer a pending
 request before sending more text. Runtime request response helpers such as
-`approve()`, `deny()`, `clarify()`, and `respondToClientTool()` still use the
+`approve()`, `deny()`, `clarify()`, and `answerClientToolRequest()` still use the
 lower-level response path and remain valid while normal text submission is
 blocked.
 

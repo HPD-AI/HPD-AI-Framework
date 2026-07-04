@@ -97,6 +97,7 @@ public sealed class AgentThreadRunService : IAgentThreadRunService
                 null,
                 null,
                 null,
+                [],
                 []));
         }
 
@@ -113,24 +114,37 @@ public sealed class AgentThreadRunService : IAgentThreadRunService
             run.StartedAt,
             run.CompletedAt,
             run.Error == null ? null : new ThreadRunErrorDto(run.Error.Type, run.Error.Message),
-            run.BackgroundOperation == null
+            run.ModelBackgroundOperation == null
                 ? null
-                : new ThreadRunBackgroundOperationDto(
-                    run.BackgroundOperation.Status,
-                    run.BackgroundOperation.OperationId,
-                    run.BackgroundOperation.StatusMessage,
-                    run.BackgroundOperation.ContinuationToken),
+                : new ThreadRunModelBackgroundOperationDto(
+                    run.ModelBackgroundOperation.Status,
+                    run.ModelBackgroundOperation.OperationId,
+                    run.ModelBackgroundOperation.StatusMessage,
+                    run.ModelBackgroundOperation.ContinuationToken),
             run.BackgroundTasks.Select(task => new ThreadRunBackgroundTaskDto(
                 task.TaskId,
                 task.Name,
                 task.SourceKind,
                 task.SourceId,
-                task.NotificationPolicy,
+                new ThreadRunBackgroundTaskNotificationDto(
+                    task.Notification.Kind,
+                    task.Notification.StrategyName),
                 task.Status,
                 task.StartedAt,
                 task.CompletedAt,
                 task.CancelledAt,
                 task.FaultedAt,
                 task.ErrorType,
-                task.ErrorMessage)).ToList());
+                task.ErrorMessage)).ToList(),
+            run.BackgroundHandles.Select(handle => new ThreadRunBackgroundHandleDto(
+                handle.HandleId,
+                handle.Name,
+                handle.HandleKind,
+                handle.SourceKind,
+                handle.SourceId,
+                handle.Status,
+                handle.SupportedOperations.ToString(),
+                handle.RegisteredAt,
+                handle.UpdatedAt,
+                handle.Metadata)).ToList());
 }

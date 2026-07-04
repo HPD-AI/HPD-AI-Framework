@@ -218,14 +218,17 @@ export class AgentClient {
       this.matchesResponderTarget(event as ClientToolInvokeRequestEvent)) {
       const toolResponse = await this.tools.handleInvoke(event as ClientToolInvokeRequestEvent);
       await this.transport.submitInput({
-        type: EventTypes.CLIENT_TOOL_INVOKE_RESPONSE,
+        type: EventTypes.CLIENT_TOOL_INVOKE_OUTCOME,
         requestId: toolResponse.requestId,
         responderId: this.config.responderId,
         responderGroup: this.config.responderGroups?.[0],
         capabilities: this.responderCapabilities(),
+        outcome: toolResponse.outcome,
         content: toolResponse.content,
-        success: toolResponse.success,
         errorMessage: toolResponse.errorMessage,
+        clientOperationId: toolResponse.clientOperationId,
+        handleKind: toolResponse.handleKind,
+        supportedOperations: toolResponse.supportedOperations,
         augmentation: toolResponse.augmentation,
       });
     }

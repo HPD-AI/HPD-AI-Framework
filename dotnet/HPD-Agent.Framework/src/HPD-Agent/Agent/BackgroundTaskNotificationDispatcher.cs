@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
@@ -10,12 +11,12 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
     private readonly string _agentId;
     private readonly HPD.Events.IEventCoordinator _runtimeCoordinator;
     private readonly ChannelWriter<AgentInputEvent> _runtimeWriter;
-    private readonly Func<AgentEvent, Task> _publishControlEventAsync;
-    private readonly Channel<BackgroundTaskEvent> _terminalEvents;
+    private readonly IBackgroundTaskNotificationStrategyRegistry? _strategyRegistry;
+    private readonly Channel<BackgroundTaskEvent> _finalStateEvents;
     private readonly CancellationTokenSource _cts = new();
     private readonly List<IDisposable> _subscriptions = [];
     private readonly object _stateLock = new();
-    private readonly HashSet<string> _queuedTerminalTaskIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _notifiedFinalStateTaskIds = new(StringComparer.Ordinal);
     private readonly Task _pumpTask;
     private readonly TimeSpan _batchWindow;
     private readonly object _disposeLock = new();
@@ -27,30 +28,29 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
         HPD.Events.IEventCoordinator runtimeCoordinator,
         ChannelWriter<AgentInputEvent> runtimeWriter,
         AgentRunConfig? runConfig,
-        Func<AgentEvent, Task> publishControlEventAsync,
+        IBackgroundTaskNotificationStrategyRegistry? strategyRegistry = null,
         TimeSpan? batchWindow = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentNullException.ThrowIfNull(runtimeCoordinator);
         ArgumentNullException.ThrowIfNull(runtimeWriter);
-        ArgumentNullException.ThrowIfNull(publishControlEventAsync);
 
         _agentId = agentId;
         _runtimeCoordinator = runtimeCoordinator;
         _runtimeWriter = runtimeWriter;
         _runConfig = runConfig;
-        _publishControlEventAsync = publishControlEventAsync;
+        _strategyRegistry = strategyRegistry;
         _batchWindow = batchWindow ?? DefaultBatchWindow;
-        _terminalEvents = Channel.CreateUnbounded<BackgroundTaskEvent>(new UnboundedChannelOptions
+        _finalStateEvents = Channel.CreateUnbounded<BackgroundTaskEvent>(new UnboundedChannelOptions
         {
             SingleReader = true,
             SingleWriter = false,
             AllowSynchronousContinuations = false
         });
 
-        _subscriptions.Add(_runtimeCoordinator.Subscribe<BackgroundTaskCompletedEvent>(HandleTerminalEventAsync));
-        _subscriptions.Add(_runtimeCoordinator.Subscribe<BackgroundTaskCancelledEvent>(HandleTerminalEventAsync));
-        _subscriptions.Add(_runtimeCoordinator.Subscribe<BackgroundTaskFaultedEvent>(HandleTerminalEventAsync));
+        _subscriptions.Add(_runtimeCoordinator.Subscribe<BackgroundTaskCompletedEvent>(HandleFinalStateEventAsync));
+        _subscriptions.Add(_runtimeCoordinator.Subscribe<BackgroundTaskCancelledEvent>(HandleFinalStateEventAsync));
+        _subscriptions.Add(_runtimeCoordinator.Subscribe<BackgroundTaskFaultedEvent>(HandleFinalStateEventAsync));
 
         _pumpTask = Task.Run(() => PumpAsync(_cts.Token), CancellationToken.None);
     }
@@ -66,9 +66,9 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
         }
     }
 
-    private async ValueTask HandleTerminalEventAsync(BackgroundTaskEvent evt)
+    private async ValueTask HandleFinalStateEventAsync(BackgroundTaskEvent evt)
     {
-        if (!_terminalEvents.Writer.TryWrite(evt))
+        if (!_finalStateEvents.Writer.TryWrite(evt))
         {
             await PublishSuppressedAsync(evt, Guid.NewGuid().ToString("N"), "notification-dispatcher-closed")
                 .ConfigureAwait(false);
@@ -79,10 +79,10 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
     {
         try
         {
-            while (await _terminalEvents.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+            while (await _finalStateEvents.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 var events = new List<BackgroundTaskEvent>();
-                while (_terminalEvents.Reader.TryRead(out var evt))
+                while (_finalStateEvents.Reader.TryRead(out var evt))
                     events.Add(evt);
 
                 if (events.Count == 0)
@@ -91,11 +91,11 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
                 if (_batchWindow > TimeSpan.Zero)
                 {
                     await Task.Delay(_batchWindow, cancellationToken).ConfigureAwait(false);
-                    while (_terminalEvents.Reader.TryRead(out var evt))
+                    while (_finalStateEvents.Reader.TryRead(out var evt))
                         events.Add(evt);
                 }
 
-                await FlushAsync(events).ConfigureAwait(false);
+                await FlushAsync(events, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -103,20 +103,16 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
         }
     }
 
-    private async Task FlushAsync(IReadOnlyList<BackgroundTaskEvent> events)
+    private async Task FlushAsync(
+        IReadOnlyList<BackgroundTaskEvent> events,
+        CancellationToken cancellationToken)
     {
-        var byScope = new Dictionary<(string SessionId, string ThreadId), List<(BackgroundTaskEvent Event, BackgroundTaskNotification Notification, string Reason)>>(
+        var byScope = new Dictionary<(string SessionId, string ThreadId, string? BatchKey), List<(BackgroundTaskEvent Event, BackgroundTaskNotification Notification, string Reason)>>(
             capacity: events.Count);
 
         foreach (var evt in events)
         {
             var notificationId = Guid.NewGuid().ToString("N");
-
-            if (!ShouldQueue(evt, out var reason))
-            {
-                await PublishSuppressedAsync(evt, notificationId, reason).ConfigureAwait(false);
-                continue;
-            }
 
             var sessionId = evt.SessionId ?? evt.Invocation?.SessionId;
             var threadId = evt.ThreadId ?? evt.Invocation?.ThreadId;
@@ -126,19 +122,39 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
                 continue;
             }
 
-            if (!TryReserveTerminalNotification(evt.TaskId))
+            if (!TryReserveFinalStateNotification(evt.TaskId))
             {
-                await PublishSuppressedAsync(evt, notificationId, "duplicate-terminal-notification").ConfigureAwait(false);
+                await PublishSuppressedAsync(evt, notificationId, "duplicate-final-state-notification").ConfigureAwait(false);
                 continue;
             }
 
+            var runConfig = GetCurrentRunConfig();
+            var notificationContext = new BackgroundTaskNotificationContext
+            {
+                AgentId = _agentId,
+                SessionId = sessionId!,
+                ThreadId = threadId!,
+                FinalStateStatus = GetFinalStateStatus(evt),
+                RunConfig = runConfig
+            };
+
+            var (decision, reason) = await DecideAsync(evt, notificationContext, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (decision is BackgroundTaskNotificationDecision.Suppress)
+            {
+                await PublishSuppressedAsync(evt, notificationId, reason).ConfigureAwait(false);
+                continue;
+            }
+
+            var queue = (BackgroundTaskNotificationDecision.Queue)decision;
             var notification = new BackgroundTaskNotification(
                 notificationId,
                 [evt.TaskId],
-                FormatSummary(evt),
-                CreateMetadata(evt));
+                queue.Summary,
+                queue.Metadata);
 
-            var key = (sessionId!, threadId!);
+            var key = (sessionId!, threadId!, queue.BatchKey);
             if (!byScope.TryGetValue(key, out var scoped))
             {
                 scoped = [];
@@ -148,11 +164,11 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
             scoped.Add((evt, notification, reason));
         }
 
-        foreach (var ((sessionId, threadId), scoped) in byScope)
+        foreach (var ((sessionId, threadId, _), scoped) in byScope)
         {
             foreach (var item in scoped)
             {
-                await _publishControlEventAsync(new BackgroundTaskNotificationQueuedEvent
+                _runtimeCoordinator.Emit(new BackgroundTaskNotificationQueuedEvent
                 {
                     NotificationId = item.Notification.NotificationId,
                     TaskIds = item.Notification.TaskIds,
@@ -160,7 +176,7 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
                     Reason = item.Reason,
                     SessionId = sessionId,
                     ThreadId = threadId
-                }).ConfigureAwait(false);
+                });
             }
 
             var input = new BackgroundTaskNotificationInputEvent(scoped.Select(item => item.Notification).ToList())
@@ -187,15 +203,15 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
             return _runConfig;
     }
 
-    private bool TryReserveTerminalNotification(string taskId)
+    private bool TryReserveFinalStateNotification(string taskId)
     {
         lock (_stateLock)
-            return _queuedTerminalTaskIds.Add(taskId);
+            return _notifiedFinalStateTaskIds.Add(taskId);
     }
 
-    private async Task PublishSuppressedAsync(BackgroundTaskEvent evt, string notificationId, string reason)
+    private Task PublishSuppressedAsync(BackgroundTaskEvent evt, string notificationId, string reason)
     {
-        await _publishControlEventAsync(new BackgroundTaskNotificationSuppressedEvent
+        _runtimeCoordinator.Emit(new BackgroundTaskNotificationSuppressedEvent
         {
             NotificationId = notificationId,
             TaskIds = [evt.TaskId],
@@ -203,11 +219,18 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
             Reason = reason,
             SessionId = evt.SessionId ?? evt.Invocation?.SessionId,
             ThreadId = evt.ThreadId ?? evt.Invocation?.ThreadId
-        }).ConfigureAwait(false);
+        });
+        return Task.CompletedTask;
     }
 
     public static UserMessagesInputEvent ToUserMessagesInput(BackgroundTaskNotificationInputEvent input)
-        => new([new ChatMessage(ChatRole.System, FormatInput(input.Notifications))])
+        => new([
+            new ChatMessage(ChatRole.System, FormatInput(input.Notifications))
+                .WithPolicy(
+                    AgentMessageSource.BackgroundNotification,
+                    AgentMessageVisibility.Hidden,
+                    AgentMessagePersistence.ModelContextOnly)
+        ])
         {
             ClientInputId = input.ClientInputId,
             SessionId = input.SessionId,
@@ -217,38 +240,151 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
             RuntimeRunId = input.RuntimeRunId
         };
 
-    private static bool ShouldQueue(BackgroundTaskEvent evt, out string reason)
+    private async ValueTask<(BackgroundTaskNotificationDecision Decision, string Reason)> DecideAsync(
+        BackgroundTaskEvent evt,
+        BackgroundTaskNotificationContext context,
+        CancellationToken cancellationToken)
     {
         if (evt is BackgroundTaskCancelledEvent { Reason: "runtime-stopping" })
         {
-            reason = "runtime-stopping-cancellation";
-            return false;
+            const string reason = "runtime-stopping-cancellation";
+            return (new BackgroundTaskNotificationDecision.Suppress(reason), reason);
         }
 
-        var status = GetTerminalStatus(evt);
-        var shouldQueue = evt.NotificationPolicy switch
+        if (IsNotificationSuppressedByMetadata(evt.Metadata, out var metadataReason))
+            return (new BackgroundTaskNotificationDecision.Suppress(metadataReason), metadataReason);
+
+        return await EvaluateRuleAsync(evt, context, evt.Notification, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async ValueTask<(BackgroundTaskNotificationDecision Decision, string Reason)> EvaluateRuleAsync(
+        BackgroundTaskEvent evt,
+        BackgroundTaskNotificationContext context,
+        BackgroundTaskNotificationRule rule,
+        CancellationToken cancellationToken)
+    {
+        switch (rule)
         {
-            BackgroundTaskNotificationPolicy.None => false,
-            BackgroundTaskNotificationPolicy.OnFault => status == "faulted",
-            BackgroundTaskNotificationPolicy.OnCompletion => status == "completed",
-            BackgroundTaskNotificationPolicy.OnCompletionOrFault => status is "completed" or "faulted",
-            BackgroundTaskNotificationPolicy.Custom => false,
+            case BackgroundTaskNotificationRule.NoneRule:
+            {
+                var reason = $"rule-suppressed:none:{context.FinalStateStatus}";
+                return (new BackgroundTaskNotificationDecision.Suppress(reason), reason);
+            }
+
+            case BackgroundTaskNotificationRule.OnFinalStateRule onFinalState:
+                return EvaluateOnFinalStateRule(evt, context, onFinalState);
+
+            case BackgroundTaskNotificationRule.StrategyRule strategyRule:
+                return await EvaluateStrategyRuleAsync(evt, context, strategyRule, cancellationToken)
+                    .ConfigureAwait(false);
+
+            default:
+            {
+                var reason = $"rule-suppressed:unknown:{context.FinalStateStatus}";
+                return (new BackgroundTaskNotificationDecision.Suppress(reason), reason);
+            }
+        }
+    }
+
+    private static (BackgroundTaskNotificationDecision Decision, string Reason) EvaluateOnFinalStateRule(
+        BackgroundTaskEvent evt,
+        BackgroundTaskNotificationContext context,
+        BackgroundTaskNotificationRule.OnFinalStateRule rule)
+    {
+        var shouldQueue = context.FinalStateStatus switch
+        {
+            "completed" => rule.Completed,
+            "cancelled" => rule.Cancelled,
+            "faulted" => rule.Faulted,
             _ => false
         };
 
-        reason = shouldQueue
-            ? $"{evt.NotificationPolicy}:{status}"
-            : $"policy-suppressed:{evt.NotificationPolicy}:{status}";
-        return shouldQueue;
+        if (!shouldQueue)
+        {
+            var reason = $"rule-suppressed:on-final-state:{context.FinalStateStatus}";
+            return (new BackgroundTaskNotificationDecision.Suppress(reason), reason);
+        }
+
+        return (new BackgroundTaskNotificationDecision.Queue(
+                FormatSummary(evt),
+                CreateMetadata(evt)),
+            $"rule-queued:on-final-state:{context.FinalStateStatus}");
     }
 
-    private static string GetTerminalStatus(BackgroundTaskEvent evt) =>
+    private async ValueTask<(BackgroundTaskNotificationDecision Decision, string Reason)> EvaluateStrategyRuleAsync(
+        BackgroundTaskEvent evt,
+        BackgroundTaskNotificationContext context,
+        BackgroundTaskNotificationRule.StrategyRule rule,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(rule.Name))
+        {
+            var reason = $"strategy-not-found:{rule.Name}";
+            return (new BackgroundTaskNotificationDecision.Suppress(reason), reason);
+        }
+
+        if (_strategyRegistry?.TryGetStrategy(rule.Name, out var strategy) != true)
+        {
+            if (rule.Fallback is not null)
+            {
+                return await EvaluateRuleAsync(evt, context, rule.Fallback, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            var reason = $"strategy-not-found:{rule.Name}";
+            return (new BackgroundTaskNotificationDecision.Suppress(reason), reason);
+        }
+
+        try
+        {
+            var decision = await strategy.DecideAsync(evt, context, cancellationToken)
+                .ConfigureAwait(false);
+
+            return decision switch
+            {
+                BackgroundTaskNotificationDecision.Queue =>
+                    (decision, $"strategy-queued:{rule.Name}:{context.FinalStateStatus}"),
+                BackgroundTaskNotificationDecision.Suppress suppress =>
+                    (suppress, $"strategy-suppressed:{rule.Name}:{suppress.Reason}"),
+                _ =>
+                    (new BackgroundTaskNotificationDecision.Suppress($"strategy-suppressed:{rule.Name}:unknown-decision"),
+                        $"strategy-suppressed:{rule.Name}:unknown-decision")
+            };
+        }
+        catch (Exception ex)
+        {
+            var reason = $"strategy-faulted:{rule.Name}:{ex.GetType().FullName ?? ex.GetType().Name}";
+            return (new BackgroundTaskNotificationDecision.Suppress(reason), reason);
+        }
+    }
+
+    private static bool IsNotificationSuppressedByMetadata(
+        IReadOnlyDictionary<string, string>? metadata,
+        out string reason)
+    {
+        reason = "";
+        if (metadata?.TryGetValue(BackgroundTaskNotificationMetadataKeys.SuppressNotification, out var suppress) != true ||
+            !bool.TryParse(suppress, out var shouldSuppress) ||
+            !shouldSuppress)
+        {
+            return false;
+        }
+
+        reason = metadata.TryGetValue(BackgroundTaskNotificationMetadataKeys.SuppressNotificationReason, out var metadataReason) &&
+            !string.IsNullOrWhiteSpace(metadataReason)
+                ? metadataReason
+                : "metadata-suppressed";
+        return true;
+    }
+
+    private static string GetFinalStateStatus(BackgroundTaskEvent evt) =>
         evt switch
         {
             BackgroundTaskCompletedEvent => "completed",
             BackgroundTaskCancelledEvent => "cancelled",
             BackgroundTaskFaultedEvent => "faulted",
-            _ => "terminal"
+            _ => "final-state"
         };
 
     private static string FormatSummary(BackgroundTaskEvent evt) =>
@@ -265,7 +401,7 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
             BackgroundTaskFaultedEvent faulted =>
                 $"Background task '{evt.Name}' failed: {faulted.ErrorMessage}",
             _ =>
-                $"Background task '{evt.Name}' reached a terminal state."
+                $"Background task '{evt.Name}' reached a final state."
         };
 
     private static IReadOnlyDictionary<string, string> CreateMetadata(BackgroundTaskEvent evt)
@@ -274,8 +410,8 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
         {
             ["taskName"] = evt.Name,
             ["sourceKind"] = evt.SourceKind.ToString(),
-            ["status"] = GetTerminalStatus(evt),
-            ["notificationPolicy"] = evt.NotificationPolicy.ToString()
+            ["status"] = GetFinalStateStatus(evt),
+            ["notificationRule"] = DescribeNotificationRule(evt.Notification)
         };
 
         if (!string.IsNullOrWhiteSpace(evt.SourceId))
@@ -297,6 +433,17 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
 
         return metadata;
     }
+
+    private static string DescribeNotificationRule(BackgroundTaskNotificationRule rule) =>
+        rule switch
+        {
+            BackgroundTaskNotificationRule.NoneRule => "none",
+            BackgroundTaskNotificationRule.OnFinalStateRule onFinalState =>
+                $"on_final_state:completed={onFinalState.Completed.ToString().ToLowerInvariant()};faulted={onFinalState.Faulted.ToString().ToLowerInvariant()};cancelled={onFinalState.Cancelled.ToString().ToLowerInvariant()}",
+            BackgroundTaskNotificationRule.StrategyRule strategy =>
+                $"strategy:{strategy.Name}",
+            _ => "unknown"
+        };
 
     private static string FormatInput(IReadOnlyList<BackgroundTaskNotification> notifications)
     {
@@ -358,7 +505,7 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
         foreach (var subscription in _subscriptions)
             subscription.Dispose();
 
-        _terminalEvents.Writer.TryComplete();
+        _finalStateEvents.Writer.TryComplete();
 
         try
         {
@@ -389,7 +536,7 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
         foreach (var subscription in _subscriptions)
             subscription.Dispose();
 
-        _terminalEvents.Writer.TryComplete();
+        _finalStateEvents.Writer.TryComplete();
         _cts.Cancel();
         _cts.Dispose();
     }

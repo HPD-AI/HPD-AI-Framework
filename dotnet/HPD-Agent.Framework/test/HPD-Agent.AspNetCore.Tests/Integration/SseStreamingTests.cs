@@ -82,7 +82,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
             var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/threads/main/events");
             using var events = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
             return events.RootElement.EnumerateArray().Any(e =>
-                e.GetProperty("type").GetString() == ThreadEventTypes.MessageStarted &&
+                e.GetProperty("type").GetString() == "TEXT_MESSAGE_START" &&
                 e.TryGetProperty("clientInputId", out var clientInputId) &&
                 clientInputId.GetString() == "client-input-1");
         });
@@ -92,7 +92,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         var threadEvents = events.RootElement.EnumerateArray().ToArray();
         threadEvents.Should().NotContain(e => e.GetProperty("type").GetString() == EventTypes.Input.USER_MESSAGES_INPUT);
         threadEvents.Any(e =>
-            e.GetProperty("type").GetString() == ThreadEventTypes.MessageStarted &&
+            e.GetProperty("type").GetString() == "TEXT_MESSAGE_START" &&
             e.TryGetProperty("clientInputId", out var clientInputId) &&
             clientInputId.GetString() == "client-input-1")
             .Should()

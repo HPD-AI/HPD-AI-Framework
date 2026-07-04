@@ -1,3 +1,5 @@
+import type { BackgroundTaskNotificationRule } from './events.js';
+
 /**
  * Client Tools Protocol Types
  *
@@ -24,7 +26,43 @@ export interface ClientToolDefinition {
 
   /** Whether this tool requires user permission before execution */
   requiresPermission?: boolean;
+
+  /** How this tool may be invoked by the model. Defaults to synchronous-only. */
+  invocationModePolicy?: AgentInvocationModePolicy;
+
+  /** Notification rule used when this client tool accepts background work. */
+  backgroundNotification?: BackgroundTaskNotificationRule;
 }
+
+export type AgentInvocationModePolicy =
+  | 'SynchronousOnly'
+  | 'BackgroundOnly'
+  | 'ModelChoice'
+  | string;
+
+export type BackgroundHandleKind =
+  | 'Process'
+  | 'Workflow'
+  | 'Agent'
+  | 'McpOperation'
+  | 'ClientToolOperation'
+  | 'BrowserSession'
+  | 'FileWatcher'
+  | 'Export'
+  | 'IndexingJob'
+  | 'Runtime'
+  | 'Other'
+  | string;
+
+export type BackgroundHandleOperation =
+  | 'None'
+  | 'Status'
+  | 'Read'
+  | 'Stop'
+  | 'Cancel'
+  | 'Artifacts'
+  | 'Events'
+  | string;
 
 // ============================================
 // Tool Group Definition (Container for Tools)
@@ -306,24 +344,39 @@ export interface ClientToolInvokeRequest {
 }
 
 /**
- * Response from client after executing a tool.
+ * Immediate outcome from the client after accepting or executing a tool request.
  */
-export interface ClientToolInvokeResponse {
+export interface ClientToolInvokeOutcome {
   /** Must match requestId from the request */
   requestId: string;
 
-  /** Tool result content */
-  content: ToolResultContent[];
+  /** Immediate outcome kind. */
+  outcome: ClientToolInvokeOutcomeKind;
 
-  /** Whether execution succeeded */
-  success: boolean;
+  /** Tool result content for completed outcomes, or launch content for background outcomes. */
+  content?: ToolResultContent[];
 
-  /** Error message if success is false */
+  /** Error message for rejected or failed outcomes. */
   errorMessage?: string;
+
+  /** Client-owned operation id for accepted background work. */
+  clientOperationId?: string;
+
+  /** Optional handle kind when the accepted background operation is controllable. */
+  handleKind?: BackgroundHandleKind;
+
+  /** Operations supported by the background handle. */
+  supportedOperations?: BackgroundHandleOperation[];
 
   /** State changes to apply before next iteration */
   augmentation?: ClientToolAugmentation;
 }
+
+export type ClientToolInvokeOutcomeKind =
+  | 'Completed'
+  | 'AcceptedBackground'
+  | 'Rejected'
+  | 'Failed';
 
 // ============================================
 // Helper Functions
@@ -398,54 +451,186 @@ export function createJsonResult(value: unknown): ToolResultContent[] {
 }
 
 /**
- * Creates a successful tool response.
+ * Creates a completed tool outcome.
  */
-export function createSuccessResponse(
+export function completeClientTool(
   requestId: string,
   content: ToolResultContent[] | string,
   augmentation?: ClientToolAugmentation
-): ClientToolInvokeResponse {
+): ClientToolInvokeOutcome {
   return {
     requestId,
+    outcome: 'Completed',
     content: typeof content === 'string' ? createTextResult(content) : content,
-    success: true,
     augmentation,
   };
 }
 
 /**
- * Creates a successful text tool response.
+ * Creates a completed text tool outcome.
  */
-export function createTextResponse(
+export function completeClientToolWithText(
   requestId: string,
   text: string,
   augmentation?: ClientToolAugmentation
-): ClientToolInvokeResponse {
-  return createSuccessResponse(requestId, createTextResult(text), augmentation);
+): ClientToolInvokeOutcome {
+  return completeClientTool(requestId, createTextResult(text), augmentation);
 }
 
 /**
- * Creates a successful JSON tool response.
+ * Creates a completed JSON tool outcome.
  */
-export function createJsonResponse(
+export function completeClientToolWithJson(
   requestId: string,
   value: unknown,
   augmentation?: ClientToolAugmentation
-): ClientToolInvokeResponse {
-  return createSuccessResponse(requestId, createJsonResult(value), augmentation);
+): ClientToolInvokeOutcome {
+  return completeClientTool(requestId, createJsonResult(value), augmentation);
 }
 
 /**
- * Creates a failed tool response.
+ * Creates a failed tool outcome.
  */
-export function createErrorResponse(
+export function failClientTool(
   requestId: string,
   errorMessage: string
-): ClientToolInvokeResponse {
+): ClientToolInvokeOutcome {
   return {
     requestId,
-    content: [],
-    success: false,
+    outcome: 'Failed',
     errorMessage,
   };
+}
+
+/**
+ * Creates a rejected tool outcome.
+ */
+export function rejectClientTool(
+  requestId: string,
+  errorMessage: string
+): ClientToolInvokeOutcome {
+  return {
+    requestId,
+    outcome: 'Rejected',
+    errorMessage,
+  };
+}
+
+/**
+ * Creates an accepted background tool outcome.
+ */
+export function acceptClientToolBackground(
+  requestId: string,
+  clientOperationId: string,
+  options: {
+    content?: ToolResultContent[] | string;
+    handleKind?: BackgroundHandleKind;
+    supportedOperations?: BackgroundHandleOperation[];
+    augmentation?: ClientToolAugmentation;
+  } = {},
+): ClientToolInvokeOutcome {
+  return {
+    requestId,
+    outcome: 'AcceptedBackground',
+    clientOperationId,
+    content: typeof options.content === 'string' ? createTextResult(options.content) : options.content,
+    handleKind: options.handleKind,
+    supportedOperations: options.supportedOperations,
+    augmentation: options.augmentation,
+  };
+}
+
+export type ClientToolBackgroundOperationState =
+  | 'Completed'
+  | 'Faulted'
+  | 'Cancelled';
+
+export interface ClientToolBackgroundOperationOutcomeInput {
+  type: 'CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME';
+  clientOperationId: string;
+  state: ClientToolBackgroundOperationState;
+  content?: ToolResultContent[];
+  augmentation?: ClientToolAugmentation;
+  errorMessage?: string | null;
+  errorType?: string | null;
+  cancellationReason?: string | null;
+  metadata?: Record<string, string> | null;
+}
+
+/**
+ * Creates a terminal background operation outcome for accepted client-tool work.
+ */
+export function finishClientToolBackgroundOperation(
+  clientOperationId: string,
+  state: ClientToolBackgroundOperationState,
+  options: {
+    content?: ToolResultContent[] | string;
+    augmentation?: ClientToolAugmentation;
+    errorMessage?: string | null;
+    errorType?: string | null;
+    cancellationReason?: string | null;
+    metadata?: Record<string, string> | null;
+  } = {},
+): ClientToolBackgroundOperationOutcomeInput {
+  return {
+    type: 'CLIENT_TOOL_BACKGROUND_OPERATION_OUTCOME',
+    clientOperationId,
+    state,
+    content: typeof options.content === 'string' ? createTextResult(options.content) : options.content,
+    augmentation: options.augmentation,
+    errorMessage: options.errorMessage,
+    errorType: options.errorType,
+    cancellationReason: options.cancellationReason,
+    metadata: options.metadata,
+  };
+}
+
+/**
+ * Creates a completed background operation outcome.
+ */
+export function completeClientToolBackgroundOperation(
+  clientOperationId: string,
+  content?: ToolResultContent[] | string,
+  options: {
+    augmentation?: ClientToolAugmentation;
+    metadata?: Record<string, string> | null;
+  } = {},
+): ClientToolBackgroundOperationOutcomeInput {
+  return finishClientToolBackgroundOperation(clientOperationId, 'Completed', {
+    content,
+    augmentation: options.augmentation,
+    metadata: options.metadata,
+  });
+}
+
+/**
+ * Creates a faulted background operation outcome.
+ */
+export function failClientToolBackgroundOperation(
+  clientOperationId: string,
+  errorMessage: string,
+  options: {
+    errorType?: string | null;
+    metadata?: Record<string, string> | null;
+  } = {},
+): ClientToolBackgroundOperationOutcomeInput {
+  return finishClientToolBackgroundOperation(clientOperationId, 'Faulted', {
+    errorMessage,
+    errorType: options.errorType,
+    metadata: options.metadata,
+  });
+}
+
+/**
+ * Creates a cancelled background operation outcome.
+ */
+export function cancelClientToolBackgroundOperation(
+  clientOperationId: string,
+  cancellationReason?: string | null,
+  metadata?: Record<string, string> | null,
+): ClientToolBackgroundOperationOutcomeInput {
+  return finishClientToolBackgroundOperation(clientOperationId, 'Cancelled', {
+    cancellationReason,
+    metadata,
+  });
 }

@@ -709,7 +709,7 @@ public static partial class NativeExports
             };
 
             // Send response back to the agent
-            agent.RespondAsync(
+            agent.AnswerRequestAsync(
                 new PermissionResponseEvent(
                     permissionId,
                     "FFI",  // Source name

@@ -28,8 +28,6 @@ namespace HPD.Agent.Permissions;
 /// <list type="bullet">
 /// <item><see cref="PermissionRequestEvent"/>: Emitted to request user permission</item>
 /// <item><see cref="PermissionResponseEvent"/>: Expected response from UI handler</item>
-/// <item><see cref="PermissionApprovedEvent"/>: Emitted for observability when approved</item>
-/// <item><see cref="PermissionDeniedEvent"/>: Emitted for observability when denied</item>
 /// </list>
 /// </remarks>
 /// <example>
@@ -279,12 +277,6 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         }
         catch (TimeoutException)
         {
-            context.Emit(new PermissionDeniedEvent(
-                permissionId,
-                _middlewareName,
-                callId,
-                "Permission request timed out after 5 minutes"));
-
             context.BlockExecution = true;
             const string timeoutReason = "Permission request timed out. Please respond to permission requests promptly.";
             context.OverrideResult = timeoutReason;
@@ -293,12 +285,6 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         }
         catch (OperationCanceledException)
         {
-            context.Emit(new PermissionDeniedEvent(
-                permissionId,
-                _middlewareName,
-                callId,
-                "Permission request was cancelled"));
-
             context.BlockExecution = true;
             const string cancelledReason = "Permission request was cancelled.";
             context.OverrideResult = cancelledReason;
@@ -312,9 +298,6 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
 
         if (response.Approved)
         {
-            // Emit approval event for observability
-            context.Emit(new PermissionApprovedEvent(permissionId, _middlewareName));
-
             // Store persistent choice if requested
             // Save permission choice to persistent state (if user chose to remember)
             if (response.Choice != PermissionChoice.Ask)
@@ -352,13 +335,6 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             var denialReason = response.Reason
                 ?? _config?.Messages?.PermissionDeniedDefault
                 ?? "Permission denied by user.";
-
-            // Emit denial event for observability
-            context.Emit(new PermissionDeniedEvent(
-                permissionId,
-                _middlewareName,
-                callId,
-                denialReason));
 
             // Record denial in batch state (for parallel execution optimization)
             var updatedBatchState = batchState.RecordDenial(
@@ -447,31 +423,16 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         }
         catch (TimeoutException)
         {
-            context.Emit(new PermissionDeniedEvent(
-                permissionId,
-                _middlewareName,
-                callId,
-                "Permission request timed out after 5 minutes"));
-
             return (false, "Permission request timed out. Please respond to permission requests promptly.", PermissionDeniedBehavior.InterruptTurn);
         }
         catch (OperationCanceledException)
         {
-            context.Emit(new PermissionDeniedEvent(
-                permissionId,
-                _middlewareName,
-                callId,
-                "Permission request was cancelled"));
-
             return (false, "Permission request was cancelled.", PermissionDeniedBehavior.InterruptTurn);
         }
 
         // Process response
         if (response.Approved)
         {
-            // Emit approval event for observability
-            context.Emit(new PermissionApprovedEvent(permissionId, _middlewareName));
-
             // Store persistent choice if requested (AlwaysAllow or AlwaysDeny)
             if (response.Choice != PermissionChoice.Ask)
             {
@@ -496,13 +457,6 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             var denialReason = response.Reason
                 ?? _config?.Messages?.PermissionDeniedDefault
                 ?? "Permission denied by user.";
-
-            // Emit denial event for observability
-            context.Emit(new PermissionDeniedEvent(
-                permissionId,
-                _middlewareName,
-                callId,
-                denialReason));
 
             return (false, denialReason, response.DeniedBehavior);
         }

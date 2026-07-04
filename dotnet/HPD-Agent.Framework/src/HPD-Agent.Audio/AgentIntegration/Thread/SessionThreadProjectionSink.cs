@@ -36,28 +36,36 @@ public sealed class SessionThreadProjectionSink : IThreadProjectionSink
             return existing;
         }
 
-        var message = new ChatMessage(ToChatRole(record.Role), record.Text)
-        {
-            MessageId = messageId
-        };
+        var role = ToChatRole(record.Role);
 
         await _sessionStore.AppendThreadEventAsync(
             thread.SessionId,
             thread.ThreadId,
-            ThreadEventFactory.MessageStarted(thread.SessionId, thread.ThreadId, message),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        await _sessionStore.AppendThreadEventAsync(
-            thread.SessionId,
-            thread.ThreadId,
-            ThreadEventFactory.ContentAdded(
+            ThreadEventFactory.TextMessageStarted(
                 thread.SessionId,
                 thread.ThreadId,
+                null,
                 messageId,
-                new TextContent(record.Text)),
+                role.Value,
+                0),
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        var completed = ThreadEventFactory.MessageCompleted(thread.SessionId, thread.ThreadId, messageId);
+        if (!string.IsNullOrEmpty(record.Text))
+        {
+            await _sessionStore.AppendThreadEventAsync(
+                thread.SessionId,
+                thread.ThreadId,
+                ThreadEventFactory.TextDelta(
+                    thread.SessionId,
+                    thread.ThreadId,
+                    null,
+                    messageId,
+                    record.Text,
+                    0),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+
+        var completed = ThreadEventFactory.TextMessageCompleted(thread.SessionId, thread.ThreadId, null, messageId, 0);
         await _sessionStore.AppendThreadEventAsync(
             thread.SessionId,
             thread.ThreadId,
@@ -99,7 +107,7 @@ public sealed class SessionThreadProjectionSink : IThreadProjectionSink
             cancellationToken).ConfigureAwait(false);
 
         var completed = document?.Events.LastOrDefault(e =>
-            e is MessageCompletedEvent completedEvent
+            e is TextMessageEndEvent completedEvent
             && string.Equals(completedEvent.MessageId, messageId, StringComparison.Ordinal));
 
         return completed is null

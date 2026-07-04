@@ -1,5 +1,6 @@
 using HPD.Agent.AspNetCore.DependencyInjection;
 using HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
+using HPD.Agent.ClientTools;
 using HPD.Agent.Hosting.Lifecycle;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
@@ -83,6 +84,10 @@ public static class HPDAgentEndpointRouteBuilderExtensions
             StreamingEndpoints.Map(routeGroup, hostingServices.Streaming);
         if (options.MapMiddlewareResponses)
             MiddlewareResponseEndpoints.Map(routeGroup, hostingServices.MiddlewareResponses);
+        if (options.MapClientToolProviders)
+            ClientToolProviderEndpoints.Map(
+                routeGroup,
+                endpoints.ServiceProvider.GetRequiredService<IClientToolProviderRegistry>());
         if (options.MapAgents)
             AgentEndpoints.Map(routeGroup, hostingServices.Agents);
         if (options.MapEvals)

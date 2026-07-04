@@ -221,9 +221,9 @@ Set `enableLiveUpdates` to `true` to emit HPD agent events when an MCP server re
 Live updates are invalidation signals. HPD does not mutate an active tool list mid-turn; applications can subscribe and decide whether to reload or rebuild:
 
 ```csharp
-using var subscription = agent.Subscribe<McpResourceUpdatedEvent>(evt =>
+using var subscription = agent.Subscribe<McpServerChangedEvent>(evt =>
 {
-    Console.WriteLine($"{evt.ServerName}: {evt.Uri} changed");
+    Console.WriteLine($"{evt.ServerName}: {evt.ChangeKind} changed");
 });
 ```
 

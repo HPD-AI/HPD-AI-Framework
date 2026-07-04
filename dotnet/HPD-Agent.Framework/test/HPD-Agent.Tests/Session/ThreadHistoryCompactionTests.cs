@@ -163,9 +163,7 @@ public class ThreadHistoryCompactionTests
         var thread = CreateThread(4);
         foreach (var message in thread.Messages)
         {
-            events.Add(ThreadEventFactory.MessageStarted("session", "main", message));
-            events.Add(ThreadEventFactory.ContentAdded("session", "main", message.MessageId!, message.Contents[0]));
-            events.Add(ThreadEventFactory.MessageCompleted("session", "main", message.MessageId!));
+            events.Add(ThreadEventFactory.ContentAdded("session", "main", message, message.Contents[0]));
         }
 
         events.Add(ThreadEventFactory.ThreadHistoryCompacted(

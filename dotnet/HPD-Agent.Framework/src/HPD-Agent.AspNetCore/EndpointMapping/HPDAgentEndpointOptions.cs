@@ -11,6 +11,7 @@ public sealed class HPDAgentEndpointOptions
     public bool MapContent { get; set; } = true;
     public bool MapStreaming { get; set; } = true;
     public bool MapMiddlewareResponses { get; set; } = true;
+    public bool MapClientToolProviders { get; set; } = true;
     public bool MapAgents { get; set; } = true;
     public bool MapEvals { get; set; } = true;
 

@@ -120,7 +120,7 @@ public sealed class AgentThreadService : IAgentThreadService
                 MergeThreadMetadata(thread, request.Metadata);
                 thread.LastActivity = DateTime.UtcNow;
 
-                await _sessionManager.Store.AppendThreadMetadataUpdatedAsync(thread, cancellationToken);
+                await _sessionManager.Store.AppendThreadUpdatedAsync(thread, cancellationToken);
                 return AgentServiceResult<ThreadDto>.Success(thread.ToDto(sessionId));
             },
             cancellationToken);
@@ -228,7 +228,7 @@ public sealed class AgentThreadService : IAgentThreadService
             ?? throw new InvalidOperationException($"Thread '{newThreadId}' not found after fork.");
 
         ApplyThreadMetadata(newThread, request.Name, request.Description, request.Tags, metadata: null);
-        await _sessionManager.Store.AppendThreadMetadataUpdatedAsync(newThread, cancellationToken);
+        await _sessionManager.Store.AppendThreadUpdatedAsync(newThread, cancellationToken);
 
         return AgentServiceResult<ThreadDto>.Success(newThread.ToDto(sessionId));
     }
@@ -288,7 +288,7 @@ public sealed class AgentThreadService : IAgentThreadService
             {
                 parent.ChildThreads.Remove(threadId);
                 parent.LastActivity = DateTime.UtcNow;
-                await _sessionManager.Store.AppendThreadTreeUpdatedAsync(parent, cancellationToken);
+                await _sessionManager.Store.AppendThreadUpdatedAsync(parent, cancellationToken);
             }
         }
     }

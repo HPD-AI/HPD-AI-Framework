@@ -110,14 +110,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
 
         if (match.Decision is { Behavior: ExecuteCommandPermissionBehavior.Deny })
         {
-            var auditPermissionId = Guid.NewGuid().ToString("N");
             var reason = $"ExecuteCommand denied by rule {match.Decision.Id}.";
-            context.Emit(new ExecuteCommandPermissionDeniedEvent(
-                auditPermissionId,
-                MiddlewareName,
-                callId,
-                reason,
-                BuildAuditDetails(plan, match.Decision, decision: "denied_by_rule", persistedRuleIds: [])));
             return new ExecuteCommandPermissionCheckResult(
                 plan.Fingerprint.Value,
                 ExecuteCommandPermissionDecision.Deny(plan.Fingerprint.Value, reason, "denied_by_rule"));
@@ -129,14 +122,6 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
         }
         else if (match.Decision is { Behavior: ExecuteCommandPermissionBehavior.Allow })
         {
-            var auditPermissionId = Guid.NewGuid().ToString("N");
-            context.Emit(new ExecuteCommandPermissionApprovedEvent(
-                auditPermissionId,
-                MiddlewareName,
-                callId,
-                plan.Fingerprint.Value,
-                match.Decision.Id,
-                BuildAuditDetails(plan, match.Decision, decision: "approved_by_rule", persistedRuleIds: [])));
             return new ExecuteCommandPermissionCheckResult(
                 plan.Fingerprint.Value,
                 ExecuteCommandPermissionDecision.AllowOnce(plan.Fingerprint.Value));
@@ -182,13 +167,6 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
         switch (selected)
         {
             case AllowOnceChoice allow:
-                context.Emit(new ExecuteCommandPermissionApprovedEvent(
-                    permissionId,
-                    MiddlewareName,
-                    callId,
-                    plan.Fingerprint.Value,
-                    null,
-                    BuildAuditDetails(plan, null, decision: "allow_once", persistedRuleIds: [])));
                 return new ExecuteCommandPermissionCheckResult(
                     plan.Fingerprint.Value,
                     ExecuteCommandPermissionDecision.AllowOnce(plan.Fingerprint.Value));
@@ -221,17 +199,6 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
                             decision: "persisted",
                             persistedRuleIds: rulesToPersist.Select(item => item.Id).ToArray())));
                 }
-                context.Emit(new ExecuteCommandPermissionApprovedEvent(
-                    permissionId,
-                    MiddlewareName,
-                    callId,
-                    plan.Fingerprint.Value,
-                    persist.Proposal is SegmentRuleBundleProposal ? null : persist.Proposal.Rule.Id,
-                    BuildAuditDetails(
-                        plan,
-                        null,
-                        decision: "persist_and_allow",
-                        persistedRuleIds: rulesToPersist.Select(rule => rule.Id).ToArray())));
                 return new ExecuteCommandPermissionCheckResult(
                     plan.Fingerprint.Value,
                     ExecuteCommandPermissionDecision.AllowOnce(plan.Fingerprint.Value));
@@ -240,12 +207,6 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
                 var feedback = string.IsNullOrWhiteSpace(response.FeedbackText)
                     ? "User denied ExecuteCommand and did not provide alternate instructions."
                     : response.FeedbackText.Trim();
-                context.Emit(new ExecuteCommandPermissionDeniedEvent(
-                    permissionId,
-                    MiddlewareName,
-                    callId,
-                    feedback,
-                    BuildAuditDetails(plan, null, decision: "feedback", persistedRuleIds: [])));
                 return new ExecuteCommandPermissionCheckResult(
                     plan.Fingerprint.Value,
                     ExecuteCommandPermissionDecision.Deny(
@@ -254,12 +215,6 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
                         deniedBehavior: PermissionDeniedBehavior.ReturnToModel));
 
             default:
-                context.Emit(new ExecuteCommandPermissionDeniedEvent(
-                    permissionId,
-                    MiddlewareName,
-                    callId,
-                    "User denied ExecuteCommand.",
-                    BuildAuditDetails(plan, null, decision: "deny", persistedRuleIds: [])));
                 return new ExecuteCommandPermissionCheckResult(
                     plan.Fingerprint.Value,
                     ExecuteCommandPermissionDecision.Deny(plan.Fingerprint.Value, "User denied ExecuteCommand."));
@@ -362,10 +317,13 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
         {
             var action = GetEnum(arguments, "action", ExecuteCommandAction.Run);
             var command = GetString(arguments, "command");
-            var backgroundTaskId = GetString(arguments, "backgroundTaskId");
+            var backgroundHandleId = GetString(arguments, "backgroundHandleId");
             var workingDirectory = GetString(arguments, "workingDirectory");
             var timeoutMilliseconds = GetInt(arguments, "timeoutMilliseconds", 120_000);
-            var runInBackground = GetBool(arguments, "runInBackground", false);
+            var startsInBackground = string.Equals(
+                GetString(arguments, "invocationMode"),
+                "background",
+                StringComparison.OrdinalIgnoreCase);
             var tailLines = GetInt(arguments, "tailLines", 200);
             var delayMilliseconds = GetInt(arguments, "delayMilliseconds", 0);
             var environment = GetStringDictionary(arguments, "environment");
@@ -373,10 +331,10 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
             var normalized = CodingToolHarness.NormalizeExecuteCommandRequest(
                 action,
                 command,
-                backgroundTaskId,
+                backgroundHandleId,
                 workingDirectory,
                 timeoutMilliseconds,
-                runInBackground,
+                startsInBackground,
                 tailLines,
                 delayMilliseconds,
                 environment,
@@ -400,7 +358,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
                     RequestedSandbox = requestedSandbox,
                     FilesystemEffects = [],
                     NetworkEffects = [],
-                    RunInBackground = runInBackground,
+                    StartsInBackground = startsInBackground,
                     Risk = ExecuteCommandPermissionRisk.UnknownOrUnparseable,
                     FailureReason = error.Message,
                     InvalidRequest = true
@@ -417,7 +375,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
                     request.Action.ToString(),
                     shell.Family.ToString(),
                     request.WorkingDirectory,
-                    request.BackgroundTaskId ?? string.Empty,
+                    request.BackgroundHandleId ?? string.Empty,
                     sandbox.Canonicalize(request.WorkingDirectory));
                 return new ExecuteCommandPlanBase
                 {
@@ -433,14 +391,14 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
                     RequestedSandbox = sandbox,
                     FilesystemEffects = [],
                     NetworkEffects = [],
-                    RunInBackground = false,
+                    StartsInBackground = false,
                     Risk = ExecuteCommandPermissionRisk.None
                 }.ToNonRun($"{request.Action} is governed by same-session background command ownership, not shell command permission.");
             }
 
             var analysis = ExecuteCommandShellAnalyzer.Analyze(new RawCommandText(request.Command), shell);
             var risk = analysis.Risk;
-            if (request.RunInBackground)
+            if (request.StartsInBackground)
                 risk |= ExecuteCommandPermissionRisk.BackgroundProcess;
             if (sandbox.Mode == ExecuteCommandIsolationMode.Disabled)
                 risk |= ExecuteCommandPermissionRisk.Unsandboxed;
@@ -480,7 +438,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
                 RequestedSandbox = sandbox,
                 FilesystemEffects = filesystemEffects,
                 NetworkEffects = networkEffects,
-                RunInBackground = request.RunInBackground,
+                StartsInBackground = request.StartsInBackground,
                 Risk = risk,
                 UnsupportedShellFeatures = analysis.UnsupportedFeatures,
                 ShellAnalyzerName = analysis.AnalyzerName,
@@ -1185,7 +1143,7 @@ public abstract record ExecuteCommandPermissionPlan
     public required ExecuteCommandSandboxPolicy RequestedSandbox { get; init; }
     public required IReadOnlyList<ExecuteCommandFilesystemEffect> FilesystemEffects { get; init; }
     public required IReadOnlyList<ExecuteCommandNetworkEffect> NetworkEffects { get; init; }
-    public required bool RunInBackground { get; init; }
+    public required bool StartsInBackground { get; init; }
     public required ExecuteCommandPermissionRisk Risk { get; init; }
     public IReadOnlyList<ExecuteCommandUnsupportedShellFeature> UnsupportedShellFeatures { get; init; } = [];
     public abstract ExecuteCommandAnalysisTrustLevel TrustLevel { get; }
@@ -1244,7 +1202,7 @@ internal sealed record ExecuteCommandPlanBase
     public required ExecuteCommandSandboxPolicy RequestedSandbox { get; init; }
     public required IReadOnlyList<ExecuteCommandFilesystemEffect> FilesystemEffects { get; init; }
     public required IReadOnlyList<ExecuteCommandNetworkEffect> NetworkEffects { get; init; }
-    public required bool RunInBackground { get; init; }
+    public required bool StartsInBackground { get; init; }
     public required ExecuteCommandPermissionRisk Risk { get; init; }
     public IReadOnlyList<ExecuteCommandUnsupportedShellFeature> UnsupportedShellFeatures { get; init; } = [];
     public string? ShellAnalyzerName { get; init; }
@@ -1268,7 +1226,7 @@ internal sealed record ExecuteCommandPlanBase
             RequestedSandbox = RequestedSandbox,
             FilesystemEffects = FilesystemEffects,
             NetworkEffects = NetworkEffects,
-            RunInBackground = RunInBackground,
+            StartsInBackground = StartsInBackground,
             Risk = Risk,
             UnsupportedShellFeatures = UnsupportedShellFeatures,
             ShellAnalyzerName = ShellAnalyzerName,
@@ -1296,7 +1254,7 @@ internal sealed record ExecuteCommandPlanBase
             RequestedSandbox = RequestedSandbox,
             FilesystemEffects = FilesystemEffects,
             NetworkEffects = NetworkEffects,
-            RunInBackground = RunInBackground,
+            StartsInBackground = StartsInBackground,
             Risk = Risk,
             UnsupportedShellFeatures = UnsupportedShellFeatures,
             ShellAnalyzerName = ShellAnalyzerName,
@@ -1320,7 +1278,7 @@ internal sealed record ExecuteCommandPlanBase
             RequestedSandbox = RequestedSandbox,
             FilesystemEffects = FilesystemEffects,
             NetworkEffects = NetworkEffects,
-            RunInBackground = RunInBackground,
+            StartsInBackground = StartsInBackground,
             Risk = Risk,
             UnsupportedShellFeatures = UnsupportedShellFeatures,
             ShellAnalyzerName = ShellAnalyzerName,
@@ -1343,7 +1301,7 @@ internal sealed record ExecuteCommandPlanBase
             RequestedSandbox = RequestedSandbox,
             FilesystemEffects = FilesystemEffects,
             NetworkEffects = NetworkEffects,
-            RunInBackground = RunInBackground,
+            StartsInBackground = StartsInBackground,
             Risk = Risk,
             UnsupportedShellFeatures = UnsupportedShellFeatures,
             ShellAnalyzerName = ShellAnalyzerName,
@@ -1367,7 +1325,7 @@ internal sealed record ExecuteCommandPlanBase
             RequestedSandbox = RequestedSandbox,
             FilesystemEffects = FilesystemEffects,
             NetworkEffects = NetworkEffects,
-            RunInBackground = RunInBackground,
+            StartsInBackground = StartsInBackground,
             Risk = Risk,
             UnsupportedShellFeatures = UnsupportedShellFeatures,
             ShellAnalyzerName = ShellAnalyzerName,
@@ -1731,29 +1689,6 @@ public sealed record ExecuteCommandPermissionResponseEvent(
     public override EventKind Kind { get; init; } = EventKind.Control;
     public override EventDirection Direction { get; init; } = EventDirection.Upstream;
     string IRequestCorrelatedEvent.RequestId => PermissionId;
-}
-
-public sealed record ExecuteCommandPermissionApprovedEvent(
-    string PermissionId,
-    string SourceName,
-    string CallId,
-    string Fingerprint,
-    string? RuleId,
-    ExecuteCommandPermissionAuditDetails Details) : AgentEvent
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
-}
-
-public sealed record ExecuteCommandPermissionDeniedEvent(
-    string PermissionId,
-    string SourceName,
-    string CallId,
-    string Reason,
-    ExecuteCommandPermissionAuditDetails Details) : AgentEvent
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override EventKind Kind { get; init; } = EventKind.Lifecycle;
 }
 
 public enum ExecuteCommandSandboxCapabilityKind

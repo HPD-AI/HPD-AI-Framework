@@ -42,10 +42,14 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;SelfContained;RuntimeIdentifier" AdditionalProperties="PublishAot=false;SelfContained=false;RuntimeIdentifier=" />
-    <ProjectReference Include="../../../HPD-Environment.Framework/src/HPD-Environment.Abstractions/HPD-Environment.Abstractions.csproj" />
-    <ProjectReference Include="../../../HPD-Environment.Framework/src/HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" />
-    <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
-    <ProjectReference Include="../../../shared/src/HPD-Serialization/HPD-Serialization.csproj" />
+    <ProjectReference Include="../../../HPD-Environment.Framework/src/HPD-Environment.Abstractions/HPD-Environment.Abstractions.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <ProjectReference Include="../../../HPD-Environment.Framework/src/HPD-Environment.Runtime/HPD-Environment.Runtime.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <ProjectReference Include="../../../shared/src/HPD-Serialization/HPD-Serialization.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
+    <PackageReference Include="HPD-Environment.Abstractions" Version="$(HPDEnvironmentVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
+    <PackageReference Include="HPD-Environment.Runtime" Version="$(HPDEnvironmentVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
+    <PackageReference Include="HPD-Events" Version="$(HPDEventsVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
+    <PackageReference Include="HPD-Serialization" Version="$(HPDSerializationVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 
   <!-- Pack source generator as analyzer in NuGet package -->

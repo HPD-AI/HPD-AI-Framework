@@ -48,6 +48,7 @@ public sealed class FunctionExecutionContext
         EventCoordinator = request.EventCoordinator;
         StructEvents = request.StructEvents;
         BackgroundTasks = request.BackgroundTasks;
+        BackgroundHandles = request.BackgroundHandles;
         Services = hookContext.Services;
         RuntimeCapabilities = hookContext.RuntimeCapabilities;
         _contentStore = hookContext.ContentStore;
@@ -98,6 +99,10 @@ public sealed class FunctionExecutionContext
     public IAgentBackgroundTaskRegistry? BackgroundTasks { get; }
 
     public bool CanRegisterBackgroundTasks => BackgroundTasks is not null;
+
+    public IAgentBackgroundHandleRegistry? BackgroundHandles { get; }
+
+    public bool CanRegisterBackgroundHandles => BackgroundHandles is not null;
 
     public T Analyze<T>(Func<AgentLoopState, T> analyzer)
     {
@@ -164,16 +169,11 @@ public sealed class FunctionExecutionContext
     public IAgentStore? GetParentAgentStore()
         => _parentAgentStore;
 
-    public void RegisterBackgroundTask(
+    public BackgroundTaskRegistration RegisterBackgroundTask(
         string name,
-        BackgroundTaskNotificationPolicy notificationPolicy,
+        BackgroundTaskNotificationRule notification,
         Func<BackgroundTaskContext, CancellationToken, Task> taskFactory)
-    {
-        if (BackgroundTasks is null)
-            throw new InvalidOperationException(
-                "Function background task registration requires an active agent runtime.");
-
-        BackgroundTasks.RegisterBackgroundTask(
+        => RegisterBackgroundTask(
             new BackgroundTaskDescriptor
             {
                 Name = name,
@@ -182,9 +182,60 @@ public sealed class FunctionExecutionContext
                 SessionId = InvocationSnapshot.SessionId,
                 ThreadId = InvocationSnapshot.ThreadId,
                 Invocation = InvocationSnapshot,
-                NotificationPolicy = notificationPolicy
+                Notification = notification
             },
             taskFactory);
+
+    /// <summary>
+    /// Registers runtime-owned background work from a function invocation.
+    /// </summary>
+    /// <param name="descriptor">The background task descriptor.</param>
+    /// <param name="taskFactory">The background task body.</param>
+    /// <returns>The accepted background task registration.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when no active runtime can accept background tasks.</exception>
+    public BackgroundTaskRegistration RegisterBackgroundTask(
+        BackgroundTaskDescriptor descriptor,
+        Func<BackgroundTaskContext, CancellationToken, Task> taskFactory)
+    {
+        if (BackgroundTasks is null)
+            throw new InvalidOperationException(
+                "Function background task registration requires an active agent runtime.");
+
+        return BackgroundTasks.RegisterBackgroundTask(
+            descriptor with
+            {
+                SourceId = descriptor.SourceId ?? FunctionCallId,
+                SessionId = descriptor.SessionId ?? InvocationSnapshot.SessionId,
+                ThreadId = descriptor.ThreadId ?? InvocationSnapshot.ThreadId,
+                Invocation = descriptor.Invocation ?? InvocationSnapshot
+            },
+            taskFactory);
+    }
+
+    /// <summary>
+    /// Registers a controllable background resource from a function invocation.
+    /// </summary>
+    /// <param name="descriptor">The background handle descriptor.</param>
+    /// <param name="handle">The handle implementation.</param>
+    /// <returns>The accepted background handle registration.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when no active runtime can accept background handles.</exception>
+    public BackgroundHandleRegistration RegisterBackgroundHandle(
+        BackgroundHandleDescriptor descriptor,
+        IBackgroundHandle handle)
+    {
+        if (BackgroundHandles is null)
+            throw new InvalidOperationException(
+                "Function background handle registration requires an active agent runtime.");
+
+        return BackgroundHandles.RegisterHandle(
+            descriptor with
+            {
+                SourceId = descriptor.SourceId ?? descriptor.HandleId ?? FunctionCallId,
+                SessionId = descriptor.SessionId ?? InvocationSnapshot.SessionId,
+                ThreadId = descriptor.ThreadId ?? InvocationSnapshot.ThreadId,
+                Invocation = descriptor.Invocation ?? InvocationSnapshot
+            },
+            handle);
     }
 
     private TEvent WithInvocationScope<TEvent>(TEvent evt)

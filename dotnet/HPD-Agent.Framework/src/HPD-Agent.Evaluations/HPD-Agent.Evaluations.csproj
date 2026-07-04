@@ -25,11 +25,13 @@
 
     <!-- SQLite for SqliteScoreStore -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.3" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../../shared/src/HPD-Serialization/HPD-Serialization.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-Serialization/HPD-Serialization.csproj" Condition="'$(UsePublishedHpdDependencies)' != 'true'" />
     <ProjectReference Include="../HPD-Agent/HPD-Agent.csproj" />
+    <PackageReference Include="HPD-Serialization" Version="$(HPDSerializationVersion)" Condition="'$(UsePublishedHpdDependencies)' == 'true'" />
   </ItemGroup>
 
   <ItemGroup>

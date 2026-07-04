@@ -32,7 +32,6 @@ public sealed class ExecuteCommandTuiLifecycleTests
             "hpd.coding.command.progress",
             "hpd.coding.command.backgrounded",
             "hpd.coding.command.exited",
-            "hpd.coding.command.background-list",
             "hpd.coding.command.result"
         ]);
         registry.InteractionHandlers.Select(static handler => handler.Key)
@@ -498,7 +497,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         await state.ApplyEventAsync(ExecuteCommandResult(
             """
             <execute_command_background count="1">
-              <command background_task_id="bg-1" command="npm run dev" cwd="/repo" status="running" />
+              <command background_handle_id="bg-1" command="npm run dev" cwd="/repo" status="running" />
             </execute_command_background>
             """));
 
@@ -517,7 +516,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
         await state.ApplyEventAsync(Output("ready on 5173\n", command: "npm run dev"));
         await state.ApplyEventAsync(ExecuteCommandResult(
             """
-            <execute_command_stop background_task_id="cmd-1" command="npm run dev" cwd="/repo" status="stopped" exit_code="137" completion_kind="stopped" />
+            <execute_command_stop background_handle_id="cmd-1" command="npm run dev" cwd="/repo" status="stopped" exit_code="137" completion_kind="stopped" />
             """,
             callId: "call-stop"));
 
@@ -537,7 +536,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
         await state.ApplyEventAsync(ExecuteCommandResult(
             """
-            <execute_command_stop background_task_id="bg-1" command="npm run dev" cwd="/repo" status="stopped" exit_code="137" completion_kind="stopped" />
+            <execute_command_stop background_handle_id="bg-1" command="npm run dev" cwd="/repo" status="stopped" exit_code="137" completion_kind="stopped" />
             """));
 
         var rendered = RenderTranscript(state);
@@ -702,7 +701,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
         rendered.Should().Contain("Background commands");
         rendered.Should().Contain("• npm run dev");
-        rendered.Should().Contain("task cmd-1");
+        rendered.Should().Contain("handle cmd-1");
         rendered.Should().Contain("cwd /repo");
         rendered.Should().Contain("state running");
         rendered.Should().Contain("ready on 5173");
@@ -838,7 +837,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
             RequestedSandbox = sandbox,
             FilesystemEffects = [],
             NetworkEffects = [],
-            RunInBackground = false,
+            StartsInBackground = false,
             Risk = ExecuteCommandPermissionRisk.None,
             CommandPlan = new ExecuteCommandSubcommandPlan
             {
@@ -1004,7 +1003,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
             BaseCommand = "npm",
             Category = ExecuteCommandCategory.Server,
             WorkingDirectory = "/repo",
-            BackgroundTaskId = "bg-1",
+            BackgroundHandleId = "bg-1",
             BackgroundedAt = DateTimeOffset.Parse("2026-06-06T12:00:02Z"),
             ElapsedMilliseconds = 2_000
         };

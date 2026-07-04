@@ -56,6 +56,16 @@ internal class FunctionCapability : BaseCapability
     public string Kind { get; set; } = "Function";
 
     /// <summary>
+    /// Defines whether this function runs synchronously, in the background, or lets the model choose per call.
+    /// </summary>
+    public string InvocationModePolicy { get; set; } = "SynchronousOnly";
+
+    /// <summary>
+    /// Defines whether HPD runtime or the function body handles invocation mode.
+    /// </summary>
+    public string InvocationModeHandling { get; set; } = "Runtime";
+
+    /// <summary>
     /// Whether this function has any conditional parameters.
     /// </summary>
     public bool HasConditionalParameters => Parameters.Any(p => p.IsConditional);
@@ -172,6 +182,8 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         options.AppendLine($"                Name = {nameCode},");
         options.AppendLine($"                Description = {descriptionCode},");
         options.AppendLine($"                RequiresPermission = {RequiresPermission.ToString().ToLower()},");
+        options.AppendLine($"                InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{InvocationModePolicy},");
+        options.AppendLine($"                InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.{InvocationModeHandling},");
         options.AppendLine($"                Validator = Create{Name}Validator(),");
         options.AppendLine($"                SchemaProvider = {schemaProviderCode},");
         options.AppendLine("                SerializerOptions = serialization?.SerializerOptions,");
@@ -194,6 +206,8 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
             options.AppendLine($"                    [\"Kind\"] = \"Output\",");
         }
 
+        options.AppendLine($"                    [\"InvocationModePolicy\"] = \"{InvocationModePolicy}\",");
+        options.AppendLine($"                    [\"InvocationModeHandling\"] = \"{InvocationModeHandling}\",");
         options.AppendLine("                    [\"IsContainer\"] = false");
         options.Append("                }");
 

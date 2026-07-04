@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using HPD.Agent.Middleware;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.ClientTools;
@@ -15,7 +16,7 @@ namespace HPD.Agent.ClientTools;
 /// <list type="bullet">
 /// <item><c>BeforeMessageTurnAsync</c> - Process initial tool registration from AgentClientInput</item>
 /// <item><c>BeforeIterationAsync</c> - Apply tool visibility based on current state</item>
-/// <item><c>BeforeFunctionAsync</c> - Intercept Client tool calls, emit request, wait for response</item>
+/// <item><c>BeforeFunctionAsync</c> - Intercept Client tool calls, emit request, wait for outcome</item>
 /// </list>
 ///
 /// <para><b>State Management:</b></para>
@@ -48,17 +49,21 @@ public class ClientToolMiddleware : IAgentMiddleware
     /// Registration is ATOMIC: if any ToolHarness fails validation (including cross-ToolHarness
     /// skill references), NO ToolHarnesses are registered. This prevents partial state.
     /// </summary>
-    public Task BeforeMessageTurnAsync(BeforeMessageTurnContext context, CancellationToken ct)
+    public async Task BeforeMessageTurnAsync(BeforeMessageTurnContext context, CancellationToken ct)
     {
         // Get AgentClientInput from RunConfig (if provided)
         var clientinput = context.RunConfig.ClientToolInput;
 
-        if (clientinput == null)
-            return Task.CompletedTask;
+        var providerReferences = context.RunConfig.ClientAppProviders;
+        if (clientinput == null &&
+            (providerReferences is null || providerReferences.Count == 0))
+        {
+            return;
+        }
 
         // Handle state persistence vs reset
         var existingState = context.Analyze(s => s.MiddlewareState.ClientTool());
-        var state = clientinput.ResetClientState || existingState == null
+        var state = clientinput?.ResetClientState == true || existingState == null
             ? new ClientToolStateData()
             : existingState;
 
@@ -68,7 +73,7 @@ public class ClientToolMiddleware : IAgentMiddleware
         // =============================================
         var pendingToolHarnesses = new List<clientToolHarnessDefinition>();
 
-        if (clientinput.clientToolHarnesses != null)
+        if (clientinput?.clientToolHarnesses != null)
         {
             foreach (var ToolHarness in clientinput.clientToolHarnesses)
             {
@@ -89,6 +94,9 @@ public class ClientToolMiddleware : IAgentMiddleware
             }
         }
 
+        state = await RegisterProviderToolHarnessesAsync(context, state, pendingToolHarnesses, ct)
+            .ConfigureAwait(false);
+
         // =============================================
         // PHASE 2: Validate ALL cross-ToolHarness references
         // If any skill references a non-existent tool, fail here
@@ -108,7 +116,7 @@ public class ClientToolMiddleware : IAgentMiddleware
         // =============================================
 
         // Set initial expanded ToolHarnesses
-        if (clientinput.ExpandedContainers != null)
+        if (clientinput?.ExpandedContainers != null)
         {
             foreach (var toolName in clientinput.ExpandedContainers)
             {
@@ -117,7 +125,7 @@ public class ClientToolMiddleware : IAgentMiddleware
         }
 
         // Set initial hidden tools
-        if (clientinput.HiddenTools != null)
+        if (clientinput?.HiddenTools != null)
         {
             foreach (var tool in clientinput.HiddenTools)
             {
@@ -126,13 +134,13 @@ public class ClientToolMiddleware : IAgentMiddleware
         }
 
         // Set context
-        if (clientinput.Context != null)
+        if (clientinput?.Context != null)
         {
             state = state.WithContext(clientinput.Context);
         }
 
         // Set state
-        if (clientinput.State.HasValue)
+        if (clientinput?.State.HasValue == true)
         {
             state = state.WithState(clientinput.State);
         }
@@ -145,13 +153,142 @@ public class ClientToolMiddleware : IAgentMiddleware
             MiddlewareState = s.MiddlewareState.WithClientTool(state)
         });
 
-        // Emit registration confirmation (optional - works without EventCoordinator)
-        context.TryEmit(new clientToolHarnessesRegisteredEvent(
-           RegisteredToolHarnesses: state.RegisteredToolHarnesses.Keys.ToList(),
-            TotalTools: state.RegisteredToolHarnesses.Values.Sum(p => p.Tools.Count),
-            Timestamp: DateTimeOffset.UtcNow));
+        return;
+    }
 
-        return Task.CompletedTask;
+    private static async ValueTask<ClientToolStateData> RegisterProviderToolHarnessesAsync(
+        BeforeMessageTurnContext context,
+        ClientToolStateData state,
+        List<clientToolHarnessDefinition> pendingToolHarnesses,
+        CancellationToken cancellationToken)
+    {
+        var references = context.RunConfig.ClientAppProviders;
+        if (references is null || references.Count == 0)
+            return state;
+
+        var registry = context.Services?.GetService<IClientToolProviderRegistry>();
+        if (registry is null)
+        {
+            if (references.Any(static r => r.Required))
+                throw new InvalidOperationException("Client app providers were requested, but no provider registry is available.");
+
+            return state;
+        }
+
+        foreach (var reference in references)
+        {
+            var bindingResult = await registry.TryAcquireBindingAsync(
+                reference,
+                new ClientToolProviderBindingScope
+                {
+                    AgentId = context.AgentName,
+                    SessionId = context.SessionId,
+                    ThreadId = context.ThreadId
+                },
+                cancellationToken).ConfigureAwait(false);
+
+            if (bindingResult is null)
+            {
+                if (reference.Required)
+                    throw new InvalidOperationException($"Required client app provider '{reference.Name}' is not available.");
+
+                continue;
+            }
+
+            var provider = bindingResult.Provider;
+            var lease = bindingResult.Lease;
+            var manifest = provider.Manifest;
+            if (manifest is null)
+                continue;
+
+            var selectedHarnesses = SelectHarnesses(manifest, reference);
+            foreach (var (harness, selector) in selectedHarnesses)
+            {
+                var visibleHarnessName = CreateVisibleName(manifest.AppProvider.Name, harness.Name);
+                var selectedTools = SelectTools(harness, selector, reference)
+                    .Select(tool =>
+                    {
+                        var visibleToolName = CreateVisibleName(manifest.AppProvider.Name, harness.Name, tool.Name);
+                        var binding = new ClientToolProviderToolBinding
+                        {
+                            BindingId = lease.BindingId,
+                            ClientRuntimeId = provider.ClientRuntimeId,
+                            ConnectionId = provider.ConnectionId,
+                            AppProviderName = manifest.AppProvider.Name,
+                            HarnessName = harness.Name,
+                            ProviderToolName = tool.Name,
+                            VisibleToolName = visibleToolName
+                        };
+                        state = state.WithProviderToolBinding(binding);
+                        return tool with { Name = visibleToolName };
+                    })
+                    .ToArray();
+
+                if (selectedTools.Length == 0)
+                    continue;
+
+                var providerHarness = new clientToolHarnessDefinition(
+                    visibleHarnessName,
+                    harness.Description,
+                    selectedTools,
+                    harness.Skills,
+                    harness.FunctionResult,
+                    harness.SystemPrompt,
+                    harness.StartCollapsed);
+
+                providerHarness.Validate();
+                pendingToolHarnesses.Add(providerHarness);
+                state = state.WithRegisteredToolHarness(providerHarness);
+
+                if (selector?.Expanded == true)
+                    state = state.WithExpandedToolHarness(visibleHarnessName);
+            }
+        }
+
+        return state;
+    }
+
+    private static IEnumerable<(clientToolHarnessDefinition Harness, ClientToolHarnessSelector? Selector)> SelectHarnesses(
+        ClientToolProviderManifest manifest,
+        ClientAppProviderReference reference)
+    {
+        if (reference.Harnesses is null || reference.Harnesses.Count == 0)
+            return manifest.ClientToolHarnesses.Select(h => (h, (ClientToolHarnessSelector?)null));
+
+        return reference.Harnesses
+            .Select(selector => (Harness: manifest.ClientToolHarnesses.FirstOrDefault(h =>
+                string.Equals(h.Name, selector.Name, StringComparison.OrdinalIgnoreCase)), Selector: selector))
+            .Where(static item => item.Harness is not null)!
+            .Select(static item => (item.Harness!, item.Selector));
+    }
+
+    private static IEnumerable<ClientToolDefinition> SelectTools(
+        clientToolHarnessDefinition harness,
+        ClientToolHarnessSelector? selector,
+        ClientAppProviderReference reference)
+    {
+        var tools = harness.Tools.AsEnumerable();
+        if (selector?.Tools is { Count: > 0 })
+        {
+            tools = tools.Where(tool => selector.Tools.Contains(tool.Name, StringComparer.OrdinalIgnoreCase));
+        }
+
+        if (reference.Tools is { Count: > 0 })
+        {
+            tools = tools.Where(tool => reference.Tools.Contains(tool.Name, StringComparer.OrdinalIgnoreCase));
+        }
+
+        return tools;
+    }
+
+    private static string CreateVisibleName(params string[] parts)
+        => string.Join("_", parts.Select(SanitizeIdentifierPart).Where(static p => p.Length > 0));
+
+    private static string SanitizeIdentifierPart(string value)
+    {
+        var chars = value.Select(static c => char.IsLetterOrDigit(c) ? c : '_').ToArray();
+        var sanitized = new string(chars).Trim('_');
+        return string.IsNullOrWhiteSpace(sanitized) ? "provider" : sanitized;
     }
 
     /// <summary>
@@ -345,7 +482,11 @@ public class ClientToolMiddleware : IAgentMiddleware
             // Convert ClientToolDefinitions to AIFunctions
             var toolAIFunctions = ToolHarness.Tools
                 .Where(t => !state.HiddenTools.Contains(t.Name))
-                .Select(t => ConvertToolToAIFunction(t, toolName))
+                .Select(t =>
+                {
+                    state.ProviderToolBindings.TryGetValue(t.Name, out var binding);
+                    return ConvertToolToAIFunction(t, toolName, binding);
+                })
                 .ToList();
 
             // Convert skills to AIFunctions (if any)
@@ -394,8 +535,22 @@ public class ClientToolMiddleware : IAgentMiddleware
     /// Converts a ClientToolDefinition to an AIFunction.
     /// The resulting function is intercepted by BeforeFunctionAsync.
     /// </summary>
-    private static AIFunction ConvertToolToAIFunction(ClientToolDefinition tool, string toolName)
+    private static AIFunction ConvertToolToAIFunction(
+        ClientToolDefinition tool,
+        string toolName,
+        ClientToolProviderToolBinding? providerBinding)
     {
+        var additionalProperties = new Dictionary<string, object?>
+        {
+            ["IsClientTool"] = true,
+            ["clientToolHarnessName"] = toolName,
+            ["SourceType"] = providerBinding is null ? "clientToolHarness" : "clientToolProvider",
+            ["ClientToolDefinition"] = tool,
+            ["InvocationModePolicy"] = tool.InvocationModePolicy
+        };
+        if (providerBinding is not null)
+            additionalProperties["ClientToolProviderBinding"] = providerBinding;
+
         return HPDAIFunctionFactory.Create(
             async (args, _, ct) =>
             {
@@ -410,13 +565,10 @@ public class ClientToolMiddleware : IAgentMiddleware
                 Description = tool.Description,
                 RequiresPermission = tool.RequiresPermission,
                 Validator = (_, _) => new List<ValidationError>(),
-                SchemaProvider = () => tool.ParametersSchema,
-                AdditionalProperties = new Dictionary<string, object?>
-                {
-                    ["IsClientTool"] = true,
-                    ["clientToolHarnessName"] = toolName,
-                    ["SourceType"] = "clientToolHarness"
-                }
+                SchemaProvider = () => AgentInvocationModes.CreateSchema(
+                    tool.ParametersSchema,
+                    tool.InvocationModePolicy),
+                AdditionalProperties = additionalProperties
             });
     }
 
@@ -506,7 +658,7 @@ public class ClientToolMiddleware : IAgentMiddleware
     // ============================================
 
     /// <summary>
-    /// Intercept Client tool calls - emit request and wait for response.
+    /// Intercept Client tool calls - emit request and wait for outcome.
     /// Detects Client tools by checking IsClientTool in AdditionalProperties.
     /// </summary>
     public async Task BeforeFunctionAsync(BeforeFunctionContext context, CancellationToken ct)
@@ -520,61 +672,407 @@ public class ClientToolMiddleware : IAgentMiddleware
 
         var requestId = Guid.NewGuid().ToString();
         var toolName = context.Function.Name;
+        var tool = ReadClientToolDefinition(context);
+        var invocationModePolicy = tool?.InvocationModePolicy ?? AgentInvocationModePolicy.SynchronousOnly;
+        var sanitizedArguments = CreateSanitizedArgumentDictionary(context.Arguments, out var requestedMode);
+        var resolvedMode = AgentInvocationModes.Resolve(invocationModePolicy, requestedMode);
 
-        // Wait for response
-        ClientToolInvokeResponseEvent response;
-        try
+        ClientToolInvokeOutcomeEvent outcome;
+        var providerBinding = ReadProviderBinding(context);
+        if (providerBinding is not null)
         {
-            response = await context.RequestAsync<ClientToolInvokeRequestEvent, ClientToolInvokeResponseEvent>(
-                new ClientToolInvokeRequestEvent(
-                    RequestId: requestId,
-                    ToolName: toolName,
-                    CallId: context.FunctionCallId ?? string.Empty,
-                    Arguments: context.Arguments?.ToDictionary(
-                        kvp => kvp.Key,
-                        kvp => kvp.Value) ?? new Dictionary<string, object?>(),
-                    Description: context.Function.Description),
-                _config.InvokeTimeout);
+            outcome = await InvokeProviderToolAsync(
+                context,
+                providerBinding,
+                requestId,
+                toolName,
+                sanitizedArguments,
+                requestedMode,
+                ct).ConfigureAwait(false);
         }
-        catch (TimeoutException)
+        else
         {
-            context.BlockExecution = true;
-            context.OverrideResult = HandleTimeout(toolName);
-            return;
-        }
-        catch (OperationCanceledException)
-        {
-            context.BlockExecution = true;
-            context.OverrideResult = $"Client tool '{toolName}' was cancelled.";
-            return;
+            // Wait for the client's immediate outcome.
+            try
+            {
+                outcome = await context.RequestAsync<ClientToolInvokeRequestEvent, ClientToolInvokeOutcomeEvent>(
+                    new ClientToolInvokeRequestEvent(
+                        RequestId: requestId,
+                        ToolName: toolName,
+                        CallId: context.FunctionCallId ?? string.Empty,
+                        Arguments: sanitizedArguments,
+                        Description: context.Function.Description),
+                    _config.InvokeTimeout);
+            }
+            catch (TimeoutException)
+            {
+                context.BlockExecution = true;
+                context.OverrideResult = HandleTimeout(toolName);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                context.BlockExecution = true;
+                context.OverrideResult = $"Client tool '{toolName}' was cancelled.";
+                return;
+            }
         }
 
         // Block execution (we have the result from Client)
         context.BlockExecution = true;
 
-        if (response.Success)
+        context.OverrideResult = outcome.Outcome switch
         {
-            // Convert Content to appropriate result format
-            context.OverrideResult = ConvertContentToResult(response.Content);
+            ClientToolInvokeOutcomeKind.Completed => HandleCompletedOutcome(context, outcome),
+            ClientToolInvokeOutcomeKind.AcceptedBackground => HandleAcceptedBackgroundOutcome(
+                context,
+                providerBinding,
+                tool,
+                toolName,
+                requestId,
+                resolvedMode,
+                invocationModePolicy,
+                outcome),
+            ClientToolInvokeOutcomeKind.Rejected =>
+                $"Client tool request rejected: {outcome.ErrorMessage ?? "No reason provided."}",
+            ClientToolInvokeOutcomeKind.Failed =>
+                $"Client tool failed: {outcome.ErrorMessage ?? "Unknown error"}",
+            _ => $"Client tool failed: unsupported outcome '{outcome.Outcome}'."
+        };
+    }
 
-            // Store augmentation for next iteration
-            if (response.Augmentation != null)
-            {
-                var state = context.Analyze(s => s.MiddlewareState.ClientTool());
-                if (state != null)
-                {
-                    var updatedState = state.WithPendingAugmentation(response.Augmentation);
-                    context.UpdateState(s => s with
-                    {
-                        MiddlewareState = s.MiddlewareState.WithClientTool(updatedState)
-                    });
-                }
-            }
-        }
-        else
+    private static ClientToolDefinition? ReadClientToolDefinition(BeforeFunctionContext context)
+    {
+        if (context.Function?.AdditionalProperties?.TryGetValue("ClientToolDefinition", out var value) == true &&
+            value is ClientToolDefinition definition)
         {
-            context.OverrideResult = $"Error: {response.ErrorMessage ?? "Unknown error"}";
+            return definition;
         }
+
+        return null;
+    }
+
+    private static ClientToolProviderToolBinding? ReadProviderBinding(BeforeFunctionContext context)
+    {
+        if (context.Function?.AdditionalProperties?.TryGetValue("ClientToolProviderBinding", out var value) == true &&
+            value is ClientToolProviderToolBinding binding)
+        {
+            return binding;
+        }
+
+        return null;
+    }
+
+    private async ValueTask<ClientToolInvokeOutcomeEvent> InvokeProviderToolAsync(
+        BeforeFunctionContext context,
+        ClientToolProviderToolBinding binding,
+        string requestId,
+        string toolName,
+        IReadOnlyDictionary<string, object?> sanitizedArguments,
+        AgentInvocationMode? requestedMode,
+        CancellationToken ct)
+    {
+        var registry = context.Services?.GetService<IClientToolProviderRegistry>();
+        if (registry is null)
+        {
+            return new ClientToolInvokeOutcomeEvent
+            {
+                RequestId = requestId,
+                Outcome = ClientToolInvokeOutcomeKind.Failed,
+                ErrorMessage = "Client app provider registry is not available."
+            };
+        }
+
+        return await registry.InvokeToolAsync(
+            new ClientToolProviderInvocationRequest
+            {
+                Binding = binding,
+                RequestId = requestId,
+                CallId = context.FunctionCallId ?? string.Empty,
+                Arguments = sanitizedArguments,
+                RequestedInvocationMode = requestedMode,
+                Description = context.Function.Description
+            },
+            _config.InvokeTimeout,
+            ct).ConfigureAwait(false);
+    }
+
+    private static IReadOnlyDictionary<string, object?> CreateSanitizedArgumentDictionary(
+        IReadOnlyDictionary<string, object?> arguments,
+        out AgentInvocationMode? requestedMode)
+    {
+        requestedMode = null;
+        var sanitized = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var (key, value) in arguments)
+        {
+            if (string.Equals(key, "invocationMode", StringComparison.Ordinal))
+            {
+                requestedMode = ParseRequestedMode(value);
+                continue;
+            }
+
+            sanitized[key] = value;
+        }
+
+        return sanitized;
+    }
+
+    private static AgentInvocationMode ParseRequestedMode(object? value)
+    {
+        if (value is AgentInvocationMode mode)
+            return mode;
+
+        if (value is string text)
+        {
+            if (string.Equals(text, "synchronous", StringComparison.OrdinalIgnoreCase))
+                return AgentInvocationMode.Synchronous;
+            if (string.Equals(text, "background", StringComparison.OrdinalIgnoreCase))
+                return AgentInvocationMode.Background;
+        }
+
+        if (value is JsonElement json)
+        {
+            if (json.ValueKind != JsonValueKind.String)
+                throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.");
+
+            var jsonText = json.GetString();
+            if (string.Equals(jsonText, "synchronous", StringComparison.OrdinalIgnoreCase))
+                return AgentInvocationMode.Synchronous;
+            if (string.Equals(jsonText, "background", StringComparison.OrdinalIgnoreCase))
+                return AgentInvocationMode.Background;
+        }
+
+        throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.");
+    }
+
+    private static object? HandleCompletedOutcome(
+        BeforeFunctionContext context,
+        ClientToolInvokeOutcomeEvent outcome)
+    {
+        ApplyAugmentation(context, outcome.Augmentation);
+        return ConvertContentToResult(outcome.Content);
+    }
+
+    private object? HandleAcceptedBackgroundOutcome(
+        BeforeFunctionContext context,
+        ClientToolProviderToolBinding? providerBinding,
+        ClientToolDefinition? tool,
+        string toolName,
+        string requestId,
+        AgentInvocationMode resolvedMode,
+        AgentInvocationModePolicy invocationModePolicy,
+        ClientToolInvokeOutcomeEvent outcome)
+    {
+        if (invocationModePolicy == AgentInvocationModePolicy.SynchronousOnly ||
+            resolvedMode == AgentInvocationMode.Synchronous)
+        {
+            return "Client tool accepted background work, but this tool call was resolved as synchronous.";
+        }
+
+        if (string.IsNullOrWhiteSpace(outcome.ClientOperationId))
+            return "Client tool accepted background work without a clientOperationId.";
+
+        if (context.BackgroundTasks is null ||
+            (providerBinding is null && context.ClientToolBackgroundOperations is null))
+        {
+            return AgentInvocationModes.CreateReceiptResult(
+                toolName,
+                BackgroundTaskSourceKind.ClientTool,
+                "Client tool background work could not be started because no runtime background registry is available.")
+                .ToToolResult();
+        }
+
+        ApplyAugmentation(context, outcome.Augmentation);
+
+        var clientOperationId = outcome.ClientOperationId!;
+        var metadata = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["invocation.kind"] = "client-tool",
+            ["invocation.mode"] = "background",
+            ["clientTool.toolName"] = toolName,
+            ["clientTool.requestId"] = requestId,
+            ["clientTool.clientOperationId"] = clientOperationId
+        };
+
+        ClientToolOperationHandle? handle = null;
+        BackgroundHandleRegistration? handleRegistration = null;
+        if (outcome.HandleKind is not null &&
+            context.BackgroundHandles is not null)
+        {
+            handle = new ClientToolOperationHandle(
+                clientOperationId,
+                toolName,
+                outcome.HandleKind.Value,
+                context.SessionId,
+                context.ThreadId,
+                metadata);
+            handleRegistration = context.BackgroundHandles.RegisterHandle(
+                new BackgroundHandleDescriptor
+                {
+                    HandleId = clientOperationId,
+                    Name = toolName,
+                    Kind = outcome.HandleKind.Value,
+                    SourceKind = BackgroundTaskSourceKind.ClientTool,
+                    SourceId = clientOperationId,
+                    SessionId = context.SessionId,
+                    ThreadId = context.ThreadId,
+                    SupportedOperations = outcome.SupportedOperations == BackgroundHandleOperation.None
+                        ? BackgroundHandleOperation.Status
+                        : outcome.SupportedOperations,
+                    Metadata = metadata
+                },
+                handle);
+        }
+
+        ClientToolProviderBackgroundOperationRegistration? providerOperation = null;
+        if (providerBinding is not null)
+        {
+            var registry = context.Services?.GetService<IClientToolProviderRegistry>()
+                ?? throw new InvalidOperationException("Client app provider registry is not available.");
+            providerOperation = registry.RegisterBackgroundOperation(
+                new ClientToolProviderBackgroundOperationDescriptor
+                {
+                    Binding = providerBinding,
+                    ClientOperationId = clientOperationId,
+                    ToolName = toolName,
+                    RequestId = requestId,
+                    CallId = context.FunctionCallId,
+                    SessionId = context.SessionId,
+                    ThreadId = context.ThreadId
+                });
+        }
+
+        var taskRegistration = context.BackgroundTasks.RegisterBackgroundTask(
+            new BackgroundTaskDescriptor
+            {
+                Name = toolName,
+                SourceKind = BackgroundTaskSourceKind.ClientTool,
+                SourceId = clientOperationId,
+                SessionId = context.SessionId,
+                ThreadId = context.ThreadId,
+                Notification = tool?.BackgroundNotification ??
+                    new BackgroundTaskNotificationRule.OnFinalStateRule(
+                        Completed: true,
+                        Faulted: true),
+                Metadata = metadata
+            },
+            async (backgroundContext, runtimeToken) =>
+            {
+                var result = await WaitForBackgroundOperationAsync(
+                    context,
+                    providerBinding,
+                    clientOperationId,
+                    toolName,
+                    requestId,
+                    backgroundContext.TaskId,
+                    handleRegistration?.HandleId,
+                    providerOperation,
+                    runtimeToken).ConfigureAwait(false);
+                switch (result.State)
+                {
+                    case ClientToolBackgroundOperationOutcomeState.Completed:
+                        handle?.SetStatus("completed");
+                        backgroundContext.SetCompletion(
+                            summary: ConvertContentToSummary(result.Content),
+                            metadata: result.Metadata);
+                        break;
+
+                    case ClientToolBackgroundOperationOutcomeState.Cancelled:
+                        handle?.SetStatus("cancelled");
+                        throw new OperationCanceledException(
+                            result.CancellationReason ?? "Client tool background operation was cancelled.",
+                            runtimeToken);
+
+                    case ClientToolBackgroundOperationOutcomeState.Faulted:
+                    default:
+                        handle?.SetStatus("faulted");
+                        throw new InvalidOperationException(
+                            result.ErrorMessage ?? "Client tool background operation failed.");
+                }
+            });
+
+        return new AgentInvocationResult
+        {
+            Mode = AgentInvocationMode.Background,
+            Background = new AgentBackgroundInvocationReceipt
+            {
+                Status = "background_started",
+                TaskId = taskRegistration.TaskId,
+                HandleId = handleRegistration?.HandleId,
+                HandleKind = handleRegistration?.Kind,
+                SupportedOperations = outcome.SupportedOperations,
+                Name = toolName,
+                SourceKind = BackgroundTaskSourceKind.ClientTool,
+                SessionId = context.SessionId,
+                ThreadId = context.ThreadId,
+                Message = $"Client tool '{toolName}' started in the background."
+            }
+        }.ToToolResult();
+    }
+
+    private static async Task<ClientToolBackgroundOperationResult> WaitForBackgroundOperationAsync(
+        BeforeFunctionContext context,
+        ClientToolProviderToolBinding? providerBinding,
+        string clientOperationId,
+        string toolName,
+        string requestId,
+        string taskId,
+        string? handleId,
+        ClientToolProviderBackgroundOperationRegistration? providerOperation,
+        CancellationToken runtimeToken)
+    {
+        if (providerBinding is not null)
+        {
+            if (providerOperation is null)
+                throw new InvalidOperationException("Provider background operation was not registered.");
+
+            return await providerOperation.Completion.WaitAsync(runtimeToken).ConfigureAwait(false);
+        }
+
+        var inlineOperation = context.ClientToolBackgroundOperations!.RegisterClientToolBackgroundOperation(
+            new ClientToolBackgroundOperationDescriptor
+            {
+                ClientOperationId = clientOperationId,
+                ToolName = toolName,
+                RequestId = requestId,
+                CallId = context.FunctionCallId,
+                TaskId = taskId,
+                HandleId = handleId,
+                SessionId = context.SessionId,
+                ThreadId = context.ThreadId
+            });
+
+        return await inlineOperation.Completion.WaitAsync(runtimeToken).ConfigureAwait(false);
+    }
+
+    private static void ApplyAugmentation(
+        BeforeFunctionContext context,
+        ClientToolAugmentation? augmentation)
+    {
+        if (augmentation == null)
+            return;
+
+        var state = context.Analyze(s => s.MiddlewareState.ClientTool());
+        if (state == null)
+            return;
+
+        var updatedState = state.WithPendingAugmentation(augmentation);
+        context.UpdateState(s => s with
+        {
+            MiddlewareState = s.MiddlewareState.WithClientTool(updatedState)
+        });
+    }
+
+    private static string? ConvertContentToSummary(IReadOnlyList<IToolResultContent>? content)
+    {
+        var result = ConvertContentToResult(content);
+        return result switch
+        {
+            null => null,
+            string text => text,
+            JsonElement json => json.GetRawText(),
+            _ => JsonSerializer.Serialize(result, HPDJsonContext.Default.Options)
+        };
     }
 
     /// <summary>
@@ -610,5 +1108,57 @@ public class ClientToolMiddleware : IAgentMiddleware
 
         // Multiple items or binary - return as structured list
         return content;
+    }
+
+    private sealed class ClientToolOperationHandle : IBackgroundHandle
+    {
+        private readonly string _handleId;
+        private readonly string _name;
+        private readonly BackgroundHandleKind _kind;
+        private readonly string? _sessionId;
+        private readonly string? _threadId;
+        private readonly IReadOnlyDictionary<string, string>? _metadata;
+        private readonly DateTimeOffset _startedAt = DateTimeOffset.UtcNow;
+        private string _status = "running";
+        private DateTimeOffset? _completedAt;
+
+        public ClientToolOperationHandle(
+            string handleId,
+            string name,
+            BackgroundHandleKind kind,
+            string? sessionId,
+            string? threadId,
+            IReadOnlyDictionary<string, string>? metadata)
+        {
+            _handleId = handleId;
+            _name = name;
+            _kind = kind;
+            _sessionId = sessionId;
+            _threadId = threadId;
+            _metadata = metadata;
+        }
+
+        public void SetStatus(string status)
+        {
+            _status = status;
+            if (status is "completed" or "cancelled" or "faulted")
+                _completedAt = DateTimeOffset.UtcNow;
+        }
+
+        public ValueTask<BackgroundHandleSnapshot> GetStatusAsync(CancellationToken cancellationToken)
+            => ValueTask.FromResult(new BackgroundHandleSnapshot
+            {
+                HandleId = _handleId,
+                Name = _name,
+                Kind = _kind,
+                SourceKind = BackgroundTaskSourceKind.ClientTool,
+                Status = _status,
+                SourceId = _handleId,
+                SessionId = _sessionId,
+                ThreadId = _threadId,
+                StartedAt = _startedAt,
+                CompletedAt = _completedAt,
+                Metadata = _metadata
+            });
     }
 }

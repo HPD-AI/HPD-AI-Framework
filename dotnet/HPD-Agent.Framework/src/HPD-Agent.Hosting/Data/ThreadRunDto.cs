@@ -9,14 +9,15 @@ public sealed record ThreadRunDto(
     DateTimeOffset StartedAt,
     DateTimeOffset? CompletedAt,
     ThreadRunErrorDto? Error,
-    ThreadRunBackgroundOperationDto? BackgroundOperation,
-    IReadOnlyList<ThreadRunBackgroundTaskDto> BackgroundTasks);
+    ThreadRunModelBackgroundOperationDto? ModelBackgroundOperation,
+    IReadOnlyList<ThreadRunBackgroundTaskDto> BackgroundTasks,
+    IReadOnlyList<ThreadRunBackgroundHandleDto> BackgroundHandles);
 
 public sealed record ThreadRunErrorDto(
     string? Type,
     string? Message);
 
-public sealed record ThreadRunBackgroundOperationDto(
+public sealed record ThreadRunModelBackgroundOperationDto(
     string Status,
     string? OperationId,
     string? StatusMessage,
@@ -27,7 +28,7 @@ public sealed record ThreadRunBackgroundTaskDto(
     string Name,
     string SourceKind,
     string? SourceId,
-    string NotificationPolicy,
+    ThreadRunBackgroundTaskNotificationDto Notification,
     string Status,
     DateTimeOffset? StartedAt,
     DateTimeOffset? CompletedAt,
@@ -35,3 +36,24 @@ public sealed record ThreadRunBackgroundTaskDto(
     DateTimeOffset? FaultedAt,
     string? ErrorType,
     string? ErrorMessage);
+
+/// <summary>
+/// API DTO projection of a background task notification rule.
+/// </summary>
+/// <param name="Kind">Rule kind, such as none, on_final_state, or strategy.</param>
+/// <param name="StrategyName">Strategy name when <paramref name="Kind"/> is strategy.</param>
+public sealed record ThreadRunBackgroundTaskNotificationDto(
+    string Kind,
+    string? StrategyName = null);
+
+public sealed record ThreadRunBackgroundHandleDto(
+    string HandleId,
+    string Name,
+    string HandleKind,
+    string SourceKind,
+    string? SourceId,
+    string Status,
+    string SupportedOperations,
+    DateTimeOffset RegisteredAt,
+    DateTimeOffset? UpdatedAt,
+    IReadOnlyDictionary<string, string>? Metadata);

@@ -49,9 +49,11 @@ describe('createThreadProjection', () => {
   it('rehydrates settled thread events through the same path as live projection', () => {
     const events: AgentEvent[] = [
       {
-        type: EventTypes.MESSAGE_STARTED,
+        type: EventTypes.TEXT_MESSAGE_START,
         messageId: 'm1',
         role: 'user',
+        source: 'UserInput',
+        visibility: 'Transcript',
         additionalProperties: {
           quote: {
             text: 'quoted context',
@@ -63,34 +65,39 @@ describe('createThreadProjection', () => {
       {
         type: EventTypes.CONTENT_ADDED,
         messageId: 'm1',
+        role: 'user',
         content: { $type: 'text', text: 'hello' },
         timestamp: '2026-01-01T00:00:00.000Z',
       },
       {
-        type: EventTypes.MESSAGE_COMPLETED,
+        type: EventTypes.TEXT_MESSAGE_END,
         messageId: 'm1',
         timestamp: '2026-01-01T00:00:00.000Z',
       },
       {
-        type: EventTypes.MESSAGE_STARTED,
+        type: EventTypes.TEXT_MESSAGE_START,
         messageId: 'm2',
         role: 'assistant',
+        source: 'AssistantOutput',
+        visibility: 'Transcript',
         timestamp: '2026-01-01T00:00:01.000Z',
       },
       {
         type: EventTypes.CONTENT_ADDED,
         messageId: 'm2',
+        role: 'assistant',
         content: { $type: 'reasoning', text: 'thinking' },
         timestamp: '2026-01-01T00:00:01.000Z',
       },
       {
         type: EventTypes.CONTENT_ADDED,
         messageId: 'm2',
+        role: 'assistant',
         content: { $type: 'text', text: 'hi there' },
         timestamp: '2026-01-01T00:00:01.000Z',
       },
       {
-        type: EventTypes.MESSAGE_COMPLETED,
+        type: EventTypes.TEXT_MESSAGE_END,
         messageId: 'm2',
         timestamp: '2026-01-01T00:00:01.000Z',
       },
@@ -125,6 +132,8 @@ describe('createThreadProjection', () => {
       type: EventTypes.TEXT_MESSAGE_START,
       messageId: 'a1',
       role: 'assistant',
+      source: 'AssistantOutput',
+      visibility: 'Transcript',
     });
     projection.project({
       type: EventTypes.TEXT_DELTA,
@@ -147,6 +156,67 @@ describe('createThreadProjection', () => {
     expect(snapshot.activity.streaming).toBe(false);
   });
 
+  it('does not render hidden policy messages during live projection or rehydration', () => {
+    const events = [{
+      type: EventTypes.TEXT_MESSAGE_START,
+      messageId: 'bg1',
+      role: 'system',
+      source: 'BackgroundNotification',
+      visibility: 'Hidden',
+      persistence: 'ThreadHistory',
+      additionalProperties: {
+        'hpd.message.source': 'BackgroundNotification',
+        'hpd.message.visibility': 'Hidden',
+        'hpd.message.persistence': 'ThreadHistory',
+      },
+    }, {
+      type: EventTypes.TEXT_DELTA,
+      messageId: 'bg1',
+      text: '<background-task-notifications />',
+    }, {
+      type: EventTypes.TEXT_MESSAGE_END,
+      messageId: 'bg1',
+    }] satisfies AgentEvent[];
+
+    const live = createThreadProjection();
+    for (const event of events) live.project(event);
+
+    const hydrated = createThreadProjection();
+    hydrated.rehydrate({ events });
+
+    for (const snapshot of [live.getSnapshot(), hydrated.getSnapshot()]) {
+      expect(snapshot.transcriptMessages).toEqual([]);
+      expect(snapshot.timeline).toEqual([]);
+      expect(snapshot.workGroups).toEqual([]);
+      expect(snapshot.activity.streaming).toBe(false);
+    }
+  });
+
+  it('preserves message policy on projected transcript messages', () => {
+    const projection = createThreadProjection();
+
+    projection.project({
+      type: EventTypes.TEXT_MESSAGE_START,
+      messageId: 'u1',
+      role: 'user',
+      source: 'UserInput',
+      visibility: 'Transcript',
+    });
+    projection.project({
+      type: EventTypes.TEXT_DELTA,
+      messageId: 'u1',
+      text: 'hello',
+    });
+
+    const snapshot = projection.getSnapshot();
+    expect(snapshot.transcriptMessages).toMatchObject([{
+      id: 'u1',
+      source: 'UserInput',
+      visibility: 'Transcript',
+      content: 'hello',
+    }]);
+  });
+
   it('reconciles an optimistic user row when durable input admission events arrive', () => {
     const projection = createThreadProjection();
 
@@ -154,6 +224,8 @@ describe('createThreadProjection', () => {
       type: EventTypes.TEXT_MESSAGE_START,
       messageId: 'optimistic:user:1',
       role: 'user',
+      source: 'UserInput',
+      visibility: 'Transcript',
       clientInputId: 'client-1',
       optimistic: true,
     });
@@ -168,15 +240,11 @@ describe('createThreadProjection', () => {
     });
 
     projection.project({
-      type: EventTypes.MESSAGE_STARTED,
-      messageId: 'm-user-1',
-      role: 'user',
-      clientInputId: 'client-1',
-    });
-    projection.project({
       type: EventTypes.TEXT_MESSAGE_START,
       messageId: 'm-user-1',
       role: 'user',
+      source: 'UserInput',
+      visibility: 'Transcript',
       clientInputId: 'client-1',
     });
     projection.project({
@@ -226,6 +294,8 @@ describe('createThreadProjection', () => {
       type: EventTypes.TEXT_MESSAGE_START,
       messageId: 'u1',
       role: 'user',
+      source: 'UserInput',
+      visibility: 'Transcript',
       eventFlowId: 'turn1',
     });
     projection.project({
@@ -255,6 +325,8 @@ describe('createThreadProjection', () => {
       type: EventTypes.TEXT_MESSAGE_START,
       messageId: 'a1',
       role: 'assistant',
+      source: 'AssistantOutput',
+      visibility: 'Transcript',
       eventFlowId: 'turn1',
     });
     projection.project({
@@ -287,24 +359,28 @@ describe('createThreadProjection', () => {
     const projection = createThreadProjection();
 
     projection.project({
-      type: EventTypes.MESSAGE_STARTED,
+      type: EventTypes.TEXT_MESSAGE_START,
       messageId: 'm1',
       role: 'assistant',
+      source: 'AssistantOutput',
+      visibility: 'Transcript',
       authorName: 'Agent',
       createdAt: '2026-01-01T00:00:00.000Z',
     });
     projection.project({
       type: EventTypes.CONTENT_ADDED,
-      messageId: 'm1',
-      content: { $type: 'text', text: 'hello' },
+        messageId: 'm1',
+        role: 'assistant',
+        content: { $type: 'text', text: 'hello' },
     });
     projection.project({
       type: EventTypes.CONTENT_ADDED,
-      messageId: 'm1',
-      content: { $type: 'text', text: 'hello' },
+        messageId: 'm1',
+        role: 'assistant',
+        content: { $type: 'text', text: 'hello' },
     });
     projection.project({
-      type: EventTypes.MESSAGE_COMPLETED,
+      type: EventTypes.TEXT_MESSAGE_END,
       messageId: 'm1',
     });
 
@@ -350,6 +426,8 @@ describe('createThreadProjection', () => {
       type: EventTypes.TEXT_MESSAGE_START,
       messageId: 'a1',
       role: 'assistant',
+      source: 'AssistantOutput',
+      visibility: 'Transcript',
       eventFlowId: 'turn1',
     }, {
       type: EventTypes.TEXT_DELTA,
@@ -475,6 +553,8 @@ describe('createThreadProjection', () => {
       type: EventTypes.TEXT_MESSAGE_START,
       messageId: 'shared-message',
       role: 'assistant',
+      source: 'AssistantOutput',
+      visibility: 'Transcript',
       eventFlowId: 'turn1',
       timestamp: '2026-01-01T00:00:05.000Z',
     }, {
@@ -544,6 +624,8 @@ describe('createThreadProjection', () => {
       type: EventTypes.TEXT_MESSAGE_START,
       messageId: 'a1',
       role: 'assistant',
+      source: 'AssistantOutput',
+      visibility: 'Transcript',
       eventFlowId: 'turn1',
     });
 
@@ -630,9 +712,12 @@ describe('createThreadProjection', () => {
     });
 
     projection.project({
-      type: EventTypes.PERMISSION_APPROVED,
-      permissionId: 'p1',
+      type: EventTypes.AGENT_REQUEST_RESOLVED,
+      requestId: 'p1',
       sourceName: 'permission',
+      requestEventType: 'PERMISSION_REQUEST',
+      responseEventType: 'PERMISSION_RESPONSE',
+      resolvedAt: '2026-01-01T00:00:00.000Z',
     });
     expect(projection.getSnapshot().pendingRuntimeRequests).toHaveLength(0);
   });
@@ -820,8 +905,9 @@ describe('createThreadProjection', () => {
         startedAt: '2026-01-01T00:00:00.000Z',
         completedAt: null,
         error: null,
-        backgroundOperation: null,
+        modelBackgroundOperation: null,
         backgroundTasks: [],
+        backgroundHandles: [],
       }],
     });
 
@@ -845,7 +931,7 @@ describe('createThreadProjection', () => {
         startedAt: '2026-01-01T00:00:00.000Z',
         completedAt: null,
         error: null,
-        backgroundOperation: {
+        modelBackgroundOperation: {
           status: 'InProgress',
           operationId: 'op1',
           statusMessage: 'Queued by provider',
@@ -857,13 +943,23 @@ describe('createThreadProjection', () => {
           status: 'started',
           startedAt: '2026-01-01T00:00:01.000Z',
         }],
+        backgroundHandles: [{
+          handleId: 'handle1',
+          name: 'Long process',
+          handleKind: 'Process',
+          sourceKind: 'Command',
+          status: 'running',
+          supportedOperations: 'Status, Read, Stop',
+          registeredAt: '2026-01-01T00:00:01.000Z',
+        }],
       },
     });
 
     const snapshot = projection.getSnapshot();
     expect(snapshot.threadRun?.status).toBe('active');
-    expect(snapshot.threadRun?.backgroundOperation?.continuationToken).toBe('token');
+    expect(snapshot.threadRun?.modelBackgroundOperation?.continuationToken).toBe('token');
     expect(snapshot.threadRun?.backgroundTasks).toHaveLength(1);
+    expect(snapshot.threadRun?.backgroundHandles?.[0]?.handleId).toBe('handle1');
     expect(snapshot.activity.streaming).toBe(true);
   });
 });

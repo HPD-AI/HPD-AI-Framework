@@ -24,40 +24,47 @@ public class SubAgentCapabilityGenerationTests
     };
 
     [Fact]
-    public void GeneratedCode_ResolvesThreadNativeRoute()
+    public void GeneratedCode_DelegatesToSubAgentRuntimeInvokeAsync()
     {
         var code = MakeCapability().GenerateRegistrationCode(MakeToolHarness());
 
-        code.Should().Contain("SubAgentRuntime.ResolveRouteAsync");
-        code.Should().Contain("SessionId = route.SessionId");
-        code.Should().Contain("ThreadId = route.ThreadId");
-        code.Should().Contain("SubAgentRuntime.MarkCompleted");
-        code.Should().Contain("SubAgentRuntime.MarkFailed");
+        code.Should().Contain("SubAgentRuntime.InvokeAsync");
+        code.Should().Contain("SubAgentRuntime.SubAgentInvocationRequest");
+        code.Should().Contain("Definition = subAgentDef");
+        code.Should().Contain("Input = input");
+        code.Should().Contain("ParentContext = functionContext");
+        code.Should().Contain("RequestedMode = requestedMode");
+        code.Should().Contain("return result.ToToolResult()");
     }
 
     [Fact]
-    public void GeneratedCode_BuildsFromInlineConfigOrStoredAgentId()
+    public void GeneratedCode_UsesInputArgument()
     {
         var code = MakeCapability().GenerateRegistrationCode(MakeToolHarness());
 
-        code.Should().Contain("subAgentDef.SourceKind == SubAgentSourceKind.StoredAgent");
-        code.Should().Contain("new AgentBuilder().WithAgentId(subAgentDef.AgentId)");
-        code.Should().Contain("functionContext?.GetParentAgentStore()");
-        code.Should().Contain("subAgentDef.SourceKind == SubAgentSourceKind.InlineConfig");
-        code.Should().Contain("new AgentBuilder(subAgentDef.AgentConfig)");
+        code.Should().Contain("TryGetProperty(\"input\"");
+        code.Should().Contain("SubAgentInputArgs");
+        code.Should().NotContain("TryGetProperty(\"query\"");
+        code.Should().NotContain("SubAgentQueryArgs");
     }
 
     [Fact]
-    public void GeneratedCode_AttachesParentSessionStoreBeforeBuildAsync()
+    public void GeneratedCode_DoesNotContainRuntimeOrchestration()
     {
         var code = MakeCapability().GenerateRegistrationCode(MakeToolHarness());
 
-        var storeAttachIndex = code.IndexOf("WithSessionStore(parentStore)", StringComparison.Ordinal);
-        var buildAsyncIndex = code.IndexOf("BuildAsync()", StringComparison.Ordinal);
-
-        storeAttachIndex.Should().BeGreaterThan(-1);
-        buildAsyncIndex.Should().BeGreaterThan(-1);
-        storeAttachIndex.Should().BeLessThan(buildAsyncIndex);
+        code.Should().NotContain("GetParentAgentStore");
+        code.Should().NotContain("GetParentChatClient");
+        code.Should().NotContain("GetParentSessionStore");
+        code.Should().NotContain("GetParentEventCoordinator");
+        code.Should().NotContain("BuildAsync");
+        code.Should().NotContain("ResolveInvocationRouteAsync");
+        code.Should().NotContain("ResolveRouteAsync");
+        code.Should().NotContain("MarkCompleted");
+        code.Should().NotContain("MarkFailed");
+        code.Should().NotContain("new Microsoft.Extensions.AI.ChatMessage");
+        code.Should().NotContain("RegisterBackgroundTask");
+        code.Should().NotContain("BackgroundTaskDescriptor");
     }
 
     [Fact]

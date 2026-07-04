@@ -1,8 +1,12 @@
 import {
   EventTypes,
+  AgentMessagePolicyProperties,
   formatToolResultPayload,
   isAgentRequestEvent,
   isErrorEvent,
+  type AgentMessagePersistence,
+  type AgentMessageSource,
+  type AgentMessageVisibility,
   type AIContent,
   type AgentEvent,
   type AgentRequestEvent,
@@ -45,6 +49,12 @@ interface ProjectionEventContext {
   eventFlowId?: string;
   sequenceNumber?: number;
   timestamp?: string;
+}
+
+interface MessagePolicy {
+  source?: AgentMessageSource;
+  visibility?: AgentMessageVisibility;
+  persistence?: AgentMessagePersistence;
 }
 
 const missingEventTimestamp = new Date(0);
@@ -112,12 +122,6 @@ class ThreadProjectionImpl implements ThreadProjection {
     const known = event as KnownAgentEvent;
 
     switch (known.type) {
-      case EventTypes.MESSAGE_STARTED:
-        this.onMessageStarted(known, known.messageId, known.role, known.authorName ?? undefined);
-        break;
-      case EventTypes.MESSAGE_COMPLETED:
-        this.onMessageCompleted(known.messageId);
-        break;
       case EventTypes.CONTENT_ADDED:
         this.onContentAdded(known, known.messageId, known.content);
         break;
@@ -167,12 +171,6 @@ class ThreadProjectionImpl implements ThreadProjection {
           arguments: known.arguments,
         }, known);
         break;
-      case EventTypes.PERMISSION_APPROVED:
-        this.removePermission(known.permissionId);
-        break;
-      case EventTypes.PERMISSION_DENIED:
-        this.removePermission(known.permissionId);
-        break;
       case EventTypes.CLARIFICATION_REQUEST:
         this.addClarification({
           requestId: known.requestId,
@@ -198,7 +196,7 @@ class ThreadProjectionImpl implements ThreadProjection {
           visibility: known.visibility,
         }, known);
         break;
-      case EventTypes.CLIENT_TOOL_INVOKE_RESPONSE:
+      case EventTypes.CLIENT_TOOL_INVOKE_OUTCOME:
         this.removeClientToolRequest(known.requestId);
         break;
       case EventTypes.AGENT_REQUEST_RESOLVED:
@@ -379,15 +377,17 @@ class ThreadProjectionImpl implements ThreadProjection {
 
   private onTextMessageStart(event: AgentEvent, messageId: string, role: string): void {
     const context = this.createContext(event);
+    const policy = readMessagePolicy(event);
+    if (policy.visibility === 'Hidden' || !policy.visibility) return;
+
     const clientInputId = readStringProperty(event, 'clientInputId') ?? null;
     const placement = readBooleanProperty(event, 'optimistic')
       ? 'optimistic'
-      : shouldPlaceMessageInTranscript(role, context)
-        ? 'transcript'
-        : 'work';
+      : resolveMessagePlacement(context, policy);
     const message = {
-      ...createMessage(messageId, role, context, placement, clientInputId, readEventTimestamp(event)),
+      ...createMessage(messageId, role, context, placement, clientInputId, readEventTimestamp(event), policy),
       additionalProperties: readRecordProperty(event, 'additionalProperties') ?? undefined,
+      authorName: readStringProperty(event, 'authorName') ?? undefined,
     };
     const streamingMessage = {
       ...message,
@@ -418,19 +418,19 @@ class ThreadProjectionImpl implements ThreadProjection {
     this.emit();
   }
 
-  private onMessageStarted(event: AgentEvent, messageId: string, role: string, authorName?: string): void {
+  private startMessageFromEvent(event: AgentEvent, messageId: string, role: string, authorName?: string): void {
     if (messageExists(this.snapshot, messageId)) return;
 
     const context = this.createContext(event);
+    const policy = readMessagePolicy(event);
+    if (policy.visibility === 'Hidden' || !policy.visibility) return;
+
     const clientInputId = readStringProperty(event, 'clientInputId') ?? null;
-    const inTranscript = shouldPlaceMessageInTranscript(role, context);
     const placement = readBooleanProperty(event, 'optimistic')
       ? 'optimistic'
-      : inTranscript
-        ? 'transcript'
-        : 'work';
+      : resolveMessagePlacement(context, policy);
     const message = {
-      ...createMessage(messageId, role, context, placement, clientInputId, readEventTimestamp(event)),
+      ...createMessage(messageId, role, context, placement, clientInputId, readEventTimestamp(event), policy),
       additionalProperties: readRecordProperty(event, 'additionalProperties') ?? undefined,
       authorName,
     };
@@ -458,18 +458,13 @@ class ThreadProjectionImpl implements ThreadProjection {
     this.emit();
   }
 
-  private onMessageCompleted(messageId: string): void {
-    this.snapshot = refreshSnapshot(updateMessageEverywhere(this.snapshot, messageId, (message) => ({
-      ...message,
-      streaming: false,
-      thinking: false,
-    })));
-    this.emit();
-  }
-
   private onContentAdded(event: AgentEvent, messageId: string, content: unknown): void {
     if (!messageExists(this.snapshot, messageId)) {
-      this.onMessageStarted(event, messageId, 'assistant');
+      this.startMessageFromEvent(
+        event,
+        messageId,
+        readStringProperty(event, 'role') ?? 'assistant',
+        readStringProperty(event, 'authorName') ?? undefined);
     }
 
     const contentType = readContentType(content);
@@ -704,10 +699,6 @@ class ThreadProjectionImpl implements ThreadProjection {
       request,
       event,
     }, event);
-  }
-
-  private removePermission(permissionId: string): void {
-    this.removePendingRequest(permissionId);
   }
 
   private addClarification(request: ClarificationRequest, event?: AgentEvent): void {
@@ -1077,8 +1068,9 @@ function findFinalAssistantDraft(work: ThreadWorkGroup): Message | null {
   return null;
 }
 
-function shouldPlaceMessageInTranscript(role: string, context: ProjectionContext): boolean {
-  return role === 'user' || !context.turnId;
+function resolveMessagePlacement(context: ProjectionContext, policy: MessagePolicy): MessagePlacement {
+  if (policy.source === 'AssistantOutput' && context.turnId) return 'work';
+  return 'transcript';
 }
 
 function upsertWorkGroup(workGroups: ThreadWorkGroup[], work: ThreadWorkGroup): ThreadWorkGroup[] {
@@ -1157,6 +1149,7 @@ function createMessage(
   placement: MessagePlacement,
   clientInputId: string | null = null,
   timestamp = new Date(),
+  policy: MessagePolicy = {},
 ): Message {
   return {
     id: messageId,
@@ -1174,7 +1167,64 @@ function createMessage(
     sequenceNumber: context.sequenceNumber,
     placement,
     clientInputId,
+    source: policy.source,
+    visibility: policy.visibility,
+    persistence: policy.persistence,
   };
+}
+
+function readMessagePolicy(event: AgentEvent): MessagePolicy {
+  const additionalProperties = readRecordProperty(event, 'additionalProperties');
+  const source = toAgentMessageSource(
+    readStringProperty(event, 'source') ??
+    readStringFromRecord(additionalProperties, AgentMessagePolicyProperties.SOURCE),
+  );
+  const visibility = toAgentMessageVisibility(
+    readStringProperty(event, 'visibility') ??
+    readStringFromRecord(additionalProperties, AgentMessagePolicyProperties.VISIBILITY),
+  );
+  const persistence = toAgentMessagePersistence(
+    readStringProperty(event, 'persistence') ??
+    readStringFromRecord(additionalProperties, AgentMessagePolicyProperties.PERSISTENCE),
+  );
+
+  return { source, visibility, persistence };
+}
+
+function readStringFromRecord(record: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = record?.[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function toAgentMessageSource(value: string | undefined): AgentMessageSource | undefined {
+  return value === 'Unspecified' ||
+    value === 'UserInput' ||
+    value === 'AssistantOutput' ||
+    value === 'SystemInstruction' ||
+    value === 'RuntimeContext' ||
+    value === 'BackgroundNotification' ||
+    value === 'ToolResult' ||
+    value === 'PermissionResponse' ||
+    value === 'Steering' ||
+    value === 'Internal'
+    ? value
+    : undefined;
+}
+
+function toAgentMessageVisibility(value: string | undefined): AgentMessageVisibility | undefined {
+  return value === 'Transcript' ||
+    value === 'Hidden' ||
+    value === 'Diagnostic'
+    ? value
+    : undefined;
+}
+
+function toAgentMessagePersistence(value: string | undefined): AgentMessagePersistence | undefined {
+  return value === 'ThreadHistory' ||
+    value === 'ModelContextOnly' ||
+    value === 'None'
+    ? value
+    : undefined;
 }
 
 function readEventTimestamp(event: AgentEvent): Date {
@@ -1364,7 +1414,8 @@ function mapThreadRun(run: ThreadRun): ThreadRunView {
     completedAt: run.completedAt,
     errorType: run.error?.type,
     errorMessage: run.error?.message,
-    backgroundOperation: run.backgroundOperation,
+    modelBackgroundOperation: run.modelBackgroundOperation,
     backgroundTasks: run.backgroundTasks,
+    backgroundHandles: run.backgroundHandles,
   };
 }

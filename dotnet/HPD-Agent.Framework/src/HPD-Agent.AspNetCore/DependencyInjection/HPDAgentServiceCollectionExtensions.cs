@@ -1,4 +1,5 @@
 using HPD.Agent.AspNetCore.Serialization;
+using HPD.Agent.ClientTools;
 using HPD.Agent.Hosting.Configuration;
 using HPD.Agent.Hosting.Lifecycle;
 using HPD.Agent.Hosting.Serialization;
@@ -105,6 +106,7 @@ public static class HPDAgentServiceCollectionExtensions
         // Register the agent registry (one per app, manages all named agent pairs)
         services.TryAddSingleton<DependencyInjection.HPDAgentRegistry>();
         services.TryAddSingleton<IHPDAgentHostingServicesProvider, DependencyInjection.HPDAgentHostingServicesProvider>();
+        services.TryAddSingleton<IClientToolProviderRegistry, InMemoryClientToolProviderRegistry>();
 
         // Register AgentManager and SessionManager so tests and adapters can inject them directly.
         services.TryAddSingleton<HPD.Agent.Hosting.Lifecycle.AgentManager>(sp =>

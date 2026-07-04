@@ -117,6 +117,7 @@ describe('ChatSession', () => {
         status: 'active',
         startedAt: '2026-05-28T00:00:00Z',
         backgroundTasks: [],
+        backgroundHandles: [],
       }),
       text: async () => '',
     } as Response);

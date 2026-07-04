@@ -519,7 +519,16 @@ public record StateSnapshotEvent(
 /// <summary>
 /// Emitted when the agent starts producing text content
 /// </summary>
-public record TextMessageStartEvent(string MessageId, string Role) : AgentEvent
+public record TextMessageStartEvent(
+    string MessageId,
+    string Role,
+    AgentMessageSource Source = AgentMessageSource.Unspecified,
+    AgentMessageVisibility Visibility = AgentMessageVisibility.Transcript,
+    AgentMessagePersistence Persistence = AgentMessagePersistence.ThreadHistory,
+    string? AuthorName = null,
+    DateTimeOffset? CreatedAt = null,
+    string? ClientInputId = null,
+    AdditionalPropertiesDictionary? AdditionalProperties = null) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
     public override bool ShouldPersistToThread() => true;
@@ -808,24 +817,15 @@ public sealed record ToolResultPayload(
 public enum BackgroundTaskSourceKind
 {
     ToolCall,
+    Function,
     Command,
+    ClientTool,
     SubAgent,
+    MultiAgent,
+    McpTool,
     Runtime,
     Maintenance,
     Other
-}
-
-/// <summary>
-/// Policy that determines whether a terminal background task event should wake the model.
-/// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<BackgroundTaskNotificationPolicy>))]
-public enum BackgroundTaskNotificationPolicy
-{
-    None,
-    OnFault,
-    OnCompletion,
-    OnCompletionOrFault,
-    Custom
 }
 
 /// <summary>
@@ -842,7 +842,7 @@ public abstract record BackgroundTaskEvent : AgentEvent
 
     public required BackgroundTaskSourceKind SourceKind { get; init; }
 
-    public required BackgroundTaskNotificationPolicy NotificationPolicy { get; init; }
+    public required BackgroundTaskNotificationRule Notification { get; init; }
 
     public string? SourceId { get; init; }
 
@@ -901,7 +901,51 @@ public sealed record BackgroundTaskFaultedEvent : BackgroundTaskEvent, IErrorEve
 }
 
 /// <summary>
-/// Emitted when background task policy selects one or more terminal task facts for model delivery.
+/// Emitted when a controllable background handle is registered with the runtime.
+/// </summary>
+public sealed record BackgroundHandleRegisteredEvent : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override bool ShouldPersistToThread() => true;
+
+    public required string HandleId { get; init; }
+
+    public required string Name { get; init; }
+
+    public required BackgroundHandleKind HandleKind { get; init; }
+
+    public required BackgroundTaskSourceKind SourceKind { get; init; }
+
+    public string? SourceId { get; init; }
+
+    public FunctionInvocationSnapshot? Invocation { get; init; }
+
+    public required BackgroundHandleOperation SupportedOperations { get; init; }
+
+    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
+
+    public required DateTimeOffset RegisteredAt { get; init; }
+}
+
+/// <summary>
+/// Emitted when a controllable background handle reports a status change.
+/// </summary>
+public sealed record BackgroundHandleStatusChangedEvent : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override bool ShouldPersistToThread() => true;
+
+    public required string HandleId { get; init; }
+
+    public required string Status { get; init; }
+
+    public required DateTimeOffset ObservedAt { get; init; }
+
+    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
+}
+
+/// <summary>
+/// Emitted when background task notification rules select one or more final-state task facts for model delivery.
 /// </summary>
 public sealed record BackgroundTaskNotificationQueuedEvent : AgentEvent
 {
@@ -935,7 +979,7 @@ public sealed record BackgroundTaskNotificationDeliveredEvent : AgentEvent
 }
 
 /// <summary>
-/// Emitted when background task policy explicitly decides not to wake the model.
+/// Emitted when background task notification rules explicitly decide not to wake the model.
 /// </summary>
 public sealed record BackgroundTaskNotificationSuppressedEvent : AgentEvent
 {
@@ -1064,30 +1108,6 @@ public record PermissionResponseEvent(
 
     /// <summary>Explicit interface implementation - maps PermissionId to RequestId</summary>
     string HPD.Events.IRequestCorrelatedEvent.RequestId => PermissionId;
-}
-
-/// <summary>
-/// Emitted after permission is approved (for observability).
-/// </summary>
-public record PermissionApprovedEvent(
-    string PermissionId,
-    string SourceName) : AgentEvent
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-}
-
-/// <summary>
-/// Emitted after permission is denied (for observability).
-/// </summary>
-public record PermissionDeniedEvent(
-    string PermissionId,
-    string SourceName,
-    string CallId,
-    string Reason) : AgentEvent
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 }
 
 /// <summary>
@@ -1289,23 +1309,6 @@ public record CircuitBreakerTriggeredEvent(
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Control;
 }
 
-/// <summary>
-/// Emitted when compaction cache is checked.
-/// </summary>
-public record CompactionCacheEvent(
-    string AgentName,
-    bool IsHit,
-    DateTime? CompactionCreatedAt,
-    int? SummarizedUpToIndex,
-    int CurrentMessageCount,
-    int? TokenSavings,
-    DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-}
-
-
 #region Background Operation Events
 
 /// <summary>
@@ -1317,7 +1320,7 @@ public record CompactionCacheEvent(
 /// supports background mode. The client should use the ContinuationToken to poll
 /// for the operation's completion.
 /// </remarks>
-public record BackgroundOperationStartedEvent(
+public record ModelBackgroundOperationStartedEvent(
     ResponseContinuationToken ContinuationToken,
     OperationStatus Status,
     string? OperationId = null
@@ -1330,7 +1333,7 @@ public record BackgroundOperationStartedEvent(
 /// <summary>
 /// Emitted during polling with status updates for a background operation.
 /// </summary>
-public record BackgroundOperationStatusEvent(
+public record ModelBackgroundOperationStatusEvent(
     ResponseContinuationToken ContinuationToken,
     OperationStatus Status,
     string? StatusMessage = null
@@ -1359,34 +1362,6 @@ public record InternalParallelToolExecutionEvent(
     TimeSpan? SemaphoreWaitDuration,
     bool IsParallel,
     DateTimeOffset Timestamp
-) : AgentEvent, IObservabilityEvent
-{
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-}
-
-/// <summary>
-/// Retry status for function execution.
-/// </summary>
-public enum RetryStatus
-{
-    /// <summary>Retry attempt in progress</summary>
-    Attempting,
-    /// <summary>All retry attempts exhausted</summary>
-    Exhausted
-}
-
-/// <summary>
-/// Emitted for all retry-related events during function execution.
-/// </summary>
-public record InternalRetryEvent(
-    RetryStatus Status,
-    string AgentName,
-    string FunctionName,
-    int AttemptNumber,
-    int MaxRetries,
-    DateTimeOffset Timestamp,
-    string? ErrorMessage = null,
-    TimeSpan? RetryDelay = null
 ) : AgentEvent, IObservabilityEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;

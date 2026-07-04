@@ -64,7 +64,7 @@
         log(`clarify ${id}: ${answer}`);
         return undefined;
       },
-      respondToClientTool: async (id) => {
+      answerClientToolRequest: async (id) => {
         log(`client tool ${id}`);
         return undefined;
       },
@@ -162,7 +162,7 @@
       kind: 'client-tool',
       sourceName: 'HPD.Agent.ClientTools',
       requestEventType: 'CLIENT_TOOL_INVOKE_REQUEST',
-      expectedResponseEventType: 'CLIENT_TOOL_INVOKE_RESPONSE',
+      expectedResponseEventType: 'CLIENT_TOOL_INVOKE_OUTCOME',
       responsePolicy: 'targetedResponder',
       visibility: 'allObservers',
       request: {
@@ -262,7 +262,7 @@
                     {#snippet clientTool({ item, actions, props })}
                       <section {...props} class="inline-kind">
                         <p>{item.sourceName}</p>
-                        <button onclick={() => actions.respondToClientTool('storybook response')}>
+                        <button onclick={() => actions.answerClientToolRequest('storybook response')}>
                           Respond from story
                         </button>
                       </section>
