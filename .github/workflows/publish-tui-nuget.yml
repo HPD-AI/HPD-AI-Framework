@@ -1,0 +1,151 @@
+name: Publish HPD-TUI NuGet Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 0.5.6 or 0.5.6-alpha)'
+        required: true
+        type: string
+      hpd_events_version:
+        description: 'HPD-Events package version to validate against. Defaults to latest stable on NuGet.'
+        required: false
+        type: string
+
+jobs:
+  determine-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_prefix: ${{ steps.version.outputs.version_prefix }}
+      version_suffix: ${{ steps.version.outputs.version_suffix }}
+
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+
+          if [[ "$VERSION" == *-* ]]; then
+            VERSION_PREFIX="${VERSION%%-*}"
+            VERSION_SUFFIX="${VERSION#*-}"
+            echo "version_prefix=$VERSION_PREFIX" >> $GITHUB_OUTPUT
+            echo "version_suffix=$VERSION_SUFFIX" >> $GITHUB_OUTPUT
+            echo "Publishing HPD-TUI: $VERSION_PREFIX with suffix: $VERSION_SUFFIX"
+          else
+            VERSION_PREFIX="$VERSION"
+            echo "version_prefix=$VERSION_PREFIX" >> $GITHUB_OUTPUT
+            echo "version_suffix=" >> $GITHUB_OUTPUT
+            echo "Publishing stable HPD-TUI version: $VERSION_PREFIX"
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: determine-version
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Resolve dependency versions
+        id: dependencies
+        env:
+          INPUT_HPD_EVENTS_VERSION: ${{ inputs.hpd_events_version }}
+        run: |
+          resolve_nuget_version() {
+            local package_id="$1"
+            local override="$2"
+            if [ -n "$override" ]; then
+              echo "$override"
+              return
+            fi
+
+            local package_id_lower
+            package_id_lower="$(printf '%s' "$package_id" | tr '[:upper:]' '[:lower:]')"
+            local response
+            if ! response="$(curl -fsSL "https://api.nuget.org/v3-flatcontainer/$package_id_lower/index.json")"; then
+              echo "::error::NuGet package '$package_id' is not published yet or could not be resolved."
+              echo "::error::Publish that dependency package first, or provide an explicit version input if the package ID changed."
+              exit 1
+            fi
+
+            printf '%s' "$response" | python3 -c 'import json, sys; versions = json.load(sys.stdin)["versions"]; stable = [version for version in versions if "-" not in version]; print((stable or versions)[-1])'
+          }
+
+          HPD_EVENTS_VERSION="$(resolve_nuget_version "HPD-Events" "$INPUT_HPD_EVENTS_VERSION")"
+          echo "hpd_events_version=$HPD_EVENTS_VERSION" >> $GITHUB_OUTPUT
+          echo "Using HPD-Events: $HPD_EVENTS_VERSION"
+
+      - name: Validate and pack HPD-TUI package
+        run: |
+          mkdir -p ./nupkg-tui
+
+          PROJECT="dotnet/HPD-TUI.Framework/src/HPD-TUI.csproj"
+          VERSION_PREFIX="${{ needs.determine-version.outputs.version_prefix }}"
+          VERSION_SUFFIX="${{ needs.determine-version.outputs.version_suffix }}"
+          HPD_EVENTS_VERSION="${{ steps.dependencies.outputs.hpd_events_version }}"
+
+          dotnet/eng/nuget/validate-package-identities.sh "$PROJECT"
+
+          dotnet build "$PROJECT" -c Release --nologo -v:q /clp:ErrorsOnly \
+            -p:UsePublishedHpdDependencies=true \
+            -p:HPDEventsVersion="$HPD_EVENTS_VERSION"
+
+          if [ -n "$VERSION_SUFFIX" ]; then
+            dotnet pack "$PROJECT" -c Release -o ./nupkg-tui \
+              -p:VersionPrefix="$VERSION_PREFIX" \
+              -p:VersionSuffix="$VERSION_SUFFIX" \
+              -p:UsePublishedHpdDependencies=true \
+              -p:HPDEventsVersion="$HPD_EVENTS_VERSION"
+          else
+            dotnet pack "$PROJECT" -c Release -o ./nupkg-tui \
+              -p:VersionPrefix="$VERSION_PREFIX" \
+              -p:UsePublishedHpdDependencies=true \
+              -p:HPDEventsVersion="$HPD_EVENTS_VERSION"
+          fi
+
+      - name: Upload HPD-TUI package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tui-nuget-package
+          path: ./nupkg-tui/*.nupkg
+
+      - name: Push HPD-TUI package to NuGet
+        env:
+          NUGET_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_KEY" ]; then
+            echo "No NuGet API key available. Set the NUGET_API_KEY repository secret."
+            exit 1
+          fi
+          dotnet nuget push ./nupkg-tui/*.nupkg --source https://api.nuget.org/v3/index.json --api-key "$NUGET_KEY" --skip-duplicate
+
+      - name: Summary
+        run: |
+          echo "## Published HPD-TUI" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.determine-version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**HPD-Events dependency:** ${{ steps.dependencies.outputs.hpd_events_version }}" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ needs.determine-version.outputs.version_suffix }}" ]; then
+            echo "**Type:** Pre-release (${{ needs.determine-version.outputs.version_suffix }})" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Type:** Stable release" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Package:" >> $GITHUB_STEP_SUMMARY
+          for pkg in ./nupkg-tui/*.nupkg; do
+            echo "- $(basename $pkg)" >> $GITHUB_STEP_SUMMARY
+          done
