@@ -281,25 +281,12 @@ jobs:
           name: agent-nuget-packages
           path: ./nupkg/*.nupkg
 
-      - name: NuGet login
-        uses: NuGet/login@v1
-        id: login
-        continue-on-error: true
-        with:
-          user: HPD-RESEARCH
-
       - name: Push to NuGet
         env:
-          TRUSTED_NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
-          FALLBACK_NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
-          NUGET_KEY="$TRUSTED_NUGET_API_KEY"
           if [ -z "$NUGET_KEY" ]; then
-            echo "Trusted publishing did not return a key; using NUGET_API_KEY fallback."
-            NUGET_KEY="$FALLBACK_NUGET_API_KEY"
-          fi
-          if [ -z "$NUGET_KEY" ]; then
-            echo "No NuGet API key available. Configure trusted publishing or set the NUGET_API_KEY secret."
+            echo "No NuGet API key available. Set the NUGET_API_KEY repository secret."
             exit 1
           fi
           dotnet nuget push ./nupkg/*.nupkg --source https://api.nuget.org/v3/index.json --api-key "$NUGET_KEY" --skip-duplicate
