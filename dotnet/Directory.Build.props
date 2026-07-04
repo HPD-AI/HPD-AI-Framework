@@ -34,7 +34,7 @@
     <Company>HPD-Research</Company>
     <Product>HPD-Agent Framework</Product>
     <Copyright>Copyright © 2024-2026 HPD-Research and Einstein Essibu. All rights reserved.</Copyright>
-    <PackageLicenseExpression>FSL-1.1-ALv2</PackageLicenseExpression>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile Condition="Exists('$(MSBuildProjectDirectory)\README.md') Or Exists('$(MSBuildThisFileDirectory)..\..\README.md')">README.md</PackageReadmeFile>
