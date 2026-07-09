@@ -224,14 +224,15 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
     }
 
     public static UserMessagesInputEvent ToUserMessagesInput(BackgroundTaskNotificationInputEvent input)
-        => new([
+        => new()
+        {
+            Messages = [
             new ChatMessage(ChatRole.System, FormatInput(input.Notifications))
                 .WithPolicy(
                     AgentMessageSource.BackgroundNotification,
                     AgentMessageVisibility.Hidden,
                     AgentMessagePersistence.ModelContextOnly)
-        ])
-        {
+            ],
             ClientInputId = input.ClientInputId,
             SessionId = input.SessionId,
             ThreadId = input.ThreadId,

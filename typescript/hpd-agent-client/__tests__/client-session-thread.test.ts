@@ -468,6 +468,55 @@ describe('AgentClient — session/thread passthroughs', () => {
       expect(String(url)).toBe(`${BASE}/agents/agent-1/sessions/sess-1/threads/thread-1/runs/run-1`);
       expect(result).toEqual(run);
     });
+
+    it('calls POST /context-usage and returns the usage estimate', async () => {
+      const usage = {
+        sessionId: 'sess-1',
+        threadId: 'thread-1',
+        providerKey: 'openai',
+        modelId: 'gpt-4.1',
+        contextWindow: 128000,
+        effectiveInputTokens: 64000,
+        usageRatio: 0.5,
+        isEstimate: false,
+        source: 'last-observed-provider-usage',
+      };
+      mockFetchJson(usage);
+
+      const result = await client.estimateContextUsage('agent-1', 'sess-1', 'thread-1', {
+        runConfig: {
+          providerKey: 'openai',
+          modelId: 'gpt-4.1',
+          compaction: {
+            mode: 0,
+            modelContext: {
+              providerKey: 'openai',
+              modelId: 'gpt-4.1',
+              contextWindow: 128000,
+            },
+          },
+        },
+      });
+
+      const [url, init] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0];
+      expect(String(url)).toBe(`${BASE}/agents/agent-1/sessions/sess-1/threads/thread-1/context-usage`);
+      expect(init?.method).toBe('POST');
+      expect(JSON.parse(String(init?.body))).toEqual({
+        runConfig: {
+          providerKey: 'openai',
+          modelId: 'gpt-4.1',
+          compaction: {
+            mode: 0,
+            modelContext: {
+              providerKey: 'openai',
+              modelId: 'gpt-4.1',
+              contextWindow: 128000,
+            },
+          },
+        },
+      });
+      expect(result).toEqual(usage);
+    });
   });
 
   describe('getThreadGraph', () => {

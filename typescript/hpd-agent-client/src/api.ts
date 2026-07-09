@@ -10,6 +10,10 @@ import type {
   ClientToolProviderSnapshot,
 } from './types/client-tool-providers.js';
 import type {
+  ContextUsageRequest,
+  ThreadContextUsage,
+} from './types/context-usage.js';
+import type {
   AgentComparisonResult,
   ThreadComparisonResult,
   CostBreakdown,
@@ -295,6 +299,23 @@ export class AgentHttpApi {
     );
     if (response.status === 404) return null;
     return this.readNullableJson(response, 'Failed to get active thread run');
+  }
+
+  async estimateContextUsage(
+    agentId: string,
+    sessionId: string,
+    threadId: string,
+    request: ContextUsageRequest = {},
+  ): Promise<ThreadContextUsage> {
+    const response = await this.fetch(
+      this.url(`/agents/${agentId}/sessions/${sessionId}/threads/${threadId}/context-usage`),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      },
+    );
+    return this.readJson(response, 'Failed to estimate thread context usage');
   }
 
   async getThreadRun(

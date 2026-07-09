@@ -24,6 +24,10 @@ import type {
 } from './types/session.js';
 import type { ThreadRun } from './types/thread-run.js';
 import type {
+  ContextUsageRequest,
+  ThreadContextUsage,
+} from './types/context-usage.js';
+import type {
   AgentSummaryDto,
   StoredAgentDto,
   CreateAgentRequest,
@@ -350,6 +354,15 @@ export class AgentClient {
 
   getActiveThreadRun(agentId: string, sessionId: string, threadId: string): Promise<ThreadRun | null> {
     return this.api.getActiveThreadRun(agentId, sessionId, threadId);
+  }
+
+  estimateContextUsage(
+    agentId: string,
+    sessionId: string,
+    threadId: string,
+    request?: ContextUsageRequest,
+  ): Promise<ThreadContextUsage> {
+    return this.api.estimateContextUsage(agentId, sessionId, threadId, request);
   }
 
   getThreadRun(agentId: string, sessionId: string, threadId: string, runtimeRunId: string): Promise<ThreadRun | null> {

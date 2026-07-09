@@ -69,8 +69,7 @@ public class ContentStorageIntegrationTests
                 return ValueTask.CompletedTask;
             }))
             {
-                await agent.RunAsync(new UserMessagesInputEvent([userMessage])
-                {
+                await agent.RunAsync(new UserMessagesInputEvent { Messages = [userMessage],
                     Session = session,
                     Thread = thread
                 });
@@ -188,8 +187,7 @@ public class ContentStorageIntegrationTests
                 return ValueTask.CompletedTask;
             }))
             {
-                await agent.RunAsync(new UserMessagesInputEvent([message])
-                {
+                await agent.RunAsync(new UserMessagesInputEvent { Messages = [message],
                     Session = session,
                     Thread = thread
                 });
@@ -268,8 +266,7 @@ public class ContentStorageIntegrationTests
             return ValueTask.CompletedTask;
         }))
         {
-            await agent.RunAsync(new UserMessagesInputEvent([message])
-            {
+            await agent.RunAsync(new UserMessagesInputEvent { Messages = [message],
                 Session = session,
                 Thread = thread
             });
@@ -321,8 +318,7 @@ public class ContentStorageIntegrationTests
                 new DataContent(imageBytes, "image/png")
             ]);
 
-            await agent.RunAsync(new UserMessagesInputEvent([userMessage])
-            {
+            await agent.RunAsync(new UserMessagesInputEvent { Messages = [userMessage],
                 Session = session1,
                 Thread = thread1
             });
@@ -440,8 +436,7 @@ public class ContentStorageIntegrationTests
             return ValueTask.CompletedTask;
         }))
         {
-            await agent.RunAsync(new UserMessagesInputEvent([message])
-            {
+            await agent.RunAsync(new UserMessagesInputEvent { Messages = [message],
                 Session = session,
                 Thread = thread
             });

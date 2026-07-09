@@ -76,9 +76,7 @@ public sealed class AudioRuntimeConsumerSetupTests
         var audio = AudioContent.Wav(new byte[] { 9, 8, 7, 6 });
         audio.Name = "question.wav";
 
-        var result = await agent.RunAsync(new UserMessagesInputEvent(
-            [new ChatMessage(ChatRole.User, [audio])])
-        {
+        var result = await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, [audio])],
             SessionId = "consumer-stt-session",
             ThreadId = "main"
         });

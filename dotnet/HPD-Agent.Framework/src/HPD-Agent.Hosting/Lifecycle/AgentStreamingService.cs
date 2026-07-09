@@ -81,6 +81,27 @@ public sealed class AgentStreamingService : IAgentStreamingService
             new InputSubmissionDto(run.RuntimeRunId));
     }
 
+    public async Task<AgentServiceResult<ThreadContextUsage>> EstimateContextUsageAsync(
+        string agentId,
+        string sessionId,
+        string threadId,
+        AgentRunConfig? runConfig,
+        CancellationToken cancellationToken = default)
+    {
+        if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
+            return AgentServiceResult<ThreadContextUsage>.NotFound;
+
+        var thread = await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken)
+            .ConfigureAwait(false);
+        if (thread == null)
+            return AgentServiceResult<ThreadContextUsage>.NotFound;
+
+        var estimator = new ThreadContextUsageEstimator();
+        var usage = await estimator.EstimateAsync(thread, runConfig ?? new AgentRunConfig(), cancellationToken)
+            .ConfigureAwait(false);
+        return AgentServiceResult<ThreadContextUsage>.Success(usage);
+    }
+
     public async Task<AgentServiceResult> InterruptAsync(
         string agentId,
         string sessionId,
@@ -151,4 +172,5 @@ public sealed class AgentStreamingService : IAgentStreamingService
             _ => input
         };
     }
+
 }

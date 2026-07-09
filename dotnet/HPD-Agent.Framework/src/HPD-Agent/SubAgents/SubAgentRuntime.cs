@@ -206,10 +206,9 @@ public static class SubAgentRuntime
                 return ValueTask.CompletedTask;
             });
 
-            await agent.RunAsync(new UserMessagesInputEvent([
+            await agent.RunAsync(new UserMessagesInputEvent { Messages = [
                 new ChatMessage(ChatRole.User, request.Input)
-            ])
-            {
+            ],
                 SessionId = route.SessionId,
                 ThreadId = route.ThreadId
             }, cancellationToken).ConfigureAwait(false);

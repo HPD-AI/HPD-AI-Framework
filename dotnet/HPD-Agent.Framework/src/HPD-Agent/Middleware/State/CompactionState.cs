@@ -44,6 +44,7 @@ public sealed record CompactionStateData
         this with
         {
             LastCompaction = compaction,
+            MessageTurnCount = 0,
             LastAppliedAt = DateTimeOffset.UtcNow
         };
 

@@ -84,6 +84,30 @@ public interface IAgentMiddleware
         => Task.CompletedTask;
 
     //
+    // INPUT LEVEL (once per AgentInputEvent)
+    //
+
+    /// <summary>
+    /// Called before a runtime input event is dispatched to its input handler.
+    /// Use for input-level policy, normalization, auditing, and metrics that apply
+    /// to user messages and runtime control inputs alike.
+    /// </summary>
+    Task BeforeInputAsync(
+        BeforeInputContext context,
+        CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    /// <summary>
+    /// Called after a runtime input event handler completes, fails, or is cancelled.
+    /// Use for input-level metrics, cleanup, and diagnostics. This hook runs for
+    /// inputs that never become message turns.
+    /// </summary>
+    Task AfterInputAsync(
+        AfterInputContext context,
+        CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    //
     // TURN LEVEL (once per user message)
     //
 

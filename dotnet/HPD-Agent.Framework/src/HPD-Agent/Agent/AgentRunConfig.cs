@@ -453,52 +453,9 @@ public class AgentRunConfig
     #region Compaction
 
     /// <summary>
-    /// Force compaction to trigger for this turn, regardless of automatic thresholds.
-    /// Useful for:
-    /// - Context switches: Summarize before changing topics
-    /// - Before expensive operations: Reduce history before complex tasks
-    /// - Memory management: Explicit compaction at strategic points
-    /// - Testing: Trigger compaction at specific points in testing
+    /// Per-run compaction policy. Null means use the agent's configured compaction defaults.
     /// </summary>
-    /// <remarks>
-    /// When true, compaction will be performed even if the automatic
-    /// typed trigger policy thresholds are not met. The compaction will use the
-    /// configured strategy options.
-    /// </remarks>
-    public bool TriggerCompaction { get; set; } = false;
-
-    /// <summary>
-    /// Skip compaction for this turn, even if automatic thresholds are met.
-    /// Useful for:
-    /// - Critical context preservation: Keep full history for important decisions
-    /// - Debugging: Disable compaction to inspect full conversation
-    /// - Testing: Test behavior without compaction interference
-    /// - User preference: Premium users or specific requests need full context
-    /// </summary>
-    /// <remarks>
-    /// When true, compaction will be skipped for this turn regardless
-    /// of whether automatic thresholds would normally trigger it.
-    /// Takes precedence over TriggerCompaction if both are set.
-    /// </remarks>
-    public bool SkipCompaction { get; set; } = false;
-
-    /// <summary>
-    /// Override the compaction behavior for this turn only.
-    /// - Continue: Compaction happens transparently, agent continues immediately
-    /// - CircuitBreaker: Compaction terminates the turn, user must send next message to continue
-    /// Null = use configured default from CompactionConfig.Behavior.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Use Cases:</b>
-    /// </para>
-    /// <list type="bullet">
-    /// <item>Force circuit breaker for critical moments: "Before this important decision, stop and show summary"</item>
-    /// <item>Override to Continue for automated flows: "Don't interrupt automated batch processing"</item>
-    /// <item>Testing: Switch behaviors per-test to verify both modes work correctly</item>
-    /// </list>
-    /// </remarks>
-    public CompactionBehavior? CompactionBehaviorOverride { get; set; }
+    public CompactionRunConfig? Compaction { get; set; }
 
     #endregion
 

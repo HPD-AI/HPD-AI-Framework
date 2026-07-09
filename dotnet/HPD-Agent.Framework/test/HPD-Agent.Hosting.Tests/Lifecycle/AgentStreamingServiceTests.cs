@@ -43,8 +43,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
                 ["workspace"] = workspaceOverride
             }
         };
-        var input = new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "run tests")])
-        {
+        var input = new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "run tests")],
             ClientInputId = "client-input-1",
             AgentId = "client-agent",
             SessionId = "client-session",
@@ -109,6 +108,38 @@ public sealed class AgentStreamingServiceTests : IDisposable
         notification.RuntimeRunId.Should().Be("route-run");
         notification.ClientInputId.Should().Be("client-input-1");
         notification.RunConfig.Should().BeSameAs(runConfig);
+    }
+
+    [Fact]
+    public async Task EstimateContextUsageAsync_ReturnsThreadUsageForScopedThread()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("session-usage");
+        var thread = (await _sessionStore.LoadThreadAsync(sessionId, threadId))!;
+        thread.AddMessage(new ChatMessage(ChatRole.User, "12345678"));
+        await _sessionStore.SaveInitialThreadAsync(sessionId, thread);
+
+        var result = await _service.EstimateContextUsageAsync(
+            "agent-1",
+            sessionId,
+            threadId,
+            new AgentRunConfig
+            {
+                Compaction = new CompactionRunConfig
+                {
+                    ModelContext = new ModelContextWindowOptions
+                    {
+                        ProviderKey = "openai",
+                        ModelId = "small",
+                        ContextWindow = 8
+                    }
+                }
+            });
+
+        result.Status.Should().Be(AgentServiceStatus.Success);
+        result.Value!.SessionId.Should().Be(sessionId);
+        result.Value.ThreadId.Should().Be(threadId);
+        result.Value.EffectiveInputTokens.Should().Be(2);
+        result.Value.UsageRatio.Should().Be(0.25);
     }
 
     private sealed class TestSessionManager(ISessionStore store) : SessionManager(store);

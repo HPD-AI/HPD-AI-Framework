@@ -155,13 +155,13 @@ public static class AgentConfigValidator
         switch (strategy)
         {
             case MessageCountingCompactionOptions messageCounting:
-                if (messageCounting.TargetMessageCount <= 1 || messageCounting.TargetMessageCount > 1000)
-                    errors.Add("MessageCountingCompactionOptions.TargetMessageCount must be between 2 and 1,000.");
+                if (messageCounting.PreserveRecentUserTurnCount <= 0 || messageCounting.PreserveRecentUserTurnCount > 1000)
+                    errors.Add("MessageCountingCompactionOptions.PreserveRecentUserTurnCount must be between 1 and 1,000.");
                 break;
 
             case SummarizingCompactionOptions summarizing:
-                if (summarizing.TargetRecentMessageCount <= 1 || summarizing.TargetRecentMessageCount > 1000)
-                    errors.Add("SummarizingCompactionOptions.TargetRecentMessageCount must be between 2 and 1,000.");
+                if (summarizing.PreserveRecentUserTurnCount <= 0 || summarizing.PreserveRecentUserTurnCount > 1000)
+                    errors.Add("SummarizingCompactionOptions.PreserveRecentUserTurnCount must be between 1 and 1,000.");
 
                 if (summarizing.ResummarizeAfterNewMessages < 0 || summarizing.ResummarizeAfterNewMessages > 100)
                     errors.Add("SummarizingCompactionOptions.ResummarizeAfterNewMessages must be between 0 and 100.");
@@ -188,26 +188,26 @@ public static class AgentConfigValidator
                     errors.Add("CountCompactionTriggerOptions.Threshold must be between 0 and 100.");
                 break;
 
-            case TokenBudgetCompactionTriggerOptions tokenBudget:
-                if (tokenBudget.TargetTokenBudget <= 0)
-                    errors.Add("TokenBudgetCompactionTriggerOptions.TargetTokenBudget must be greater than zero.");
-
-                if (tokenBudget.TokenBudgetThreshold < 0)
-                    errors.Add("TokenBudgetCompactionTriggerOptions.TokenBudgetThreshold must be zero or greater.");
-                break;
-
             case ContextWindowCompactionTriggerOptions contextWindow:
-                if (contextWindow.ContextWindowSize <= 1000 || contextWindow.ContextWindowSize > 2000000)
+                if (contextWindow.ContextWindowSize is <= 1000 or > 2000000)
                     errors.Add("ContextWindowCompactionTriggerOptions.ContextWindowSize must be between 1,000 and 2,000,000 tokens.");
 
-                if (contextWindow.TriggerPercentage <= 0 || contextWindow.TriggerPercentage >= 1)
-                    errors.Add("ContextWindowCompactionTriggerOptions.TriggerPercentage must be between 0 and 1.");
+                switch (contextWindow.ThresholdMode)
+                {
+                    case ContextWindowCompactionThresholdMode.Percentage:
+                        if (contextWindow.TriggerPercentage <= 0 || contextWindow.TriggerPercentage >= 1)
+                            errors.Add("ContextWindowCompactionTriggerOptions.TriggerPercentage must be between 0 and 1.");
+                        break;
 
-                if (contextWindow.PreservePercentage <= 0 || contextWindow.PreservePercentage >= 1)
-                    errors.Add("ContextWindowCompactionTriggerOptions.PreservePercentage must be between 0 and 1.");
+                    case ContextWindowCompactionThresholdMode.TokenCount:
+                        if (contextWindow.TriggerTokenCount is null or <= 0)
+                            errors.Add("ContextWindowCompactionTriggerOptions.TriggerTokenCount must be greater than zero when ThresholdMode is TokenCount.");
+                        break;
 
-                if (contextWindow.TriggerPercentage <= contextWindow.PreservePercentage)
-                    errors.Add("ContextWindowCompactionTriggerOptions.TriggerPercentage must be larger than PreservePercentage.");
+                    default:
+                        errors.Add("ContextWindowCompactionTriggerOptions.ThresholdMode is invalid.");
+                        break;
+                }
                 break;
 
             case CompositeCompactionTriggerOptions composite:
@@ -232,9 +232,6 @@ public static class AgentConfigValidator
                 break;
             case CompactThreadHistoryOptions compact:
                 ValidateCompactionBoundary(compact.Boundary, errors);
-                break;
-            case DeleteCompactedMessagesOptions delete:
-                ValidateCompactionBoundary(delete.Boundary, errors);
                 break;
             default:
                 errors.Add($"Unknown history retention option type: {retention.GetType().Name}.");
@@ -352,8 +349,8 @@ public static class AgentConfigValidator
         var maxFunctionCalls = config.MaxAgenticIterations;
         var maxHistory = config.Compaction?.Strategy switch
         {
-            MessageCountingCompactionOptions messageCounting => messageCounting.TargetMessageCount,
-            SummarizingCompactionOptions summarizing => summarizing.TargetRecentMessageCount,
+            MessageCountingCompactionOptions messageCounting => messageCounting.PreserveRecentUserTurnCount,
+            SummarizingCompactionOptions summarizing => summarizing.PreserveRecentUserTurnCount,
             _ => 20
         };
 

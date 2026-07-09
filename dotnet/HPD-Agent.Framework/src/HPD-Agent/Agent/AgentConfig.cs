@@ -995,10 +995,36 @@ public class CompactionConfig
     /// <summary>
     /// Behavior when compaction is triggered.
     /// - Continue (default): Compaction happens transparently, agent continues immediately
-    /// - CircuitBreaker: Compaction terminates the turn, user must explicitly continue
-    /// Can be overridden per-turn via AgentRunConfig.CompactionBehaviorOverride.
+    /// - StopAfterCompaction: Compaction terminates the turn before a model call
+    /// Can be overridden per-turn via AgentRunConfig.Compaction.
     /// </summary>
     public CompactionBehavior Behavior { get; set; } = CompactionBehavior.Continue;
+}
+
+public sealed record CompactionRunConfig
+{
+    public CompactionRunMode Mode { get; init; } = CompactionRunMode.Auto;
+    public CompactionBehavior? Behavior { get; init; }
+    public CompactionTriggerOptions? Trigger { get; init; }
+    public CompactionStrategyOptions? Strategy { get; init; }
+    public CompactionRetentionOptions? Retention { get; init; }
+    public ModelContextWindowOptions? ModelContext { get; init; }
+}
+
+public enum CompactionRunMode
+{
+    Auto,
+    Force,
+    Disabled
+}
+
+public sealed record ModelContextWindowOptions
+{
+    public string? ProviderKey { get; init; }
+    public string? ModelId { get; init; }
+    public int? ContextWindow { get; init; }
+    public int? InputTokenLimit { get; init; }
+    public int? OutputTokenLimit { get; init; }
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
@@ -1008,12 +1034,12 @@ public abstract record CompactionStrategyOptions;
 
 public sealed record MessageCountingCompactionOptions : CompactionStrategyOptions
 {
-    public int TargetMessageCount { get; init; } = 50;
+    public int PreserveRecentUserTurnCount { get; init; } = 10;
 }
 
 public sealed record SummarizingCompactionOptions : CompactionStrategyOptions
 {
-    public int TargetRecentMessageCount { get; init; } = 20;
+    public int PreserveRecentUserTurnCount { get; init; } = 5;
     public int ResummarizeAfterNewMessages { get; init; } = 5;
     public string? CustomPrompt { get; init; }
     public ClientProviderConfig? SummarizerProvider { get; init; }
@@ -1024,7 +1050,6 @@ public sealed record SummarizingCompactionOptions : CompactionStrategyOptions
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
 [JsonDerivedType(typeof(CountCompactionTriggerOptions), "count")]
-[JsonDerivedType(typeof(TokenBudgetCompactionTriggerOptions), "tokenBudget")]
 [JsonDerivedType(typeof(ContextWindowCompactionTriggerOptions), "contextWindow")]
 [JsonDerivedType(typeof(CompositeCompactionTriggerOptions), "composite")]
 public abstract record CompactionTriggerOptions;
@@ -1036,17 +1061,19 @@ public sealed record CountCompactionTriggerOptions : CompactionTriggerOptions
     public int Threshold { get; init; } = 5;
 }
 
-public sealed record TokenBudgetCompactionTriggerOptions : CompactionTriggerOptions
-{
-    public int TargetTokenBudget { get; init; }
-    public int TokenBudgetThreshold { get; init; }
-}
-
 public sealed record ContextWindowCompactionTriggerOptions : CompactionTriggerOptions
 {
-    public int ContextWindowSize { get; init; }
-    public double TriggerPercentage { get; init; }
-    public double PreservePercentage { get; init; } = 0.3;
+    public int? ContextWindowSize { get; init; }
+    public ContextWindowCompactionThresholdMode ThresholdMode { get; init; } =
+        ContextWindowCompactionThresholdMode.Percentage;
+    public double TriggerPercentage { get; init; } = 0.70;
+    public long? TriggerTokenCount { get; init; }
+}
+
+public enum ContextWindowCompactionThresholdMode
+{
+    Percentage,
+    TokenCount
 }
 
 public sealed record CompositeCompactionTriggerOptions : CompactionTriggerOptions
@@ -1057,17 +1084,11 @@ public sealed record CompositeCompactionTriggerOptions : CompactionTriggerOption
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
 [JsonDerivedType(typeof(PreserveThreadHistoryOptions), "preserve")]
 [JsonDerivedType(typeof(CompactThreadHistoryOptions), "compact")]
-[JsonDerivedType(typeof(DeleteCompactedMessagesOptions), "delete")]
 public abstract record CompactionRetentionOptions;
 
 public sealed record PreserveThreadHistoryOptions : CompactionRetentionOptions;
 
 public sealed record CompactThreadHistoryOptions : CompactionRetentionOptions
-{
-    public CompactionBoundaryOptions Boundary { get; init; } = new ExactCompactedMessagesBoundaryOptions();
-}
-
-public sealed record DeleteCompactedMessagesOptions : CompactionRetentionOptions
 {
     public CompactionBoundaryOptions Boundary { get; init; } = new ExactCompactedMessagesBoundaryOptions();
 }
@@ -1111,7 +1132,7 @@ public sealed record SummaryMemoryOptions
 public enum CompactionStrategy
 {
     /// <summary>
-    /// Keep only the N most recent messages (plus first system message).
+    /// Preserve the most recent user turns, translated internally to a whole raw message suffix.
     /// Fast and simple, but loses older context completely.
     /// </summary>
     MessageCounting,
@@ -1137,11 +1158,11 @@ public enum CompactionBehavior
     Continue,
 
     /// <summary>
-    /// Stop execution after compaction and require user confirmation to continue.
-    /// Acts as a circuit breaker - compaction terminates the current turn.
-    /// Use when: Users need to be aware of context loss, review summary, or save important info.
+    /// Stop execution after compaction without treating the stop as an error or user confirmation gate.
+    /// Use for explicit compaction operations that should compact existing history and then end the run
+    /// before a model call.
     /// </summary>
-    CircuitBreaker
+    StopAfterCompaction
 }
 
 /// <summary>

@@ -39,6 +39,12 @@ internal static class StreamingEndpoints
             .WithName("SubmitAgentInput")
             .WithSummary("Submit an agent input event to the runtime");
 
+        endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/context-usage",
+                async (string agentId, string sid, string bid, JsonElement? request, CancellationToken ct) =>
+                    await EstimateContextUsage(agentId, sid, bid, request, streaming, ct))
+            .WithName("EstimateAgentThreadContextUsage")
+            .WithSummary("Estimate model context usage for the current thread");
+
         // GET /agents/{agentId}/sessions/{sid}/threads/{bid}/events/live - SSE observer
         endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/events/live",
                 async (string agentId, string sid, string bid, HttpContext context, CancellationToken ct) =>
@@ -74,6 +80,19 @@ internal static class StreamingEndpoints
 
         var result = await streaming.SubmitInputAsync(agentId, sid, bid, input, ct);
         return ToSubmissionHttpResult(result);
+    }
+
+    private static async Task<IResult> EstimateContextUsage(
+        string agentId,
+        string sid,
+        string bid,
+        JsonElement? request,
+        IAgentStreamingService streaming,
+        CancellationToken ct = default)
+    {
+        var body = ParseContextUsageRequest(request);
+        var result = await streaming.EstimateContextUsageAsync(agentId, sid, bid, body.RunConfig, ct);
+        return ToValueHttpResult(result);
     }
 
     private static async Task<IResult> ObserveEventsWithSse(
@@ -271,8 +290,7 @@ internal static class StreamingEndpoints
         var textRequest = JsonSerializer.Deserialize<StreamTextRequest>(request.GetRawText(), CaseInsensitiveJson);
         return string.IsNullOrWhiteSpace(textRequest?.Text)
             ? null
-            : new UserMessagesInputEvent([new ChatMessage(ChatRole.User, textRequest.Text)])
-            {
+            : new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, textRequest.Text)],
                 RunConfig = textRequest.RunConfig,
                 ClientInputId = textRequest.ClientInputId
             };
@@ -300,6 +318,19 @@ internal static class StreamingEndpoints
         }
 
         return new InterruptionRequestEvent(null, "Interrupted by client.", InterruptionSource.User);
+    }
+
+    private static ContextUsageRequest ParseContextUsageRequest(JsonElement? request)
+    {
+        if (request is { ValueKind: JsonValueKind.Object } body)
+        {
+            return JsonSerializer.Deserialize<ContextUsageRequest>(
+                    body.GetRawText(),
+                    CaseInsensitiveJson)
+                ?? new ContextUsageRequest(null);
+        }
+
+        return new ContextUsageRequest(null);
     }
 
     private static bool TryGetPropertyIgnoreCase(JsonElement element, string name, out JsonElement value)
@@ -342,6 +373,22 @@ internal static class StreamingEndpoints
         return result.Status switch
         {
             AgentServiceStatus.Success => TypedResults.Accepted(string.Empty, result.Value),
+            AgentServiceStatus.NotFound => TypedResults.NotFound(),
+            AgentServiceStatus.Conflict => TypedResults.Conflict(),
+            AgentServiceStatus.ValidationError => TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [result.ErrorCode ?? "ValidationError"] = result.ErrorMessages?.ToArray()
+                    ?? [result.ErrorMessage ?? "Validation failed."]
+            }),
+            _ => TypedResults.StatusCode(StatusCodes.Status500InternalServerError)
+        };
+    }
+
+    private static IResult ToValueHttpResult<T>(AgentServiceResult<T> result)
+    {
+        return result.Status switch
+        {
+            AgentServiceStatus.Success => TypedResults.Ok(result.Value),
             AgentServiceStatus.NotFound => TypedResults.NotFound(),
             AgentServiceStatus.Conflict => TypedResults.Conflict(),
             AgentServiceStatus.ValidationError => TypedResults.ValidationProblem(new Dictionary<string, string[]>

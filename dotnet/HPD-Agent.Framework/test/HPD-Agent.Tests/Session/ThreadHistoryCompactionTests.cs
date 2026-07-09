@@ -30,7 +30,7 @@ public class ThreadHistoryCompactionTests
         var plan = new ThreadCompactionPlanner().Plan(
             thread,
             compaction,
-            new DeleteCompactedMessagesOptions());
+            new CompactThreadHistoryOptions());
 
         plan.Should().NotBeNull();
         plan!.DurableCompactedMessages.Select(m => m.MessageId)
@@ -46,7 +46,7 @@ public class ThreadHistoryCompactionTests
         var plan = new ThreadCompactionPlanner().Plan(
             thread,
             compaction,
-            new DeleteCompactedMessagesOptions
+            new CompactThreadHistoryOptions
             {
                 Boundary = new IncludePreviousMessagesBoundaryOptions(2)
             });
@@ -81,7 +81,7 @@ public class ThreadHistoryCompactionTests
         var plan = new ThreadCompactionPlanner().Plan(
             thread,
             compaction,
-            new DeleteCompactedMessagesOptions { Boundary = new IncludeMessageTurnBoundaryOptions() });
+            new CompactThreadHistoryOptions { Boundary = new IncludeMessageTurnBoundaryOptions() });
 
         plan!.DurableCompactedMessages.Select(m => m.MessageId)
             .Should().Equal("message-0", "message-1");
@@ -112,21 +112,21 @@ public class ThreadHistoryCompactionTests
         var plan = new ThreadCompactionPlanner().Plan(
             thread,
             compaction,
-            new DeleteCompactedMessagesOptions { Boundary = new IncludeToolCallGroupBoundaryOptions() });
+            new CompactThreadHistoryOptions { Boundary = new IncludeToolCallGroupBoundaryOptions() });
 
         plan!.DurableCompactedMessages.Select(m => m.MessageId)
             .Should().Equal("assistant-call", "tool-result");
     }
 
     [Fact]
-    public async Task Compactor_DeleteRetention_RemovesDurableMessagesFromLiveThread()
+    public async Task Compactor_CompactRetentionWithoutReplacements_RemovesDurableMessagesFromLiveThread()
     {
         var thread = CreateThread(5);
         var compaction = CreateCompaction(thread, compactedCount: 3);
         var plan = new ThreadCompactionPlanner().Plan(
             thread,
             compaction,
-            new DeleteCompactedMessagesOptions())!;
+            new CompactThreadHistoryOptions())!;
 
         var result = await new ThreadHistoryCompactor().CompactAsync(thread, plan, CancellationToken.None);
 

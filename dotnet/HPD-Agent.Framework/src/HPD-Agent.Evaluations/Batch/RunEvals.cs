@@ -403,10 +403,11 @@ public static class RunEvals
 
         using var subscription = agent.SubscribeAny(capture.HandleAsync);
 
-        await agent.RunAsync(new HPD.Agent.UserMessagesInputEvent([
-            new ChatMessage(ChatRole.User, runConfig.UserMessage ?? string.Empty)
-        ])
+        await agent.RunAsync(new HPD.Agent.UserMessagesInputEvent
         {
+            Messages = [
+                new ChatMessage(ChatRole.User, runConfig.UserMessage ?? string.Empty)
+            ],
             RunConfig = runConfig,
         }, ct).ConfigureAwait(false);
 
@@ -716,8 +717,7 @@ public static class RunEvals
             BackgroundTimeout = source.BackgroundTimeout,
             Attachments = source.Attachments,
             Audio = source.Audio,
-            TriggerCompaction = source.TriggerCompaction,
-            SkipCompaction = source.SkipCompaction,
+            Compaction = source.Compaction,
             UserMessage = source.UserMessage,
             DisableEvaluators = source.DisableEvaluators,
             IsInternalEvalJudgeCall = source.IsInternalEvalJudgeCall,

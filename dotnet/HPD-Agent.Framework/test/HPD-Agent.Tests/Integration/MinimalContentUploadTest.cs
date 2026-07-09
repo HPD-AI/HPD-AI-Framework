@@ -58,8 +58,7 @@ public class MinimalContentUploadTest
                 return ValueTask.CompletedTask;
             }))
             {
-                await agent.RunAsync(new UserMessagesInputEvent([userMessage])
-                {
+                await agent.RunAsync(new UserMessagesInputEvent { Messages = [userMessage],
                     Session = session,
                     Thread = thread
                 });

@@ -716,6 +716,33 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         }
     }
 
+    public async Task<ThreadContextUsage> EstimateContextUsageAsync(
+        AgentTuiRuntimeScope scope,
+        AgentRunConfig? runConfig = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+
+        var store = _agent.Config.SessionStore;
+        var thread = store is null
+            ? null
+            : await store.LoadThreadAsync(scope.SessionId, scope.ThreadId, cancellationToken)
+                .ConfigureAwait(false);
+        if (thread is null)
+        {
+            return new ThreadContextUsage
+            {
+                SessionId = scope.SessionId,
+                ThreadId = scope.ThreadId,
+                Source = "thread-not-found"
+            };
+        }
+
+        var estimator = new ThreadContextUsageEstimator();
+        return await estimator.EstimateAsync(thread, runConfig ?? new AgentRunConfig(), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public async Task InterruptAsync(
         AgentTuiRuntimeScope scope,
         string reason,

@@ -159,8 +159,7 @@ public sealed class BotStreamingRunner(
             runConfig.UserMessage ??= request.Text;
             runConfig.Attachments ??= request.Attachments;
 
-            await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, contents)])
-            {
+            await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, contents)],
                 AgentId = request.AgentId,
                 SessionId = request.SessionId,
                 ThreadId = request.ThreadId,
@@ -169,10 +168,9 @@ public sealed class BotStreamingRunner(
         }
         else
         {
-            await agent.RunAsync(new UserMessagesInputEvent([
+            await agent.RunAsync(new UserMessagesInputEvent { Messages = [
                 new ChatMessage(ChatRole.User, request.Text)
-            ])
-            {
+            ],
                 AgentId = request.AgentId,
                 SessionId = request.SessionId,
                 ThreadId = request.ThreadId,

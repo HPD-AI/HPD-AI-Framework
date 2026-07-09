@@ -274,7 +274,7 @@ export interface UserMessageInput {
 
 export interface UserMessagesInputEvent extends AgentInputEvent {
   type: typeof EventTypes.USER_MESSAGES_INPUT;
-  messages: UserMessageInput[];
+  messages?: UserMessageInput[] | null;
 }
 
 export interface BackgroundTaskNotification {

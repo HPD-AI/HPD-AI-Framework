@@ -1987,6 +1987,11 @@ public class AgentBuilder
             {
                 Strategy = compactionStrategy,
                 Config = _config.Compaction,
+                StrategyFactory = options => CreateCompactionStrategy(
+                    buildData.ClientToUse,
+                    _config,
+                    buildData.SummarizerClient,
+                    options),
                 SystemInstructions = _config.SystemInstructions
             });
         }
@@ -2957,7 +2962,8 @@ public class AgentBuilder
     private static ICompactionStrategy? CreateCompactionStrategy(
         IChatClient? baseClient,
         AgentConfig config,
-        IChatClient? summarizerClient)
+        IChatClient? summarizerClient,
+        CompactionStrategyOptions? overrideStrategy = null)
     {
         var historyConfig = config.Compaction;
 
@@ -2966,18 +2972,25 @@ public class AgentBuilder
             return null;
         }
 
-        IChatReducer reducer = historyConfig.Strategy switch
+        var strategy = overrideStrategy ?? historyConfig.Strategy;
+
+        Func<IReadOnlyList<ChatMessage>, IChatReducer> reducerFactory = strategy switch
         {
             MessageCountingCompactionOptions messageCounting =>
-                new MessageCountingChatReducer(messageCounting.TargetMessageCount),
+                messages => new MessageCountingChatReducer(
+                    ResolvePreserveRecentRawMessageCount(messages, messageCounting.PreserveRecentUserTurnCount)),
 
             SummarizingCompactionOptions summarizing =>
-                CreateSummarizingReducer(baseClient, summarizing, summarizerClient),
+                messages => CreateSummarizingReducer(
+                    baseClient,
+                    summarizing,
+                    summarizerClient,
+                    ResolvePreserveRecentRawMessageCount(messages, summarizing.PreserveRecentUserTurnCount)),
 
-            _ => throw new ArgumentException($"Unknown compaction strategy: {historyConfig.Strategy.GetType().Name}")
+            _ => throw new ArgumentException($"Unknown compaction strategy: {strategy.GetType().Name}")
         };
 
-        return new ChatReducerCompactionStrategy(reducer, historyConfig.Strategy);
+        return new ChatReducerCompactionStrategy(reducerFactory, strategy);
     }
 
     /// <summary>
@@ -2987,7 +3000,8 @@ public class AgentBuilder
     private static SummarizingChatReducer CreateSummarizingReducer(
         IChatClient? baseClient,
         SummarizingCompactionOptions options,
-        IChatClient? summarizerClient)
+        IChatClient? summarizerClient,
+        int preserveRecentRawMessageCount)
     {
         // Determine which chat client to use for summarization
         // If a custom summarizer client was provided, use it
@@ -3001,7 +3015,7 @@ public class AgentBuilder
 
         var reducer = new SummarizingChatReducer(
             clientForSummarization,
-            options.TargetRecentMessageCount,
+            preserveRecentRawMessageCount,
             options.ResummarizeAfterNewMessages);
 
         if (!string.IsNullOrEmpty(options.CustomPrompt))
@@ -3015,6 +3029,48 @@ public class AgentBuilder
 
         return reducer;
     }
+
+    internal static int ResolvePreserveRecentRawMessageCount(
+        IReadOnlyList<ChatMessage> messages,
+        int preserveRecentUserTurnCount)
+    {
+        if (messages.Count == 0)
+            return 0;
+
+        if (preserveRecentUserTurnCount <= 0)
+            return 1;
+
+        var seenUserTurnIds = new HashSet<string>(StringComparer.Ordinal);
+        var seenAnonymousUsers = 0;
+
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            var message = messages[i];
+            if (message.Role != ChatRole.User)
+                continue;
+
+            var turnId = GetMessageTurnId(message);
+            var isNewUserTurn = string.IsNullOrWhiteSpace(turnId)
+                ? ++seenAnonymousUsers <= preserveRecentUserTurnCount
+                : seenUserTurnIds.Add(turnId!);
+
+            if (!isNewUserTurn)
+                continue;
+
+            var userTurnCount = seenUserTurnIds.Count + seenAnonymousUsers;
+            if (userTurnCount >= preserveRecentUserTurnCount)
+                return messages.Count - i;
+        }
+
+        return messages.Count;
+    }
+
+    private static string? GetMessageTurnId(ChatMessage message) =>
+        message.AdditionalProperties?.TryGetValue<string>(
+            ThreadHistoryCompactionMetadata.MessageTurnIdPropertyName,
+            out var turnId) == true
+            ? turnId
+            : null;
 
     private static string CreateHandoffSummarizationPrompt(bool useSingleSummary)
     {
@@ -3088,8 +3144,6 @@ public static class AgentBuilderMiddlewareExtensions
         }
         return builder;
     }
-
-
 
     /// <summary>
     /// Adds circuit breaker middleware to prevent infinite loops from repeated identical tool calls.
@@ -3877,7 +3931,7 @@ public static class AgentBuilderMemoryExtensions
     /// <code>
     /// builder.WithCompaction(config => {
     ///     config.Enabled = true;
-    ///     config.Strategy = new SummarizingCompactionOptions { TargetRecentMessageCount = 30 };
+    ///     config.Strategy = new SummarizingCompactionOptions { PreserveRecentUserTurnCount = 5 };
     ///     config.Trigger = new CountCompactionTriggerOptions { Threshold = 10 };
     ///     config.Retention = new PreserveThreadHistoryOptions();
     /// });

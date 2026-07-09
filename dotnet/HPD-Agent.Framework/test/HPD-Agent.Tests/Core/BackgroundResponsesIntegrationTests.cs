@@ -128,8 +128,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         // Act
         var messages = thread.Messages;
-        await agent.RunAsync(new UserMessagesInputEvent(messages)
-        {
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = messages,
             Session = session,
             Thread = thread
         }, TestCancellationToken);
@@ -397,8 +396,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
             return ValueTask.CompletedTask;
         });
 
-        await agent.RunAsync(new UserMessagesInputEvent(messages)
-        {
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = messages,
             Session = session,
             Thread = thread,
             RunConfig = options

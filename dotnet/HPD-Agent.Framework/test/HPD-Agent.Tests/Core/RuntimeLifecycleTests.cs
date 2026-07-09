@@ -2430,8 +2430,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         });
 
         await agent.StartAsync(cancellationToken: TestCancellationToken);
-        await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "hello runtime")])
-        {
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "hello runtime")],
             Session = session,
             Thread = thread,
             SessionId = session.Id,
@@ -2948,8 +2947,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         Assert.NotNull(runtimeContext);
 
         await agent.RunAsync(
-            new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "hello")])
-            {
+            new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "hello")],
                 AgentId = "TestAgent",
                 SessionId = "session-1",
                 ThreadId = "thread-1",
@@ -3061,7 +3059,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             OnBeforeStart = async (context, cancellationToken) =>
             {
                 await context.RunAsync(
-                    new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "from-before-start")]),
+                    new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "from-before-start")] },
                     cancellationToken);
             }
         };
@@ -3092,7 +3090,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             {
                 RegisterRuntimeBackgroundTask(context, async runtimeToken =>
                 {
-                    await context.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "from-background")]), runtimeToken);
+                    await context.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "from-background")] }, runtimeToken);
                     enqueueReturned.TrySetResult();
                 });
 
@@ -3141,7 +3139,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         Assert.NotNull(capturedContext);
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await capturedContext!.RunAsync(
-                new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "after-stop")]),
+                new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "after-stop")] },
                 TestCancellationToken));
     }
 
@@ -3248,14 +3246,12 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         await agent.StartAsync(cancellationToken: TestCancellationToken);
 
-        await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "question one")])
-        {
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "question one")],
             Session = session,
             Thread = thread
         }, TestCancellationToken);
 
-        await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "question two")])
-        {
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "question two")],
             Session = session,
             Thread = thread
         }, TestCancellationToken);
@@ -3550,7 +3546,7 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         using var textSubscription = agent.Subscribe<TextDeltaEvent>(_ => textOutputSeen.TrySetResult());
 
-        await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "hello")]), TestCancellationToken);
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "hello")] }, TestCancellationToken);
 
         await textOutputSeen.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
     }
@@ -3565,7 +3561,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: fakeClient,
             middlewares: [middleware]);
 
-        await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "hello")]), TestCancellationToken);
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "hello")] }, TestCancellationToken);
 
         Assert.Equal(1, middleware.BeforeMessageTurnCalls);
     }

@@ -7,3 +7,4 @@ export * from './thread-run.js';
 export * from './agent.js';
 export * from './evals.js';
 export * from './run-config.js';
+export * from './context-usage.js';

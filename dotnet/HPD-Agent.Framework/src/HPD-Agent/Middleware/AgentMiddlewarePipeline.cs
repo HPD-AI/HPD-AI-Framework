@@ -117,6 +117,44 @@ public class AgentMiddlewarePipeline
     }
 
     //
+    // INPUT LEVEL
+    //
+
+    public async Task ExecuteBeforeInputAsync(
+        BeforeInputContext context,
+        CancellationToken cancellationToken)
+    {
+        foreach (var middleware in _middlewares)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await middleware.BeforeInputAsync(context, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async Task ExecuteAfterInputAsync(
+        AfterInputContext context,
+        CancellationToken cancellationToken)
+    {
+        List<Exception>? exceptions = null;
+
+        foreach (var middleware in _reversedMiddlewares)
+        {
+            try
+            {
+                await middleware.AfterInputAsync(context, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                exceptions ??= new List<Exception>();
+                exceptions.Add(ex);
+            }
+        }
+
+        if (exceptions != null)
+            throw new AggregateException("One or more AfterInput hooks failed", exceptions);
+    }
+
+    //
     // TURN LEVEL
     //
 

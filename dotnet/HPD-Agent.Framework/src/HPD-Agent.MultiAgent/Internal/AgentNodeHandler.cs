@@ -456,8 +456,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
 
         await using var routeLease = await context.Conversation.EnterRouteAsync(route, ct).ConfigureAwait(false);
 
-        await agent.RunAsync(new UserMessagesInputEvent(messages)
-        {
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = messages,
             SessionId = route.SessionId,
             ThreadId = route.ThreadId,
             RunConfig = runConfig

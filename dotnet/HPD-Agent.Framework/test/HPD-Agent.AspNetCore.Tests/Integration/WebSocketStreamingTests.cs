@@ -35,17 +35,16 @@ public class WebSocketStreamingTests : IClassFixture<TestWebApplicationFactory>
 
     private static string CreateInputJson(string text)
     {
-        return AgentEventSerializer.ToJson(new UserMessagesInputEvent([
+        return AgentEventSerializer.ToJson(new UserMessagesInputEvent { Messages = [
             new ChatMessage(ChatRole.User, text)
-        ]));
+        ] });
     }
 
     private static string CreateInputJson(string text, string agentId)
     {
-        return AgentEventSerializer.ToJson(new UserMessagesInputEvent([
+        return AgentEventSerializer.ToJson(new UserMessagesInputEvent { Messages = [
             new ChatMessage(ChatRole.User, text)
-        ])
-        {
+        ],
             AgentId = agentId
         });
     }

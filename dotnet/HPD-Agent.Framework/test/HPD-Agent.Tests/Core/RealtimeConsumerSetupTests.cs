@@ -44,8 +44,7 @@ public sealed class RealtimeConsumerSetupTests
             };
 
             await agent.RunAsync(
-                new UserMessagesInputEvent([userMessage])
-                {
+                new UserMessagesInputEvent { Messages = [userMessage],
                     SessionId = "consumer-realtime-session",
                     ThreadId = "main",
                     RunConfig = new AgentRunConfig

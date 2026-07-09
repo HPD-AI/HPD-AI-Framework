@@ -17,7 +17,7 @@ public class CompactionStateTests
         var result = CompactionResult.FromOriginalAndCompacted(
             original,
             compacted,
-            new MessageCountingCompactionOptions { TargetMessageCount = 3 });
+            new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 3 });
 
         result.OriginalMessages.Should().HaveCount(5);
         result.ModelVisibleMessages.Should().Equal(compacted);
@@ -37,13 +37,39 @@ public class CompactionStateTests
         var result = CompactionResult.FromOriginalAndCompacted(
             original,
             compacted,
-            new SummarizingCompactionOptions { TargetRecentMessageCount = 2 });
+            new SummarizingCompactionOptions { PreserveRecentUserTurnCount = 2 });
 
         result.ReplacementMessages.Should().ContainSingle().Which.Should().BeSameAs(summary);
         result.RetainedMessages.Should().Equal(original.Skip(3));
         result.ModelCompactedMessages.Should().Equal(original.Take(3));
         result.SummaryContent.Should().Be("Summary of older context");
         summary.MessageId.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public void ResolvePreserveRecentRawMessageCount_CountsRecentUserTurns()
+    {
+        var messages = new List<ChatMessage>
+        {
+            TurnMessage(ChatRole.User, "old-user", "turn-old"),
+            TurnMessage(ChatRole.Assistant, "old-assistant", "turn-old"),
+            TurnMessage(ChatRole.User, "new-user", "turn-new"),
+            TurnMessage(ChatRole.Assistant, "new-assistant", "turn-new"),
+            new(ChatRole.Tool, [new FunctionResultContent("call-1", "done")])
+            {
+                MessageId = "new-tool",
+                AdditionalProperties = new AdditionalPropertiesDictionary
+                {
+                    [ThreadHistoryCompactionMetadata.MessageTurnIdPropertyName] = "turn-new"
+                }
+            }
+        };
+
+        var preserveRawMessageCount = AgentBuilder.ResolvePreserveRecentRawMessageCount(
+            messages,
+            preserveRecentUserTurnCount: 1);
+
+        preserveRawMessageCount.Should().Be(3);
     }
 
     [Fact]
@@ -144,9 +170,13 @@ public class CompactionStateTests
             RetainedMessageIds = ["one"]
         };
 
-        var state = new CompactionStateData().WithCompaction(snapshot);
+        var state = new CompactionStateData
+        {
+            MessageTurnCount = 9
+        }.WithCompaction(snapshot);
 
         state.LastCompaction.Should().BeSameAs(snapshot);
+        state.MessageTurnCount.Should().Be(0);
         state.LastAppliedAt.Should().NotBeNull();
     }
 
@@ -188,4 +218,15 @@ public class CompactionStateTests
 
         return messages;
     }
+
+    private static ChatMessage TurnMessage(ChatRole role, string messageId, string turnId) =>
+        new(role, messageId)
+        {
+            MessageId = messageId,
+            CreatedAt = DateTimeOffset.UtcNow,
+            AdditionalProperties = new AdditionalPropertiesDictionary
+            {
+                [ThreadHistoryCompactionMetadata.MessageTurnIdPropertyName] = turnId
+            }
+        };
 }

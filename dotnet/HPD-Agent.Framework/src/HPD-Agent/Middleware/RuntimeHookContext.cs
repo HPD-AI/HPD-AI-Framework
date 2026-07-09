@@ -32,7 +32,7 @@ public sealed class AgentRuntimeContext :
     private readonly Dictionary<string, PendingClientToolBackgroundOperation> _clientToolBackgroundOperations = new(StringComparer.Ordinal);
     private readonly ChannelWriter<AgentInputEvent> _runtimeInputWriter;
     private readonly Func<InterruptionRequestEvent, CancellationToken, ValueTask> _runtimeInterruptionHandler;
-    private readonly Func<bool> _hasActiveRuntimeTurns;
+    private readonly Func<bool> _hasActiveRuntimeInputs;
     private readonly object _lock = new();
     private bool _acceptingInputs = true;
     private bool _acceptingBackgroundTasks = true;
@@ -52,7 +52,7 @@ public sealed class AgentRuntimeContext :
     public DateTimeOffset? StartedAt { get; private set; }
     public DateTimeOffset? StoppedAt { get; private set; }
     public CancellationToken RuntimeCancellationToken { get; }
-    public bool HasActiveRuntimeTurns => _hasActiveRuntimeTurns();
+    public bool HasActiveRuntimeInputs => _hasActiveRuntimeInputs();
 
     internal AgentRuntimeContext(
         string agentName,
@@ -62,7 +62,7 @@ public sealed class AgentRuntimeContext :
         IStructEventHub structEvents,
         ChannelWriter<AgentInputEvent> runtimeInputWriter,
         Func<InterruptionRequestEvent, CancellationToken, ValueTask> runtimeInterruptionHandler,
-        Func<bool> hasActiveRuntimeTurns,
+        Func<bool> hasActiveRuntimeInputs,
         CancellationToken runtimeCancellationToken,
         AgentClientSet? clientSet = null,
         AgentRunConfig? runConfig = null,
@@ -75,7 +75,7 @@ public sealed class AgentRuntimeContext :
         StructEvents = structEvents ?? throw new ArgumentNullException(nameof(structEvents));
         _runtimeInputWriter = runtimeInputWriter ?? throw new ArgumentNullException(nameof(runtimeInputWriter));
         _runtimeInterruptionHandler = runtimeInterruptionHandler ?? throw new ArgumentNullException(nameof(runtimeInterruptionHandler));
-        _hasActiveRuntimeTurns = hasActiveRuntimeTurns ?? throw new ArgumentNullException(nameof(hasActiveRuntimeTurns));
+        _hasActiveRuntimeInputs = hasActiveRuntimeInputs ?? throw new ArgumentNullException(nameof(hasActiveRuntimeInputs));
         ClientSet = clientSet;
         RunConfig = runConfig;
         ContentStore = contentStore;
@@ -631,7 +631,7 @@ public abstract class RuntimeHookContext
     public string RuntimeId => Base.RuntimeId;
     public DateTimeOffset CreatedAt => Base.CreatedAt;
     public CancellationToken RuntimeCancellationToken => Base.RuntimeCancellationToken;
-    public bool HasActiveRuntimeTurns => Base.HasActiveRuntimeTurns;
+    public bool HasActiveRuntimeInputs => Base.HasActiveRuntimeInputs;
 
     public void Emit(AgentEvent evt) => Base.Emit(evt);
 

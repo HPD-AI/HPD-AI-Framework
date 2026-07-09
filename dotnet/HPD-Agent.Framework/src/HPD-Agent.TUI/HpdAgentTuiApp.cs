@@ -276,8 +276,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         RequestRender();
         _ = SubmitInputAsync(
             _scope,
-            new UserMessagesInputEvent([new ChatMessage(ChatRole.User, text)])
-            {
+            new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, text)],
                 AgentId = _scope.AgentId,
                 SessionId = _scope.SessionId,
                 ThreadId = _scope.ThreadId,

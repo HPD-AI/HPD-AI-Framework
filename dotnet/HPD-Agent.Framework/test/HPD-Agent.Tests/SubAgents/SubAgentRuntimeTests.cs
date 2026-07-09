@@ -135,7 +135,7 @@ public class SubAgentRuntimeTests
                 {
                     Enabled = true,
                     CompactOnFork = false,
-                    Strategy = new MessageCountingCompactionOptions { TargetMessageCount = 2 }
+                    Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 2 }
                 }
             });
         await agent.CreateSessionAsync("parent-session");
@@ -176,7 +176,7 @@ public class SubAgentRuntimeTests
                 {
                     Enabled = true,
                     CompactOnFork = true,
-                    Strategy = new MessageCountingCompactionOptions { TargetMessageCount = 1 }
+                    Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 }
                 }
             });
         await agent.CreateSessionAsync("parent-session");
@@ -217,7 +217,7 @@ public class SubAgentRuntimeTests
                 {
                     Enabled = true,
                     CompactOnFork = false,
-                    Strategy = new MessageCountingCompactionOptions { TargetMessageCount = 1 }
+                    Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 }
                 }
             });
         await agent.CreateSessionAsync("parent-session");
@@ -231,7 +231,7 @@ public class SubAgentRuntimeTests
         var cachedResult = CompactionResult.FromOriginalAndCompacted(
             parentThread.Messages,
             parentThread.Messages.TakeLast(2).ToList(),
-            new MessageCountingCompactionOptions { TargetMessageCount = 2 });
+            new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 2 });
         new MiddlewareState()
             .WithCompaction(new CompactionStateData().WithCompaction(CompactionSnapshot.FromResult(cachedResult)))
             .SaveToThread(parentThread, agent.StateFactories);
@@ -266,7 +266,7 @@ public class SubAgentRuntimeTests
                 {
                     Enabled = true,
                     CompactOnFork = false,
-                    Strategy = new MessageCountingCompactionOptions { TargetMessageCount = 1 }
+                    Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 }
                 }
             });
         await agent.CreateSessionAsync("parent-session");
@@ -280,7 +280,7 @@ public class SubAgentRuntimeTests
         var cachedResult = CompactionResult.FromOriginalAndCompacted(
             parentThread.Messages.Take(2).ToList(),
             parentThread.Messages.Take(1).ToList(),
-            new MessageCountingCompactionOptions { TargetMessageCount = 1 });
+            new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 });
         new MiddlewareState()
             .WithCompaction(new CompactionStateData().WithCompaction(CompactionSnapshot.FromResult(cachedResult)))
             .SaveToThread(parentThread, agent.StateFactories);
@@ -368,7 +368,7 @@ public class SubAgentRuntimeTests
             return Task.FromResult(CompactionResult.FromOriginalAndCompacted(
                 originalMessages,
                 modelVisible,
-                new MessageCountingCompactionOptions { TargetMessageCount = retainCount }));
+                new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = retainCount }));
         }
     }
 }

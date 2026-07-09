@@ -21,6 +21,17 @@ public interface IHpdAgentTuiRuntime
         AgentInputEvent input,
         CancellationToken cancellationToken = default);
 
+    Task<ThreadContextUsage> EstimateContextUsageAsync(
+        AgentTuiRuntimeScope scope,
+        AgentRunConfig? runConfig = null,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(new ThreadContextUsage
+        {
+            SessionId = scope.SessionId,
+            ThreadId = scope.ThreadId,
+            Source = "runtime-not-supported"
+        });
+
     Task InterruptAsync(
         AgentTuiRuntimeScope scope,
         string reason,

@@ -89,13 +89,11 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(SummarizingCompactionOptions))]
 [JsonSerializable(typeof(CompactionTriggerOptions))]
 [JsonSerializable(typeof(CountCompactionTriggerOptions))]
-[JsonSerializable(typeof(TokenBudgetCompactionTriggerOptions))]
 [JsonSerializable(typeof(ContextWindowCompactionTriggerOptions))]
 [JsonSerializable(typeof(CompositeCompactionTriggerOptions))]
 [JsonSerializable(typeof(CompactionRetentionOptions))]
 [JsonSerializable(typeof(PreserveThreadHistoryOptions))]
 [JsonSerializable(typeof(CompactThreadHistoryOptions))]
-[JsonSerializable(typeof(DeleteCompactedMessagesOptions))]
 [JsonSerializable(typeof(CompactionBoundaryOptions))]
 [JsonSerializable(typeof(ExactCompactedMessagesBoundaryOptions))]
 [JsonSerializable(typeof(IncludePreviousMessagesBoundaryOptions))]
@@ -103,6 +101,9 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(IncludeToolCallGroupBoundaryOptions))]
 [JsonSerializable(typeof(CompositeCompactionBoundaryOptions))]
 [JsonSerializable(typeof(AgentRunConfig))]
+[JsonSerializable(typeof(CompactionRunConfig))]
+[JsonSerializable(typeof(ModelContextWindowOptions))]
+[JsonSerializable(typeof(ThreadContextUsage))]
 [JsonSerializable(typeof(AudioRunConfig))]
 
 // --- Plan Mode types (from HPD.Agent.Planning) ---

@@ -33,10 +33,9 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     private static string CreateInputJson(string text, AgentRunConfig? runConfig = null, string? clientInputId = null) =>
-        AgentEventSerializer.ToJson(new UserMessagesInputEvent([
+        AgentEventSerializer.ToJson(new UserMessagesInputEvent { Messages = [
             new ChatMessage(ChatRole.User, text)
-        ])
-        {
+        ],
             RunConfig = runConfig,
             ClientInputId = clientInputId
         });

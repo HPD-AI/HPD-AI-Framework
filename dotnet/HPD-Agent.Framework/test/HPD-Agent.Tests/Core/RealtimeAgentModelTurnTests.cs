@@ -128,8 +128,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         {
             await agent.CreateSessionAsync("session-transcript", cancellationToken: TestCancellationToken);
             await agent.RunAsync(
-                new UserMessagesInputEvent([audioMessage])
-                {
+                new UserMessagesInputEvent { Messages = [audioMessage],
                     SessionId = "session-transcript",
                     ThreadId = "main",
                     RunConfig = CreateRealtimeMathRunConfig(session, realtimeTranscriptionOptions: new TranscriptionOptions
@@ -199,8 +198,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         {
             await agent.CreateSessionAsync("session-transcript-after-final", cancellationToken: TestCancellationToken);
             await agent.RunAsync(
-                new UserMessagesInputEvent([audioMessage])
-                {
+                new UserMessagesInputEvent { Messages = [audioMessage],
                     SessionId = "session-transcript-after-final",
                     ThreadId = "main",
                     RunConfig = CreateRealtimeMathRunConfig(session, realtimeTranscriptionOptions: new TranscriptionOptions
@@ -263,8 +261,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         {
             await agent.CreateSessionAsync("session-transcript-replaced", cancellationToken: TestCancellationToken);
             await agent.RunAsync(
-                new UserMessagesInputEvent([audioMessage])
-                {
+                new UserMessagesInputEvent { Messages = [audioMessage],
                     SessionId = "session-transcript-replaced",
                     ThreadId = "main",
                     RunConfig = CreateRealtimeMathRunConfig(session, realtimeTranscriptionOptions: new TranscriptionOptions

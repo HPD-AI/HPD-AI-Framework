@@ -297,11 +297,14 @@ public sealed record ThreadRunCompletedEvent(
 }
 
 /// <summary>
-/// Process-local user message input sent into an agent turn.
+/// User message input sent into an agent turn. When <see cref="Messages"/> is empty,
+/// the agent resumes the scoped thread using existing history and the supplied run config.
 /// </summary>
-public sealed record UserMessagesInputEvent(
-    IReadOnlyList<ChatMessage> Messages) : AgentInputEvent
+public sealed record UserMessagesInputEvent : AgentInputEvent
 {
+    /// <summary>Messages to add for this turn. Empty means resume the scoped thread.</summary>
+    public IReadOnlyList<ChatMessage> Messages { get; init; } = Array.Empty<ChatMessage>();
+
     /// <summary>Process-local session scope for in-memory integrations.</summary>
     [JsonIgnore]
     public Session? Session { get; init; }

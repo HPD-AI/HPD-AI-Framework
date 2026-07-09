@@ -9,6 +9,11 @@
 
 import { describe, it, expect } from 'vitest';
 import type { RunConfig, ChatRunConfig } from '../src/types/run-config.js';
+import {
+  CompactionBehaviors,
+  CompactionRunModes,
+  ContextWindowCompactionThresholdModes,
+} from '../src/types/run-config.js';
 
 // ---------------------------------------------------------------------------
 // 1.1 — All fields set, camelCase keys match server DTOs exactly
@@ -147,5 +152,54 @@ describe('RunConfig — wire format (camelCase)', () => {
   it('runTimeout ISO 8601 duration passes through as a string', () => {
     const rc: RunConfig = { runTimeout: 'PT30S' };
     expect(JSON.parse(JSON.stringify(rc))).toEqual({ runTimeout: 'PT30S' });
+  });
+
+  it('serializes structured compaction policy and omits retired compaction flags', () => {
+    const rc: RunConfig = {
+      compaction: {
+        mode: CompactionRunModes.Force,
+        behavior: CompactionBehaviors.StopAfterCompaction,
+        strategy: {
+          $type: 'summarizing',
+          preserveRecentUserTurnCount: 20,
+        },
+        trigger: {
+          $type: 'contextWindow',
+          thresholdMode: ContextWindowCompactionThresholdModes.Percentage,
+          triggerPercentage: 0.7,
+        },
+        modelContext: {
+          providerKey: 'openai',
+          modelId: 'gpt-4.1',
+          contextWindow: 128000,
+        },
+      },
+    };
+
+    const parsed = JSON.parse(JSON.stringify(rc));
+
+    expect(parsed).toEqual({
+      compaction: {
+        mode: 1,
+        behavior: 1,
+        strategy: {
+          $type: 'summarizing',
+          preserveRecentUserTurnCount: 20,
+        },
+        trigger: {
+          $type: 'contextWindow',
+          thresholdMode: 0,
+          triggerPercentage: 0.7,
+        },
+        modelContext: {
+          providerKey: 'openai',
+          modelId: 'gpt-4.1',
+          contextWindow: 128000,
+        },
+      },
+    });
+    expect(parsed).not.toHaveProperty('triggerCompaction');
+    expect(parsed).not.toHaveProperty('skipCompaction');
+    expect(parsed).not.toHaveProperty('compactionBehaviorOverride');
   });
 });

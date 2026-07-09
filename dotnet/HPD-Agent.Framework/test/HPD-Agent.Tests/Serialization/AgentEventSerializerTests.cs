@@ -78,9 +78,7 @@ public class AgentEventSerializerTests
     [Fact]
     public void ToJson_UserInputEvents_UseInputDiscriminators()
     {
-        var messagesJson = AgentEventSerializer.ToJson(new UserMessagesInputEvent(
-            [new ChatMessage(ChatRole.User, "hello")])
-        {
+        var messagesJson = AgentEventSerializer.ToJson(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "hello")],
             SessionId = "s1",
             ThreadId = "main"
         });
@@ -92,9 +90,7 @@ public class AgentEventSerializerTests
     [Fact]
     public void FromJson_UserMessagesInputEvent_RoundTrips()
     {
-        var json = AgentEventSerializer.ToJson(new UserMessagesInputEvent(
-            [new ChatMessage(ChatRole.User, "hello")])
-        {
+        var json = AgentEventSerializer.ToJson(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "hello")],
             SessionId = "s1",
             ThreadId = "main",
             RunConfig = new AgentRunConfig

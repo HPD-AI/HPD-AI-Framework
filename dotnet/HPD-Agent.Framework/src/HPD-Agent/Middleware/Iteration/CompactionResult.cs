@@ -70,14 +70,21 @@ public interface ICompactionStrategy
 
 public sealed class ChatReducerCompactionStrategy : ICompactionStrategy
 {
-    private readonly IChatReducer _reducer;
+    private readonly Func<IReadOnlyList<ChatMessage>, IChatReducer> _reducerFactory;
     private readonly CompactionStrategyOptions _options;
 
     public ChatReducerCompactionStrategy(
         IChatReducer reducer,
         CompactionStrategyOptions options)
+        : this(_ => reducer, options)
     {
-        _reducer = reducer;
+    }
+
+    public ChatReducerCompactionStrategy(
+        Func<IReadOnlyList<ChatMessage>, IChatReducer> reducerFactory,
+        CompactionStrategyOptions options)
+    {
+        _reducerFactory = reducerFactory;
         _options = options;
     }
 
@@ -85,7 +92,8 @@ public sealed class ChatReducerCompactionStrategy : ICompactionStrategy
         IReadOnlyList<ChatMessage> originalMessages,
         CancellationToken cancellationToken)
     {
-        var compacted = await _reducer.ReduceAsync(originalMessages, cancellationToken).ConfigureAwait(false);
+        var reducer = _reducerFactory(originalMessages);
+        var compacted = await reducer.ReduceAsync(originalMessages, cancellationToken).ConfigureAwait(false);
         var result = CompactionResult.FromOriginalAndCompacted(
             originalMessages,
             compacted?.ToList() ?? originalMessages,
@@ -250,7 +258,6 @@ public enum CompactionTriggerReason
     None,
     ExplicitRunTrigger,
     CountThreshold,
-    TokenBudgetThreshold,
     ContextWindowThreshold,
     Composite
 }

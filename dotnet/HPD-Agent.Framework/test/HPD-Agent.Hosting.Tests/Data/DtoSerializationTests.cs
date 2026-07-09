@@ -278,8 +278,7 @@ public class DtoSerializationTests
     public void UserMessagesInputEvent_SerializesAndDeserializes_WithRunConfig()
     {
         // Arrange
-        var original = new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "Hello")])
-        {
+        var original = new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "Hello")],
             SessionId = "session-123",
             ThreadId = "main",
             AgentId = "default",

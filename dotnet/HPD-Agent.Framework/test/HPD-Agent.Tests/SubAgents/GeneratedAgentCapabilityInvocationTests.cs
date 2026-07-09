@@ -39,7 +39,7 @@ public sealed class GeneratedAgentCapabilityInvocationTests
             return ValueTask.CompletedTask;
         });
 
-        await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "Use the generated capabilities.")]), CancellationToken.None);
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "Use the generated capabilities.")] }, CancellationToken.None);
 
         var toolResults = events.OfType<ToolCallResultEvent>().ToArray();
         Assert.Contains(toolResults, result =>

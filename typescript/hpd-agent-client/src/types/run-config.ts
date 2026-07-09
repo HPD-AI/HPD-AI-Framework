@@ -28,6 +28,20 @@ export interface ChatRunConfig {
 export type AgentModelTransportMode = 0 | 1 | 2;
 export type UploadStrategy = 0 | 1 | 2;
 export type CompactionBehavior = 0 | 1;
+export type CompactionRunMode = 0 | 1 | 2;
+export type HistoryCountingUnit = 0 | 1;
+export type SummaryStyle = 0 | 1;
+
+export const CompactionRunModes = {
+  Auto: 0,
+  Force: 1,
+  Disabled: 2,
+} as const satisfies Record<string, CompactionRunMode>;
+
+export const CompactionBehaviors = {
+  Continue: 0,
+  StopAfterCompaction: 1,
+} as const satisfies Record<string, CompactionBehavior>;
 
 export interface ClientProviderConfig {
   providerKey?: string;
@@ -69,6 +83,124 @@ export interface AudioRunConfig {
   contentType?: string;
   speed?: number;
   enablePlayback?: boolean;
+}
+
+export interface ModelContextWindowOptions {
+  providerKey?: string;
+  modelId?: string;
+  contextWindow?: number | null;
+  inputTokenLimit?: number | null;
+  outputTokenLimit?: number | null;
+}
+
+export interface MessageCountingCompactionOptions {
+  $type: 'messageCounting';
+  preserveRecentUserTurnCount?: number;
+}
+
+export interface SummaryMemoryOptions {
+  recentUserMessageTokenBudget?: number;
+  preserveRecentUserMessagesSeparately?: boolean;
+  reinjectCurrentContextAfterCompaction?: boolean;
+  filterGeneratedContextWrappers?: boolean;
+}
+
+export interface SummarizingCompactionOptions {
+  $type: 'summarizing';
+  preserveRecentUserTurnCount?: number;
+  resummarizeAfterNewMessages?: number;
+  customPrompt?: string | null;
+  summarizerProvider?: ClientProviderConfig | null;
+  useSingleSummary?: boolean;
+  summaryStyle?: SummaryStyle;
+  memory?: SummaryMemoryOptions;
+}
+
+export type CompactionStrategyOptions =
+  | MessageCountingCompactionOptions
+  | SummarizingCompactionOptions;
+
+export interface CountCompactionTriggerOptions {
+  $type: 'count';
+  countingUnit?: HistoryCountingUnit;
+  targetCount?: number;
+  threshold?: number;
+}
+
+export type ContextWindowCompactionThresholdMode = 0 | 1;
+
+export const ContextWindowCompactionThresholdModes = {
+  Percentage: 0,
+  TokenCount: 1,
+} as const;
+
+export interface ContextWindowCompactionTriggerOptions {
+  $type: 'contextWindow';
+  contextWindowSize?: number | null;
+  thresholdMode?: ContextWindowCompactionThresholdMode;
+  triggerPercentage?: number;
+  triggerTokenCount?: number | null;
+}
+
+export interface CompositeCompactionTriggerOptions {
+  $type: 'composite';
+  anyOf: CompactionTriggerOptions[];
+}
+
+export type CompactionTriggerOptions =
+  | CountCompactionTriggerOptions
+  | ContextWindowCompactionTriggerOptions
+  | CompositeCompactionTriggerOptions;
+
+export interface ExactCompactedMessagesBoundaryOptions {
+  $type: 'exactCompactedMessages';
+}
+
+export interface IncludePreviousMessagesBoundaryOptions {
+  $type: 'includePreviousMessages';
+  count: number;
+}
+
+export interface IncludeMessageTurnBoundaryOptions {
+  $type: 'includeMessageTurn';
+}
+
+export interface IncludeToolCallGroupBoundaryOptions {
+  $type: 'includeToolCallGroup';
+}
+
+export interface CompositeCompactionBoundaryOptions {
+  $type: 'composite';
+  policies: CompactionBoundaryOptions[];
+}
+
+export type CompactionBoundaryOptions =
+  | ExactCompactedMessagesBoundaryOptions
+  | IncludePreviousMessagesBoundaryOptions
+  | IncludeMessageTurnBoundaryOptions
+  | IncludeToolCallGroupBoundaryOptions
+  | CompositeCompactionBoundaryOptions;
+
+export interface PreserveThreadHistoryOptions {
+  $type: 'preserve';
+}
+
+export interface CompactThreadHistoryOptions {
+  $type: 'compact';
+  boundary?: CompactionBoundaryOptions;
+}
+
+export type CompactionRetentionOptions =
+  | PreserveThreadHistoryOptions
+  | CompactThreadHistoryOptions;
+
+export interface CompactionRunConfig {
+  mode?: CompactionRunMode;
+  behavior?: CompactionBehavior | null;
+  trigger?: CompactionTriggerOptions | null;
+  strategy?: CompactionStrategyOptions | null;
+  retention?: CompactionRetentionOptions | null;
+  modelContext?: ModelContextWindowOptions | null;
 }
 
 /**
@@ -125,12 +257,8 @@ export interface RunConfig {
   uploadStrategy?: UploadStrategy;
   /** HPD audio runtime options */
   audio?: AudioRunConfig;
-  /** Force compaction on this turn */
-  triggerCompaction?: boolean;
-  /** Skip compaction on this turn */
-  skipCompaction?: boolean;
-  /** Per-turn compaction behavior override */
-  compactionBehaviorOverride?: CompactionBehavior;
+  /** Per-run compaction policy. Null or omitted uses the agent's configured defaults. */
+  compaction?: CompactionRunConfig;
   /** Structured output options */
   structuredOutput?: Record<string, unknown>;
   /** Client tools, context, state, and metadata available to this run */

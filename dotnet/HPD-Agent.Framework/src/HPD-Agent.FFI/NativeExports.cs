@@ -550,8 +550,7 @@ public static partial class NativeExports
                     return ValueTask.CompletedTask;
                 });
 
-                await agent.RunAsync(new UserMessagesInputEvent(messages)
-                {
+                await agent.RunAsync(new UserMessagesInputEvent { Messages = messages,
                     Session = thread?.Session,
                     Thread = thread?.Thread
                 });
@@ -639,8 +638,7 @@ public static partial class NativeExports
                     return ValueTask.CompletedTask;
                 });
 
-                await agent.RunAsync(new UserMessagesInputEvent(messages)
-                {
+                await agent.RunAsync(new UserMessagesInputEvent { Messages = messages,
                     Session = thread?.Session,
                     Thread = thread?.Thread
                 });

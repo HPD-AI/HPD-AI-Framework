@@ -198,8 +198,7 @@ public sealed class TeamsBot(
             var contents = new List<AIContent> { new TextContent(text) };
             contents.AddRange(attachments);
 
-            var runTask = agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, contents)])
-            {
+            var runTask = agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, contents)],
                 AgentId = agentId,
                 SessionId = sessionId,
                 ThreadId = threadId,

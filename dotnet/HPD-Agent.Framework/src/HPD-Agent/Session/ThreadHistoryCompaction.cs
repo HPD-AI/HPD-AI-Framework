@@ -55,14 +55,11 @@ public sealed class ThreadCompactionPlanner : IThreadCompactionPlanner
         var boundary = retention switch
         {
             CompactThreadHistoryOptions compact => compact.Boundary,
-            DeleteCompactedMessagesOptions delete => delete.Boundary,
             _ => new ExactCompactedMessagesBoundaryOptions()
         };
 
         var durableRemoved = ExpandBoundary(thread, compaction, boundary);
-        var replacementMessages = retention is CompactThreadHistoryOptions
-            ? compaction.ReplacementMessages.ToList()
-            : [];
+        var replacementMessages = compaction.ReplacementMessages.ToList();
 
         return new ThreadCompactionPlan(
             compaction.ModelCompactedMessages,
@@ -254,9 +251,7 @@ public sealed class ThreadHistoryCompactor : IThreadHistoryCompactor
         if (durableRemovedIds.Any(id => !threadIds.Contains(id)))
             throw new InvalidOperationException("Cannot compact thread history because at least one durable-removed message is not present in the thread.");
 
-        var replacementMessages = plan.Retention is CompactThreadHistoryOptions
-            ? EnsureReplacementMessages(plan.ReplacementMessages)
-            : [];
+        var replacementMessages = EnsureReplacementMessages(plan.ReplacementMessages);
 
         var compactionId = Guid.NewGuid().ToString();
         var evt = new ThreadHistoryCompactedEvent(

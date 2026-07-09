@@ -54,6 +54,7 @@ public sealed class Agent
     private readonly IReadOnlyList<IDisposable> _eventSubscriptions;
     // Unified middleware pipeline
     private readonly AgentMiddlewarePipeline _middlewarePipeline;
+    private readonly AgentInputDispatcher _inputDispatcher;
     private readonly object _structHandlerLock = new();
     private readonly List<RuntimeStructHandlerSubscription> _structHandlerSubscriptions = new();
     private readonly object _runtimeLock = new();
@@ -67,7 +68,7 @@ public sealed class Agent
     private BackgroundTaskNotificationDispatcher? _runtimeNotificationDispatcher;
     private bool _runtimeStarting;
     private bool _runtimeStopping;
-    private readonly List<CancellationTokenSource> _activeRuntimeTurnCts = new();
+    private readonly List<CancellationTokenSource> _activeRuntimeInputCts = new();
     private readonly ILogger? _agentLogger;
 
     // Provider registry for runtime provider switching via AgentRunConfig.ProviderKey/ModelId
@@ -219,6 +220,7 @@ public sealed class Agent
 
         // Initialize unified middleware pipeline
         _middlewarePipeline = new AgentMiddlewarePipeline(middlewares ?? Array.Empty<IAgentMiddleware>());
+        _inputDispatcher = new AgentInputDispatcher(_middlewarePipeline);
 
         // Create event coordinator for Middleware events and human-in-the-loop
         // Direct use of HPD.Events.EventCoordinator (no wrapper)
@@ -949,7 +951,7 @@ public sealed class Agent
             eventCoordinator.EventFlows.InterruptAll();
         }
 
-        CancelActiveRuntimeTurns();
+        CancelActiveRuntimeInputs();
 
         PublishOutputEvent(new InterruptionHandledEvent(
             interruption.EventFlowId,
@@ -1086,37 +1088,35 @@ public sealed class Agent
         AgentInputEvent input,
         HPD.Events.IEventCoordinator eventCoordinator,
         CancellationToken cancellationToken)
-    {
-        switch (input)
+        => await _inputDispatcher.DispatchAsync(
+                input,
+                CreateInputHandlingContext(eventCoordinator),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    private AgentInputHandlingContext CreateInputHandlingContext(
+        HPD.Events.IEventCoordinator eventCoordinator)
+        => new()
         {
-            case UserMessagesInputEvent messages:
-                return await RunMessagesInputAsync(messages, eventCoordinator, cancellationToken).ConfigureAwait(false);
+            AgentName = _name,
+            Config = Config ?? throw new InvalidOperationException("Agent configuration is not available."),
+            EventCoordinator = eventCoordinator,
+            Services = _serviceProvider,
+            ClientSet = _clientSet,
+            ContentStore = _contentStore,
+            RuntimeCapabilities = _runtimeContext?.RuntimeCapabilities ?? new RuntimeCapabilityRegistry(),
+            StructEvents = GetActiveStructEvents(),
+            RuntimeRunConfig = _runtimeContext?.RunConfig,
+            RunMessagesAsync = RunMessagesInputAsync,
+            InterruptAsync = HandleInterruptionAsync,
+            TryResolveClientToolBackgroundOperation = ResolveClientToolBackgroundOperation,
+            PublishBackgroundTaskNotificationDelivered = PublishBackgroundTaskNotificationDelivered
+        };
 
-            case BackgroundTaskNotificationInputEvent notification:
-                return await RunMessagesInputAsync(
-                    BackgroundTaskNotificationDispatcher.ToUserMessagesInput(notification),
-                    eventCoordinator,
-                    cancellationToken).ConfigureAwait(false);
-
-            case ClientToolBackgroundOperationOutcomeEvent outcome:
-                ResolveClientToolBackgroundOperation(outcome);
-                return AgentTurnResult.Empty;
-
-            case InterruptionRequestEvent interruption:
-                await HandleInterruptionAsync(interruption, cancellationToken).ConfigureAwait(false);
-                return AgentTurnResult.Empty;
-
-            default:
-                throw new NotSupportedException(
-                    $"Event type {input.GetType().Name} cannot be used as agent input.");
-        }
-    }
-
-    private void ResolveClientToolBackgroundOperation(ClientToolBackgroundOperationOutcomeEvent input)
+    private bool ResolveClientToolBackgroundOperation(ClientToolBackgroundOperationOutcomeEvent input)
     {
         var registry = GetCurrentRuntimeBackgroundTaskRegistry() as IClientToolBackgroundOperationRegistry;
-        if (registry?.TryResolveClientToolBackgroundOperation(input) != true)
-            throw new InvalidOperationException($"No client tool background operation '{input.ClientOperationId}' is active.");
+        return registry?.TryResolveClientToolBackgroundOperation(input) == true;
     }
 
     private async Task RunRuntimeLoopAsync(
@@ -1128,29 +1128,27 @@ public sealed class Agent
         {
             await foreach (var input in reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
-                using var activeTurnCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                using var activeInputCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 Exception? runError = null;
                 var runCancelled = false;
                 lock (_runtimeLock)
                 {
-                    _activeRuntimeTurnCts.Add(activeTurnCts);
+                    _activeRuntimeInputCts.Add(activeInputCts);
                 }
 
                 try
                 {
                     PublishRuntimeInputStarted(input, eventCoordinator);
-                    await RunInputDirectAsync(input, eventCoordinator, activeTurnCts.Token).ConfigureAwait(false);
-                    if (input is BackgroundTaskNotificationInputEvent notificationInput)
-                        PublishBackgroundTaskNotificationDelivered(notificationInput, eventCoordinator);
+                    await RunInputDirectAsync(input, eventCoordinator, activeInputCts.Token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     throw;
                 }
-                catch (OperationCanceledException) when (activeTurnCts.IsCancellationRequested)
+                catch (OperationCanceledException) when (activeInputCts.IsCancellationRequested)
                 {
                     runCancelled = true;
-                    // The active turn was interrupted; keep the runtime loop alive.
+                    // The active input was interrupted; keep the runtime loop alive.
                 }
                 catch (Exception ex)
                 {
@@ -1163,7 +1161,7 @@ public sealed class Agent
                 {
                     lock (_runtimeLock)
                     {
-                        _activeRuntimeTurnCts.Remove(activeTurnCts);
+                        _activeRuntimeInputCts.Remove(activeInputCts);
                     }
 
                     PublishRuntimeInputCompleted(input, runCancelled, runError, eventCoordinator);
@@ -1293,7 +1291,7 @@ public sealed class Agent
                 runtimeStructEvents,
                 runtimeInbox.Writer,
                 async (interruption, ct) => await HandleInterruptionAsync(interruption, ct).ConfigureAwait(false),
-                HasActiveRuntimeTurns,
+                HasActiveRuntimeInputs,
                 runtimeCts.Token,
                 _clientSet,
                 runConfig,
@@ -1480,7 +1478,7 @@ public sealed class Agent
         if (!drainPendingInputs)
         {
             runtimeCts.Cancel();
-            CancelActiveRuntimeTurns();
+            CancelActiveRuntimeInputs();
         }
 
         if (runtimeTask != null)
@@ -1498,7 +1496,7 @@ public sealed class Agent
             catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
             {
                 runtimeCts.Cancel();
-                CancelActiveRuntimeTurns();
+                CancelActiveRuntimeInputs();
 
                 try
                 {
@@ -1576,32 +1574,32 @@ public sealed class Agent
             throw new AggregateException("One or more runtime stop operations failed.", exceptions);
     }
 
-    private void CancelActiveRuntimeTurns()
+    private void CancelActiveRuntimeInputs()
     {
-        List<CancellationTokenSource> activeTurnCts;
+        List<CancellationTokenSource> activeInputCts;
         lock (_runtimeLock)
         {
-            activeTurnCts = _activeRuntimeTurnCts.ToList();
+            activeInputCts = _activeRuntimeInputCts.ToList();
         }
 
-        foreach (var turnCts in activeTurnCts)
+        foreach (var inputCts in activeInputCts)
         {
             try
             {
-                turnCts.Cancel();
+                inputCts.Cancel();
             }
             catch (ObjectDisposedException)
             {
-                // Turn completed concurrently.
+                // Input completed concurrently.
             }
         }
     }
 
-    private bool HasActiveRuntimeTurns()
+    private bool HasActiveRuntimeInputs()
     {
         lock (_runtimeLock)
         {
-            return _activeRuntimeTurnCts.Count > 0;
+            return _activeRuntimeInputCts.Count > 0;
         }
     }
 
@@ -1719,8 +1717,7 @@ public sealed class Agent
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userMessage);
 
-        return RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, userMessage)])
-        {
+        return RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, userMessage)],
             SessionId = sessionId,
             ThreadId = threadId,
             RunConfig = runConfig
@@ -4254,8 +4251,7 @@ public sealed class Agent
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userMessage);
 
-        return RunStructuredAsync<T>(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, userMessage)])
-        {
+        return RunStructuredAsync<T>(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, userMessage)],
             SessionId = sessionId,
             ThreadId = threadId,
             RunConfig = runConfig

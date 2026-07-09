@@ -100,6 +100,9 @@ using System.Collections.Immutable;
 
 // --- Per-invocation run options (AgentRunConfig) ---
 [JsonSerializable(typeof(AgentRunConfig))]
+[JsonSerializable(typeof(CompactionRunConfig))]
+[JsonSerializable(typeof(ModelContextWindowOptions))]
+[JsonSerializable(typeof(ThreadContextUsage))]
 [JsonSerializable(typeof(AudioRunConfig))]
 [JsonSerializable(typeof(ChatRunConfig))]
 [JsonSerializable(typeof(Dictionary<string, bool>))]  // For PermissionOverrides
@@ -123,13 +126,11 @@ using System.Collections.Immutable;
 [JsonSerializable(typeof(SummarizingCompactionOptions))]
 [JsonSerializable(typeof(CompactionTriggerOptions))]
 [JsonSerializable(typeof(CountCompactionTriggerOptions))]
-[JsonSerializable(typeof(TokenBudgetCompactionTriggerOptions))]
 [JsonSerializable(typeof(ContextWindowCompactionTriggerOptions))]
 [JsonSerializable(typeof(CompositeCompactionTriggerOptions))]
 [JsonSerializable(typeof(CompactionRetentionOptions))]
 [JsonSerializable(typeof(PreserveThreadHistoryOptions))]
 [JsonSerializable(typeof(CompactThreadHistoryOptions))]
-[JsonSerializable(typeof(DeleteCompactedMessagesOptions))]
 [JsonSerializable(typeof(CompactionBoundaryOptions))]
 [JsonSerializable(typeof(ExactCompactedMessagesBoundaryOptions))]
 [JsonSerializable(typeof(IncludePreviousMessagesBoundaryOptions))]

@@ -619,6 +619,41 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         }
     }
 
+    public async Task<ThreadContextUsage> EstimateContextUsageAsync(
+        AgentTuiRuntimeScope scope,
+        AgentRunConfig? runConfig = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+
+        var json = JsonSerializer.Serialize(new AgentTuiContextUsageRequest(runConfig), JsonOptions);
+        using var response = await PostJsonEnvelopeAsync(
+                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/context-usage",
+                json,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            await ThrowForUnexpectedResponseAsync(response, "estimate context usage", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return await JsonSerializer.DeserializeAsync<ThreadContextUsage>(
+                stream,
+                JsonOptions,
+                cancellationToken)
+            .ConfigureAwait(false)
+            ?? new ThreadContextUsage
+            {
+                SessionId = scope.SessionId,
+                ThreadId = scope.ThreadId,
+                Source = "empty-hosted-response"
+            };
+    }
+
     public async Task InterruptAsync(
         AgentTuiRuntimeScope scope,
         string reason,
@@ -787,6 +822,8 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         return ValueTask.CompletedTask;
     }
+
+    private sealed record AgentTuiContextUsageRequest(AgentRunConfig? RunConfig);
 
     private static HttpClient CreateHttpClient(HostedAgentTuiRuntimeOptions options)
     {

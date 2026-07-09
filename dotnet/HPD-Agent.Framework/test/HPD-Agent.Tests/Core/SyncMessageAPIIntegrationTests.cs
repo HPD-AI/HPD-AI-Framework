@@ -38,8 +38,7 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
             return ValueTask.CompletedTask;
         }))
         {
-            await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
-            {
+            await agent.RunAsync(new UserMessagesInputEvent { Messages = Array.Empty<ChatMessage>(),
                 Session = session,
                 Thread = thread
             }, TestCancellationToken);
@@ -78,8 +77,7 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
         Assert.Equal(4, thread.MessageCount);
 
         // Run agent
-        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
-        {
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = Array.Empty<ChatMessage>(),
             Session = session,
             Thread = thread
         }, TestCancellationToken);
@@ -122,8 +120,7 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
 
         // Act - add message and run agent
         thread.AddMessage(new ChatMessage(ChatRole.User, "Question 1"));
-        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
-        {
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = Array.Empty<ChatMessage>(),
             Session = session,
             Thread = thread
         }, TestCancellationToken);
@@ -132,8 +129,7 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
 
         // Add another message and run again
         thread.AddMessage(new ChatMessage(ChatRole.User, "Question 2"));
-        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
-        {
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = Array.Empty<ChatMessage>(),
             Session = session,
             Thread = thread
         }, TestCancellationToken);
@@ -165,8 +161,7 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
         var countAfterUserMessage = thread.MessageCount;
         Assert.Equal(1, countAfterUserMessage);
 
-        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
-        {
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = Array.Empty<ChatMessage>(),
             Session = session,
             Thread = thread
         }, TestCancellationToken);
@@ -203,8 +198,7 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
         Assert.Equal(4, thread.Messages.Count);
 
         // Run agent with mixed history
-        await agent.RunAsync(new UserMessagesInputEvent(Array.Empty<ChatMessage>())
-        {
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = Array.Empty<ChatMessage>(),
             Session = session,
             Thread = thread
         }, TestCancellationToken);

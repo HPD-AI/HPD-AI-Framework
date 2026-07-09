@@ -195,7 +195,7 @@ public class AgentBuilderWithToolTests
             return ValueTask.CompletedTask;
         });
 
-        await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "Please escalate this.")]), CancellationToken.None);
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "Please escalate this.")] }, CancellationToken.None);
 
         var childText = Assert.Single(events.OfType<TextDeltaEvent>(),
             evt => evt.Text == "child handled escalation");
@@ -260,7 +260,7 @@ public class AgentBuilderWithToolTests
             return ValueTask.CompletedTask;
         });
 
-        await agent.RunAsync(new UserMessagesInputEvent([new ChatMessage(ChatRole.User, "Please escalate this.")]), CancellationToken.None);
+        await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "Please escalate this.")] }, CancellationToken.None);
 
         var childText = Assert.Single(events.OfType<TextDeltaEvent>(),
             evt => evt.Text == "child handled escalation");

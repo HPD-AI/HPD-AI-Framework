@@ -18,6 +18,13 @@ public interface IAgentStreamingService
         AgentInputEvent input,
         CancellationToken cancellationToken = default);
 
+    Task<AgentServiceResult<ThreadContextUsage>> EstimateContextUsageAsync(
+        string agentId,
+        string sessionId,
+        string threadId,
+        AgentRunConfig? runConfig,
+        CancellationToken cancellationToken = default);
+
     Task<AgentServiceResult> InterruptAsync(
         string agentId,
         string sessionId,

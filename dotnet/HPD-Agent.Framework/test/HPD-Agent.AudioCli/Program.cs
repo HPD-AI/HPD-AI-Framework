@@ -663,10 +663,9 @@ for (var turnIndex = 0; turnIndex < audioPaths.Count; turnIndex++)
 
     try
     {
-        var input = new UserMessagesInputEvent([
+        var input = new UserMessagesInputEvent { Messages = [
             new ChatMessage(ChatRole.User, contents)
-        ])
-        {
+        ],
             SessionId = sessionId,
             ThreadId = threadId,
             RunConfig = new AgentRunConfig
@@ -740,10 +739,9 @@ for (var textTurnIndex = 0; textTurnIndex < textOnlyTurns.Count; textTurnIndex++
 
     try
     {
-        var input = new UserMessagesInputEvent([
+        var input = new UserMessagesInputEvent { Messages = [
             new ChatMessage(ChatRole.User, turnText)
-        ])
-        {
+        ],
             SessionId = sessionId,
             ThreadId = threadId,
             RunConfig = new AgentRunConfig
