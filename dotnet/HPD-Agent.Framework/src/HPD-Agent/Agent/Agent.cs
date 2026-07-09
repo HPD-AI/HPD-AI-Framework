@@ -5827,7 +5827,7 @@ public sealed class Agent
             return [];
 
         return document.Events
-            .OfType<ThreadHistoryCompactedEvent>()
+            .OfType<ThreadHistoryCompactionCheckpointEvent>()
             .Where(evt => evt.DurableCompactedMessageIds.Contains(messageId, StringComparer.Ordinal))
             .SelectMany(evt => evt.ReplacementMessages)
             .Select(message => message.MessageId)
@@ -5917,16 +5917,18 @@ public sealed class Agent
                 .Select(CloneMessageForThread)
                 .ToList();
 
-            events.Add(new ThreadHistoryCompactedEvent(
+            events.Add(new ThreadHistoryCompactionCheckpointEvent(
                 Guid.NewGuid().ToString("N"),
                 compactedMessageIds,
+                copiedMessageIds.Where(targetMessageIds.Contains).ToList(),
                 compactedMessageIds,
                 replacementMessages,
                 "ForkMiddleware",
                 "ForkTarget",
                 "ForkCommit",
                 null,
-                DateTimeOffset.UtcNow)
+                DateTimeOffset.UtcNow,
+                ThreadHistoryCompactionMode.Hard)
             {
                 SessionId = newThread.SessionId,
                 ThreadId = newThread.Id
@@ -6045,7 +6047,7 @@ public sealed class Agent
         ThreadCreatedEvent => true,
         ThreadUpdatedEvent => true,
         ThreadMiddlewareStateCommittedEvent => true,
-        ThreadHistoryCompactedEvent => true,
+        ThreadHistoryCompactionCheckpointEvent => true,
         _ => false
     };
 

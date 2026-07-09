@@ -45,7 +45,7 @@ public static partial class AgentEventSerializer
         [typeof(ThreadUpdatedEvent)] = ThreadEventTypes.ThreadUpdated,
         [typeof(ContentAddedEvent)] = ThreadEventTypes.ContentAdded,
         [typeof(ThreadMiddlewareStateCommittedEvent)] = ThreadEventTypes.ThreadMiddlewareStateCommitted,
-        [typeof(ThreadHistoryCompactedEvent)] = ThreadEventTypes.ThreadHistoryCompacted,
+        [typeof(ThreadHistoryCompactionCheckpointEvent)] = ThreadEventTypes.ThreadHistoryCompactionCheckpoint,
 
         // Message Turn Events
         [typeof(MessageTurnStartedEvent)] = EventTypes.MessageTurn.MESSAGE_TURN_STARTED,

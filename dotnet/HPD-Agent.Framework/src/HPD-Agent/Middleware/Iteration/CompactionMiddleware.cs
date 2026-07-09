@@ -118,8 +118,9 @@ public class CompactionMiddleware : IAgentMiddleware
         CancellationToken cancellationToken)
     {
         var startTime = DateTimeOffset.UtcNow;
+        var forkCompaction = ResolveForkCompaction(context.ForkOptions.Compaction);
 
-        if (!ShouldCompactFork(context))
+        if (forkCompaction.Mode == ThreadForkCompactionMode.Disabled)
             return;
 
         if (context.TargetThread.Messages.Count == 0)
@@ -129,10 +130,13 @@ public class CompactionMiddleware : IAgentMiddleware
             return;
         }
 
-        if (Strategy == null)
+        var strategyOptions = forkCompaction.Strategy ?? Config.Strategy;
+        var strategy = ResolveStrategy(strategyOptions);
+        if (strategy == null)
         {
             EmitCompactionEvent(context, CompactionStatus.Skipped,
-                reason: "No compaction strategy is configured", startTime: startTime);
+                reason: "No compaction strategy is configured", startTime: startTime,
+                strategyOptions: strategyOptions);
             return;
         }
 
@@ -146,17 +150,19 @@ public class CompactionMiddleware : IAgentMiddleware
         if (conversationMessages.Count == 0)
         {
             EmitCompactionEvent(context, CompactionStatus.Skipped,
-                reason: "No non-system messages present on fork target", startTime: startTime);
+                reason: "No non-system messages present on fork target", startTime: startTime,
+                strategyOptions: strategyOptions);
             return;
         }
 
-        if (context.ForkOptions.CompactionIntent == ThreadForkCompactionIntent.PreferCache &&
+        if (forkCompaction.PreferCache &&
+            forkCompaction.Strategy is null &&
             TryApplyCachedForkCompaction(context, conversationMessages, systemMessages, startTime))
         {
             return;
         }
 
-        var result = await Strategy.ReduceAsync(conversationMessages, cancellationToken).ConfigureAwait(false);
+        var result = await strategy.ReduceAsync(conversationMessages, cancellationToken).ConfigureAwait(false);
 
         context.TargetThread.Messages.Clear();
         foreach (var message in systemMessages.Concat(result.ModelVisibleMessages))
@@ -172,17 +178,24 @@ public class CompactionMiddleware : IAgentMiddleware
             compactedMessageCount: result.ModelVisibleMessages.Count,
             messagesRemoved: result.ModelCompactedMessages.Count,
             summaryContent: result.SummaryContent,
-            reason: "Compacted fork target before thread commit");
+            reason: "Compacted fork target before thread commit",
+            strategyOptions: strategyOptions);
     }
 
-    private bool ShouldCompactFork(BeforeThreadForkCommitContext context) =>
-        context.ForkOptions.CompactionIntent switch
+    private ThreadForkCompactionOptions ResolveForkCompaction(
+        ThreadForkCompactionOptions? requested)
+    {
+        var policy = requested ?? ThreadForkCompactionOptions.Inherit;
+        if (policy.Mode != ThreadForkCompactionMode.Inherit)
+            return policy;
+
+        var configured = Config.ForkCompaction ?? ThreadForkCompactionOptions.Disabled;
+        return configured.Mode switch
         {
-            ThreadForkCompactionIntent.Enabled => true,
-            ThreadForkCompactionIntent.PreferCache => true,
-            ThreadForkCompactionIntent.Disabled => false,
-            _ => Config.CompactOnFork
+            ThreadForkCompactionMode.Inherit => configured with { Mode = ThreadForkCompactionMode.Disabled },
+            _ => configured
         };
+    }
 
     private bool TryApplyCachedForkCompaction(
         BeforeThreadForkCommitContext context,

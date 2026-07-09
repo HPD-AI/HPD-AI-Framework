@@ -146,6 +146,9 @@ public static class AgentConfigValidator
         var hr = config.Compaction;
 
         ValidateCompactionStrategy(hr.Strategy, errors);
+        if (hr.ForkCompaction?.Strategy is { } forkStrategy)
+            ValidateCompactionStrategy(forkStrategy, errors);
+
         ValidateCompactionTrigger(hr.Trigger, errors);
         ValidateHistoryRetention(hr.Retention, errors);
     }

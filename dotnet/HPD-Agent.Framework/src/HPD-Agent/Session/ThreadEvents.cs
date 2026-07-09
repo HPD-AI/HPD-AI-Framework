@@ -9,7 +9,7 @@ public static class ThreadEventTypes
     public const string ThreadUpdated = "THREAD_UPDATED";
     public const string ContentAdded = "CONTENT_ADDED";
     public const string ThreadMiddlewareStateCommitted = "THREAD_MIDDLEWARE_STATE_COMMITTED";
-    public const string ThreadHistoryCompacted = "THREAD_HISTORY_COMPACTED";
+    public const string ThreadHistoryCompactionCheckpoint = "THREAD_HISTORY_COMPACTION_CHECKPOINT";
 }
 
 public sealed record ThreadEventDocument
@@ -121,16 +121,24 @@ public sealed record ContentAddedEvent(
 public sealed record ThreadMiddlewareStateCommittedEvent(
     IReadOnlyDictionary<string, string> State) : AgentEvent;
 
-public sealed record ThreadHistoryCompactedEvent(
+public enum ThreadHistoryCompactionMode
+{
+    Soft,
+    Hard
+}
+
+public sealed record ThreadHistoryCompactionCheckpointEvent(
     string CompactionId,
     IReadOnlyList<string> ModelCompactedMessageIds,
+    IReadOnlyList<string> RetainedMessageIds,
     IReadOnlyList<string> DurableCompactedMessageIds,
     IReadOnlyList<ChatMessage> ReplacementMessages,
     string StrategyKind,
     string RetentionKind,
     string BoundaryKind,
     string? SummaryContent,
-    DateTimeOffset CompactedAt) : AgentEvent;
+    DateTimeOffset CompactedAt,
+    ThreadHistoryCompactionMode Mode) : AgentEvent;
 
 public static class ThreadEventFactory
 {
@@ -321,10 +329,10 @@ public static class ThreadEventFactory
         IReadOnlyDictionary<string, string> state) =>
         Scope(sessionId, threadId, new ThreadMiddlewareStateCommittedEvent(state));
 
-    public static AgentEvent ThreadHistoryCompacted(
+    public static AgentEvent ThreadHistoryCompactionCheckpoint(
         string sessionId,
         string threadId,
-        ThreadHistoryCompactedEvent evt) =>
+        ThreadHistoryCompactionCheckpointEvent evt) =>
         Scope(sessionId, threadId, evt);
 
     public static AgentEvent TurnStarted(

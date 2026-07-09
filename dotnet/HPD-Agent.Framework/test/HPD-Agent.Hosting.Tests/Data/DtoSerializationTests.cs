@@ -259,7 +259,13 @@ public class DtoSerializationTests
             "Forked Thread",
             "Fork description",
             null,
-            new Dictionary<string, object> { ["variant"] = "formal" });
+            new Dictionary<string, object> { ["variant"] = "formal" },
+            new ThreadForkCompactionOptions
+            {
+                Mode = ThreadForkCompactionMode.Enabled,
+                PreferCache = false,
+                Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 3 }
+            });
 
         // Act
         var json = JsonSerializer.Serialize(original, _options);
@@ -272,6 +278,11 @@ public class DtoSerializationTests
         deserialized.Name.Should().Be(original.Name);
         deserialized.Metadata.Should().NotBeNull();
         deserialized.Metadata!["variant"].ToString().Should().Be("formal");
+        deserialized.Compaction.Should().NotBeNull();
+        deserialized.Compaction!.Mode.Should().Be(ThreadForkCompactionMode.Enabled);
+        deserialized.Compaction.PreferCache.Should().BeFalse();
+        deserialized.Compaction.Strategy.Should().BeOfType<MessageCountingCompactionOptions>()
+            .Which.PreserveRecentUserTurnCount.Should().Be(3);
     }
 
     [Fact]

@@ -8,7 +8,7 @@ namespace HPD.Agent.Tests.Session;
 public class ThreadHistoryCompactionTests
 {
     [Fact]
-    public void Planner_ReturnsNull_ForPreserveThreadHistory()
+    public void Planner_PreserveThreadHistory_CreatesSoftCheckpointPlan()
     {
         var thread = CreateThread(5);
         var compaction = CreateCompaction(thread, compactedCount: 3);
@@ -18,7 +18,12 @@ public class ThreadHistoryCompactionTests
             compaction,
             new PreserveThreadHistoryOptions());
 
-        plan.Should().BeNull();
+        plan.Should().NotBeNull();
+        plan!.DurableCompactedMessages.Should().BeEmpty();
+        plan.ModelCompactedMessages.Select(m => m.MessageId)
+            .Should().Equal("message-0", "message-1", "message-2");
+        plan.RetainedMessages.Select(m => m.MessageId)
+            .Should().Equal("message-3", "message-4");
     }
 
     [Fact]
@@ -153,7 +158,76 @@ public class ThreadHistoryCompactionTests
     }
 
     [Fact]
-    public void Projector_AppliesThreadHistoryCompactedEvent()
+    public async Task Compactor_PreserveRetention_DoesNotMutateLiveThread()
+    {
+        var thread = CreateThread(5);
+        var compaction = CreateCompaction(thread, compactedCount: 3, includeSummary: true);
+        var plan = new ThreadCompactionPlanner().Plan(
+            thread,
+            compaction,
+            new PreserveThreadHistoryOptions())!;
+
+        var result = await new ThreadHistoryCompactor().CompactAsync(thread, plan, CancellationToken.None);
+
+        result.ModelCompactedMessageIds.Should().Equal("message-0", "message-1", "message-2");
+        result.DurableCompactedMessageIds.Should().BeEmpty();
+        result.ReplacementMessageIds.Should().ContainSingle("summary");
+        thread.Messages.Select(m => m.MessageId)
+            .Should().Equal("message-0", "message-1", "message-2", "message-3", "message-4");
+    }
+
+    [Fact]
+    public async Task Compactor_PreserveRetention_AppendsSoftCheckpointToStore()
+    {
+        var (store, thread) = await CreatePersistedThreadAsync(5);
+        var compaction = CreateCompaction(thread, compactedCount: 3, includeSummary: true);
+        var plan = new ThreadCompactionPlanner().Plan(
+            thread,
+            compaction,
+            new PreserveThreadHistoryOptions())!;
+
+        await new ThreadHistoryCompactor().CompactAsync(thread, plan, CancellationToken.None);
+
+        var document = await store.LoadThreadDocumentAsync(thread.SessionId, thread.Id);
+        var checkpoint = document!.Events.OfType<ThreadHistoryCompactionCheckpointEvent>().Should().ContainSingle().Subject;
+        checkpoint.Mode.Should().Be(ThreadHistoryCompactionMode.Soft);
+        checkpoint.ModelCompactedMessageIds.Should().Equal("message-0", "message-1", "message-2");
+        checkpoint.RetainedMessageIds.Should().Equal("message-3", "message-4");
+        checkpoint.DurableCompactedMessageIds.Should().BeEmpty();
+        checkpoint.ReplacementMessages.Select(message => message.MessageId).Should().ContainSingle("summary");
+
+        var projected = await store.LoadThreadAsync(thread.SessionId, thread.Id);
+        projected!.Messages.Select(message => message.MessageId)
+            .Should().Equal("message-0", "message-1", "message-2", "message-3", "message-4");
+    }
+
+    [Fact]
+    public async Task Compactor_CompactRetention_AppendsHardCheckpointToStoreProjection()
+    {
+        var (store, thread) = await CreatePersistedThreadAsync(5);
+        var compaction = CreateCompaction(thread, compactedCount: 3, includeSummary: true);
+        var plan = new ThreadCompactionPlanner().Plan(
+            thread,
+            compaction,
+            new CompactThreadHistoryOptions())!;
+
+        await new ThreadHistoryCompactor().CompactAsync(thread, plan, CancellationToken.None);
+
+        var document = await store.LoadThreadDocumentAsync(thread.SessionId, thread.Id);
+        var checkpoint = document!.Events.OfType<ThreadHistoryCompactionCheckpointEvent>().Should().ContainSingle().Subject;
+        checkpoint.Mode.Should().Be(ThreadHistoryCompactionMode.Hard);
+        checkpoint.ModelCompactedMessageIds.Should().Equal("message-0", "message-1", "message-2");
+        checkpoint.RetainedMessageIds.Should().Equal("message-3", "message-4");
+        checkpoint.DurableCompactedMessageIds.Should().Equal("message-0", "message-1", "message-2");
+        checkpoint.ReplacementMessages.Select(message => message.MessageId).Should().ContainSingle("summary");
+
+        var projected = await store.LoadThreadAsync(thread.SessionId, thread.Id);
+        projected!.Messages.Select(message => message.MessageId)
+            .Should().Equal("summary", "message-3", "message-4");
+    }
+
+    [Fact]
+    public void Projector_AppliesHardCompactionCheckpointEvent()
     {
         var events = new List<AgentEvent>
         {
@@ -166,25 +240,63 @@ public class ThreadHistoryCompactionTests
             events.Add(ThreadEventFactory.ContentAdded("session", "main", message, message.Contents[0]));
         }
 
-        events.Add(ThreadEventFactory.ThreadHistoryCompacted(
+        events.Add(ThreadEventFactory.ThreadHistoryCompactionCheckpoint(
             "session",
             "main",
-            new ThreadHistoryCompactedEvent(
+            new ThreadHistoryCompactionCheckpointEvent(
                 "compaction",
                 ["message-0", "message-1"],
+                ["message-2", "message-3"],
                 ["message-0", "message-1"],
                 [new ChatMessage(ChatRole.Assistant, "summary") { MessageId = "summary" }],
                 nameof(SummarizingCompactionOptions),
                 nameof(CompactThreadHistoryOptions),
                 nameof(ExactCompactedMessagesBoundaryOptions),
                 "summary",
-                DateTimeOffset.UtcNow)));
+                DateTimeOffset.UtcNow,
+                ThreadHistoryCompactionMode.Hard)));
 
         var projected = ThreadProjector.Project("session", "main", events);
 
         projected.Messages.Select(m => m.MessageId)
             .Should().Equal("summary", "message-2", "message-3");
         projected.Messages[0].Text.Should().Be("summary");
+    }
+
+    [Fact]
+    public void Projector_LeavesMessagesForSoftCompactionCheckpointEvent()
+    {
+        var events = new List<AgentEvent>
+        {
+            ThreadEventFactory.ThreadCreated(new Thread("session", "main")),
+        };
+
+        var thread = CreateThread(4);
+        foreach (var message in thread.Messages)
+        {
+            events.Add(ThreadEventFactory.ContentAdded("session", "main", message, message.Contents[0]));
+        }
+
+        events.Add(ThreadEventFactory.ThreadHistoryCompactionCheckpoint(
+            "session",
+            "main",
+            new ThreadHistoryCompactionCheckpointEvent(
+                "compaction",
+                ["message-0", "message-1"],
+                ["message-2", "message-3"],
+                [],
+                [new ChatMessage(ChatRole.Assistant, "summary") { MessageId = "summary" }],
+                nameof(SummarizingCompactionOptions),
+                nameof(PreserveThreadHistoryOptions),
+                nameof(ExactCompactedMessagesBoundaryOptions),
+                "summary",
+                DateTimeOffset.UtcNow,
+                ThreadHistoryCompactionMode.Soft)));
+
+        var projected = ThreadProjector.Project("session", "main", events);
+
+        projected.Messages.Select(m => m.MessageId)
+            .Should().Equal("message-0", "message-1", "message-2", "message-3");
     }
 
     private static Thread CreateThread(int messageCount)
@@ -200,6 +312,27 @@ public class ThreadHistoryCompactionTests
         }
 
         return thread;
+    }
+
+    private static async Task<(InMemorySessionStore Store, Thread Thread)> CreatePersistedThreadAsync(
+        int messageCount)
+    {
+        var store = new InMemorySessionStore();
+        var session = new HPD.Agent.Session("session") { Store = store };
+        var thread = session.CreateThread("main");
+
+        for (var i = 0; i < messageCount; i++)
+        {
+            thread.AddMessage(new ChatMessage(ChatRole.User, $"Message {i}")
+            {
+                MessageId = $"message-{i}",
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+        }
+
+        await store.SaveSessionAsync(session);
+        await store.SaveInitialThreadAsync(session.Id, thread);
+        return (store, thread);
     }
 
     private static CompactionResult CreateCompaction(

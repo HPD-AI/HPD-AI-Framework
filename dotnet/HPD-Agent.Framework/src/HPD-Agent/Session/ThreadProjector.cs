@@ -179,7 +179,7 @@ public static class ThreadProjector
                 break;
             }
 
-            case ThreadHistoryCompactedEvent data:
+            case ThreadHistoryCompactionCheckpointEvent data:
             {
                 ApplyCompaction(data, messages, messageOrder);
                 thread.LastActivity = data.CompactedAt.UtcDateTime;
@@ -189,7 +189,7 @@ public static class ThreadProjector
     }
 
     private static void ApplyCompaction(
-        ThreadHistoryCompactedEvent data,
+        ThreadHistoryCompactionCheckpointEvent data,
         Dictionary<string, MessageProjection> messages,
         List<string> messageOrder)
     {

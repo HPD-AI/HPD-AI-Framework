@@ -214,7 +214,11 @@ public sealed class AgentThreadService : IAgentThreadService
                 threadId,
                 newThreadId,
                 request.FromMessageId,
-                request.Metadata,
+                new ThreadForkOptions
+                {
+                    Metadata = request.Metadata,
+                    Compaction = request.Compaction
+                },
                 cancellationToken);
         }
         catch (MessageNotPresentOnThreadException ex)

@@ -278,11 +278,33 @@ describe('AgentClient — session/thread passthroughs', () => {
       const fork = { ...THREAD, id: 'thread-2' };
       mockFetchJson(fork, 201);
 
-      const result = await client.forkThread('sess-1', 'thread-1', { agentId: 'agent-1', fromMessageId: 'msg-3' });
+      const result = await client.forkThread('sess-1', 'thread-1', {
+        agentId: 'agent-1',
+        fromMessageId: 'msg-3',
+        compaction: {
+          mode: 1,
+          preferCache: false,
+          strategy: {
+            $type: 'messageCounting',
+            preserveRecentUserTurnCount: 3,
+          },
+        },
+      });
 
       const [url, init] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0];
       expect(String(url)).toBe(`${BASE}/agents/agent-1/sessions/sess-1/threads/thread-1/fork`);
       expect(init?.method).toBe('POST');
+      expect(JSON.parse(init?.body as string)).toEqual({
+        fromMessageId: 'msg-3',
+        compaction: {
+          mode: 1,
+          preferCache: false,
+          strategy: {
+            $type: 'messageCounting',
+            preserveRecentUserTurnCount: 3,
+          },
+        },
+      });
       expect(result).toEqual(fork);
     });
   });

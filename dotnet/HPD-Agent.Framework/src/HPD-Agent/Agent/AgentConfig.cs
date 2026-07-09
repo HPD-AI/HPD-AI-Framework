@@ -972,10 +972,11 @@ public class CompactionConfig
     public bool Enabled { get; set; } = true;
 
     /// <summary>
-    /// Whether newly forked threads should be compacted before their first persistence.
-    /// Default is false so normal fork behavior remains a raw copy unless explicitly enabled.
+    /// Default compaction policy for newly forked threads before their first persistence.
+    /// Fork compaction always shapes the new fork target; it does not mutate the source thread.
     /// </summary>
-    public bool CompactOnFork { get; set; } = false;
+    public ThreadForkCompactionOptions ForkCompaction { get; set; } =
+        ThreadForkCompactionOptions.Disabled;
 
     /// <summary>
     /// Strategy for reducing conversation history. Strategy-specific settings live on the selected option type.

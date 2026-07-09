@@ -12,6 +12,7 @@ import type {
   AgentMessageSource,
   AgentMessageVisibility,
 } from './events.js';
+import type { CompactionStrategyOptions } from './run-config.js';
 
 // ============================================
 // SESSION
@@ -322,8 +323,25 @@ export interface ForkThreadRequest {
   /** Optional thread-level metadata */
   metadata?: Record<string, unknown>;
 
+  /** Optional fork-target compaction override */
+  compaction?: ThreadForkCompactionOptions | null;
+
   /** Agent definition ID used in the route for agent-scoped thread forking */
   agentId?: string;
+}
+
+export type ThreadForkCompactionMode = 0 | 1 | 2;
+
+export const ThreadForkCompactionModes = {
+  Inherit: 0,
+  Enabled: 1,
+  Disabled: 2,
+} as const satisfies Record<string, ThreadForkCompactionMode>;
+
+export interface ThreadForkCompactionOptions {
+  mode?: ThreadForkCompactionMode;
+  preferCache?: boolean;
+  strategy?: CompactionStrategyOptions | null;
 }
 
 // ============================================

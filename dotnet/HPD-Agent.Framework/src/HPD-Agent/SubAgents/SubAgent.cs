@@ -242,21 +242,13 @@ public enum SubAgentThreadPolicy
     ParentThread
 }
 
-public enum SubAgentThreadCompaction
-{
-    Inherit,
-    Enabled,
-    Disabled,
-    PreferCache
-}
-
 public sealed record SubAgentExecutionPolicy(
     SubAgentSessionPolicy SessionPolicy,
     SubAgentThreadPolicy ThreadPolicy,
     string? SharedSessionId = null,
     string? ExistingThreadId = null,
     string? ThreadNamePrefix = null,
-    SubAgentThreadCompaction ThreadCompaction = SubAgentThreadCompaction.Inherit)
+    ThreadForkCompactionOptions? ThreadCompaction = null)
 {
     public static SubAgentExecutionPolicy Default { get; } =
         new(SubAgentSessionPolicy.ParentSession, SubAgentThreadPolicy.ForkFromParentThread);
@@ -265,11 +257,11 @@ public sealed record SubAgentExecutionPolicy(
 public static class SubAgentExecutionPolicies
 {
     public static SubAgentExecutionPolicy ParentSessionForkedThread(
-        SubAgentThreadCompaction threadCompaction = SubAgentThreadCompaction.Inherit) =>
+        ThreadForkCompactionOptions? compaction = null) =>
         new(
             SubAgentSessionPolicy.ParentSession,
             SubAgentThreadPolicy.ForkFromParentThread,
-            ThreadCompaction: threadCompaction);
+            ThreadCompaction: compaction);
 
     public static SubAgentExecutionPolicy ParentSessionFreshThread() =>
         new(SubAgentSessionPolicy.ParentSession, SubAgentThreadPolicy.FreshThread);
@@ -343,7 +335,7 @@ internal static class SubAgentExecutionPolicyExtensions
             throw new ArgumentException("ParentThread requires SessionPolicy to be ParentSession.");
         }
 
-        if (policy.ThreadCompaction != SubAgentThreadCompaction.Inherit &&
+        if (policy.ThreadCompaction != null &&
             policy.ThreadPolicy != SubAgentThreadPolicy.ForkFromParentThread)
         {
             throw new ArgumentException("ThreadCompaction can only be set when ThreadPolicy is ForkFromParentThread.");

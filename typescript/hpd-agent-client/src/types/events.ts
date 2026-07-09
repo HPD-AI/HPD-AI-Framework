@@ -64,7 +64,7 @@ export const EventTypes = {
   THREAD_UPDATED: 'THREAD_UPDATED',
   CONTENT_ADDED: 'CONTENT_ADDED',
   THREAD_MIDDLEWARE_STATE_COMMITTED: 'THREAD_MIDDLEWARE_STATE_COMMITTED',
-  THREAD_HISTORY_COMPACTED: 'THREAD_HISTORY_COMPACTED',
+  THREAD_HISTORY_COMPACTION_CHECKPOINT: 'THREAD_HISTORY_COMPACTION_CHECKPOINT',
 
   // Message Turn Lifecycle
   MESSAGE_TURN_STARTED: 'MESSAGE_TURN_STARTED',
@@ -359,17 +359,21 @@ export interface ThreadMiddlewareStateCommittedEvent extends BaseEvent {
   state: Record<string, string>;
 }
 
-export interface ThreadHistoryCompactedEvent extends BaseEvent {
-  type: typeof EventTypes.THREAD_HISTORY_COMPACTED;
+export type ThreadHistoryCompactionMode = 'Soft' | 'Hard';
+
+export interface ThreadHistoryCompactionCheckpointEvent extends BaseEvent {
+  type: typeof EventTypes.THREAD_HISTORY_COMPACTION_CHECKPOINT;
   compactionId: string;
-  modelReducedMessageIds: string[];
-  durableRemovedMessageIds: string[];
+  modelCompactedMessageIds: string[];
+  retainedMessageIds: string[];
+  durableCompactedMessageIds: string[];
   replacementMessages: unknown[];
   strategyKind: string;
   retentionKind: string;
   boundaryKind: string;
   summaryContent?: string | null;
   compactedAt: string;
+  mode: ThreadHistoryCompactionMode;
 }
 
 // ============================================
@@ -979,7 +983,7 @@ export type KnownAgentEvent =
   | ThreadUpdatedEvent
   | ContentAddedEvent
   | ThreadMiddlewareStateCommittedEvent
-  | ThreadHistoryCompactedEvent
+  | ThreadHistoryCompactionCheckpointEvent
   // Message Turn Events
   | MessageTurnStartedEvent
   | MessageTurnFinishedEvent

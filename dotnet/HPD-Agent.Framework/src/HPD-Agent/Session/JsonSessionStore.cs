@@ -438,7 +438,14 @@ public class JsonSessionStore : ISessionStore
             },
             TextMessageStartEvent or ReasoningMessageStartEvent or ContentAddedEvent
                 => metadata with { MessageCount = metadata.MessageCount + 1 },
-            ThreadHistoryCompactedEvent data => metadata with { MessageCount = data.ReplacementMessages.Count },
+            ThreadHistoryCompactionCheckpointEvent data => metadata with
+            {
+                MessageCount = Math.Max(
+                    0,
+                    metadata.MessageCount -
+                    data.DurableCompactedMessageIds.Count +
+                    data.ReplacementMessages.Count)
+            },
             _ => metadata
         };
     }

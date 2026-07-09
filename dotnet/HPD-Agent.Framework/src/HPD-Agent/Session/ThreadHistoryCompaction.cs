@@ -4,6 +4,7 @@ namespace HPD.Agent;
 
 public sealed record ThreadCompactionPlan(
     IReadOnlyList<ChatMessage> ModelCompactedMessages,
+    IReadOnlyList<ChatMessage> RetainedMessages,
     IReadOnlyList<ChatMessage> DurableCompactedMessages,
     IReadOnlyList<ChatMessage> ReplacementMessages,
     CompactionStrategyOptions Strategy,
@@ -49,20 +50,20 @@ public sealed class ThreadCompactionPlanner : IThreadCompactionPlanner
         ArgumentNullException.ThrowIfNull(compaction);
         ArgumentNullException.ThrowIfNull(retention);
 
-        if (retention is PreserveThreadHistoryOptions)
-            return null;
-
         var boundary = retention switch
         {
             CompactThreadHistoryOptions compact => compact.Boundary,
             _ => new ExactCompactedMessagesBoundaryOptions()
         };
 
-        var durableRemoved = ExpandBoundary(thread, compaction, boundary);
+        var durableRemoved = retention is PreserveThreadHistoryOptions
+            ? []
+            : ExpandBoundary(thread, compaction, boundary);
         var replacementMessages = compaction.ReplacementMessages.ToList();
 
         return new ThreadCompactionPlan(
             compaction.ModelCompactedMessages,
+            compaction.RetainedMessages,
             durableRemoved,
             replacementMessages,
             compaction.Strategy,
@@ -238,11 +239,6 @@ public sealed class ThreadHistoryCompactor : IThreadHistoryCompactor
         ArgumentNullException.ThrowIfNull(plan);
 
         var durableRemovedIds = GetMessageIds(plan.DurableCompactedMessages);
-        if (durableRemovedIds.Count == 0)
-        {
-            return new ThreadCompactionResult(Guid.NewGuid().ToString(), [], [], []);
-        }
-
         var threadIds = thread.Messages
             .Where(message => !string.IsNullOrWhiteSpace(message.MessageId))
             .Select(message => message.MessageId!)
@@ -254,25 +250,30 @@ public sealed class ThreadHistoryCompactor : IThreadHistoryCompactor
         var replacementMessages = EnsureReplacementMessages(plan.ReplacementMessages);
 
         var compactionId = Guid.NewGuid().ToString();
-        var evt = new ThreadHistoryCompactedEvent(
+        var evt = new ThreadHistoryCompactionCheckpointEvent(
             compactionId,
             GetMessageIds(plan.ModelCompactedMessages),
+            GetMessageIds(plan.RetainedMessages),
             durableRemovedIds,
             replacementMessages,
             plan.Strategy.GetType().Name,
             plan.Retention.GetType().Name,
             plan.Boundary.GetType().Name,
             plan.SummaryContent,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            durableRemovedIds.Count == 0
+                ? ThreadHistoryCompactionMode.Soft
+                : ThreadHistoryCompactionMode.Hard);
 
-        ApplyToLiveThread(thread, durableRemovedIds, replacementMessages);
+        if (durableRemovedIds.Count > 0)
+            ApplyToLiveThread(thread, durableRemovedIds, replacementMessages);
 
         if (thread.Session?.Store is { } store)
         {
             await store.AppendThreadEventAsync(
                 thread.SessionId,
                 thread.Id,
-                ThreadEventFactory.ThreadHistoryCompacted(thread.SessionId, thread.Id, evt),
+                ThreadEventFactory.ThreadHistoryCompactionCheckpoint(thread.SessionId, thread.Id, evt),
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 

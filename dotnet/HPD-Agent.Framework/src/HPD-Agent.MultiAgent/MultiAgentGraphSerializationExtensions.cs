@@ -44,6 +44,8 @@ public sealed class MultiAgentGraphJsonTypeInfoResolverContributor : IGraphJsonT
 [JsonSerializable(typeof(WorkflowSettingsConfig))]
 [JsonSerializable(typeof(IterationOptionsConfig))]
 [JsonSerializable(typeof(AgentConfig))]
+[JsonSerializable(typeof(ThreadForkCompactionOptions))]
+[JsonSerializable(typeof(ThreadForkCompactionMode))]
 [JsonSerializable(typeof(Dictionary<string, AgentNodeConfig>))]
 [JsonSerializable(typeof(List<EdgeConfig>))]
 [JsonSerializable(typeof(List<ConditionConfig>))]

@@ -555,13 +555,7 @@ public static class SubAgentRuntime
                 var forkOptions = new ThreadForkOptions
                 {
                     Metadata = metadata,
-                    CompactionIntent = subAgent.ExecutionPolicy.ThreadCompaction switch
-                    {
-                        SubAgentThreadCompaction.Enabled => ThreadForkCompactionIntent.Enabled,
-                        SubAgentThreadCompaction.Disabled => ThreadForkCompactionIntent.Disabled,
-                        SubAgentThreadCompaction.PreferCache => ThreadForkCompactionIntent.PreferCache,
-                        _ => ThreadForkCompactionIntent.Inherit
-                    }
+                    Compaction = subAgent.ExecutionPolicy.ThreadCompaction
                 };
                 await agent.ForkThreadAsync(
                     parentSessionId,

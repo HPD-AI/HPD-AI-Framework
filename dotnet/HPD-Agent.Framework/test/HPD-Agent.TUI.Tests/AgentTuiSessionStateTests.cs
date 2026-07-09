@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HPD.Agent.TUI.Application;
+using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
@@ -94,6 +95,59 @@ public sealed class AgentTuiSessionStateTests
             .BeTrue();
     }
 
+    [Fact]
+    public void TranscriptModel_RemoveWhere_RemovesFinalizedEntriesAndRebuildsKeys()
+    {
+        var model = new TranscriptModel();
+        model.AddFinal(CreateEntry("one", "m1"));
+        model.AddFinal(CreateEntry("two", "m2"));
+        model.AddFinal(CreateEntry("three", "m3"));
+
+        var removed = model.RemoveWhere(entry => entry.Metadata.MessageId is "m1" or "m3");
+
+        removed.Should().Be(2);
+        model.Snapshot().Entries.Select(entry => entry.Metadata.MessageId)
+            .Should().Equal("m2");
+    }
+
+    [Fact]
+    public void MessageSelection_EffectiveContextOnly_HidesCompactedUserMessages()
+    {
+        var events = new AgentEvent[]
+        {
+            new TextMessageStartEvent("m1", "user") { SequenceNumber = 1 },
+            new TextDeltaEvent("old question", "m1") { SequenceNumber = 2 },
+            new TextMessageStartEvent("m2", "user") { SequenceNumber = 3 },
+            new TextDeltaEvent("current question", "m2") { SequenceNumber = 4 },
+            new ThreadHistoryCompactionCheckpointEvent(
+                "compact",
+                ["m1"],
+                ["m2"],
+                [],
+                [],
+                nameof(MessageCountingCompactionOptions),
+                nameof(PreserveThreadHistoryOptions),
+                nameof(ExactCompactedMessagesBoundaryOptions),
+                null,
+                DateTimeOffset.UtcNow,
+                ThreadHistoryCompactionMode.Soft)
+            {
+                SequenceNumber = 5
+            }
+        };
+
+        var effective = AgentTuiMessageSelection.GetUserMessages(
+            events,
+            AgentTuiMessageSelectionPolicy.EffectiveContextOnly);
+        var raw = AgentTuiMessageSelection.GetUserMessages(
+            events,
+            AgentTuiMessageSelectionPolicy.RawTimeline);
+
+        effective.Should().ContainSingle(message => message.MessageId == "m2");
+        raw.Select(message => message.MessageId).Should().Equal("m1", "m2");
+        raw[0].IsCompacted.Should().BeTrue();
+    }
+
     private static AgentTuiSessionState CreateState()
         => new(
             new AgentTuiRuntimeScope("agent", "session", "main"),
@@ -108,6 +162,13 @@ public sealed class AgentTuiSessionStateTests
     {
         return model.Snapshot().Entries.ToList();
     }
+
+    private static TranscriptEntry CreateEntry(string id, string messageId)
+        => new(
+            Id: id,
+            EntryKey: id,
+            Cell: new NoticeCell("entry", new Text(messageId), TranscriptSeverity.Info),
+            Metadata: new TranscriptEntryMetadata(MessageId: messageId));
 
     private sealed class TestTextMessageHandler : IAgentTuiEventHandler
     {

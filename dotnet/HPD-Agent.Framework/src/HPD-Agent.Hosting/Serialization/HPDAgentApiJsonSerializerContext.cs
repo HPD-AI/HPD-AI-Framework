@@ -59,6 +59,10 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(StreamTextRequest))]
 [JsonSerializable(typeof(ContextUsageRequest))]
 [JsonSerializable(typeof(ThreadContextUsage))]
+[JsonSerializable(typeof(ThreadForkCompactionOptions))]
+[JsonSerializable(typeof(ThreadForkCompactionMode))]
+[JsonSerializable(typeof(ThreadHistoryCompactionCheckpointEvent))]
+[JsonSerializable(typeof(ThreadHistoryCompactionMode))]
 // Run config DTO graph used by StreamTextRequest
 [JsonSerializable(typeof(AgentRunConfig))]
 [JsonSerializable(typeof(CompactionRunConfig))]

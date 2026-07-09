@@ -117,6 +117,24 @@ public sealed class TranscriptModel
         }
     }
 
+    public int RemoveWhere(Func<TranscriptEntry, bool> predicate)
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+
+        lock (_gate)
+        {
+            var removed = _entries.RemoveAll(entry => predicate(entry));
+            if (removed == 0)
+            {
+                return 0;
+            }
+
+            RebuildEntryKeyIndex();
+            _version++;
+            return removed;
+        }
+    }
+
     public void ClearAll()
     {
         lock (_gate)

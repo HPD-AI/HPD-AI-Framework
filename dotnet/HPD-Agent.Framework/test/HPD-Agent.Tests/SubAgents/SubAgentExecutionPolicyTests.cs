@@ -23,7 +23,7 @@ public class SubAgentExecutionPolicyTests
         subAgent.AgentId.Should().BeNull();
         subAgent.ExecutionPolicy.SessionPolicy.Should().Be(SubAgentSessionPolicy.ParentSession);
         subAgent.ExecutionPolicy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.ForkFromParentThread);
-        subAgent.ExecutionPolicy.ThreadCompaction.Should().Be(SubAgentThreadCompaction.Inherit);
+        subAgent.ExecutionPolicy.ThreadCompaction.Should().BeNull();
     }
 
     [Fact]
@@ -50,20 +50,26 @@ public class SubAgentExecutionPolicyTests
         subAgent.ExecutionPolicy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.ParentThread);
         subAgent.ExecutionPolicy.SharedSessionId.Should().BeNull();
         subAgent.ExecutionPolicy.ExistingThreadId.Should().BeNull();
-        subAgent.ExecutionPolicy.ThreadCompaction.Should().Be(SubAgentThreadCompaction.Inherit);
+        subAgent.ExecutionPolicy.ThreadCompaction.Should().BeNull();
     }
 
     [Theory]
-    [InlineData(SubAgentThreadCompaction.Enabled)]
-    [InlineData(SubAgentThreadCompaction.Disabled)]
-    [InlineData(SubAgentThreadCompaction.PreferCache)]
-    public void ParentSessionForkedThread_CanSetThreadCompaction(SubAgentThreadCompaction threadCompaction)
+    [InlineData(ThreadForkCompactionMode.Enabled)]
+    [InlineData(ThreadForkCompactionMode.Disabled)]
+    public void ParentSessionForkedThread_CanSetThreadCompaction(ThreadForkCompactionMode mode)
     {
-        var policy = SubAgentExecutionPolicies.ParentSessionForkedThread(threadCompaction);
+        var compaction = new ThreadForkCompactionOptions
+        {
+            Mode = mode,
+            PreferCache = false,
+            Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 3 }
+        };
+
+        var policy = SubAgentExecutionPolicies.ParentSessionForkedThread(compaction);
 
         policy.SessionPolicy.Should().Be(SubAgentSessionPolicy.ParentSession);
         policy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.ForkFromParentThread);
-        policy.ThreadCompaction.Should().Be(threadCompaction);
+        policy.ThreadCompaction.Should().BeSameAs(compaction);
     }
 
     [Fact]
@@ -159,7 +165,7 @@ public class SubAgentExecutionPolicyTests
             SubAgentSessionPolicy.ParentSession,
             threadPolicy,
             ExistingThreadId: threadPolicy == SubAgentThreadPolicy.ExistingThread ? "existing" : null,
-            ThreadCompaction: SubAgentThreadCompaction.Enabled);
+            ThreadCompaction: ThreadForkCompactionOptions.Enabled);
 
         var act = () => SubAgent.FromConfig("Bad", "desc", MinimalConfig(), policy);
 

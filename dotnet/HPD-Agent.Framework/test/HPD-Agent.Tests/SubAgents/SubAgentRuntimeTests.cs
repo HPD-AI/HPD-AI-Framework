@@ -134,7 +134,7 @@ public class SubAgentRuntimeTests
                 Config = new CompactionConfig
                 {
                     Enabled = true,
-                    CompactOnFork = false,
+                    ForkCompaction = ThreadForkCompactionOptions.Disabled,
                     Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 2 }
                 }
             });
@@ -152,7 +152,7 @@ public class SubAgentRuntimeTests
             "Reviewer",
             "Reviews the current thread.",
             MinimalConfig(),
-            SubAgentExecutionPolicies.ParentSessionForkedThread(SubAgentThreadCompaction.Enabled));
+            SubAgentExecutionPolicies.ParentSessionForkedThread(ThreadForkCompactionOptions.Enabled));
 
         var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
@@ -175,7 +175,7 @@ public class SubAgentRuntimeTests
                 Config = new CompactionConfig
                 {
                     Enabled = true,
-                    CompactOnFork = true,
+                    ForkCompaction = ThreadForkCompactionOptions.Enabled,
                     Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 }
                 }
             });
@@ -193,7 +193,7 @@ public class SubAgentRuntimeTests
             "Reviewer",
             "Reviews the current thread.",
             MinimalConfig(),
-            SubAgentExecutionPolicies.ParentSessionForkedThread(SubAgentThreadCompaction.Disabled));
+            SubAgentExecutionPolicies.ParentSessionForkedThread(ThreadForkCompactionOptions.Disabled));
 
         var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
@@ -216,7 +216,7 @@ public class SubAgentRuntimeTests
                 Config = new CompactionConfig
                 {
                     Enabled = true,
-                    CompactOnFork = false,
+                    ForkCompaction = ThreadForkCompactionOptions.Disabled,
                     Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 }
                 }
             });
@@ -242,7 +242,11 @@ public class SubAgentRuntimeTests
             "Reviewer",
             "Reviews the current thread.",
             MinimalConfig(),
-            SubAgentExecutionPolicies.ParentSessionForkedThread(SubAgentThreadCompaction.PreferCache));
+            SubAgentExecutionPolicies.ParentSessionForkedThread(new ThreadForkCompactionOptions
+            {
+                Mode = ThreadForkCompactionMode.Enabled,
+                PreferCache = true
+            }));
 
         var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
@@ -265,7 +269,7 @@ public class SubAgentRuntimeTests
                 Config = new CompactionConfig
                 {
                     Enabled = true,
-                    CompactOnFork = false,
+                    ForkCompaction = ThreadForkCompactionOptions.Disabled,
                     Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 }
                 }
             });
@@ -291,7 +295,11 @@ public class SubAgentRuntimeTests
             "Reviewer",
             "Reviews the current thread.",
             MinimalConfig(),
-            SubAgentExecutionPolicies.ParentSessionForkedThread(SubAgentThreadCompaction.PreferCache));
+            SubAgentExecutionPolicies.ParentSessionForkedThread(new ThreadForkCompactionOptions
+            {
+                Mode = ThreadForkCompactionMode.Enabled,
+                PreferCache = true
+            }));
 
         var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
@@ -299,6 +307,57 @@ public class SubAgentRuntimeTests
         childThread!.Messages.Select(message => message.MessageId)
             .Should().Equal("message-2");
         strategy.CallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ForkFromParentThread_WithThreadCompactionStrategyOverride_UsesOverrideForSubAgentThread()
+    {
+        var store = new InMemorySessionStore();
+        var defaultStrategy = new RetainLastMessagesCompactionStrategy(retainCount: 1);
+        var overrideStrategy = new RetainLastMessagesCompactionStrategy(retainCount: 3);
+        var agent = await BuildAgentAsync(
+            store,
+            new CompactionMiddleware
+            {
+                Strategy = defaultStrategy,
+                StrategyFactory = options => options is MessageCountingCompactionOptions { PreserveRecentUserTurnCount: 3 }
+                    ? overrideStrategy
+                    : defaultStrategy,
+                Config = new CompactionConfig
+                {
+                    Enabled = true,
+                    ForkCompaction = ThreadForkCompactionOptions.Disabled,
+                    Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 }
+                }
+            });
+        await agent.CreateSessionAsync("parent-session");
+
+        var parentThread = (await store.LoadThreadAsync("parent-session", "main"))!;
+        for (var i = 0; i < 5; i++)
+        {
+            parentThread.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
+        }
+        await store.SaveInitialThreadAsync("parent-session", parentThread);
+
+        var context = await CreateFunctionContextAsync(store, "parent-session", "main");
+        var subAgent = SubAgent.FromConfig(
+            "Reviewer",
+            "Reviews the current thread.",
+            MinimalConfig(),
+            SubAgentExecutionPolicies.ParentSessionForkedThread(new ThreadForkCompactionOptions
+            {
+                Mode = ThreadForkCompactionMode.Enabled,
+                PreferCache = false,
+                Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 3 }
+            }));
+
+        var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
+
+        var childThread = await store.LoadThreadAsync(route.SessionId, route.ThreadId);
+        childThread!.Messages.Select(message => message.MessageId)
+            .Should().Equal("message-2", "message-3", "message-4");
+        defaultStrategy.CallCount.Should().Be(0);
+        overrideStrategy.CallCount.Should().Be(1);
     }
 
     private static async Task<Agent> BuildAgentAsync(
