@@ -6,7 +6,7 @@
 
   <PropertyGroup>
     <!-- Centralized version for ALL packages -->
-    <VersionPrefix>0.2.0</VersionPrefix>
+    <VersionPrefix>0.6.0</VersionPrefix>
     <!-- Uncomment to add suffix like "alpha", "beta", "preview" -->
     <!-- <VersionSuffix>preview</VersionSuffix> -->
 

@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-    <NoWarn>$(NoWarn);HPDAUDIO001;MEAI001;IL2026;IL3050;CS0108;CS0628;CS8424;CS8600;CS8601;CS8602;CS8604;CS8619;CS8907;CS9113</NoWarn>
+    <NoWarn>$(NoWarn);HPDAUDIO001;MEAI001;IL2026;IL2075;IL3050;CS0108;CS0628;CS8424;CS8600;CS8601;CS8602;CS8604;CS8619;CS8907;CS9113</NoWarn>
     <!-- Native AOT Configuration -->
     <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
