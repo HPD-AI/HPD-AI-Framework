@@ -171,7 +171,7 @@ public class CompactionMiddlewarePolicyTests
         new()
         {
             Strategy = strategy,
-            StrategyFactory = _ => strategy,
+            StrategyFactory = (_, _) => strategy,
             Config = new CompactionConfig
             {
                 Enabled = true,

@@ -12,7 +12,7 @@ public class CompactionMiddleware : IAgentMiddleware
 
     public required CompactionConfig Config { get; init; }
 
-    public Func<CompactionStrategyOptions, ICompactionStrategy?>? StrategyFactory { get; init; }
+    public Func<CompactionStrategyOptions, AgentRunConfig, ICompactionStrategy?>? StrategyFactory { get; init; }
 
     public string? SystemInstructions { get; init; }
 
@@ -43,7 +43,7 @@ public class CompactionMiddleware : IAgentMiddleware
             return;
         }
 
-        var strategy = ResolveStrategy(policy.Strategy);
+        var strategy = ResolveStrategy(policy.Strategy, context.RunConfig);
         if (strategy == null)
         {
             EmitCompactionEvent(context, CompactionStatus.Skipped,
@@ -131,7 +131,7 @@ public class CompactionMiddleware : IAgentMiddleware
         }
 
         var strategyOptions = forkCompaction.Strategy ?? Config.Strategy;
-        var strategy = ResolveStrategy(strategyOptions);
+        var strategy = ResolveStrategy(strategyOptions, new AgentRunConfig());
         if (strategy == null)
         {
             EmitCompactionEvent(context, CompactionStatus.Skipped,
@@ -250,12 +250,14 @@ public class CompactionMiddleware : IAgentMiddleware
             .Select(id => id!)
             .ToList();
 
-    private ICompactionStrategy? ResolveStrategy(CompactionStrategyOptions options)
+    private ICompactionStrategy? ResolveStrategy(
+        CompactionStrategyOptions options,
+        AgentRunConfig runConfig)
     {
         if (options == Config.Strategy)
             return Strategy;
 
-        return StrategyFactory?.Invoke(options);
+        return StrategyFactory?.Invoke(options, runConfig);
     }
 
     private CompactionTriggerDecision GetTriggerDecision(

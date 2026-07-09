@@ -320,7 +320,7 @@ public class SubAgentRuntimeTests
             new CompactionMiddleware
             {
                 Strategy = defaultStrategy,
-                StrategyFactory = options => options is MessageCountingCompactionOptions { PreserveRecentUserTurnCount: 3 }
+                StrategyFactory = (options, _) => options is MessageCountingCompactionOptions { PreserveRecentUserTurnCount: 3 }
                     ? overrideStrategy
                     : defaultStrategy,
                 Config = new CompactionConfig

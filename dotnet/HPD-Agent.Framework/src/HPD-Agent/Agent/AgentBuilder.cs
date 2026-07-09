@@ -1987,10 +1987,10 @@ public class AgentBuilder
             {
                 Strategy = compactionStrategy,
                 Config = _config.Compaction,
-                StrategyFactory = options => CreateCompactionStrategy(
-                    buildData.ClientToUse,
+                StrategyFactory = (options, runConfig) => CreateCompactionStrategy(
+                    ResolveRunChatClient(runConfig) ?? buildData.ClientToUse,
                     _config,
-                    buildData.SummarizerClient,
+                    CreateSummarizerClient(options as SummarizingCompactionOptions) ?? buildData.SummarizerClient,
                     options),
                 SystemInstructions = _config.SystemInstructions
             });
@@ -2315,10 +2315,10 @@ public class AgentBuilder
             openApiResult?.OwnedHttpClients.Count > 0 ? openApiResult.OwnedHttpClients : null);
     }
 
-    private IChatClient? CreateSummarizerClient()
+    private IChatClient? CreateSummarizerClient(SummarizingCompactionOptions? overrideOptions = null)
     {
-        if (_config.Compaction?.Strategy is not SummarizingCompactionOptions summarizingOptions ||
-            summarizingOptions.SummarizerProvider == null)
+        var summarizingOptions = overrideOptions ?? _config.Compaction?.Strategy as SummarizingCompactionOptions;
+        if (summarizingOptions?.SummarizerProvider == null)
             return null;
 
         var summarizerProviderKey = summarizingOptions.SummarizerProvider.ProviderKey;
@@ -2327,6 +2327,58 @@ public class AgentBuilder
         return summarizerProviderFeatures.CreateChatClient(
             summarizingOptions.SummarizerProvider,
             _serviceProvider);
+    }
+
+    private IChatClient? ResolveRunChatClient(AgentRunConfig? runConfig)
+    {
+        if (runConfig?.OverrideChatClient is { } overrideClient)
+            return overrideClient;
+
+        var runClients = CreateRunClientOverrides(runConfig);
+        if (runClients?.GetFamilyConfig(ProviderClientFamily.Chat) is null)
+            return null;
+
+        var effectiveConfig = _config.ResolveClientConfig(ProviderClientFamily.Chat, runClients);
+        if (string.IsNullOrWhiteSpace(effectiveConfig?.ProviderKey))
+            return null;
+
+        var provider = _providerRegistry.GetRequiredProvider<IChatClientProvider>(effectiveConfig.ProviderKey);
+        if (string.IsNullOrWhiteSpace(effectiveConfig.ModelName))
+        {
+            throw new InvalidOperationException(
+                $"No model is configured for provider '{effectiveConfig.ProviderKey}'. Configure AgentConfig.Clients.Chat.ModelName or pass AgentRunConfig.ModelId.");
+        }
+
+        return provider.CreateChatClient(effectiveConfig, _serviceProvider);
+    }
+
+    private static AgentClientConfig? CreateRunClientOverrides(AgentRunConfig? options)
+    {
+        if (options is null)
+            return null;
+
+        if (options.Clients?.GetFamilyConfig(ProviderClientFamily.Chat) != null)
+            return options.Clients;
+
+        var chat = options.GetChatProviderOverride();
+        if (chat is null)
+            return options.Clients;
+
+        return options.Clients is null
+            ? new AgentClientConfig { Chat = chat }
+            : new AgentClientConfig
+            {
+                Providers = options.Clients.Providers,
+                Chat = chat,
+                TextToSpeech = options.Clients.TextToSpeech,
+                SpeechToText = options.Clients.SpeechToText,
+                Realtime = options.Clients.Realtime,
+                ImageGeneration = options.Clients.ImageGeneration,
+                Embeddings = options.Clients.Embeddings,
+                HostedFiles = options.Clients.HostedFiles,
+                VoiceActivityDetection = options.Clients.VoiceActivityDetection,
+                EndOfTurnDetection = options.Clients.EndOfTurnDetection
+            };
     }
 
     private AgentClientSet CreateAgentClientSet(
