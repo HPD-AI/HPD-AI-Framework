@@ -52,6 +52,9 @@ public sealed class PromptController
                     }
 
                     return true;
+                case KeyCode.Escape:
+                    Autocomplete.Hide();
+                    return true;
             }
         }
 

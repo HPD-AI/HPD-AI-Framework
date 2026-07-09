@@ -77,6 +77,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         RebuildShell(initialScope.Scope, "Connected to agent runtime.");
         if (initialScope.IsDurable)
         {
+            await NotifyDurableScopeEnsuredAsync(initialScope.Scope, linked.Token).ConfigureAwait(false);
             await HydrateThreadAsync(initialScope.Scope, linked.Token).ConfigureAwait(false);
             StartObserver(initialScope.Scope, linked.Token);
         }
@@ -90,6 +91,37 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         string commandLine,
         CancellationToken cancellationToken = default)
         => SubmitCommandAsync(commandLine, cancellationToken);
+
+    public Func<AgentTuiRuntimeScope, CancellationToken, ValueTask>? DurableScopeEnsuredAsync { get; set; }
+
+    public AgentTuiRuntimeScope? CurrentScope => _scope;
+
+    public ValueTask ShowNoticeAsync(
+        string title,
+        string? detail = null,
+        TranscriptSeverity severity = TranscriptSeverity.Info,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_state is null)
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        _state.Shell.Transcript.AddFinal(new TranscriptEntry(
+            Id: $"notice-{Guid.NewGuid():N}",
+            EntryKey: null,
+            Cell: string.IsNullOrWhiteSpace(detail)
+                ? new NoticeCell(title, Severity: severity)
+                : new NoticeCell(title, new HPD.TUI.Components.Text(detail), severity),
+            Metadata: new TranscriptEntryMetadata(
+                AgentId: _scope?.AgentId,
+                AgentName: "tui",
+                SessionId: _scope?.SessionId,
+                ThreadId: _scope?.ThreadId)));
+        RequestRender();
+        return ValueTask.CompletedTask;
+    }
 
     private void RebuildShell(
         AgentTuiRuntimeScope scope,
@@ -263,6 +295,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         {
             var ensured = await _runtime.EnsureDurableScopeAsync(scope, CancellationToken.None)
                 .ConfigureAwait(false);
+            await NotifyDurableScopeEnsuredAsync(ensured, CancellationToken.None).ConfigureAwait(false);
             await StartObserverIfNeededAsync(ensured, _runCancellationToken)
                 .ConfigureAwait(false);
 
@@ -315,6 +348,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             if (TryGoBack())
             {
                 return true;
+            }
+
+            if (_prompt?.Controller.Autocomplete is { SuggestionCount: > 0 })
+            {
+                return false;
             }
 
             _ = CancelActiveRunAsync(_scope, _state);
@@ -475,12 +513,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
     }
 
-    private async ValueTask SwitchScopeAsync(
+    public async ValueTask SwitchScopeAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken)
     {
         var ensured = await _runtime.EnsureDurableScopeAsync(scope, cancellationToken)
             .ConfigureAwait(false);
+        await NotifyDurableScopeEnsuredAsync(ensured, cancellationToken).ConfigureAwait(false);
         await StopObserverAsync().ConfigureAwait(false);
         _handledInteractionIds.Clear();
         RebuildShell(
@@ -489,6 +528,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         await HydrateThreadAsync(ensured, cancellationToken).ConfigureAwait(false);
         StartObserver(ensured, _runCancellationToken);
     }
+
+    private ValueTask NotifyDurableScopeEnsuredAsync(
+        AgentTuiRuntimeScope scope,
+        CancellationToken cancellationToken)
+        => DurableScopeEnsuredAsync is { } callback
+            ? callback(scope, cancellationToken)
+            : ValueTask.CompletedTask;
 
     private ValueTask SetPromptDraftAsync(
         string value,

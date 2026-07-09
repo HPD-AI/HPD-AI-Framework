@@ -173,13 +173,14 @@ public sealed class DefaultAgentTuiShellView : IComponent
         WidgetSlotModel model,
         IReadOnlyList<AgentTuiContribution<IAgentTuiWidget>> contributions)
     {
-        var widgets = new Stack { Gap = 0 }
-            .Add(new WidgetSlotView(model, ""));
+        var widgets = new Stack { Gap = 0 };
 
         if (contributions.Count > 0)
         {
             widgets.Add(new ContributionWidgetSlotView(slot, _model, _state, contributions));
         }
+
+        widgets.Add(new WidgetSlotView(model, ""));
 
         return widgets;
     }

@@ -137,7 +137,8 @@ internal static class ModelSelectionCommand
                             selection,
                             context,
                             configured,
-                            options)
+                            options,
+                            configureSelection: false)
                         .ConfigureAwait(false);
                     return null;
                 }

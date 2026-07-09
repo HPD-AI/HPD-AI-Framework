@@ -1,6 +1,7 @@
 using HPD.TUI.Controllers;
 using HPD.TUI.Core;
 using HPD.TUI.Models;
+using HPD.TUI.Rendering;
 using HPD.TUI.Terminal;
 using HPD.TUI.Views;
 
@@ -83,6 +84,23 @@ public sealed class SelectionTests
         Assert.Equal("b", model.Query);
         Assert.Equal(1, controller.SelectedIndex);
         Assert.Equal("beta", controller.SelectedItem?.Value);
+    }
+
+    [Fact]
+    public void View_RendersSearchLineWhenFilteringIsEnabled()
+    {
+        var model = new SelectionModel<string> { AllowFilter = true }
+            .Add("alpha", "Alpha")
+            .Add("beta", "Beta");
+        model.Query = "be";
+        var controller = new SelectionController<string>(model);
+        var view = new SelectionView<string>(model, controller);
+
+        var rendered = TuiCapture.RenderToString(view, 16, 3);
+
+        Assert.Contains("Search: be", rendered);
+        Assert.Contains("> Beta", rendered);
+        Assert.DoesNotContain("Alpha", rendered);
     }
 
     private static string ReadLine(TerminalGrid grid, int y)

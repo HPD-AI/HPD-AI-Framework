@@ -49,6 +49,23 @@ public sealed class DefaultAgentTuiShellLayoutTests
     }
 
     [Fact]
+    public void Render_PutsContributedAboveEditorWidgetsBeforeInlineCards()
+    {
+        var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
+        model.AboveEditor.Add(new Text("inline command card"));
+        var registry = new HpdAgentTuiBuilder()
+            .AddAgentTuiDefaults()
+            .AddWidget(TuiSlot.AboveEditor, "context", new TextWidget("stable context widget"))
+            .Build();
+        var shell = CreateShell(model, registry);
+
+        var text = TuiCapture.RenderToString(shell, width: 96, height: 24, trimTrailingBlankLines: true);
+
+        text.IndexOf("stable context widget", StringComparison.Ordinal)
+            .Should().BeLessThan(text.IndexOf("inline command card", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Render_GivesTranscriptMoreRowsWhenTerminalIsTaller()
     {
         var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"));
@@ -134,4 +151,9 @@ public sealed class DefaultAgentTuiShellLayoutTests
 
     private static int CountMessages(string text)
         => Enumerable.Range(1, 18).Count(i => text.Contains($"message {i:00}", StringComparison.Ordinal));
+
+    private sealed class TextWidget(string text) : IAgentTuiWidget
+    {
+        public HPD.TUI.Core.IComponent Create(AgentTuiWidgetContext context) => new Text(text);
+    }
 }

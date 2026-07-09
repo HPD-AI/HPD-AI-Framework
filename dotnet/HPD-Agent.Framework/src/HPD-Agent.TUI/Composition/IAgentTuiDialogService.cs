@@ -27,6 +27,14 @@ public interface IAgentTuiDialogService
         Func<T, string> titleSelector,
         CancellationToken cancellationToken = default);
 
+    Task<AgentTuiDialogResult<T>> SelectAsync<T>(
+        string title,
+        IReadOnlyList<T> options,
+        Func<T, string> titleSelector,
+        AgentTuiSelectOptions selectOptions,
+        CancellationToken cancellationToken = default)
+        => SelectAsync(title, options, titleSelector, cancellationToken);
+
     Task<AgentTuiDialogResult<string>> InputAsync(
         string title,
         string? defaultValue = null,
@@ -45,6 +53,13 @@ public interface IAgentTuiDialogService
         ArgumentNullException.ThrowIfNull(flow);
         return await flow(new AgentTuiDialogFlowContext(this), cancellationToken).ConfigureAwait(false);
     }
+}
+
+public sealed record AgentTuiSelectOptions
+{
+    public static AgentTuiSelectOptions Default { get; } = new();
+
+    public bool AllowFilter { get; init; }
 }
 
 public sealed class AgentTuiDialogContext<TResult>
@@ -120,6 +135,18 @@ public sealed class AgentTuiDialogFlowContext
         CancellationToken cancellationToken = default)
     {
         var selected = await _dialogs.SelectAsync(title, options, titleSelector, cancellationToken)
+            .ConfigureAwait(false);
+        return Complete(selected);
+    }
+
+    public async ValueTask<AgentTuiDialogStepResult<T>> SelectAsync<T>(
+        string title,
+        IReadOnlyList<T> options,
+        Func<T, string> titleSelector,
+        AgentTuiSelectOptions selectOptions,
+        CancellationToken cancellationToken = default)
+    {
+        var selected = await _dialogs.SelectAsync(title, options, titleSelector, selectOptions, cancellationToken)
             .ConfigureAwait(false);
         return Complete(selected);
     }

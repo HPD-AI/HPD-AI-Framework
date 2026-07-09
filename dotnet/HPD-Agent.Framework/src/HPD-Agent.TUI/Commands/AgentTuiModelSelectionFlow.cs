@@ -7,7 +7,7 @@ namespace HPD.Agent.TUI.Commands;
 public static class AgentTuiModelSelectionFlow
 {
     private const int InitialModelChoiceLimit = 28;
-    private const int SearchModelChoiceLimit = 30;
+    private const int BrowseModelChoiceLimit = 200;
 
     public static async ValueTask<AgentTuiProviderChoice?> SelectProviderAsync(
         IAgentTuiModelCatalog catalog,
@@ -149,73 +149,84 @@ public static class AgentTuiModelSelectionFlow
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(provider);
 
-        var models = await catalog.GetModelsAsync(
-                catalogContext,
-                provider.ProviderKey,
-                new AgentTuiModelQuery(),
-                cancellationToken)
-            .ConfigureAwait(false);
-        var selectableModels = ApplyModelPolicy(models, options).ToArray();
-
-        var initialModels = GetInitialModels(provider, selectableModels);
-        var choices = BuildModelChoices(provider, initialModels, selection, options, selectableModels.Length > initialModels.Count);
-        if (choices.Count == 0)
+        while (true)
         {
-            return await ReadManualModelAsync(context, dialogs, provider.ProviderKey, cancellationToken)
+            var models = await catalog.GetModelsAsync(
+                    catalogContext,
+                    provider.ProviderKey,
+                    new AgentTuiModelQuery(),
+                    cancellationToken)
                 .ConfigureAwait(false);
+            var selectableModels = ApplyModelPolicy(models, options).ToArray();
+
+            var initialModels = GetInitialModels(provider, selectableModels);
+            var choices = BuildModelChoices(provider, initialModels, selection, options, selectableModels.Length > initialModels.Count);
+            if (choices.Count == 0)
+            {
+                return await ReadManualModelAsync(context, dialogs, provider.ProviderKey, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            var selected = await dialogs.SelectAsync(
+                    title ?? "Select model",
+                    choices,
+                    static choice => choice.Label,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (selected.IsBack)
+            {
+                return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Back();
+            }
+
+            if (selected.IsCanceled)
+            {
+                return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled();
+            }
+
+            if (!selected.IsSubmitted || selected.Value is null)
+            {
+                return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled();
+            }
+
+            var result = selected.Value.Kind switch
+            {
+                ModelChoiceKind.Model => selected.Value.Model is null
+                    ? AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled()
+                    : AgentTuiDialogStepResult<AgentTuiSelectedModel>.Submitted(CreateSelectedModel(selected.Value.Model)),
+                ModelChoiceKind.Recent => await SelectRecentModelAsync(context, dialogs, selection, options, provider, cancellationToken)
+                    .ConfigureAwait(false),
+                ModelChoiceKind.Manual => await ReadManualModelAsync(context, dialogs, provider.ProviderKey, cancellationToken)
+                    .ConfigureAwait(false),
+                ModelChoiceKind.SearchAll => await SearchModelsAsync(context, dialogs, catalog, catalogContext, provider, options, freeOnly: false, cancellationToken)
+                    .ConfigureAwait(false),
+                ModelChoiceKind.SearchFree => await SearchModelsAsync(context, dialogs, catalog, catalogContext, provider, options, freeOnly: true, cancellationToken)
+                    .ConfigureAwait(false),
+                _ => AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled()
+            };
+
+            if (result.IsBack)
+            {
+                continue;
+            }
+
+            return result;
         }
-
-        var selected = await dialogs.SelectAsync(
-                title ?? "Select model",
-                choices,
-                static choice => choice.Label,
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        if (selected.IsBack)
-        {
-            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Back();
-        }
-
-        if (selected.IsCanceled)
-        {
-            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled();
-        }
-
-        if (!selected.IsSubmitted || selected.Value is null)
-        {
-            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled();
-        }
-
-        return selected.Value.Kind switch
-        {
-            ModelChoiceKind.Model => selected.Value.Model is null
-                ? AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled()
-                : AgentTuiDialogStepResult<AgentTuiSelectedModel>.Submitted(CreateSelectedModel(selected.Value.Model)),
-            ModelChoiceKind.Recent => await SelectRecentModelAsync(context, dialogs, selection, options, provider, cancellationToken)
-                .ConfigureAwait(false),
-            ModelChoiceKind.Manual => await ReadManualModelAsync(context, dialogs, provider.ProviderKey, cancellationToken)
-                .ConfigureAwait(false),
-            ModelChoiceKind.SearchAll => await SearchModelsAsync(context, dialogs, catalog, catalogContext, provider, options, freeOnly: false, cancellationToken)
-                .ConfigureAwait(false),
-            ModelChoiceKind.SearchFree => await SearchModelsAsync(context, dialogs, catalog, catalogContext, provider, options, freeOnly: true, cancellationToken)
-                .ConfigureAwait(false),
-            _ => AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled()
-        };
     }
 
     public static async ValueTask<AgentTuiSelectedModel?> CommitSelectionAsync(
         AgentTuiModelSelectionState selection,
         AgentTuiCommandContext context,
         AgentTuiSelectedModel model,
-        AgentTuiModelSelectionOptions options)
+        AgentTuiModelSelectionOptions options,
+        bool configureSelection = true)
     {
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(options);
 
-        var committed = options.ConfigureSelection is null
+        var committed = !configureSelection || options.ConfigureSelection is null
             ? model
             : await options.ConfigureSelection(context, model).ConfigureAwait(false);
         if (committed is null)
@@ -315,27 +326,10 @@ public static class AgentTuiModelSelectionFlow
         bool freeOnly,
         CancellationToken cancellationToken)
     {
-        var search = await dialogs.InputAsync(
-                freeOnly ? "Search free models" : "Search models",
-                allowEmpty: false,
-                cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
-
-        if (search.IsBack)
-        {
-            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Back();
-        }
-
-        if (string.IsNullOrWhiteSpace(search.Value))
-        {
-            return AgentTuiDialogStepResult<AgentTuiSelectedModel>.Canceled();
-        }
-
         var models = await catalog.GetModelsAsync(
                 catalogContext,
                 provider.ProviderKey,
                 new AgentTuiModelQuery(
-                    search.Value.Trim(),
                     Live: true,
                     FreeOnly: freeOnly),
                 cancellationToken)
@@ -345,7 +339,7 @@ public static class AgentTuiModelSelectionFlow
             .OrderByDescending(static model => model.IsRecommended)
             .ThenBy(static model => model.IsFree ? 0 : 1)
             .ThenBy(static model => model.DisplayName ?? model.ModelId, StringComparer.OrdinalIgnoreCase)
-            .Take(SearchModelChoiceLimit)
+            .Take(BrowseModelChoiceLimit)
             .ToArray();
 
         if (choices.Length == 0)
@@ -363,9 +357,10 @@ public static class AgentTuiModelSelectionFlow
         }
 
         var selected = await dialogs.SelectAsync(
-                freeOnly ? "Select free model" : "Select model",
+                freeOnly ? "Search free models" : "Search models",
                 choices,
                 FormatModel,
+                new AgentTuiSelectOptions { AllowFilter = true },
                 cancellationToken)
             .ConfigureAwait(false);
 

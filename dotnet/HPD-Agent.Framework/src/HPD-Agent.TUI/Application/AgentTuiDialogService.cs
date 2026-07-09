@@ -5,6 +5,7 @@ using HPD.TUI.Controllers;
 using HPD.TUI.Core;
 using HPD.TUI.Flows;
 using HPD.TUI.Layout;
+using HPD.TUI.Models;
 
 namespace HPD.Agent.TUI.Application;
 
@@ -137,15 +138,35 @@ internal sealed class AgentTuiDialogService : IAgentTuiDialogService
         IReadOnlyList<T> options,
         Func<T, string> titleSelector,
         CancellationToken cancellationToken = default)
+        => SelectAsync(title, options, titleSelector, AgentTuiSelectOptions.Default, cancellationToken);
+
+    public Task<AgentTuiDialogResult<T>> SelectAsync<T>(
+        string title,
+        IReadOnlyList<T> options,
+        Func<T, string> titleSelector,
+        AgentTuiSelectOptions selectOptions,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(titleSelector);
+        ArgumentNullException.ThrowIfNull(selectOptions);
         if (options.Count == 0)
         {
             return Task.FromResult(AgentTuiDialogResult<T>.Dismissed());
         }
 
-        return RunPromptAsync(PromptFlow.Select(title, options, titleSelector), cancellationToken);
+        if (!selectOptions.AllowFilter)
+        {
+            return RunPromptAsync(PromptFlow.Select(title, options, titleSelector), cancellationToken);
+        }
+
+        var model = new SelectionModel<T> { AllowFilter = true };
+        foreach (var option in options)
+        {
+            model.Add(option, titleSelector(option));
+        }
+
+        return RunPromptAsync(PromptFlow.Select(title, model), cancellationToken);
     }
 
     public Task<AgentTuiDialogResult<string>> InputAsync(

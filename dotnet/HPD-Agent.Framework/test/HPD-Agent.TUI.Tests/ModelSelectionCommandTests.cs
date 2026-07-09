@@ -292,6 +292,126 @@ public sealed class ModelSelectionCommandTests
     }
 
     [Fact]
+    public async Task ModelCommand_SearchFreeModelsUsesFilterableSelection()
+    {
+        var selection = new AgentTuiModelSelectionState();
+        var catalog = new TestModelCatalog(
+            [
+                new AgentTuiProviderChoice(
+                    "openrouter",
+                    "OpenRouter",
+                    IsRegistered: true,
+                    IsAuthenticated: true,
+                    SupportsLiveModelSearch: true,
+                    SupportsFreeModels: true)
+            ],
+            [
+                new AgentTuiModelChoice(
+                    "openrouter",
+                    "paid-model",
+                    "Paid Model",
+                    IsRecommended: true,
+                    IsFree: false,
+                    Capabilities: new AgentTuiModelCapabilities(SupportsTools: true)),
+                new AgentTuiModelChoice(
+                    "openrouter",
+                    "free-model",
+                    "Free Model",
+                    IsFree: true,
+                    Capabilities: new AgentTuiModelCapabilities(SupportsTools: true))
+            ]);
+        var registry = new HpdAgentTuiBuilder()
+            .AddModelSelection(catalog, selection)
+            .Build();
+        registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var shell = new ChatShellModel(scope);
+        var dialogs = new QueuedDialogs(
+            selections:
+            [
+                "Search free models",
+                "Free Model (free-model) free"
+            ],
+            inputs: []);
+
+        await command.ExecuteAsync(new AgentTuiCommandContext(
+            scope,
+            shell,
+            shell.Navigation,
+            new NoopRuntime(),
+            dialogs,
+            static (_, _) => ValueTask.CompletedTask,
+            command,
+            arguments));
+
+        selection.Current.Should().NotBeNull();
+        selection.Current!.ModelId.Should().Be("free-model");
+        dialogs.InputCalls.Should().Be(0);
+        dialogs.FilteredSelectionCalls.Should().Be(1);
+        catalog.ModelQueries.Any(query => query.Live && query.FreeOnly && query.Search is null).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ModelCommand_BackFromSearchReturnsToProviderModelList()
+    {
+        var selection = new AgentTuiModelSelectionState();
+        var catalog = new TestModelCatalog(
+            [
+                new AgentTuiProviderChoice(
+                    "openrouter",
+                    "OpenRouter",
+                    IsRegistered: true,
+                    IsAuthenticated: true,
+                    SupportsLiveModelSearch: true,
+                    SupportsFreeModels: true)
+            ],
+            [
+                new AgentTuiModelChoice(
+                    "openrouter",
+                    "paid-model",
+                    "Paid Model",
+                    IsRecommended: true,
+                    IsFree: false,
+                    Capabilities: new AgentTuiModelCapabilities(SupportsTools: true)),
+                new AgentTuiModelChoice(
+                    "openrouter",
+                    "free-model",
+                    "Free Model",
+                    IsFree: true,
+                    Capabilities: new AgentTuiModelCapabilities(SupportsTools: true))
+            ]);
+        var registry = new HpdAgentTuiBuilder()
+            .AddModelSelection(catalog, selection)
+            .Build();
+        registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var shell = new ChatShellModel(scope);
+        var dialogs = new QueuedDialogs(
+            selections:
+            [
+                "Search free models",
+                null,
+                "Paid Model (paid-model) recommended"
+            ],
+            inputs: []);
+
+        await command.ExecuteAsync(new AgentTuiCommandContext(
+            scope,
+            shell,
+            shell.Navigation,
+            new NoopRuntime(),
+            dialogs,
+            static (_, _) => ValueTask.CompletedTask,
+            command,
+            arguments));
+
+        selection.Current.Should().NotBeNull();
+        selection.Current!.ModelId.Should().Be("paid-model");
+        dialogs.FilteredSelectionCalls.Should().Be(1);
+        dialogs.SelectionCalls.Should().Be(3);
+    }
+
+    [Fact]
     public async Task ModelCommand_ConfiguresSelectionBeforeCommit()
     {
         var selection = new AgentTuiModelSelectionState();
@@ -406,6 +526,61 @@ public sealed class ModelSelectionCommandTests
             command,
             arguments));
 
+        selection.Current.Should().NotBeNull();
+        selection.Current!.Chat?.Reasoning?.Effort.Should().Be(ReasoningEffort.High);
+    }
+
+    [Fact]
+    public async Task ModelCommand_ConfiguresReasoningOnlyOnceBeforeCommit()
+    {
+        var selection = new AgentTuiModelSelectionState();
+        var catalog = new TestModelCatalog(
+            [
+                new AgentTuiProviderChoice(
+                    "openai",
+                    "OpenAI",
+                    IsRegistered: true,
+                    IsAuthenticated: true)
+            ],
+            [
+                new AgentTuiModelChoice(
+                    "openai",
+                    "gpt-5.5",
+                    "GPT-5.5",
+                    IsRecommended: true,
+                    Capabilities: new AgentTuiModelCapabilities(
+                        SupportsTools: true,
+                        SupportsReasoning: true))
+            ]);
+        var registry = new HpdAgentTuiBuilder()
+            .AddModelSelection(catalog, selection, configure: options =>
+            {
+                options.ConfigureSelection = (context, model) =>
+                    AgentTuiModelConfigFlow.ConfigureAsync(context, model);
+            })
+            .Build();
+        registry.TryFindSlashCommand("/model", out var command, out var arguments).Should().BeTrue();
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var shell = new ChatShellModel(scope);
+        var dialogs = new QueuedDialogs(
+            selections:
+            [
+                "GPT-5.5 (gpt-5.5) recommended",
+                "High"
+            ],
+            inputs: []);
+
+        await command.ExecuteAsync(new AgentTuiCommandContext(
+            scope,
+            shell,
+            shell.Navigation,
+            new NoopRuntime(),
+            dialogs,
+            static (_, _) => ValueTask.CompletedTask,
+            command,
+            arguments));
+
+        dialogs.SelectionCalls.Should().Be(2);
         selection.Current.Should().NotBeNull();
         selection.Current!.Chat?.Reasoning?.Effort.Should().Be(ReasoningEffort.High);
     }
@@ -593,6 +768,8 @@ public sealed class ModelSelectionCommandTests
             _models = models;
         }
 
+        public List<AgentTuiModelQuery> ModelQueries { get; } = [];
+
         public ValueTask<IReadOnlyList<AgentTuiProviderChoice>> GetProvidersAsync(
             AgentTuiModelCatalogContext context,
             CancellationToken cancellationToken = default)
@@ -603,8 +780,17 @@ public sealed class ModelSelectionCommandTests
             string providerKey,
             AgentTuiModelQuery query,
             CancellationToken cancellationToken = default)
-            => ValueTask.FromResult<IReadOnlyList<AgentTuiModelChoice>>(
-                _models.Where(model => model.ProviderKey == providerKey).ToArray());
+        {
+            ModelQueries.Add(query);
+            return ValueTask.FromResult<IReadOnlyList<AgentTuiModelChoice>>(
+                _models
+                    .Where(model => model.ProviderKey == providerKey)
+                    .Where(model => !query.FreeOnly || model.IsFree)
+                    .Where(model => string.IsNullOrWhiteSpace(query.Search)
+                        || model.ModelId.Contains(query.Search, StringComparison.OrdinalIgnoreCase)
+                        || model.DisplayName?.Contains(query.Search, StringComparison.OrdinalIgnoreCase) == true)
+                    .ToArray());
+        }
     }
 
     private sealed class FirstChoiceDialogs : HPD.Agent.TUI.Composition.IAgentTuiDialogService
@@ -771,6 +957,10 @@ public sealed class ModelSelectionCommandTests
 
         public int SelectionCalls { get; private set; }
 
+        public int FilteredSelectionCalls { get; private set; }
+
+        public int InputCalls { get; private set; }
+
         public Task<AgentTuiDialogResult<TResult>> ShowAsync<TResult>(
             string key,
             Func<AgentTuiDialogContext<TResult>, IComponent> componentFactory,
@@ -819,12 +1009,28 @@ public sealed class ModelSelectionCommandTests
                 : AgentTuiDialogResult<T>.Dismissed());
         }
 
+        public Task<AgentTuiDialogResult<T>> SelectAsync<T>(
+            string title,
+            IReadOnlyList<T> options,
+            Func<T, string> titleSelector,
+            AgentTuiSelectOptions selectOptions,
+            CancellationToken cancellationToken = default)
+        {
+            if (selectOptions.AllowFilter)
+            {
+                FilteredSelectionCalls++;
+            }
+
+            return SelectAsync(title, options, titleSelector, cancellationToken);
+        }
+
         public Task<AgentTuiDialogResult<string>> InputAsync(
             string title,
             string? defaultValue = null,
             bool allowEmpty = false,
             CancellationToken cancellationToken = default)
         {
+            InputCalls++;
             var value = _inputIndex < inputs.Count
                 ? inputs[_inputIndex++]
                 : defaultValue;

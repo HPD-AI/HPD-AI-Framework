@@ -8,6 +8,7 @@ using HPD.Agent.TUI.Runtime;
 using HPD.TUI.Core;
 using HPD.TUI.Models;
 using HPD.TUI.Terminal;
+using HPD.TUI.Views;
 
 namespace HPD.Agent.TUI.Tests;
 
@@ -135,6 +136,46 @@ public sealed class HpdAgentTuiAppCancelTests
         dialogs.HasOpenDialog.Should().BeFalse();
         runtime.ActiveRunRequested.Task.IsCompleted.Should().BeFalse();
         runtime.Interrupted.Task.IsCompleted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Escape_WithAutocompleteVisible_IsLeftForPromptInputHandling()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CancelRuntime(scope)
+        {
+            ActiveRun = new AgentTuiThreadRun(
+                "run-123456789",
+                scope.AgentId,
+                scope.SessionId,
+                scope.ThreadId,
+                "active",
+                DateTimeOffset.UtcNow)
+        };
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            static builder => builder.AddAgentTuiDefaults(),
+            new TestTerminal(80, 24));
+
+        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        var prompt = GetPrivateField<PromptView>(app, "_prompt");
+        prompt.Controller.SetDraft("/");
+        prompt.Controller.Autocomplete.Should().NotBeNull();
+        prompt.Controller.Autocomplete!.SuggestionCount.Should().BeGreaterThan(0);
+
+        var handled = InvokePrivate<bool>(
+            app,
+            "TryExecuteShortcut",
+            new KeyEvent(KeyCode.Escape));
+
+        handled.Should().BeFalse();
+        runtime.ActiveRunRequested.Task.IsCompleted.Should().BeFalse();
+        runtime.Interrupted.Task.IsCompleted.Should().BeFalse();
+
+        prompt.Controller.HandleInput(new KeyEvent(KeyCode.Escape)).Should().BeTrue();
+        prompt.Controller.Autocomplete.SuggestionCount.Should().Be(0);
+        prompt.Model.Value.Should().Be("/");
     }
 
     private static void InvokePrivate(

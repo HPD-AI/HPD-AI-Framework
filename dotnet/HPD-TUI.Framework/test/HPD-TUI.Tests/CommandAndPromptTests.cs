@@ -91,6 +91,26 @@ public sealed class CommandAndPromptTests
     }
 
     [Fact]
+    public void PromptController_EscapeHidesVisibleAutocompleteSuggestion()
+    {
+        var model = new PromptModel();
+        var controller = new PromptController(model)
+        {
+            Autocomplete = new AutocompleteController()
+                .Register(new StaticAutocompleteProvider('/', [new AutocompleteSuggestion("open", "/open ")]))
+        };
+
+        controller.HandleInput(new KeyEvent(KeyCode.Character, new Rune('/')));
+        Assert.Equal(1, controller.Autocomplete.SuggestionCount);
+
+        var handled = controller.HandleInput(new KeyEvent(KeyCode.Escape));
+
+        Assert.True(handled);
+        Assert.Equal(0, controller.Autocomplete.SuggestionCount);
+        Assert.Equal("/", model.Value);
+    }
+
+    [Fact]
     public void PromptController_EnterSubmitsAcceptedSuggestionWhenRequested()
     {
         ReadOnlyMemory<char> submitted = default;

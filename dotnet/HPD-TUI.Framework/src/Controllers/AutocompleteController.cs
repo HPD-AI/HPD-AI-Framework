@@ -25,6 +25,18 @@ public sealed class AutocompleteController
 
     public AutocompleteSuggestion GetSuggestion(int index) => _entries[index].Suggestion;
 
+    public bool Hide()
+    {
+        if (_entries.Count == 0)
+        {
+            return false;
+        }
+
+        _entries.Clear();
+        _selectedIndex = 0;
+        return true;
+    }
+
     public AutocompleteController Register(IAutocompleteProvider provider)
     {
         _providers.Add(provider ?? throw new ArgumentNullException(nameof(provider)));
