@@ -95,6 +95,8 @@ export interface ModelContextWindowOptions {
 
 export interface MessageCountingCompactionOptions {
   $type: 'messageCounting';
+  preserveFromMessageId?: string | null;
+  preserveFromMessageTurnId?: string | null;
   preserveRecentUserTurnCount?: number;
 }
 
@@ -107,6 +109,8 @@ export interface SummaryMemoryOptions {
 
 export interface SummarizingCompactionOptions {
   $type: 'summarizing';
+  preserveFromMessageId?: string | null;
+  preserveFromMessageTurnId?: string | null;
   preserveRecentUserTurnCount?: number;
   resummarizeAfterNewMessages?: number;
   customPrompt?: string | null;

@@ -1031,7 +1031,11 @@ public sealed record ModelContextWindowOptions
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
 [JsonDerivedType(typeof(MessageCountingCompactionOptions), "messageCounting")]
 [JsonDerivedType(typeof(SummarizingCompactionOptions), "summarizing")]
-public abstract record CompactionStrategyOptions;
+public abstract record CompactionStrategyOptions
+{
+    public string? PreserveFromMessageId { get; init; }
+    public string? PreserveFromMessageTurnId { get; init; }
+}
 
 public sealed record MessageCountingCompactionOptions : CompactionStrategyOptions
 {

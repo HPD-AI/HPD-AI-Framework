@@ -2978,14 +2978,14 @@ public class AgentBuilder
         {
             MessageCountingCompactionOptions messageCounting =>
                 messages => new MessageCountingChatReducer(
-                    ResolvePreserveRecentRawMessageCount(messages, messageCounting.PreserveRecentUserTurnCount)),
+                    ResolvePreserveRecentRawMessageCount(messages, messageCounting)),
 
             SummarizingCompactionOptions summarizing =>
                 messages => CreateSummarizingReducer(
                     baseClient,
                     summarizing,
                     summarizerClient,
-                    ResolvePreserveRecentRawMessageCount(messages, summarizing.PreserveRecentUserTurnCount)),
+                    ResolvePreserveRecentRawMessageCount(messages, summarizing)),
 
             _ => throw new ArgumentException($"Unknown compaction strategy: {strategy.GetType().Name}")
         };
@@ -3032,6 +3032,34 @@ public class AgentBuilder
 
     internal static int ResolvePreserveRecentRawMessageCount(
         IReadOnlyList<ChatMessage> messages,
+        CompactionStrategyOptions strategy)
+    {
+        ArgumentNullException.ThrowIfNull(strategy);
+
+        if (messages.Count == 0)
+            return 0;
+
+        if (!string.IsNullOrWhiteSpace(strategy.PreserveFromMessageTurnId) ||
+            !string.IsNullOrWhiteSpace(strategy.PreserveFromMessageId))
+        {
+            return ResolvePreserveFromBoundaryRawMessageCount(
+                messages,
+                strategy.PreserveFromMessageId,
+                strategy.PreserveFromMessageTurnId);
+        }
+
+        return strategy switch
+        {
+            MessageCountingCompactionOptions messageCounting =>
+                ResolvePreserveRecentRawMessageCount(messages, messageCounting.PreserveRecentUserTurnCount),
+            SummarizingCompactionOptions summarizing =>
+                ResolvePreserveRecentRawMessageCount(messages, summarizing.PreserveRecentUserTurnCount),
+            _ => messages.Count
+        };
+    }
+
+    internal static int ResolvePreserveRecentRawMessageCount(
+        IReadOnlyList<ChatMessage> messages,
         int preserveRecentUserTurnCount)
     {
         if (messages.Count == 0)
@@ -3063,6 +3091,59 @@ public class AgentBuilder
         }
 
         return messages.Count;
+    }
+
+    private static int ResolvePreserveFromBoundaryRawMessageCount(
+        IReadOnlyList<ChatMessage> messages,
+        string? messageId,
+        string? messageTurnId)
+    {
+        if (!string.IsNullOrWhiteSpace(messageTurnId))
+        {
+            var turnIndex = FindFirstMessageTurnIndex(messages, messageTurnId);
+            if (turnIndex >= 0)
+                return messages.Count - turnIndex;
+        }
+
+        if (!string.IsNullOrWhiteSpace(messageId))
+        {
+            var messageIndex = FindMessageIndex(messages, messageId);
+            if (messageIndex >= 0)
+            {
+                var turnId = GetMessageTurnId(messages[messageIndex]);
+                if (!string.IsNullOrWhiteSpace(turnId))
+                {
+                    var turnIndex = FindFirstMessageTurnIndex(messages, turnId);
+                    return messages.Count - (turnIndex >= 0 ? turnIndex : messageIndex);
+                }
+
+                return messages.Count - messageIndex;
+            }
+        }
+
+        return messages.Count;
+    }
+
+    private static int FindMessageIndex(IReadOnlyList<ChatMessage> messages, string messageId)
+    {
+        for (var i = 0; i < messages.Count; i++)
+        {
+            if (string.Equals(messages[i].MessageId, messageId, StringComparison.Ordinal))
+                return i;
+        }
+
+        return -1;
+    }
+
+    private static int FindFirstMessageTurnIndex(IReadOnlyList<ChatMessage> messages, string messageTurnId)
+    {
+        for (var i = 0; i < messages.Count; i++)
+        {
+            if (string.Equals(GetMessageTurnId(messages[i]), messageTurnId, StringComparison.Ordinal))
+                return i;
+        }
+
+        return -1;
     }
 
     private static string? GetMessageTurnId(ChatMessage message) =>

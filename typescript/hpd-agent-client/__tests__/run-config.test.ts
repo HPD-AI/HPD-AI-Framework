@@ -162,6 +162,8 @@ describe('RunConfig — wire format (camelCase)', () => {
         strategy: {
           $type: 'summarizing',
           preserveRecentUserTurnCount: 20,
+          preserveFromMessageId: 'message-7',
+          preserveFromMessageTurnId: 'turn-3',
         },
         trigger: {
           $type: 'contextWindow',
@@ -185,6 +187,8 @@ describe('RunConfig — wire format (camelCase)', () => {
         strategy: {
           $type: 'summarizing',
           preserveRecentUserTurnCount: 20,
+          preserveFromMessageId: 'message-7',
+          preserveFromMessageTurnId: 'turn-3',
         },
         trigger: {
           $type: 'contextWindow',

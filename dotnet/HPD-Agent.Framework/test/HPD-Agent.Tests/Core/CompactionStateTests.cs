@@ -73,6 +73,53 @@ public class CompactionStateTests
     }
 
     [Fact]
+    public void ResolvePreserveRecentRawMessageCount_PreservesFromSelectedMessageTurn()
+    {
+        var messages = new List<ChatMessage>
+        {
+            TurnMessage(ChatRole.User, "old-user", "turn-old"),
+            TurnMessage(ChatRole.Assistant, "old-assistant", "turn-old"),
+            TurnMessage(ChatRole.User, "selected-user", "turn-selected"),
+            TurnMessage(ChatRole.Assistant, "selected-assistant", "turn-selected"),
+            TurnMessage(ChatRole.User, "new-user", "turn-new"),
+            TurnMessage(ChatRole.Assistant, "new-assistant", "turn-new")
+        };
+
+        var preserveRawMessageCount = AgentBuilder.ResolvePreserveRecentRawMessageCount(
+            messages,
+            new SummarizingCompactionOptions
+            {
+                PreserveRecentUserTurnCount = 1,
+                PreserveFromMessageId = "selected-user",
+                PreserveFromMessageTurnId = "turn-selected"
+            });
+
+        preserveRawMessageCount.Should().Be(4);
+    }
+
+    [Fact]
+    public void ResolvePreserveRecentRawMessageCount_FallsBackToSelectedMessageWhenTurnIsMissing()
+    {
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User, "old") { MessageId = "old" },
+            new(ChatRole.Assistant, "old answer") { MessageId = "old-answer" },
+            new(ChatRole.User, "selected") { MessageId = "selected" },
+            new(ChatRole.Assistant, "selected answer") { MessageId = "selected-answer" }
+        };
+
+        var preserveRawMessageCount = AgentBuilder.ResolvePreserveRecentRawMessageCount(
+            messages,
+            new MessageCountingCompactionOptions
+            {
+                PreserveRecentUserTurnCount = 1,
+                PreserveFromMessageId = "selected"
+            });
+
+        preserveRawMessageCount.Should().Be(2);
+    }
+
+    [Fact]
     public void CompactionSnapshot_FromResult_PreservesMessageIdentityMetadata()
     {
         var original = CreateMessages(4);
