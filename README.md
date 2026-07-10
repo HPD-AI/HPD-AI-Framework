@@ -1,35 +1,5 @@
 # HPD AI Framework
 
-[![GitHub](https://img.shields.io/badge/GitHub-HPD--AI%2FHPD--AI--Framework-181717?logo=github)](https://github.com/HPD-AI/HPD-AI-Framework)
-[![NuGet](https://img.shields.io/nuget/v/HPD-Agent.Framework?label=NuGet&color=004880&logo=nuget)](https://www.nuget.org/packages/HPD-Agent.Framework)
-
-## HPDOS CLI (beta)
-
-HPDOS is now public. No GitHub token is required to install.
-
-### Install (recommended)
-
-```bash
-# macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/HPD-AI/HPD-OS/main/scripts/install-hpdos-beta.sh | bash
-
-# Optional: install a specific beta version
-curl -fsSL https://raw.githubusercontent.com/HPD-AI/HPD-OS/main/scripts/install-hpdos-beta.sh | bash -s -- --beta <version>
-```
-
-Then run:
-
-```bash
-hpdos --help
-```
-
-Uninstall or reinstall:
-
-```bash
-dotnet tool uninstall --global HPDOS.Tui
-dotnet tool install --global HPDOS.Tui --version <version>   # optional
-```
-
 A set of C# frameworks for building production AI applications. Use the package family that matches the thing you need to build: AI agents, RAG, graph workflows, terminal UIs, ML pipelines, authentication.
 
 Product documentation, websites, and opinionated product layers live in their own repositories. Use the links under each architecture diagram for the canonical source and published docs when available.
