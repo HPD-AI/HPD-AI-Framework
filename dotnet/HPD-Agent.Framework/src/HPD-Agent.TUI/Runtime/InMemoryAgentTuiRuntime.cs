@@ -670,7 +670,12 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             RuntimeRunId = runId
         };
 
-        SetActiveRun(new AgentTuiThreadRun(runId, scope.AgentId, scope.SessionId, scope.ThreadId, "active", startedAt));
+        if (!TrySetActiveRun(new AgentTuiThreadRun(runId, scope.AgentId, scope.SessionId, scope.ThreadId, "active", startedAt)))
+        {
+            throw new InvalidOperationException(
+                $"Thread '{scope.ThreadId}' in session '{scope.SessionId}' already has an active run.");
+        }
+
         await PublishRuntimeEventAsync(new ThreadRunStartedEvent(runId, scope.AgentId, startedAt)
         {
             SessionId = scope.SessionId,
@@ -825,6 +830,20 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         lock (_gate)
         {
             _activeRun = activeRun;
+        }
+    }
+
+    private bool TrySetActiveRun(AgentTuiThreadRun activeRun)
+    {
+        lock (_gate)
+        {
+            if (_activeRun is not null)
+            {
+                return false;
+            }
+
+            _activeRun = activeRun;
+            return true;
         }
     }
 

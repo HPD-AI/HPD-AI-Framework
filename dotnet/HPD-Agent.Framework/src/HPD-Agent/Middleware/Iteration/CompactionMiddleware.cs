@@ -31,7 +31,9 @@ public class CompactionMiddleware : IAgentMiddleware
         {
             EmitCompactionEvent(context, CompactionStatus.Skipped,
                 reason: "Explicitly disabled via RunConfig.Compaction.Mode", startTime: startTime,
-                strategyOptions: policy.Strategy);
+                strategyOptions: policy.Strategy,
+                mode: policy.Mode,
+                behavior: policy.Behavior);
             return;
         }
 
@@ -39,7 +41,10 @@ public class CompactionMiddleware : IAgentMiddleware
         {
             EmitCompactionEvent(context, CompactionStatus.Skipped,
                 reason: "No messages present", startTime: startTime,
-                strategyOptions: policy.Strategy);
+                strategyOptions: policy.Strategy,
+                mode: policy.Mode,
+                behavior: policy.Behavior);
+            TerminateForcedCompactionIfRequested(context, policy);
             return;
         }
 
@@ -48,7 +53,10 @@ public class CompactionMiddleware : IAgentMiddleware
         {
             EmitCompactionEvent(context, CompactionStatus.Skipped,
                 reason: "No compaction strategy is configured", startTime: startTime,
-                strategyOptions: policy.Strategy);
+                strategyOptions: policy.Strategy,
+                mode: policy.Mode,
+                behavior: policy.Behavior);
+            TerminateForcedCompactionIfRequested(context, policy);
             return;
         }
 
@@ -60,14 +68,43 @@ public class CompactionMiddleware : IAgentMiddleware
                 reason: decision.Description ?? "Compaction threshold not met",
                 startTime: startTime,
                 originalMessageCount: context.ThreadHistory.Count,
-                strategyOptions: policy.Strategy);
+                strategyOptions: policy.Strategy,
+                mode: policy.Mode,
+                behavior: policy.Behavior);
+            TerminateForcedCompactionIfRequested(context, policy);
             return;
         }
 
         var systemMessages = context.ThreadHistory.Where(m => m.Role == ChatRole.System).ToList();
         var conversationMessages = context.ThreadHistory.Where(m => m.Role != ChatRole.System).ToList();
 
+        EmitCompactionEvent(context, CompactionStatus.Started,
+            reason: decision.Description ?? "Compaction started",
+            startTime: startTime,
+            originalMessageCount: conversationMessages.Count,
+            strategyOptions: policy.Strategy,
+            mode: policy.Mode,
+            behavior: policy.Behavior);
+
         var result = await strategy.ReduceAsync(conversationMessages, cancellationToken).ConfigureAwait(false);
+
+        // Generated handoff wrappers are not a substantive compaction on their own.
+        // A reducer that removes no original messages must be reported as a no-op even
+        // when the memento layer adds a context-boundary replacement message.
+        if (result.ModelCompactedMessages.Count == 0)
+        {
+            EmitCompactionEvent(context, CompactionStatus.Skipped,
+                reason: GetNothingToCompactReason(policy.Strategy),
+                startTime: startTime,
+                originalMessageCount: conversationMessages.Count,
+                compactedMessageCount: result.ModelVisibleMessages.Count,
+                messagesRemoved: 0,
+                strategyOptions: policy.Strategy,
+                mode: policy.Mode,
+                behavior: policy.Behavior);
+            TerminateForcedCompactionIfRequested(context, policy);
+            return;
+        }
 
         context.ThreadHistory.Clear();
         foreach (var message in systemMessages.Concat(result.ModelVisibleMessages))
@@ -81,7 +118,12 @@ public class CompactionMiddleware : IAgentMiddleware
         {
             var plan = ThreadCompactionPlanner.Plan(context.Thread, result, policy.Retention);
             if (plan is not null)
-                await ThreadHistoryCompactor.CompactAsync(context.Thread, plan, cancellationToken).ConfigureAwait(false);
+            {
+                var threadCompaction = await ThreadHistoryCompactor
+                    .CompactAsync(context.Thread, plan, cancellationToken)
+                    .ConfigureAwait(false);
+                context.Emit(threadCompaction.CheckpointEvent);
+            }
         }
 
         EmitCompactionEvent(context, CompactionStatus.Performed,
@@ -91,7 +133,9 @@ public class CompactionMiddleware : IAgentMiddleware
             messagesRemoved: result.ModelCompactedMessages.Count,
             summaryContent: result.SummaryContent,
             reason: decision.Description,
-            strategyOptions: policy.Strategy);
+            strategyOptions: policy.Strategy,
+            mode: policy.Mode,
+            behavior: policy.Behavior);
 
         TerminateIfRequested(
             context,
@@ -161,6 +205,12 @@ public class CompactionMiddleware : IAgentMiddleware
         {
             return;
         }
+
+        EmitCompactionEvent(context, CompactionStatus.Started,
+            reason: "Compacting fork target before thread commit",
+            startTime: startTime,
+            originalMessageCount: conversationMessages.Count,
+            strategyOptions: strategyOptions);
 
         var result = await strategy.ReduceAsync(conversationMessages, cancellationToken).ConfigureAwait(false);
 
@@ -254,10 +304,38 @@ public class CompactionMiddleware : IAgentMiddleware
         CompactionStrategyOptions options,
         AgentRunConfig runConfig)
     {
+        if (runConfig.Compaction?.Mode == CompactionRunMode.Force &&
+            options is SummarizingCompactionOptions summarizing &&
+            summarizing.ResummarizeAfterNewMessages != 0)
+        {
+            options = summarizing with { ResummarizeAfterNewMessages = 0 };
+        }
+
         if (options == Config.Strategy)
             return Strategy;
 
         return StrategyFactory?.Invoke(options, runConfig);
+    }
+
+    private static string GetNothingToCompactReason(CompactionStrategyOptions strategy)
+    {
+        if (!string.IsNullOrWhiteSpace(strategy.PreserveFromMessageTurnId) ||
+            !string.IsNullOrWhiteSpace(strategy.PreserveFromMessageId))
+        {
+            return "Nothing exists before the selected message boundary to compact.";
+        }
+
+        var preservedTurns = strategy switch
+        {
+            MessageCountingCompactionOptions counting => counting.PreserveRecentUserTurnCount,
+            SummarizingCompactionOptions summarizing => summarizing.PreserveRecentUserTurnCount,
+            _ => 0
+        };
+
+        return preservedTurns > 0
+            ? $"Nothing to compact because the strategy preserves the {preservedTurns} most recent user " +
+              (preservedTurns == 1 ? "turn." : "turns.")
+            : "Nothing to compact.";
     }
 
     private CompactionTriggerDecision GetTriggerDecision(
@@ -391,7 +469,9 @@ public class CompactionMiddleware : IAgentMiddleware
         string? summaryContent = null,
         TimeSpan? cacheAge = null,
         string? reason = null,
-        CompactionStrategyOptions? strategyOptions = null)
+        CompactionStrategyOptions? strategyOptions = null,
+        CompactionRunMode mode = CompactionRunMode.Auto,
+        CompactionBehavior behavior = CompactionBehavior.Continue)
     {
         try
         {
@@ -409,7 +489,9 @@ public class CompactionMiddleware : IAgentMiddleware
                 SummaryLength: summaryContent?.Length,
                 CacheAge: cacheAge,
                 Duration: duration,
-                Reason: reason));
+                Reason: reason,
+                Mode: mode,
+                Behavior: behavior));
         }
         catch (InvalidOperationException)
         {
@@ -429,6 +511,20 @@ public class CompactionMiddleware : IAgentMiddleware
                 IsTerminated = true,
                 TerminationReason = reason
             });
+        }
+    }
+
+    private static void TerminateForcedCompactionIfRequested(
+        BeforeMessageTurnContext context,
+        EffectiveCompactionPolicy policy)
+    {
+        if (policy.Mode is CompactionRunMode.Force &&
+            policy.Behavior is CompactionBehavior.StopAfterCompaction)
+        {
+            TerminateIfRequested(
+                context,
+                policy.Behavior,
+                "History compaction skipped - stopping before model turn");
         }
     }
 
@@ -469,6 +565,7 @@ internal sealed record EffectiveCompactionPolicy(
 
 public enum CompactionStatus
 {
+    Started,
     Skipped,
     CacheHit,
     Performed
@@ -486,4 +583,6 @@ public sealed record CompactionEvent(
     int? SummaryLength,
     TimeSpan? CacheAge,
     TimeSpan Duration,
-    string? Reason) : AgentEvent, IObservabilityEvent;
+    string? Reason,
+    CompactionRunMode Mode = CompactionRunMode.Auto,
+    CompactionBehavior Behavior = CompactionBehavior.Continue) : AgentEvent, IObservabilityEvent;

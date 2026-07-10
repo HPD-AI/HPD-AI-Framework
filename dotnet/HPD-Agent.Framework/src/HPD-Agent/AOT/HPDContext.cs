@@ -100,6 +100,7 @@ using System.Collections.Immutable;
 
 // --- Per-invocation run options (AgentRunConfig) ---
 [JsonSerializable(typeof(AgentRunConfig))]
+[JsonSerializable(typeof(AgentPermissionMode))]
 [JsonSerializable(typeof(ThreadHistoryCompactionCheckpointEvent))]
 [JsonSerializable(typeof(ThreadHistoryCompactionMode))]
 [JsonSerializable(typeof(CompactionRunConfig))]

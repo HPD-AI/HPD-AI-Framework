@@ -208,6 +208,7 @@ public class JsonSessionStore : ISessionStore
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
         ArgumentNullException.ThrowIfNull(evt);
+        var suppliedEvent = evt;
 
         var eventsPath = GetThreadEventsFilePath(sessionId, threadId);
 
@@ -224,6 +225,7 @@ public class JsonSessionStore : ISessionStore
 
             evt = ThreadEventValidation.PrepareForAppend(sessionId, threadId, evt);
             evt.SequenceNumber = metadata.NextSequenceNumber;
+            suppliedEvent.SequenceNumber = evt.SequenceNumber;
 
             var directory = Path.GetDirectoryName(eventsPath);
             if (!string.IsNullOrEmpty(directory))

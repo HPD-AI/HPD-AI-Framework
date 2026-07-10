@@ -8,6 +8,7 @@ import type {
 import type { AIContent } from './session.js';
 import type { ThreadKind, ThreadVisibility } from './session.js';
 import type { ModelBackgroundOperationStatus } from './thread-run.js';
+import type { CompactionBehavior, CompactionRunMode } from './run-config.js';
 
 export interface UsageDetails {
   inputTokenCount?: number | null;
@@ -115,6 +116,7 @@ export const EventTypes = {
 
   // Middleware
   MIDDLEWARE_ERROR: 'MIDDLEWARE_ERROR',
+  COMPACTION: 'COMPACTION',
 
   // Client Tools
   CLIENT_TOOL_INVOKE_REQUEST: 'CLIENT_TOOL_INVOKE_REQUEST',
@@ -908,6 +910,39 @@ export interface MiddlewareErrorEvent extends BaseEvent {
   errorMessage: string;
 }
 
+export type CompactionStatus = 0 | 1 | 2 | 3;
+export type CompactionStrategy = 0 | 1;
+
+export const CompactionStatuses = {
+  Started: 0,
+  Skipped: 1,
+  CacheHit: 2,
+  Performed: 3,
+} as const satisfies Record<string, CompactionStatus>;
+
+export const CompactionStrategies = {
+  MessageCounting: 0,
+  Summarizing: 1,
+} as const satisfies Record<string, CompactionStrategy>;
+
+export interface CompactionEvent extends BaseEvent {
+  type: typeof EventTypes.COMPACTION;
+  agentName: string;
+  iteration: number;
+  status: CompactionStatus;
+  strategy: CompactionStrategy;
+  originalMessageCount?: number | null;
+  compactedMessageCount?: number | null;
+  messagesRemoved?: number | null;
+  summaryContent?: string | null;
+  summaryLength?: number | null;
+  cacheAge?: string | null;
+  duration: string;
+  reason?: string | null;
+  mode: CompactionRunMode;
+  behavior: CompactionBehavior;
+}
+
 // ============================================
 // Client Tool Events
 // ============================================
@@ -1038,6 +1073,7 @@ export type KnownAgentEvent =
   | ClarificationResponseEvent
   // Middleware Events
   | MiddlewareErrorEvent
+  | CompactionEvent
   // Client Tool Events
   | ClientToolInvokeRequestEvent
   | ClientToolInvokeOutcomeEvent

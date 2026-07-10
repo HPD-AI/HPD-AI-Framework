@@ -11,6 +11,21 @@ namespace HPD.Agent.Tests.Middleware;
 public class PermissionMiddlewareRunConfigTests
 {
     [Fact]
+    public async Task BeforeFunction_FullAccess_BypassesRequiredPermission()
+    {
+        var middleware = new PermissionMiddleware();
+        var function = CreateFunction("SensitiveTool", requiresPermission: true);
+        var context = CreateBeforeFunctionContext(
+            function,
+            new AgentRunConfig { PermissionMode = AgentPermissionMode.FullAccess });
+
+        await middleware.BeforeFunctionAsync(context, CancellationToken.None);
+
+        context.BlockExecution.Should().BeFalse();
+        context.OverrideResult.Should().BeNull();
+    }
+
+    [Fact]
     public async Task BeforeFunction_RunConfigFalseOverride_AllowsFunctionWithRequiresPermission()
     {
         var middleware = new PermissionMiddleware();

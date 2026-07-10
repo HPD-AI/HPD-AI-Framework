@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using FluentAssertions;
 using HPD.Agent.Middleware;
 using HPD.Agent.Tests.Middleware.V2;
+using HPD.Events.Core;
 using Microsoft.Extensions.AI;
 using Xunit;
 
@@ -43,6 +44,117 @@ public class CompactionMiddlewarePolicyTests
         strategy.CallCount.Should().Be(1);
         context.ThreadHistory.Should().ContainSingle();
         context.ThreadHistory[0].Text.Should().Be("user-2");
+    }
+
+    [Fact]
+    public async Task BeforeMessageTurnAsync_PerformedCompaction_EmitsStartedBeforePerformed()
+    {
+        var coordinator = new EventCoordinator();
+        await using var inbox = coordinator.CreateInbox<CompactionEvent>();
+        var strategy = new CountingCompactionStrategy();
+        var context = CreateContext(
+            new AgentRunConfig
+            {
+                Compaction = new CompactionRunConfig
+                {
+                    Mode = CompactionRunMode.Force,
+                    Behavior = CompactionBehavior.StopAfterCompaction
+                }
+            },
+            coordinator);
+        var middleware = CreateMiddleware(strategy);
+
+        await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var events = new[]
+        {
+            await inbox.Reader.ReadAsync(timeout.Token),
+            await inbox.Reader.ReadAsync(timeout.Token)
+        };
+        events.Select(static evt => evt.Status)
+            .Should()
+            .Equal(CompactionStatus.Started, CompactionStatus.Performed);
+        events.Should().OnlyContain(evt =>
+            evt.Mode == CompactionRunMode.Force &&
+            evt.Behavior == CompactionBehavior.StopAfterCompaction);
+    }
+
+    [Fact]
+    public async Task BeforeMessageTurnAsync_PerformedCompaction_EmitsCheckpointBetweenLifecycleEvents()
+    {
+        var coordinator = new EventCoordinator();
+        var observed = new List<AgentEvent>();
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var subscription = coordinator.SubscribeAny(evt =>
+        {
+            if (evt is CompactionEvent or ThreadHistoryCompactionCheckpointEvent)
+            {
+                lock (observed)
+                {
+                    observed.Add((AgentEvent)evt);
+                    if (observed.Count == 3)
+                        completed.TrySetResult();
+                }
+            }
+
+            return ValueTask.CompletedTask;
+        });
+        var context = CreateContext(
+            new AgentRunConfig
+            {
+                Compaction = new CompactionRunConfig
+                {
+                    Mode = CompactionRunMode.Force,
+                    Behavior = CompactionBehavior.StopAfterCompaction
+                }
+            },
+            coordinator);
+
+        await CreateMiddleware(new CountingCompactionStrategy())
+            .BeforeMessageTurnAsync(context, CancellationToken.None);
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        observed.Should().SatisfyRespectively(
+            first => first.Should().BeOfType<CompactionEvent>()
+                .Which.Status.Should().Be(CompactionStatus.Started),
+            second => second.Should().BeOfType<ThreadHistoryCompactionCheckpointEvent>(),
+            third => third.Should().BeOfType<CompactionEvent>()
+                .Which.Status.Should().Be(CompactionStatus.Performed));
+    }
+
+    [Fact]
+    public async Task BeforeMessageTurnAsync_UnchangedReduction_EmitsSkippedAndPreservesState()
+    {
+        var coordinator = new EventCoordinator();
+        await using var inbox = coordinator.CreateInbox<CompactionEvent>();
+        var context = CreateContext(
+            new AgentRunConfig
+            {
+                Compaction = new CompactionRunConfig
+                {
+                    Mode = CompactionRunMode.Force,
+                    Behavior = CompactionBehavior.StopAfterCompaction
+                }
+            },
+            coordinator);
+        SeedCompactionState(context, messageTurns: 7, inputTokens: 800);
+        var middleware = CreateMiddleware(new NoOpCompactionStrategy());
+
+        await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var started = await inbox.Reader.ReadAsync(timeout.Token);
+        var skipped = await inbox.Reader.ReadAsync(timeout.Token);
+        started.Status.Should().Be(CompactionStatus.Started);
+        skipped.Status.Should().Be(CompactionStatus.Skipped);
+        skipped.MessagesRemoved.Should().Be(0);
+        skipped.Reason.Should().Be(
+            "Nothing to compact because the strategy preserves the 1 most recent user turn.");
+        context.ThreadHistory.Should().HaveCount(3);
+        context.GetMiddlewareState<CompactionStateData>()!.MessageTurnCount.Should().Be(7);
+        context.GetMiddlewareState<CompactionStateData>()!.LastCompaction.Should().BeNull();
+        context.State.IsTerminated.Should().BeTrue();
     }
 
     [Fact]
@@ -138,7 +250,9 @@ public class CompactionMiddlewarePolicyTests
         context.State.TerminationReason.Should().Contain("stopping before model turn");
     }
 
-    private static BeforeMessageTurnContext CreateContext(AgentRunConfig runConfig)
+    private static BeforeMessageTurnContext CreateContext(
+        AgentRunConfig runConfig,
+        EventCoordinator? eventCoordinator = null)
     {
         var history = new List<ChatMessage>
         {
@@ -147,9 +261,18 @@ public class CompactionMiddlewarePolicyTests
             new(ChatRole.User, "user-2")
         };
 
-        return MiddlewareTestHelpers.CreateBeforeMessageTurnContext(
-            conversationHistory: history,
-            runConfig: runConfig);
+        if (eventCoordinator is null)
+        {
+            return MiddlewareTestHelpers.CreateBeforeMessageTurnContext(
+                conversationHistory: history,
+                runConfig: runConfig);
+        }
+
+        var context = MiddlewareTestHelpers.CreateAgentContext(eventCoordinator: eventCoordinator);
+        return context.AsBeforeMessageTurn(
+            new ChatMessage(ChatRole.User, "Test message"),
+            history,
+            runConfig);
     }
 
     private static void SeedCompactionState(
@@ -200,5 +323,19 @@ public class CompactionMiddlewarePolicyTests
                 retained,
                 new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 }));
         }
+    }
+
+    private sealed class NoOpCompactionStrategy : ICompactionStrategy
+    {
+        public Task<CompactionResult> ReduceAsync(
+            IReadOnlyList<ChatMessage> originalMessages,
+            CancellationToken cancellationToken)
+            => Task.FromResult(CompactionResult.FromOriginalAndCompacted(
+                originalMessages,
+                new[]
+                {
+                    new ChatMessage(ChatRole.System, "Generated compaction context boundary")
+                }.Concat(originalMessages).ToList(),
+                new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 10 }));
     }
 }

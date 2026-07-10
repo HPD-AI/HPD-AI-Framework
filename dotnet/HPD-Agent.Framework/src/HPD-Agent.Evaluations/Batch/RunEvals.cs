@@ -689,6 +689,7 @@ public static class RunEvals
 
         return new AgentRunConfig
         {
+            PermissionMode = source.PermissionMode,
             Chat = source.Chat,
             ProviderKey = source.ProviderKey,
             ModelId = source.ModelId,

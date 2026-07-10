@@ -70,6 +70,7 @@ public interface ICompactionStrategy
 
 public sealed class ChatReducerCompactionStrategy : ICompactionStrategy
 {
+    private const string ZeroPreservationSentinelIdPrefix = "hpd-compaction-zero-preservation-";
     private readonly Func<IReadOnlyList<ChatMessage>, IChatReducer> _reducerFactory;
     private readonly CompactionStrategyOptions _options;
 
@@ -92,17 +93,37 @@ public sealed class ChatReducerCompactionStrategy : ICompactionStrategy
         IReadOnlyList<ChatMessage> originalMessages,
         CancellationToken cancellationToken)
     {
-        var reducer = _reducerFactory(originalMessages);
-        var compacted = await reducer.ReduceAsync(originalMessages, cancellationToken).ConfigureAwait(false);
+        var reducerInput = originalMessages;
+        ChatMessage? zeroPreservationSentinel = null;
+        if (RequiresZeroPreservationSentinel(_options))
+        {
+            zeroPreservationSentinel = new ChatMessage(ChatRole.Assistant, string.Empty)
+            {
+                MessageId = $"{ZeroPreservationSentinelIdPrefix}{Guid.NewGuid():N}"
+            };
+            reducerInput = originalMessages.Concat([zeroPreservationSentinel]).ToList();
+        }
+
+        var reducer = _reducerFactory(reducerInput);
+        var reduced = await reducer.ReduceAsync(reducerInput, cancellationToken).ConfigureAwait(false);
+        var compacted = reduced?.Where(message =>
+                zeroPreservationSentinel is null ||
+                !string.Equals(message.MessageId, zeroPreservationSentinel.MessageId, StringComparison.Ordinal))
+            .ToList();
         var result = CompactionResult.FromOriginalAndCompacted(
             originalMessages,
-            compacted?.ToList() ?? originalMessages,
+            compacted ?? originalMessages,
             _options);
 
         return _options is SummarizingCompactionOptions summarizingOptions
             ? CompactionMementoBuilder.Apply(result, summarizingOptions)
             : result;
     }
+
+    private static bool RequiresZeroPreservationSentinel(CompactionStrategyOptions options)
+        => options is SummarizingCompactionOptions { PreserveRecentUserTurnCount: 0 }
+            && string.IsNullOrWhiteSpace(options.PreserveFromMessageId)
+            && string.IsNullOrWhiteSpace(options.PreserveFromMessageTurnId);
 }
 
 internal static class CompactionMementoBuilder

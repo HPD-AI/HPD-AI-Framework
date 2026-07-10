@@ -25,6 +25,9 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
 
     public async Task BeforeParallelBatchAsync(BeforeParallelBatchContext context, CancellationToken cancellationToken)
     {
+        if (context.RunConfig.PermissionMode == AgentPermissionMode.FullAccess)
+            return;
+
         foreach (var call in context.ParallelFunctions)
         {
             if (!IsExecuteCommand(call.FunctionName))
@@ -46,6 +49,9 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
     public async Task BeforeFunctionAsync(BeforeFunctionContext context, CancellationToken cancellationToken)
     {
         if (!IsExecuteCommand(context.Function?.Name))
+            return;
+
+        if (context.RunConfig.PermissionMode == AgentPermissionMode.FullAccess)
             return;
 
         var plan = ExecuteCommandPermissionAnalyzer.Analyze(context.Arguments, context.RunConfig, DefaultOptions);

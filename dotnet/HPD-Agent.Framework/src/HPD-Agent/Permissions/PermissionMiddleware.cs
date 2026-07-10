@@ -90,6 +90,9 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         BeforeParallelBatchContext context,
         CancellationToken cancellationToken)
     {
+        if (context.RunConfig.PermissionMode == AgentPermissionMode.FullAccess)
+            return;
+
         var parallelFunctions = context.ParallelFunctions;
         if (parallelFunctions == null || parallelFunctions.Count == 0)
             return;
@@ -159,6 +162,9 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         BeforeFunctionContext context,
         CancellationToken cancellationToken)
     {
+        if (context.RunConfig.PermissionMode == AgentPermissionMode.FullAccess)
+            return;
+
         var function = context.Function;
         
         // Guard against null function

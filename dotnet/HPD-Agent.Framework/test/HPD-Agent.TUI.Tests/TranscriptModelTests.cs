@@ -51,6 +51,25 @@ public sealed class TranscriptModelTests
     }
 
     [Fact]
+    public void ReplaceHistoryWith_AtomicallyReplacesArbitraryFinalAndLiveEntries()
+    {
+        var model = new TranscriptModel();
+        model.AddFinal(Row("1", null, "message"));
+        model.UpsertLive(Row("2", "custom:live", "custom extension"));
+        var beforeEpoch = model.HistoryEpoch;
+        var beforeVersion = model.Version;
+
+        model.ReplaceHistoryWith(Row("checkpoint", "compaction:1", "compacted"));
+
+        var replacement = model.Snapshot().Entries.Should().ContainSingle().Subject;
+        replacement.Id.Should().Be("checkpoint");
+        replacement.EntryKey.Should().Be("compaction:1");
+        replacement.State.Should().Be(TranscriptEntryState.Final);
+        model.HistoryEpoch.Should().Be(beforeEpoch + 1);
+        model.Version.Should().Be(beforeVersion + 1);
+    }
+
+    [Fact]
     public void TranscriptEntry_FromEvent_CarriesAgentMetadata()
     {
         var evt = new TextDeltaEvent("hello", "message")

@@ -186,7 +186,7 @@ public class ThreadHistoryCompactionTests
             compaction,
             new PreserveThreadHistoryOptions())!;
 
-        await new ThreadHistoryCompactor().CompactAsync(thread, plan, CancellationToken.None);
+        var result = await new ThreadHistoryCompactor().CompactAsync(thread, plan, CancellationToken.None);
 
         var document = await store.LoadThreadDocumentAsync(thread.SessionId, thread.Id);
         var checkpoint = document!.Events.OfType<ThreadHistoryCompactionCheckpointEvent>().Should().ContainSingle().Subject;
@@ -195,6 +195,10 @@ public class ThreadHistoryCompactionTests
         checkpoint.RetainedMessageIds.Should().Equal("message-3", "message-4");
         checkpoint.DurableCompactedMessageIds.Should().BeEmpty();
         checkpoint.ReplacementMessages.Select(message => message.MessageId).Should().ContainSingle("summary");
+        result.CheckpointEvent.EventId.Should().Be(checkpoint.EventId);
+        result.CheckpointEvent.SequenceNumber.Should().Be(checkpoint.SequenceNumber);
+        result.CheckpointEvent.SessionId.Should().Be(checkpoint.SessionId);
+        result.CheckpointEvent.ThreadId.Should().Be(checkpoint.ThreadId);
 
         var projected = await store.LoadThreadAsync(thread.SessionId, thread.Id);
         projected!.Messages.Select(message => message.MessageId)

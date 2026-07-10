@@ -531,6 +531,35 @@ public class ThreadEventStoreTests : AgentTestBase
         }
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AppendThreadEvent_StampsAssignedSequenceOnSuppliedCanonicalEvent(bool useJsonStore)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-thread-events-{Guid.NewGuid():N}");
+
+        try
+        {
+            ISessionStore store = useJsonStore
+                ? new JsonSessionStore(tempDir)
+                : new InMemorySessionStore();
+            var supplied = ThreadEventFactory.TextDelta(
+                "session-1", "main", "turn-1", "msg-1", "hello", 0);
+
+            await store.AppendThreadEventAsync("session-1", "main", supplied);
+
+            var persisted = Assert.Single((await store.LoadThreadDocumentAsync("session-1", "main"))!.Events);
+            Assert.Equal(persisted.EventId, supplied.EventId);
+            Assert.Equal(persisted.SequenceNumber, supplied.SequenceNumber);
+            Assert.True(supplied.SequenceNumber > 0);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task JsonSessionStore_AppendThreadEvent_PersistsEventFlowId()
     {

@@ -32,6 +32,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private CancellationToken _runCancellationToken;
     private readonly HashSet<string> _handledInteractionIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _sessionTitleUpdates = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _activeRuntimeRunIds = new(StringComparer.Ordinal);
+    private bool _inputSubmissionPending;
 
     private HpdAgentTuiApp(
         IHpdAgentTuiRuntime runtime,
@@ -228,6 +230,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
+        if (HasKnownActiveRuntimeWork())
+        {
+            AddRuntimeBusyNotice(_state, _scope);
+            RequestRender();
+            return;
+        }
+
         AgentRunConfig? runConfig;
         try
         {
@@ -271,6 +280,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
+        _inputSubmissionPending = true;
         _state.AppendUserInput(text);
         _state.Shell.FooterText = "state: submitting";
         RequestRender();
@@ -283,6 +293,28 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 RunConfig = runConfig
             },
             text);
+    }
+
+    private bool HasKnownActiveRuntimeWork()
+        => _inputSubmissionPending || _activeRuntimeRunIds.Count > 0;
+
+    private static void AddRuntimeBusyNotice(
+        AgentTuiSessionState state,
+        AgentTuiRuntimeScope scope)
+    {
+        state.Shell.Transcript.AddFinal(new TranscriptEntry(
+            Id: $"runtime-busy-{Guid.NewGuid():N}",
+            EntryKey: null,
+            Cell: new NoticeCell(
+                "Thread is busy",
+                new HPD.TUI.Components.Text("Wait for the current run to finish, or press Esc to cancel it."),
+                TranscriptSeverity.Warning),
+            Metadata: new TranscriptEntryMetadata(
+                AgentId: scope.AgentId,
+                AgentName: "tui",
+                AgentChain: ["tui"],
+                SessionId: scope.SessionId,
+                ThreadId: scope.ThreadId)));
     }
 
     private async Task SubmitInputAsync(
@@ -327,6 +359,10 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                     AgentChain: ["tui"])));
             _state.Shell.FooterText = $"state: failed | {ex.Message}";
             RequestRender();
+        }
+        finally
+        {
+            _inputSubmissionPending = false;
         }
     }
 
@@ -581,7 +617,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
-        foreach (var evt in events)
+        foreach (var evt in events.OrderBy(static evt => evt.SequenceNumber))
         {
             await _state.ApplyEventAsync(evt, cancellationToken).ConfigureAwait(false);
         }
@@ -662,6 +698,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
+        TrackRuntimeRun(evt);
         await _state.ApplyEventAsync(evt, cancellationToken).ConfigureAwait(false);
         RequestRender();
 
@@ -743,6 +780,24 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                     AgentName: "tui",
                     AgentChain: ["tui"])));
             RequestRender();
+        }
+    }
+
+    private void TrackRuntimeRun(AgentEvent evt)
+    {
+        switch (evt)
+        {
+            case ThreadRunStartedEvent started:
+                _inputSubmissionPending = false;
+                _activeRuntimeRunIds.Add(started.RuntimeRunId);
+                break;
+            case ThreadRunCompletedEvent completed:
+                _activeRuntimeRunIds.Remove(completed.RuntimeRunId);
+                if (_activeRuntimeRunIds.Count == 0)
+                {
+                    _inputSubmissionPending = false;
+                }
+                break;
         }
     }
 

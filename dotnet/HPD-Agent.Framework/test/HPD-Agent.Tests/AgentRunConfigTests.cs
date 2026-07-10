@@ -1,9 +1,30 @@
+using System.Text.Json;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Tests;
 
 public class AgentRunConfigTests
 {
+    [Fact]
+    public void PermissionMode_DefaultsToAsk()
+    {
+        var runConfig = new AgentRunConfig();
+
+        Assert.Equal(AgentPermissionMode.Ask, runConfig.PermissionMode);
+    }
+
+    [Fact]
+    public void PermissionMode_RoundTripsThroughSourceGeneratedJson()
+    {
+        var runConfig = new AgentRunConfig { PermissionMode = AgentPermissionMode.FullAccess };
+
+        var json = JsonSerializer.Serialize(runConfig, HPDJsonContext.Default.AgentRunConfig);
+        var deserialized = JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentRunConfig);
+
+        Assert.NotNull(deserialized);
+        Assert.Equal(AgentPermissionMode.FullAccess, deserialized.PermissionMode);
+    }
+
     [Fact]
     public void ChatRunConfig_MergeWith_ShouldLetRunSeedOverrideDefaultSeed()
     {

@@ -908,11 +908,21 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         var body = response.Content is null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var hint = IsUnknownAgentEventPayload(body)
+            ? " This usually means the hosted backend is older than the thread history it is reading; restart the backend so it loads the current agent event registrations."
+            : string.Empty;
         throw new InvalidOperationException(
-            $"Hosted TUI runtime failed to {operation}. HTTP {(int)response.StatusCode} {response.ReasonPhrase}. {body}");
+            $"Hosted TUI runtime failed to {operation}. HTTP {(int)response.StatusCode} {response.ReasonPhrase}. {body}{hint}");
     }
 
-    private static string Escape(string value) => Uri.EscapeDataString(value);
+    private static bool IsUnknownAgentEventPayload(string? body)
+        => body?.Contains("JSON payload is not a known agent event", StringComparison.OrdinalIgnoreCase) == true;
+
+    private static string Escape(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        return Uri.EscapeDataString(value);
+    }
 
     private static string JsonString(string value)
     {
@@ -1203,7 +1213,15 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
     }
 
     private static string GetRequiredString(JsonElement element, string propertyName)
-        => GetOptionalString(element, propertyName) ?? string.Empty;
+    {
+        var value = GetOptionalString(element, propertyName);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new JsonException($"Expected non-empty string property '{propertyName}'.");
+        }
+
+        return value;
+    }
 
     private static string? GetOptionalString(JsonElement element, string propertyName)
         => element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String

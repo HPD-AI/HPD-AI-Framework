@@ -50,6 +50,7 @@ namespace HPD.Agent.Serialization;
 [JsonSerializable(typeof(ThreadHistoryCompactionCheckpointEvent))]
 [JsonSerializable(typeof(ThreadHistoryCompactionMode))]
 [JsonSerializable(typeof(AgentRunConfig))]
+[JsonSerializable(typeof(AgentPermissionMode))]
 [JsonSerializable(typeof(CompactionRunConfig))]
 [JsonSerializable(typeof(ModelContextWindowOptions))]
 [JsonSerializable(typeof(ThreadContextUsage))]

@@ -84,6 +84,7 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(IncludeToolCallGroupBoundaryOptions))]
 [JsonSerializable(typeof(CompositeCompactionBoundaryOptions))]
 [JsonSerializable(typeof(AgentModelTransportMode))]
+[JsonSerializable(typeof(AgentPermissionMode))]
 [JsonSerializable(typeof(AgentClientConfig))]
 [JsonSerializable(typeof(ClientProviderConfig))]
 [JsonSerializable(typeof(AudioRunConfig))]

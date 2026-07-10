@@ -3065,9 +3065,12 @@ public class AgentBuilder
                 "History compaction with summarization requires a configured provider or summarizer provider.");
         }
 
+        // SummarizingChatReducer requires a target greater than zero. When HPD's
+        // policy preserves zero raw messages, ChatReducerCompactionStrategy adds
+        // and later removes a private sentinel that occupies this one slot.
         var reducer = new SummarizingChatReducer(
             clientForSummarization,
-            preserveRecentRawMessageCount,
+            Math.Max(1, preserveRecentRawMessageCount),
             options.ResummarizeAfterNewMessages);
 
         if (!string.IsNullOrEmpty(options.CustomPrompt))
@@ -3118,7 +3121,7 @@ public class AgentBuilder
             return 0;
 
         if (preserveRecentUserTurnCount <= 0)
-            return 1;
+            return 0;
 
         var seenUserTurnIds = new HashSet<string>(StringComparer.Ordinal);
         var seenAnonymousUsers = 0;

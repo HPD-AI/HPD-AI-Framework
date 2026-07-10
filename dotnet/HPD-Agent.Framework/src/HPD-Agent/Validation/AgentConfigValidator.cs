@@ -158,13 +158,13 @@ public static class AgentConfigValidator
         switch (strategy)
         {
             case MessageCountingCompactionOptions messageCounting:
-                if (messageCounting.PreserveRecentUserTurnCount <= 0 || messageCounting.PreserveRecentUserTurnCount > 1000)
-                    errors.Add("MessageCountingCompactionOptions.PreserveRecentUserTurnCount must be between 1 and 1,000.");
+                if (messageCounting.PreserveRecentUserTurnCount < 0 || messageCounting.PreserveRecentUserTurnCount > 1000)
+                    errors.Add("MessageCountingCompactionOptions.PreserveRecentUserTurnCount must be between 0 and 1,000.");
                 break;
 
             case SummarizingCompactionOptions summarizing:
-                if (summarizing.PreserveRecentUserTurnCount <= 0 || summarizing.PreserveRecentUserTurnCount > 1000)
-                    errors.Add("SummarizingCompactionOptions.PreserveRecentUserTurnCount must be between 1 and 1,000.");
+                if (summarizing.PreserveRecentUserTurnCount < 0 || summarizing.PreserveRecentUserTurnCount > 1000)
+                    errors.Add("SummarizingCompactionOptions.PreserveRecentUserTurnCount must be between 0 and 1,000.");
 
                 if (summarizing.ResummarizeAfterNewMessages < 0 || summarizing.ResummarizeAfterNewMessages > 100)
                     errors.Add("SummarizingCompactionOptions.ResummarizeAfterNewMessages must be between 0 and 100.");

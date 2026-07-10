@@ -35,6 +35,23 @@ public enum AgentModelTransportMode
 }
 
 /// <summary>
+/// Selects the permission enforcement profile for an agent run.
+/// </summary>
+public enum AgentPermissionMode
+{
+    /// <summary>
+    /// Enforce registered permission middleware and request approval when required.
+    /// </summary>
+    Ask = 0,
+
+    /// <summary>
+    /// Bypass registered permission prompts for this run.
+    /// Hosts are responsible for pairing this with any required sandbox policy changes.
+    /// </summary>
+    FullAccess = 1
+}
+
+/// <summary>
 /// Per-invocation options for agent runs.
 /// Enables runtime customization without mutating agent configuration.
 /// FFI-serializable (JSON primitives only for serializable properties).
@@ -59,6 +76,12 @@ public enum AgentModelTransportMode
 /// </remarks>
 public class AgentRunConfig
 {
+    /// <summary>
+    /// Permission enforcement profile for this run.
+    /// The secure default is <see cref="AgentPermissionMode.Ask"/>.
+    /// </summary>
+    public AgentPermissionMode PermissionMode { get; set; } = AgentPermissionMode.Ask;
+
     /// <summary>
     /// Chat parameters (temperature, tokens, etc.)
     /// JSON-serializable, no Microsoft.Extensions.AI dependency.
@@ -243,7 +266,9 @@ public class AgentRunConfig
     /// <summary>
     /// Permission requirement overrides for this specific run.
     /// Key = function/tool name, Value = whether permission is required.
-    /// Overrides the agent's configured permission policies temporarily.
+    /// Overrides the generic <c>PermissionMiddleware</c> requirement temporarily.
+    /// Command-specific permission middleware may apply additional policy.
+    /// Ignored when <see cref="PermissionMode"/> is <see cref="AgentPermissionMode.FullAccess"/>.
     /// Unknown function names are ignored because overrides are only read when
     /// that function is invoked.
     /// Example: { "ReadFile": false, "ExecuteCommand": true }

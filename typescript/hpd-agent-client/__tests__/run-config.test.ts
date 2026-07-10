@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import type { RunConfig, ChatRunConfig } from '../src/types/run-config.js';
 import {
+  AgentPermissionModes,
   CompactionBehaviors,
   CompactionRunModes,
   ContextWindowCompactionThresholdModes,
@@ -22,6 +23,7 @@ import {
 describe('RunConfig — wire format (camelCase)', () => {
   it('serializes all top-level fields to camelCase keys matching StreamRunConfigDto', () => {
     const rc: RunConfig = {
+      permissionMode: AgentPermissionModes.FullAccess,
       providerKey: 'anthropic',
       modelId: 'claude-sonnet-4-6',
       additionalSystemInstructions: 'Be concise.',
@@ -36,6 +38,7 @@ describe('RunConfig — wire format (camelCase)', () => {
 
     // Top-level keys must match StreamRunConfigDto field names exactly
     expect(parsed).toHaveProperty('providerKey', 'anthropic');
+    expect(parsed).toHaveProperty('permissionMode', AgentPermissionModes.FullAccess);
     expect(parsed).toHaveProperty('modelId', 'claude-sonnet-4-6');
     expect(parsed).toHaveProperty('additionalSystemInstructions', 'Be concise.');
     expect(parsed).toHaveProperty('coalesceDeltas', true);

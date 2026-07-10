@@ -101,6 +101,7 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(IncludeToolCallGroupBoundaryOptions))]
 [JsonSerializable(typeof(CompositeCompactionBoundaryOptions))]
 [JsonSerializable(typeof(AgentRunConfig))]
+[JsonSerializable(typeof(AgentPermissionMode))]
 [JsonSerializable(typeof(ThreadHistoryCompactionCheckpointEvent))]
 [JsonSerializable(typeof(ThreadHistoryCompactionMode))]
 [JsonSerializable(typeof(CompactionRunConfig))]

@@ -26,6 +26,7 @@ export interface ChatRunConfig {
 }
 
 export type AgentModelTransportMode = 0 | 1 | 2;
+export type AgentPermissionMode = 0 | 1;
 export type UploadStrategy = 0 | 1 | 2;
 export type CompactionBehavior = 0 | 1;
 export type CompactionRunMode = 0 | 1 | 2;
@@ -42,6 +43,11 @@ export const CompactionBehaviors = {
   Continue: 0,
   StopAfterCompaction: 1,
 } as const satisfies Record<string, CompactionBehavior>;
+
+export const AgentPermissionModes = {
+  Ask: 0,
+  FullAccess: 1,
+} as const satisfies Record<string, AgentPermissionMode>;
 
 export interface ClientProviderConfig {
   providerKey?: string;
@@ -213,6 +219,8 @@ export interface CompactionRunConfig {
  * Maps to AgentRunConfig on the server.
  */
 export interface RunConfig {
+  /** Permission enforcement profile: ask for approval or bypass prompts for full access */
+  permissionMode?: AgentPermissionMode;
   /** Model transport override: auto, chat, or realtime */
   modelTransport?: AgentModelTransportMode;
   /** Provider-created client-family overrides for this run */

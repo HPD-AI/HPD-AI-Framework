@@ -100,6 +100,7 @@ public class InMemorySessionStore : ISessionStore
     {
         ArgumentNullException.ThrowIfNull(evt);
         cancellationToken.ThrowIfCancellationRequested();
+        var suppliedEvent = evt;
         evt = ThreadEventValidation.PrepareForAppend(sessionId, threadId, evt);
 
         var sessionThreads = _threads.GetOrAdd(sessionId, _ => new ConcurrentDictionary<string, ThreadEventDocument>());
@@ -108,6 +109,7 @@ public class InMemorySessionStore : ISessionStore
             _ =>
             {
                 evt.SequenceNumber = 1;
+                suppliedEvent.SequenceNumber = evt.SequenceNumber;
                 return new ThreadEventDocument
                 {
                     SessionId = sessionId,
@@ -128,6 +130,7 @@ public class InMemorySessionStore : ISessionStore
                 }
 
                 evt.SequenceNumber = existing.NextSequenceNumber;
+                suppliedEvent.SequenceNumber = evt.SequenceNumber;
                 var events = existing.Events.ToList();
                 events.Add(evt);
                 return existing with

@@ -16,7 +16,8 @@ public sealed record ThreadCompactionResult(
     string CompactionId,
     IReadOnlyList<string> ModelCompactedMessageIds,
     IReadOnlyList<string> DurableCompactedMessageIds,
-    IReadOnlyList<string> ReplacementMessageIds);
+    IReadOnlyList<string> ReplacementMessageIds,
+    ThreadHistoryCompactionCheckpointEvent CheckpointEvent);
 
 internal static class ThreadHistoryCompactionMetadata
 {
@@ -250,7 +251,7 @@ public sealed class ThreadHistoryCompactor : IThreadHistoryCompactor
         var replacementMessages = EnsureReplacementMessages(plan.ReplacementMessages);
 
         var compactionId = Guid.NewGuid().ToString();
-        var evt = new ThreadHistoryCompactionCheckpointEvent(
+        var checkpoint = new ThreadHistoryCompactionCheckpointEvent(
             compactionId,
             GetMessageIds(plan.ModelCompactedMessages),
             GetMessageIds(plan.RetainedMessages),
@@ -264,6 +265,8 @@ public sealed class ThreadHistoryCompactor : IThreadHistoryCompactor
             durableRemovedIds.Count == 0
                 ? ThreadHistoryCompactionMode.Soft
                 : ThreadHistoryCompactionMode.Hard);
+        var checkpointEvent = (ThreadHistoryCompactionCheckpointEvent)
+            ThreadEventFactory.ThreadHistoryCompactionCheckpoint(thread.SessionId, thread.Id, checkpoint);
 
         if (durableRemovedIds.Count > 0)
             ApplyToLiveThread(thread, durableRemovedIds, replacementMessages);
@@ -273,7 +276,7 @@ public sealed class ThreadHistoryCompactor : IThreadHistoryCompactor
             await store.AppendThreadEventAsync(
                 thread.SessionId,
                 thread.Id,
-                ThreadEventFactory.ThreadHistoryCompactionCheckpoint(thread.SessionId, thread.Id, evt),
+                checkpointEvent,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
@@ -281,7 +284,8 @@ public sealed class ThreadHistoryCompactor : IThreadHistoryCompactor
             compactionId,
             GetMessageIds(plan.ModelCompactedMessages),
             durableRemovedIds,
-            GetMessageIds(replacementMessages));
+            GetMessageIds(replacementMessages),
+            checkpointEvent);
     }
 
     private static void ApplyToLiveThread(

@@ -73,6 +73,18 @@ public class CompactionStateTests
     }
 
     [Fact]
+    public void ResolvePreserveRecentRawMessageCount_ZeroPreservesNoRawMessages()
+    {
+        var messages = CreateMessages(4);
+
+        var preserveRawMessageCount = AgentBuilder.ResolvePreserveRecentRawMessageCount(
+            messages,
+            preserveRecentUserTurnCount: 0);
+
+        preserveRawMessageCount.Should().Be(0);
+    }
+
+    [Fact]
     public void ResolvePreserveRecentRawMessageCount_PreservesFromSelectedMessageTurn()
     {
         var messages = new List<ChatMessage>

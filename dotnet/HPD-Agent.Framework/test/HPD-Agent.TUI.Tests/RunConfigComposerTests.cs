@@ -42,6 +42,38 @@ public sealed class RunConfigComposerTests
         runtime.LastInput.RunConfig.ModelId.Should().Be("deepseek/deepseek-chat");
     }
 
+    [Fact]
+    public async Task SubmittedPrompt_WhenRunIsActive_ShowsBusyNoticeWithoutSubmitting()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CapturingRuntime(scope);
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            static builder => builder.AddAgentTuiDefaults(),
+            new TestTerminal(80, 24));
+
+        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        await InvokePrivateAsync(
+            app,
+            "OnAgentEventAsync",
+            new ThreadRunStartedEvent("run-1", scope.AgentId, DateTimeOffset.UtcNow)
+            {
+                SessionId = scope.SessionId,
+                ThreadId = scope.ThreadId
+            },
+            CancellationToken.None);
+        InvokePrivate(app, "SubmitPrompt", "hello".AsMemory());
+
+        runtime.SubmitCount.Should().Be(0);
+        var state = GetPrivateField<HPD.Agent.TUI.Application.AgentTuiSessionState>(app, "_state");
+        state.Shell.Transcript.Snapshot().Entries
+            .Select(static entry => entry.Cell)
+            .OfType<HPD.Agent.TUI.Models.NoticeCell>()
+            .Should()
+            .ContainSingle(cell => cell.Title == "Thread is busy");
+    }
+
     private static void InvokePrivate(
         HpdAgentTuiApp app,
         string methodName,
@@ -54,6 +86,28 @@ public sealed class RunConfigComposerTests
         method!.Invoke(app, args);
     }
 
+    private static async Task InvokePrivateAsync(
+        HpdAgentTuiApp app,
+        string methodName,
+        params object[] args)
+    {
+        var method = typeof(HpdAgentTuiApp).GetMethod(
+            methodName,
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        method.Should().NotBeNull();
+        await ((Task)method!.Invoke(app, args)!).ConfigureAwait(false);
+    }
+
+    private static T GetPrivateField<T>(HpdAgentTuiApp app, string fieldName)
+        where T : class
+    {
+        var field = typeof(HpdAgentTuiApp).GetField(
+            fieldName,
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        field.Should().NotBeNull();
+        return field!.GetValue(app).Should().BeOfType<T>().Subject;
+    }
+
     private sealed class CapturingRuntime : IHpdAgentTuiRuntime
     {
         private readonly AgentTuiRuntimeScope _scope;
@@ -64,6 +118,7 @@ public sealed class RunConfigComposerTests
         }
 
         public AgentInputEvent? LastInput { get; private set; }
+        public int SubmitCount { get; private set; }
 
         public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
             AgentTuiRuntimeScope? requested,
@@ -88,6 +143,7 @@ public sealed class RunConfigComposerTests
             AgentInputEvent input,
             CancellationToken cancellationToken = default)
         {
+            SubmitCount++;
             LastInput = input;
             return Task.CompletedTask;
         }

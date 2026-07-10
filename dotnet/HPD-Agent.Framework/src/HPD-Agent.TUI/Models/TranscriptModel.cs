@@ -146,6 +146,27 @@ public sealed class TranscriptModel
         }
     }
 
+    /// <summary>
+    /// Atomically replaces all visible transcript history with one finalized entry.
+    /// </summary>
+    /// <remarks>
+    /// This is the boundary primitive for checkpoints that supersede every entry
+    /// rendered before them, independent of the event or cell types involved.
+    /// </remarks>
+    public void ReplaceHistoryWith(TranscriptEntry replacement)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+
+        lock (_gate)
+        {
+            _entries.Clear();
+            _entryKeys.Clear();
+            AddEntry(replacement.AsFinal());
+            _historyEpoch++;
+            _version++;
+        }
+    }
+
     public TranscriptEntry GetEntry(int index)
     {
         lock (_gate)

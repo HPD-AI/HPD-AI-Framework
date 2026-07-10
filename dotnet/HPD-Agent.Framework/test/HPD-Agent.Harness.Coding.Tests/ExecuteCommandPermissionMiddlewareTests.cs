@@ -1254,6 +1254,27 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
     }
 
     [Fact]
+    public async Task Middleware_FullAccess_BypassesExecuteCommandPrompt()
+    {
+        var middleware = new ExecuteCommandPermissionMiddleware();
+        var coordinator = new EventCoordinator();
+        var requests = new List<ExecuteCommandPermissionRequestEvent>();
+        using var subscription = RespondToPermissionRequests(coordinator, requests, _ => "deny");
+        var agentContext = CreateAgentContext(coordinator);
+        var runConfig = CreateWorkspaceRunConfig();
+        runConfig.PermissionMode = AgentPermissionMode.FullAccess;
+        var context = CreateBeforeFunctionContext(
+            agentContext,
+            "custom-tool inspect workspace",
+            runConfig: runConfig);
+
+        await middleware.BeforeFunctionAsync(context, CancellationToken.None);
+
+        requests.Should().BeEmpty();
+        context.BlockExecution.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Middleware_InvalidExecuteCommandArguments_ReturnsInvalidArgumentsNotPermissionDenied()
     {
         var middleware = new ExecuteCommandPermissionMiddleware();
@@ -1514,12 +1535,13 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
     private BeforeFunctionContext CreateBeforeFunctionContext(
         AgentContext agentContext,
         string command,
-        string callId = "call-1")
+        string callId = "call-1",
+        AgentRunConfig? runConfig = null)
         => agentContext.AsBeforeFunction(
             ExecuteCommandFunction(),
             callId,
             new Dictionary<string, object?> { ["command"] = command },
-            CreateWorkspaceRunConfig(),
+            runConfig ?? CreateWorkspaceRunConfig(),
             toolharnessName: nameof(CodingToolHarness),
             skillName: null);
 
