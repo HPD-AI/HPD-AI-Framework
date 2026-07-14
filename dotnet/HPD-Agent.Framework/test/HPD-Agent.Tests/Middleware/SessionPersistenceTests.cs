@@ -96,10 +96,12 @@ public class SessionPersistenceTests
         var compaction = new CompactionSnapshot
         {
             OriginalMessageIds = messages.Select((_, i) => $"message-{i}").ToList(),
-            ModelVisibleMessageIds = ["summary-message"],
+            ModelVisibleMessages =
+            [
+                new ChatMessage(ChatRole.Assistant, "Test summary") { MessageId = "summary-message" }
+            ],
             ModelCompactedMessageIds = messages.Take(90).Select((_, i) => $"message-{i}").ToList(),
             RetainedMessageIds = messages.Skip(90).Select((_, i) => $"message-{i + 90}").ToList(),
-            ReplacementMessageIds = ["summary-message"],
             SummaryContent = "Test summary"
         };
 
@@ -137,9 +139,11 @@ public class SessionPersistenceTests
         var compaction = new CompactionSnapshot
         {
             OriginalMessageIds = ["msg"],
-            ModelVisibleMessageIds = ["summary"],
+            ModelVisibleMessages =
+            [
+                new ChatMessage(ChatRole.Assistant, "Summary") { MessageId = "summary" }
+            ],
             ModelCompactedMessageIds = ["msg"],
-            ReplacementMessageIds = ["summary"],
             SummaryContent = "Summary"
         };
         var hrState = new CompactionStateData().WithCompaction(compaction);

@@ -229,6 +229,113 @@ public class CompactionMiddlewarePolicyTests
     }
 
     [Fact]
+    public async Task BeforeMessageTurnAsync_AutoModeWithValidCachedCompaction_ReusesModelVisibleMessages()
+    {
+        var coordinator = new EventCoordinator();
+        await using var inbox = coordinator.CreateInbox<CompactionEvent>();
+        var strategy = new CountingCompactionStrategy();
+        var context = CreateContext(
+            new AgentRunConfig(),
+            coordinator,
+            [
+                Message(ChatRole.User, "old-user", "old-0"),
+                Message(ChatRole.Assistant, "old-assistant", "old-1"),
+                Message(ChatRole.User, "recent-user", "old-2"),
+                Message(ChatRole.User, "new-user", "new-3")
+            ]);
+        SeedCompactionState(context, snapshot: new CompactionSnapshot
+        {
+            OriginalMessageIds = ["old-0", "old-1", "old-2"],
+            ModelVisibleMessages =
+            [
+                Message(ChatRole.System, "compacted-boundary", "summary-boundary"),
+                Message(ChatRole.Assistant, "summary", "summary-1"),
+                Message(ChatRole.User, "recent-user", "old-2")
+            ],
+            ModelCompactedMessageIds = ["old-0", "old-1"],
+            RetainedMessageIds = ["old-2"],
+            SummaryContent = "summary",
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-1)
+        });
+        var middleware = CreateMiddleware(strategy);
+
+        await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
+
+        strategy.CallCount.Should().Be(0);
+        context.ThreadHistory.Select(static message => message.Text)
+            .Should()
+            .Equal("compacted-boundary", "summary", "recent-user", "new-user");
+        context.GetMiddlewareState<CompactionStateData>()!.LastAppliedAt.Should().NotBeNull();
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var evt = await inbox.Reader.ReadAsync(timeout.Token);
+        evt.Status.Should().Be(CompactionStatus.CacheHit);
+        evt.CompactedMessageCount.Should().Be(4);
+        evt.MessagesRemoved.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task BeforeMessageTurnAsync_AutoModeWithHighPressureCachedCompaction_ReusesLatestSnapshot()
+    {
+        var strategy = new CountingCompactionStrategy();
+        var bulkyMessages = Enumerable.Range(0, 40)
+            .Select(index => Message(
+                index % 2 == 0 ? ChatRole.User : ChatRole.Assistant,
+                $"old-bulk-{index}-" + new string('x', 4_096),
+                $"old-{index}"))
+            .ToList();
+        var latestSnapshot = Enumerable.Range(1, 10)
+            .Select(window => new CompactionSnapshot
+            {
+                OriginalMessageIds = bulkyMessages.Select(static message => message.MessageId!).ToList(),
+                ModelVisibleMessages =
+                [
+                    Message(ChatRole.Assistant, $"summary-window-{window}", $"summary-{window}"),
+                    Message(ChatRole.User, $"retained-window-{window}", $"retained-{window}")
+                ],
+                ModelCompactedMessageIds = bulkyMessages.Take(39).Select(static message => message.MessageId!).ToList(),
+                RetainedMessageIds = [bulkyMessages[^1].MessageId!],
+                SummaryContent = $"summary-window-{window}",
+                CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-window)
+            })
+            .Last();
+        var context = CreateContext(
+            new AgentRunConfig(),
+            history: bulkyMessages.Concat([Message(ChatRole.User, "new-after-latest-compaction", "new-after")]).ToList());
+        SeedCompactionState(context, snapshot: latestSnapshot);
+        var middleware = CreateMiddleware(strategy);
+
+        await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
+
+        strategy.CallCount.Should().Be(0);
+        context.ThreadHistory.Select(static message => message.Text)
+            .Should()
+            .Equal("summary-window-10", "retained-window-10", "new-after-latest-compaction");
+        context.ThreadHistory.Should().NotContain(message => message.Text.Contains("old-bulk-", StringComparison.Ordinal));
+        context.ThreadHistory.Sum(static message => message.Text.Length).Should().BeLessThan(200);
+    }
+
+    [Fact]
+    public async Task BeforeMessageTurnAsync_ForceMode_StoresModelVisibleMessagesInSnapshot()
+    {
+        var strategy = new SyntheticSummaryCompactionStrategy();
+        var context = CreateContext(
+            new AgentRunConfig
+            {
+                Compaction = new CompactionRunConfig { Mode = CompactionRunMode.Force }
+            });
+        var middleware = CreateMiddleware(strategy);
+
+        await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
+
+        var snapshot = context.GetMiddlewareState<CompactionStateData>()!.LastCompaction;
+        snapshot.Should().NotBeNull();
+        snapshot!.ModelVisibleMessages.Select(static message => message.Text)
+            .Should()
+            .Equal("cached-summary", "user-2");
+    }
+
+    [Fact]
     public async Task BeforeMessageTurnAsync_StopAfterCompaction_TerminatesBeforeModelTurn()
     {
         var strategy = new CountingCompactionStrategy();
@@ -252,14 +359,15 @@ public class CompactionMiddlewarePolicyTests
 
     private static BeforeMessageTurnContext CreateContext(
         AgentRunConfig runConfig,
-        EventCoordinator? eventCoordinator = null)
+        EventCoordinator? eventCoordinator = null,
+        List<ChatMessage>? history = null)
     {
-        var history = new List<ChatMessage>
-        {
-            new(ChatRole.User, "user-0"),
-            new(ChatRole.Assistant, "assistant-1"),
-            new(ChatRole.User, "user-2")
-        };
+        history ??=
+        [
+            Message(ChatRole.User, "user-0", "message-0"),
+            Message(ChatRole.Assistant, "assistant-1", "message-1"),
+            Message(ChatRole.User, "user-2", "message-2")
+        ];
 
         if (eventCoordinator is null)
         {
@@ -278,10 +386,12 @@ public class CompactionMiddlewarePolicyTests
     private static void SeedCompactionState(
         BeforeMessageTurnContext context,
         int messageTurns = 0,
-        long? inputTokens = null)
+        long? inputTokens = null,
+        CompactionSnapshot? snapshot = null)
     {
         context.UpdateMiddlewareState<CompactionStateData>(_ => new CompactionStateData
         {
+            LastCompaction = snapshot,
             MessageTurnCount = messageTurns,
             LastTurnUsage = inputTokens.HasValue
                 ? new UsageDetails { InputTokenCount = inputTokens.Value }
@@ -289,6 +399,9 @@ public class CompactionMiddlewarePolicyTests
             LastIterationUsage = ImmutableList<UsageDetails?>.Empty
         });
     }
+
+    private static ChatMessage Message(ChatRole role, string text, string messageId) =>
+        new(role, text) { MessageId = messageId };
 
     private static CompactionMiddleware CreateMiddleware(ICompactionStrategy strategy) =>
         new()
@@ -337,5 +450,19 @@ public class CompactionMiddlewarePolicyTests
                     new ChatMessage(ChatRole.System, "Generated compaction context boundary")
                 }.Concat(originalMessages).ToList(),
                 new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 10 }));
+    }
+
+    private sealed class SyntheticSummaryCompactionStrategy : ICompactionStrategy
+    {
+        public Task<CompactionResult> ReduceAsync(
+            IReadOnlyList<ChatMessage> originalMessages,
+            CancellationToken cancellationToken)
+            => Task.FromResult(CompactionResult.FromOriginalAndCompacted(
+                originalMessages,
+                [
+                    Message(ChatRole.Assistant, "cached-summary", "summary-1"),
+                    originalMessages[^1]
+                ],
+                new SummarizingCompactionOptions { PreserveRecentUserTurnCount = 1 }));
     }
 }

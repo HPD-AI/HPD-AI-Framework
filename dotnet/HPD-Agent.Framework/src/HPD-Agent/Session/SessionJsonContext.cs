@@ -101,6 +101,7 @@ namespace HPD.Agent;
 // Note: Most M.E.AI types are registered via AIJsonUtilities.DefaultOptions
 [JsonSerializable(typeof(ChatMessage))]
 [JsonSerializable(typeof(List<ChatMessage>))]
+[JsonSerializable(typeof(IReadOnlyList<ChatMessage>))]
 [JsonSerializable(typeof(AIContent))]
 [JsonSerializable(typeof(Dictionary<string, object>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]

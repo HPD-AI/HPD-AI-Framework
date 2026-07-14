@@ -222,6 +222,7 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(ContinuationPermissionStateData))]
 [JsonSerializable(typeof(CompactionStateData))]
 [JsonSerializable(typeof(CompactionSnapshot))]
+[JsonSerializable(typeof(IReadOnlyList<ChatMessage>))]
 [JsonSerializable(typeof(BatchPermissionStateData))]
 [JsonSerializable(typeof(TotalErrorThresholdStateData))]
 

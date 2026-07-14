@@ -8,6 +8,7 @@ using HPD.Agent.ClientTools;
 using HPD.Agent.Middleware;
 using HPD.Agent.Planning;
 using System.Collections.Immutable;
+using Microsoft.Extensions.AI;
 
 /// <summary>
 /// JSON serialization context for HPD-Agent core types (AOT-compatible).
@@ -126,6 +127,8 @@ using System.Collections.Immutable;
 [JsonSerializable(typeof(ErrorTrackingStateData))]
 [JsonSerializable(typeof(CompactionStateData))]
 [JsonSerializable(typeof(CompactionSnapshot))]
+[JsonSerializable(typeof(ChatMessage), TypeInfoPropertyName = "MicrosoftExtensionsAIChatMessage")]
+[JsonSerializable(typeof(IReadOnlyList<ChatMessage>), TypeInfoPropertyName = "IReadOnlyListMicrosoftExtensionsAIChatMessage")]
 [JsonSerializable(typeof(CompactionStrategyOptions))]
 [JsonSerializable(typeof(MessageCountingCompactionOptions))]
 [JsonSerializable(typeof(SummarizingCompactionOptions))]

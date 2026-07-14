@@ -48,6 +48,13 @@ public class CompactionMiddleware : IAgentMiddleware
             return;
         }
 
+        var hrState = context.GetMiddlewareState<CompactionStateData>();
+        if (policy.Mode == CompactionRunMode.Auto &&
+            TryApplyCachedCompaction(context, hrState?.LastCompaction, startTime, policy))
+        {
+            return;
+        }
+
         var strategy = ResolveStrategy(policy.Strategy, context.RunConfig);
         if (strategy == null)
         {
@@ -60,7 +67,6 @@ public class CompactionMiddleware : IAgentMiddleware
             return;
         }
 
-        var hrState = context.GetMiddlewareState<CompactionStateData>();
         var decision = GetTriggerDecision(context, hrState, policy);
         if (!decision.ShouldReduce)
         {
@@ -261,18 +267,9 @@ public class CompactionMiddleware : IAgentMiddleware
         if (!currentOriginalIds.SequenceEqual(cached.OriginalMessageIds, StringComparer.Ordinal))
             return false;
 
-        var messagesById = conversationMessages
-            .Where(message => !string.IsNullOrWhiteSpace(message.MessageId))
-            .ToDictionary(message => message.MessageId!, StringComparer.Ordinal);
-
-        var modelVisibleMessages = new List<ChatMessage>(cached.ModelVisibleMessageIds.Count);
-        foreach (var messageId in cached.ModelVisibleMessageIds)
-        {
-            if (!messagesById.TryGetValue(messageId, out var message))
-                return false;
-
-            modelVisibleMessages.Add(message);
-        }
+        var modelVisibleMessages = CloneMessages(cached.ModelVisibleMessages);
+        if (modelVisibleMessages.Count == 0)
+            return false;
 
         context.TargetThread.Messages.Clear();
         foreach (var message in systemMessages.Concat(modelVisibleMessages))
@@ -292,6 +289,88 @@ public class CompactionMiddleware : IAgentMiddleware
 
         return true;
     }
+
+    private bool TryApplyCachedCompaction(
+        BeforeMessageTurnContext context,
+        CompactionSnapshot? cached,
+        DateTimeOffset startTime,
+        EffectiveCompactionPolicy policy)
+    {
+        if (cached is null || cached.ModelVisibleMessages.Count == 0)
+            return false;
+
+        var systemMessages = context.ThreadHistory.Where(m => m.Role == ChatRole.System).ToList();
+        var conversationMessages = context.ThreadHistory.Where(m => m.Role != ChatRole.System).ToList();
+        if (!TryGetMessagesAfterCachedOriginalPrefix(conversationMessages, cached, out var newMessages))
+            return false;
+
+        var modelVisibleMessages = CloneMessages(cached.ModelVisibleMessages);
+        context.ThreadHistory.Clear();
+        foreach (var message in systemMessages.Concat(modelVisibleMessages).Concat(newMessages))
+            context.ThreadHistory.Add(message);
+
+        context.UpdateMiddlewareState<CompactionStateData>(state =>
+            state.WithCompactionApplied(DateTimeOffset.UtcNow));
+
+        EmitCompactionEvent(context, CompactionStatus.CacheHit,
+            startTime: startTime,
+            originalMessageCount: conversationMessages.Count,
+            compactedMessageCount: modelVisibleMessages.Count + newMessages.Count,
+            messagesRemoved: cached.ModelCompactedMessageIds.Count,
+            summaryContent: cached.SummaryContent,
+            cacheAge: DateTimeOffset.UtcNow - cached.CreatedAt,
+            reason: "Reused cached compacted context",
+            strategyOptions: policy.Strategy,
+            mode: policy.Mode,
+            behavior: policy.Behavior);
+
+        return true;
+    }
+
+    private static bool TryGetMessagesAfterCachedOriginalPrefix(
+        IReadOnlyList<ChatMessage> conversationMessages,
+        CompactionSnapshot cached,
+        out IReadOnlyList<ChatMessage> newMessages)
+    {
+        newMessages = [];
+        if (cached.OriginalMessageIds.Count == 0 ||
+            conversationMessages.Count < cached.OriginalMessageIds.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < cached.OriginalMessageIds.Count; i++)
+        {
+            if (!string.Equals(
+                    conversationMessages[i].MessageId,
+                    cached.OriginalMessageIds[i],
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        newMessages = conversationMessages
+            .Skip(cached.OriginalMessageIds.Count)
+            .Select(CloneMessage)
+            .ToList();
+        return true;
+    }
+
+    private static IReadOnlyList<ChatMessage> CloneMessages(IEnumerable<ChatMessage> messages) =>
+        messages.Select(CloneMessage).ToList();
+
+    private static ChatMessage CloneMessage(ChatMessage message) =>
+        new(message.Role, message.Contents.ToArray())
+        {
+            MessageId = message.MessageId,
+            AuthorName = message.AuthorName,
+            CreatedAt = message.CreatedAt,
+            RawRepresentation = message.RawRepresentation,
+            AdditionalProperties = message.AdditionalProperties is null
+                ? null
+                : new AdditionalPropertiesDictionary(message.AdditionalProperties)
+        };
 
     private static IReadOnlyList<string> GetMessageIds(IEnumerable<ChatMessage> messages) =>
         messages

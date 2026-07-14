@@ -71,10 +71,9 @@ public sealed record CompactionStateData
 public sealed record CompactionSnapshot
 {
     public IReadOnlyList<string> OriginalMessageIds { get; init; } = [];
-    public IReadOnlyList<string> ModelVisibleMessageIds { get; init; } = [];
+    public IReadOnlyList<ChatMessage> ModelVisibleMessages { get; init; } = [];
     public IReadOnlyList<string> ModelCompactedMessageIds { get; init; } = [];
     public IReadOnlyList<string> RetainedMessageIds { get; init; } = [];
-    public IReadOnlyList<string> ReplacementMessageIds { get; init; } = [];
     public string? SummaryContent { get; init; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 
@@ -82,12 +81,26 @@ public sealed record CompactionSnapshot
         new()
         {
             OriginalMessageIds = GetMessageIds(result.OriginalMessages),
-            ModelVisibleMessageIds = GetMessageIds(result.ModelVisibleMessages),
+            ModelVisibleMessages = CloneMessages(result.ModelVisibleMessages),
             ModelCompactedMessageIds = GetMessageIds(result.ModelCompactedMessages),
             RetainedMessageIds = GetMessageIds(result.RetainedMessages),
-            ReplacementMessageIds = GetMessageIds(result.ReplacementMessages),
             SummaryContent = result.SummaryContent,
             CreatedAt = DateTimeOffset.UtcNow
+        };
+
+    private static IReadOnlyList<ChatMessage> CloneMessages(IEnumerable<ChatMessage> messages) =>
+        messages.Select(CloneMessage).ToList();
+
+    private static ChatMessage CloneMessage(ChatMessage message) =>
+        new(message.Role, message.Contents.ToArray())
+        {
+            MessageId = message.MessageId,
+            AuthorName = message.AuthorName,
+            CreatedAt = message.CreatedAt,
+            RawRepresentation = message.RawRepresentation,
+            AdditionalProperties = message.AdditionalProperties is null
+                ? null
+                : new AdditionalPropertiesDictionary(message.AdditionalProperties)
         };
 
     private static IReadOnlyList<string> GetMessageIds(IEnumerable<ChatMessage> messages) =>

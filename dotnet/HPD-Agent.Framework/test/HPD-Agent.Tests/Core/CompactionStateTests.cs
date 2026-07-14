@@ -145,10 +145,10 @@ public class CompactionStateTests
         var snapshot = CompactionSnapshot.FromResult(result);
 
         snapshot.OriginalMessageIds.Should().Equal(original.Select(m => m.MessageId));
-        snapshot.ModelVisibleMessageIds.Should().Equal(compacted.Select(m => m.MessageId));
+        snapshot.ModelVisibleMessages.Select(m => m.MessageId).Should().Equal(compacted.Select(m => m.MessageId));
+        snapshot.ModelVisibleMessages.Select(m => m.Text).Should().Equal(compacted.Select(m => m.Text));
         snapshot.ModelCompactedMessageIds.Should().Equal(original.Take(2).Select(m => m.MessageId));
         snapshot.RetainedMessageIds.Should().Equal(original.Skip(2).Select(m => m.MessageId));
-        snapshot.ReplacementMessageIds.Should().ContainSingle(summary.MessageId);
         snapshot.SummaryContent.Should().Be("Handoff summary");
         snapshot.CreatedAt.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(2));
     }
@@ -225,7 +225,7 @@ public class CompactionStateTests
         var snapshot = new CompactionSnapshot
         {
             OriginalMessageIds = ["one"],
-            ModelVisibleMessageIds = ["one"],
+            ModelVisibleMessages = [new ChatMessage(ChatRole.User, "one") { MessageId = "one" }],
             RetainedMessageIds = ["one"]
         };
 
