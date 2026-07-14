@@ -49,9 +49,33 @@ public class CompactionMiddleware : IAgentMiddleware
         }
 
         var hrState = context.GetMiddlewareState<CompactionStateData>();
-        if (policy.Mode == CompactionRunMode.Auto &&
-            TryApplyCachedCompaction(context, hrState?.LastCompaction, startTime, policy))
+        IReadOnlyList<string>? sourceMessageIds = null;
+        var cacheApplied = policy.Mode == CompactionRunMode.Auto &&
+            TryApplyCachedCompaction(
+                context,
+                context.ThreadHistory,
+                hrState?.LastCompaction,
+                startTime,
+                policy,
+                out sourceMessageIds);
+
+        sourceMessageIds ??= GetMessageIds(
+            context.ThreadHistory.Where(message => message.Role != ChatRole.System));
+
+        var decision = GetTriggerDecision(context, hrState, policy);
+        if (!decision.ShouldReduce)
         {
+            if (!cacheApplied)
+            {
+                EmitCompactionEvent(context, CompactionStatus.Skipped,
+                    reason: decision.Description ?? "Compaction threshold not met",
+                    startTime: startTime,
+                    originalMessageCount: context.ThreadHistory.Count,
+                    strategyOptions: policy.Strategy,
+                    mode: policy.Mode,
+                    behavior: policy.Behavior);
+            }
+            TerminateForcedCompactionIfRequested(context, policy);
             return;
         }
 
@@ -60,20 +84,6 @@ public class CompactionMiddleware : IAgentMiddleware
         {
             EmitCompactionEvent(context, CompactionStatus.Skipped,
                 reason: "No compaction strategy is configured", startTime: startTime,
-                strategyOptions: policy.Strategy,
-                mode: policy.Mode,
-                behavior: policy.Behavior);
-            TerminateForcedCompactionIfRequested(context, policy);
-            return;
-        }
-
-        var decision = GetTriggerDecision(context, hrState, policy);
-        if (!decision.ShouldReduce)
-        {
-            EmitCompactionEvent(context, CompactionStatus.Skipped,
-                reason: decision.Description ?? "Compaction threshold not met",
-                startTime: startTime,
-                originalMessageCount: context.ThreadHistory.Count,
                 strategyOptions: policy.Strategy,
                 mode: policy.Mode,
                 behavior: policy.Behavior);
@@ -116,21 +126,14 @@ public class CompactionMiddleware : IAgentMiddleware
         foreach (var message in systemMessages.Concat(result.ModelVisibleMessages))
             context.ThreadHistory.Add(message);
 
-        var snapshot = CompactionSnapshot.FromResult(result);
+        var snapshot = CompactionSnapshot.FromResult(
+            result,
+            sourceMessageIds,
+            hrState?.LastCompaction?.ModelCompactedMessageIds);
         context.UpdateMiddlewareState<CompactionStateData>(state =>
             state.WithCompaction(snapshot));
 
-        if (context.Thread is not null)
-        {
-            var plan = ThreadCompactionPlanner.Plan(context.Thread, result, policy.Retention);
-            if (plan is not null)
-            {
-                var threadCompaction = await ThreadHistoryCompactor
-                    .CompactAsync(context.Thread, plan, cancellationToken)
-                    .ConfigureAwait(false);
-                context.Emit(threadCompaction.CheckpointEvent);
-            }
-        }
+        await ApplyThreadCompactionAsync(context, result, policy, cancellationToken).ConfigureAwait(false);
 
         EmitCompactionEvent(context, CompactionStatus.Performed,
             startTime: startTime,
@@ -149,6 +152,122 @@ public class CompactionMiddleware : IAgentMiddleware
             policy.Behavior == CompactionBehavior.StopAfterCompaction
                 ? "History compaction performed - stopping before model turn"
                 : "History compaction performed - circuit breaker triggered");
+    }
+
+    /// <summary>
+    /// Re-evaluates automatic compaction at the final model-input boundary.
+    /// Tool calls and results can grow context substantially after the message-turn hook,
+    /// so every model iteration must be able to reuse or advance the compacted projection.
+    /// </summary>
+    public async Task BeforeIterationAsync(
+        BeforeIterationContext context,
+        CancellationToken cancellationToken)
+    {
+        var policy = EffectiveCompactionPolicy.Resolve(Config, context.RunConfig);
+        if (policy.Mode != CompactionRunMode.Auto || context.Messages.Count == 0)
+            return;
+
+        var startTime = DateTimeOffset.UtcNow;
+        var hrState = context.GetMiddlewareState<CompactionStateData>();
+        var cacheApplied = TryApplyCachedCompaction(
+            context,
+            context.Messages,
+            hrState?.LastCompaction,
+            startTime,
+            policy,
+            out var sourceMessageIds);
+
+        sourceMessageIds ??= GetMessageIds(
+            context.Messages.Where(message => message.Role != ChatRole.System));
+
+        var lastIterationInputTokens = context.PreviousIterationUsage
+            .LastOrDefault(usage => usage?.InputTokenCount is not null)
+            ?.InputTokenCount;
+        var decision = GetTriggerDecision(
+            policy.Trigger,
+            context.Messages,
+            hrState?.MessageTurnCount ?? 0,
+            lastIterationInputTokens ?? hrState?.LastTurnUsage?.InputTokenCount,
+            policy.ModelContext);
+
+        if (!decision.ShouldReduce)
+            return;
+
+        var strategy = ResolveStrategy(policy.Strategy, context.RunConfig);
+        if (strategy == null)
+            return;
+
+        var systemMessages = context.Messages.Where(message => message.Role == ChatRole.System).ToList();
+        var conversationMessages = context.Messages.Where(message => message.Role != ChatRole.System).ToList();
+
+        EmitCompactionEvent(context, CompactionStatus.Started,
+            reason: decision.Description ?? "Iteration compaction started",
+            startTime: startTime,
+            originalMessageCount: conversationMessages.Count,
+            strategyOptions: policy.Strategy,
+            mode: policy.Mode,
+            behavior: policy.Behavior);
+
+        var result = await strategy.ReduceAsync(conversationMessages, cancellationToken).ConfigureAwait(false);
+        if (result.ModelCompactedMessages.Count == 0)
+        {
+            if (!cacheApplied)
+            {
+                EmitCompactionEvent(context, CompactionStatus.Skipped,
+                    reason: GetNothingToCompactReason(policy.Strategy),
+                    startTime: startTime,
+                    originalMessageCount: conversationMessages.Count,
+                    compactedMessageCount: result.ModelVisibleMessages.Count,
+                    messagesRemoved: 0,
+                    strategyOptions: policy.Strategy,
+                    mode: policy.Mode,
+                    behavior: policy.Behavior);
+            }
+            return;
+        }
+
+        context.Messages.Clear();
+        context.Messages.AddRange(systemMessages);
+        context.Messages.AddRange(result.ModelVisibleMessages);
+
+        var snapshot = CompactionSnapshot.FromResult(
+            result,
+            sourceMessageIds,
+            hrState?.LastCompaction?.ModelCompactedMessageIds);
+        context.UpdateMiddlewareState<CompactionStateData>(state => state.WithCompaction(snapshot));
+
+        if (policy.Retention is CompactThreadHistoryOptions)
+            await ApplyThreadCompactionAsync(context, result, policy, cancellationToken).ConfigureAwait(false);
+
+        EmitCompactionEvent(context, CompactionStatus.Performed,
+            startTime: startTime,
+            originalMessageCount: conversationMessages.Count,
+            compactedMessageCount: result.ModelVisibleMessages.Count,
+            messagesRemoved: result.ModelCompactedMessages.Count,
+            summaryContent: result.SummaryContent,
+            reason: decision.Description,
+            strategyOptions: policy.Strategy,
+            mode: policy.Mode,
+            behavior: policy.Behavior);
+    }
+
+    private async Task ApplyThreadCompactionAsync(
+        HookContext context,
+        CompactionResult result,
+        EffectiveCompactionPolicy policy,
+        CancellationToken cancellationToken)
+    {
+        if (context.Thread is null)
+            return;
+
+        var plan = ThreadCompactionPlanner.Plan(context.Thread, result, policy.Retention);
+        if (plan is null)
+            return;
+
+        var threadCompaction = await ThreadHistoryCompactor
+            .CompactAsync(context.Thread, plan, cancellationToken)
+            .ConfigureAwait(false);
+        context.Emit(threadCompaction.CheckpointEvent);
     }
 
     public Task AfterMessageTurnAsync(
@@ -291,23 +410,42 @@ public class CompactionMiddleware : IAgentMiddleware
     }
 
     private bool TryApplyCachedCompaction(
-        BeforeMessageTurnContext context,
+        HookContext context,
+        List<ChatMessage> messages,
         CompactionSnapshot? cached,
         DateTimeOffset startTime,
-        EffectiveCompactionPolicy policy)
+        EffectiveCompactionPolicy policy,
+        out IReadOnlyList<string>? sourceMessageIds)
     {
+        sourceMessageIds = null;
         if (cached is null || cached.ModelVisibleMessages.Count == 0)
             return false;
 
-        var systemMessages = context.ThreadHistory.Where(m => m.Role == ChatRole.System).ToList();
-        var conversationMessages = context.ThreadHistory.Where(m => m.Role != ChatRole.System).ToList();
+        var cachedModelVisibleIds = GetMessageIds(cached.ModelVisibleMessages).ToHashSet(StringComparer.Ordinal);
+        var systemMessages = messages
+            .Where(message =>
+                message.Role == ChatRole.System &&
+                (string.IsNullOrWhiteSpace(message.MessageId) || !cachedModelVisibleIds.Contains(message.MessageId!)))
+            .ToList();
+        var conversationMessages = messages.Where(message => message.Role != ChatRole.System).ToList();
         if (!TryGetMessagesAfterCachedOriginalPrefix(conversationMessages, cached, out var newMessages))
             return false;
 
+        var sourcePrefixIds = policy.Retention is PreserveThreadHistoryOptions
+            ? cached.OriginalMessageIds
+            : GetMessageIds(cached.ModelVisibleMessages);
+        sourceMessageIds = sourcePrefixIds
+            .Concat(GetMessageIds(newMessages))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
         var modelVisibleMessages = CloneMessages(cached.ModelVisibleMessages);
-        context.ThreadHistory.Clear();
-        foreach (var message in systemMessages.Concat(modelVisibleMessages).Concat(newMessages))
-            context.ThreadHistory.Add(message);
+        var projectedMessages = systemMessages.Concat(modelVisibleMessages).Concat(newMessages).ToList();
+        if (HaveSameMessageIdentity(messages, projectedMessages))
+            return true;
+
+        messages.Clear();
+        messages.AddRange(projectedMessages);
 
         context.UpdateMiddlewareState<CompactionStateData>(state =>
             state.WithCompactionApplied(DateTimeOffset.UtcNow));
@@ -327,23 +465,45 @@ public class CompactionMiddleware : IAgentMiddleware
         return true;
     }
 
+    private static bool HaveSameMessageIdentity(
+        IReadOnlyList<ChatMessage> left,
+        IReadOnlyList<ChatMessage> right) =>
+        left.Count == right.Count &&
+        left.Select(message => message.MessageId)
+            .SequenceEqual(right.Select(message => message.MessageId), StringComparer.Ordinal);
+
     private static bool TryGetMessagesAfterCachedOriginalPrefix(
         IReadOnlyList<ChatMessage> conversationMessages,
         CompactionSnapshot cached,
         out IReadOnlyList<ChatMessage> newMessages)
     {
         newMessages = [];
-        if (cached.OriginalMessageIds.Count == 0 ||
-            conversationMessages.Count < cached.OriginalMessageIds.Count)
+        var cachedOriginalIds = cached.OriginalMessageIds;
+        if (TryGetMessagesAfterPrefix(conversationMessages, cachedOriginalIds, out newMessages))
+            return true;
+
+        var cachedModelVisibleIds = GetMessageIds(
+            cached.ModelVisibleMessages.Where(message => message.Role != ChatRole.System));
+        return TryGetMessagesAfterPrefix(conversationMessages, cachedModelVisibleIds, out newMessages);
+    }
+
+    private static bool TryGetMessagesAfterPrefix(
+        IReadOnlyList<ChatMessage> conversationMessages,
+        IReadOnlyList<string> prefixMessageIds,
+        out IReadOnlyList<ChatMessage> newMessages)
+    {
+        newMessages = [];
+        if (prefixMessageIds.Count == 0 ||
+            conversationMessages.Count < prefixMessageIds.Count)
         {
             return false;
         }
 
-        for (var i = 0; i < cached.OriginalMessageIds.Count; i++)
+        for (var i = 0; i < prefixMessageIds.Count; i++)
         {
             if (!string.Equals(
                     conversationMessages[i].MessageId,
-                    cached.OriginalMessageIds[i],
+                    prefixMessageIds[i],
                     StringComparison.Ordinal))
             {
                 return false;
@@ -351,7 +511,7 @@ public class CompactionMiddleware : IAgentMiddleware
         }
 
         newMessages = conversationMessages
-            .Skip(cached.OriginalMessageIds.Count)
+            .Skip(prefixMessageIds.Count)
             .Select(CloneMessage)
             .ToList();
         return true;
@@ -432,34 +592,53 @@ public class CompactionMiddleware : IAgentMiddleware
                 Description: "Explicitly triggered via RunConfig.Compaction.Mode");
         }
 
-        return GetTriggerDecision(policy.Trigger, context, state, policy.ModelContext);
+        return GetTriggerDecision(
+            policy.Trigger,
+            context.ThreadHistory,
+            state?.MessageTurnCount ?? 0,
+            state?.LastTurnUsage?.InputTokenCount,
+            policy.ModelContext);
     }
 
     private static CompactionTriggerDecision GetTriggerDecision(
         CompactionTriggerOptions trigger,
-        BeforeMessageTurnContext context,
-        CompactionStateData? state,
+        IReadOnlyList<ChatMessage> messages,
+        int messageTurnCount,
+        long? lastInputTokens,
         ModelContextWindowOptions? modelContext)
     {
         return trigger switch
         {
-            CountCompactionTriggerOptions countTrigger => GetCountTriggerDecision(countTrigger, context, state),
-            ContextWindowCompactionTriggerOptions contextTrigger => GetContextWindowTriggerDecision(contextTrigger, state, modelContext),
-            CompositeCompactionTriggerOptions compositeTrigger => GetCompositeTriggerDecision(compositeTrigger, context, state, modelContext),
+            CountCompactionTriggerOptions countTrigger => GetCountTriggerDecision(
+                countTrigger,
+                messages,
+                messageTurnCount,
+                lastInputTokens),
+            ContextWindowCompactionTriggerOptions contextTrigger => GetContextWindowTriggerDecision(
+                contextTrigger,
+                lastInputTokens,
+                modelContext),
+            CompositeCompactionTriggerOptions compositeTrigger => GetCompositeTriggerDecision(
+                compositeTrigger,
+                messages,
+                messageTurnCount,
+                lastInputTokens,
+                modelContext),
             _ => new CompactionTriggerDecision(false, CompactionTriggerReason.None, null, null, "Unknown trigger policy")
         };
     }
 
     private static CompactionTriggerDecision GetCountTriggerDecision(
         CountCompactionTriggerOptions trigger,
-        BeforeMessageTurnContext context,
-        CompactionStateData? state)
+        IReadOnlyList<ChatMessage> messages,
+        int messageTurnCount,
+        long? lastInputTokens)
     {
         var currentCount = trigger.CountingUnit switch
         {
-            HistoryCountingUnit.MessageTurns => state?.MessageTurnCount ?? 0,
-            HistoryCountingUnit.Messages => context.ThreadHistory?.Count ?? 0,
-            _ => state?.MessageTurnCount ?? 0
+            HistoryCountingUnit.MessageTurns => messageTurnCount,
+            HistoryCountingUnit.Messages => messages.Count,
+            _ => messageTurnCount
         };
 
         var triggerCount = trigger.TargetCount + trigger.Threshold;
@@ -469,16 +648,15 @@ public class CompactionMiddleware : IAgentMiddleware
             shouldReduce,
             shouldReduce ? CompactionTriggerReason.CountThreshold : CompactionTriggerReason.None,
             currentCount,
-            state?.LastTurnUsage?.InputTokenCount,
+            lastInputTokens,
             shouldReduce ? $"Count threshold exceeded ({currentCount} > {triggerCount})" : "Count below threshold");
     }
 
     private static CompactionTriggerDecision GetContextWindowTriggerDecision(
         ContextWindowCompactionTriggerOptions trigger,
-        CompactionStateData? state,
+        long? lastInputTokens,
         ModelContextWindowOptions? modelContext)
     {
-        var lastInputTokens = state?.LastTurnUsage?.InputTokenCount;
         var contextWindowSize = trigger.ContextWindowSize
             ?? modelContext?.ContextWindow
             ?? modelContext?.InputTokenLimit;
@@ -517,13 +695,19 @@ public class CompactionMiddleware : IAgentMiddleware
 
     private static CompactionTriggerDecision GetCompositeTriggerDecision(
         CompositeCompactionTriggerOptions trigger,
-        BeforeMessageTurnContext context,
-        CompactionStateData? state,
+        IReadOnlyList<ChatMessage> messages,
+        int messageTurnCount,
+        long? lastInputTokens,
         ModelContextWindowOptions? modelContext)
     {
         foreach (var child in trigger.AnyOf)
         {
-            var decision = GetTriggerDecision(child, context, state, modelContext);
+            var decision = GetTriggerDecision(
+                child,
+                messages,
+                messageTurnCount,
+                lastInputTokens,
+                modelContext);
             if (decision.ShouldReduce)
             {
                 return decision with { Reason = CompactionTriggerReason.Composite };
@@ -534,7 +718,7 @@ public class CompactionMiddleware : IAgentMiddleware
             false,
             CompactionTriggerReason.None,
             null,
-            state?.LastTurnUsage?.InputTokenCount,
+            lastInputTokens,
             "No composite trigger threshold met");
     }
 

@@ -2111,13 +2111,9 @@ public sealed class Agent
                     }
                     else
                     {
-                        // Subsequent iterations (iteration > 0):
-                        // Option 1: Apply compaction if configured and available (optimal tokens)
-                        // Option 2: Use full history (simpler, current default)
-
-                        // For now, use full history (includes tool results from previous iterations)
-                        // Future enhancement: CompactionMiddleware could re-apply compaction
-                        // on every iteration for very long conversations
+                        // Subsequent iterations begin from current loop history. The final
+                        // provider-bound projection is owned by BeforeIteration middleware,
+                        // including cached replay and automatic in-turn compaction.
                         messagesToSend = state.CurrentMessages;
                         messageCountToSend = state.CurrentMessages.Count;
                     }

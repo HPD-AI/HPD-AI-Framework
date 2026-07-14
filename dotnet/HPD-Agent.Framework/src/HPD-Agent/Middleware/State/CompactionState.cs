@@ -45,6 +45,9 @@ public sealed record CompactionStateData
         {
             LastCompaction = compaction,
             MessageTurnCount = 0,
+            LastTurnUsage = null,
+            LastIterationUsage = ImmutableList<UsageDetails?>.Empty,
+            LastUsageObservedAt = null,
             LastAppliedAt = DateTimeOffset.UtcNow
         };
 
@@ -77,12 +80,18 @@ public sealed record CompactionSnapshot
     public string? SummaryContent { get; init; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 
-    public static CompactionSnapshot FromResult(CompactionResult result) =>
+    public static CompactionSnapshot FromResult(
+        CompactionResult result,
+        IReadOnlyList<string>? sourceMessageIds = null,
+        IReadOnlyList<string>? previouslyCompactedMessageIds = null) =>
         new()
         {
-            OriginalMessageIds = GetMessageIds(result.OriginalMessages),
+            OriginalMessageIds = sourceMessageIds ?? GetMessageIds(result.OriginalMessages),
             ModelVisibleMessages = CloneMessages(result.ModelVisibleMessages),
-            ModelCompactedMessageIds = GetMessageIds(result.ModelCompactedMessages),
+            ModelCompactedMessageIds = (previouslyCompactedMessageIds ?? [])
+                .Concat(GetMessageIds(result.ModelCompactedMessages))
+                .Distinct(StringComparer.Ordinal)
+                .ToList(),
             RetainedMessageIds = GetMessageIds(result.RetainedMessages),
             SummaryContent = result.SummaryContent,
             CreatedAt = DateTimeOffset.UtcNow

@@ -316,6 +316,44 @@ public class CompactionMiddlewarePolicyTests
     }
 
     [Fact]
+    public async Task BeforeMessageTurnAsync_AutoModeWithAlreadyCompactedPrefix_ReusesCachedModelVisibleMessages()
+    {
+        var strategy = new CountingCompactionStrategy();
+        var cached = new CompactionSnapshot
+        {
+            OriginalMessageIds = ["old-0", "old-1", "old-2"],
+            ModelVisibleMessages =
+            [
+                Message(ChatRole.Assistant, "summary", "summary-1"),
+                Message(ChatRole.User, "retained-user", "old-2")
+            ],
+            ModelCompactedMessageIds = ["old-0", "old-1"],
+            RetainedMessageIds = ["old-2"],
+            SummaryContent = "summary",
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-1)
+        };
+        var context = CreateContext(
+            new AgentRunConfig(),
+            history:
+            [
+                Message(ChatRole.Assistant, "summary", "summary-1"),
+                Message(ChatRole.User, "retained-user", "old-2"),
+                Message(ChatRole.User, "first-after-compact", "new-3"),
+                Message(ChatRole.Assistant, "first-answer", "new-4"),
+                Message(ChatRole.User, "second-after-compact", "new-5")
+            ]);
+        SeedCompactionState(context, snapshot: cached);
+        var middleware = CreateMiddleware(strategy);
+
+        await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
+
+        strategy.CallCount.Should().Be(0);
+        context.ThreadHistory.Select(static message => message.Text)
+            .Should()
+            .Equal("summary", "retained-user", "first-after-compact", "first-answer", "second-after-compact");
+    }
+
+    [Fact]
     public async Task BeforeMessageTurnAsync_ForceMode_StoresModelVisibleMessagesInSnapshot()
     {
         var strategy = new SyntheticSummaryCompactionStrategy();
@@ -357,6 +395,111 @@ public class CompactionMiddlewarePolicyTests
         context.State.TerminationReason.Should().Contain("stopping before model turn");
     }
 
+    [Fact]
+    public async Task BeforeIterationAsync_HardRetention_EmitsCheckpointAndCompactsLiveThread()
+    {
+        var coordinator = new EventCoordinator();
+        var observed = new List<AgentEvent>();
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var subscription = coordinator.SubscribeAny(evt =>
+        {
+            if (evt is CompactionEvent or ThreadHistoryCompactionCheckpointEvent)
+            {
+                lock (observed)
+                {
+                    observed.Add((AgentEvent)evt);
+                    if (observed.Count == 3)
+                        completed.TrySetResult();
+                }
+            }
+
+            return ValueTask.CompletedTask;
+        });
+
+        var messages = new List<ChatMessage>
+        {
+            Message(ChatRole.User, "old-user", "message-0"),
+            Message(ChatRole.Assistant, "old-assistant", "message-1"),
+            Message(ChatRole.User, "current-user", "message-2")
+        };
+        var thread = new HPD.Agent.Thread("session-1", "main");
+        thread.Messages.AddRange(messages);
+        var context = CreateIterationContext(
+            new AgentRunConfig(),
+            coordinator,
+            messages,
+            thread);
+
+        await CreateIterationMiddleware(
+                new CountingCompactionStrategy(),
+                new CompactThreadHistoryOptions())
+            .BeforeIterationAsync(context, CancellationToken.None);
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        observed.Should().SatisfyRespectively(
+            first => first.Should().BeOfType<CompactionEvent>()
+                .Which.Status.Should().Be(CompactionStatus.Started),
+            second => second.Should().BeOfType<ThreadHistoryCompactionCheckpointEvent>()
+                .Which.Mode.Should().Be(ThreadHistoryCompactionMode.Hard),
+            third => third.Should().BeOfType<CompactionEvent>()
+                .Which.Status.Should().Be(CompactionStatus.Performed));
+        context.Messages.Select(static message => message.Text)
+            .Should()
+            .Equal("current-user");
+        thread.Messages.Select(static message => message.Text)
+            .Should()
+            .Equal("current-user");
+    }
+
+    [Fact]
+    public async Task BeforeIterationAsync_SoftRetention_DoesNotEmitThreadCheckpoint()
+    {
+        var coordinator = new EventCoordinator();
+        var observed = new List<AgentEvent>();
+        using var subscription = coordinator.SubscribeAny(evt =>
+        {
+            if (evt is CompactionEvent or ThreadHistoryCompactionCheckpointEvent)
+            {
+                lock (observed)
+                {
+                    observed.Add((AgentEvent)evt);
+                }
+            }
+
+            return ValueTask.CompletedTask;
+        });
+
+        var messages = new List<ChatMessage>
+        {
+            Message(ChatRole.User, "old-user", "message-0"),
+            Message(ChatRole.Assistant, "old-assistant", "message-1"),
+            Message(ChatRole.User, "current-user", "message-2")
+        };
+        var thread = new HPD.Agent.Thread("session-1", "main");
+        thread.Messages.AddRange(messages);
+        var context = CreateIterationContext(
+            new AgentRunConfig(),
+            coordinator,
+            messages,
+            thread);
+
+        await CreateIterationMiddleware(
+                new CountingCompactionStrategy(),
+                new PreserveThreadHistoryOptions())
+            .BeforeIterationAsync(context, CancellationToken.None);
+
+        observed.OfType<ThreadHistoryCompactionCheckpointEvent>().Should().BeEmpty();
+        observed.OfType<CompactionEvent>().Select(static evt => evt.Status)
+            .Should()
+            .Equal(CompactionStatus.Started, CompactionStatus.Performed);
+        context.Messages.Select(static message => message.Text)
+            .Should()
+            .Equal("current-user");
+        thread.Messages.Select(static message => message.Text)
+            .Should()
+            .Equal("old-user", "old-assistant", "current-user");
+    }
+
     private static BeforeMessageTurnContext CreateContext(
         AgentRunConfig runConfig,
         EventCoordinator? eventCoordinator = null,
@@ -380,6 +523,22 @@ public class CompactionMiddlewarePolicyTests
         return context.AsBeforeMessageTurn(
             new ChatMessage(ChatRole.User, "Test message"),
             history,
+            runConfig);
+    }
+
+    private static BeforeIterationContext CreateIterationContext(
+        AgentRunConfig runConfig,
+        EventCoordinator eventCoordinator,
+        List<ChatMessage> messages,
+        HPD.Agent.Thread thread)
+    {
+        var context = MiddlewareTestHelpers.CreateAgentContext(
+            eventCoordinator: eventCoordinator,
+            thread: thread);
+        return context.AsBeforeIteration(
+            iteration: 1,
+            messages,
+            new ChatOptions(),
             runConfig);
     }
 
@@ -418,6 +577,27 @@ public class CompactionMiddlewarePolicyTests
                     TargetCount = 1,
                     Threshold = 0
                 }
+            }
+        };
+
+    private static CompactionMiddleware CreateIterationMiddleware(
+        ICompactionStrategy strategy,
+        CompactionRetentionOptions retention) =>
+        new()
+        {
+            Strategy = strategy,
+            StrategyFactory = (_, _) => strategy,
+            Config = new CompactionConfig
+            {
+                Enabled = true,
+                Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 },
+                Trigger = new CountCompactionTriggerOptions
+                {
+                    CountingUnit = HistoryCountingUnit.Messages,
+                    TargetCount = 1,
+                    Threshold = 0
+                },
+                Retention = retention
             }
         };
 
