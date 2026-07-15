@@ -1,8 +1,11 @@
 using HPD.Agent;
+using HPD.Agent.Middleware;
 using HPD.Agent.Serialization;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Sandbox.Local;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using System.Text.Json;
 
 var appsettingsPath = ResolveAppSettingsPath();
@@ -19,6 +22,11 @@ var agentBuilder = CreateAgentBuilder(options.ConfigPath)
     .WithHarnessCollapsing()
     .WithToolHarness<CodingToolHarness>();
 
+ConfigureDefaultCompaction(agentBuilder);
+
+var sessionStorePath = ResolveProjectSessionStorePath();
+agentBuilder.WithSessionStore(sessionStorePath);
+
 if (string.IsNullOrWhiteSpace(options.ConfigPath))
 {
     agentBuilder.WithName("Coding CLI Test Agent");
@@ -28,6 +36,29 @@ if (!TryConfigureProvider(agentBuilder, options, appsettingsPath, out var provid
 {
     Console.Error.WriteLine(providerError);
     return 2;
+}
+
+using var loggerFactory = options.EnableLogging
+    ? LoggerFactory.Create(logging =>
+    {
+        logging.SetMinimumLevel(options.VerboseLogging ? LogLevel.Trace : LogLevel.Information);
+        logging.AddProvider(new CodingCliLoggerProvider(options.VerboseLogging));
+    })
+    : null;
+
+if (options.EnableLogging)
+{
+    Trace.Listeners.Add(new TextWriterTraceListener(Console.Error));
+    Trace.AutoFlush = true;
+}
+
+if (loggerFactory is not null)
+{
+    agentBuilder.WithLogging(
+        loggerFactory,
+        options: options.VerboseLogging
+            ? LoggingMiddlewareOptions.Verbose
+            : LoggingMiddlewareOptions.Minimal);
 }
 
 var agent = await agentBuilder.BuildAsync();
@@ -117,6 +148,20 @@ using var turnFinishedSubscription = agent.Subscribe<MessageTurnFinishedEvent>(e
         ConsoleColor.Blue,
         $"[turn:end] {evt.AgentName} {evt.MessageTurnId} duration={evt.Duration.TotalMilliseconds:0}ms");
 });
+using var compactionSubscription = agent.Subscribe<CompactionEvent>(evt =>
+{
+    CliConsole.WriteErrorLine(
+        ConsoleColor.DarkCyan,
+        $"[compact:{evt.Status}] mode={evt.Mode} behavior={evt.Behavior} strategy={evt.Strategy} " +
+        $"compacted={evt.CompactedMessageCount?.ToString() ?? "-"} removed={evt.MessagesRemoved?.ToString() ?? "-"} " +
+        $"reason={evt.Reason ?? "-"}");
+});
+using var compactionCheckpointSubscription = agent.Subscribe<ThreadHistoryCompactionCheckpointEvent>(evt =>
+{
+    CliConsole.WriteErrorLine(
+        ConsoleColor.DarkCyan,
+        $"[compact:checkpoint] id={evt.CompactionId} model_removed={evt.ModelCompactedMessageIds.Count} durable_removed={evt.DurableCompactedMessageIds.Count} summary={Preview(evt.SummaryContent, 240)}");
+});
 using var toolStartSubscription = agent.Subscribe<ToolCallStartEvent>(evt =>
 {
     CliConsole.WriteErrorLine(
@@ -160,7 +205,10 @@ using var errorSubscription = agent.SubscribeAny(evt =>
 await EnsureSessionAsync(agent, options.SessionId);
 CliConsole.WriteErrorLine(
     ConsoleColor.DarkCyan,
-    $"Interactive coding CLI started. session={options.SessionId} thread={options.ThreadId}. Type exit or quit to leave.");
+    $"Interactive coding CLI started. session={options.SessionId} thread={options.ThreadId}. Type compact, exit, or quit.");
+CliConsole.WriteErrorLine(
+    ConsoleColor.DarkCyan,
+    $"Session store: {sessionStorePath}");
 CliConsole.WriteErrorLine(
     ConsoleColor.DarkCyan,
     "Execution profile: local HPD sandbox backend");
@@ -186,6 +234,23 @@ while (true)
         break;
     }
 
+    if (IsCompactCommand(prompt, out var hardRetention))
+    {
+        try
+        {
+            await RunManualCompactionAsync(agent, options, hardRetention);
+        }
+        catch (Exception ex)
+        {
+            CliConsole.WriteErrorLine(ConsoleColor.Red, $"[compact:error] {ex.Message}");
+            if (ex.InnerException is not null)
+                CliConsole.WriteErrorLine(ConsoleColor.DarkRed, $"{ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+        }
+
+        prompt = null;
+        continue;
+    }
+
     if (!string.IsNullOrWhiteSpace(prompt))
     {
         try
@@ -204,6 +269,81 @@ while (true)
 }
 
 return 0;
+
+static void ConfigureDefaultCompaction(AgentBuilder builder)
+{
+    builder.Config.Compaction ??= new CompactionConfig();
+    builder.Config.Compaction.Enabled = true;
+    builder.Config.Compaction.Strategy = new SummarizingCompactionOptions
+    {
+        PreserveRecentUserTurnCount = 0,
+        ResummarizeAfterNewMessages = 1,
+        SummaryStyle = SummaryStyle.Handoff
+    };
+    builder.Config.Compaction.Trigger = new CountCompactionTriggerOptions
+    {
+        CountingUnit = HistoryCountingUnit.MessageTurns,
+        TargetCount = 2,
+        Threshold = 0
+    };
+    builder.Config.Compaction.Retention = new CompactThreadHistoryOptions
+    {
+        Boundary = new IncludeMessageTurnBoundaryOptions()
+    };
+    builder.Config.Compaction.Behavior = CompactionBehavior.Continue;
+}
+
+static bool IsCompactCommand(string prompt, out bool hardRetention)
+{
+    hardRetention = true;
+    var parts = prompt.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    if (parts.Length == 0 || !string.Equals(parts[0], "compact", StringComparison.OrdinalIgnoreCase))
+        return false;
+
+    if (parts.Length > 1 && string.Equals(parts[1], "soft", StringComparison.OrdinalIgnoreCase))
+        hardRetention = false;
+
+    return true;
+}
+
+static async Task RunManualCompactionAsync(
+    Agent agent,
+    CodingCliOptions options,
+    bool hardRetention)
+{
+    var runConfig = new AgentRunConfig
+    {
+        Compaction = new CompactionRunConfig
+        {
+            Mode = CompactionRunMode.Force,
+            Behavior = CompactionBehavior.StopAfterCompaction,
+            Strategy = new SummarizingCompactionOptions
+            {
+                PreserveRecentUserTurnCount = 0,
+                ResummarizeAfterNewMessages = 1,
+                SummaryStyle = SummaryStyle.Handoff
+            },
+            Retention = hardRetention
+                ? new CompactThreadHistoryOptions
+                {
+                    Boundary = new IncludeMessageTurnBoundaryOptions()
+                }
+                : new PreserveThreadHistoryOptions()
+        }
+    };
+
+    CliConsole.WriteErrorLine(
+        ConsoleColor.DarkCyan,
+        $"[compact:manual] retention={(hardRetention ? "hard" : "soft")} behavior=StopAfterCompaction");
+
+    await agent.RunAsync(new UserMessagesInputEvent
+    {
+        Messages = [],
+        SessionId = options.SessionId,
+        ThreadId = options.ThreadId,
+        RunConfig = runConfig
+    });
+}
 
 static async Task EnsureSessionAsync(Agent agent, string sessionId)
 {
@@ -307,6 +447,35 @@ static string? ResolveAppSettingsPath()
     return candidates.FirstOrDefault(File.Exists);
 }
 
+static string ResolveProjectSessionStorePath()
+{
+    var root = ResolveProjectRoot() ?? Directory.GetCurrentDirectory();
+    return Path.Combine(root, ".hpd-agent-coding-cli-sessions");
+}
+
+static string? ResolveProjectRoot()
+{
+    var current = new DirectoryInfo(Directory.GetCurrentDirectory());
+    while (current is not null)
+    {
+        if (File.Exists(Path.Combine(current.FullName, "HPDOS.slnx")))
+            return current.FullName;
+
+        current = current.Parent;
+    }
+
+    current = new DirectoryInfo(AppContext.BaseDirectory);
+    while (current is not null)
+    {
+        if (File.Exists(Path.Combine(current.FullName, "HPDOS.slnx")))
+            return current.FullName;
+
+        current = current.Parent;
+    }
+
+    return null;
+}
+
 static bool TryGetStringProperty(JsonElement element, string name, out string value)
 {
     value = string.Empty;
@@ -341,10 +510,18 @@ static void PrintUsage()
       dotnet run --project test/HPD-Agent.CodingCli -- --model deepseek/deepseek-v4-pro "Read README.md"
       dotnet run --project test/HPD-Agent.CodingCli -- --config coding-agent.yaml --list-tools
       dotnet run --project test/HPD-Agent.CodingCli
+      dotnet run --project test/HPD-Agent.CodingCli -- --log
+
+    Interactive commands:
+      compact           Force hard compaction and stop before the next model turn.
+      compact hard      Same as compact.
+      compact soft      Force model-visible compaction while preserving durable history.
 
     Options:
       --config VALUE     JSON/YAML AgentConfig file to load before CLI defaults are applied.
       --list-tools       Print registered coding toolharness tool names.
+      --log              Enable normal ILogger output from .WithLogging().
+      --log-verbose      Enable verbose ILogger output from .WithLogging().
       --model VALUE      OpenRouter model id. Defaults to OPENROUTER_MODEL or deepseek/deepseek-v4-pro.
       --session VALUE    Session id. Defaults to coding-cli-session.
       --thread VALUE     Thread id. Defaults to main.
@@ -355,22 +532,22 @@ static void PrintUsage()
 static string FormatToolResult(ToolResultPayload result) =>
     result.Text ?? result.Json?.GetRawText() ?? string.Empty;
 
-// static string Preview(string? value, int maxLength = 500)
-// {
-//     if (string.IsNullOrWhiteSpace(value))
-//         return string.Empty;
-//
-//     var normalized = NormalizeSingleLine(value);
-//
-//     return normalized.Length <= maxLength
-//         ? normalized
-//         : $"{normalized[..maxLength]}...";
-// }
-//
-// static string NormalizeSingleLine(string value) =>
-//     value
-//         .ReplaceLineEndings(" ")
-//         .Trim();
+static string Preview(string? value, int maxLength = 500)
+{
+    if (string.IsNullOrWhiteSpace(value))
+        return string.Empty;
+
+    var normalized = NormalizeSingleLine(value);
+
+    return normalized.Length <= maxLength
+        ? normalized
+        : $"{normalized[..maxLength]}...";
+}
+
+static string NormalizeSingleLine(string value) =>
+    value
+        .ReplaceLineEndings(" ")
+        .Trim();
 
 file sealed record CodingCliOptions(
     string? Prompt,
@@ -379,6 +556,8 @@ file sealed record CodingCliOptions(
     string SessionId,
     string ThreadId,
     bool ListTools,
+    bool EnableLogging,
+    bool VerboseLogging,
     bool ShowHelp)
 {
     public static CodingCliOptions Parse(string[] args)
@@ -389,6 +568,8 @@ file sealed record CodingCliOptions(
         var sessionId = "coding-cli-session";
         var threadId = "main";
         var listTools = false;
+        var enableLogging = false;
+        var verboseLogging = false;
         var showHelp = false;
 
         for (var i = 0; i < args.Length; i++)
@@ -400,6 +581,13 @@ file sealed record CodingCliOptions(
                     break;
                 case "--list-tools":
                     listTools = true;
+                    break;
+                case "--log":
+                    enableLogging = true;
+                    break;
+                case "--log-verbose":
+                    enableLogging = true;
+                    verboseLogging = true;
                     break;
                 case "--config" when i + 1 < args.Length:
                     configPath = args[++i];
@@ -419,8 +607,77 @@ file sealed record CodingCliOptions(
             }
         }
 
-        return new CodingCliOptions(prompt, configPath, model, sessionId, threadId, listTools, showHelp);
+        return new CodingCliOptions(prompt, configPath, model, sessionId, threadId, listTools, enableLogging, verboseLogging, showHelp);
     }
+}
+
+file sealed class CodingCliLoggerProvider(bool verbose) : ILoggerProvider
+{
+    public ILogger CreateLogger(string categoryName)
+        => new CodingCliLogger(categoryName, verbose);
+
+    public void Dispose()
+    {
+    }
+}
+
+file sealed class CodingCliLogger(string categoryName, bool verbose) : ILogger
+{
+    public IDisposable? BeginScope<TState>(TState state)
+        where TState : notnull
+        => null;
+
+    public bool IsEnabled(LogLevel logLevel)
+    {
+        if (IsNoisyCategory(categoryName))
+            return logLevel >= LogLevel.Warning;
+
+        return verbose || logLevel >= LogLevel.Information;
+    }
+
+    public void Log<TState>(
+        LogLevel logLevel,
+        EventId eventId,
+        TState state,
+        Exception? exception,
+        Func<TState, Exception?, string> formatter)
+    {
+        if (!IsEnabled(logLevel))
+            return;
+
+        var message = formatter(state, exception);
+        if (string.IsNullOrWhiteSpace(message) && exception is null)
+            return;
+
+        var color = logLevel switch
+        {
+            LogLevel.Trace => ConsoleColor.DarkGray,
+            LogLevel.Debug => ConsoleColor.DarkGray,
+            LogLevel.Information => ConsoleColor.DarkBlue,
+            LogLevel.Warning => ConsoleColor.DarkYellow,
+            LogLevel.Error or LogLevel.Critical => ConsoleColor.Red,
+            _ => ConsoleColor.DarkBlue
+        };
+
+        CliConsole.WriteErrorLine(
+            color,
+            $"[log:{logLevel}] {categoryName}: {Normalize(message)}");
+        if (exception is not null)
+        {
+            CliConsole.WriteErrorLine(
+                ConsoleColor.DarkRed,
+                $"{exception.GetType().Name}: {exception.Message}");
+        }
+    }
+
+    private static string Normalize(string value)
+        => value
+            .ReplaceLineEndings(" ")
+            .Trim();
+
+    private static bool IsNoisyCategory(string category)
+        => string.Equals(category, "HPD.Agent.Middleware.LoggingMiddleware", StringComparison.Ordinal) ||
+           string.Equals(category, "HPD.Agent.LoggingEventObserver", StringComparison.Ordinal);
 }
 
 file static class CliConsole

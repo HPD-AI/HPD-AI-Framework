@@ -162,6 +162,11 @@ public sealed class PromptController
     private void InsertPaste(string text)
     {
         var wordCount = CountWords(text);
+        if (wordCount == 0)
+        {
+            return;
+        }
+
         var display = wordCount == 1
             ? "(pasted 1 word)"
             : $"(pasted {wordCount} words)";

@@ -171,6 +171,32 @@ public sealed class CommandAndPromptTests
     }
 
     [Fact]
+    public void PromptController_EmptyPasteDoesNotCorruptSlashCommandDraft()
+    {
+        var model = new PromptModel();
+        var controller = new PromptController(model);
+
+        controller.HandleInput(new KeyEvent(KeyCode.Character, new Rune('/')));
+        controller.HandleInput(new KeyEvent(KeyCode.Paste, Text: ""));
+
+        Assert.Equal("/", model.Value);
+        Assert.Equal("/", model.SubmittedValue);
+    }
+
+    [Fact]
+    public void PromptController_WhitespacePasteDoesNotCorruptSlashCommandDraft()
+    {
+        var model = new PromptModel();
+        var controller = new PromptController(model);
+
+        controller.HandleInput(new KeyEvent(KeyCode.Character, new Rune('/')));
+        controller.HandleInput(new KeyEvent(KeyCode.Paste, Text: "\n"));
+
+        Assert.Equal("/", model.Value);
+        Assert.Equal("/", model.SubmittedValue);
+    }
+
+    [Fact]
     public void PromptController_PasteMarkerEditsAsAtomicPart()
     {
         var model = new PromptModel();

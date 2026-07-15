@@ -358,7 +358,7 @@ internal static class StreamingEndpoints
             AgentServiceStatus.Success when accepted => TypedResults.Accepted(string.Empty),
             AgentServiceStatus.Success => TypedResults.Ok(),
             AgentServiceStatus.NotFound => TypedResults.NotFound(),
-            AgentServiceStatus.Conflict => TypedResults.Conflict(),
+            AgentServiceStatus.Conflict => ConflictProblem(result),
             AgentServiceStatus.ValidationError => TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 [result.ErrorCode ?? "ValidationError"] = result.ErrorMessages?.ToArray()
@@ -374,7 +374,7 @@ internal static class StreamingEndpoints
         {
             AgentServiceStatus.Success => TypedResults.Accepted(string.Empty, result.Value),
             AgentServiceStatus.NotFound => TypedResults.NotFound(),
-            AgentServiceStatus.Conflict => TypedResults.Conflict(),
+            AgentServiceStatus.Conflict => ConflictProblem(result),
             AgentServiceStatus.ValidationError => TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 [result.ErrorCode ?? "ValidationError"] = result.ErrorMessages?.ToArray()
@@ -390,7 +390,7 @@ internal static class StreamingEndpoints
         {
             AgentServiceStatus.Success => TypedResults.Ok(result.Value),
             AgentServiceStatus.NotFound => TypedResults.NotFound(),
-            AgentServiceStatus.Conflict => TypedResults.Conflict(),
+            AgentServiceStatus.Conflict => ConflictProblem(result),
             AgentServiceStatus.ValidationError => TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
                 [result.ErrorCode ?? "ValidationError"] = result.ErrorMessages?.ToArray()
@@ -399,6 +399,20 @@ internal static class StreamingEndpoints
             _ => TypedResults.StatusCode(StatusCodes.Status500InternalServerError)
         };
     }
+
+    private static IResult ConflictProblem(AgentServiceResult result)
+        => Results.Json(new Dictionary<string, string[]>
+        {
+            [result.ErrorCode ?? "Conflict"] = result.ErrorMessages?.ToArray()
+                ?? [result.ErrorMessage ?? "The requested operation conflicts with the current thread state."]
+        }, statusCode: StatusCodes.Status409Conflict);
+
+    private static IResult ConflictProblem<T>(AgentServiceResult<T> result)
+        => Results.Json(new Dictionary<string, string[]>
+        {
+            [result.ErrorCode ?? "Conflict"] = result.ErrorMessages?.ToArray()
+                ?? [result.ErrorMessage ?? "The requested operation conflicts with the current thread state."]
+        }, statusCode: StatusCodes.Status409Conflict);
 
     private static async Task<string?> ReceiveTextMessageAsync(
         WebSocket webSocket,

@@ -61,6 +61,23 @@ public class LoggingMiddlewareOptions
     public int MaxStringLength { get; set; } = 1000;
 
     /// <summary>
+    /// Maximum number of model-visible messages to log at iteration start.
+    /// 0 = unlimited.
+    /// </summary>
+    public int MaxLoggedMessages { get; set; } = 3;
+
+    /// <summary>
+    /// Maximum length for each logged model-visible message preview.
+    /// 0 = unlimited.
+    /// </summary>
+    public int MessagePreviewLength { get; set; } = 100;
+
+    /// <summary>
+    /// Log compaction middleware state during iteration logging.
+    /// </summary>
+    public bool LogCompactionDetails { get; set; } = true;
+
+    /// <summary>
     /// Log toolharness expansion and collapse events (when a [Collapse] toolharness is called by the LLM).
     /// Includes: toolharness name, functions being expanded into scope, timing.
     /// </summary>
@@ -101,7 +118,10 @@ public class LoggingMiddlewareOptions
         IncludeResults = true,
         IncludeTiming = true,
         IncludeInstructions = true,
-        MaxStringLength = 0 // unlimited
+        MaxStringLength = 0, // unlimited
+        MaxLoggedMessages = 0, // unlimited
+        MessagePreviewLength = 0,
+        LogCompactionDetails = true
     };
 }
 
@@ -262,23 +282,30 @@ public class LoggingMiddleware : IAgentMiddleware
             sb.AppendLine($"  Additional Instructions: {additional}");
         }
 
+        if (_options.LogCompactionDetails)
+        {
+            AppendCompactionDetails(sb, context);
+        }
+
         // Show messages being sent to LLM (helps debug middleware injections like EnvironmentContextMiddleware)
         if (context.Messages != null && context.Messages.Count > 0)
         {
             sb.AppendLine($"  Messages to send to LLM: {context.Messages.Count}");
-            // Show first 3 messages with truncated content
-            foreach (var msg in context.Messages.Take(3))
+            var messagesToLog = _options.MaxLoggedMessages <= 0
+                ? context.Messages
+                : context.Messages.Take(_options.MaxLoggedMessages);
+            foreach (var msg in messagesToLog)
             {
                 var roleStr = msg.Role.ToString();
                 var textPreview = msg.Text != null
-                    ? (msg.Text.Length > 100 ? msg.Text.Substring(0, 100) + "..." : msg.Text)
+                    ? TruncateMessagePreview(msg.Text)
                     : "<no text>";
                 var contentCount = msg.Contents?.Count ?? 0;
-                sb.AppendLine($"    - [{roleStr}] {textPreview} ({contentCount} content items)");
+                sb.AppendLine($"    - [{roleStr}] id={msg.MessageId ?? "-"} {textPreview} ({contentCount} content items)");
             }
-            if (context.Messages.Count > 3)
+            if (_options.MaxLoggedMessages > 0 && context.Messages.Count > _options.MaxLoggedMessages)
             {
-                sb.AppendLine($"    ... and {context.Messages.Count - 3} more messages");
+                sb.AppendLine($"    ... and {context.Messages.Count - _options.MaxLoggedMessages} more messages");
             }
         }
 
@@ -474,6 +501,61 @@ public class LoggingMiddleware : IAgentMiddleware
         if (value.Length <= _options.MaxStringLength) return value;
 
         return value.Substring(0, _options.MaxStringLength) + "...";
+    }
+
+    private string TruncateMessagePreview(string value)
+    {
+        var normalized = value.ReplaceLineEndings(" ").Trim();
+        if (_options.MessagePreviewLength <= 0) return normalized;
+        if (normalized.Length <= _options.MessagePreviewLength) return normalized;
+
+        return normalized.Substring(0, _options.MessagePreviewLength) + "...";
+    }
+
+    private static void AppendCompactionDetails(StringBuilder sb, BeforeIterationContext context)
+    {
+        var state = context.GetMiddlewareState<CompactionStateData>();
+        if (state is null)
+        {
+            sb.AppendLine("  Compaction: no state");
+            return;
+        }
+
+        sb.AppendLine("  Compaction:");
+        sb.AppendLine($"    MessageTurnCount: {state.MessageTurnCount}");
+        sb.AppendLine($"    LastAppliedAt: {state.LastAppliedAt?.ToString("O") ?? "-"}");
+        sb.AppendLine($"    LastUsageObservedAt: {state.LastUsageObservedAt?.ToString("O") ?? "-"}");
+
+        var snapshot = state.LastCompaction;
+        if (snapshot is null)
+        {
+            sb.AppendLine("    LastCompaction: none");
+            return;
+        }
+
+        sb.AppendLine($"    SnapshotCreatedAt: {snapshot.CreatedAt:O}");
+        sb.AppendLine($"    OriginalMessageIds: {snapshot.OriginalMessageIds.Count}");
+        sb.AppendLine($"    ModelCompactedMessageIds: {snapshot.ModelCompactedMessageIds.Count}");
+        sb.AppendLine($"    RetainedMessageIds: {snapshot.RetainedMessageIds.Count}");
+        sb.AppendLine($"    ModelVisibleMessages: {snapshot.ModelVisibleMessages.Count}");
+        sb.AppendLine($"    SummaryChars: {snapshot.SummaryContent?.Length ?? 0}");
+
+        if (string.IsNullOrWhiteSpace(snapshot.SummaryContent))
+        {
+            sb.AppendLine("    Warning: summary is empty");
+        }
+        else if (LooksLikeSummarizerInstructions(snapshot.SummaryContent))
+        {
+            sb.AppendLine("    Warning: summary appears to contain summarizer instructions");
+        }
+    }
+
+    private static bool LooksLikeSummarizerInstructions(string value)
+    {
+        return value.Contains("Do not mention", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("next agent", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("summarization process", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("Limit the summary", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string FormatArgs(object? args)

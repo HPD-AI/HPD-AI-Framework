@@ -728,7 +728,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     {
         ArgumentNullException.ThrowIfNull(scope);
 
-        var store = _agent.Config.SessionStore;
+        var store = _agent.Config?.SessionStore;
         var thread = store is null
             ? null
             : await store.LoadThreadAsync(scope.SessionId, scope.ThreadId, cancellationToken)

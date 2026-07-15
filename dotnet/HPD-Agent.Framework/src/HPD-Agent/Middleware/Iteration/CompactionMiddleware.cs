@@ -1,5 +1,6 @@
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
+using System.Text.Json;
 
 namespace HPD.Agent;
 
@@ -130,8 +131,7 @@ public class CompactionMiddleware : IAgentMiddleware
             result,
             sourceMessageIds,
             hrState?.LastCompaction?.ModelCompactedMessageIds);
-        context.UpdateMiddlewareState<CompactionStateData>(state =>
-            state.WithCompaction(snapshot));
+        StoreCompactionState(context, snapshot);
 
         await ApplyThreadCompactionAsync(context, result, policy, cancellationToken).ConfigureAwait(false);
 
@@ -234,7 +234,7 @@ public class CompactionMiddleware : IAgentMiddleware
             result,
             sourceMessageIds,
             hrState?.LastCompaction?.ModelCompactedMessageIds);
-        context.UpdateMiddlewareState<CompactionStateData>(state => state.WithCompaction(snapshot));
+        StoreCompactionState(context, snapshot);
 
         if (policy.Retention is CompactThreadHistoryOptions)
             await ApplyThreadCompactionAsync(context, result, policy, cancellationToken).ConfigureAwait(false);
@@ -267,6 +267,7 @@ public class CompactionMiddleware : IAgentMiddleware
         var threadCompaction = await ThreadHistoryCompactor
             .CompactAsync(context.Thread, plan, cancellationToken)
             .ConfigureAwait(false);
+
         context.Emit(threadCompaction.CheckpointEvent);
     }
 
@@ -344,8 +345,7 @@ public class CompactionMiddleware : IAgentMiddleware
             context.TargetThread.Messages.Add(message);
 
         var snapshot = CompactionSnapshot.FromResult(result);
-        context.UpdateMiddlewareState<CompactionStateData>(state =>
-            state.WithCompaction(snapshot));
+        StoreCompactionState(context, snapshot);
 
         EmitCompactionEvent(context, CompactionStatus.Performed,
             startTime: startTime,
@@ -774,6 +774,42 @@ public class CompactionMiddleware : IAgentMiddleware
                 IsTerminated = true,
                 TerminationReason = reason
             });
+        }
+    }
+
+    private static void StoreCompactionState(
+        HookContext context,
+        CompactionSnapshot snapshot)
+    {
+        var updated = (context.GetMiddlewareState<CompactionStateData>() ?? new CompactionStateData())
+            .WithCompaction(snapshot);
+
+        context.UpdateMiddlewareState<CompactionStateData>(_ => updated);
+        TrySaveCompactionStateToThread(context.Thread, updated);
+    }
+
+    private static void TrySaveCompactionStateToThread(
+        Thread? thread,
+        CompactionStateData state)
+    {
+        if (thread is null)
+            return;
+
+        try
+        {
+            var key = typeof(CompactionStateData).FullName;
+            if (string.IsNullOrWhiteSpace(key))
+                return;
+
+            var json = JsonSerializer.Serialize(
+                state,
+                SessionJsonContext.Default.CompactionStateData);
+            thread.SetMiddlewareState(key, json);
+        }
+        catch
+        {
+            // The generic end-of-turn middleware state flush will still attempt persistence.
+            // Compaction must not fail the user turn if durable cache write-through fails.
         }
     }
 
