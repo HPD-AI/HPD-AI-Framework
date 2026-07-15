@@ -1,7 +1,12 @@
 import { parseErrorResponse } from '../errors.js';
 import { SseParser } from '../parser.js';
 import type { AgentEvent, AgentRunInputEvent, RespondResult, RespondStatus } from '../types/events.js';
-import type { InputSubmissionResult, SubmitInputResult } from '../types/transport.js';
+import type {
+  InputSubmissionResult,
+  InterruptionResult,
+  InterruptionStatus,
+  SubmitInputResult,
+} from '../types/transport.js';
 import { EventTypes } from '../types/events.js';
 import type {
   AgentTransport,
@@ -20,21 +25,22 @@ export class SseTransport implements AgentTransport {
   private sessionId?: string;
   private threadId?: string;
   private abortController?: AbortController;
-  private eventHandler?: (event: AgentEvent) => void;
+  private eventHandler?: (event: AgentEvent) => void | Promise<void>;
   private errorHandler?: (error: Error) => void;
   private closeHandler?: () => void;
-  private _connected = false;
+  private _observing = false;
+  private cursor = 0;
 
   constructor(baseUrl: string, private readonly requestOptions: TransportRequestOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
   }
 
   get connected(): boolean {
-    return this._connected;
+    return this._observing;
   }
 
   async connect(scope?: RuntimeScope): Promise<void> {
-    if (this._connected) {
+    if (this._observing) {
       throw new Error('Already connected. Call disconnect() first.');
     }
 
@@ -50,31 +56,30 @@ export class SseTransport implements AgentTransport {
       throw new Error('SSE connect() requires agentId');
     }
 
+    if (!this.eventHandler) {
+      throw new Error('SSE connect() requires an event handler');
+    }
+
+    const afterSequenceNumber = scope?.afterSequenceNumber ?? 0;
+    if (!Number.isSafeInteger(afterSequenceNumber) || afterSequenceNumber < 0) {
+      throw new Error('SSE afterSequenceNumber must be a non-negative safe integer');
+    }
+    this.cursor = afterSequenceNumber;
+
     this.abortController = new AbortController();
     const signal = scope?.signal
       ? this.combineSignals(scope.signal, this.abortController.signal)
       : this.abortController.signal;
 
-    const response = await this.fetch(
-      `${this.baseUrl}/agents/${this.agentId}/sessions/${this.sessionId}/threads/${this.threadId}/events/live`,
-      {
-        method: 'GET',
-        headers: { Accept: 'text/event-stream' },
-        signal,
-      },
-    );
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => 'Unknown error');
-      throw new Error(`HTTP ${response.status}: ${text}`);
+    this._observing = true;
+    let body: ReadableStream<Uint8Array>;
+    try {
+      body = await this.openStream(signal);
+    } catch (error) {
+      this._observing = false;
+      throw error;
     }
-
-    if (!response.body) {
-      throw new Error('No response body');
-    }
-
-    this._connected = true;
-    void this.processStream(response.body);
+    void this.observeUntilCancelled(body, signal);
   }
 
   async submitInput(input: AgentRunInputEvent, options?: RunTransportOptions): Promise<SubmitInputResult> {
@@ -116,10 +121,10 @@ export class SseTransport implements AgentTransport {
       throw new Error(`HTTP ${response.status}: ${text}`);
     }
 
-    return readInputSubmissionResult(response);
+    return readLifecycleResult(response, input.type === EventTypes.INTERRUPTION_REQUEST);
   }
 
-  onEvent(handler: (event: AgentEvent) => void): void {
+  onEvent(handler: (event: AgentEvent) => void | Promise<void>): void {
     this.eventHandler = handler;
   }
 
@@ -133,7 +138,6 @@ export class SseTransport implements AgentTransport {
 
   disconnect(): void {
     this.abortController?.abort();
-    this._connected = false;
   }
 
   private fetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
@@ -149,29 +153,99 @@ export class SseTransport implements AgentTransport {
     });
   }
 
-  private async processStream(body: ReadableStream<Uint8Array>): Promise<void> {
+  private async openStream(signal: AbortSignal): Promise<ReadableStream<Uint8Array>> {
+    const response = await this.fetch(
+      `${this.baseUrl}/agents/${encodeURIComponent(this.agentId!)}` +
+      `/sessions/${encodeURIComponent(this.sessionId!)}` +
+      `/threads/${encodeURIComponent(this.threadId!)}` +
+      `/events/live?after=${this.cursor}`,
+      {
+        method: 'GET',
+        headers: { Accept: 'text/event-stream' },
+        signal,
+      },
+    );
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => 'Unknown error');
+      throw new Error(`HTTP ${response.status}: ${text}`);
+    }
+
+    if (!response.body) {
+      throw new Error('SSE response did not include a body');
+    }
+
+    return response.body;
+  }
+
+  private async observeUntilCancelled(
+    initialBody: ReadableStream<Uint8Array>,
+    signal: AbortSignal,
+  ): Promise<void> {
+    let body: ReadableStream<Uint8Array> | undefined = initialBody;
+    let retryDelayMs = 250;
+
+    try {
+      while (!signal.aborted) {
+        try {
+          body ??= await this.openStream(signal);
+          await this.processStream(body, signal);
+          body = undefined;
+          retryDelayMs = 250;
+        } catch (error) {
+          body = undefined;
+          if (signal.aborted || (error as DOMException)?.name === 'AbortError') {
+            break;
+          }
+
+          this.errorHandler?.(error instanceof Error ? error : new Error(String(error)));
+          retryDelayMs = Math.min(retryDelayMs * 2, 5_000);
+        }
+
+        if (!signal.aborted) {
+          await delay(retryDelayMs, signal);
+        }
+      }
+    } catch (error) {
+      if (!signal.aborted && (error as DOMException)?.name !== 'AbortError') {
+        this.errorHandler?.(error instanceof Error ? error : new Error(String(error)));
+      }
+    } finally {
+      this._observing = false;
+      this.closeHandler?.();
+    }
+  }
+
+  private async processStream(
+    body: ReadableStream<Uint8Array>,
+    signal: AbortSignal,
+  ): Promise<void> {
     const reader = body.getReader();
     const parser = new SseParser();
 
     try {
-      while (true) {
+      while (!signal.aborted) {
         const { done, value } = await reader.read();
         if (done) {
-          for (const event of parser.flush()) this.eventHandler?.(event);
+          for (const message of parser.flush()) await this.dispatchCommitted(message.id, message.event);
           break;
         }
 
-        for (const event of parser.processChunk(value)) this.eventHandler?.(event);
-      }
-    } catch (error) {
-      if ((error as DOMException)?.name !== 'AbortError') {
-        this.errorHandler?.(error as Error);
+        for (const message of parser.processChunk(value)) {
+          await this.dispatchCommitted(message.id, message.event);
+        }
       }
     } finally {
       reader.releaseLock();
-      this._connected = false;
-      this.closeHandler?.();
     }
+  }
+
+  private async dispatchCommitted(id: string | null, event: AgentEvent): Promise<void> {
+    const sequenceNumber = parseCommittedSequence(id, event.sequenceNumber);
+    if (sequenceNumber <= this.cursor) return;
+
+    await this.eventHandler!(event);
+    this.cursor = sequenceNumber;
   }
 
   private isResponseInput(input: AgentRunInputEvent): boolean {
@@ -286,21 +360,90 @@ function requestIdForResponse(input: AgentRunInputEvent): string {
   return '';
 }
 
-async function readInputSubmissionResult(response: Response): Promise<InputSubmissionResult | undefined> {
+async function readLifecycleResult(
+  response: Response,
+  interruption: boolean,
+): Promise<InputSubmissionResult | InterruptionResult> {
   const text = await response.text().catch(() => '');
-  if (!text.trim()) return undefined;
+  if (!text.trim()) {
+    throw new Error('Lifecycle submission returned an empty response');
+  }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return undefined;
+    throw new Error('Lifecycle submission returned invalid JSON');
   }
 
-  if (!parsed || typeof parsed !== 'object') return undefined;
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Lifecycle submission returned an invalid result');
+  }
+
   const record = parsed as Record<string, unknown>;
-  const runtimeRunId = typeof record.runtimeRunId === 'string' ? record.runtimeRunId : '';
-  return { runtimeRunId };
+  if (interruption) {
+    const status = parseInterruptionStatus(record.status);
+    return {
+      status,
+      activeRun: record.activeRun && typeof record.activeRun === 'object'
+        ? record.activeRun as InterruptionResult['activeRun']
+        : null,
+    };
+  }
+
+  if (typeof record.runtimeRunId !== 'string' || !record.runtimeRunId.trim()) {
+    throw new Error('Input submission did not return runtimeRunId');
+  }
+  if (typeof record.startedAt !== 'string' || !record.startedAt.trim()) {
+    throw new Error('Input submission did not return startedAt');
+  }
+
+  return {
+    runtimeRunId: record.runtimeRunId,
+    startedAt: record.startedAt,
+  };
+}
+
+function parseInterruptionStatus(value: unknown): InterruptionStatus {
+  switch (value) {
+    case 'accepted':
+    case 'already_terminal':
+    case 'no_active_run':
+    case 'active_run_mismatch':
+      return value;
+    default:
+      throw new Error(`Unknown interruption status: ${String(value)}`);
+  }
+}
+
+function parseCommittedSequence(id: string | null, eventSequenceNumber: number | undefined): number {
+  const idSequenceNumber = id !== null && id !== '' ? Number(id) : undefined;
+  if (idSequenceNumber !== undefined &&
+      eventSequenceNumber !== undefined &&
+      idSequenceNumber !== eventSequenceNumber) {
+    throw new Error('SSE id did not match the event sequenceNumber');
+  }
+
+  const sequenceNumber = idSequenceNumber ?? eventSequenceNumber;
+  if (!Number.isSafeInteger(sequenceNumber) || sequenceNumber! <= 0) {
+    throw new Error('SSE event did not include a valid committed sequence');
+  }
+
+  return sequenceNumber!;
+}
+
+function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    const timeout = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, milliseconds);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function normalizeRespondResult(value: unknown, fallbackRequestId: string): RespondResult {

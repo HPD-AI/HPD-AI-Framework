@@ -10,12 +10,6 @@ public interface IAgentThreadRunService
         string threadId,
         CancellationToken cancellationToken = default);
 
-    Task<AgentServiceResult<ThreadRunDto?>> GetActiveRunAsync(
-        string agentId,
-        string sessionId,
-        string threadId,
-        CancellationToken cancellationToken = default);
-
     Task<AgentServiceResult<ThreadRunDto>> GetRunAsync(
         string agentId,
         string sessionId,

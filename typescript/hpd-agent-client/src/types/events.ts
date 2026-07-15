@@ -999,6 +999,7 @@ export interface InterruptionRequestEvent extends AgentInputEvent {
   type: typeof EventTypes.INTERRUPTION_REQUEST;
   reason: string;
   source: InterruptionSource;
+  expectedRuntimeRunId?: string;
 }
 
 // ============================================

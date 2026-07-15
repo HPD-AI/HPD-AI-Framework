@@ -78,7 +78,7 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
     getThread: vi.fn(async () => thread('main')),
     getThreadEvents: vi.fn(async () => events),
     getThreadRuns: vi.fn(async () => []),
-    getActiveThreadRun: vi.fn(async () => null),
+    getThreadState: vi.fn(async () => ({ latestSequenceNumber: events.length, events, activeRun: null })),
     emit: async (event: AgentEvent) => {
       for (const handler of [...handlers]) await handler(event);
     },

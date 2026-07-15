@@ -73,7 +73,7 @@ function fakeClient(messages: ThreadMessage[] = transcript()): AgentClient {
     getThread: vi.fn(async () => thread('fork-1')),
     getThreadEvents: vi.fn(async () => []),
     getThreadRuns: vi.fn(async () => []),
-    getActiveThreadRun: vi.fn(async () => null),
+    getThreadState: vi.fn(async () => ({ latestSequenceNumber: 0, events: [], activeRun: null })),
     getThreadMessages: vi.fn(async () => messages),
     forkThread: vi.fn(async () => thread('fork-1')),
     run: vi.fn(async () => undefined),
@@ -289,6 +289,7 @@ describe('createThreadRevisionState', () => {
       agentId: 'agent',
       sessionId: 's1',
       threadId: 'fork-1',
+      afterSequenceNumber: 0,
       signal: undefined,
     });
     expect(threadState.getSnapshot().connected).toBe(true);

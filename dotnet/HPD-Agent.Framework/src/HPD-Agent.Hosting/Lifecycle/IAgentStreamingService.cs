@@ -18,6 +18,12 @@ public interface IAgentStreamingService
         AgentInputEvent input,
         CancellationToken cancellationToken = default);
 
+    Task<AgentServiceResult<ThreadRuntimeStateDto>> GetThreadStateAsync(
+        string agentId,
+        string sessionId,
+        string threadId,
+        CancellationToken cancellationToken = default);
+
     Task<AgentServiceResult<ThreadContextUsage>> EstimateContextUsageAsync(
         string agentId,
         string sessionId,
@@ -25,10 +31,11 @@ public interface IAgentStreamingService
         AgentRunConfig? runConfig,
         CancellationToken cancellationToken = default);
 
-    Task<AgentServiceResult> InterruptAsync(
+    Task<AgentServiceResult<InterruptionSubmissionDto>> InterruptAsync(
         string agentId,
         string sessionId,
         string threadId,
+        string? expectedRuntimeRunId,
         InterruptionRequestEvent interruption,
         CancellationToken cancellationToken = default);
 

@@ -7,6 +7,7 @@ import {
   type AgentRunInputEvent,
   type ClientToolInvokeOutcome,
   type EventSubscription,
+  type InterruptionResult,
   type PermissionChoice,
   type SubmitInputResult,
   type ToolResultContent,
@@ -47,6 +48,7 @@ class ThreadControllerImpl implements ThreadController {
   private _connected = false;
   private _loading = false;
   private _error: string | null = null;
+  private lastSequenceNumber = 0;
   private optimisticInputIndex = 0;
 
   constructor(options: ThreadControllerOptions) {
@@ -93,6 +95,7 @@ class ThreadControllerImpl implements ThreadController {
         client: this.client,
         ...this.scope,
       }, options);
+      this.lastSequenceNumber = snapshot.latestSequenceNumber;
       this.projection.rehydrate(snapshot);
     } catch (error) {
       this._error = error instanceof Error ? error.message : String(error);
@@ -116,6 +119,7 @@ class ThreadControllerImpl implements ThreadController {
     try {
       await this.client.start({
         ...this.scope,
+        afterSequenceNumber: this.lastSequenceNumber,
         signal: options.signal,
       });
       this._connected = true;
@@ -186,17 +190,35 @@ class ThreadControllerImpl implements ThreadController {
     return this.run(input);
   }
 
-  async interrupt(options: InterruptOptions = {}): Promise<void> {
+  async interrupt(options: InterruptOptions = {}): Promise<InterruptionResult> {
     this.throwIfDisposed();
-    await this.client.submitInput({
+    const state = await this.client.getThreadState(
+      this.scope.agentId,
+      this.scope.sessionId,
+      this.scope.threadId,
+    );
+    if (!state?.activeRun) {
+      return { status: 'no_active_run', activeRun: null };
+    }
+
+    const result = await this.client.submitInput({
       type: EventTypes.INTERRUPTION_REQUEST,
       agentId: this.scope.agentId,
       sessionId: this.scope.sessionId,
       threadId: this.scope.threadId,
+      expectedRuntimeRunId: state.activeRun.runtimeRunId,
       reason: options.reason ?? 'Interrupted by client.',
       source: 'User',
       eventFlowId: options.eventFlowId ?? undefined,
     }, { signal: options.signal });
+    if (!('status' in result) || !isInterruptionStatus(result.status)) {
+      throw new Error('Backend returned a non-interruption result for cancellation.');
+    }
+
+    return {
+      status: result.status,
+      activeRun: 'activeRun' in result ? result.activeRun : null,
+    };
   }
 
   async approve(permissionId: string, choice: PermissionChoice = 'ask'): Promise<SubmitInputResult> {
@@ -204,7 +226,7 @@ class ThreadControllerImpl implements ThreadController {
     const pending = this.projection.getSnapshot().pendingRuntimeRequests
       .find((request): request is PermissionRuntimeRequest =>
         request.kind === 'permission' && request.id === permissionId);
-    if (!pending) return;
+    if (!pending) return missingRequest(permissionId);
 
     return this.run({
       type: EventTypes.PERMISSION_RESPONSE,
@@ -220,7 +242,7 @@ class ThreadControllerImpl implements ThreadController {
     const pending = this.projection.getSnapshot().pendingRuntimeRequests
       .find((request): request is PermissionRuntimeRequest =>
         request.kind === 'permission' && request.id === permissionId);
-    if (!pending) return;
+    if (!pending) return missingRequest(permissionId);
 
     return this.run({
       type: EventTypes.PERMISSION_RESPONSE,
@@ -236,7 +258,7 @@ class ThreadControllerImpl implements ThreadController {
     const pending = this.projection.getSnapshot().pendingRuntimeRequests
       .find((request): request is ClarificationRuntimeRequest =>
         request.kind === 'clarification' && request.id === requestId);
-    if (!pending) return;
+    if (!pending) return missingRequest(requestId);
 
     return this.run({
       type: EventTypes.CLARIFICATION_RESPONSE,
@@ -256,7 +278,7 @@ class ThreadControllerImpl implements ThreadController {
     const pending = this.projection.getSnapshot().pendingRuntimeRequests
       .find((request): request is ClientToolRuntimeRequest =>
         request.kind === 'client-tool' && request.id === requestId);
-    if (!pending) return;
+    if (!pending) return missingRequest(requestId);
 
     const normalized = normalizeClientToolOutcome(requestId, outcome);
 
@@ -334,6 +356,22 @@ class ThreadControllerImpl implements ThreadController {
     this.eventSubscription = null;
     this.errorSubscription = null;
   }
+}
+
+function isInterruptionStatus(value: unknown): value is InterruptionResult['status'] {
+  return value === 'accepted' ||
+    value === 'already_terminal' ||
+    value === 'no_active_run' ||
+    value === 'active_run_mismatch';
+}
+
+function missingRequest(requestId: string): SubmitInputResult {
+  return {
+    status: 'notFound',
+    requestId,
+    message: 'The request is not pending in this thread projection.',
+    accepted: false,
+  };
 }
 
 function stampInputScope(input: AgentRunInputEvent, scope: ThreadController['scope']): AgentRunInputEvent {

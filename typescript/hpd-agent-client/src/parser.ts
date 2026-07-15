@@ -1,5 +1,10 @@
 import type { AgentEvent } from './types/events.js';
 
+export interface SseMessage {
+  id: string | null;
+  event: AgentEvent;
+}
+
 /**
  * Parses SSE stream data.
  * Handles:
@@ -16,12 +21,12 @@ export class SseParser {
    * @param chunk Raw bytes from the stream
    * @returns Array of parsed events (may be empty if event is incomplete)
    */
-  processChunk(chunk: Uint8Array): AgentEvent[] {
+  processChunk(chunk: Uint8Array): SseMessage[] {
     // Decode with stream: true to handle multi-byte UTF-8 split across chunks
     const text = this.decoder.decode(chunk, { stream: true });
     this.buffer += text;
 
-    const events: AgentEvent[] = [];
+    const events: SseMessage[] = [];
     const parts = this.buffer.split('\n\n');
 
     // Keep incomplete event in buffer (last part without trailing \n\n)
@@ -41,7 +46,7 @@ export class SseParser {
    * Flush any remaining data (call on stream end).
    * @returns Array of any remaining events
    */
-  flush(): AgentEvent[] {
+  flush(): SseMessage[] {
     if (!this.buffer.trim()) return [];
 
     // Final decode to handle any remaining bytes
@@ -65,9 +70,10 @@ export class SseParser {
    * Parse a single SSE event block.
    * Handles multi-line data fields by joining them.
    */
-  private parseEvent(eventText: string): AgentEvent | null {
+  private parseEvent(eventText: string): SseMessage | null {
     const lines = eventText.split('\n');
     const dataLines: string[] = [];
+    let id: string | null = null;
 
     for (const line of lines) {
       if (line.startsWith('data: ')) {
@@ -75,8 +81,9 @@ export class SseParser {
       } else if (line.startsWith('data:')) {
         // Handle "data:" without space (edge case)
         dataLines.push(line.slice(5));
+      } else if (line.startsWith('id:')) {
+        id = line.slice(3).trim();
       }
-      // Ignore other SSE fields like event:, id:, retry:
     }
 
     if (dataLines.length === 0) return null;
@@ -85,7 +92,7 @@ export class SseParser {
       // Join multi-line data and parse as JSON
       const json = dataLines.join('\n');
       const parsed = JSON.parse(json);
-      return isAgentEventLike(parsed) ? parsed : null;
+      return isAgentEventLike(parsed) ? { id, event: parsed } : null;
     } catch {
       // Invalid JSON - skip this event
       return null;

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using FluentAssertions;
+using HPD.Agent.Serialization;
 using HPD.Agent.TUI.Runtime;
 
 namespace HPD.Agent.TUI.Tests;
@@ -74,6 +75,49 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             .WithMessage("*restart the backend*current agent event registrations*");
     }
 
+    [Fact]
+    public async Task ObserveAsync_ReconnectsAfterEofUsingLastCommittedSequence()
+    {
+        var first = new ThreadRunStartedEvent("run-1", "agent", DateTimeOffset.UtcNow)
+        {
+            SessionId = "session",
+            ThreadId = "main",
+            SequenceNumber = 1
+        };
+        var second = new ThreadRunCompletedEvent("run-1", "agent", Cancelled: false)
+        {
+            SessionId = "session",
+            ThreadId = "main",
+            SequenceNumber = 2
+        };
+        var handler = new SequentialSseHandler(first, second);
+        using var http = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
+        };
+        await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
+        {
+            BaseAddress = http.BaseAddress
+        });
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var observed = new List<AgentEvent>();
+
+        await foreach (var evt in runtime.ObserveAsync(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            afterSequenceNumber: 0,
+            cancellationToken: timeout.Token))
+        {
+            observed.Add(evt);
+            if (observed.Count == 2)
+            {
+                break;
+            }
+        }
+
+        observed.Select(static evt => evt.SequenceNumber).Should().Equal(1, 2);
+        handler.Requests.Should().Equal("?after=0", "?after=1");
+    }
+
     private sealed class JsonHandler(string json) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
@@ -91,5 +135,27 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             HttpRequestMessage request,
             CancellationToken cancellationToken)
             => Task.FromResult(response);
+    }
+
+    private sealed class SequentialSseHandler(params AgentEvent[] events) : HttpMessageHandler
+    {
+        private int _index;
+
+        public List<string> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add(request.RequestUri?.Query ?? string.Empty);
+            var evt = events[_index++];
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    $"id: {evt.SequenceNumber}\ndata: {AgentEventSerializer.ToJson(evt)}\n\n",
+                    Encoding.UTF8,
+                    "text/event-stream")
+            });
+        }
     }
 }

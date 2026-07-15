@@ -33,7 +33,6 @@
     "ai",
     "streaming",
     "sse",
-    "websocket",
     "typescript"
   ],
   "author": "HPD-AI",

@@ -31,9 +31,8 @@ function fakeClient(): TestAgentClient {
     }),
     onError: vi.fn(() => subscription()),
     getThread: vi.fn(async () => null),
-    getThreadEvents: vi.fn(async () => []),
+    getThreadState: vi.fn(async () => ({ latestSequenceNumber: 0, events: [], activeRun: null })),
     getThreadRuns: vi.fn(async () => []),
-    getActiveThreadRun: vi.fn(async () => null),
     __emit: async (event: never) => {
       for (const handler of handlers) await handler(event);
     },
@@ -54,11 +53,12 @@ describe('createThreadController', () => {
     await controller.start();
 
     expect(client.getThread).toHaveBeenCalledWith('s1', 'main');
-    expect(client.getThreadEvents).toHaveBeenCalledWith('s1', 'main');
+    expect(client.getThreadState).toHaveBeenCalledWith('agent', 's1', 'main');
     expect(client.start).toHaveBeenCalledWith({
       agentId: 'agent',
       sessionId: 's1',
       threadId: 'main',
+      afterSequenceNumber: 0,
       signal: undefined,
     });
   });

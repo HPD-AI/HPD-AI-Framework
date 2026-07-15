@@ -147,7 +147,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Interrupt_ReturnsConflict_WhenThreadHasNoActiveRun()
+    public async Task Interrupt_ReturnsStructuredNoActiveRun()
     {
         var sessionId = await CreateTestSession();
 
@@ -155,7 +155,34 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
             $"/agents/test-agent/sessions/{sessionId}/threads/main/interrupt",
             new { reason = "stop from test" });
 
-        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var result = await response.Content.ReadFromJsonAsync<InterruptionSubmissionDto>();
+        result.Should().BeEquivalentTo(new InterruptionSubmissionDto("no_active_run"));
+    }
+
+    [Fact]
+    public async Task ThreadState_ReturnsHistoryAndOneAuthoritativeCursor()
+    {
+        var sessionId = await CreateTestSession();
+        var response = await PostInputAsync(
+            sessionId,
+            "main",
+            CreateInputJson("state snapshot", clientInputId: "state-input"));
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        await WaitUntilAsync(async () =>
+        {
+            var stateResponse = await _client.GetAsync(
+                $"/agents/test-agent/sessions/{sessionId}/threads/main/state");
+            var state = await stateResponse.Content.ReadFromJsonAsync<ThreadRuntimeStateDto>();
+            return state is { LatestSequenceNumber: > 0 } && state.Events.Count > 0;
+        });
+
+        var finalResponse = await _client.GetAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/state");
+        var finalState = await finalResponse.Content.ReadFromJsonAsync<ThreadRuntimeStateDto>();
+        finalState.Should().NotBeNull();
+        finalState!.LatestSequenceNumber.Should().Be(finalState.Events.Max(static evt => evt.SequenceNumber));
     }
 
     [Fact]

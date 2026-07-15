@@ -5,14 +5,13 @@ export type {
   AgentEventHandler,
   EventSubscription,
   MaybePromise,
-  TransportType,
 } from './client.js';
 
 // Types
 export * from './types/index.js';
 
 // Transports (for advanced usage)
-export { SseTransport, WebSocketTransport } from './transports/index.js';
+export { SseTransport } from './transports/index.js';
 
 // HTTP API
 export { AgentHttpApi } from './api.js';

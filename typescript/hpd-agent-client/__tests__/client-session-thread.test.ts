@@ -455,19 +455,19 @@ describe('AgentClient — session/thread passthroughs', () => {
       expect(result).toEqual(runs);
     });
 
-    it('calls GET /runs/active and returns null on 404', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-        json: async () => null,
-        text: async () => 'Not Found',
-      } as Response);
+    it('calls GET /state and returns history, cursor, and the active run together', async () => {
+      const state = {
+        latestSequenceNumber: 4,
+        activeRun: null,
+        events: [{ type: 'TEXT_DELTA', sequenceNumber: 4, text: 'done', messageId: 'm1' }],
+      };
+      mockFetchJson(state);
 
-      const result = await client.getActiveThreadRun('agent-1', 'sess-1', 'thread-1');
+      const result = await client.getThreadState('agent-1', 'sess-1', 'thread-1');
 
       const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0];
-      expect(String(url)).toBe(`${BASE}/agents/agent-1/sessions/sess-1/threads/thread-1/runs/active`);
-      expect(result).toBeNull();
+      expect(String(url)).toBe(`${BASE}/agents/agent-1/sessions/sess-1/threads/thread-1/state`);
+      expect(result).toEqual(state);
     });
 
     it('calls GET /runs/{runtimeRunId} and returns the run', async () => {

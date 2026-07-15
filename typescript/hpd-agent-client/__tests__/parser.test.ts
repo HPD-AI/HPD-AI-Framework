@@ -12,10 +12,13 @@ describe('SseParser', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
-      version: '1.0',
-      type: 'TEXT_DELTA',
-      text: 'Hello',
-      messageId: 'msg-1',
+      id: null,
+      event: {
+        version: '1.0',
+        type: 'TEXT_DELTA',
+        text: 'Hello',
+        messageId: 'msg-1',
+      },
     });
   });
 
@@ -29,8 +32,8 @@ describe('SseParser', () => {
     const events = parser.processChunk(chunk);
 
     expect(events).toHaveLength(2);
-    expect((events[0] as any).text).toBe('Hello');
-    expect((events[1] as any).text).toBe(' World');
+    expect((events[0].event as any).text).toBe('Hello');
+    expect((events[1].event as any).text).toBe(' World');
   });
 
   it('should handle events split across chunks', () => {
@@ -45,7 +48,7 @@ describe('SseParser', () => {
     const chunk2 = new TextEncoder().encode('DELTA","text":"Hello","messageId":"msg-1"}\n\n');
     const events2 = parser.processChunk(chunk2);
     expect(events2).toHaveLength(1);
-    expect((events2[0] as any).text).toBe('Hello');
+    expect((events2[0].event as any).text).toBe('Hello');
   });
 
   it('should handle UTF-8 split across chunks', () => {
@@ -64,7 +67,7 @@ describe('SseParser', () => {
 
     const events2 = parser.processChunk(chunk2);
     expect(events2).toHaveLength(1);
-    expect((events2[0] as any).text).toBe('Hello 世界');
+    expect((events2[0].event as any).text).toBe('Hello 世界');
   });
 
   it('should handle multi-line data fields', () => {
@@ -78,7 +81,7 @@ describe('SseParser', () => {
     const events = parser.processChunk(chunk);
 
     expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('TEXT_DELTA');
+    expect(events[0].event.type).toBe('TEXT_DELTA');
   });
 
   it('should flush remaining data on stream end', () => {
@@ -93,7 +96,7 @@ describe('SseParser', () => {
     // Flush should return the event
     const events = parser.flush();
     expect(events).toHaveLength(1);
-    expect((events[0] as any).text).toBe('Final');
+    expect((events[0].event as any).text).toBe('Final');
   });
 
   it('should ignore invalid JSON', () => {
@@ -126,33 +129,36 @@ describe('SseParser', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
-      version: '1.0',
-      type: 'THREAD_UPDATED',
-      name: 'Reviewer',
-      threadKind: 'SubAgent',
-      visibility: 'Hidden',
-      parentSessionId: 'session-1',
-      parentThreadId: 'main',
-      subAgentName: 'Reviewer',
-      subAgentRunId: 'run-1',
-      subAgentSourceKind: 'InlineConfig',
-      parentToolCallId: 'call-1',
-      sessionPolicy: 'ParentSession',
-      threadPolicy: 'ForkFromParentThread',
-      forkedFrom: 'main',
-      forkedAtMessageId: 'message-1',
-      forkedAtMessageIndex: 0,
-      childThreads: ['child-1'],
-      ancestors: {
-        main: 'message-1',
-      },
-      threadMetadata: {
-        purpose: 'review',
+      id: null,
+      event: {
+        version: '1.0',
+        type: 'THREAD_UPDATED',
+        name: 'Reviewer',
+        threadKind: 'SubAgent',
+        visibility: 'Hidden',
+        parentSessionId: 'session-1',
+        parentThreadId: 'main',
+        subAgentName: 'Reviewer',
+        subAgentRunId: 'run-1',
+        subAgentSourceKind: 'InlineConfig',
+        parentToolCallId: 'call-1',
+        sessionPolicy: 'ParentSession',
+        threadPolicy: 'ForkFromParentThread',
+        forkedFrom: 'main',
+        forkedAtMessageId: 'message-1',
+        forkedAtMessageIndex: 0,
+        childThreads: ['child-1'],
+        ancestors: {
+          main: 'message-1',
+        },
+        threadMetadata: {
+          purpose: 'review',
+        },
       },
     });
   });
 
-  it('should ignore non-data lines', () => {
+  it('should retain the committed SSE id and ignore unrelated fields', () => {
     const parser = new SseParser();
     const chunk = new TextEncoder().encode(
       'event: message\n' +
@@ -164,7 +170,8 @@ describe('SseParser', () => {
     const events = parser.processChunk(chunk);
 
     expect(events).toHaveLength(1);
-    expect((events[0] as any).text).toBe('Hello');
+    expect(events[0].id).toBe('123');
+    expect((events[0].event as any).text).toBe('Hello');
   });
 
   it('should handle empty chunks', () => {
@@ -183,7 +190,7 @@ describe('SseParser', () => {
 
     const events = parser.processChunk(chunk);
     expect(events).toHaveLength(1);
-    expect((events[0] as any).text).toBe('Hello');
+    expect((events[0].event as any).text).toBe('Hello');
   });
 
   it('should reset parser state', () => {
@@ -202,6 +209,6 @@ describe('SseParser', () => {
     const events = parser.processChunk(chunk);
 
     expect(events).toHaveLength(1);
-    expect((events[0] as any).text).toBe('Fresh');
+    expect((events[0].event as any).text).toBe('Fresh');
   });
 });

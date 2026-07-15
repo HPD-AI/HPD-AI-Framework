@@ -5,9 +5,10 @@ import { EventTypes } from '../src/types/events.js';
 function sseStream(...events: object[]): ReadableStream<Uint8Array> {
   return new ReadableStream({
     start(controller) {
-      const payload = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('');
+      const payload = events
+        .map((event, index) => `id: ${index + 1}\ndata: ${JSON.stringify(event)}\n\n`)
+        .join('');
       controller.enqueue(new TextEncoder().encode(payload));
-      controller.close();
     },
   });
 }
@@ -17,6 +18,17 @@ function okStream(...events: object[]): Response {
     ok: true,
     body: sseStream(...events),
     text: async () => '',
+  } as Response;
+}
+
+function okSubmission(): Response {
+  return {
+    ok: true,
+    body: null,
+    text: async () => JSON.stringify({
+      runtimeRunId: 'run-1',
+      startedAt: '2026-07-15T00:00:00Z',
+    }),
   } as Response;
 }
 
@@ -151,11 +163,7 @@ describe('AgentClient', () => {
 
   it('posts USER_MESSAGES_INPUT events to the scoped inputs endpoint', async () => {
     const client = new AgentClient('http://localhost:5135');
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      body: null,
-      text: async () => '',
-    } as Response);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okSubmission());
 
     const runConfig = { providerKey: 'anthropic', modelId: 'claude-sonnet-4-6' };
     await client.submitInput({
@@ -195,11 +203,7 @@ describe('AgentClient', () => {
       headers: { Authorization: 'Bearer test-token' },
       credentials: 'include',
     });
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      body: null,
-      text: async () => '',
-    } as Response);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okSubmission());
 
     await client.submitInput({
       type: EventTypes.USER_MESSAGES_INPUT,
@@ -226,11 +230,7 @@ describe('AgentClient', () => {
 
   it('keeps relative API base URLs relative for desktop shells', async () => {
     const client = new AgentClient('/api/hpd-agent');
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      body: null,
-      text: async () => '',
-    } as Response);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okSubmission());
 
     await client.submitInput({
       type: EventTypes.USER_MESSAGES_INPUT,
@@ -368,60 +368,7 @@ describe('AgentClient', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('uses WebSocket transport when specified', () => {
-    const client = new AgentClient({
-      baseUrl: 'http://localhost:5135',
-      transport: 'websocket',
-    });
-
-    expect((client as any).transport.constructor.name).toBe('WebSocketTransport');
-  });
-
-  it('resolves relative API base URLs for WebSocket transport', async () => {
-    const urls: string[] = [];
-    class MockWebSocket {
-      static OPEN = 1;
-      static CONNECTING = 0;
-      readyState = MockWebSocket.CONNECTING;
-      onopen?: () => void;
-      onmessage?: (event: { data: string }) => void;
-      onerror?: () => void;
-      onclose?: () => void;
-
-      constructor(url: string) {
-        urls.push(url);
-        queueMicrotask(() => {
-          this.readyState = MockWebSocket.OPEN;
-          this.onopen?.();
-        });
-      }
-
-      send(): void {
-      }
-
-      close(): void {
-        this.onclose?.();
-      }
-    }
-
-    vi.stubGlobal('location', { origin: 'https://hpd.local', protocol: 'https:' });
-    vi.stubGlobal('WebSocket', MockWebSocket);
-
-    const client = new AgentClient({
-      baseUrl: '/api/hpd-agent',
-      transport: 'websocket',
-    });
-
-    await client.start({ agentId: 'agent-1', sessionId: 'session-123', threadId: 'main' });
-
-    expect(urls).toEqual([
-      'wss://hpd.local/api/hpd-agent/agents/agent-1/sessions/session-123/threads/main/ws',
-    ]);
-
-    client.disconnectLive();
-  });
-
-  it('uses SSE transport by default', () => {
+  it('uses the resumable SSE transport', () => {
     const client = new AgentClient('http://localhost:5135');
 
     expect((client as any).transport.constructor.name).toBe('SseTransport');
@@ -457,7 +404,7 @@ describe('AgentClient', () => {
     expect(client.connected).toBe(false);
   });
 
-  it('reports streaming state from transport connection state', async () => {
+  it('remains logically connected while SSE is recovering from EOF', async () => {
     const client = new AgentClient('http://localhost:5135');
 
     expect(client.connected).toBe(false);
@@ -480,6 +427,9 @@ describe('AgentClient', () => {
     expect(client.connected).toBe(true);
 
     await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(client.connected).toBe(true);
+    await client.stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(client.connected).toBe(false);
   });
 });

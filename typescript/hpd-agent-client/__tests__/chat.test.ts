@@ -91,25 +91,30 @@ describe('ChatSession', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       body: null,
-      text: async () => '',
+      text: async () => JSON.stringify({
+        runtimeRunId: 'run-1',
+        startedAt: '2026-07-15T00:00:00Z',
+      }),
     } as Response);
 
     const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
-    await chat.submitMessage({ contents: [{ $type: 'text', text: 'hello' }] });
+    const submission = await chat.submitMessage({ contents: [{ $type: 'text', text: 'hello' }] });
 
     expect(fetchSpy).toHaveBeenCalledWith(
       'http://localhost:5135/agents/a1/sessions/s1/threads/main/inputs',
       expect.objectContaining({ method: 'POST' }),
     );
+    expect(submission.runtimeRunId).toBe('run-1');
     expect(events).toEqual([]);
     chat.dispose();
   });
 
-  it('reads the active thread run through the scoped chat session', async () => {
+  it('reads one authoritative thread state through the scoped chat session', async () => {
     const client = new AgentClient('http://localhost:5135');
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
+    const state = {
+      latestSequenceNumber: 8,
+      events: [],
+      activeRun: {
         runtimeRunId: 'run-1',
         agentId: 'a1',
         sessionId: 's1',
@@ -118,36 +123,82 @@ describe('ChatSession', () => {
         startedAt: '2026-05-28T00:00:00Z',
         backgroundTasks: [],
         backgroundHandles: [],
-      }),
+      },
+    };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: async () => state,
       text: async () => '',
     } as Response);
 
     const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
-    const activeRun = await chat.getActiveRun();
+    const result = await chat.getState();
 
-    expect(activeRun?.runtimeRunId).toBe('run-1');
+    expect(result).toEqual(state);
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/runs/active',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/state',
       expect.objectContaining({ method: 'GET' }),
     );
     chat.dispose();
   });
 
-  it('treats an empty active thread run response as no active run', async () => {
-    const client = new AgentClient('/api/hpd-agent');
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
-      ok: true,
-      text: async () => 'null',
-    } as Response);
+  it('cancels by comparing the authoritative active run ID', async () => {
+    const client = new AgentClient('http://localhost:5135');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          latestSequenceNumber: 8,
+          events: [],
+          activeRun: {
+            runtimeRunId: 'run-1',
+            agentId: 'a1',
+            sessionId: 's1',
+            threadId: 'main',
+            status: 'active',
+            startedAt: '2026-05-28T00:00:00Z',
+            backgroundTasks: [],
+            backgroundHandles: [],
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify({ status: 'accepted', activeRun: null }),
+      } as Response);
 
     const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
-    const activeRun = await chat.getActiveRun();
+    const result = await chat.cancelActiveTurn({ reason: 'stop' });
 
-    expect(activeRun).toBeNull();
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      '/api/hpd-agent/agents/a1/sessions/s1/threads/main/runs/active',
-      expect.objectContaining({ method: 'GET' }),
+    expect(result.status).toBe('accepted');
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/interrupt',
+      expect.objectContaining({
+        body: expect.stringContaining('"expectedRuntimeRunId":"run-1"'),
+      }),
     );
     chat.dispose();
+  });
+
+  it('hydrates state before subscribing after the committed cursor', async () => {
+    const client = new AgentClient('http://localhost:5135');
+    const state = { latestSequenceNumber: 9, activeRun: null, events: [] };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({ ok: true, json: async () => state } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        body: new ReadableStream({ start(controller) { controller.close(); } }),
+        text: async () => '',
+      } as Response);
+    const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
+
+    const hydrated = await chat.subscribeLive();
+
+    expect(hydrated).toEqual(state);
+    expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/state',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events/live?after=9',
+    ]);
+    await chat.disconnectLive();
   });
 });

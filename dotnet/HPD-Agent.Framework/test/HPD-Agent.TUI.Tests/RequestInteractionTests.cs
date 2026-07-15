@@ -338,23 +338,25 @@ public sealed class RequestInteractionTests
 
         public async IAsyncEnumerable<AgentEvent> ObserveAsync(
             AgentTuiRuntimeScope scope,
+            long afterSequenceNumber,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             await Task.CompletedTask;
             yield break;
         }
 
-        public Task SubmitInputAsync(
+        public Task<AgentTuiSubmitResult> SubmitInputAsync(
             AgentTuiRuntimeScope scope,
             AgentInputEvent input,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+            => Task.FromResult(Submitted(scope));
 
-        public Task InterruptAsync(
+        public Task<AgentTuiInterruptResult> InterruptAsync(
             AgentTuiRuntimeScope scope,
+            string? expectedRuntimeRunId,
             string reason,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+            => Task.FromResult(new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted));
 
         public Task AnswerRequestAsync(
             AgentTuiRuntimeScope scope,
@@ -362,14 +364,12 @@ public sealed class RequestInteractionTests
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
-        public Task<IReadOnlyList<AgentEvent>> GetThreadEventsAsync(
+        public Task<AgentTuiThreadState> GetThreadStateAsync(
             AgentTuiRuntimeScope scope,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<AgentEvent>>([]);
+            => Task.FromResult(new AgentTuiThreadState(0, null, []));
 
-        public Task<AgentTuiThreadRun?> GetActiveRunAsync(
-            AgentTuiRuntimeScope scope,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult<AgentTuiThreadRun?>(null);
+        private static AgentTuiSubmitResult Submitted(AgentTuiRuntimeScope scope) => new(
+            new AgentTuiThreadRun("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow));
     }
 }

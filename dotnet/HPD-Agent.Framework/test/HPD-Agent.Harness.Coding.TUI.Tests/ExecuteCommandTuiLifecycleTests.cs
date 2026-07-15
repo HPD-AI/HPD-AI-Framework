@@ -1210,23 +1210,26 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
         public async IAsyncEnumerable<AgentEvent> ObserveAsync(
             AgentTuiRuntimeScope scope,
+            long afterSequenceNumber,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             await Task.CompletedTask;
             yield break;
         }
 
-        public Task SubmitInputAsync(
+        public Task<AgentTuiSubmitResult> SubmitInputAsync(
             AgentTuiRuntimeScope scope,
             AgentInputEvent input,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+            => Task.FromResult(new AgentTuiSubmitResult(
+                new AgentTuiThreadRun("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
 
-        public Task InterruptAsync(
+        public Task<AgentTuiInterruptResult> InterruptAsync(
             AgentTuiRuntimeScope scope,
+            string? expectedRuntimeRunId,
             string reason,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+            => Task.FromResult(new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted));
 
         public Task AnswerRequestAsync(
             AgentTuiRuntimeScope scope,
@@ -1234,14 +1237,9 @@ public sealed class ExecuteCommandTuiLifecycleTests
             CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
-        public Task<IReadOnlyList<AgentEvent>> GetThreadEventsAsync(
+        public Task<AgentTuiThreadState> GetThreadStateAsync(
             AgentTuiRuntimeScope scope,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<AgentEvent>>([]);
-
-        public Task<AgentTuiThreadRun?> GetActiveRunAsync(
-            AgentTuiRuntimeScope scope,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult<AgentTuiThreadRun?>(null);
+            => Task.FromResult(new AgentTuiThreadState(0, null, []));
     }
 }

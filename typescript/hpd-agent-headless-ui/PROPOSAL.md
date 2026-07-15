@@ -68,7 +68,7 @@ The lower layers already provide most of what the UI needs.
 
 - typed `AgentEvent` envelopes;
 - `AgentClient.on(...)` and `AgentClient.onAny(...)`;
-- SSE and WebSocket transports;
+- acknowledged, resumable SSE observation;
 - input submission;
 - permission, clarification, continuation, and client-tool response envelopes;
 - REST APIs for sessions, threads, thread events, thread messages, thread runs,

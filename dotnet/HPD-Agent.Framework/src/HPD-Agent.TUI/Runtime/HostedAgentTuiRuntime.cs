@@ -543,61 +543,68 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
     public async IAsyncEnumerable<AgentEvent> ObserveAsync(
         AgentTuiRuntimeScope scope,
+        long afterSequenceNumber,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(scope);
-
-        using var request = new HttpRequestMessage(
-            HttpMethod.Get,
-            $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/events/live");
-        using var response = await _http.SendAsync(
-                request,
-                HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (response.StatusCode == HttpStatusCode.NotFound)
-        {
-            yield break;
-        }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            await ThrowForUnexpectedResponseAsync(response, "observe live events", cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken)
-            .ConfigureAwait(false);
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-
+        var cursor = afterSequenceNumber;
         while (!cancellationToken.IsCancellationRequested)
         {
-            var line = await reader.ReadLineAsync(cancellationToken)
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/events/live?after={cursor}");
+            using var response = await _http.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken)
                 .ConfigureAwait(false);
-            if (line is null)
+            if (response.StatusCode == HttpStatusCode.NotFound)
             {
                 yield break;
             }
 
-            if (!line.StartsWith("data:", StringComparison.Ordinal))
+            if (!response.IsSuccessStatusCode)
             {
-                continue;
+                await ThrowForUnexpectedResponseAsync(response, "observe live events", cancellationToken)
+                    .ConfigureAwait(false);
             }
 
-            var json = line[5..].Trim();
-            if (json.Length == 0)
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            while (!cancellationToken.IsCancellationRequested)
             {
-                continue;
-            }
+                var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+                if (line is null)
+                {
+                    break;
+                }
 
-            if (AgentEventSerializer.FromJson(json) is AgentEvent evt)
-            {
+                if (!line.StartsWith("data:", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var json = line[5..].Trim();
+                if (json.Length == 0 || AgentEventSerializer.FromJson(json) is not AgentEvent evt)
+                {
+                    continue;
+                }
+
+                if (evt.SequenceNumber > 0 && evt.SequenceNumber <= cursor)
+                {
+                    continue;
+                }
+
+                cursor = Math.Max(cursor, evt.SequenceNumber);
                 yield return evt;
             }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
         }
     }
 
-    public async Task SubmitInputAsync(
+    public async Task<AgentTuiSubmitResult> SubmitInputAsync(
         AgentTuiRuntimeScope scope,
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
@@ -617,6 +624,19 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             await ThrowForUnexpectedResponseAsync(response, "submit input", cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        using var document = await JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false),
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        var runtimeRunId = document.RootElement.GetProperty("runtimeRunId").GetString()
+            ?? throw new InvalidOperationException("The hosted runtime did not return a run ID.");
+        var startedAt = document.RootElement.TryGetProperty("startedAt", out var startedAtElement) &&
+            startedAtElement.TryGetDateTimeOffset(out var parsedStartedAt)
+                ? parsedStartedAt
+                : DateTimeOffset.UtcNow;
+        return new AgentTuiSubmitResult(
+            new AgentTuiThreadRun(runtimeRunId, scope.AgentId, scope.SessionId, scope.ThreadId, "active", startedAt));
     }
 
     public async Task<ThreadContextUsage> EstimateContextUsageAsync(
@@ -654,14 +674,16 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             };
     }
 
-    public async Task InterruptAsync(
+    public async Task<AgentTuiInterruptResult> InterruptAsync(
         AgentTuiRuntimeScope scope,
+        string? expectedRuntimeRunId,
         string reason,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(scope);
 
         var json = SerializeJson(JsonObject(
+            ("expectedRuntimeRunId", JsonValue.Create(expectedRuntimeRunId)),
             ("reason", JsonValue.Create(string.IsNullOrWhiteSpace(reason)
                 ? "Interrupted by TUI."
                 : reason))));
@@ -676,6 +698,27 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             await ThrowForUnexpectedResponseAsync(response, "interrupt run", cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        var responseJson = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(responseJson))
+        {
+            return new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted);
+        }
+
+        using var responseDocument = JsonDocument.Parse(responseJson);
+        var root = responseDocument.RootElement;
+        var status = GetRequiredString(root, "status") switch
+        {
+            "accepted" => AgentTuiInterruptStatus.Accepted,
+            "already_terminal" => AgentTuiInterruptStatus.AlreadyTerminal,
+            "no_active_run" => AgentTuiInterruptStatus.NoActiveRun,
+            "active_run_mismatch" => AgentTuiInterruptStatus.ActiveRunMismatch,
+            var value => throw new InvalidOperationException($"Unknown interrupt status '{value}'.")
+        };
+        var activeRun = root.TryGetProperty("activeRun", out var activeRunElement)
+            ? ParseThreadRun(activeRunElement)
+            : null;
+        return new AgentTuiInterruptResult(status, activeRun);
     }
 
     public async Task AnswerRequestAsync(
@@ -706,24 +749,24 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         }
     }
 
-    public async Task<IReadOnlyList<AgentEvent>> GetThreadEventsAsync(
+    public async Task<AgentTuiThreadState> GetThreadStateAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(scope);
 
         using var response = await _http.GetAsync(
-                $"sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/events",
+                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/state",
                 cancellationToken)
             .ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
-            return [];
+            return new AgentTuiThreadState(0, null, []);
         }
 
         if (!response.IsSuccessStatusCode)
         {
-            await ThrowForUnexpectedResponseAsync(response, "load thread events", cancellationToken)
+            await ThrowForUnexpectedResponseAsync(response, "load thread state", cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -731,54 +774,39 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             .ConfigureAwait(false);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        if (document.RootElement.ValueKind != JsonValueKind.Array)
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
         {
-            return [];
+            return new AgentTuiThreadState(0, null, []);
         }
 
+        var root = document.RootElement;
         var events = new List<AgentEvent>();
-        foreach (var element in document.RootElement.EnumerateArray())
+        if (root.TryGetProperty("events", out var eventsElement) && eventsElement.ValueKind == JsonValueKind.Array)
         {
-            if (AgentEventSerializer.FromJson(element.GetRawText()) is AgentEvent evt)
+            foreach (var element in eventsElement.EnumerateArray())
             {
-                events.Add(evt);
+                if (AgentEventSerializer.FromJson(element.GetRawText()) is AgentEvent evt)
+                {
+                    events.Add(evt);
+                }
             }
         }
 
-        return events;
+        var activeRun = root.TryGetProperty("activeRun", out var activeRunElement)
+            ? ParseThreadRun(activeRunElement)
+            : null;
+        var latestSequenceNumber = root.TryGetProperty("latestSequenceNumber", out var latestElement)
+            ? latestElement.GetInt64()
+            : events.Count == 0 ? 0 : events.Max(static evt => evt.SequenceNumber);
+
+        return new AgentTuiThreadState(
+            latestSequenceNumber,
+            activeRun,
+            events);
     }
 
-    public async Task<AgentTuiThreadRun?> GetActiveRunAsync(
-        AgentTuiRuntimeScope scope,
-        CancellationToken cancellationToken = default)
+    private static AgentTuiThreadRun? ParseThreadRun(JsonElement root)
     {
-        ArgumentNullException.ThrowIfNull(scope);
-
-        using var response = await _http.GetAsync(
-                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/runs/active",
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (response.StatusCode == HttpStatusCode.NotFound)
-        {
-            return null;
-        }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            await ThrowForUnexpectedResponseAsync(response, "load active run", cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        var json = await response.Content.ReadAsStringAsync(cancellationToken)
-            .ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(json) ||
-            string.Equals(json.Trim(), "null", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        using var document = JsonDocument.Parse(json);
-        var root = document.RootElement;
         if (root.ValueKind != JsonValueKind.Object)
         {
             return null;

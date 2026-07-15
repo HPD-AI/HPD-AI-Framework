@@ -40,7 +40,7 @@ public static class HPDAgentEndpointRouteBuilderExtensions
     /// - Session CRUD (Create, Search/List, Get, Update, Delete)
     /// - Thread CRUD (List, Get, Create, Fork, Delete, Messages, Thread Graph)
     /// - Content management (Upload, Download, List, Delete)
-    /// - Streaming (SSE + WebSocket)
+    /// - Committed thread-state snapshots and resumable SSE observation
     /// - Middleware responses (Permissions, Client Tools)
     /// - Agent definition CRUD (Create, List, Get, Update, Delete)
     /// </remarks>

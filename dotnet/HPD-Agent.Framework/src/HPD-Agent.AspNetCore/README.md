@@ -1,6 +1,6 @@
 # HPD-Agent.AspNetCore
 
-ASP.NET Core hosting layer for HPD-Agent Framework. Provides minimal-code web API setup with SSE/WebSocket streaming.
+ASP.NET Core hosting layer for HPD-Agent Framework. Provides minimal-code APIs with committed, resumable SSE observation.
 
 ## Install
 

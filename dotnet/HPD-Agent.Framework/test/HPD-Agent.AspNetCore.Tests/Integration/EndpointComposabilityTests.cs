@@ -229,7 +229,6 @@ public class EndpointComposabilityTests
     private sealed class UnsupportedThreadRunService : IAgentThreadRunService
     {
         public Task<AgentServiceResult<IReadOnlyList<ThreadRunDto>>> ListRunsAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<ThreadRunDto?>> GetActiveRunAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<ThreadRunDto>> GetRunAsync(string agentId, string sessionId, string threadId, string runtimeRunId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
@@ -259,8 +258,9 @@ public class EndpointComposabilityTests
     {
         public Task<AgentServiceResult<AgentStreamLease>> GetAgentForThreadAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<InputSubmissionDto>> SubmitInputAsync(string agentId, string sessionId, string threadId, AgentInputEvent input, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ThreadRuntimeStateDto>> GetThreadStateAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<ThreadContextUsage>> EstimateContextUsageAsync(string agentId, string sessionId, string threadId, AgentRunConfig? runConfig, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult> InterruptAsync(string agentId, string sessionId, string threadId, InterruptionRequestEvent interruption, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<InterruptionSubmissionDto>> InterruptAsync(string agentId, string sessionId, string threadId, string? expectedRuntimeRunId, InterruptionRequestEvent interruption, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public AgentInputEvent ApplyRouteScope(AgentInputEvent input, string agentId, string sessionId, string threadId, string? runtimeRunId = null) => throw new NotSupportedException();
     }
 }

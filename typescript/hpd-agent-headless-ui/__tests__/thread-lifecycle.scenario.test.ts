@@ -142,7 +142,7 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
     getThreadMessages: vi.fn(async () => messages),
     getThreadEvents: vi.fn(async () => events),
     getThreadRuns: vi.fn(async () => []),
-    getActiveThreadRun: vi.fn(async () => null),
+    getThreadState: vi.fn(async () => ({ latestSequenceNumber: events.length, events, activeRun: null })),
     getThreadGraph: vi.fn(async () => threadGraph),
     emit: async (event: AgentEvent) => {
       for (const handler of [...handlers]) await handler(event);
@@ -176,6 +176,7 @@ describe('thread lifecycle scenario', () => {
       agentId: 'agent',
       sessionId: 's1',
       threadId: 'main',
+      afterSequenceNumber: 3,
       signal: undefined,
     });
 

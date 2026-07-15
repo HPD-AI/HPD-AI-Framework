@@ -93,20 +93,6 @@ public class AgentThreadRunServiceTests : IDisposable
             task.TaskId == "task-1" && task.Status == "completed");
     }
 
-    [Fact]
-    public async Task GetActiveRunAsync_MergesInMemoryActiveRun_WhenStartEventIsNotDurableYet()
-    {
-        await CreateThreadAsync("session-1", "main");
-        _manager.TryStartThreadRun("agent-1", "session-1", "main", out var active).Should().BeTrue();
-
-        var result = await _service.GetActiveRunAsync("agent-1", "session-1", "main");
-
-        result.Status.Should().Be(AgentServiceStatus.Success);
-        result.Value.Should().NotBeNull();
-        result.Value!.RuntimeRunId.Should().Be(active.RuntimeRunId);
-        result.Value.Status.Should().Be("active");
-    }
-
     private async Task CreateThreadAsync(string sessionId, string threadId)
     {
         var session = new HPD.Agent.Session(sessionId);

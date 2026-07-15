@@ -10,8 +10,8 @@ import type {
   ClientToolAugmentation,
   ClientToolInvokeOutcome,
   ForkThreadRequest,
+  InterruptionResult,
   Thread,
-  ThreadEvent,
   ThreadForkGroup,
   ThreadForkGroupMember,
   ThreadGraph,
@@ -38,7 +38,8 @@ export interface ThreadScope {
 
 export interface ThreadSnapshot {
   thread?: Thread | null;
-  events: ThreadEvent[];
+  events: AgentEvent[];
+  latestSequenceNumber: number;
   runs?: ThreadRun[];
   activeRun?: ThreadRun | null;
 }
@@ -433,7 +434,7 @@ export interface ThreadController {
   sendMessage(input: SendMessageInput, options?: SendMessageOptions): Promise<void>;
   run(input: AgentRunInputEvent): Promise<SubmitInputResult>;
   respond(input: AgentRunInputEvent): Promise<SubmitInputResult>;
-  interrupt(options?: InterruptOptions): Promise<void>;
+  interrupt(options?: InterruptOptions): Promise<InterruptionResult>;
 
   approve(permissionId: string, choice?: PermissionChoice): Promise<SubmitInputResult>;
   deny(permissionId: string, reason?: string): Promise<SubmitInputResult>;

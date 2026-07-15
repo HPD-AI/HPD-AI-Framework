@@ -12,4 +12,14 @@ public sealed record StreamTextRequest(
     string? ClientInputId = null);
 
 public sealed record InputSubmissionDto(
-    string RuntimeRunId);
+    string RuntimeRunId,
+    DateTimeOffset StartedAt);
+
+public sealed record InterruptionSubmissionDto(
+    string Status,
+    ThreadRunDto? ActiveRun = null);
+
+public sealed record ThreadRuntimeStateDto(
+    long LatestSequenceNumber,
+    ThreadRunDto? ActiveRun,
+    IReadOnlyList<AgentEvent> Events);

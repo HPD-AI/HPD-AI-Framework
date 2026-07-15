@@ -14,9 +14,10 @@ public interface IHpdAgentTuiRuntime
 
     IAsyncEnumerable<AgentEvent> ObserveAsync(
         AgentTuiRuntimeScope scope,
+        long afterSequenceNumber,
         CancellationToken cancellationToken = default);
 
-    Task SubmitInputAsync(
+    Task<AgentTuiSubmitResult> SubmitInputAsync(
         AgentTuiRuntimeScope scope,
         AgentInputEvent input,
         CancellationToken cancellationToken = default);
@@ -32,8 +33,9 @@ public interface IHpdAgentTuiRuntime
             Source = "runtime-not-supported"
         });
 
-    Task InterruptAsync(
+    Task<AgentTuiInterruptResult> InterruptAsync(
         AgentTuiRuntimeScope scope,
+        string? expectedRuntimeRunId,
         string reason,
         CancellationToken cancellationToken = default);
 
@@ -42,11 +44,7 @@ public interface IHpdAgentTuiRuntime
         AgentEvent response,
         CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<AgentEvent>> GetThreadEventsAsync(
-        AgentTuiRuntimeScope scope,
-        CancellationToken cancellationToken = default);
-
-    Task<AgentTuiThreadRun?> GetActiveRunAsync(
+    Task<AgentTuiThreadState> GetThreadStateAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default);
 }

@@ -25,21 +25,6 @@ public sealed class AgentThreadRunService : IAgentThreadRunService
             : AgentServiceResult<IReadOnlyList<ThreadRunDto>>.Success(runs);
     }
 
-    public async Task<AgentServiceResult<ThreadRunDto?>> GetActiveRunAsync(
-        string agentId,
-        string sessionId,
-        string threadId,
-        CancellationToken cancellationToken = default)
-    {
-        var runs = await LoadProjectedRunsAsync(agentId, sessionId, threadId, cancellationToken)
-            .ConfigureAwait(false);
-        if (runs == null)
-            return AgentServiceResult<ThreadRunDto?>.NotFound;
-
-        return AgentServiceResult<ThreadRunDto?>.Success(
-            runs.LastOrDefault(run => run.Status == ThreadRunStatus.Active));
-    }
-
     public async Task<AgentServiceResult<ThreadRunDto>> GetRunAsync(
         string agentId,
         string sessionId,

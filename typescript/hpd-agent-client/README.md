@@ -6,7 +6,9 @@ TypeScript SDK for building HPD-Agent chat/runtime applications.
 
 - **Chat runtime** - Open chat sessions, load thread history, and send text turns.
 - **Client tools** - Register browser/client-side tools with automatic response events.
-- **Split API/runtime layers** - HTTP resources are handled by `AgentHttpApi`; SSE/WebSocket transports only stream runtime events.
+- **Resumable committed events** - SSE reconnects from the last event successfully applied by the consumer.
+- **Authoritative lifecycle** - One thread-state snapshot contains history, cursor, and the active backend-owned run.
+- **Safe interruption** - Cancellation compares the expected run ID and returns a structured lifecycle result.
 - **Type safe protocol** - Typed agent events, session/thread DTOs, run config, client tools, and eval DTOs.
 - **Zero runtime dependencies** - Pure TypeScript for browser and Node.js.
 
@@ -29,18 +31,19 @@ const chat = await client.chat.open({
   },
 });
 
-const history = await chat.getThreadEvents();
-applyEvents(history);
-
 client.onAny((event) => applyEvent(event));
 
-await chat.subscribeLive();
-await chat.submitMessage({ contents: [{ $type: 'text', text: 'Hello' }] }, {
+const state = await chat.subscribeLive();
+applyEvents(state.events);
+
+const submission = await chat.submitMessage({ contents: [{ $type: 'text', text: 'Hello' }] }, {
   runConfig: {
     modelId: 'gpt-4o',
     chat: { temperature: 0.3 },
   },
 });
+
+console.log(`started run ${submission.runtimeRunId} at ${submission.startedAt}`);
 ```
 
 ## Client Tools
@@ -77,10 +80,15 @@ client.on(EventTypes.TEXT_DELTA, (event) => {
   process.stdout.write(event.text);
 });
 
+const state = await client.getThreadState('assistant', 'session-1', 'main');
+if (!state) throw new Error('Thread not found');
+applyEvents(state.events);
+
 await client.start({
   agentId: 'assistant',
   sessionId: 'session-1',
   threadId: 'main',
+  afterSequenceNumber: state.latestSequenceNumber,
 });
 
 await client.run({
@@ -107,11 +115,10 @@ const sessions = await client.api.searchSessions({
 const events = await client.api.getThreadEvents(sessions[0].id, 'main');
 ```
 
-## Transports
+## Lifecycle transport
 
-Runtime transports support SSE and WebSocket. SSE separates live observation from input submission: `start()` opens the live event observer, while `run()` submits input to the runtime.
+The SDK uses the committed, resumable SSE protocol. WebSocket support was removed because it could not provide snapshot hydration, acknowledged cursors, replay, or authoritative submission results.
 
 ```typescript
-new AgentClient({ baseUrl: 'http://localhost:5135', transport: 'sse' });
-new AgentClient({ baseUrl: 'http://localhost:5135', transport: 'websocket' });
+new AgentClient({ baseUrl: 'http://localhost:5135' });
 ```

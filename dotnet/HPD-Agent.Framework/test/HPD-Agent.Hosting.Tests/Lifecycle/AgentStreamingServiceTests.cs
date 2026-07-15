@@ -142,6 +142,26 @@ public sealed class AgentStreamingServiceTests : IDisposable
         result.Value.UsageRatio.Should().Be(0.25);
     }
 
+    [Fact]
+    public async Task GetThreadStateAsync_DoesNotReviveAnUnownedHistoricalRun()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("session-orphaned-run");
+        await _sessionStore.AppendThreadEventAsync(
+            sessionId,
+            threadId,
+            new ThreadRunStartedEvent("orphaned-run", "agent-1", DateTimeOffset.UtcNow)
+            {
+                SessionId = sessionId,
+                ThreadId = threadId
+            });
+
+        var result = await _service.GetThreadStateAsync("agent-1", sessionId, threadId);
+
+        result.Status.Should().Be(AgentServiceStatus.Success);
+        result.Value!.ActiveRun.Should().BeNull();
+        result.Value.Events.Should().ContainSingle(evt => evt is ThreadRunStartedEvent);
+    }
+
     private sealed class TestSessionManager(ISessionStore store) : SessionManager(store);
 
     private sealed class TestAgentManager(IAgentStore store) : AgentManager(store)

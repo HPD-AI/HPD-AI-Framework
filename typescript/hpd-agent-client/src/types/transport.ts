@@ -1,13 +1,26 @@
 import type { AgentEvent, AgentRunInputEvent, RespondResult } from './events.js';
+import type { ThreadRun } from './thread-run.js';
 
 export interface InputSubmissionResult {
   runtimeRunId: string;
+  startedAt: string;
 }
 
-export type SubmitInputResult = RespondResult | InputSubmissionResult | undefined;
+export type InterruptionStatus =
+  | 'accepted'
+  | 'already_terminal'
+  | 'no_active_run'
+  | 'active_run_mismatch';
+
+export interface InterruptionResult {
+  status: InterruptionStatus;
+  activeRun?: ThreadRun | null;
+}
+
+export type SubmitInputResult = RespondResult | InputSubmissionResult | InterruptionResult;
 
 /**
- * Runtime connection scope for long-lived transports such as WebSocket.
+ * Runtime connection scope for committed SSE observation.
  */
 export interface RuntimeScope {
   /** Session ID for scoped transports */
@@ -18,6 +31,8 @@ export interface RuntimeScope {
   signal?: AbortSignal;
   /** Agent definition ID to run when the input event omits agentId */
   agentId?: string;
+  /** Last committed sequence completely applied by the consumer. */
+  afterSequenceNumber?: number;
 }
 
 export interface RunTransportOptions {
@@ -37,8 +52,8 @@ export interface AgentTransport {
   /** Submit an agent input event to the runtime. Response events may return a structured status. */
   submitInput(event: AgentRunInputEvent, options?: RunTransportOptions): Promise<SubmitInputResult>;
 
-  /** Register event handler */
-  onEvent(handler: (event: AgentEvent) => void): void;
+  /** Register an acknowledged event handler. The cursor advances only after it resolves. */
+  onEvent(handler: (event: AgentEvent) => void | Promise<void>): void;
 
   /** Register error handler */
   onError(handler: (error: Error) => void): void;

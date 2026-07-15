@@ -31,31 +31,45 @@ internal static class SseEventHandler
 
         await context.Response.Body.FlushAsync(cancellationToken);
 
-        using var writeLock = new SemaphoreSlim(1, 1);
+        var cursor = context.Request.Query.TryGetValue("after", out var after) &&
+            long.TryParse(after.ToString(), out var parsedAfter) && parsedAfter >= 0
+                ? parsedAfter
+                : 0;
+        var store = agent.Config?.SessionStore
+            ?? throw new InvalidOperationException("Agent live observation requires a session store.");
+        var lastWrite = DateTimeOffset.UtcNow;
         try
         {
-            using var subscription = agent.SubscribeAny((Func<AgentEvent, Task>)(async evt =>
+            while (!cancellationToken.IsCancellationRequested)
             {
-                if (!await IsInRouteScopeAsync(agent, evt, sessionId, threadId, cancellationToken).ConfigureAwait(false))
-                    return;
-
-                var json = AgentEventSerializer.ToJson(evt);
-                var data = $"data: {json}\n\n";
-                var bytes = Encoding.UTF8.GetBytes(data);
-
-                await writeLock.WaitAsync(cancellationToken);
-                try
+                var document = await store.LoadThreadDocumentAsync(sessionId, threadId, cancellationToken)
+                    .ConfigureAwait(false);
+                if (document is not null)
                 {
-                    await context.Response.Body.WriteAsync(bytes, cancellationToken);
-                    await context.Response.Body.FlushAsync(cancellationToken);
+                    foreach (var evt in document.Events
+                        .Where(evt => evt.SequenceNumber > cursor)
+                        .OrderBy(evt => evt.SequenceNumber))
+                    {
+                        var json = AgentEventSerializer.ToJson(evt);
+                        await context.Response.WriteAsync($"id: {evt.SequenceNumber}\n", cancellationToken)
+                            .ConfigureAwait(false);
+                        await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken)
+                            .ConfigureAwait(false);
+                        cursor = evt.SequenceNumber;
+                        lastWrite = DateTimeOffset.UtcNow;
+                    }
                 }
-                finally
-                {
-                    writeLock.Release();
-                }
-            }));
 
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                if (DateTimeOffset.UtcNow - lastWrite >= TimeSpan.FromSeconds(15))
+                {
+                    await context.Response.WriteAsync(": heartbeat\n\n", cancellationToken)
+                        .ConfigureAwait(false);
+                    lastWrite = DateTimeOffset.UtcNow;
+                }
+
+                await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -81,61 +95,4 @@ internal static class SseEventHandler
         }
     }
 
-    internal static async Task<bool> IsInRouteScopeAsync(
-        Agent agent,
-        AgentEvent evt,
-        string sessionId,
-        string threadId,
-        CancellationToken cancellationToken)
-    {
-        if (IsDirectRouteScope(evt, sessionId, threadId))
-            return true;
-
-        // Root runtime events often stream before durable SessionId/ThreadId scope is attached.
-        // The SSE subscription is already bound to one thread-owned runtime instance, so
-        // scope-less events from that runtime should still flow to the connected client.
-        if (string.IsNullOrWhiteSpace(evt.SessionId) && string.IsNullOrWhiteSpace(evt.ThreadId))
-            return true;
-
-        if (string.IsNullOrWhiteSpace(evt.SessionId) || string.IsNullOrWhiteSpace(evt.ThreadId))
-            return false;
-
-        return await IsSubAgentChildOfRouteAsync(
-            agent,
-            evt.SessionId!,
-            evt.ThreadId!,
-            sessionId,
-            threadId,
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    private static bool IsDirectRouteScope(AgentEvent evt, string sessionId, string threadId)
-    {
-        if (!string.IsNullOrWhiteSpace(evt.SessionId) && evt.SessionId != sessionId)
-            return false;
-
-        return string.IsNullOrWhiteSpace(evt.ThreadId) || evt.ThreadId == threadId;
-    }
-
-    private static async Task<bool> IsSubAgentChildOfRouteAsync(
-        Agent agent,
-        string eventSessionId,
-        string eventThreadId,
-        string routeSessionId,
-        string routeThreadId,
-        CancellationToken cancellationToken)
-    {
-        var store = agent.Config?.SessionStore;
-        if (store == null)
-            return false;
-
-        var thread = await store.LoadThreadAsync(eventSessionId, eventThreadId, cancellationToken)
-            .ConfigureAwait(false);
-        if (thread == null)
-            return false;
-
-        return thread.Kind == ThreadKind.SubAgent &&
-            string.Equals(thread.ParentSessionId, routeSessionId, StringComparison.Ordinal) &&
-            string.Equals(thread.ParentThreadId, routeThreadId, StringComparison.Ordinal);
-    }
 }

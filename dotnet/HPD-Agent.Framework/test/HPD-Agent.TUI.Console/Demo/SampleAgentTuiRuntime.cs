@@ -27,6 +27,7 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
 
     public async IAsyncEnumerable<AgentEvent> ObserveAsync(
         AgentTuiRuntimeScope scope,
+        long afterSequenceNumber,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await foreach (var evt in _events.Reader.ReadAllAsync(cancellationToken))
@@ -35,22 +36,28 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         }
     }
 
-    public Task SubmitInputAsync(
+    public Task<AgentTuiSubmitResult> SubmitInputAsync(
         AgentTuiRuntimeScope scope,
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
-        _ = Task.Run(() => RunSampleTurnAsync(scope, input, cancellationToken), CancellationToken.None);
-        return Task.CompletedTask;
+        var runId = Guid.NewGuid().ToString("N");
+        var startedAt = DateTimeOffset.UtcNow;
+        _activeRun = new AgentTuiThreadRun(runId, scope.AgentId, scope.SessionId, scope.ThreadId, "active", startedAt);
+        _ = Task.Run(
+            () => RunSampleTurnAsync(scope, input, runId, startedAt, cancellationToken),
+            CancellationToken.None);
+        return Task.FromResult(new AgentTuiSubmitResult(_activeRun));
     }
 
-    public Task InterruptAsync(
+    public Task<AgentTuiInterruptResult> InterruptAsync(
         AgentTuiRuntimeScope scope,
+        string? expectedRuntimeRunId,
         string reason,
         CancellationToken cancellationToken = default)
     {
         _activeRun = null;
-        return Task.CompletedTask;
+        return Task.FromResult(new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted));
     }
 
     public Task AnswerRequestAsync(
@@ -59,20 +66,18 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
-    public Task<IReadOnlyList<AgentEvent>> GetThreadEventsAsync(
+    public Task<AgentTuiThreadState> GetThreadStateAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default)
     {
         lock (_gate)
         {
-            return Task.FromResult<IReadOnlyList<AgentEvent>>(_history.ToArray());
+            return Task.FromResult(new AgentTuiThreadState(
+                _history.Count == 0 ? 0 : _history.Max(static evt => evt.SequenceNumber),
+                _activeRun,
+                _history.ToArray()));
         }
     }
-
-    public Task<AgentTuiThreadRun?> GetActiveRunAsync(
-        AgentTuiRuntimeScope scope,
-        CancellationToken cancellationToken = default)
-        => Task.FromResult(_activeRun);
 
     public ValueTask DisposeAsync()
     {
@@ -83,12 +88,10 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
     private async Task RunSampleTurnAsync(
         AgentTuiRuntimeScope scope,
         AgentInputEvent input,
+        string runId,
+        DateTimeOffset startedAt,
         CancellationToken cancellationToken)
     {
-        var runId = Guid.NewGuid().ToString("N");
-        var startedAt = DateTimeOffset.UtcNow;
-        _activeRun = new AgentTuiThreadRun(runId, scope.AgentId, scope.SessionId, scope.ThreadId, "running", startedAt);
-
         await PublishAsync(new ThreadRunStartedEvent(runId, scope.AgentId, startedAt)
         {
             SessionId = scope.SessionId,

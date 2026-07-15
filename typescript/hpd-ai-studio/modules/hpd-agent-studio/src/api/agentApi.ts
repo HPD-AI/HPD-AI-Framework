@@ -12,10 +12,10 @@ export function createAgentApi(config: AgentStudioApiConfig) {
       api.get(`/sessions/${encodeURIComponent(sessionId)}/threads/${encodeURIComponent(threadId)}/events`),
     listContent: (sessionId: string, threadId: string) =>
       api.get(`/sessions/${encodeURIComponent(sessionId)}/threads/${encodeURIComponent(threadId)}/content`),
-    getActiveRun: (agentId: string, sessionId: string, threadId: string) =>
+    getThreadState: (agentId: string, sessionId: string, threadId: string) =>
       api.get(
         `/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}` +
-          `/threads/${encodeURIComponent(threadId)}/runs/active`
+          `/threads/${encodeURIComponent(threadId)}/state`
       ),
     submitText: (agentId: string, sessionId: string, threadId: string, text: string) =>
       api.post(
@@ -23,17 +23,28 @@ export function createAgentApi(config: AgentStudioApiConfig) {
           `/threads/${encodeURIComponent(threadId)}/inputs`,
         { text }
       ),
-    interrupt: (
+    interrupt: async (
       agentId: string,
       sessionId: string,
       threadId: string,
       reason = 'Interrupted from HPD AI Platform.'
-    ) =>
-      api.post(
-        `/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}` +
-          `/threads/${encodeURIComponent(threadId)}/interrupt`,
-        { reason }
-      ),
+    ) => {
+      const threadPath = `/agents/${encodeURIComponent(agentId)}` +
+        `/sessions/${encodeURIComponent(sessionId)}` +
+        `/threads/${encodeURIComponent(threadId)}`;
+      const state = await api.get(`${threadPath}/state`) as {
+        activeRun?: { runtimeRunId?: string } | null;
+      };
+      const expectedRuntimeRunId = state.activeRun?.runtimeRunId;
+      if (!expectedRuntimeRunId) {
+        return { status: 'no_active_run', activeRun: null };
+      }
+
+      return api.post(`${threadPath}/interrupt`, {
+        reason,
+        expectedRuntimeRunId
+      });
+    },
     listMultiAgentWorkflows: () => api.get('/multi-agent/workflows'),
     getMultiAgentWorkflow: (workflowId: string) =>
       api.get(`/multi-agent/workflows/${encodeURIComponent(workflowId)}`),

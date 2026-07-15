@@ -1,3 +1,5 @@
+import type { AgentEvent } from './events.js';
+
 export type ThreadRunStatus = "active" | "completed" | "cancelled" | "failed" | "interrupted";
 
 export type ModelBackgroundOperationStatus =
@@ -65,4 +67,10 @@ export interface ThreadRun {
   modelBackgroundOperation?: ThreadRunModelBackgroundOperation | null;
   backgroundTasks: ThreadRunBackgroundTask[];
   backgroundHandles: ThreadRunBackgroundHandle[];
+}
+
+export interface ThreadRuntimeState {
+  latestSequenceNumber: number;
+  activeRun: ThreadRun | null;
+  events: AgentEvent[];
 }

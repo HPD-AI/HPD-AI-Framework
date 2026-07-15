@@ -19,12 +19,6 @@ internal static class ThreadRunEndpoints
             .WithName("ListThreadRuns")
             .WithSummary("List runtime-owned runs projected from a thread event log");
 
-        endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/runs/active",
-                (string agentId, string sid, string bid, CancellationToken ct) =>
-                    GetActiveRun(agentId, sid, bid, threadRuns, ct))
-            .WithName("GetActiveThreadRun")
-            .WithSummary("Get the currently active runtime-owned run for a thread");
-
         endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/runs/{runtimeRunId}",
                 (string agentId, string sid, string bid, string runtimeRunId, CancellationToken ct) =>
                     GetRun(agentId, sid, bid, runtimeRunId, threadRuns, ct))
@@ -49,26 +43,6 @@ internal static class ThreadRunEndpoints
         catch (Exception ex)
         {
             return Validation("ListThreadRunsError", ex.Message);
-        }
-    }
-
-    private static async Task<Results<Ok<ThreadRunDto?>, NotFound, ValidationProblem>> GetActiveRun(
-        string agentId,
-        string sid,
-        string bid,
-        IAgentThreadRunService threadRuns,
-        CancellationToken ct = default)
-    {
-        try
-        {
-            var result = await threadRuns.GetActiveRunAsync(agentId, sid, bid, ct).ConfigureAwait(false);
-            return result.Status == AgentServiceStatus.NotFound
-                ? TypedResults.NotFound()
-                : TypedResults.Ok(result.Value);
-        }
-        catch (Exception ex)
-        {
-            return Validation("GetActiveThreadRunError", ex.Message);
         }
     }
 

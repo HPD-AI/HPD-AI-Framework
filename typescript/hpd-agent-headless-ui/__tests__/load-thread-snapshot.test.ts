@@ -5,9 +5,8 @@ import { loadThreadSnapshot } from '../src/index.js';
 function fakeClient(): AgentClient {
   return {
     getThread: vi.fn(async () => ({ id: 'main', sessionId: 's1' })),
-    getThreadEvents: vi.fn(async () => []),
+    getThreadState: vi.fn(async () => ({ latestSequenceNumber: 0, events: [], activeRun: null })),
     getThreadRuns: vi.fn(async () => []),
-    getActiveThreadRun: vi.fn(async () => null),
   } as unknown as AgentClient;
 }
 
@@ -23,10 +22,11 @@ describe('loadThreadSnapshot', () => {
     });
 
     expect(client.getThread).toHaveBeenCalledWith('s1', 'main');
-    expect(client.getThreadEvents).toHaveBeenCalledWith('s1', 'main');
+    expect(client.getThreadState).toHaveBeenCalledWith('agent', 's1', 'main');
     expect(client.getThreadRuns).not.toHaveBeenCalled();
     expect(snapshot.thread).toEqual({ id: 'main', sessionId: 's1' });
     expect(snapshot.events).toEqual([]);
+    expect(snapshot.latestSequenceNumber).toBe(0);
     expect(snapshot.runs).toEqual([]);
     expect(snapshot.activeRun).toBeNull();
   });
@@ -43,8 +43,7 @@ describe('loadThreadSnapshot', () => {
       includeRuns: true,
     });
 
-    expect(client.getThreadEvents).toHaveBeenCalledWith('s1', 'main');
+    expect(client.getThreadState).toHaveBeenCalledWith('agent', 's1', 'main');
     expect(client.getThreadRuns).toHaveBeenCalledWith('agent', 's1', 'main');
-    expect(client.getActiveThreadRun).toHaveBeenCalledWith('agent', 's1', 'main');
   });
 });

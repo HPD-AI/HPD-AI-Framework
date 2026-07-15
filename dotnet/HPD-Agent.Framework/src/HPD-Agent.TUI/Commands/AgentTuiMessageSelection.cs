@@ -28,8 +28,9 @@ public static class AgentTuiMessageSelection
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var events = await context.Runtime.GetThreadEventsAsync(context.Scope, cancellationToken)
+        var threadState = await context.Runtime.GetThreadStateAsync(context.Scope, cancellationToken)
             .ConfigureAwait(false);
+        var events = threadState.Events;
 
         return GetUserMessages(events, policy);
     }

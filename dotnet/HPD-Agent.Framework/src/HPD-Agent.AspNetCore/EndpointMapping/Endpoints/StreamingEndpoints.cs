@@ -1,5 +1,3 @@
-using System.Net.WebSockets;
-using System.Text;
 using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Streaming;
@@ -9,14 +7,13 @@ using HPD.Agent.Serialization;
 using Microsoft.Extensions.AI;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
 
 namespace HPD.Agent.AspNetCore.EndpointMapping.Endpoints;
 
 /// <summary>
 /// Streaming endpoints for real-time agent communication.
-/// Supports both SSE (Server-Sent Events) and WebSocket protocols.
+/// Uses committed SSE observation with separate lifecycle submission endpoints.
 /// </summary>
 internal static class StreamingEndpoints
 {
@@ -45,12 +42,18 @@ internal static class StreamingEndpoints
             .WithName("EstimateAgentThreadContextUsage")
             .WithSummary("Estimate model context usage for the current thread");
 
+        endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/state",
+                async (string agentId, string sid, string bid, CancellationToken ct) =>
+                    ToValueHttpResult(await streaming.GetThreadStateAsync(agentId, sid, bid, ct)))
+            .WithName("GetAgentThreadRuntimeState")
+            .WithSummary("Get one authoritative thread history and active-run snapshot");
+
         // GET /agents/{agentId}/sessions/{sid}/threads/{bid}/events/live - SSE observer
         endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/events/live",
                 async (string agentId, string sid, string bid, HttpContext context, CancellationToken ct) =>
                     await ObserveEventsWithSse(agentId, sid, bid, context, streaming, ct))
             .WithName("ObserveLiveEventsWithSse")
-            .WithSummary("Observe live agent events using Server-Sent Events (SSE)");
+            .WithSummary("Replay and observe committed events for one thread using SSE");
 
         // POST /agents/{agentId}/sessions/{sid}/threads/{bid}/interrupt - Explicit runtime interruption
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/interrupt",
@@ -59,11 +62,6 @@ internal static class StreamingEndpoints
             .WithName("InterruptAgentRun")
             .WithSummary("Explicitly interrupt active runtime work");
 
-        // GET /agents/{agentId}/sessions/{sid}/threads/{bid}/ws - WebSocket streaming
-        endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/ws", (string agentId, string sid, string bid, HttpContext context, CancellationToken ct) =>
-                StreamWithWebSocket(agentId, sid, bid, context, streaming, ct))
-            .WithName("StreamWithWebSocket")
-            .WithSummary("Stream agent responses using WebSocket");
     }
 
     private static async Task<IResult> SubmitInput(
@@ -120,160 +118,30 @@ internal static class StreamingEndpoints
         CancellationToken ct = default)
     {
         var interruption = ParseInterruptionRequest(request);
-        var result = await streaming.InterruptAsync(agentId, sid, bid, interruption, ct);
-        return ToEmptyHttpResult(result, accepted: true);
-    }
-
-    private static async Task<Results<Ok, NotFound, Conflict, ValidationProblem>> StreamWithWebSocket(
-        string agentId,
-        string sid,
-        string bid,
-        HttpContext context,
-        IAgentStreamingService streaming,
-        CancellationToken ct = default)
-    {
-        // Validate WebSocket request
-        if (!context.WebSockets.IsWebSocketRequest)
+        var expectedRuntimeRunId = request is { ValueKind: JsonValueKind.Object } body &&
+            body.TryGetProperty("expectedRuntimeRunId", out var expectedRunIdElement) &&
+            expectedRunIdElement.ValueKind == JsonValueKind.String
+                ? expectedRunIdElement.GetString()
+                : null;
+        var result = await streaming.InterruptAsync(
+            agentId,
+            sid,
+            bid,
+            expectedRuntimeRunId,
+            interruption,
+            ct);
+        return result.Status switch
         {
-            return TypedResults.ValidationProblem(new Dictionary<string, string[]>
+            AgentServiceStatus.Success => TypedResults.Accepted(string.Empty, result.Value),
+            AgentServiceStatus.NotFound => TypedResults.NotFound(),
+            AgentServiceStatus.Conflict => ConflictProblem(result),
+            AgentServiceStatus.ValidationError => TypedResults.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["InvalidRequest"] = ["This endpoint requires a WebSocket connection."]
-            });
-        }
-
-        var leaseResult = await streaming.GetAgentForThreadAsync(agentId, sid, bid, ct);
-        if (leaseResult.Status == AgentServiceStatus.NotFound)
-            return TypedResults.NotFound();
-        if (leaseResult.Status == AgentServiceStatus.Conflict)
-            return TypedResults.Conflict();
-
-        // Check cancellation before accepting connection
-        ct.ThrowIfCancellationRequested();
-
-        // Accept WebSocket connection with cancellation support
-        // AcceptWebSocketAsync doesn't take a CT, so we need to handle cancellation manually
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var acceptTask = context.WebSockets.AcceptWebSocketAsync();
-        var delayTask = Task.Delay(Timeout.Infinite, linkedCts.Token);
-        var completedTask = await Task.WhenAny(acceptTask, delayTask);
-
-        if (completedTask == delayTask)
-        {
-            // Cancellation was requested before WebSocket was accepted
-            ct.ThrowIfCancellationRequested();
-        }
-
-        using var webSocket = await acceptTask;
-
-        var agent = leaseResult.Value!.Agent;
-        IDisposable? subscription = null;
-
-        try
-        {
-            var buffer = new byte[1024 * 4];
-            while (!ct.IsCancellationRequested && webSocket.State == WebSocketState.Open)
-            {
-                var json = await ReceiveTextMessageAsync(webSocket, buffer, ct);
-                if (json == null)
-                {
-                    break;
-                }
-
-                var evt = AgentEventSerializer.FromJson(json);
-                var input = evt as AgentInputEvent;
-                var response = evt as HPD.Events.IResponseEvent;
-                if (input is null && response is null)
-                {
-                    await webSocket.CloseAsync(
-                        WebSocketCloseStatus.InvalidPayloadData,
-                        "Invalid agent input or response event envelope",
-                        ct);
-                    return TypedResults.Ok();
-                }
-
-                if (subscription == null)
-                {
-                    subscription = agent.SubscribeAny((Func<AgentEvent, Task>)(async evt =>
-                    {
-                        var eventJson = AgentEventSerializer.ToJson(evt);
-                        var bytes = Encoding.UTF8.GetBytes(eventJson);
-
-                        await webSocket.SendAsync(
-                            new ArraySegment<byte>(bytes),
-                            WebSocketMessageType.Text,
-                            endOfMessage: true,
-                            ct);
-                    }));
-                }
-
-                if (input is not null)
-                {
-                    var submitStatus = AgentServiceStatus.Success;
-                    string? submitErrorCode = null;
-
-                    if (input is InterruptionRequestEvent interruption)
-                    {
-                        var interruptResult = await streaming.InterruptAsync(agentId, sid, bid, interruption, ct);
-                        submitStatus = interruptResult.Status;
-                        submitErrorCode = interruptResult.ErrorCode;
-                    }
-                    else
-                    {
-                        var inputResult = await streaming.SubmitInputAsync(agentId, sid, bid, input, ct);
-                        submitStatus = inputResult.Status;
-                        submitErrorCode = inputResult.ErrorCode;
-                    }
-
-                    if (submitStatus == AgentServiceStatus.Conflict)
-                    {
-                        await webSocket.CloseAsync(
-                            WebSocketCloseStatus.PolicyViolation,
-                            submitErrorCode ?? "Thread run conflict",
-                            ct);
-                        return TypedResults.Ok();
-                    }
-
-                    if (submitStatus == AgentServiceStatus.NotFound)
-                    {
-                        await webSocket.CloseAsync(
-                            WebSocketCloseStatus.InvalidPayloadData,
-                            "Session or thread not found",
-                            ct);
-                        return TypedResults.Ok();
-                    }
-                }
-                else
-                {
-                    var respondResult = await agent.TryAnswerRequestAsync(response!, ct);
-                    if (!respondResult.Accepted)
-                    {
-                        var resultJson = JsonSerializer.Serialize(respondResult, CaseInsensitiveJson);
-                        var bytes = Encoding.UTF8.GetBytes(resultJson);
-
-                        await webSocket.SendAsync(
-                            new ArraySegment<byte>(bytes),
-                            WebSocketMessageType.Text,
-                            endOfMessage: true,
-                            ct);
-                    }
-                }
-            }
-        }
-        finally
-        {
-            subscription?.Dispose();
-        }
-
-        // Close WebSocket gracefully
-        if (webSocket.State is WebSocketState.Open or WebSocketState.CloseReceived)
-        {
-            await webSocket.CloseAsync(
-                WebSocketCloseStatus.NormalClosure,
-                "Stream completed",
-                ct);
-        }
-
-        return TypedResults.Ok();
+                [result.ErrorCode ?? "ValidationError"] = result.ErrorMessages?.ToArray()
+                    ?? [result.ErrorMessage ?? "Validation failed."]
+            }),
+            _ => TypedResults.StatusCode(StatusCodes.Status500InternalServerError)
+        };
     }
 
     private static AgentInputEvent? ParseInputEvent(JsonElement request)
@@ -351,23 +219,6 @@ internal static class StreamingEndpoints
         return false;
     }
 
-    private static IResult ToEmptyHttpResult(AgentServiceResult result, bool accepted = false)
-    {
-        return result.Status switch
-        {
-            AgentServiceStatus.Success when accepted => TypedResults.Accepted(string.Empty),
-            AgentServiceStatus.Success => TypedResults.Ok(),
-            AgentServiceStatus.NotFound => TypedResults.NotFound(),
-            AgentServiceStatus.Conflict => ConflictProblem(result),
-            AgentServiceStatus.ValidationError => TypedResults.ValidationProblem(new Dictionary<string, string[]>
-            {
-                [result.ErrorCode ?? "ValidationError"] = result.ErrorMessages?.ToArray()
-                    ?? [result.ErrorMessage ?? "Validation failed."]
-            }),
-            _ => TypedResults.StatusCode(StatusCodes.Status500InternalServerError)
-        };
-    }
-
     private static IResult ToSubmissionHttpResult(AgentServiceResult<InputSubmissionDto> result)
     {
         return result.Status switch
@@ -414,35 +265,4 @@ internal static class StreamingEndpoints
                 ?? [result.ErrorMessage ?? "The requested operation conflicts with the current thread state."]
         }, statusCode: StatusCodes.Status409Conflict);
 
-    private static async Task<string?> ReceiveTextMessageAsync(
-        WebSocket webSocket,
-        byte[] buffer,
-        CancellationToken ct)
-    {
-        using var payload = new MemoryStream();
-
-        while (true)
-        {
-            var receiveResult = await webSocket.ReceiveAsync(
-                new ArraySegment<byte>(buffer),
-                ct);
-
-            if (receiveResult.MessageType == WebSocketMessageType.Close)
-            {
-                return null;
-            }
-
-            if (receiveResult.MessageType != WebSocketMessageType.Text)
-            {
-                throw new InvalidOperationException("Only text agent event envelopes are supported.");
-            }
-
-            payload.Write(buffer, 0, receiveResult.Count);
-
-            if (receiveResult.EndOfMessage)
-            {
-                return Encoding.UTF8.GetString(payload.ToArray());
-            }
-        }
-    }
 }

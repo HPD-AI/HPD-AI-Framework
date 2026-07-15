@@ -13,7 +13,6 @@ const sessions = new SessionRegistry();
 
 const client = new AgentClient({
   baseUrl:   config.serverUrl,
-  transport: config.transport,
   ...(config.apiKey ? { headers: { Authorization: `Bearer ${config.apiKey}` } } : {}),
 });
 

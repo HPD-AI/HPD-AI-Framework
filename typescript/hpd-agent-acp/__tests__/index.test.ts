@@ -25,7 +25,6 @@ import type { BridgeConfig } from '../src/config.js';
 
 const DEFAULT_CONFIG: BridgeConfig = {
   serverUrl: 'http://localhost:5000',
-  transport: 'websocket',
   agentName: 'test-agent',
 };
 

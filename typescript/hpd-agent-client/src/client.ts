@@ -22,7 +22,7 @@ import type {
   ForkThreadRequest,
   UpdateThreadRequest,
 } from './types/session.js';
-import type { ThreadRun } from './types/thread-run.js';
+import type { ThreadRun, ThreadRuntimeState } from './types/thread-run.js';
 import type {
   ContextUsageRequest,
   ThreadContextUsage,
@@ -46,7 +46,6 @@ import type {
   CostBreakdown,
 } from './types/evals.js';
 import { SseTransport } from './transports/sse.js';
-import { WebSocketTransport } from './transports/websocket.js';
 import type { TransportRequestOptions } from './transports/options.js';
 import { AgentHttpApi } from './api.js';
 import { ChatManager } from './chat.js';
@@ -65,14 +64,9 @@ export type AgentEventHandler<TEvent extends AgentEvent> =
 // Client Configuration
 // ============================================
 
-export type TransportType = 'sse' | 'websocket';
-
 export interface AgentClientConfig {
   /** Base URL of the HPD-Agent API */
   baseUrl: string;
-
-  /** Transport type (default: 'sse') */
-  transport?: TransportType;
 
   /** Custom headers for HTTP requests */
   headers?: Record<string, string>;
@@ -124,7 +118,9 @@ export class AgentClient {
     this.chat = new ChatManager(this);
     this.transport = this.createTransport();
     this.transport.onEvent((event) => {
-      this.outputDispatchQueue = this.outputDispatchQueue.then(() => this.dispatchOutputEvent(event));
+      const dispatched = this.outputDispatchQueue.then(() => this.dispatchOutputEvent(event));
+      this.outputDispatchQueue = dispatched.catch(() => {});
+      return dispatched;
     });
     this.transport.onError((error) => {
       void this.dispatchError(error);
@@ -132,19 +128,12 @@ export class AgentClient {
   }
 
   private createTransport(): AgentTransport {
-    const type = this.config.transport ?? 'sse';
     const requestOptions: TransportRequestOptions = {
       headers: this.config.headers,
       credentials: this.config.credentials,
     };
 
-    switch (type) {
-      case 'websocket':
-        return new WebSocketTransport(this.config.baseUrl);
-      case 'sse':
-      default:
-        return new SseTransport(this.config.baseUrl, requestOptions);
-    }
+    return new SseTransport(this.config.baseUrl, requestOptions);
   }
 
   async start(scope?: RuntimeScope): Promise<void> {
@@ -352,8 +341,8 @@ export class AgentClient {
     return this.api.getThreadRuns(agentId, sessionId, threadId);
   }
 
-  getActiveThreadRun(agentId: string, sessionId: string, threadId: string): Promise<ThreadRun | null> {
-    return this.api.getActiveThreadRun(agentId, sessionId, threadId);
+  getThreadState(agentId: string, sessionId: string, threadId: string): Promise<ThreadRuntimeState | null> {
+    return this.api.getThreadState(agentId, sessionId, threadId);
   }
 
   estimateContextUsage(

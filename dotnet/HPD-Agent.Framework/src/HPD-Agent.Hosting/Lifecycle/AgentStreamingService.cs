@@ -78,7 +78,35 @@ public sealed class AgentStreamingService : IAgentStreamingService
         }
 
         return AgentServiceResult<InputSubmissionDto>.Success(
-            new InputSubmissionDto(run.RuntimeRunId));
+            new InputSubmissionDto(
+                run.RuntimeRunId,
+                run.StartedAt));
+    }
+
+    public async Task<AgentServiceResult<ThreadRuntimeStateDto>> GetThreadStateAsync(
+        string agentId,
+        string sessionId,
+        string threadId,
+        CancellationToken cancellationToken = default)
+    {
+        var document = await _sessionManager.Store.LoadThreadDocumentAsync(sessionId, threadId, cancellationToken)
+            .ConfigureAwait(false);
+        if (document is null && await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken)
+                .ConfigureAwait(false) is null)
+        {
+            return AgentServiceResult<ThreadRuntimeStateDto>.NotFound;
+        }
+
+        var events = document?.Events.OrderBy(static evt => evt.SequenceNumber).ToList() ?? [];
+        var activeState = _sessionManager.GetActiveThreadRun(sessionId, threadId);
+        ThreadRunDto? activeRun = activeState is not null && activeState.AgentId == agentId
+            ? ToRunDto(activeState)
+            : null;
+
+        return AgentServiceResult<ThreadRuntimeStateDto>.Success(new ThreadRuntimeStateDto(
+            (document?.NextSequenceNumber ?? 1) - 1,
+            activeRun,
+            events));
     }
 
     public async Task<AgentServiceResult<ThreadContextUsage>> EstimateContextUsageAsync(
@@ -102,24 +130,43 @@ public sealed class AgentStreamingService : IAgentStreamingService
         return AgentServiceResult<ThreadContextUsage>.Success(usage);
     }
 
-    public async Task<AgentServiceResult> InterruptAsync(
+    public async Task<AgentServiceResult<InterruptionSubmissionDto>> InterruptAsync(
         string agentId,
         string sessionId,
         string threadId,
+        string? expectedRuntimeRunId,
         InterruptionRequestEvent interruption,
         CancellationToken cancellationToken = default)
     {
         var lease = await GetAgentForThreadAsync(agentId, sessionId, threadId, cancellationToken)
             .ConfigureAwait(false);
         if (lease.Status != AgentServiceStatus.Success)
-            return new AgentServiceResult(lease.Status, lease.ErrorCode, lease.ErrorMessage, lease.ErrorMessages);
+            return new AgentServiceResult<InterruptionSubmissionDto>(
+                lease.Status,
+                default,
+                lease.ErrorCode,
+                lease.ErrorMessage,
+                lease.ErrorMessages);
 
         var activeRun = _sessionManager.GetActiveThreadRun(sessionId, threadId);
         if (activeRun == null)
         {
-            return AgentServiceResult.ConflictWith(
-                "ThreadRunNotActive",
-                $"Thread '{threadId}' in session '{sessionId}' does not have an active run.");
+            var document = await _sessionManager.Store.LoadThreadDocumentAsync(sessionId, threadId, cancellationToken)
+                .ConfigureAwait(false);
+            var expectedRun = string.IsNullOrWhiteSpace(expectedRuntimeRunId)
+                ? null
+                : ThreadRunProjector.Project(agentId, sessionId, threadId, document?.Events ?? [])
+                    .LastOrDefault(run => run.RuntimeRunId == expectedRuntimeRunId);
+            return AgentServiceResult<InterruptionSubmissionDto>.Success(new InterruptionSubmissionDto(
+                expectedRun is null ? "no_active_run" : "already_terminal"));
+        }
+
+        if (!string.IsNullOrWhiteSpace(expectedRuntimeRunId) &&
+            !string.Equals(expectedRuntimeRunId, activeRun.RuntimeRunId, StringComparison.Ordinal))
+        {
+            return AgentServiceResult<InterruptionSubmissionDto>.Success(new InterruptionSubmissionDto(
+                "active_run_mismatch",
+                ToRunDto(activeRun)));
         }
 
         var scoped = interruption with
@@ -131,7 +178,9 @@ public sealed class AgentStreamingService : IAgentStreamingService
         };
 
         await lease.Value!.Agent.RunAsync(scoped, cancellationToken).ConfigureAwait(false);
-        return AgentServiceResult.Success;
+        return AgentServiceResult<InterruptionSubmissionDto>.Success(new InterruptionSubmissionDto(
+            "accepted",
+            ToRunDto(activeRun)));
     }
 
     public AgentInputEvent ApplyRouteScope(
@@ -172,5 +221,18 @@ public sealed class AgentStreamingService : IAgentStreamingService
             _ => input
         };
     }
+
+    private static ThreadRunDto ToRunDto(ThreadRunState run) => new(
+        run.RuntimeRunId,
+        run.AgentId,
+        run.SessionId,
+        run.ThreadId,
+        ThreadRunStatus.Active,
+        run.StartedAt,
+        null,
+        null,
+        null,
+        [],
+        []);
 
 }

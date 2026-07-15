@@ -40,7 +40,7 @@ import type {
   UpdateSessionRequest,
   UpdateThreadRequest,
 } from './types/session.js';
-import type { ThreadRun } from './types/thread-run.js';
+import type { ThreadRun, ThreadRuntimeState } from './types/thread-run.js';
 import type { TransportRequestOptions } from './transports/options.js';
 import { projectThreadEventsToMessages } from './thread-messages.js';
 
@@ -289,16 +289,16 @@ export class AgentHttpApi {
     return this.readJson(response, 'Failed to get client tool provider');
   }
 
-  async getActiveThreadRun(agentId: string, sessionId: string, threadId: string): Promise<ThreadRun | null> {
+  async getThreadState(agentId: string, sessionId: string, threadId: string): Promise<ThreadRuntimeState | null> {
     const response = await this.fetch(
-      this.url(`/agents/${agentId}/sessions/${sessionId}/threads/${threadId}/runs/active`),
+      this.url(`/agents/${agentId}/sessions/${sessionId}/threads/${threadId}/state`),
       {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       },
     );
     if (response.status === 404) return null;
-    return this.readNullableJson(response, 'Failed to get active thread run');
+    return this.readJson(response, 'Failed to get thread runtime state');
   }
 
   async estimateContextUsage(

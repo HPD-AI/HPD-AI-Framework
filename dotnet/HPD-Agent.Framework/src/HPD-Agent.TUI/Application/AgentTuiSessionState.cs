@@ -25,19 +25,6 @@ public sealed class AgentTuiSessionState
 
     public AgentTuiStateBag State => _state;
 
-    public void AppendUserInput(string text)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(text);
-
-        Shell.Transcript.AddFinal(new TranscriptEntry(
-            Id: $"user-{Guid.NewGuid():N}",
-            EntryKey: null,
-            Cell: new UserMessageCell(new Text(text)),
-            Metadata: new TranscriptEntryMetadata(
-                AgentId: Scope.AgentId,
-                AgentName: "user")));
-    }
-
     public async ValueTask ApplyEventAsync(
         AgentEvent evt,
         CancellationToken cancellationToken = default)
