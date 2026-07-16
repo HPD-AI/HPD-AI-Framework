@@ -27,7 +27,7 @@ public class ThreadEventStoreTests : AgentTestBase
         await store.AppendThreadEventAsync(session.Id, thread.Id, ThreadEventFactory.TextDelta(session.Id, thread.Id, null, "msg-1", "hello", 0));
         await store.AppendThreadEventAsync(session.Id, thread.Id, ThreadEventFactory.TextMessageCompleted(session.Id, thread.Id, null, "msg-1", 0));
 
-        var loaded = await store.ProjectThreadAsync(session.Id, thread.Id);
+        var loaded = await store.ProjectThreadAsync(session.Id, thread.Id, ThreadProjectionPurpose.ThreadHistory);
 
         Assert.NotNull(loaded);
         Assert.Single(loaded.Messages);
@@ -50,7 +50,7 @@ public class ThreadEventStoreTests : AgentTestBase
         Assert.IsType<ThreadCreatedEvent>(evt);
         Assert.Equal(1, evt.ThreadSequenceNumber);
 
-        var projected = await store.ProjectThreadAsync(session.Id, thread.Id);
+        var projected = await store.ProjectThreadAsync(session.Id, thread.Id, ThreadProjectionPurpose.ThreadHistory);
         Assert.Equal("main", projected!.Name);
         Assert.Null(projected.ForkedFrom);
         Assert.Null(projected.ForkedAtMessageId);
@@ -75,7 +75,7 @@ public class ThreadEventStoreTests : AgentTestBase
                 ThreadEventFactory.TurnCompleted("session-1", "main", "turn-1", "session-1", "agent-1", "Agent", 1, "done", TimeSpan.FromMilliseconds(10), 1)
             ]);
 
-        var projected = ThreadProjector.Project("session-1", "main", events);
+        var projected = ThreadProjector.Project("session-1", "main", events, ThreadProjectionPurpose.ThreadHistory);
 
         Assert.Single(projected.Messages);
         Assert.Equal("durable", projected.Messages[0].Text);
@@ -116,7 +116,7 @@ public class ThreadEventStoreTests : AgentTestBase
                 ThreadEventFactory.TextMessageCompleted("session-1", "main", "turn-1", "assistant-1", 0)
             ]);
 
-        var projected = ThreadProjector.Project("session-1", "main", events);
+        var projected = ThreadProjector.Project("session-1", "main", events, ThreadProjectionPurpose.ThreadHistory);
 
         var projectedMessage = Assert.Single(projected.Messages);
         var reasoning = Assert.Single(projectedMessage.Contents.OfType<TextReasoningContent>());
@@ -171,7 +171,7 @@ public class ThreadEventStoreTests : AgentTestBase
                     "ListDirectory")
             ]);
 
-        var projected = ThreadProjector.Project("session-1", "main", events);
+        var projected = ThreadProjector.Project("session-1", "main", events, ThreadProjectionPurpose.ThreadHistory);
 
         var assistantMessage = Assert.Single(projected.Messages.Where(m => m.Role == ChatRole.Assistant));
         var call = Assert.Single(assistantMessage.Contents.OfType<FunctionCallContent>());
@@ -310,7 +310,7 @@ public class ThreadEventStoreTests : AgentTestBase
                 Assert.Equal(thread.Id, e.ThreadId);
             });
 
-            var loadedThread = await store.ProjectThreadAsync(session.Id, thread.Id, TestCancellationToken);
+            var loadedThread = await store.ProjectThreadAsync(session.Id, thread.Id, ThreadProjectionPurpose.ThreadHistory, TestCancellationToken);
             Assert.NotNull(loadedThread);
 
             foreach (var eventDocument in eventDocuments)
@@ -356,7 +356,7 @@ public class ThreadEventStoreTests : AgentTestBase
                 thread.Id,
                 ThreadEventFactory.ToolCallArgs(session.Id, thread.Id, "turn-1", "call-1", """{"path":"README.md"}""", 0));
 
-            var cachedBeforeEnd = await store.ProjectThreadAsync(session.Id, thread.Id, TestCancellationToken);
+            var cachedBeforeEnd = await store.ProjectThreadAsync(session.Id, thread.Id, ThreadProjectionPurpose.ThreadHistory, TestCancellationToken);
             Assert.NotNull(cachedBeforeEnd);
             Assert.DoesNotContain(
                 cachedBeforeEnd.Messages.SelectMany(message => message.Contents),
@@ -389,7 +389,7 @@ public class ThreadEventStoreTests : AgentTestBase
                     0,
                     "ReadFile"));
 
-            var loaded = await store.ProjectThreadAsync(session.Id, thread.Id, TestCancellationToken);
+            var loaded = await store.ProjectThreadAsync(session.Id, thread.Id, ThreadProjectionPurpose.ThreadHistory, TestCancellationToken);
 
             Assert.NotNull(loaded);
             var assistantMessage = Assert.Single(loaded.Messages.Where(m => m.Role == ChatRole.Assistant));
@@ -556,7 +556,7 @@ public class ThreadEventStoreTests : AgentTestBase
         Assert.Contains(textDeltas, e => e.Text == "who are you");
         Assert.Contains(textDeltas, e => e.Text == "hello human");
 
-        var loaded = await store.ProjectThreadAsync(sessionId, "main", TestCancellationToken);
+        var loaded = await store.ProjectThreadAsync(sessionId, "main", ThreadProjectionPurpose.ThreadHistory, TestCancellationToken);
         Assert.NotNull(loaded);
         Assert.Equal(2, loaded.Messages.Count);
         Assert.Equal("who are you", loaded.Messages[0].Text);
@@ -642,7 +642,7 @@ public class ThreadEventStoreTests : AgentTestBase
             .ToList();
         Assert.NotEmpty(matchingDeltas);
 
-        var loaded = await store.ProjectThreadAsync(session.Id, thread.Id, TestCancellationToken);
+        var loaded = await store.ProjectThreadAsync(session.Id, thread.Id, ThreadProjectionPurpose.ThreadHistory, TestCancellationToken);
         Assert.NotNull(loaded);
         var assistantMessage = Assert.Single(loaded.Messages.Where(m => m.Role == ChatRole.Assistant));
         var committedReasoning = Assert.Single(assistantMessage.Contents.OfType<TextReasoningContent>());

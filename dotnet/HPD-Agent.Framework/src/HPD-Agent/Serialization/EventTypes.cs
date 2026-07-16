@@ -18,6 +18,7 @@ public static partial class EventTypes
     public static class Input
     {
         public const string USER_MESSAGES_INPUT = "USER_MESSAGES_INPUT";
+        public const string COMPACT_THREAD_INPUT = "COMPACT_THREAD_INPUT";
         public const string BACKGROUND_TASK_NOTIFICATION_INPUT = "BACKGROUND_TASK_NOTIFICATION_INPUT";
     }
 

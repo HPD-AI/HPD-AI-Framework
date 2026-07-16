@@ -70,7 +70,7 @@ public sealed class CompactionAgentLoopTests : AgentTestBase
         client.CapturedRequests[1].Should().Contain(message => message.Text == "first compacted answer");
         client.CapturedRequests[1].Should().Contain(message => message.Text == "second-after-seed");
 
-        var durableThread = await store.ProjectThreadAsync(sessionId, "main", TestCancellationToken);
+        var durableThread = await store.ProjectThreadAsync(sessionId, "main", ThreadProjectionPurpose.ThreadHistory, TestCancellationToken);
         durableThread.Should().NotBeNull();
         durableThread!.Messages.Should().Contain(message =>
             message.Text.Contains("seed-history-", StringComparison.Ordinal),
@@ -192,13 +192,15 @@ public sealed class CompactionAgentLoopTests : AgentTestBase
             StrategyFactory = (_, _) => strategy,
             Config = new CompactionConfig
             {
-                Enabled = true,
                 Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 },
-                Trigger = new CountCompactionTriggerOptions
+                Automatic = new CompactionAutomaticPolicy
                 {
-                    CountingUnit = HistoryCountingUnit.Messages,
-                    TargetCount = triggerMessageCount,
-                    Threshold = 0
+                    Trigger = new CountCompactionTriggerOptions
+                    {
+                        CountingUnit = HistoryCountingUnit.Messages,
+                        TargetCount = triggerMessageCount,
+                        Threshold = 0
+                    }
                 },
                 Retention = new PreserveThreadHistoryOptions()
             }

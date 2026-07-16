@@ -311,6 +311,18 @@ public sealed record UserMessagesInputEvent : AgentInputEvent
     public Thread? Thread { get; init; }
 }
 
+/// <summary>Explicitly compacts the scoped thread without creating a user message or model turn.</summary>
+public sealed record CompactThreadInputEvent : AgentInputEvent
+{
+    public ThreadCompactionRequest Request { get; init; } = new();
+
+    [JsonIgnore]
+    public Session? Session { get; init; }
+
+    [JsonIgnore]
+    public Thread? Thread { get; init; }
+}
+
 /// <summary>
 /// Runtime-generated input that wakes the model with one or more background task notifications.
 /// </summary>

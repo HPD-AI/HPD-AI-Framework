@@ -130,7 +130,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
             threadId,
             new AgentRunConfig
             {
-                Compaction = new CompactionRunConfig
+                Compaction = new CompactionRunPolicy
                 {
                     ModelContext = new ModelContextWindowOptions
                     {

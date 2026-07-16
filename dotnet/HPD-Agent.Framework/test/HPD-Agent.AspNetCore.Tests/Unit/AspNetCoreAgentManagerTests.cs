@@ -231,7 +231,6 @@ public class AspNetCoreAgentManagerTests : IDisposable
             Name = "Runtime Summarizing",
             Compaction = new CompactionConfig
             {
-                Enabled = true,
                 Strategy = new SummarizingCompactionOptions
                 {
                     SummarizerProvider = new ClientProviderConfig {

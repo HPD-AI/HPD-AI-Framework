@@ -28,7 +28,7 @@ public class MultiAgentConversationRuntimeTests
         first.ThreadId.Should().Be("workflow");
         second.ThreadId.Should().Be("workflow");
 
-        var thread = await store.ProjectThreadAsync("workflow-session", "workflow");
+        var thread = await store.ProjectThreadAsync("workflow-session", "workflow", ThreadProjectionPurpose.ThreadHistory);
         thread.Should().NotBeNull();
         thread!.Metadata["conversationMode"].Should().Be(nameof(MultiAgentConversationMode.SharedWorkflowThread));
 
@@ -59,7 +59,7 @@ public class MultiAgentConversationRuntimeTests
         reviewer.ThreadId.Should().Be("node-exec-1-reviewer");
         researcherAgain.ThreadId.Should().Be(researcher.ThreadId);
 
-        var thread = await store.ProjectThreadAsync("workflow-session", researcher.ThreadId!);
+        var thread = await store.ProjectThreadAsync("workflow-session", researcher.ThreadId!, ThreadProjectionPurpose.ThreadHistory);
         thread.Should().NotBeNull();
         thread!.Metadata["nodeId"].Should().Be("researcher");
     }
@@ -82,11 +82,11 @@ public class MultiAgentConversationRuntimeTests
         researcher.ThreadId.Should().Be("node-exec-1-researcher");
         reviewer.ThreadId.Should().Be("node-exec-1-reviewer");
 
-        var root = await store.ProjectThreadAsync("workflow-session", "root");
+        var root = await store.ProjectThreadAsync("workflow-session", "root", ThreadProjectionPurpose.ThreadHistory);
         root.Should().NotBeNull();
         root!.Messages.Should().ContainSingle(message => message.Text == "Solve this.");
 
-        var researcherThread = await store.ProjectThreadAsync("workflow-session", researcher.ThreadId!);
+        var researcherThread = await store.ProjectThreadAsync("workflow-session", researcher.ThreadId!, ThreadProjectionPurpose.ThreadHistory);
         researcherThread.Should().NotBeNull();
         researcherThread!.ForkedFrom.Should().Be("root");
         researcherThread.Messages.Should().ContainSingle(message => message.Text == "Solve this.");

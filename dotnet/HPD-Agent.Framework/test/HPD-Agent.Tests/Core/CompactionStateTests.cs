@@ -132,28 +132,6 @@ public class CompactionStateTests
     }
 
     [Fact]
-    public void CompactionSnapshot_FromResult_PreservesMessageIdentityMetadata()
-    {
-        var original = CreateMessages(4);
-        var summary = new ChatMessage(ChatRole.Assistant, "Handoff summary");
-        var compacted = new[] { summary }.Concat(original.Skip(2)).ToList();
-        var result = CompactionResult.FromOriginalAndCompacted(
-            original,
-            compacted,
-            new SummarizingCompactionOptions());
-
-        var snapshot = CompactionSnapshot.FromResult(result);
-
-        snapshot.OriginalMessageIds.Should().Equal(original.Select(m => m.MessageId));
-        snapshot.ModelVisibleMessages.Select(m => m.MessageId).Should().Equal(compacted.Select(m => m.MessageId));
-        snapshot.ModelVisibleMessages.Select(m => m.Text).Should().Equal(compacted.Select(m => m.Text));
-        snapshot.ModelCompactedMessageIds.Should().Equal(original.Take(2).Select(m => m.MessageId));
-        snapshot.RetainedMessageIds.Should().Equal(original.Skip(2).Select(m => m.MessageId));
-        snapshot.SummaryContent.Should().Be("Handoff summary");
-        snapshot.CreatedAt.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(2));
-    }
-
-    [Fact]
     public void MementoBuilder_PreservesRecentCompactedUserMessagesAsReplacementClones()
     {
         var original = CreateMessages(6);
@@ -220,21 +198,13 @@ public class CompactionStateTests
     }
 
     [Fact]
-    public void CompactionStateData_WithCompaction_StoresSnapshotAndAppliedTime()
+    public void CompactionStateData_ResetAfterCompaction_ClearsTriggerState()
     {
-        var snapshot = new CompactionSnapshot
-        {
-            OriginalMessageIds = ["one"],
-            ModelVisibleMessages = [new ChatMessage(ChatRole.User, "one") { MessageId = "one" }],
-            RetainedMessageIds = ["one"]
-        };
-
         var state = new CompactionStateData
         {
             MessageTurnCount = 9
-        }.WithCompaction(snapshot);
+        }.ResetAfterCompaction();
 
-        state.LastCompaction.Should().BeSameAs(snapshot);
         state.MessageTurnCount.Should().Be(0);
         state.LastAppliedAt.Should().NotBeNull();
     }

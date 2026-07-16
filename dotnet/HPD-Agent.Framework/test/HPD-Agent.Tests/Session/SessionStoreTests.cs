@@ -121,7 +121,7 @@ public class SessionStoreTests : AgentTestBase
 
         // Act
         await store.SaveInitialThreadAsync("session-1", thread);
-        var loaded = await store.ProjectThreadAsync("session-1", "thread-1");
+        var loaded = await store.ProjectThreadAsync("session-1", "thread-1", ThreadProjectionPurpose.ThreadHistory);
 
         // Assert
         Assert.NotNull(loaded);
@@ -137,7 +137,7 @@ public class SessionStoreTests : AgentTestBase
         var store = new InMemorySessionStore();
 
         // Act
-        var result = await store.ProjectThreadAsync("session-1", "non-existent");
+        var result = await store.ProjectThreadAsync("session-1", "non-existent", ThreadProjectionPurpose.ThreadHistory);
 
         // Assert
         Assert.Null(result);
@@ -155,7 +155,7 @@ public class SessionStoreTests : AgentTestBase
 
         // Act
         await store.DeleteThreadAsync("session-1", "thread-to-delete");
-        var loaded = await store.ProjectThreadAsync("session-1", "thread-to-delete");
+        var loaded = await store.ProjectThreadAsync("session-1", "thread-to-delete", ThreadProjectionPurpose.ThreadHistory);
 
         // Assert
         Assert.Null(loaded);
@@ -212,7 +212,7 @@ public class SessionStoreTests : AgentTestBase
 
         // Assert
         Assert.Null(await store.LoadSessionAsync("session-1"));
-        Assert.Null(await store.ProjectThreadAsync("session-1", "thread-1"));
+        Assert.Null(await store.ProjectThreadAsync("session-1", "thread-1", ThreadProjectionPurpose.ThreadHistory));
     }
 
     //──────────────────────────────────────────────────────────────────

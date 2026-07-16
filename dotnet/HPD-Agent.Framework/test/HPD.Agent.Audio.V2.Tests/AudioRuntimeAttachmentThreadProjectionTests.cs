@@ -140,7 +140,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
         Assert.Contains(context.UserMessage.Contents.OfType<TextContent>(), text =>
             text.Text == "middleware transcript:middleware.wav");
 
-        var loaded = await store.ProjectThreadAsync("session-middleware", "main");
+        var loaded = await store.ProjectThreadAsync("session-middleware", "main", ThreadProjectionPurpose.ThreadHistory);
         var events = await store.CollectThreadEventsAsync("session-middleware", "main");
 
         Assert.NotNull(loaded);
@@ -184,7 +184,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
         Assert.Equal(1, factoryCreateCount);
         Assert.Equal(bytes, client.LastAudioBytes);
 
-        var loaded = await store.ProjectThreadAsync("session-meai-middleware", "main");
+        var loaded = await store.ProjectThreadAsync("session-meai-middleware", "main", ThreadProjectionPurpose.ThreadHistory);
         Assert.NotNull(loaded);
         var projectedMessage = Assert.Single(loaded.Messages);
         Assert.Equal(ChatRole.User, projectedMessage.Role);
@@ -565,7 +565,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
         Assert.Equal(16_000, client.LastOptions.SpeechSampleRate);
         Assert.True(client.IsDisposed);
 
-        var loaded = await store.ProjectThreadAsync("session-provider-bridge", "main");
+        var loaded = await store.ProjectThreadAsync("session-provider-bridge", "main", ThreadProjectionPurpose.ThreadHistory);
         var events = await store.CollectThreadEventsAsync("session-provider-bridge", "main");
 
         Assert.NotNull(loaded);

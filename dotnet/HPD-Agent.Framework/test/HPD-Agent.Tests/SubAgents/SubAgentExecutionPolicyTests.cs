@@ -61,7 +61,6 @@ public class SubAgentExecutionPolicyTests
         var compaction = new ThreadForkCompactionOptions
         {
             Mode = mode,
-            PreferCache = false,
             Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 3 }
         };
 

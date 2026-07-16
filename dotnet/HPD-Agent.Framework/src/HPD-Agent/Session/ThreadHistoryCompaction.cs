@@ -34,9 +34,11 @@ public interface IThreadCompactionPlanner
 
 public interface IThreadHistoryCompactor
 {
-    ThreadCompactionResult Compact(
+    ThreadCompactionResult Prepare(
         Thread thread,
         ThreadCompactionPlan plan);
+
+    void ApplyCommitted(Thread thread, ThreadCompactionResult result);
 }
 
 public sealed class ThreadCompactionPlanner : IThreadCompactionPlanner
@@ -230,7 +232,7 @@ public sealed class ThreadCompactionPlanner : IThreadCompactionPlanner
 
 public sealed class ThreadHistoryCompactor : IThreadHistoryCompactor
 {
-    public ThreadCompactionResult Compact(
+    public ThreadCompactionResult Prepare(
         Thread thread,
         ThreadCompactionPlan plan)
     {
@@ -266,15 +268,25 @@ public sealed class ThreadHistoryCompactor : IThreadHistoryCompactor
         var checkpointEvent = (ThreadHistoryCompactionCheckpointEvent)
             ThreadEventFactory.ThreadHistoryCompactionCheckpoint(thread.SessionId, thread.Id, checkpoint);
 
-        if (durableRemovedIds.Count > 0)
-            ApplyToLiveThread(thread, durableRemovedIds, replacementMessages);
-
         return new ThreadCompactionResult(
             compactionId,
             GetMessageIds(plan.ModelCompactedMessages),
             durableRemovedIds,
             GetMessageIds(replacementMessages),
             checkpointEvent);
+    }
+
+    public void ApplyCommitted(Thread thread, ThreadCompactionResult result)
+    {
+        ArgumentNullException.ThrowIfNull(thread);
+        ArgumentNullException.ThrowIfNull(result);
+        if (result.DurableCompactedMessageIds.Count > 0)
+        {
+            ApplyToLiveThread(
+                thread,
+                result.DurableCompactedMessageIds,
+                result.CheckpointEvent.ReplacementMessages);
+        }
     }
 
     private static void ApplyToLiveThread(

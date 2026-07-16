@@ -82,7 +82,7 @@ public class SessionPersistenceTests
     }
 
     [Fact]
-    public void LoadFromThread_RestoresCompaction()
+    public void LoadFromThread_RestoresCompactionTriggerState()
     {
         // Arrange: Create thread with compaction state (thread-scoped)
         var thread = new global::HPD.Agent.Thread("test-session");
@@ -93,19 +93,7 @@ public class SessionPersistenceTests
             messages.Add(new(Microsoft.Extensions.AI.ChatRole.User, $"message {i}"));
         }
 
-        var compaction = new CompactionSnapshot
-        {
-            OriginalMessageIds = messages.Select((_, i) => $"message-{i}").ToList(),
-            ModelVisibleMessages =
-            [
-                new ChatMessage(ChatRole.Assistant, "Test summary") { MessageId = "summary-message" }
-            ],
-            ModelCompactedMessageIds = messages.Take(90).Select((_, i) => $"message-{i}").ToList(),
-            RetainedMessageIds = messages.Skip(90).Select((_, i) => $"message-{i + 90}").ToList(),
-            SummaryContent = "Test summary"
-        };
-
-        var hrState = new CompactionStateData().WithCompaction(compaction);
+        var hrState = new CompactionStateData { MessageTurnCount = 7 };
         var middlewareState = new MiddlewareState().WithCompaction(hrState);
 
         middlewareState.SaveToThread(thread, TestFactories);
@@ -115,10 +103,7 @@ public class SessionPersistenceTests
 
         // Assert: History compaction is restored
         restored.Compaction().Should().NotBeNull();
-        restored.Compaction()!.LastCompaction.Should().NotBeNull();
-        restored.Compaction().LastCompaction!.ModelCompactedMessageIds.Should().HaveCount(90);
-        restored.Compaction().LastCompaction.OriginalMessageIds.Should().HaveCount(100);
-        restored.Compaction().LastCompaction.SummaryContent.Should().Be("Test summary");
+        restored.Compaction()!.MessageTurnCount.Should().Be(7);
     }
 
     [Fact]
@@ -136,17 +121,7 @@ public class SessionPersistenceTests
             new(Microsoft.Extensions.AI.ChatRole.User, "msg"),
         };
 
-        var compaction = new CompactionSnapshot
-        {
-            OriginalMessageIds = ["msg"],
-            ModelVisibleMessages =
-            [
-                new ChatMessage(ChatRole.Assistant, "Summary") { MessageId = "summary" }
-            ],
-            ModelCompactedMessageIds = ["msg"],
-            SummaryContent = "Summary"
-        };
-        var hrState = new CompactionStateData().WithCompaction(compaction);
+        var hrState = new CompactionStateData { MessageTurnCount = 3 };
 
         var middlewareState = new MiddlewareState()
             .WithPermissionPersistent(permState)
@@ -167,7 +142,7 @@ public class SessionPersistenceTests
 
         // Assert: History compaction restored from thread (thread-scoped)
         restoredFromThread.Compaction().Should().NotBeNull();
-        restoredFromThread.Compaction()!.LastCompaction!.ModelCompactedMessageIds.Should().ContainSingle("msg");
+        restoredFromThread.Compaction()!.MessageTurnCount.Should().Be(3);
     }
 
     [Fact]

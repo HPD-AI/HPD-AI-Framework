@@ -8,7 +8,7 @@ import type {
 import type { AIContent } from './session.js';
 import type { ThreadKind, ThreadVisibility } from './session.js';
 import type { ModelBackgroundOperationStatus } from './thread-run.js';
-import type { CompactionBehavior, CompactionRunMode } from './run-config.js';
+import type { CompactionContinuation, ThreadCompactionRequest } from './run-config.js';
 
 export interface UsageDetails {
   inputTokenCount?: number | null;
@@ -58,6 +58,7 @@ export const AgentMessagePolicyProperties = {
 export const EventTypes = {
   // Input Events
   USER_MESSAGES_INPUT: 'USER_MESSAGES_INPUT',
+  COMPACT_THREAD_INPUT: 'COMPACT_THREAD_INPUT',
   BACKGROUND_TASK_NOTIFICATION_INPUT: 'BACKGROUND_TASK_NOTIFICATION_INPUT',
 
   // Durable Thread Events
@@ -270,6 +271,11 @@ export interface UserMessageInput {
 export interface UserMessagesInputEvent extends AgentInputEvent {
   type: typeof EventTypes.USER_MESSAGES_INPUT;
   messages?: UserMessageInput[] | null;
+}
+
+export interface CompactThreadInputEvent extends AgentInputEvent {
+  type: typeof EventTypes.COMPACT_THREAD_INPUT;
+  request?: ThreadCompactionRequest;
 }
 
 export interface BackgroundTaskNotification {
@@ -847,14 +853,14 @@ export interface MiddlewareErrorEvent extends BaseEvent {
   errorMessage: string;
 }
 
-export type CompactionStatus = 0 | 1 | 2 | 3;
+export type CompactionStatus = 0 | 1 | 2;
 export type CompactionStrategy = 0 | 1;
+export type CompactionOrigin = 0 | 1 | 2;
 
 export const CompactionStatuses = {
   Started: 0,
   Skipped: 1,
-  CacheHit: 2,
-  Performed: 3,
+  Performed: 2,
 } as const satisfies Record<string, CompactionStatus>;
 
 export const CompactionStrategies = {
@@ -873,11 +879,10 @@ export interface CompactionEvent extends BaseEvent {
   messagesRemoved?: number | null;
   summaryContent?: string | null;
   summaryLength?: number | null;
-  cacheAge?: string | null;
   duration: string;
   reason?: string | null;
-  mode: CompactionRunMode;
-  behavior: CompactionBehavior;
+  continuation: CompactionContinuation;
+  origin: CompactionOrigin;
 }
 
 // ============================================
@@ -950,6 +955,7 @@ export interface InterruptionRequestEvent extends AgentInputEvent {
 export type KnownAgentEvent =
   // Input Events
   | UserMessagesInputEvent
+  | CompactThreadInputEvent
   | BackgroundTaskNotificationInputEvent
   // Durable Thread Events
   | ThreadCreatedEvent
@@ -1017,6 +1023,7 @@ export type AgentEvent = KnownAgentEvent | UnknownAgentEvent;
 
 export type AgentRunInputEvent =
   | UserMessagesInputEvent
+  | CompactThreadInputEvent
   | PermissionResponseEvent
   | ContinuationResponseEvent
   | ClarificationResponseEvent

@@ -24,7 +24,7 @@ public sealed class SessionThreadProjectionSinkTests
             InputContentId = content.Id
         });
 
-        var loaded = await store.ProjectThreadAsync(thread.SessionId, thread.ThreadId);
+        var loaded = await store.ProjectThreadAsync(thread.SessionId, thread.ThreadId, ThreadProjectionPurpose.ThreadHistory);
         var events = await store.CollectThreadEventsAsync(thread.SessionId, thread.ThreadId);
 
         Assert.NotNull(loaded);
@@ -60,7 +60,7 @@ public sealed class SessionThreadProjectionSinkTests
         var first = await sink.ProjectAsync(thread, record);
         var second = await sink.ProjectAsync(thread, record);
 
-        var loaded = await store.ProjectThreadAsync(thread.SessionId, thread.ThreadId);
+        var loaded = await store.ProjectThreadAsync(thread.SessionId, thread.ThreadId, ThreadProjectionPurpose.ThreadHistory);
         var events = await store.CollectThreadEventsAsync(thread.SessionId, thread.ThreadId);
 
         Assert.Equal(first, second);
@@ -92,7 +92,7 @@ public sealed class SessionThreadProjectionSinkTests
             ResponseId = new ResponseId("response-real")
         });
 
-        var loaded = await store.ProjectThreadAsync(thread.SessionId, thread.ThreadId);
+        var loaded = await store.ProjectThreadAsync(thread.SessionId, thread.ThreadId, ThreadProjectionPurpose.ThreadHistory);
 
         Assert.NotNull(loaded);
         var message = Assert.Single(loaded.Messages);

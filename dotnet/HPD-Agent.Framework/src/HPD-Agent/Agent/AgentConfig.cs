@@ -967,11 +967,6 @@ public class ErrorHandlingConfig
 public class CompactionConfig
 {
     /// <summary>
-    /// Whether compaction is enabled.
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-
-    /// <summary>
     /// Default compaction policy for newly forked threads before their first persistence.
     /// Fork compaction always shapes the new fork target; it does not mutate the source thread.
     /// </summary>
@@ -984,39 +979,43 @@ public class CompactionConfig
     public CompactionStrategyOptions Strategy { get; set; } = new MessageCountingCompactionOptions();
 
     /// <summary>
-    /// Trigger policy for deciding when compaction should run.
+    /// Automatic compaction policy. Null disables automatic compaction while preserving
+    /// explicit compaction and fork compaction.
     /// </summary>
-    public CompactionTriggerOptions Trigger { get; set; } = new CountCompactionTriggerOptions();
+    public CompactionAutomaticPolicy? Automatic { get; set; } = new();
 
     /// <summary>
     /// Retention policy for durable thread history. PreserveThreadHistoryOptions is soft compaction.
     /// </summary>
     public CompactionRetentionOptions Retention { get; set; } = new PreserveThreadHistoryOptions();
 
-    /// <summary>
-    /// Behavior when compaction is triggered.
-    /// - Continue (default): Compaction happens transparently, agent continues immediately
-    /// - StopAfterCompaction: Compaction terminates the turn before a model call
-    /// Can be overridden per-turn via AgentRunConfig.Compaction.
-    /// </summary>
-    public CompactionBehavior Behavior { get; set; } = CompactionBehavior.Continue;
 }
 
-public sealed record CompactionRunConfig
+public sealed record CompactionAutomaticPolicy
 {
-    public CompactionRunMode Mode { get; init; } = CompactionRunMode.Auto;
-    public CompactionBehavior? Behavior { get; init; }
-    public CompactionTriggerOptions? Trigger { get; init; }
+    public CompactionTriggerOptions Trigger { get; init; } = new CountCompactionTriggerOptions();
+    public CompactionContinuation Continuation { get; init; } = CompactionContinuation.Continue;
+}
+
+/// <summary>
+/// Per-run automatic compaction policy. Supplying this object replaces the configured
+/// automatic policy; a null <see cref="Automatic"/> explicitly disables it for the run.
+/// </summary>
+public sealed record CompactionRunPolicy
+{
+    public CompactionAutomaticPolicy? Automatic { get; init; }
     public CompactionStrategyOptions? Strategy { get; init; }
     public CompactionRetentionOptions? Retention { get; init; }
     public ModelContextWindowOptions? ModelContext { get; init; }
 }
 
-public enum CompactionRunMode
+/// <summary>Options for an explicit thread compaction command.</summary>
+public sealed record ThreadCompactionRequest
 {
-    Auto,
-    Force,
-    Disabled
+    public CompactionStrategyOptions? Strategy { get; init; }
+    public CompactionRetentionOptions? Retention { get; init; }
+    public ModelContextWindowOptions? ModelContext { get; init; }
+    public CompactionContinuation Continuation { get; init; } = CompactionContinuation.StopAfterCompaction;
 }
 
 public sealed record ModelContextWindowOptions
@@ -1153,7 +1152,7 @@ public enum CompactionStrategy
 /// Behavior when compaction is triggered.
 /// Controls whether the agent continues immediately or stops for user confirmation.
 /// </summary>
-public enum CompactionBehavior
+public enum CompactionContinuation
 {
     /// <summary>
     /// Continue immediately after compaction (default).

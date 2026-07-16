@@ -8,6 +8,21 @@ namespace HPD.Agent.Tests.Session;
 public class ThreadHistoryCompactionTests
 {
     [Fact]
+    public void Compactor_Prepare_DoesNotMutateLiveThreadBeforeCommit()
+    {
+        var thread = CreateThread(3);
+        var plan = new ThreadCompactionPlanner().Plan(
+            thread,
+            CreateCompaction(thread, compactedCount: 2),
+            new CompactThreadHistoryOptions())!;
+
+        _ = new ThreadHistoryCompactor().Prepare(thread, plan);
+
+        thread.Messages.Select(message => message.MessageId)
+            .Should().Equal("message-0", "message-1", "message-2");
+    }
+
+    [Fact]
     public void Planner_PreserveThreadHistory_CreatesSoftCheckpointPlan()
     {
         var thread = CreateThread(5);
@@ -133,7 +148,7 @@ public class ThreadHistoryCompactionTests
             compaction,
             new CompactThreadHistoryOptions())!;
 
-        var result = new ThreadHistoryCompactor().Compact(thread, plan);
+        var result = PrepareAndApply(thread, plan);
 
         result.DurableCompactedMessageIds.Should().Equal("message-0", "message-1", "message-2");
         result.ReplacementMessageIds.Should().BeEmpty();
@@ -150,7 +165,7 @@ public class ThreadHistoryCompactionTests
             compaction,
             new CompactThreadHistoryOptions())!;
 
-        var result = new ThreadHistoryCompactor().Compact(thread, plan);
+        var result = PrepareAndApply(thread, plan);
 
         result.DurableCompactedMessageIds.Should().Equal("message-0", "message-1", "message-2");
         result.ReplacementMessageIds.Should().ContainSingle("summary");
@@ -167,7 +182,7 @@ public class ThreadHistoryCompactionTests
             compaction,
             new PreserveThreadHistoryOptions())!;
 
-        var result = new ThreadHistoryCompactor().Compact(thread, plan);
+        var result = PrepareAndApply(thread, plan);
 
         result.ModelCompactedMessageIds.Should().Equal("message-0", "message-1", "message-2");
         result.DurableCompactedMessageIds.Should().BeEmpty();
@@ -186,7 +201,7 @@ public class ThreadHistoryCompactionTests
             compaction,
             new PreserveThreadHistoryOptions())!;
 
-        var result = new ThreadHistoryCompactor().Compact(thread, plan);
+        var result = PrepareAndApply(thread, plan);
         using var coordinator = new HPD.Events.Core.EventCoordinator();
         var committed = (ThreadHistoryCompactionCheckpointEvent)await new ThreadEventPublisher(store, coordinator)
             .CommitAndPublishAsync(
@@ -203,9 +218,38 @@ public class ThreadHistoryCompactionTests
         committed.Should().Be(checkpoint);
         result.CheckpointEvent.ThreadSequenceNumber.Should().Be(0);
 
-        var projected = await store.ProjectThreadAsync(thread.SessionId, thread.Id);
-        projected!.Messages.Select(message => message.MessageId)
-            .Should().Equal("message-0", "message-1", "message-2", "message-3", "message-4");
+        var tail = new ChatMessage(ChatRole.User, "question after compaction")
+        {
+            MessageId = "message-5"
+        };
+        await store.AppendThreadEventAsync(
+            thread.SessionId,
+            thread.Id,
+            ThreadEventFactory.ContentAdded(
+                thread.SessionId,
+                thread.Id,
+                tail,
+                tail.Contents[0]));
+
+        var modelContext = await store.ProjectThreadAsync(
+            thread.SessionId,
+            thread.Id,
+            ThreadProjectionPurpose.ModelContext);
+        var threadHistory = await store.ProjectThreadAsync(
+            thread.SessionId,
+            thread.Id,
+            ThreadProjectionPurpose.ThreadHistory);
+        var completeExport = await store.ProjectThreadAsync(
+            thread.SessionId,
+            thread.Id,
+            ThreadProjectionPurpose.CompleteSemanticExport);
+
+        modelContext!.Messages.Select(message => message.MessageId)
+            .Should().Equal("summary", "message-3", "message-4", "message-5");
+        threadHistory!.Messages.Select(message => message.MessageId)
+            .Should().Equal("message-0", "message-1", "message-2", "message-3", "message-4", "message-5");
+        completeExport!.Messages.Select(message => message.MessageId)
+            .Should().Equal("message-0", "message-1", "message-2", "message-3", "message-4", "message-5");
     }
 
     [Fact]
@@ -218,7 +262,7 @@ public class ThreadHistoryCompactionTests
             compaction,
             new CompactThreadHistoryOptions())!;
 
-        var result = new ThreadHistoryCompactor().Compact(thread, plan);
+        var result = PrepareAndApply(thread, plan);
         using var coordinator = new HPD.Events.Core.EventCoordinator();
         await new ThreadEventPublisher(store, coordinator).CommitAndPublishAsync(
             new ThreadKey(thread.SessionId, thread.Id),
@@ -232,7 +276,7 @@ public class ThreadHistoryCompactionTests
         checkpoint.DurableCompactedMessageIds.Should().Equal("message-0", "message-1", "message-2");
         checkpoint.ReplacementMessages.Select(message => message.MessageId).Should().ContainSingle("summary");
 
-        var projected = await store.ProjectThreadAsync(thread.SessionId, thread.Id);
+        var projected = await store.ProjectThreadAsync(thread.SessionId, thread.Id, ThreadProjectionPurpose.ThreadHistory);
         projected!.Messages.Select(message => message.MessageId)
             .Should().Equal("summary", "message-3", "message-4");
     }
@@ -267,7 +311,7 @@ public class ThreadHistoryCompactionTests
                 DateTimeOffset.UtcNow,
                 ThreadHistoryCompactionMode.Hard)));
 
-        var projected = ThreadProjector.Project("session", "main", events);
+        var projected = ThreadProjector.Project("session", "main", events, ThreadProjectionPurpose.ThreadHistory);
 
         projected.Messages.Select(m => m.MessageId)
             .Should().Equal("summary", "message-2", "message-3");
@@ -275,7 +319,7 @@ public class ThreadHistoryCompactionTests
     }
 
     [Fact]
-    public void Projector_LeavesMessagesForSoftCompactionCheckpointEvent()
+    public void Projector_AppliesSoftCompactionAccordingToProjectionPurpose()
     {
         var events = new List<AgentEvent>
         {
@@ -304,10 +348,29 @@ public class ThreadHistoryCompactionTests
                 DateTimeOffset.UtcNow,
                 ThreadHistoryCompactionMode.Soft)));
 
-        var projected = ThreadProjector.Project("session", "main", events);
+        var threadHistory = ThreadProjector.Project(
+            "session",
+            "main",
+            events,
+            ThreadProjectionPurpose.ThreadHistory);
+        var modelContext = ThreadProjector.Project(
+            "session",
+            "main",
+            events,
+            ThreadProjectionPurpose.ModelContext);
+        var completeExport = ThreadProjector.Project(
+            "session",
+            "main",
+            events,
+            ThreadProjectionPurpose.CompleteSemanticExport);
 
-        projected.Messages.Select(m => m.MessageId)
+        threadHistory.Messages.Select(m => m.MessageId)
             .Should().Equal("message-0", "message-1", "message-2", "message-3");
+        completeExport.Messages.Select(m => m.MessageId)
+            .Should().Equal("message-0", "message-1", "message-2", "message-3");
+        modelContext.Messages.Select(m => m.MessageId)
+            .Should().Equal("summary", "message-2", "message-3");
+        modelContext.Messages[0].Text.Should().Be("summary");
     }
 
     private static Thread CreateThread(int messageCount)
@@ -360,5 +423,13 @@ public class ThreadHistoryCompactionTests
             thread.Messages,
             visible,
             includeSummary ? new SummarizingCompactionOptions() : new MessageCountingCompactionOptions());
+    }
+
+    private static ThreadCompactionResult PrepareAndApply(Thread thread, ThreadCompactionPlan plan)
+    {
+        var compactor = new ThreadHistoryCompactor();
+        var result = compactor.Prepare(thread, plan);
+        compactor.ApplyCommitted(thread, result);
+        return result;
     }
 }

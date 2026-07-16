@@ -526,28 +526,6 @@ public class LoggingMiddleware : IAgentMiddleware
         sb.AppendLine($"    LastAppliedAt: {state.LastAppliedAt?.ToString("O") ?? "-"}");
         sb.AppendLine($"    LastUsageObservedAt: {state.LastUsageObservedAt?.ToString("O") ?? "-"}");
 
-        var snapshot = state.LastCompaction;
-        if (snapshot is null)
-        {
-            sb.AppendLine("    LastCompaction: none");
-            return;
-        }
-
-        sb.AppendLine($"    SnapshotCreatedAt: {snapshot.CreatedAt:O}");
-        sb.AppendLine($"    OriginalMessageIds: {snapshot.OriginalMessageIds.Count}");
-        sb.AppendLine($"    ModelCompactedMessageIds: {snapshot.ModelCompactedMessageIds.Count}");
-        sb.AppendLine($"    RetainedMessageIds: {snapshot.RetainedMessageIds.Count}");
-        sb.AppendLine($"    ModelVisibleMessages: {snapshot.ModelVisibleMessages.Count}");
-        sb.AppendLine($"    SummaryChars: {snapshot.SummaryContent?.Length ?? 0}");
-
-        if (string.IsNullOrWhiteSpace(snapshot.SummaryContent))
-        {
-            sb.AppendLine("    Warning: summary is empty");
-        }
-        else if (LooksLikeSummarizerInstructions(snapshot.SummaryContent))
-        {
-            sb.AppendLine("    Warning: summary appears to contain summarizer instructions");
-        }
     }
 
     private static bool LooksLikeSummarizerInstructions(string value)

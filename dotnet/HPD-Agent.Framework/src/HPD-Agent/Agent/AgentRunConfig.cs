@@ -480,7 +480,7 @@ public class AgentRunConfig
     /// <summary>
     /// Per-run compaction policy. Null means use the agent's configured compaction defaults.
     /// </summary>
-    public CompactionRunConfig? Compaction { get; set; }
+    public CompactionRunPolicy? Compaction { get; set; }
 
     #endregion
 

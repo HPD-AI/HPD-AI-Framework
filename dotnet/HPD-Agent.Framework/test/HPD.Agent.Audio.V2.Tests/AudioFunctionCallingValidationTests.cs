@@ -98,7 +98,7 @@ public sealed class AudioFunctionCallingValidationTests
                 Assert.Contains("20", result.Result.Text ?? string.Empty);
             });
 
-        var thread = await store.ProjectThreadAsync("audio-function-session", "main");
+        var thread = await store.ProjectThreadAsync("audio-function-session", "main", ThreadProjectionPurpose.ThreadHistory);
         Assert.NotNull(thread);
         var finalAssistantMessage = Assert.Single(thread.Messages, message =>
             message.Role == ChatRole.Assistant &&

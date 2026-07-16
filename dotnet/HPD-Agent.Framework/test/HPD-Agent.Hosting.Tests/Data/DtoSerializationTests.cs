@@ -263,7 +263,6 @@ public class DtoSerializationTests
             new ThreadForkCompactionOptions
             {
                 Mode = ThreadForkCompactionMode.Enabled,
-                PreferCache = false,
                 Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 3 }
             });
 
@@ -280,7 +279,6 @@ public class DtoSerializationTests
         deserialized.Metadata!["variant"].ToString().Should().Be("formal");
         deserialized.Compaction.Should().NotBeNull();
         deserialized.Compaction!.Mode.Should().Be(ThreadForkCompactionMode.Enabled);
-        deserialized.Compaction.PreferCache.Should().BeFalse();
         deserialized.Compaction.Strategy.Should().BeOfType<MessageCountingCompactionOptions>()
             .Which.PreserveRecentUserTurnCount.Should().Be(3);
     }
@@ -326,6 +324,32 @@ public class DtoSerializationTests
         deserialized.RunConfig.Chat!.Temperature.Should().Be(0.7);
         deserialized.RunConfig.Chat.MaxOutputTokens.Should().Be(4000);
         deserialized.RunConfig.ModelId.Should().Be("claude-sonnet-4-5");
+    }
+
+    [Fact]
+    public void CompactThreadInputEvent_SerializesAndDeserializes_AsDedicatedCommand()
+    {
+        var original = new CompactThreadInputEvent
+        {
+            SessionId = "session-123",
+            ThreadId = "main",
+            AgentId = "default",
+            Request = new ThreadCompactionRequest
+            {
+                Continuation = CompactionContinuation.StopAfterCompaction,
+                Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 2 },
+                Retention = new PreserveThreadHistoryOptions()
+            }
+        };
+
+        var json = AgentEventSerializer.ToJson(original);
+        var deserialized = AgentEventSerializer.FromJson(json) as CompactThreadInputEvent;
+
+        deserialized.Should().NotBeNull();
+        deserialized!.SessionId.Should().Be("session-123");
+        deserialized.Request.Continuation.Should().Be(CompactionContinuation.StopAfterCompaction);
+        deserialized.Request.Strategy.Should().BeOfType<MessageCountingCompactionOptions>()
+            .Which.PreserveRecentUserTurnCount.Should().Be(2);
     }
 
     [Fact]

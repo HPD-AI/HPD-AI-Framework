@@ -199,7 +199,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
         if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
             return AgentServiceResult<ThreadContextUsage>.NotFound;
 
-        var thread = await _sessionManager.Store.ProjectThreadAsync(sessionId, threadId, cancellationToken)
+        var thread = await _sessionManager.Store.ProjectThreadAsync(sessionId, threadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken)
             .ConfigureAwait(false);
         if (thread == null)
             return AgentServiceResult<ThreadContextUsage>.NotFound;
@@ -280,6 +280,15 @@ public sealed class AgentStreamingService : IAgentStreamingService
                 ThreadId = threadId,
                 RuntimeRunId = runtimeRunId ?? messages.RuntimeRunId,
                 RunConfig = messages.RunConfig
+            },
+            CompactThreadInputEvent compact => compact with
+            {
+                ClientInputId = compact.ClientInputId,
+                AgentId = agentId,
+                SessionId = sessionId,
+                ThreadId = threadId,
+                RuntimeRunId = runtimeRunId ?? compact.RuntimeRunId,
+                RunConfig = compact.RunConfig
             },
             InterruptionRequestEvent interruption => interruption with
             {

@@ -29,7 +29,7 @@ public class ThreadOperationTests : AgentTestBase
 
         // Act
         await store.SaveInitialThreadAsync("test-session", thread);
-        var loaded = await store.ProjectThreadAsync("test-session", "main");
+        var loaded = await store.ProjectThreadAsync("test-session", "main", ThreadProjectionPurpose.ThreadHistory);
 
         // Assert
         Assert.NotNull(loaded);
@@ -45,7 +45,7 @@ public class ThreadOperationTests : AgentTestBase
         var store = new InMemorySessionStore();
 
         // Act
-        var result = await store.ProjectThreadAsync("no-session", "no-thread");
+        var result = await store.ProjectThreadAsync("no-session", "no-thread", ThreadProjectionPurpose.ThreadHistory);
 
         // Assert
         Assert.Null(result);
@@ -65,7 +65,7 @@ public class ThreadOperationTests : AgentTestBase
 
         // Act
         await store.DeleteThreadAsync("test-session", "to-delete");
-        var loaded = await store.ProjectThreadAsync("test-session", "to-delete");
+        var loaded = await store.ProjectThreadAsync("test-session", "to-delete", ThreadProjectionPurpose.ThreadHistory);
 
         // Assert
         Assert.Null(loaded);
@@ -135,8 +135,8 @@ public class ThreadOperationTests : AgentTestBase
         await store.SaveInitialThreadAsync("test-session", thread2);
 
         // Act
-        var loaded1 = await store.ProjectThreadAsync("test-session", "thread-1");
-        var loaded2 = await store.ProjectThreadAsync("test-session", "thread-2");
+        var loaded1 = await store.ProjectThreadAsync("test-session", "thread-1", ThreadProjectionPurpose.ThreadHistory);
+        var loaded2 = await store.ProjectThreadAsync("test-session", "thread-2", ThreadProjectionPurpose.ThreadHistory);
 
         // Assert
         Assert.Single(loaded1!.Messages);
@@ -158,9 +158,9 @@ public class ThreadOperationTests : AgentTestBase
         await store.DeleteThreadAsync("test-session", "remove");
 
         // Assert
-        var kept = await store.ProjectThreadAsync("test-session", "keep");
+        var kept = await store.ProjectThreadAsync("test-session", "keep", ThreadProjectionPurpose.ThreadHistory);
         Assert.NotNull(kept);
-        var removed = await store.ProjectThreadAsync("test-session", "remove");
+        var removed = await store.ProjectThreadAsync("test-session", "remove", ThreadProjectionPurpose.ThreadHistory);
         Assert.Null(removed);
     }
 
@@ -204,7 +204,7 @@ public class ThreadOperationTests : AgentTestBase
 
             // Act
             await store.SaveInitialThreadAsync("test-session", thread);
-            var loaded = await store.ProjectThreadAsync("test-session", "main");
+            var loaded = await store.ProjectThreadAsync("test-session", "main", ThreadProjectionPurpose.ThreadHistory);
 
             // Assert
             Assert.NotNull(loaded);
@@ -264,7 +264,7 @@ public class ThreadOperationTests : AgentTestBase
 
             // Act
             await store.DeleteThreadAsync("test-session", "to-delete");
-            var loaded = await store.ProjectThreadAsync("test-session", "to-delete");
+            var loaded = await store.ProjectThreadAsync("test-session", "to-delete", ThreadProjectionPurpose.ThreadHistory);
 
             // Assert
             Assert.Null(loaded);
@@ -293,7 +293,7 @@ public class ThreadOperationTests : AgentTestBase
 
         // Act
         await store.SaveInitialThreadAsync("test-session", thread);
-        var loaded = await store.ProjectThreadAsync("test-session", "formal");
+        var loaded = await store.ProjectThreadAsync("test-session", "formal", ThreadProjectionPurpose.ThreadHistory);
 
         // Assert
         Assert.Equal("Formal tone approach", loaded!.Description);
@@ -312,7 +312,7 @@ public class ThreadOperationTests : AgentTestBase
 
         // Act
         await store.SaveInitialThreadAsync("test-session", thread);
-        var loaded = await store.ProjectThreadAsync("test-session", "experiment");
+        var loaded = await store.ProjectThreadAsync("test-session", "experiment", ThreadProjectionPurpose.ThreadHistory);
 
         // Assert
         Assert.NotNull(loaded!.Tags);
@@ -381,7 +381,7 @@ public class ThreadOperationTests : AgentTestBase
         // Act - fork at message 3 (after "Response 2")
         var agent = await CreateAgentWithStoreAsync(store);
         await agent.ForkThreadAsync("test-session", "main", "formal", source.Messages[3].MessageId!);
-        var forked = await store.ProjectThreadAsync("test-session", "formal");
+        var forked = await store.ProjectThreadAsync("test-session", "formal", ThreadProjectionPurpose.ThreadHistory);
 
         // Assert
         Assert.NotNull(forked);
@@ -411,7 +411,7 @@ public class ThreadOperationTests : AgentTestBase
         // Act - fork at message 1 (after "Second")
         var agent = await CreateAgentWithStoreAsync(store);
         await agent.ForkThreadAsync("test-session", "main", "alt", source.Messages[1].MessageId!);
-        var forked = await store.ProjectThreadAsync("test-session", "alt");
+        var forked = await store.ProjectThreadAsync("test-session", "alt", ThreadProjectionPurpose.ThreadHistory);
 
         // Assert - should have messages 0 and 1
         Assert.NotNull(forked);
@@ -435,7 +435,7 @@ public class ThreadOperationTests : AgentTestBase
         // Act
         var agent = await CreateAgentWithStoreAsync(store);
         await agent.ForkThreadAsync("test-session", "main", "alt", source.Messages[0].MessageId!);
-        var forked = await store.ProjectThreadAsync("test-session", "alt");
+        var forked = await store.ProjectThreadAsync("test-session", "alt", ThreadProjectionPurpose.ThreadHistory);
 
         // Assert - thread-scoped state copied
         Assert.NotNull(forked);
@@ -458,7 +458,7 @@ public class ThreadOperationTests : AgentTestBase
 
         var agent = await CreateAgentWithStoreAsync(store);
         await agent.ForkThreadAsync("test-session", "main", "alt", source.Messages[0].MessageId!);
-        var forked = await store.ProjectThreadAsync("test-session", "alt");
+        var forked = await store.ProjectThreadAsync("test-session", "alt", ThreadProjectionPurpose.ThreadHistory);
         Assert.NotNull(forked);
 
         // Act - modify forked thread state
@@ -472,10 +472,10 @@ public class ThreadOperationTests : AgentTestBase
                 forked.MiddlewareState));
 
         // Assert - source unchanged
-        var reloadedSource = await store.ProjectThreadAsync("test-session", "main");
+        var reloadedSource = await store.ProjectThreadAsync("test-session", "main", ThreadProjectionPurpose.ThreadHistory);
         Assert.Equal("{\"step\":1}", reloadedSource!.MiddlewareState["PlanModePersistentState"]);
 
-        var reloadedForked = await store.ProjectThreadAsync("test-session", "alt");
+        var reloadedForked = await store.ProjectThreadAsync("test-session", "alt", ThreadProjectionPurpose.ThreadHistory);
         Assert.Equal("{\"step\":5}", reloadedForked!.MiddlewareState["PlanModePersistentState"]);
     }
 
@@ -520,8 +520,8 @@ public class ThreadOperationTests : AgentTestBase
         await store.SaveInitialThreadAsync("test-session", thread2);
 
         // Act
-        var loaded1 = await store.ProjectThreadAsync("test-session", "thread-1");
-        var loaded2 = await store.ProjectThreadAsync("test-session", "thread-2");
+        var loaded1 = await store.ProjectThreadAsync("test-session", "thread-1", ThreadProjectionPurpose.ThreadHistory);
+        var loaded2 = await store.ProjectThreadAsync("test-session", "thread-2", ThreadProjectionPurpose.ThreadHistory);
 
         // Assert
         Assert.Equal("{\"plan\":\"A\"}", loaded1!.MiddlewareState["PlanModePersistentState"]);

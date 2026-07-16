@@ -1,6 +1,6 @@
 import type { AgentClient } from './client.js';
 import { EventTypes } from './types/events.js';
-import type { RunConfig } from './types/run-config.js';
+import type { RunConfig, ThreadCompactionRequest } from './types/run-config.js';
 import type { InputSubmissionResult, InterruptionResult } from './types/transport.js';
 import type {
   AIContent,
@@ -154,6 +154,24 @@ export class ChatSession {
       throw new Error('Backend returned a non-submission result for a user message.');
     }
 
+    return result;
+  }
+
+  async compactThread(
+    request: ThreadCompactionRequest = {},
+    options: SendMessageOptions = {},
+  ): Promise<InputSubmissionResult> {
+    const result = await this.client.submitInput({
+      type: EventTypes.COMPACT_THREAD_INPUT,
+      agentId: this.agentId,
+      sessionId: this.sessionId,
+      threadId: this.threadId,
+      request,
+      runConfig: options.runConfig,
+    }, { signal: options.signal });
+    if (!('runtimeRunId' in result) || !('startedAt' in result)) {
+      throw new Error('Backend returned a non-submission result for compaction.');
+    }
     return result;
   }
 

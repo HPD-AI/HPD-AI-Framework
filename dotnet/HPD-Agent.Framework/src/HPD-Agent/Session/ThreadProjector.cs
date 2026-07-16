@@ -5,17 +5,24 @@ namespace HPD.Agent;
 
 public static class ThreadProjector
 {
-    public static Thread Project(string sessionId, string threadId, IEnumerable<AgentEvent> events)
+    public static Thread Project(
+        string sessionId,
+        string threadId,
+        IEnumerable<AgentEvent> events,
+        ThreadProjectionPurpose purpose)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
         var thread = new Thread(sessionId, threadId);
-        Apply(thread, events);
+        Apply(thread, events, purpose);
         return thread;
     }
 
-    public static Thread Apply(Thread thread, IEnumerable<AgentEvent> events)
+    public static Thread Apply(
+        Thread thread,
+        IEnumerable<AgentEvent> events,
+        ThreadProjectionPurpose purpose)
     {
         ArgumentNullException.ThrowIfNull(thread);
         ArgumentNullException.ThrowIfNull(events);
@@ -33,7 +40,7 @@ public static class ThreadProjector
 
         foreach (var evt in events.OrderBy(e => e.ThreadSequenceNumber))
         {
-            Apply(thread, evt, messages, messageOrder);
+            Apply(thread, evt, messages, messageOrder, purpose);
         }
 
         thread.Messages.Clear();
@@ -50,7 +57,8 @@ public static class ThreadProjector
         Thread thread,
         AgentEvent evt,
         Dictionary<string, MessageProjection> messages,
-        List<string> messageOrder)
+        List<string> messageOrder,
+        ThreadProjectionPurpose purpose)
     {
         switch (evt)
         {
@@ -175,7 +183,7 @@ public static class ThreadProjector
 
             case ThreadHistoryCompactionCheckpointEvent data:
             {
-                ApplyCompaction(data, messages, messageOrder);
+                ApplyCompaction(data, messages, messageOrder, purpose);
                 thread.LastActivity = data.CompactedAt.UtcDateTime;
                 break;
             }
@@ -185,21 +193,32 @@ public static class ThreadProjector
     private static void ApplyCompaction(
         ThreadHistoryCompactionCheckpointEvent data,
         Dictionary<string, MessageProjection> messages,
-        List<string> messageOrder)
+        List<string> messageOrder,
+        ThreadProjectionPurpose purpose)
     {
-        var durableRemoved = data.DurableCompactedMessageIds
+        var removed = purpose switch
+        {
+            ThreadProjectionPurpose.ModelContext or ThreadProjectionPurpose.Evaluation =>
+                data.ModelCompactedMessageIds,
+            ThreadProjectionPurpose.ThreadHistory or ThreadProjectionPurpose.ForkConstruction =>
+                data.DurableCompactedMessageIds,
+            ThreadProjectionPurpose.CompleteSemanticExport => [],
+            _ => throw new ArgumentOutOfRangeException(nameof(purpose), purpose, "Unknown thread projection purpose.")
+        };
+
+        var removedIds = removed
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .ToHashSet(StringComparer.Ordinal);
 
-        if (durableRemoved.Count == 0)
+        if (removedIds.Count == 0)
             return;
 
-        var insertIndex = messageOrder.FindIndex(durableRemoved.Contains);
+        var insertIndex = messageOrder.FindIndex(removedIds.Contains);
         if (insertIndex < 0)
             insertIndex = messageOrder.Count;
 
-        messageOrder.RemoveAll(durableRemoved.Contains);
-        foreach (var messageId in durableRemoved)
+        messageOrder.RemoveAll(removedIds.Contains);
+        foreach (var messageId in removedIds)
             messages.Remove(messageId);
 
         var replacementIds = new List<string>();
@@ -207,6 +226,7 @@ public static class ThreadProjector
         {
             EnsureMessageIdentity(replacement);
             var replacementId = replacement.MessageId!;
+            messageOrder.Remove(replacementId);
             replacementIds.Add(replacementId);
             messages[replacementId] = MessageProjection.FromChatMessage(replacement);
         }

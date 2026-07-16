@@ -273,24 +273,26 @@ return 0;
 static void ConfigureDefaultCompaction(AgentBuilder builder)
 {
     builder.Config.Compaction ??= new CompactionConfig();
-    builder.Config.Compaction.Enabled = true;
     builder.Config.Compaction.Strategy = new SummarizingCompactionOptions
     {
         PreserveRecentUserTurnCount = 0,
         ResummarizeAfterNewMessages = 1,
         SummaryStyle = SummaryStyle.Handoff
     };
-    builder.Config.Compaction.Trigger = new CountCompactionTriggerOptions
+    builder.Config.Compaction.Automatic = new CompactionAutomaticPolicy
     {
-        CountingUnit = HistoryCountingUnit.MessageTurns,
-        TargetCount = 2,
-        Threshold = 0
+        Trigger = new CountCompactionTriggerOptions
+        {
+            CountingUnit = HistoryCountingUnit.MessageTurns,
+            TargetCount = 2,
+            Threshold = 0
+        },
+        Continuation = CompactionContinuation.Continue
     };
     builder.Config.Compaction.Retention = new CompactThreadHistoryOptions
     {
         Boundary = new IncludeMessageTurnBoundaryOptions()
     };
-    builder.Config.Compaction.Behavior = CompactionBehavior.Continue;
 }
 
 static bool IsCompactCommand(string prompt, out bool hardRetention)
@@ -311,37 +313,34 @@ static async Task RunManualCompactionAsync(
     CodingCliOptions options,
     bool hardRetention)
 {
-    var runConfig = new AgentRunConfig
+    var runConfig = new AgentRunConfig();
+    var request = new ThreadCompactionRequest
     {
-        Compaction = new CompactionRunConfig
+        Continuation = CompactionContinuation.StopAfterCompaction,
+        Strategy = new SummarizingCompactionOptions
         {
-            Mode = CompactionRunMode.Force,
-            Behavior = CompactionBehavior.StopAfterCompaction,
-            Strategy = new SummarizingCompactionOptions
+            PreserveRecentUserTurnCount = 0,
+            ResummarizeAfterNewMessages = 1,
+            SummaryStyle = SummaryStyle.Handoff
+        },
+        Retention = hardRetention
+            ? new CompactThreadHistoryOptions
             {
-                PreserveRecentUserTurnCount = 0,
-                ResummarizeAfterNewMessages = 1,
-                SummaryStyle = SummaryStyle.Handoff
-            },
-            Retention = hardRetention
-                ? new CompactThreadHistoryOptions
-                {
-                    Boundary = new IncludeMessageTurnBoundaryOptions()
-                }
-                : new PreserveThreadHistoryOptions()
-        }
+                Boundary = new IncludeMessageTurnBoundaryOptions()
+            }
+            : new PreserveThreadHistoryOptions()
     };
 
     CliConsole.WriteErrorLine(
         ConsoleColor.DarkCyan,
         $"[compact:manual] retention={(hardRetention ? "hard" : "soft")} behavior=StopAfterCompaction");
 
-    await agent.RunAsync(new UserMessagesInputEvent
+    await agent.RunAsync(new CompactThreadInputEvent
     {
-        Messages = [],
         SessionId = options.SessionId,
         ThreadId = options.ThreadId,
-        RunConfig = runConfig
+        RunConfig = runConfig,
+        Request = request
     });
 }
 

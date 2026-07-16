@@ -895,6 +895,74 @@ public sealed class Agent
         return unsessionedResult.Build();
     }
 
+    private async Task<AgentTurnResult> RunCompactionInputAsync(
+        CompactThreadInputEvent input,
+        HPD.Events.IEventCoordinator eventCoordinator,
+        CancellationToken cancellationToken)
+    {
+        Session session;
+        Thread thread;
+        if (input.Session is not null || input.Thread is not null)
+        {
+            if (input.Session is null || input.Thread is null)
+                throw new InvalidOperationException("CompactThreadInputEvent must provide both Session and Thread for process-local runs.");
+            session = input.Session;
+            thread = input.Thread;
+        }
+        else if (!string.IsNullOrWhiteSpace(input.SessionId))
+        {
+            (session, thread) = await LoadSessionAndThreadAsync(
+                input.SessionId,
+                input.ThreadId,
+                cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            throw new InvalidOperationException("Explicit compaction requires a scoped session and thread.");
+        }
+
+        var middleware = _middlewarePipeline.Middlewares.OfType<CompactionMiddleware>().SingleOrDefault()
+            ?? throw new InvalidOperationException("Compaction is not configured for this agent.");
+        var runConfig = input.RunConfig ?? new AgentRunConfig();
+        var persistentState = MiddlewareState.LoadFromSession(session, _stateFactories)
+            .Merge(MiddlewareState.LoadFromThread(thread, _stateFactories));
+        var state = AgentLoopState.Initial(
+            thread.Messages,
+            Guid.NewGuid().ToString(),
+            session.Id,
+            _name,
+            persistentState);
+        var agentContext = new Middleware.AgentContext(
+            _name,
+            session.Id,
+            state,
+            eventCoordinator,
+            session,
+            thread,
+            cancellationToken,
+            Config?.SessionStore is { } store ? new ThreadEventPublisher(store, eventCoordinator) : null,
+            _baseClient,
+            _serviceProvider,
+            _runtimeContext?.RuntimeCapabilities,
+            agentId: AgentId,
+            parentAgentMetadata: AgentMetadata,
+            parentAgentStore: Config?.AgentStore,
+            config: Config,
+            clientSet: _clientSet,
+            contentStore: _contentStore,
+            structEvents: GetActiveStructEvents());
+
+        await middleware.CompactExplicitAsync(
+            agentContext.AsBeforeMessageTurn(null, thread.Messages, runConfig),
+            input.Request,
+            cancellationToken).ConfigureAwait(false);
+
+        if (Config?.SessionStoreOptions?.PersistAfterTurn == true)
+            await SaveSessionAndThreadAsync(session, thread, cancellationToken).ConfigureAwait(false);
+
+        return AgentTurnResult.Empty;
+    }
+
     private static bool ShouldEnqueueToRuntime(AgentInputEvent input) => true;
 
     private HPD.Events.IEventCoordinator GetActiveEventCoordinator()
@@ -972,6 +1040,7 @@ public sealed class Agent
             StructEvents = GetActiveStructEvents(),
             RuntimeRunConfig = _runtimeContext?.RunConfig,
             RunMessagesAsync = RunMessagesInputAsync,
+            CompactThreadAsync = RunCompactionInputAsync,
             InterruptAsync = HandleInterruptionAsync,
             TryResolveClientToolBackgroundOperation = ResolveClientToolBackgroundOperation,
             PublishBackgroundTaskNotificationDelivered = PublishBackgroundTaskNotificationDeliveredAsync
@@ -5185,7 +5254,11 @@ public sealed class Agent
             ?? throw new SessionNotFoundException(sessionId);
         session.Store = store;
 
-        var thread = await store.ProjectThreadAsync(sessionId, threadId, cancellationToken)
+        var thread = await store.ProjectThreadAsync(
+                sessionId,
+                threadId,
+                ThreadProjectionPurpose.ModelContext,
+                cancellationToken)
             ?? throw new SessionNotFoundException(sessionId, threadId);
 
         // Ensure back-reference is set on loaded threads
@@ -5286,7 +5359,7 @@ public sealed class Agent
         session.Store = store;
 
         var id = string.IsNullOrWhiteSpace(threadId) ? Guid.NewGuid().ToString() : threadId;
-        if (await store.ProjectThreadAsync(sessionId, id, cancellationToken).ConfigureAwait(false) is not null)
+        if (await store.GetThreadAsync(new ThreadKey(sessionId, id), cancellationToken).ConfigureAwait(false) is not null)
         {
             throw new InvalidOperationException(
                 $"Thread '{id}' already exists in session '{sessionId}'.");
@@ -5330,7 +5403,11 @@ public sealed class Agent
         if (store == null)
             return null;
 
-        return await store.ProjectThreadAsync(sessionId, threadId, cancellationToken);
+        return await store.ProjectThreadAsync(
+            sessionId,
+            threadId,
+            ThreadProjectionPurpose.ModelContext,
+            cancellationToken);
     }
 
     /// <summary>
@@ -5623,7 +5700,11 @@ public sealed class Agent
             ?? throw new InvalidOperationException(
                 "No session store configured. Use WithSessionStore() on AgentBuilder to configure persistence.");
 
-        var sourceThread = await store.ProjectThreadAsync(sessionId, sourceThreadId, cancellationToken)
+        var sourceThread = await store.ProjectThreadAsync(
+                sessionId,
+                sourceThreadId,
+                ThreadProjectionPurpose.ForkConstruction,
+                cancellationToken)
             ?? throw new InvalidOperationException($"Thread '{sourceThreadId}' not found in session '{sessionId}'.");
 
         var latestMessageId = sourceThread.Messages.LastOrDefault()?.MessageId;
@@ -5691,7 +5772,11 @@ public sealed class Agent
             ?? throw new InvalidOperationException($"Session '{sessionId}' not found.");
         session.Store = store;
 
-        var sourceThread = await store.ProjectThreadAsync(sessionId, sourceThreadId, cancellationToken)
+        var sourceThread = await store.ProjectThreadAsync(
+                sessionId,
+                sourceThreadId,
+                ThreadProjectionPurpose.ForkConstruction,
+                cancellationToken)
             ?? throw new InvalidOperationException($"Thread '{sourceThreadId}' not found in session '{sessionId}'.");
         sourceThread.Session = session;
 
@@ -6233,7 +6318,11 @@ public sealed class Agent
         }
 
         // Load the thread to delete
-        var thread = await store.ProjectThreadAsync(sessionId, threadId, cancellationToken);
+        var thread = await store.ProjectThreadAsync(
+            sessionId,
+            threadId,
+            ThreadProjectionPurpose.ThreadHistory,
+            cancellationToken);
         if (thread == null)
         {
             throw new InvalidOperationException($"Thread '{threadId}' not found in session '{sessionId}'.");
@@ -6253,7 +6342,11 @@ public sealed class Agent
         // Remove from parent's ChildThreads list
         if (thread.ForkedFrom != null)
         {
-            var parent = await store.ProjectThreadAsync(sessionId, thread.ForkedFrom, cancellationToken);
+            var parent = await store.ProjectThreadAsync(
+                sessionId,
+                thread.ForkedFrom,
+                ThreadProjectionPurpose.ThreadHistory,
+                cancellationToken);
             if (parent != null && parent.ChildThreads.Contains(threadId))
             {
                 parent.ChildThreads.Remove(threadId);

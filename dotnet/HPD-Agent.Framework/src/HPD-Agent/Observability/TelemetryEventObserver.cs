@@ -18,8 +18,6 @@ public class TelemetryEventObserver : IDisposable
     private readonly Counter<int> _permissionChecks;
     private readonly Counter<int> _containerExpansions;
     private readonly Counter<int> _retryAttempts;
-    private readonly Counter<int> _compactionCacheHits;
-    private readonly Counter<int> _compactionCacheMisses;
     private readonly Counter<int> _documentProcessing;
     private readonly Counter<int> _nestedAgentCalls;
     private readonly Counter<int> _completions;
@@ -80,14 +78,6 @@ public class TelemetryEventObserver : IDisposable
         _retryAttempts = _meter.CreateCounter<int>(
             "agent.retry_attempts",
             description: "Number of function retry attempts");
-
-        _compactionCacheHits = _meter.CreateCounter<int>(
-            "agent.compaction_cache.hits",
-            description: "Number of compaction cache hits");
-
-        _compactionCacheMisses = _meter.CreateCounter<int>(
-            "agent.compaction_cache.misses",
-            description: "Number of compaction cache misses");
 
         _documentProcessing = _meter.CreateCounter<int>(
             "agent.document_processing",
@@ -326,19 +316,7 @@ public class TelemetryEventObserver : IDisposable
                 }
                 break;
 
-            // Compaction cache tracking
             case CompactionEvent e:
-                if (e.Status == CompactionStatus.CacheHit)
-                {
-                    _compactionCacheHits.Add(1,
-                        new KeyValuePair<string, object?>("agent.name", e.AgentName));
-                }
-                else if (e.Status == CompactionStatus.Performed)
-                {
-                    _compactionCacheMisses.Add(1,
-                        new KeyValuePair<string, object?>("agent.name", e.AgentName));
-                }
-
                 if (e.MessagesRemoved.HasValue)
                 {
                     _compactionMessagesRemovedHistogram.Record(e.MessagesRemoved.Value,

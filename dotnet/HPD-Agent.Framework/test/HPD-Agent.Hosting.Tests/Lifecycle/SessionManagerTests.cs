@@ -47,7 +47,7 @@ public class SessionManagerTests : IDisposable
     {
         var (sessionId, _) = await _manager.CreateSessionAsync();
 
-        var thread = await _store.ProjectThreadAsync(sessionId, "main");
+        var thread = await _store.ProjectThreadAsync(sessionId, "main", ThreadProjectionPurpose.ThreadHistory);
         thread.Should().NotBeNull();
     }
 

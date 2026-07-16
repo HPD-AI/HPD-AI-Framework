@@ -140,7 +140,7 @@ public static class AgentConfigValidator
 
     private static void ValidateCompaction(AgentConfig config, List<string> errors)
     {
-        if (config.Compaction?.Enabled != true)
+        if (config.Compaction is null)
             return;
 
         var hr = config.Compaction;
@@ -149,7 +149,8 @@ public static class AgentConfigValidator
         if (hr.ForkCompaction?.Strategy is { } forkStrategy)
             ValidateCompactionStrategy(forkStrategy, errors);
 
-        ValidateCompactionTrigger(hr.Trigger, errors);
+        if (hr.Automatic is { } automatic)
+            ValidateCompactionTrigger(automatic.Trigger, errors);
         ValidateHistoryRetention(hr.Retention, errors);
     }
 

@@ -65,6 +65,7 @@ internal sealed class AgentInputHandlingContext
     public AgentRunConfig? RuntimeRunConfig { get; init; }
 
     public required Func<UserMessagesInputEvent, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> RunMessagesAsync { get; init; }
+    public required Func<CompactThreadInputEvent, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> CompactThreadAsync { get; init; }
     public required Func<InterruptionRequestEvent, CancellationToken, Task> InterruptAsync { get; init; }
     public required Func<ClientToolBackgroundOperationOutcomeEvent, bool> TryResolveClientToolBackgroundOperation { get; init; }
     public Func<BackgroundTaskNotificationInputEvent, IEventCoordinator, CancellationToken, ValueTask>? PublishBackgroundTaskNotificationDelivered { get; init; }
@@ -157,10 +158,20 @@ internal sealed class AgentInputDispatcher
     private static IEnumerable<IAgentInputHandler> CreateBuiltInHandlers()
     {
         yield return new AgentInputHandlerAdapter<UserMessagesInputEvent>(new UserMessagesInputHandler());
+        yield return new AgentInputHandlerAdapter<CompactThreadInputEvent>(new CompactThreadInputHandler());
         yield return new AgentInputHandlerAdapter<BackgroundTaskNotificationInputEvent>(new BackgroundTaskNotificationInputHandler());
         yield return new AgentInputHandlerAdapter<ClientToolBackgroundOperationOutcomeEvent>(new ClientToolBackgroundOperationOutcomeInputHandler());
         yield return new AgentInputHandlerAdapter<InterruptionRequestEvent>(new InterruptionInputHandler());
     }
+}
+
+internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThreadInputEvent>
+{
+    public ValueTask<AgentTurnResult> HandleAsync(
+        CompactThreadInputEvent input,
+        AgentInputHandlingContext context,
+        CancellationToken cancellationToken)
+        => new(context.CompactThreadAsync(input, context.EventCoordinator, cancellationToken));
 }
 
 internal sealed class UserMessagesInputHandler : IAgentInputHandler<UserMessagesInputEvent>

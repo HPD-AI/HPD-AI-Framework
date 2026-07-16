@@ -3,6 +3,7 @@ namespace HPD.Agent;
 public enum ThreadProjectionPurpose
 {
     ModelContext,
+    ThreadHistory,
     Evaluation,
     ForkConstruction,
     CompleteSemanticExport
@@ -15,7 +16,7 @@ public static class ThreadProjectionReader
         this ISessionStore store,
         string sessionId,
         string threadId,
-        ThreadProjectionPurpose purpose = ThreadProjectionPurpose.ModelContext,
+        ThreadProjectionPurpose purpose,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(store);
@@ -28,21 +29,10 @@ public static class ThreadProjectionReader
             key,
             new ThreadEventReadRequest(),
             cancellationToken).ConfigureAwait(false))
-            ThreadProjector.Apply(thread, batch.Events);
+            ThreadProjector.Apply(thread, batch.Events, purpose);
         thread.Session = await store.LoadSessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
         return thread;
     }
-
-    public static ValueTask<Thread?> ProjectThreadAsync(
-        this ISessionStore store,
-        string sessionId,
-        string threadId,
-        CancellationToken cancellationToken)
-        => store.ProjectThreadAsync(
-            sessionId,
-            threadId,
-            ThreadProjectionPurpose.ModelContext,
-            cancellationToken);
 
     public static async ValueTask<IReadOnlyList<AgentEvent>?> CollectThreadEventsAsync(
         this ISessionStore store,

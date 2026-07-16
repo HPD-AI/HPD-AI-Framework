@@ -120,7 +120,7 @@ public sealed class AgentThreadService : IAgentThreadService
         UpdateThreadRequest request,
         CancellationToken cancellationToken = default)
     {
-        var thread = await _sessionManager.Store.ProjectThreadAsync(sessionId, threadId, cancellationToken);
+        var thread = await _sessionManager.Store.ProjectThreadAsync(sessionId, threadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken);
         if (thread == null)
             return AgentServiceResult<ThreadDto>.NotFound;
 
@@ -149,7 +149,7 @@ public sealed class AgentThreadService : IAgentThreadService
         if (threadId == "main")
             return AgentServiceResult.Validation("ProtectedThread", "Cannot delete the 'main' thread.");
 
-        var thread = await _sessionManager.Store.ProjectThreadAsync(sessionId, threadId, cancellationToken);
+        var thread = await _sessionManager.Store.ProjectThreadAsync(sessionId, threadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken);
         if (thread == null)
             return AgentServiceResult.NotFound;
 
@@ -230,7 +230,7 @@ public sealed class AgentThreadService : IAgentThreadService
                 ex.Message);
         }
 
-        var newThread = await _sessionManager.Store.ProjectThreadAsync(sessionId, newThreadId, cancellationToken)
+        var newThread = await _sessionManager.Store.ProjectThreadAsync(sessionId, newThreadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken)
             ?? throw new InvalidOperationException($"Thread '{newThreadId}' not found after fork.");
 
         ApplyThreadMetadata(newThread, request.Name, request.Description, request.Tags, metadata: null);
@@ -270,7 +270,7 @@ public sealed class AgentThreadService : IAgentThreadService
         string threadId,
         CancellationToken cancellationToken)
     {
-        var thread = await _sessionManager.Store.ProjectThreadAsync(sessionId, threadId, cancellationToken);
+        var thread = await _sessionManager.Store.ProjectThreadAsync(sessionId, threadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken);
         if (thread == null)
             return;
 
@@ -289,7 +289,7 @@ public sealed class AgentThreadService : IAgentThreadService
     {
         if (thread.ForkedFrom != null)
         {
-            var parent = await _sessionManager.Store.ProjectThreadAsync(sessionId, thread.ForkedFrom, cancellationToken);
+            var parent = await _sessionManager.Store.ProjectThreadAsync(sessionId, thread.ForkedFrom, ThreadProjectionPurpose.ThreadHistory, cancellationToken);
             if (parent != null && parent.ChildThreads.Contains(threadId))
             {
                 parent.ChildThreads.Remove(threadId);

@@ -10,11 +10,6 @@ namespace HPD.Agent;
 public sealed record CompactionStateData
 {
     /// <summary>
-    /// Last successful compaction snapshot, if any.
-    /// </summary>
-    public CompactionSnapshot? LastCompaction { get; init; }
-
-    /// <summary>
     /// Number of completed user-visible message turns on this thread.
     /// </summary>
     public int MessageTurnCount { get; init; }
@@ -40,19 +35,15 @@ public sealed record CompactionStateData
     /// </summary>
     public DateTimeOffset? LastAppliedAt { get; init; }
 
-    public CompactionStateData WithCompaction(CompactionSnapshot compaction) =>
+    public CompactionStateData ResetAfterCompaction() =>
         this with
         {
-            LastCompaction = compaction,
             MessageTurnCount = 0,
             LastTurnUsage = null,
             LastIterationUsage = ImmutableList<UsageDetails?>.Empty,
             LastUsageObservedAt = null,
             LastAppliedAt = DateTimeOffset.UtcNow
         };
-
-    public CompactionStateData WithCompactionApplied(DateTimeOffset appliedAt) =>
-        this with { LastAppliedAt = appliedAt };
 
     public CompactionStateData WithIncrementedMessageTurnCount() =>
         this with { MessageTurnCount = MessageTurnCount + 1 };
@@ -66,56 +57,4 @@ public sealed record CompactionStateData
             LastIterationUsage = iterationUsage,
             LastUsageObservedAt = DateTimeOffset.UtcNow
         };
-}
-
-/// <summary>
-/// Durable metadata describing the last normalized compaction.
-/// </summary>
-public sealed record CompactionSnapshot
-{
-    public IReadOnlyList<string> OriginalMessageIds { get; init; } = [];
-    public IReadOnlyList<ChatMessage> ModelVisibleMessages { get; init; } = [];
-    public IReadOnlyList<string> ModelCompactedMessageIds { get; init; } = [];
-    public IReadOnlyList<string> RetainedMessageIds { get; init; } = [];
-    public string? SummaryContent { get; init; }
-    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
-
-    public static CompactionSnapshot FromResult(
-        CompactionResult result,
-        IReadOnlyList<string>? sourceMessageIds = null,
-        IReadOnlyList<string>? previouslyCompactedMessageIds = null) =>
-        new()
-        {
-            OriginalMessageIds = sourceMessageIds ?? GetMessageIds(result.OriginalMessages),
-            ModelVisibleMessages = CloneMessages(result.ModelVisibleMessages),
-            ModelCompactedMessageIds = (previouslyCompactedMessageIds ?? [])
-                .Concat(GetMessageIds(result.ModelCompactedMessages))
-                .Distinct(StringComparer.Ordinal)
-                .ToList(),
-            RetainedMessageIds = GetMessageIds(result.RetainedMessages),
-            SummaryContent = result.SummaryContent,
-            CreatedAt = DateTimeOffset.UtcNow
-        };
-
-    private static IReadOnlyList<ChatMessage> CloneMessages(IEnumerable<ChatMessage> messages) =>
-        messages.Select(CloneMessage).ToList();
-
-    private static ChatMessage CloneMessage(ChatMessage message) =>
-        new(message.Role, message.Contents.ToArray())
-        {
-            MessageId = message.MessageId,
-            AuthorName = message.AuthorName,
-            CreatedAt = message.CreatedAt,
-            RawRepresentation = message.RawRepresentation,
-            AdditionalProperties = message.AdditionalProperties is null
-                ? null
-                : new AdditionalPropertiesDictionary(message.AdditionalProperties)
-        };
-
-    private static IReadOnlyList<string> GetMessageIds(IEnumerable<ChatMessage> messages) =>
-        messages
-            .Select(message => message.MessageId)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Select(id => id!)
-            .ToList();
 }

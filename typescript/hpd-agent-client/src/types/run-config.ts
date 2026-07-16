@@ -28,21 +28,14 @@ export interface ChatRunConfig {
 export type AgentModelTransportMode = 0 | 1 | 2;
 export type AgentPermissionMode = 0 | 1;
 export type UploadStrategy = 0 | 1 | 2;
-export type CompactionBehavior = 0 | 1;
-export type CompactionRunMode = 0 | 1 | 2;
+export type CompactionContinuation = 0 | 1;
 export type HistoryCountingUnit = 0 | 1;
 export type SummaryStyle = 0 | 1;
 
-export const CompactionRunModes = {
-  Auto: 0,
-  Force: 1,
-  Disabled: 2,
-} as const satisfies Record<string, CompactionRunMode>;
-
-export const CompactionBehaviors = {
+export const CompactionContinuations = {
   Continue: 0,
   StopAfterCompaction: 1,
-} as const satisfies Record<string, CompactionBehavior>;
+} as const satisfies Record<string, CompactionContinuation>;
 
 export const AgentPermissionModes = {
   Ask: 0,
@@ -204,13 +197,23 @@ export type CompactionRetentionOptions =
   | PreserveThreadHistoryOptions
   | CompactThreadHistoryOptions;
 
-export interface CompactionRunConfig {
-  mode?: CompactionRunMode;
-  behavior?: CompactionBehavior | null;
-  trigger?: CompactionTriggerOptions | null;
+export interface CompactionRunPolicy {
+  automatic?: CompactionAutomaticPolicy | null;
   strategy?: CompactionStrategyOptions | null;
   retention?: CompactionRetentionOptions | null;
   modelContext?: ModelContextWindowOptions | null;
+}
+
+export interface CompactionAutomaticPolicy {
+  trigger?: CompactionTriggerOptions;
+  continuation?: CompactionContinuation;
+}
+
+export interface ThreadCompactionRequest {
+  strategy?: CompactionStrategyOptions | null;
+  retention?: CompactionRetentionOptions | null;
+  modelContext?: ModelContextWindowOptions | null;
+  continuation?: CompactionContinuation;
 }
 
 /**
@@ -270,7 +273,7 @@ export interface RunConfig {
   /** HPD audio runtime options */
   audio?: AudioRunConfig;
   /** Per-run compaction policy. Null or omitted uses the agent's configured defaults. */
-  compaction?: CompactionRunConfig;
+  compaction?: CompactionRunPolicy;
   /** Structured output options */
   structuredOutput?: Record<string, unknown>;
   /** Client tools, context, state, and metadata available to this run */

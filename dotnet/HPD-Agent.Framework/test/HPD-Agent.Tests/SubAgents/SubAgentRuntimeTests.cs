@@ -52,10 +52,10 @@ public class SubAgentRuntimeTests
         var agent = await BuildAgentAsync(store);
         await agent.CreateSessionAsync("parent-session");
 
-        var parentThread = (await store.ProjectThreadAsync("parent-session", "main"))!;
+        var parentThread = (await store.ProjectThreadAsync("parent-session", "main", ThreadProjectionPurpose.ThreadHistory))!;
         parentThread.AddMessage(new ChatMessage(ChatRole.User, "Parent context"));
         parentThread.AddMessage(new ChatMessage(ChatRole.Assistant, "Parent answer"));
-        await store.SaveInitialThreadAsync("parent-session", parentThread);
+        await AppendMessagesAsync(store, parentThread);
 
         var context = await CreateFunctionContextAsync(store, "parent-session", "main");
         var subAgent = SubAgent.FromConfig(
@@ -70,7 +70,7 @@ public class SubAgentRuntimeTests
         route.SessionId.Should().Be("parent-session");
         route.ThreadId.Should().StartWith("subagent/reviewer/");
 
-        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId);
+        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId, ThreadProjectionPurpose.ThreadHistory);
         childThread.Should().NotBeNull();
         childThread!.Messages.Should().HaveCount(parentThread.Messages.Count);
         childThread.Kind.Should().Be(ThreadKind.SubAgent);
@@ -97,9 +97,9 @@ public class SubAgentRuntimeTests
         var agent = await BuildAgentAsync(store);
         await agent.CreateSessionAsync("parent-session");
 
-        var parentThread = (await store.ProjectThreadAsync("parent-session", "main"))!;
+        var parentThread = (await store.ProjectThreadAsync("parent-session", "main", ThreadProjectionPurpose.ThreadHistory))!;
         parentThread.AddMessage(new ChatMessage(ChatRole.User, "This should not be copied"));
-        await store.SaveInitialThreadAsync("parent-session", parentThread);
+        await AppendMessagesAsync(store, parentThread);
 
         var context = await CreateFunctionContextAsync(store, "parent-session", "main");
         var subAgent = SubAgent.FromConfig(
@@ -113,7 +113,7 @@ public class SubAgentRuntimeTests
         route.SessionId.Should().Be("parent-session");
         route.ThreadId.Should().StartWith("subagent/researcher/");
 
-        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId);
+        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId, ThreadProjectionPurpose.ThreadHistory);
         childThread.Should().NotBeNull();
         childThread!.Messages.Should().BeEmpty();
         childThread.Kind.Should().Be(ThreadKind.SubAgent);
@@ -133,19 +133,18 @@ public class SubAgentRuntimeTests
                 Strategy = strategy,
                 Config = new CompactionConfig
                 {
-                    Enabled = true,
                     ForkCompaction = ThreadForkCompactionOptions.Disabled,
                     Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 2 }
                 }
             });
         await agent.CreateSessionAsync("parent-session");
 
-        var parentThread = (await store.ProjectThreadAsync("parent-session", "main"))!;
+        var parentThread = (await store.ProjectThreadAsync("parent-session", "main", ThreadProjectionPurpose.ThreadHistory))!;
         for (var i = 0; i < 4; i++)
         {
             parentThread.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
         }
-        await store.SaveInitialThreadAsync("parent-session", parentThread);
+        await AppendMessagesAsync(store, parentThread);
 
         var context = await CreateFunctionContextAsync(store, "parent-session", "main");
         var subAgent = SubAgent.FromConfig(
@@ -156,7 +155,7 @@ public class SubAgentRuntimeTests
 
         var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
-        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId);
+        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId, ThreadProjectionPurpose.ThreadHistory);
         childThread!.Messages.Select(message => message.MessageId)
             .Should().Equal("message-2", "message-3");
         strategy.CallCount.Should().Be(1);
@@ -174,19 +173,18 @@ public class SubAgentRuntimeTests
                 Strategy = strategy,
                 Config = new CompactionConfig
                 {
-                    Enabled = true,
                     ForkCompaction = ThreadForkCompactionOptions.Enabled,
                     Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 }
                 }
             });
         await agent.CreateSessionAsync("parent-session");
 
-        var parentThread = (await store.ProjectThreadAsync("parent-session", "main"))!;
+        var parentThread = (await store.ProjectThreadAsync("parent-session", "main", ThreadProjectionPurpose.ThreadHistory))!;
         for (var i = 0; i < 3; i++)
         {
             parentThread.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
         }
-        await store.SaveInitialThreadAsync("parent-session", parentThread);
+        await AppendMessagesAsync(store, parentThread);
 
         var context = await CreateFunctionContextAsync(store, "parent-session", "main");
         var subAgent = SubAgent.FromConfig(
@@ -197,119 +195,13 @@ public class SubAgentRuntimeTests
 
         var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
-        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId);
+        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId, ThreadProjectionPurpose.ThreadHistory);
         childThread!.Messages.Select(message => message.MessageId)
             .Should().Equal("message-0", "message-1", "message-2");
         strategy.CallCount.Should().Be(0);
     }
 
-    [Fact]
-    public async Task ForkFromParentThread_WithThreadCompactionPreferCache_UsesMatchingCopiedCompactionState()
-    {
-        var store = new InMemorySessionStore();
-        var strategy = new RetainLastMessagesCompactionStrategy(retainCount: 1);
-        var agent = await BuildAgentAsync(
-            store,
-            new CompactionMiddleware
-            {
-                Strategy = strategy,
-                Config = new CompactionConfig
-                {
-                    Enabled = true,
-                    ForkCompaction = ThreadForkCompactionOptions.Disabled,
-                    Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 }
-                }
-            });
-        await agent.CreateSessionAsync("parent-session");
-
-        var parentThread = (await store.ProjectThreadAsync("parent-session", "main"))!;
-        for (var i = 0; i < 4; i++)
-        {
-            parentThread.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
-        }
-
-        var cachedResult = CompactionResult.FromOriginalAndCompacted(
-            parentThread.Messages,
-            parentThread.Messages.TakeLast(2).ToList(),
-            new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 2 });
-        new MiddlewareState()
-            .WithCompaction(new CompactionStateData().WithCompaction(CompactionSnapshot.FromResult(cachedResult)))
-            .SaveToThread(parentThread, agent.StateFactories);
-        await store.SaveInitialThreadAsync("parent-session", parentThread);
-
-        var context = await CreateFunctionContextAsync(store, "parent-session", "main");
-        var subAgent = SubAgent.FromConfig(
-            "Reviewer",
-            "Reviews the current thread.",
-            MinimalConfig(),
-            SubAgentExecutionPolicies.ParentSessionForkedThread(new ThreadForkCompactionOptions
-            {
-                Mode = ThreadForkCompactionMode.Enabled,
-                PreferCache = true
-            }));
-
-        var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
-
-        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId);
-        childThread!.Messages.Select(message => message.MessageId)
-            .Should().Equal("message-2", "message-3");
-        strategy.CallCount.Should().Be(0);
-    }
-
-    [Fact]
-    public async Task ForkFromParentThread_WithThreadCompactionPreferCache_FallsBackWhenCacheDoesNotMatch()
-    {
-        var store = new InMemorySessionStore();
-        var strategy = new RetainLastMessagesCompactionStrategy(retainCount: 1);
-        var agent = await BuildAgentAsync(
-            store,
-            new CompactionMiddleware
-            {
-                Strategy = strategy,
-                Config = new CompactionConfig
-                {
-                    Enabled = true,
-                    ForkCompaction = ThreadForkCompactionOptions.Disabled,
-                    Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 }
-                }
-            });
-        await agent.CreateSessionAsync("parent-session");
-
-        var parentThread = (await store.ProjectThreadAsync("parent-session", "main"))!;
-        for (var i = 0; i < 3; i++)
-        {
-            parentThread.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
-        }
-
-        var cachedResult = CompactionResult.FromOriginalAndCompacted(
-            parentThread.Messages.Take(2).ToList(),
-            parentThread.Messages.Take(1).ToList(),
-            new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 });
-        new MiddlewareState()
-            .WithCompaction(new CompactionStateData().WithCompaction(CompactionSnapshot.FromResult(cachedResult)))
-            .SaveToThread(parentThread, agent.StateFactories);
-        await store.SaveInitialThreadAsync("parent-session", parentThread);
-
-        var context = await CreateFunctionContextAsync(store, "parent-session", "main");
-        var subAgent = SubAgent.FromConfig(
-            "Reviewer",
-            "Reviews the current thread.",
-            MinimalConfig(),
-            SubAgentExecutionPolicies.ParentSessionForkedThread(new ThreadForkCompactionOptions
-            {
-                Mode = ThreadForkCompactionMode.Enabled,
-                PreferCache = true
-            }));
-
-        var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
-
-        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId);
-        childThread!.Messages.Select(message => message.MessageId)
-            .Should().Equal("message-2");
-        strategy.CallCount.Should().Be(1);
-    }
-
-    [Fact]
+     [Fact]
     public async Task ForkFromParentThread_WithThreadCompactionStrategyOverride_UsesOverrideForSubAgentThread()
     {
         var store = new InMemorySessionStore();
@@ -325,19 +217,18 @@ public class SubAgentRuntimeTests
                     : defaultStrategy,
                 Config = new CompactionConfig
                 {
-                    Enabled = true,
                     ForkCompaction = ThreadForkCompactionOptions.Disabled,
                     Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 1 }
                 }
             });
         await agent.CreateSessionAsync("parent-session");
 
-        var parentThread = (await store.ProjectThreadAsync("parent-session", "main"))!;
+        var parentThread = (await store.ProjectThreadAsync("parent-session", "main", ThreadProjectionPurpose.ThreadHistory))!;
         for (var i = 0; i < 5; i++)
         {
             parentThread.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
         }
-        await store.SaveInitialThreadAsync("parent-session", parentThread);
+        await AppendMessagesAsync(store, parentThread);
 
         var context = await CreateFunctionContextAsync(store, "parent-session", "main");
         var subAgent = SubAgent.FromConfig(
@@ -347,13 +238,12 @@ public class SubAgentRuntimeTests
             SubAgentExecutionPolicies.ParentSessionForkedThread(new ThreadForkCompactionOptions
             {
                 Mode = ThreadForkCompactionMode.Enabled,
-                PreferCache = false,
                 Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 3 }
             }));
 
         var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
-        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId);
+        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId, ThreadProjectionPurpose.ThreadHistory);
         childThread!.Messages.Select(message => message.MessageId)
             .Should().Equal("message-2", "message-3", "message-4");
         defaultStrategy.CallCount.Should().Be(0);
@@ -384,7 +274,7 @@ public class SubAgentRuntimeTests
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "ParentAgent");
         var session = (await store.LoadSessionAsync(sessionId))!;
         session.Store = store;
-        var thread = (await store.ProjectThreadAsync(sessionId, threadId))!;
+        var thread = (await store.ProjectThreadAsync(sessionId, threadId, ThreadProjectionPurpose.ThreadHistory))!;
         var agentContext = new AgentContext(
             "ParentAgent",
             "conversation-1",
@@ -412,6 +302,21 @@ public class SubAgentRuntimeTests
                 ResultMetadata = new ToolResultMetadata(),
                 EventCoordinator = agentContext.EventCoordinator
             });
+    }
+
+    private static async Task AppendMessagesAsync(InMemorySessionStore store, HPD.Agent.Thread thread)
+    {
+        var events = thread.Messages
+            .Select(message => ThreadEventFactory.ContentAdded(
+                thread.SessionId,
+                thread.Id,
+                message,
+                message.Contents[0]))
+            .ToList();
+        await store.AppendThreadEventsAsync(
+            new ThreadKey(thread.SessionId, thread.Id),
+            events,
+            ThreadAppendCondition.Any);
     }
 
     private sealed class RetainLastMessagesCompactionStrategy(int retainCount) : ICompactionStrategy

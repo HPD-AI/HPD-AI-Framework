@@ -11,7 +11,6 @@ public sealed record ThreadForkCompactionOptions
 {
     public ThreadForkCompactionMode Mode { get; init; } = ThreadForkCompactionMode.Inherit;
 
-    public bool PreferCache { get; init; } = true;
 
     public CompactionStrategyOptions? Strategy { get; init; }
 

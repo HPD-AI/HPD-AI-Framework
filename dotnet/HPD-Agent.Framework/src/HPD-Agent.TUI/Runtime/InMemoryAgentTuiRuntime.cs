@@ -275,6 +275,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             var thread = await store.ProjectThreadAsync(
                 sessionId,
                 descriptor.Key.ThreadId,
+                ThreadProjectionPurpose.ThreadHistory,
                 cancellationToken).ConfigureAwait(false);
             if (thread is not null)
             {
@@ -294,7 +295,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         CancellationToken cancellationToken = default)
     {
         var thread = _agent.Config?.SessionStore is { } store
-            ? await store.ProjectThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false)
+            ? await store.ProjectThreadAsync(sessionId, threadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken).ConfigureAwait(false)
             : null;
         return thread is null ? null : ToThreadInfo(thread, sessionId);
     }
@@ -324,7 +325,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             .ConfigureAwait(false);
         var store = _agent.Config?.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
-        var thread = await store.ProjectThreadAsync(sessionId, id, cancellationToken).ConfigureAwait(false)
+        var thread = await store.ProjectThreadAsync(sessionId, id, ThreadProjectionPurpose.ThreadHistory, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Thread '{id}' was not found after creation.");
 
         ApplyThreadUpdate(thread, new AgentTuiThreadUpdate(
@@ -359,7 +360,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             .ConfigureAwait(false);
         var store = _agent.Config?.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
-        var thread = await store.ProjectThreadAsync(sessionId, newThreadId, cancellationToken).ConfigureAwait(false)
+        var thread = await store.ProjectThreadAsync(sessionId, newThreadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Thread '{newThreadId}' was not found after fork.");
 
         ApplyThreadUpdate(thread, new AgentTuiThreadUpdate(
@@ -381,7 +382,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
         var store = _agent.Config?.SessionStore
             ?? throw new InvalidOperationException("No session store configured.");
-        var thread = await store.ProjectThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false)
+        var thread = await store.ProjectThreadAsync(sessionId, threadId, ThreadProjectionPurpose.ThreadHistory, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Thread '{threadId}' was not found.");
         ApplyThreadUpdate(thread, update);
         await store.AppendThreadUpdatedAsync(thread, cancellationToken).ConfigureAwait(false);
@@ -407,6 +408,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             var thread = await store.ProjectThreadAsync(
                 sessionId,
                 descriptor.Key.ThreadId,
+                ThreadProjectionPurpose.ThreadHistory,
                 cancellationToken).ConfigureAwait(false);
             if (thread is not null)
             {
@@ -808,7 +810,11 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var store = _agent.Config?.SessionStore;
         var thread = store is null
             ? null
-            : await store.ProjectThreadAsync(scope.SessionId, scope.ThreadId, cancellationToken)
+            : await store.ProjectThreadAsync(
+                    scope.SessionId,
+                    scope.ThreadId,
+                    ThreadProjectionPurpose.ModelContext,
+                    cancellationToken)
                 .ConfigureAwait(false);
         if (thread is null)
         {

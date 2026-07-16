@@ -68,7 +68,7 @@ public class ThreadContextUsageEstimatorTests
     private static AgentRunConfig RunConfigWithContextWindow(int contextWindow) =>
         new()
         {
-            Compaction = new CompactionRunConfig
+            Compaction = new CompactionRunPolicy
             {
                 ModelContext = new ModelContextWindowOptions
                 {

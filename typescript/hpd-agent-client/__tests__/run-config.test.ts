@@ -11,8 +11,7 @@ import { describe, it, expect } from 'vitest';
 import type { RunConfig, ChatRunConfig } from '../src/types/run-config.js';
 import {
   AgentPermissionModes,
-  CompactionBehaviors,
-  CompactionRunModes,
+  CompactionContinuations,
   ContextWindowCompactionThresholdModes,
 } from '../src/types/run-config.js';
 
@@ -160,18 +159,19 @@ describe('RunConfig — wire format (camelCase)', () => {
   it('serializes structured compaction policy and omits retired compaction flags', () => {
     const rc: RunConfig = {
       compaction: {
-        mode: CompactionRunModes.Force,
-        behavior: CompactionBehaviors.StopAfterCompaction,
+        automatic: {
+          continuation: CompactionContinuations.StopAfterCompaction,
+          trigger: {
+            $type: 'contextWindow',
+            thresholdMode: ContextWindowCompactionThresholdModes.Percentage,
+            triggerPercentage: 0.7,
+          },
+        },
         strategy: {
           $type: 'summarizing',
           preserveRecentUserTurnCount: 20,
           preserveFromMessageId: 'message-7',
           preserveFromMessageTurnId: 'turn-3',
-        },
-        trigger: {
-          $type: 'contextWindow',
-          thresholdMode: ContextWindowCompactionThresholdModes.Percentage,
-          triggerPercentage: 0.7,
         },
         modelContext: {
           providerKey: 'openai',
@@ -185,18 +185,19 @@ describe('RunConfig — wire format (camelCase)', () => {
 
     expect(parsed).toEqual({
       compaction: {
-        mode: 1,
-        behavior: 1,
+        automatic: {
+          continuation: 1,
+          trigger: {
+            $type: 'contextWindow',
+            thresholdMode: 0,
+            triggerPercentage: 0.7,
+          },
+        },
         strategy: {
           $type: 'summarizing',
           preserveRecentUserTurnCount: 20,
           preserveFromMessageId: 'message-7',
           preserveFromMessageTurnId: 'turn-3',
-        },
-        trigger: {
-          $type: 'contextWindow',
-          thresholdMode: 0,
-          triggerPercentage: 0.7,
         },
         modelContext: {
           providerKey: 'openai',

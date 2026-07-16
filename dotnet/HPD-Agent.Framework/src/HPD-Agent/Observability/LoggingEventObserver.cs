@@ -109,18 +109,9 @@ public class LoggingEventObserver
             case CompactionEvent e:
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
-                    if (e.Status == CompactionStatus.CacheHit)
-                    {
-                        _logger.LogDebug(
-                            "Agent '{AgentName}' compaction cache HIT: removed {MessagesRemoved} messages, cache age: {CacheAge}",
-                            e.AgentName, e.MessagesRemoved, e.CacheAge);
-                    }
-                    else
-                    {
-                        _logger.LogDebug(
-                            "Agent '{AgentName}' compaction {Status}: {Reason}",
-                            e.AgentName, e.Status, e.Reason);
-                    }
+                    _logger.LogDebug(
+                        "Agent '{AgentName}' compaction {Status}: {Reason}",
+                        e.AgentName, e.Status, e.Reason);
                 }
                 break;
 

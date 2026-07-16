@@ -1978,9 +1978,9 @@ public class AgentBuilder
         //   agentBuilder.WithMiddleware(new ContinuationPermissionMiddleware(maxIterations: 15))
         // This gives users full control over whether to ask for permission at iteration limits.
 
-        // Register CompactionMiddleware if enabled
-        // This reduces conversation history to manage context window size
-        if (_config.Compaction?.Enabled == true)
+        // Register whenever compaction is configured. Automatic compaction may be disabled while
+        // explicit and fork compaction remain available through the same canonical engine.
+        if (_config.Compaction is not null)
         {
             var compactionStrategy = CreateCompactionStrategy(buildData.ClientToUse, _config, buildData.SummarizerClient);
             _middlewares.Add(new CompactionMiddleware
@@ -3019,7 +3019,7 @@ public class AgentBuilder
     {
         var historyConfig = config.Compaction;
 
-        if (historyConfig == null || !historyConfig.Enabled)
+        if (historyConfig == null)
         {
             return null;
         }
@@ -4066,9 +4066,10 @@ public static class AgentBuilderMemoryExtensions
     /// <example>
     /// <code>
     /// builder.WithCompaction(config => {
-    ///     config.Enabled = true;
     ///     config.Strategy = new SummarizingCompactionOptions { PreserveRecentUserTurnCount = 5 };
-    ///     config.Trigger = new CountCompactionTriggerOptions { Threshold = 10 };
+    ///     config.Automatic = new CompactionAutomaticPolicy {
+    ///         Trigger = new CountCompactionTriggerOptions { Threshold = 10 }
+    ///     };
     ///     config.Retention = new PreserveThreadHistoryOptions();
     /// });
     /// </code>

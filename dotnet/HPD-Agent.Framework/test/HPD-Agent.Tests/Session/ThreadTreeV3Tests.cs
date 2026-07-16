@@ -103,8 +103,8 @@ public class ThreadTreeV3Tests : AgentTestBase
 
         var fork = await agent.ForkThreadAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
 
-        var reloadedMain = await store.ProjectThreadAsync(session.Id, "main");
-        var reloadedFork = await store.ProjectThreadAsync(session.Id, "fork-1");
+        var reloadedMain = await store.ProjectThreadAsync(session.Id, "main", ThreadProjectionPurpose.ThreadHistory);
+        var reloadedFork = await store.ProjectThreadAsync(session.Id, "fork-1", ThreadProjectionPurpose.ThreadHistory);
 
         fork.Id.Should().Be("fork-1");
         reloadedMain!.ChildThreads.Should().Equal("fork-1");
@@ -130,13 +130,13 @@ public class ThreadTreeV3Tests : AgentTestBase
         var forkMessageId = main.Messages[0].MessageId!;
 
         await agent.ForkThreadAsync(main, "fork-1", fromMessageId: forkMessageId);
-        main = (await store.ProjectThreadAsync(session.Id, "main"))!;
+        main = (await store.ProjectThreadAsync(session.Id, "main", ThreadProjectionPurpose.ThreadHistory))!;
         main.Session = session;
         await agent.ForkThreadAsync(main, "fork-2", fromMessageId: forkMessageId);
 
-        var reloadedMain = await store.ProjectThreadAsync(session.Id, "main");
-        var fork1 = await store.ProjectThreadAsync(session.Id, "fork-1");
-        var fork2 = await store.ProjectThreadAsync(session.Id, "fork-2");
+        var reloadedMain = await store.ProjectThreadAsync(session.Id, "main", ThreadProjectionPurpose.ThreadHistory);
+        var fork1 = await store.ProjectThreadAsync(session.Id, "fork-1", ThreadProjectionPurpose.ThreadHistory);
+        var fork2 = await store.ProjectThreadAsync(session.Id, "fork-2", ThreadProjectionPurpose.ThreadHistory);
 
         reloadedMain!.ChildThreads.Should().Equal("fork-1", "fork-2");
         fork1!.ForkedFrom.Should().Be("main");
@@ -282,12 +282,12 @@ public class ThreadTreeV3Tests : AgentTestBase
         main.Session = session;
 
         await agent.ForkThreadAsync(main, "fork-at-user", fromMessageId: main.Messages[0].MessageId!);
-        main = (await store.ProjectThreadAsync(session.Id, "main"))!;
+        main = (await store.ProjectThreadAsync(session.Id, "main", ThreadProjectionPurpose.ThreadHistory))!;
         main.Session = session;
         await agent.ForkThreadAsync(main, "fork-at-assistant", fromMessageId: "assistant-1");
 
-        var forkAtUser = await store.ProjectThreadAsync(session.Id, "fork-at-user");
-        var forkAtAssistant = await store.ProjectThreadAsync(session.Id, "fork-at-assistant");
+        var forkAtUser = await store.ProjectThreadAsync(session.Id, "fork-at-user", ThreadProjectionPurpose.ThreadHistory);
+        var forkAtAssistant = await store.ProjectThreadAsync(session.Id, "fork-at-assistant", ThreadProjectionPurpose.ThreadHistory);
 
         forkAtUser!.ForkedAtMessageIndex.Should().Be(0);
         forkAtAssistant!.ForkedAtMessageIndex.Should().Be(1);
@@ -330,7 +330,7 @@ public class ThreadTreeV3Tests : AgentTestBase
 
         await agent.ForkThreadAsync(main, "fork-1", fromMessageId: "assistant-tool-call");
 
-        var fork = await store.ProjectThreadAsync(session.Id, "fork-1");
+        var fork = await store.ProjectThreadAsync(session.Id, "fork-1", ThreadProjectionPurpose.ThreadHistory);
 
         fork.Should().NotBeNull();
         fork!.ForkedAtMessageId.Should().Be("assistant-tool-call");
@@ -359,12 +359,12 @@ public class ThreadTreeV3Tests : AgentTestBase
         var turnId = "turn-with-rich-tool-events";
         await AppendToolTurnAsync(store, session.Id, main.Id, turnId);
 
-        main = (await store.ProjectThreadAsync(session.Id, main.Id))!;
+        main = (await store.ProjectThreadAsync(session.Id, main.Id, ThreadProjectionPurpose.ThreadHistory))!;
         main.Session = session;
 
         await agent.ForkThreadAsync(main, "fork-1", fromMessageId: "assistant-tool-call");
 
-        var fork = await store.ProjectThreadAsync(session.Id, "fork-1");
+        var fork = await store.ProjectThreadAsync(session.Id, "fork-1", ThreadProjectionPurpose.ThreadHistory);
         var forkDocument = await store.CollectThreadEventsAsync(session.Id, "fork-1");
         var sourceDocument = await store.CollectThreadEventsAsync(session.Id, main.Id);
 
@@ -408,12 +408,12 @@ public class ThreadTreeV3Tests : AgentTestBase
         const string runtimeRunId = "run-1";
         await AppendCompletedTextRunAsync(store, session.Id, main.Id, runtimeRunId, turnId);
 
-        main = (await store.ProjectThreadAsync(session.Id, main.Id))!;
+        main = (await store.ProjectThreadAsync(session.Id, main.Id, ThreadProjectionPurpose.ThreadHistory))!;
         main.Session = session;
 
         await agent.ForkThreadAsync(main, "fork-1", fromMessageId: "assistant-1");
 
-        var fork = await store.ProjectThreadAsync(session.Id, "fork-1");
+        var fork = await store.ProjectThreadAsync(session.Id, "fork-1", ThreadProjectionPurpose.ThreadHistory);
         var forkDocument = await store.CollectThreadEventsAsync(session.Id, "fork-1");
 
         fork.Should().NotBeNull();
@@ -445,7 +445,7 @@ public class ThreadTreeV3Tests : AgentTestBase
         var threads = new List<Thread>();
         foreach (var threadId in threadIds)
         {
-            var thread = await store.ProjectThreadAsync(sessionId, threadId);
+            var thread = await store.ProjectThreadAsync(sessionId, threadId, ThreadProjectionPurpose.ThreadHistory);
             thread.Should().NotBeNull();
             threads.Add(thread!);
         }
