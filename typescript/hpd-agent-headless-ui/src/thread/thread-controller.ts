@@ -11,6 +11,8 @@ import {
   type PermissionChoice,
   type SubmitInputResult,
   type ToolResultContent,
+  type ThreadJournalCursor,
+  ThreadJournalRebasedError,
 } from '@hpd-research/hpd-agent-client';
 import { createThreadProjection } from './thread-projection.js';
 import { loadThreadSnapshot } from './load-thread-snapshot.js';
@@ -48,7 +50,8 @@ class ThreadControllerImpl implements ThreadController {
   private _connected = false;
   private _loading = false;
   private _error: string | null = null;
-  private lastSequenceNumber = 0;
+  private appliedCursor: ThreadJournalCursor = { generation: 1, sequenceNumber: 0 };
+  private rebaseRecovery: Promise<void> | null = null;
   private optimisticInputIndex = 0;
 
   constructor(options: ThreadControllerOptions) {
@@ -95,7 +98,10 @@ class ThreadControllerImpl implements ThreadController {
         client: this.client,
         ...this.scope,
       }, options);
-      this.lastSequenceNumber = snapshot.latestSequenceNumber;
+      this.appliedCursor = {
+        generation: snapshot.observedCursor.generation,
+        sequenceNumber: 0,
+      };
       this.projection.rehydrate(snapshot);
     } catch (error) {
       this._error = error instanceof Error ? error.message : String(error);
@@ -113,13 +119,18 @@ class ThreadControllerImpl implements ThreadController {
       this.handleEvent(event);
     });
     this.errorSubscription ??= this.client.onError((error) => {
+      if (error instanceof ThreadJournalRebasedError) {
+        this.rebaseRecovery ??= this.recoverFromRebase(error.currentGeneration)
+          .finally(() => { this.rebaseRecovery = null; });
+        return;
+      }
       this._error = error.message;
     });
 
     try {
       await this.client.start({
         ...this.scope,
-        afterSequenceNumber: this.lastSequenceNumber,
+        after: this.appliedCursor,
         signal: options.signal,
       });
       this._connected = true;
@@ -303,6 +314,21 @@ class ThreadControllerImpl implements ThreadController {
       return;
     }
     this.projection.project(event);
+    if (event.threadSequenceNumber && event.threadSequenceNumber > this.appliedCursor.sequenceNumber) {
+      this.appliedCursor = {
+        generation: this.appliedCursor.generation,
+        sequenceNumber: event.threadSequenceNumber,
+      };
+    }
+  }
+
+  private async recoverFromRebase(generation: number): Promise<void> {
+    this._connected = false;
+    await this.client.stop();
+    const snapshot = await loadThreadSnapshot({ client: this.client, ...this.scope });
+    this.projection.rehydrate(snapshot);
+    this.appliedCursor = { generation, sequenceNumber: 0 };
+    await this.connect();
   }
 
   private projectOptimisticUserMessage(

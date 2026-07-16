@@ -8,6 +8,10 @@ namespace HPD.Agent;
 /// </summary>
 public interface IThreadEventPublisher
 {
+    ValueTask<ThreadEventHead?> GetHeadAsync(
+        ThreadKey thread,
+        CancellationToken cancellationToken = default);
+
     ValueTask<AgentEvent> CommitAndPublishAsync(
         ThreadKey thread,
         AgentEvent proposedEvent,
@@ -17,6 +21,12 @@ public interface IThreadEventPublisher
         ThreadKey thread,
         IReadOnlyList<AgentEvent> proposedEvents,
         ThreadAppendCondition condition = default,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<ThreadJournalReplaceResult> ReplaceAndPublishAsync(
+        ThreadKey thread,
+        IReadOnlyList<AgentEvent> replacementEvents,
+        ThreadJournalCursor expectedCursor,
         CancellationToken cancellationToken = default);
 }
 
@@ -31,6 +41,11 @@ public sealed class ThreadEventPublisher : IThreadEventPublisher
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
     }
+
+    public ValueTask<ThreadEventHead?> GetHeadAsync(
+        ThreadKey thread,
+        CancellationToken cancellationToken = default) =>
+        _store.GetThreadEventHeadAsync(thread, cancellationToken);
 
     public async ValueTask<AgentEvent> CommitAndPublishAsync(
         ThreadKey thread,
@@ -77,6 +92,28 @@ public sealed class ThreadEventPublisher : IThreadEventPublisher
         foreach (var committed in result.CommittedEvents)
             await _coordinator.EmitAsync(committed, cancellationToken).ConfigureAwait(false);
 
+        return result;
+    }
+
+    public async ValueTask<ThreadJournalReplaceResult> ReplaceAndPublishAsync(
+        ThreadKey thread,
+        IReadOnlyList<AgentEvent> replacementEvents,
+        ThreadJournalCursor expectedCursor,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(replacementEvents);
+        if (replacementEvents.Count == 0)
+            throw new ArgumentException("A replacement journal cannot be empty.", nameof(replacementEvents));
+
+        var scoped = replacementEvents.Select(evt => ThreadEventValidation.PrepareForAppend(
+            thread.SessionId, thread.ThreadId, evt)).ToArray();
+        foreach (var evt in scoped)
+            _ = JsonSerializer.Serialize<AgentEvent>(evt, ThreadEventJson.CompactOptions);
+
+        var result = await _store.ReplaceThreadEventsAsync(
+            thread, scoped, expectedCursor, cancellationToken).ConfigureAwait(false);
+        foreach (var committed in result.CommittedEvents)
+            await _coordinator.EmitAsync(committed, cancellationToken).ConfigureAwait(false);
         return result;
     }
 }

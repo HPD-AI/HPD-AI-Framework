@@ -5,7 +5,11 @@ import { loadThreadSnapshot } from '../src/index.js';
 function fakeClient(): AgentClient {
   return {
     getThread: vi.fn(async () => ({ id: 'main', sessionId: 's1' })),
-    getThreadState: vi.fn(async () => ({ latestSequenceNumber: 0, events: [], activeRun: null })),
+    getThreadState: vi.fn(async () => ({
+      observedCursor: { generation: 1, sequenceNumber: 0 },
+      activeRun: null,
+      pendingRequests: [],
+    })),
     getThreadRuns: vi.fn(async () => []),
   } as unknown as AgentClient;
 }
@@ -26,7 +30,7 @@ describe('loadThreadSnapshot', () => {
     expect(client.getThreadRuns).not.toHaveBeenCalled();
     expect(snapshot.thread).toEqual({ id: 'main', sessionId: 's1' });
     expect(snapshot.events).toEqual([]);
-    expect(snapshot.latestSequenceNumber).toBe(0);
+    expect(snapshot.observedCursor).toEqual({ generation: 1, sequenceNumber: 0 });
     expect(snapshot.runs).toEqual([]);
     expect(snapshot.activeRun).toBeNull();
   });

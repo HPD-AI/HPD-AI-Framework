@@ -11,8 +11,8 @@ import { describe, it, expect } from 'vitest';
 import type { RunConfig, ChatRunConfig } from '../src/types/run-config.js';
 import {
   AgentPermissionModes,
+  CompactionCommitModes,
   CompactionContinuations,
-  ContextWindowCompactionThresholdModes,
 } from '../src/types/run-config.js';
 
 // ---------------------------------------------------------------------------
@@ -162,21 +162,16 @@ describe('RunConfig — wire format (camelCase)', () => {
         automatic: {
           continuation: CompactionContinuations.StopAfterCompaction,
           trigger: {
-            $type: 'contextWindow',
-            thresholdMode: ContextWindowCompactionThresholdModes.Percentage,
-            triggerPercentage: 0.7,
+            $type: 'contextPercentage',
+            totalInputTokens: 128000,
+            percentage: 0.7,
           },
-        },
-        strategy: {
-          $type: 'summarizing',
-          preserveRecentUserTurnCount: 20,
-          preserveFromMessageId: 'message-7',
-          preserveFromMessageTurnId: 'turn-3',
-        },
-        modelContext: {
-          providerKey: 'openai',
-          modelId: 'gpt-4.1',
-          contextWindow: 128000,
+          compaction: {
+            point: { $type: 'message', messageId: 'message-7' },
+            preservation: { $type: 'previousTurns', count: 20 },
+            strategy: { $type: 'summarizing' },
+            commitMode: CompactionCommitModes.Soft,
+          },
         },
       },
     };
@@ -188,21 +183,16 @@ describe('RunConfig — wire format (camelCase)', () => {
         automatic: {
           continuation: 1,
           trigger: {
-            $type: 'contextWindow',
-            thresholdMode: 0,
-            triggerPercentage: 0.7,
+            $type: 'contextPercentage',
+            totalInputTokens: 128000,
+            percentage: 0.7,
           },
-        },
-        strategy: {
-          $type: 'summarizing',
-          preserveRecentUserTurnCount: 20,
-          preserveFromMessageId: 'message-7',
-          preserveFromMessageTurnId: 'turn-3',
-        },
-        modelContext: {
-          providerKey: 'openai',
-          modelId: 'gpt-4.1',
-          contextWindow: 128000,
+          compaction: {
+            point: { $type: 'message', messageId: 'message-7' },
+            preservation: { $type: 'previousTurns', count: 20 },
+            strategy: { $type: 'summarizing' },
+            commitMode: 0,
+          },
         },
       },
     });

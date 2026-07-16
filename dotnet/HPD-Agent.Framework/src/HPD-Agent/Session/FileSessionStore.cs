@@ -17,12 +17,12 @@ public sealed record FileSessionStoreDiagnostics(
 
 /// <summary>
 /// Segmented, append-oriented local-file implementation of the canonical thread journal.
-/// This is a new storage format; it does not read the removed FileSessionStore layout.
+/// This is a new storage format; it does not read the removed JsonSessionStore layout.
 /// </summary>
 public sealed class FileSessionStore : ISessionStore
 {
     private const string DescriptorSchema = "hpd.agent.thread-descriptor";
-    private const int DescriptorVersion = 1;
+    private const int DescriptorVersion = 2;
 
     private readonly string _basePath;
     private readonly FileSessionStoreOptions _options;
@@ -122,6 +122,23 @@ public sealed class FileSessionStore : ISessionStore
         return GetRuntime(thread).AppendAsync(proposed, condition, cancellationToken);
     }
 
+    public ValueTask<ThreadJournalReplaceResult> ReplaceThreadEventsAsync(
+        ThreadKey thread,
+        IReadOnlyList<AgentEvent> events,
+        ThreadJournalCursor expectedCursor,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateThreadKey(thread);
+        ArgumentNullException.ThrowIfNull(events);
+        if (events.Count == 0)
+            throw new ArgumentException("A replacement journal cannot be empty.", nameof(events));
+        if (!ThreadExists(thread))
+            throw new InvalidOperationException($"Thread '{thread.ThreadId}' does not exist.");
+        var proposed = events.Select(evt => ThreadEventValidation.PrepareForAppend(
+            thread.SessionId, thread.ThreadId, evt)).ToArray();
+        return GetRuntime(thread).ReplaceAsync(proposed, expectedCursor, cancellationToken);
+    }
+
     public ValueTask<ThreadDescriptor?> GetThreadAsync(ThreadKey thread, CancellationToken cancellationToken = default)
     {
         ValidateThreadKey(thread);
@@ -184,35 +201,35 @@ public sealed class FileSessionStore : ISessionStore
         foreach (var segment in boundary.Segments)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (segment.LastSequence <= request.After || segment.FirstSequence > boundary.Through)
+            if (segment.LastSequence <= request.After.SequenceNumber || segment.FirstSequence > boundary.Through)
                 continue;
 
             await foreach (var evt in ReadSegmentEventsAsync(segment, cancellationToken).ConfigureAwait(false))
             {
-                if (evt.ThreadSequenceNumber <= request.After || evt.ThreadSequenceNumber > boundary.Through)
+                if (evt.ThreadSequenceNumber <= request.After.SequenceNumber || evt.ThreadSequenceNumber > boundary.Through)
                     continue;
                 pending.Add(evt);
                 if (pending.Count == request.MaxBatchEventCount)
                 {
-                    yield return ToBatch(pending);
+                    yield return ToBatch(boundary.Generation, pending);
                     pending = new List<AgentEvent>(request.MaxBatchEventCount);
                 }
             }
         }
 
         if (pending.Count > 0)
-            yield return ToBatch(pending);
+            yield return ToBatch(boundary.Generation, pending);
     }
 
     public async IAsyncEnumerable<ThreadEventBatch> ObserveThreadEventsAsync(
         ThreadKey thread,
-        long after,
+        ThreadJournalCursor after,
         ThreadObservationOptions options,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ValidateThreadKey(thread);
         ArgumentNullException.ThrowIfNull(options);
-        if (after < 0)
+        if (after.Generation <= 0 || after.SequenceNumber < 0)
             throw new ArgumentOutOfRangeException(nameof(after));
         if (options.MaxBatchEventCount <= 0)
             throw new ArgumentOutOfRangeException(nameof(options));
@@ -224,15 +241,15 @@ public sealed class FileSessionStore : ISessionStore
         while (true)
         {
             var observation = await runtime.CaptureObservationAsync(cursor, cancellationToken).ConfigureAwait(false);
-            if (observation.Head > cursor)
+            if (observation.Head.SequenceNumber > cursor.SequenceNumber)
             {
                 await foreach (var batch in ReadThreadEventsAsync(
                     thread,
-                    new ThreadEventReadRequest(cursor, observation.Head, options.MaxBatchEventCount),
+                    new ThreadEventReadRequest(cursor, observation.Head.SequenceNumber, options.MaxBatchEventCount),
                     cancellationToken).ConfigureAwait(false))
                 {
                     yield return batch;
-                    cursor = batch.LastThreadSequenceNumber;
+                    cursor = new ThreadJournalCursor(batch.Generation, batch.LastThreadSequenceNumber);
                 }
                 continue;
             }
@@ -285,12 +302,13 @@ public sealed class FileSessionStore : ISessionStore
     private string GetThreadsPath(string sessionId) => Path.Combine(GetSessionPath(sessionId), "threads");
     private string GetThreadPath(ThreadKey key) => Path.Combine(GetThreadsPath(key.SessionId), key.ThreadId);
     private string GetJournalPath(ThreadKey key) => Path.Combine(GetThreadPath(key), "journal");
+    private string GetJournalGenerationPath(ThreadKey key) => Path.Combine(GetJournalPath(key), "generation");
     private string GetDescriptorPath(ThreadKey key) => Path.Combine(GetThreadPath(key), "thread.descriptor.json");
     private string GetIndexPath(ThreadKey key) => Path.Combine(GetThreadPath(key), "journal.index");
     private string GetSegmentPath(ThreadKey key, long start) => Path.Combine(GetJournalPath(key), $"segment-{start:D20}.events");
 
-    private static ThreadEventBatch ToBatch(List<AgentEvent> events)
-        => new(events.ToArray(), events[0].ThreadSequenceNumber, events[^1].ThreadSequenceNumber);
+    private static ThreadEventBatch ToBatch(long generation, List<AgentEvent> events)
+        => new(events.ToArray(), generation, events[0].ThreadSequenceNumber, events[^1].ThreadSequenceNumber);
 
     private async IAsyncEnumerable<AgentEvent> ReadSegmentEventsAsync(
         SegmentSnapshot segment,
@@ -338,7 +356,7 @@ public sealed class FileSessionStore : ISessionStore
     private static void ValidateReadRequest(ThreadEventReadRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.After < 0 || request.MaxBatchEventCount <= 0 || request.Through is long through && through < request.After)
+        if (request.After.Generation <= 0 || request.After.SequenceNumber < 0 || request.MaxBatchEventCount <= 0 || request.Through is long through && through < request.After.SequenceNumber)
             throw new ArgumentOutOfRangeException(nameof(request));
     }
 
@@ -373,8 +391,10 @@ public sealed class FileSessionStore : ISessionStore
                 await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
                 ThrowIfDeleted();
                 var head = _state?.Descriptor.Head ?? 0;
-                if (condition.ExpectedHead is long expected && expected != head)
-                    throw new ThreadAppendConflictException(_key, expected, head);
+                var generation = _state?.Descriptor.Generation ?? 1;
+                var current = new ThreadJournalCursor(generation, head);
+                if (condition.ExpectedCursor is ThreadJournalCursor expected && expected != current)
+                    throw new ThreadAppendConflictException(_key, expected, current);
                 var duplicate = proposed.FirstOrDefault(evt => _eventIds.Contains(evt.EventId));
                 if (duplicate is not null || proposed.Select(evt => evt.EventId).Distinct(StringComparer.Ordinal).Count() != proposed.Count)
                     throw new InvalidOperationException("Thread journal append contains an already committed or duplicate EventId.");
@@ -390,6 +410,7 @@ public sealed class FileSessionStore : ISessionStore
 
                 var segmentPath = _store.GetSegmentPath(_key, segmentStart);
                 Directory.CreateDirectory(Path.GetDirectoryName(segmentPath)!);
+                await EnsureJournalGenerationAsync(generation, cancellationToken).ConfigureAwait(false);
                 var frame = "[" + string.Join(',', committed.Select(evt => JsonSerializer.Serialize(evt, ThreadEventJson.CompactOptions))) + "]\n";
                 await AppendTextAsync(segmentPath, frame, cancellationToken).ConfigureAwait(false);
 
@@ -400,7 +421,7 @@ public sealed class FileSessionStore : ISessionStore
                 foreach (var evt in committed)
                 {
                     _eventIds.Add(evt.EventId);
-                    descriptor = ThreadDescriptorProjection.Apply(_key, descriptor, _messageIds, evt, evt.ThreadSequenceNumber);
+                    descriptor = ThreadDescriptorProjection.Apply(_key, descriptor, _messageIds, evt, generation, evt.ThreadSequenceNumber);
                 }
                 _state = new FileThreadDescriptorState(
                     DescriptorSchema,
@@ -411,7 +432,10 @@ public sealed class FileSessionStore : ISessionStore
                     segmentCount + committed.Length);
                 await SaveStateAsync(cancellationToken).ConfigureAwait(false);
 
-                result = new ThreadEventAppendResult(committed, head, descriptor!.Head);
+                result = new ThreadEventAppendResult(
+                    committed,
+                    new ThreadJournalCursor(generation, head),
+                    new ThreadJournalCursor(generation, descriptor!.Head));
                 signal = _commitSignal;
                 _commitSignal = NewSignal();
             }
@@ -420,6 +444,100 @@ public sealed class FileSessionStore : ISessionStore
                 _gate.Release();
             }
             signal.TrySetResult();
+            return result;
+        }
+
+        public async ValueTask<ThreadJournalReplaceResult> ReplaceAsync(
+            IReadOnlyList<AgentEvent> proposed,
+            ThreadJournalCursor expectedCursor,
+            CancellationToken cancellationToken)
+        {
+            TaskCompletionSource signal;
+            ThreadJournalReplaceResult result;
+            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+                ThrowIfDeleted();
+                var previousCursor = new ThreadJournalCursor(
+                    _state?.Descriptor.Generation ?? 1,
+                    _state?.Descriptor.Head ?? 0);
+                if (previousCursor != expectedCursor)
+                    throw new ThreadAppendConflictException(_key, expectedCursor, previousCursor);
+                var replacementGeneration = checked(previousCursor.Generation + 1);
+                if (proposed.Select(evt => evt.EventId).Distinct(StringComparer.Ordinal).Count() != proposed.Count)
+                    throw new InvalidOperationException("A replacement journal cannot contain duplicate EventIds.");
+
+                var committed = proposed.Select((evt, index) => evt with { ThreadSequenceNumber = index + 1 }).ToArray();
+                var replacementRoot = _store.GetThreadPath(_key) + $".replacement-{Guid.NewGuid():N}";
+                var replacementJournal = Path.Combine(replacementRoot, "journal");
+                Directory.CreateDirectory(replacementJournal);
+                var segmentPath = Path.Combine(replacementJournal, "segment-00000000000000000001.events");
+                var frame = "[" + string.Join(',', committed.Select(evt => JsonSerializer.Serialize(evt, ThreadEventJson.CompactOptions))) + "]\n";
+                await File.WriteAllTextAsync(segmentPath, frame, new UTF8Encoding(false), cancellationToken).ConfigureAwait(false);
+                await File.WriteAllTextAsync(
+                    Path.Combine(replacementJournal, "generation"),
+                    replacementGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    new UTF8Encoding(false),
+                    cancellationToken).ConfigureAwait(false);
+
+                _eventIds.Clear();
+                _messageIds.Clear();
+                ThreadDescriptor? descriptor = null;
+                var index = new StringBuilder();
+                foreach (var evt in committed)
+                {
+                    _eventIds.Add(evt.EventId);
+                    descriptor = ThreadDescriptorProjection.Apply(
+                        _key, descriptor, _messageIds, evt, replacementGeneration, evt.ThreadSequenceNumber);
+                    index.Append(evt.ThreadSequenceNumber).Append('\t').Append(evt.EventId).Append("\t1\n");
+                }
+
+                var replacementState = new FileThreadDescriptorState(
+                    DescriptorSchema,
+                    DescriptorVersion,
+                    descriptor!,
+                    _messageIds.ToArray(),
+                    1,
+                    committed.Length);
+                await File.WriteAllTextAsync(
+                    Path.Combine(replacementRoot, "journal.index"),
+                    index.ToString(),
+                    Encoding.UTF8,
+                    cancellationToken).ConfigureAwait(false);
+                await File.WriteAllTextAsync(
+                    Path.Combine(replacementRoot, "thread.descriptor.json"),
+                    JsonSerializer.Serialize(replacementState, SessionJsonContext.Combined.FileThreadDescriptorState),
+                    Encoding.UTF8,
+                    cancellationToken).ConfigureAwait(false);
+
+                var threadRoot = _store.GetThreadPath(_key);
+                var oldJournal = _store.GetJournalPath(_key);
+                var retiredJournal = Path.Combine(threadRoot, $"retired-{Guid.NewGuid():N}");
+                if (Directory.Exists(oldJournal))
+                    Directory.Move(oldJournal, retiredJournal);
+                Directory.Move(replacementJournal, oldJournal);
+                File.Move(Path.Combine(replacementRoot, "journal.index"), _store.GetIndexPath(_key), true);
+                File.Move(Path.Combine(replacementRoot, "thread.descriptor.json"), _store.GetDescriptorPath(_key), true);
+                Directory.Delete(replacementRoot, true);
+                if (Directory.Exists(retiredJournal))
+                    Directory.Delete(retiredJournal, true);
+
+                _state = replacementState;
+                result = new ThreadJournalReplaceResult(
+                    committed,
+                    previousCursor,
+                    new ThreadJournalCursor(replacementGeneration, committed.Length));
+                signal = _commitSignal;
+                _commitSignal = NewSignal();
+            }
+            finally
+            {
+                _gate.Release();
+            }
+
+            signal.TrySetException(new ThreadJournalReplacedException(
+                _key, result.PreviousCursor, result.CurrentCursor));
             return result;
         }
 
@@ -438,10 +556,10 @@ public sealed class FileSessionStore : ISessionStore
         public async ValueTask<ThreadEventHead?> GetHeadAsync(CancellationToken cancellationToken)
         {
             var descriptor = await GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
-            return descriptor is null ? null : new ThreadEventHead(descriptor.Head, descriptor.UpdatedAt);
+            return descriptor is null ? null : new ThreadEventHead(descriptor.Generation, descriptor.Head, descriptor.UpdatedAt);
         }
 
-        public async ValueTask<ReadBoundary?> CaptureReadBoundaryAsync(long after, long? through, CancellationToken cancellationToken)
+        public async ValueTask<ReadBoundary?> CaptureReadBoundaryAsync(ThreadJournalCursor after, long? through, CancellationToken cancellationToken)
         {
             await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -449,9 +567,11 @@ public sealed class FileSessionStore : ISessionStore
                 await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
                 ThrowIfDeleted();
                 var head = _state?.Descriptor.Head ?? 0;
-                if (after > head)
-                    throw new ThreadCursorConflictException(_key, after, head);
-                if (head == 0 || after == head)
+                var generation = _state?.Descriptor.Generation ?? 1;
+                var current = new ThreadJournalCursor(generation, head);
+                if (after.Generation != generation || after.SequenceNumber > head)
+                    throw new ThreadCursorConflictException(_key, after, current);
+                if (head == 0 || after.SequenceNumber == head)
                     return null;
                 var limit = Math.Min(through ?? head, head);
                 var paths = Directory.EnumerateFiles(_store.GetJournalPath(_key), "segment-*.events")
@@ -464,12 +584,12 @@ public sealed class FileSessionStore : ISessionStore
                     var last = index + 1 < paths.Length ? paths[index + 1].Start - 1 : head;
                     segments.Add(new SegmentSnapshot(paths[index].Path, paths[index].Start, last, paths[index].Length));
                 }
-                return new ReadBoundary(limit, segments);
+                return new ReadBoundary(generation, limit, segments);
             }
             finally { _gate.Release(); }
         }
 
-        public async ValueTask<ObservationSnapshot> CaptureObservationAsync(long after, CancellationToken cancellationToken)
+        public async ValueTask<ObservationSnapshot> CaptureObservationAsync(ThreadJournalCursor after, CancellationToken cancellationToken)
         {
             await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -477,9 +597,10 @@ public sealed class FileSessionStore : ISessionStore
                 await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
                 ThrowIfDeleted();
                 var head = _state?.Descriptor.Head ?? 0;
-                if (after > head)
-                    throw new ThreadCursorConflictException(_key, after, head);
-                return new ObservationSnapshot(head, _commitSignal.Task);
+                var current = new ThreadJournalCursor(_state?.Descriptor.Generation ?? 1, head);
+                if (after.Generation != current.Generation || after.SequenceNumber > head)
+                    throw new ThreadCursorConflictException(_key, after, current);
+                return new ObservationSnapshot(current, _commitSignal.Task);
             }
             finally { _gate.Release(); }
         }
@@ -510,11 +631,19 @@ public sealed class FileSessionStore : ISessionStore
                     await RecoverAsync(cancellationToken).ConfigureAwait(false);
                 return;
             }
-            await using var stream = new FileStream(descriptorPath, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024, true);
-            _state = await JsonSerializer.DeserializeAsync(stream, SessionJsonContext.Combined.FileThreadDescriptorState, cancellationToken)
-                .ConfigureAwait(false) ?? throw new InvalidDataException($"Thread descriptor '{descriptorPath}' is empty.");
-            if (_state.Schema != DescriptorSchema || _state.Version != DescriptorVersion || _state.Descriptor.Key != _key)
-                throw new InvalidDataException($"Thread descriptor '{descriptorPath}' is incompatible or has conflicting scope.");
+            await using (var stream = new FileStream(descriptorPath, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024, true))
+            {
+                _state = await JsonSerializer.DeserializeAsync(stream, SessionJsonContext.Combined.FileThreadDescriptorState, cancellationToken)
+                    .ConfigureAwait(false) ?? throw new InvalidDataException($"Thread descriptor '{descriptorPath}' is empty.");
+            }
+            if (_state.Descriptor.Key != _key)
+                throw new InvalidDataException($"Thread descriptor '{descriptorPath}' has conflicting scope.");
+            if (_state.Schema != DescriptorSchema || _state.Version != DescriptorVersion)
+            {
+                await RecoverAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            await EnsureJournalGenerationAsync(_state.Descriptor.Generation, cancellationToken).ConfigureAwait(false);
             foreach (var id in _state.MessageIds)
                 _messageIds.Add(id);
             await LoadIndexAsync(cancellationToken).ConfigureAwait(false);
@@ -572,6 +701,7 @@ public sealed class FileSessionStore : ISessionStore
         {
             _eventIds.Clear();
             _messageIds.Clear();
+            var generation = await ReadJournalGenerationAsync(cancellationToken).ConfigureAwait(false);
             ThreadDescriptor? descriptor = null;
             var index = new StringBuilder();
             long currentStart = 1;
@@ -587,7 +717,7 @@ public sealed class FileSessionStore : ISessionStore
                     var expected = (descriptor?.Head ?? 0) + 1;
                     if (evt.ThreadSequenceNumber != expected || !_eventIds.Add(evt.EventId))
                         throw new InvalidDataException($"Journal '{path}' has non-contiguous positions or duplicate EventIds.");
-                    descriptor = ThreadDescriptorProjection.Apply(_key, descriptor, _messageIds, evt, expected);
+                    descriptor = ThreadDescriptorProjection.Apply(_key, descriptor, _messageIds, evt, generation, expected);
                     index.Append(expected).Append('\t').Append(evt.EventId).Append('\t').Append(currentStart).Append('\n');
                     currentCount++;
                 }
@@ -596,9 +726,52 @@ public sealed class FileSessionStore : ISessionStore
                 DescriptorSchema, DescriptorVersion, descriptor, _messageIds.ToArray(), currentStart, currentCount);
             if (_state is not null)
             {
+                await EnsureJournalGenerationAsync(generation, cancellationToken).ConfigureAwait(false);
                 await _store.WriteAtomicallyAsync(_store.GetIndexPath(_key), index.ToString(), cancellationToken).ConfigureAwait(false);
                 await SaveStateAsync(cancellationToken).ConfigureAwait(false);
             }
+        }
+
+        private async ValueTask<long> ReadJournalGenerationAsync(CancellationToken cancellationToken)
+        {
+            var path = _store.GetJournalGenerationPath(_key);
+            if (!File.Exists(path))
+                return 1;
+
+            var text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+            if (!long.TryParse(
+                    text,
+                    System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var generation) || generation <= 0)
+            {
+                throw new InvalidDataException($"Journal generation '{path}' is invalid.");
+            }
+
+            return generation;
+        }
+
+        private async ValueTask EnsureJournalGenerationAsync(
+            long generation,
+            CancellationToken cancellationToken)
+        {
+            var path = _store.GetJournalGenerationPath(_key);
+            if (File.Exists(path))
+            {
+                var existing = await ReadJournalGenerationAsync(cancellationToken).ConfigureAwait(false);
+                if (existing != generation)
+                {
+                    throw new InvalidDataException(
+                        $"Journal generation '{path}' contains {existing}, but the thread descriptor contains {generation}.");
+                }
+                return;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await _store.WriteAtomicallyAsync(
+                path,
+                generation.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                cancellationToken).ConfigureAwait(false);
         }
 
         private async ValueTask SaveStateAsync(CancellationToken cancellationToken)
@@ -637,6 +810,6 @@ public sealed class FileSessionStore : ISessionStore
     }
 
     private sealed record SegmentSnapshot(string Path, long FirstSequence, long LastSequence, long Length);
-    private sealed record ReadBoundary(long Through, IReadOnlyList<SegmentSnapshot> Segments);
-    private sealed record ObservationSnapshot(long Head, Task CommitSignal);
+    private sealed record ReadBoundary(long Generation, long Through, IReadOnlyList<SegmentSnapshot> Segments);
+    private sealed record ObservationSnapshot(ThreadJournalCursor Head, Task CommitSignal);
 }

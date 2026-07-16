@@ -1978,24 +1978,6 @@ public class AgentBuilder
         //   agentBuilder.WithMiddleware(new ContinuationPermissionMiddleware(maxIterations: 15))
         // This gives users full control over whether to ask for permission at iteration limits.
 
-        // Register whenever compaction is configured. Automatic compaction may be disabled while
-        // explicit and fork compaction remain available through the same canonical engine.
-        if (_config.Compaction is not null)
-        {
-            var compactionStrategy = CreateCompactionStrategy(buildData.ClientToUse, _config, buildData.SummarizerClient);
-            _middlewares.Add(new CompactionMiddleware
-            {
-                Strategy = compactionStrategy,
-                Config = _config.Compaction,
-                StrategyFactory = (options, runConfig) => CreateCompactionStrategy(
-                    ResolveRunChatClient(runConfig) ?? buildData.ClientToUse,
-                    _config,
-                    CreateSummarizerClient(options as SummarizingCompactionOptions) ?? buildData.SummarizerClient,
-                    options),
-                SystemInstructions = _config.SystemInstructions
-            });
-        }
-
         // Register ContentUploadMiddleware for intelligent file upload routing.
         // Routes DataContent to HostedFileClient (provider-native) or IContentStore based on
         // provider capabilities and RunConfig.UploadStrategy (Auto/Hosted/Local).
@@ -2068,6 +2050,16 @@ public class AgentBuilder
         if (!_middlewares.Any(m => m is ClientTools.ClientToolMiddleware))
         {
             _middlewares.Add(new ClientTools.ClientToolMiddleware());
+        }
+
+        // Compaction observes the model-visible result produced by framework input mutators.
+        // It remains ordinary iteration middleware; registration order supplies the boundary.
+        if (_config.Compaction is not null)
+        {
+            _middlewares.Add(new CompactionMiddleware
+            {
+                Config = _config.Compaction
+            });
         }
 
         // Register LoggingMiddleware LAST (if enabled via WithLogging())
@@ -2315,17 +2307,19 @@ public class AgentBuilder
             openApiResult?.OwnedHttpClients.Count > 0 ? openApiResult.OwnedHttpClients : null);
     }
 
-    private IChatClient? CreateSummarizerClient(SummarizingCompactionOptions? overrideOptions = null)
+    private IChatClient? CreateSummarizerClient(SummarizingCompaction? overrideOptions = null)
     {
-        var summarizingOptions = overrideOptions ?? _config.Compaction?.Strategy as SummarizingCompactionOptions;
-        if (summarizingOptions?.SummarizerProvider == null)
+        var summarizingOptions = overrideOptions
+            ?? _config.Compaction?.Automatic?.Compaction.Strategy as SummarizingCompaction
+            ?? _config.Compaction?.ForkCompaction?.Strategy as SummarizingCompaction;
+        if (summarizingOptions?.Provider == null)
             return null;
 
-        var summarizerProviderKey = summarizingOptions.SummarizerProvider.ProviderKey;
+        var summarizerProviderKey = summarizingOptions.Provider.ProviderKey;
         var summarizerProviderFeatures = _providerRegistry.GetRequiredProvider<IChatClientProvider>(summarizerProviderKey);
 
         return summarizerProviderFeatures.CreateChatClient(
-            summarizingOptions.SummarizerProvider,
+            summarizingOptions.Provider,
             _serviceProvider);
     }
 
@@ -3008,226 +3002,6 @@ public class AgentBuilder
         return this;
     }
 
-    /// <summary>
-    /// Creates a normalized HPD compaction strategy based on the configured strategy options.
-    /// </summary>
-    private static ICompactionStrategy? CreateCompactionStrategy(
-        IChatClient? baseClient,
-        AgentConfig config,
-        IChatClient? summarizerClient,
-        CompactionStrategyOptions? overrideStrategy = null)
-    {
-        var historyConfig = config.Compaction;
-
-        if (historyConfig == null)
-        {
-            return null;
-        }
-
-        var strategy = overrideStrategy ?? historyConfig.Strategy;
-
-        Func<IReadOnlyList<ChatMessage>, IChatReducer> reducerFactory = strategy switch
-        {
-            MessageCountingCompactionOptions messageCounting =>
-                messages => new MessageCountingChatReducer(
-                    ResolvePreserveRecentRawMessageCount(messages, messageCounting)),
-
-            SummarizingCompactionOptions summarizing =>
-                messages => CreateSummarizingReducer(
-                    baseClient,
-                    summarizing,
-                    summarizerClient,
-                    ResolvePreserveRecentRawMessageCount(messages, summarizing)),
-
-            _ => throw new ArgumentException($"Unknown compaction strategy: {strategy.GetType().Name}")
-        };
-
-        return new ChatReducerCompactionStrategy(reducerFactory, strategy);
-    }
-
-    /// <summary>
-    /// Creates a SummarizingChatReducer with custom configuration.
-    /// Supports using a separate, cheaper model for summarization (cost optimization).
-    /// </summary>
-    private static SummarizingChatReducer CreateSummarizingReducer(
-        IChatClient? baseClient,
-        SummarizingCompactionOptions options,
-        IChatClient? summarizerClient,
-        int preserveRecentRawMessageCount)
-    {
-        // Determine which chat client to use for summarization
-        // If a custom summarizer client was provided, use it
-        // Otherwise, fall back to the base client
-        var clientForSummarization = summarizerClient ?? baseClient;
-        if (clientForSummarization == null)
-        {
-            throw new InvalidOperationException(
-                "History compaction with summarization requires a configured provider or summarizer provider.");
-        }
-
-        // SummarizingChatReducer requires a target greater than zero. When HPD's
-        // policy preserves zero raw messages, ChatReducerCompactionStrategy adds
-        // and later removes a private sentinel that occupies this one slot.
-        var reducer = new SummarizingChatReducer(
-            clientForSummarization,
-            Math.Max(1, preserveRecentRawMessageCount),
-            options.ResummarizeAfterNewMessages);
-
-        if (!string.IsNullOrEmpty(options.CustomPrompt))
-        {
-            reducer.SummarizationPrompt = options.CustomPrompt;
-        }
-        else if (options.SummaryStyle == SummaryStyle.Handoff)
-        {
-            reducer.SummarizationPrompt = CreateHandoffSummarizationPrompt(options.UseSingleSummary);
-        }
-
-        return reducer;
-    }
-
-    internal static int ResolvePreserveRecentRawMessageCount(
-        IReadOnlyList<ChatMessage> messages,
-        CompactionStrategyOptions strategy)
-    {
-        ArgumentNullException.ThrowIfNull(strategy);
-
-        if (messages.Count == 0)
-            return 0;
-
-        if (!string.IsNullOrWhiteSpace(strategy.PreserveFromMessageTurnId) ||
-            !string.IsNullOrWhiteSpace(strategy.PreserveFromMessageId))
-        {
-            return ResolvePreserveFromBoundaryRawMessageCount(
-                messages,
-                strategy.PreserveFromMessageId,
-                strategy.PreserveFromMessageTurnId);
-        }
-
-        return strategy switch
-        {
-            MessageCountingCompactionOptions messageCounting =>
-                ResolvePreserveRecentRawMessageCount(messages, messageCounting.PreserveRecentUserTurnCount),
-            SummarizingCompactionOptions summarizing =>
-                ResolvePreserveRecentRawMessageCount(messages, summarizing.PreserveRecentUserTurnCount),
-            _ => messages.Count
-        };
-    }
-
-    internal static int ResolvePreserveRecentRawMessageCount(
-        IReadOnlyList<ChatMessage> messages,
-        int preserveRecentUserTurnCount)
-    {
-        if (messages.Count == 0)
-            return 0;
-
-        if (preserveRecentUserTurnCount <= 0)
-            return 0;
-
-        var seenUserTurnIds = new HashSet<string>(StringComparer.Ordinal);
-        var seenAnonymousUsers = 0;
-
-        for (var i = messages.Count - 1; i >= 0; i--)
-        {
-            var message = messages[i];
-            if (message.Role != ChatRole.User)
-                continue;
-
-            var turnId = GetMessageTurnId(message);
-            var isNewUserTurn = string.IsNullOrWhiteSpace(turnId)
-                ? ++seenAnonymousUsers <= preserveRecentUserTurnCount
-                : seenUserTurnIds.Add(turnId!);
-
-            if (!isNewUserTurn)
-                continue;
-
-            var userTurnCount = seenUserTurnIds.Count + seenAnonymousUsers;
-            if (userTurnCount >= preserveRecentUserTurnCount)
-                return messages.Count - i;
-        }
-
-        return messages.Count;
-    }
-
-    private static int ResolvePreserveFromBoundaryRawMessageCount(
-        IReadOnlyList<ChatMessage> messages,
-        string? messageId,
-        string? messageTurnId)
-    {
-        if (!string.IsNullOrWhiteSpace(messageTurnId))
-        {
-            var turnIndex = FindFirstMessageTurnIndex(messages, messageTurnId);
-            if (turnIndex >= 0)
-                return messages.Count - turnIndex;
-        }
-
-        if (!string.IsNullOrWhiteSpace(messageId))
-        {
-            var messageIndex = FindMessageIndex(messages, messageId);
-            if (messageIndex >= 0)
-            {
-                var turnId = GetMessageTurnId(messages[messageIndex]);
-                if (!string.IsNullOrWhiteSpace(turnId))
-                {
-                    var turnIndex = FindFirstMessageTurnIndex(messages, turnId);
-                    return messages.Count - (turnIndex >= 0 ? turnIndex : messageIndex);
-                }
-
-                return messages.Count - messageIndex;
-            }
-        }
-
-        return messages.Count;
-    }
-
-    private static int FindMessageIndex(IReadOnlyList<ChatMessage> messages, string messageId)
-    {
-        for (var i = 0; i < messages.Count; i++)
-        {
-            if (string.Equals(messages[i].MessageId, messageId, StringComparison.Ordinal))
-                return i;
-        }
-
-        return -1;
-    }
-
-    private static int FindFirstMessageTurnIndex(IReadOnlyList<ChatMessage> messages, string messageTurnId)
-    {
-        for (var i = 0; i < messages.Count; i++)
-        {
-            if (string.Equals(GetMessageTurnId(messages[i]), messageTurnId, StringComparison.Ordinal))
-                return i;
-        }
-
-        return -1;
-    }
-
-    private static string? GetMessageTurnId(ChatMessage message) =>
-        message.AdditionalProperties?.TryGetValue<string>(
-            ThreadHistoryCompactionMetadata.MessageTurnIdPropertyName,
-            out var turnId) == true
-            ? turnId
-            : null;
-
-    private static string CreateHandoffSummarizationPrompt(bool useSingleSummary)
-    {
-        var summaryContinuityInstruction = useSingleSummary
-            ? "Incorporate any previous summary as authoritative context and emit one consolidated handoff."
-            : "Preserve any previous summary as a distinct prior-memory layer when it materially affects the handoff.";
-
-        return $$"""
-        Generate a compact handoff summary for another AI agent that will continue this conversation.
-
-        Preserve the information needed to resume work without rereading the compacted messages:
-        - the user's current goal and any important corrections or preferences;
-        - decisions already made and rejected paths;
-        - relevant files, symbols, commands, tools, errors, and test results;
-        - current progress and remaining work;
-        - durable facts, constraints, examples, and references that affect the next response.
-
-        {{summaryContinuityInstruction}} Do not invent facts, critique the conversation, or omit concrete
-        details that would be expensive or impossible to recover later.
-        """;
-    }
 }
 
 
@@ -4058,20 +3832,25 @@ public static class AgentBuilderMemoryExtensions
 
 
     /// <summary>
-    /// Configures compaction to manage model context and optional durable thread history.
+    /// Configures canonical thread compaction.
     /// </summary>
     /// <param name="builder">The agent builder instance</param>
     /// <param name="configure">Configuration action for compaction settings</param>
     /// <returns>The builder for method chaining</returns>
     /// <example>
     /// <code>
-    /// builder.WithCompaction(config => {
-    ///     config.Strategy = new SummarizingCompactionOptions { PreserveRecentUserTurnCount = 5 };
-    ///     config.Automatic = new CompactionAutomaticPolicy {
-    ///         Trigger = new CountCompactionTriggerOptions { Threshold = 10 }
-    ///     };
-    ///     config.Retention = new PreserveThreadHistoryOptions();
-    /// });
+    /// builder.WithCompaction(config =>
+    ///     config.Automatic = new AutomaticCompactionPolicy
+    ///     {
+    ///         Trigger = new TurnCountCompactionTrigger(10),
+    ///         Compaction = new CompactionSpecification
+    ///         {
+    ///             Point = new CompactAtCurrentHead(),
+    ///             Preservation = new PreservePreviousTurns(5),
+    ///             Strategy = new SummarizingCompaction(),
+    ///             CommitMode = CompactionCommitMode.Soft
+    ///         }
+    ///     });
     /// </code>
     /// </example>
     public static AgentBuilder WithCompaction(this AgentBuilder builder, Action<CompactionConfig>? configure = null)

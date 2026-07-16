@@ -184,11 +184,11 @@ public class ThreadOperationTests : AgentTestBase
     }
 
     //──────────────────────────────────────────────────────────────────
-    // JSON STORE - THREAD CRUD
+    // FILE STORE - THREAD CRUD
     //──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task JsonStore_SaveAndLoadThread_RoundTrip()
+    public async Task FileStore_SaveAndLoadThread_RoundTrip()
     {
         // Arrange
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-test-{Guid.NewGuid():N}");
@@ -250,7 +250,7 @@ public class ThreadOperationTests : AgentTestBase
     }
 
     [Fact]
-    public async Task JsonStore_DeleteThread_RemovesThread()
+    public async Task FileStore_DeleteThread_RemovesThread()
     {
         // Arrange
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-test-{Guid.NewGuid():N}");

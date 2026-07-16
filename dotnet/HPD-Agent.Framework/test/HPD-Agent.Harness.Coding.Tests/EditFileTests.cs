@@ -122,22 +122,6 @@ public sealed class EditFileTests : IDisposable
     }
 
     [Fact]
-    public async Task EditFile_RejectsHistoryReducedRead()
-    {
-        await File.WriteAllTextAsync("A.cs", "before\n");
-        var agentContext = CreateAgentContext();
-        var toolharness = new CodingToolHarness();
-        await ReadFileTextAsync(agentContext, toolharness, "A.cs");
-        CreateBeforeFunctionContext(agentContext)
-            .UpdateMiddlewareState<CompactionStateData>(state =>
-                state.WithCompactionApplied(DateTimeOffset.UtcNow.AddSeconds(1)));
-
-        var result = await EditFileTextAsync(agentContext, toolharness, "A.cs", "before", "after");
-
-        result.Should().Contain("kind=\"history_reduced_read\"");
-    }
-
-    [Fact]
     public async Task EditFile_AllowsPartialReadInsideRangeAndRejectsOutsideRange()
     {
         await File.WriteAllTextAsync("A.cs", "one\ntwo\nthree\n");

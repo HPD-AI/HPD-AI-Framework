@@ -7,6 +7,8 @@ import type {
   InterruptionStatus,
   SubmitInputResult,
 } from '../types/transport.js';
+import type { ThreadJournalCursor } from '../types/thread-run.js';
+import type { SseMessage } from '../parser.js';
 import { EventTypes } from '../types/events.js';
 import type {
   AgentTransport,
@@ -29,7 +31,7 @@ export class SseTransport implements AgentTransport {
   private errorHandler?: (error: Error) => void;
   private closeHandler?: () => void;
   private _observing = false;
-  private cursor = 0;
+  private cursor: ThreadJournalCursor = { generation: 1, sequenceNumber: 0 };
 
   constructor(baseUrl: string, private readonly requestOptions: TransportRequestOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -60,11 +62,11 @@ export class SseTransport implements AgentTransport {
       throw new Error('SSE connect() requires an event handler');
     }
 
-    const afterSequenceNumber = scope?.afterSequenceNumber ?? 0;
-    if (!Number.isSafeInteger(afterSequenceNumber) || afterSequenceNumber < 0) {
-      throw new Error('SSE afterSequenceNumber must be a non-negative safe integer');
+    const after = scope?.after ?? { generation: 1, sequenceNumber: 0 };
+    if (!isCursor(after)) {
+      throw new Error('SSE after cursor must contain a positive generation and non-negative sequence');
     }
-    this.cursor = afterSequenceNumber;
+    this.cursor = after;
 
     this.abortController = new AbortController();
     const signal = scope?.signal
@@ -158,7 +160,7 @@ export class SseTransport implements AgentTransport {
       `${this.baseUrl}/agents/${encodeURIComponent(this.agentId!)}` +
       `/sessions/${encodeURIComponent(this.sessionId!)}` +
       `/threads/${encodeURIComponent(this.threadId!)}` +
-      `/events?after=${this.cursor}`,
+      `/events?after=${this.cursor.generation}:${this.cursor.sequenceNumber}`,
       {
         method: 'GET',
         headers: { Accept: 'text/event-stream' },
@@ -199,6 +201,9 @@ export class SseTransport implements AgentTransport {
           }
 
           this.errorHandler?.(error instanceof Error ? error : new Error(String(error)));
+          if (error instanceof ThreadJournalRebasedError) {
+            break;
+          }
           retryDelayMs = Math.min(retryDelayMs * 2, 5_000);
         }
 
@@ -227,12 +232,12 @@ export class SseTransport implements AgentTransport {
       while (!signal.aborted) {
         const { done, value } = await reader.read();
         if (done) {
-          for (const message of parser.flush()) await this.dispatchCommitted(message.id, message.event);
+          for (const message of parser.flush()) await this.dispatchMessage(message);
           break;
         }
 
         for (const message of parser.processChunk(value)) {
-          await this.dispatchCommitted(message.id, message.event);
+          await this.dispatchMessage(message);
         }
       }
     } finally {
@@ -240,12 +245,32 @@ export class SseTransport implements AgentTransport {
     }
   }
 
+  private async dispatchMessage(message: SseMessage): Promise<void> {
+    if (message.kind === 'control') {
+      if (message.eventName === 'thread-journal-rebased') {
+        const data = message.data as { previousGeneration?: unknown; currentGeneration?: unknown };
+        if (!Number.isSafeInteger(data.previousGeneration) || !Number.isSafeInteger(data.currentGeneration)) {
+          throw new Error('Invalid thread-journal-rebased control payload');
+        }
+        throw new ThreadJournalRebasedError(
+          Number(data.previousGeneration),
+          Number(data.currentGeneration));
+      }
+      return;
+    }
+
+    await this.dispatchCommitted(message.id, message.event);
+  }
+
   private async dispatchCommitted(id: string | null, event: AgentEvent): Promise<void> {
-    const sequenceNumber = parseCommittedSequence(id, event.threadSequenceNumber);
-    if (sequenceNumber <= this.cursor) return;
+    const cursor = parseCommittedCursor(id, event.threadSequenceNumber);
+    if (cursor.generation !== this.cursor.generation) {
+      throw new ThreadJournalRebasedError(this.cursor.generation, cursor.generation);
+    }
+    if (cursor.sequenceNumber <= this.cursor.sequenceNumber) return;
 
     await this.eventHandler!(event);
-    this.cursor = sequenceNumber;
+    this.cursor = cursor;
   }
 
   private isResponseInput(input: AgentRunInputEvent): boolean {
@@ -416,8 +441,10 @@ function parseInterruptionStatus(value: unknown): InterruptionStatus {
   }
 }
 
-function parseCommittedSequence(id: string | null, eventThreadSequenceNumber: number | undefined): number {
-  const idSequenceNumber = id !== null && id !== '' ? Number(id) : undefined;
+function parseCommittedCursor(id: string | null, eventThreadSequenceNumber: number | undefined): ThreadJournalCursor {
+  const parts = id?.split(':');
+  const generation = parts?.length === 2 ? Number(parts[0]) : undefined;
+  const idSequenceNumber = parts?.length === 2 ? Number(parts[1]) : undefined;
   if (idSequenceNumber !== undefined &&
       eventThreadSequenceNumber !== undefined &&
       idSequenceNumber !== eventThreadSequenceNumber) {
@@ -429,7 +456,26 @@ function parseCommittedSequence(id: string | null, eventThreadSequenceNumber: nu
     throw new Error('SSE event did not include a valid committed sequence');
   }
 
-  return sequenceNumber!;
+  if (!Number.isSafeInteger(generation) || generation! <= 0) {
+    throw new Error('SSE event did not include a valid journal generation');
+  }
+
+  return { generation: generation!, sequenceNumber: sequenceNumber! };
+}
+
+function isCursor(value: ThreadJournalCursor): boolean {
+  return Number.isSafeInteger(value.generation) && value.generation > 0 &&
+    Number.isSafeInteger(value.sequenceNumber) && value.sequenceNumber >= 0;
+}
+
+export class ThreadJournalRebasedError extends Error {
+  constructor(
+    public readonly previousGeneration: number,
+    public readonly currentGeneration: number,
+  ) {
+    super(`Thread journal rebased from generation ${previousGeneration} to ${currentGeneration}`);
+    this.name = 'ThreadJournalRebasedError';
+  }
 }
 
 function delay(milliseconds: number, signal: AbortSignal): Promise<void> {

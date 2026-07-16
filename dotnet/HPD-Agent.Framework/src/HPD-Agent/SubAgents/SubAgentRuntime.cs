@@ -561,6 +561,7 @@ public static class SubAgentRuntime
                 {
                     Metadata = metadata,
                     Compaction = subAgent.ExecutionPolicy.ThreadCompaction
+                        ?? new InheritThreadForkCompaction()
                 };
                 await agent.ForkThreadAsync(
                     parentSessionId,

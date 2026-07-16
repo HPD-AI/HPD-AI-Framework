@@ -20,7 +20,7 @@ public sealed record InterruptionSubmissionDto(
     ThreadRunDto? ActiveRun = null);
 
 public sealed record ThreadRuntimeStateDto(
-    long ObservedHead,
+    ThreadJournalCursor ObservedCursor,
     ThreadRunDto? ActiveRun,
     IReadOnlyList<PendingAgentRequestDto> PendingRequests);
 

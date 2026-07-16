@@ -56,41 +56,56 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         CancellationToken cancellationToken = default)
     {
         var scope = requested ?? _defaultScope;
-        if (await SessionExistsAsync(scope.SessionId, cancellationToken).ConfigureAwait(false))
+        if (await ScopeExistsAsync(scope, cancellationToken).ConfigureAwait(false))
         {
             return new AgentTuiScopeResolution(scope, IsDurable: true);
         }
 
-        return requested is null
-            ? new AgentTuiScopeResolution(
-                await EnsureDurableScopeAsync(scope, cancellationToken).ConfigureAwait(false),
-                IsDurable: true)
-            : new AgentTuiScopeResolution(scope, IsDurable: false);
+        return new AgentTuiScopeResolution(scope, IsDurable: false);
     }
 
     public async Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default)
     {
-        if (await SessionExistsAsync(scope.SessionId, cancellationToken).ConfigureAwait(false))
+        if (!await SessionExistsAsync(scope.SessionId, cancellationToken).ConfigureAwait(false))
         {
-            return scope;
+            var createJson = $$"""{"sessionId":{{JsonString(scope.SessionId)}}}""";
+            using var create = await PostJsonEnvelopeAsync(
+                    "sessions",
+                    createJson,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (create.StatusCode is not HttpStatusCode.Created and not HttpStatusCode.OK)
+            {
+                await ThrowForUnexpectedResponseAsync(create, "create session", cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
 
-        var createJson = $$"""{"sessionId":{{JsonString(scope.SessionId)}}}""";
-        using var create = await PostJsonEnvelopeAsync(
-                "sessions",
-                createJson,
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (create.StatusCode is not HttpStatusCode.Created and not HttpStatusCode.OK)
+        if (!await ThreadExistsAsync(scope.SessionId, scope.ThreadId, cancellationToken).ConfigureAwait(false))
         {
-            await ThrowForUnexpectedResponseAsync(create, "create session", cancellationToken)
+            var createThreadJson = $$"""{"threadId":{{JsonString(scope.ThreadId)}}}""";
+            using var createThread = await PostJsonEnvelopeAsync(
+                    $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads",
+                    createThreadJson,
+                    cancellationToken)
                 .ConfigureAwait(false);
+            if (createThread.StatusCode is not HttpStatusCode.Created and not HttpStatusCode.OK and not HttpStatusCode.Conflict)
+            {
+                await ThrowForUnexpectedResponseAsync(createThread, "create thread", cancellationToken)
+                    .ConfigureAwait(false);
+            }
         }
 
         return scope;
     }
+
+    private async Task<bool> ScopeExistsAsync(
+        AgentTuiRuntimeScope scope,
+        CancellationToken cancellationToken)
+        => await SessionExistsAsync(scope.SessionId, cancellationToken).ConfigureAwait(false) &&
+            await ThreadExistsAsync(scope.SessionId, scope.ThreadId, cancellationToken).ConfigureAwait(false);
 
     private async Task<bool> SessionExistsAsync(
         string sessionId,
@@ -108,6 +123,29 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         if (get.StatusCode != HttpStatusCode.NotFound)
         {
             await ThrowForUnexpectedResponseAsync(get, "load session", cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return false;
+    }
+
+    private async Task<bool> ThreadExistsAsync(
+        string sessionId,
+        string threadId,
+        CancellationToken cancellationToken)
+    {
+        using var get = await _http.GetAsync(
+                $"sessions/{Escape(sessionId)}/threads/{Escape(threadId)}",
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (get.StatusCode == HttpStatusCode.OK)
+        {
+            return true;
+        }
+
+        if (get.StatusCode != HttpStatusCode.NotFound)
+        {
+            await ThrowForUnexpectedResponseAsync(get, "load thread", cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -543,13 +581,13 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
     public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
         AgentTuiRuntimeScope scope,
-        long afterSequenceNumber,
-        long initialObservedHead,
+        ThreadJournalCursor after,
+        ThreadJournalCursor initialObservedCursor,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        var cursor = afterSequenceNumber;
-        var catchUpMode = afterSequenceNumber == 0
+        var cursor = after;
+        var catchUpMode = after.SequenceNumber == 0
             ? AgentTuiEventDeliveryMode.Historical
             : AgentTuiEventDeliveryMode.CatchUp;
         while (!cancellationToken.IsCancellationRequested)
@@ -557,7 +595,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             var pendingCatchUp = new List<AgentEvent>(256);
             using var request = new HttpRequestMessage(
                 HttpMethod.Get,
-                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/events?after={cursor}");
+                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/events?after={cursor.Generation}:{cursor.SequenceNumber}");
             using var response = await _http.SendAsync(
                     request,
                     HttpCompletionOption.ResponseHeadersRead,
@@ -577,6 +615,8 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken)
                 .ConfigureAwait(false);
             using var reader = new StreamReader(stream, Encoding.UTF8);
+            var eventName = "message";
+            var eventCursor = cursor;
             while (!cancellationToken.IsCancellationRequested)
             {
                 var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
@@ -585,31 +625,52 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                     break;
                 }
 
+                if (line.StartsWith("id:", StringComparison.Ordinal))
+                {
+                    eventCursor = ParseCursor(line[3..].Trim());
+                    continue;
+                }
+                if (line.StartsWith("event:", StringComparison.Ordinal))
+                {
+                    eventName = line[6..].Trim();
+                    continue;
+                }
                 if (!line.StartsWith("data:", StringComparison.Ordinal))
                 {
                     continue;
                 }
 
                 var json = line[5..].Trim();
+                if (string.Equals(eventName, "thread-journal-rebased", StringComparison.Ordinal))
+                {
+                    using var control = JsonDocument.Parse(json);
+                    var previous = control.RootElement.GetProperty("previousGeneration").GetInt64();
+                    var current = control.RootElement.GetProperty("currentGeneration").GetInt64();
+                    throw new ThreadJournalReplacedException(
+                        new ThreadKey(scope.SessionId, scope.ThreadId),
+                        new ThreadJournalCursor(previous, cursor.SequenceNumber),
+                        ThreadJournalCursor.Start(current));
+                }
                 if (json.Length == 0 || AgentEventSerializer.FromJson(json) is not AgentEvent evt)
                 {
                     continue;
                 }
 
-                if (evt.ThreadSequenceNumber > 0 && evt.ThreadSequenceNumber <= cursor)
+                if (eventCursor.Generation != cursor.Generation ||
+                    evt.ThreadSequenceNumber > 0 && evt.ThreadSequenceNumber <= cursor.SequenceNumber)
                 {
                     continue;
                 }
 
-                if (evt.ThreadSequenceNumber <= initialObservedHead)
+                if (evt.ThreadSequenceNumber <= initialObservedCursor.SequenceNumber)
                 {
                     pendingCatchUp.Add(evt);
-                    if (pendingCatchUp.Count < 256 && evt.ThreadSequenceNumber < initialObservedHead)
+                    if (pendingCatchUp.Count < 256 && evt.ThreadSequenceNumber < initialObservedCursor.SequenceNumber)
                         continue;
 
                     var catchUp = pendingCatchUp.ToArray();
-                    yield return CreateDeliveryBatch(catchUp, catchUpMode, initialObservedHead);
-                    cursor = Math.Max(cursor, catchUp[^1].ThreadSequenceNumber);
+                    yield return CreateDeliveryBatch(catchUp, catchUpMode, initialObservedCursor, eventCursor.Generation);
+                    cursor = new ThreadJournalCursor(eventCursor.Generation, catchUp[^1].ThreadSequenceNumber);
                     pendingCatchUp.Clear();
                     continue;
                 }
@@ -617,20 +678,20 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                 if (pendingCatchUp.Count > 0)
                 {
                     var catchUp = pendingCatchUp.ToArray();
-                    yield return CreateDeliveryBatch(catchUp, catchUpMode, initialObservedHead);
-                    cursor = Math.Max(cursor, catchUp[^1].ThreadSequenceNumber);
+                    yield return CreateDeliveryBatch(catchUp, catchUpMode, initialObservedCursor, eventCursor.Generation);
+                    cursor = new ThreadJournalCursor(eventCursor.Generation, catchUp[^1].ThreadSequenceNumber);
                     pendingCatchUp.Clear();
                 }
 
-                yield return CreateDeliveryBatch([evt], AgentTuiEventDeliveryMode.Live, initialObservedHead);
-                cursor = Math.Max(cursor, evt.ThreadSequenceNumber);
+                yield return CreateDeliveryBatch([evt], AgentTuiEventDeliveryMode.Live, initialObservedCursor, eventCursor.Generation);
+                cursor = new ThreadJournalCursor(eventCursor.Generation, evt.ThreadSequenceNumber);
             }
 
             if (pendingCatchUp.Count > 0)
             {
                 var catchUp = pendingCatchUp.ToArray();
-                yield return CreateDeliveryBatch(catchUp, catchUpMode, initialObservedHead);
-                cursor = Math.Max(cursor, catchUp[^1].ThreadSequenceNumber);
+                yield return CreateDeliveryBatch(catchUp, catchUpMode, initialObservedCursor, cursor.Generation);
+                cursor = new ThreadJournalCursor(cursor.Generation, catchUp[^1].ThreadSequenceNumber);
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
@@ -640,13 +701,26 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
     private static AgentTuiEventBatch CreateDeliveryBatch(
         IReadOnlyList<AgentEvent> events,
         AgentTuiEventDeliveryMode deliveryMode,
-        long initialObservedHead) =>
+        ThreadJournalCursor initialObservedCursor,
+        long generation) =>
         new(
             events,
             deliveryMode,
-            initialObservedHead,
-            events[0].ThreadSequenceNumber,
-            events[^1].ThreadSequenceNumber);
+            initialObservedCursor,
+            new ThreadJournalCursor(generation, events[0].ThreadSequenceNumber),
+            new ThreadJournalCursor(generation, events[^1].ThreadSequenceNumber));
+
+    private static ThreadJournalCursor ParseCursor(string value)
+    {
+        var separator = value.IndexOf(':');
+        if (separator <= 0 ||
+            !long.TryParse(value.AsSpan(0, separator), out var generation) || generation <= 0 ||
+            !long.TryParse(value.AsSpan(separator + 1), out var sequence) || sequence < 0)
+        {
+            throw new InvalidDataException($"Invalid journal cursor '{value}'.");
+        }
+        return new ThreadJournalCursor(generation, sequence);
+    }
 
     public async Task<AgentTuiSubmitResult> SubmitInputAsync(
         AgentTuiRuntimeScope scope,
@@ -805,7 +879,8 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             .ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
-            return new AgentTuiThreadState(0, null, []);
+            throw new InvalidOperationException(
+                $"Thread '{scope.SessionId}/{scope.ThreadId}' does not have a durable journal.");
         }
 
         if (!response.IsSuccessStatusCode)
@@ -820,16 +895,22 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             .ConfigureAwait(false);
         if (document.RootElement.ValueKind != JsonValueKind.Object)
         {
-            return new AgentTuiThreadState(0, null, []);
+            throw new JsonException("Thread state response must be a JSON object.");
         }
 
         var root = document.RootElement;
         var activeRun = root.TryGetProperty("activeRun", out var activeRunElement)
             ? ParseThreadRun(activeRunElement)
             : null;
-        var observedHead = root.TryGetProperty("observedHead", out var headElement)
-            ? headElement.GetInt64()
-            : 0;
+        var observedCursor = root.TryGetProperty("observedCursor", out var cursorElement)
+            ? new ThreadJournalCursor(
+                cursorElement.GetProperty("generation").GetInt64(),
+                cursorElement.GetProperty("sequenceNumber").GetInt64())
+            : throw new JsonException("Thread state response is missing observedCursor.");
+        if (observedCursor.Generation <= 0 || observedCursor.SequenceNumber < 0)
+        {
+            throw new JsonException("Thread state observedCursor must contain a positive generation and non-negative sequence.");
+        }
         var pendingRequests = new List<AgentEvent>();
         if (root.TryGetProperty("pendingRequests", out var pendingElement) &&
             pendingElement.ValueKind == JsonValueKind.Array)
@@ -845,7 +926,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         }
 
         return new AgentTuiThreadState(
-            observedHead,
+            observedCursor,
             activeRun,
             pendingRequests);
     }

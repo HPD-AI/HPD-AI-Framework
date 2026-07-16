@@ -27,6 +27,26 @@ public sealed class AgentStreamingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RebaseSeedProvider_ReencodesAuthoritativeActiveRun()
+    {
+        _sessionManager.TryReserveThreadRun("agent", "session", "thread", out var reserved)
+            .Should().BeTrue();
+        _sessionManager.ActivateThreadRun("session", "thread", reserved.RuntimeRunId)
+            .Should().BeTrue();
+        var provider = new HostedThreadJournalRebaseSeedProvider(_sessionManager, _agentManager);
+
+        var seeds = await provider.CreateSeedEventsAsync(new ThreadKey("session", "thread"));
+
+        var started = seeds.Should().ContainSingle().Which
+            .Should().BeOfType<ThreadRunStartedEvent>().Subject;
+        started.RuntimeRunId.Should().Be(reserved.RuntimeRunId);
+        started.AgentId.Should().Be("agent");
+        started.ThreadSequenceNumber.Should().Be(0);
+        started.SessionId.Should().Be("session");
+        started.ThreadId.Should().Be("thread");
+    }
+
+    [Fact]
     public void ApplyRouteScope_PreservesRunConfigContextOverrides()
     {
         var workspaceOverride = new Dictionary<string, object>
@@ -128,24 +148,13 @@ public sealed class AgentStreamingServiceTests : IDisposable
             "agent-1",
             sessionId,
             threadId,
-            new AgentRunConfig
-            {
-                Compaction = new CompactionRunPolicy
-                {
-                    ModelContext = new ModelContextWindowOptions
-                    {
-                        ProviderKey = "openai",
-                        ModelId = "small",
-                        ContextWindow = 8
-                    }
-                }
-            });
+            new AgentRunConfig());
 
         result.Status.Should().Be(AgentServiceStatus.Success);
         result.Value!.SessionId.Should().Be(sessionId);
         result.Value.ThreadId.Should().Be(threadId);
         result.Value.EffectiveInputTokens.Should().Be(2);
-        result.Value.UsageRatio.Should().Be(0.25);
+        result.Value.UsageRatio.Should().BeNull();
     }
 
     [Fact]
@@ -165,7 +174,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
 
         result.Status.Should().Be(AgentServiceStatus.Success);
         result.Value!.ActiveRun.Should().BeNull();
-        result.Value.ObservedHead.Should().Be(2);
+        result.Value.ObservedCursor.Should().Be(new ThreadJournalCursor(1, 2));
     }
 
     [Fact]
@@ -246,7 +255,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await foreach (var batch in _sessionStore.ObserveThreadEventsAsync(
             new ThreadKey(sessionId, threadId),
-            0,
+            ThreadJournalCursor.Start(1),
             new ThreadObservationOptions(),
             timeout.Token))
         {

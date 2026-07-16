@@ -17,6 +17,7 @@ import type {
   ThreadGraph,
   ThreadRuntimeChild,
   ThreadRun,
+  ThreadJournalCursor,
   PermissionChoice,
   RequestVisibility,
   ResponderTarget,
@@ -26,6 +27,7 @@ import type {
   SubmitInputResult,
   ToolCallType,
   ToolResultContent,
+  ThreadMessageReadModel,
   ToolResultPayload,
   UsageDetails,
 } from '@hpd-research/hpd-agent-client';
@@ -39,7 +41,7 @@ export interface ThreadScope {
 export interface ThreadSnapshot {
   thread?: Thread | null;
   events: AgentEvent[];
-  latestSequenceNumber: number;
+  observedCursor: ThreadJournalCursor;
   runs?: ThreadRun[];
   activeRun?: ThreadRun | null;
 }
@@ -557,6 +559,7 @@ export interface ThreadRevisionResult {
 
 export interface ThreadRevisionControllerOptions extends ThreadScope {
   client: AgentClient;
+  loadMessages: () => readonly ThreadMessageReadModel[] | Promise<readonly ThreadMessageReadModel[]>;
 }
 
 export interface ThreadRevisionController {

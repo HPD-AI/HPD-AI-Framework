@@ -1,9 +1,19 @@
 import type { AgentEvent } from './types/events.js';
 
-export interface SseMessage {
+export interface AgentEventSseMessage {
+  kind: 'agent-event';
   id: string | null;
   event: AgentEvent;
 }
+
+export interface ControlSseMessage {
+  kind: 'control';
+  id: string | null;
+  eventName: string;
+  data: unknown;
+}
+
+export type SseMessage = AgentEventSseMessage | ControlSseMessage;
 
 /**
  * Parses SSE stream data.
@@ -74,6 +84,7 @@ export class SseParser {
     const lines = eventText.split('\n');
     const dataLines: string[] = [];
     let id: string | null = null;
+    let eventName = 'message';
 
     for (const line of lines) {
       if (line.startsWith('data: ')) {
@@ -83,6 +94,8 @@ export class SseParser {
         dataLines.push(line.slice(5));
       } else if (line.startsWith('id:')) {
         id = line.slice(3).trim();
+      } else if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim();
       }
     }
 
@@ -92,7 +105,10 @@ export class SseParser {
       // Join multi-line data and parse as JSON
       const json = dataLines.join('\n');
       const parsed = JSON.parse(json);
-      return isAgentEventLike(parsed) ? { id, event: parsed } : null;
+      if (isAgentEventLike(parsed)) return { kind: 'agent-event', id, event: parsed };
+      return eventName !== 'message'
+        ? { kind: 'control', id, eventName, data: parsed }
+        : null;
     } catch {
       // Invalid JSON - skip this event
       return null;

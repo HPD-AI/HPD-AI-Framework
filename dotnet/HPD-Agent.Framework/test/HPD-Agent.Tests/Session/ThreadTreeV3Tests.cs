@@ -16,6 +16,78 @@ public class ThreadTreeV3Tests : AgentTestBase
             .WithSessionStore(store)
             .BuildAsync(CancellationToken.None);
 
+    private static async Task<Agent> CreateAgentWithForkCompaction(
+        InMemorySessionStore store,
+        CompactionSpecification specification)
+        => await new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
+            .WithSessionStore(store)
+            .WithCompaction(config => config.ForkCompaction = specification)
+            .BuildAsync(CancellationToken.None);
+
+    [Fact]
+    public async Task ForkCompaction_EncodesOnlyThePreparedTargetJournal()
+    {
+        var store = new InMemorySessionStore();
+        var agent = await CreateAgentWithForkCompaction(store, new CompactionSpecification
+        {
+            Point = new CompactAtCurrentHead(),
+            Preservation = new PreserveNoPreviousHistory(),
+            Strategy = new RemovalCompaction(),
+            CommitMode = CompactionCommitMode.Hard
+        });
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+        var source = session.CreateThread("main");
+        source.AddMessage(UserMessage("old request"));
+        source.AddMessage(new ChatMessage(ChatRole.Assistant, "old response") { MessageId = "assistant-1" });
+        await store.SaveInitialThreadAsync(session.Id, source);
+        source.Session = session;
+        var sourceEvents = await store.CollectThreadEventsAsync(session.Id, source.Id);
+
+        await agent.ForkThreadAsync(source, "compacted-fork", "assistant-1");
+
+        var projected = await store.ProjectThreadAsync(
+            session.Id,
+            "compacted-fork",
+            ThreadProjectionPurpose.ThreadHistory);
+        var targetEvents = await store.CollectThreadEventsAsync(session.Id, "compacted-fork");
+        projected!.Messages.Should().BeEmpty();
+        targetEvents!.OfType<ThreadCreatedEvent>().Should().ContainSingle();
+        targetEvents.OfType<ThreadHistoryCompactionCheckpointEvent>().Should().ContainSingle();
+        targetEvents.Select(evt => evt.EventId)
+            .Should().NotIntersectWith(sourceEvents!.Select(evt => evt.EventId));
+    }
+
+    [Fact]
+    public async Task ForkCompaction_CanExplicitlyDisableTheAgentDefault()
+    {
+        var store = new InMemorySessionStore();
+        var agent = await CreateAgentWithForkCompaction(store, new CompactionSpecification
+        {
+            Point = new CompactAtCurrentHead(),
+            Strategy = new RemovalCompaction(),
+            CommitMode = CompactionCommitMode.Hard
+        });
+        var session = new HPD.Agent.Session("test-session");
+        await store.SaveSessionAsync(session);
+        var source = session.CreateThread("main");
+        source.AddMessage(UserMessage("keep me"));
+        await store.SaveInitialThreadAsync(session.Id, source);
+        source.Session = session;
+
+        await agent.ForkThreadAsync(
+            source,
+            "uncompacted-fork",
+            source.Messages[0].MessageId,
+            new ThreadForkOptions { Compaction = new DisableThreadForkCompaction() });
+
+        var projected = await store.ProjectThreadAsync(
+            session.Id,
+            "uncompacted-fork",
+            ThreadProjectionPurpose.ThreadHistory);
+        projected!.Messages.Should().ContainSingle().Which.Text.Should().Be("keep me");
+    }
+
     [Fact]
     public void ThreadLineage_SerializesAndDeserializes()
     {
@@ -456,7 +528,7 @@ public class ThreadTreeV3Tests : AgentTestBase
     private static ChatMessage MessageWithTurn(ChatMessage message, string turnId)
     {
         message.AdditionalProperties ??= [];
-        message.AdditionalProperties[ThreadHistoryCompactionMetadata.MessageTurnIdPropertyName] = turnId;
+        message.AdditionalProperties["hpd.messageTurnId"] = turnId;
         return message;
     }
 

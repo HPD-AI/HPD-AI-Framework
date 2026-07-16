@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   EventTypes,
+  mapThreadMessages,
   type AgentClient,
   type Thread,
   type ThreadMessage,
@@ -62,6 +63,8 @@ function controller(client: AgentClient) {
     agentId: 'agent',
     sessionId: 's1',
     threadId: 'main',
+    loadMessages: async () => mapThreadMessages(
+      await (client as unknown as { getThreadMessages(): Promise<ThreadMessage[]> }).getThreadMessages()),
   });
 }
 

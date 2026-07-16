@@ -640,6 +640,12 @@ public sealed class BeforeThreadForkCommitContext : HookContext
     /// </summary>
     public ThreadForkOptions ForkOptions { get; }
 
+    /// <summary>
+    /// Complete canonical event sequence for the new target journal when middleware has
+    /// deliberately reshaped the target. Null preserves the ordinary source-event copy path.
+    /// </summary>
+    public IReadOnlyList<AgentEvent>? TargetJournalEvents { get; set; }
+
     internal BeforeThreadForkCommitContext(
         AgentContext baseContext,
         Thread sourceThread,

@@ -123,6 +123,9 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
     connected: false,
     start: vi.fn(async () => {
       client.connected = true;
+      for (const event of events) {
+        for (const handler of [...handlers]) await handler(event);
+      }
     }),
     stop: vi.fn(async () => {
       client.connected = false;
@@ -142,7 +145,11 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
     getThreadMessages: vi.fn(async () => messages),
     getThreadEvents: vi.fn(async () => events),
     getThreadRuns: vi.fn(async () => []),
-    getThreadState: vi.fn(async () => ({ latestSequenceNumber: events.length, events, activeRun: null })),
+    getThreadState: vi.fn(async () => ({
+      observedCursor: { generation: 1, sequenceNumber: events.length },
+      activeRun: null,
+      pendingRequests: [],
+    })),
     getThreadGraph: vi.fn(async () => threadGraph),
     emit: async (event: AgentEvent) => {
       for (const handler of [...handlers]) await handler(event);
@@ -176,7 +183,7 @@ describe('thread lifecycle scenario', () => {
       agentId: 'agent',
       sessionId: 's1',
       threadId: 'main',
-      afterSequenceNumber: 3,
+      after: { generation: 1, sequenceNumber: 0 },
       signal: undefined,
     });
 
@@ -236,12 +243,10 @@ describe('thread lifecycle scenario', () => {
     });
 
     await client.emit({
-      type: EventTypes.AGENT_REQUEST_RESOLVED,
-      requestId: 'p1',
+      type: EventTypes.PERMISSION_RESPONSE,
+      permissionId: 'p1',
       sourceName: 'permission',
-      requestEventType: 'PermissionRequestEvent',
-      responseEventType: 'PermissionResponseEvent',
-      resolvedAt: '2026-01-01T00:00:02.000Z',
+      approved: true,
       sessionId: 's1',
       threadId: 'main',
     });

@@ -360,21 +360,19 @@ export interface ThreadMiddlewareStateCommittedEvent extends BaseEvent {
   state: Record<string, string>;
 }
 
-export type ThreadHistoryCompactionMode = 'Soft' | 'Hard';
-
 export interface ThreadHistoryCompactionCheckpointEvent extends BaseEvent {
   type: typeof EventTypes.THREAD_HISTORY_COMPACTION_CHECKPOINT;
   compactionId: string;
-  modelCompactedMessageIds: string[];
-  retainedMessageIds: string[];
-  durableCompactedMessageIds: string[];
+  point: { kind: string; messageId?: string | null; turnId?: string | null; expectedJournalGeneration?: number | null };
+  preservation: { kind: string; count?: number | null; tokenBudget?: number | null };
+  compactedMessageIds: string[];
+  preservedMessageIds: string[];
+  carriedUserMessageSourceIds: string[];
+  afterPointMessageIds: string[];
   replacementMessages: unknown[];
-  strategyKind: string;
-  retentionKind: string;
-  boundaryKind: string;
-  summaryContent?: string | null;
+  strategy: { kind: string; instructions?: string | null };
+  commitMode: 0 | 1 | 'Soft' | 'Hard';
   compactedAt: string;
-  mode: ThreadHistoryCompactionMode;
 }
 
 // ============================================
@@ -853,33 +851,28 @@ export interface MiddlewareErrorEvent extends BaseEvent {
   errorMessage: string;
 }
 
-export type CompactionStatus = 0 | 1 | 2;
-export type CompactionStrategy = 0 | 1;
+export type CompactionStatus = 0 | 1 | 2 | 3;
 export type CompactionOrigin = 0 | 1 | 2;
 
 export const CompactionStatuses = {
   Started: 0,
   Skipped: 1,
-  Performed: 2,
+  Failed: 2,
+  Completed: 3,
 } as const satisfies Record<string, CompactionStatus>;
-
-export const CompactionStrategies = {
-  MessageCounting: 0,
-  Summarizing: 1,
-} as const satisfies Record<string, CompactionStrategy>;
 
 export interface CompactionEvent extends BaseEvent {
   type: typeof EventTypes.COMPACTION;
   agentName: string;
   iteration: number;
   status: CompactionStatus;
-  strategy: CompactionStrategy;
+  startedAt: string;
+  completedAt: string;
+  strategy?: string | null;
   originalMessageCount?: number | null;
   compactedMessageCount?: number | null;
   messagesRemoved?: number | null;
   summaryContent?: string | null;
-  summaryLength?: number | null;
-  duration: string;
   reason?: string | null;
   continuation: CompactionContinuation;
   origin: CompactionOrigin;

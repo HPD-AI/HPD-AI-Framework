@@ -139,22 +139,6 @@ public sealed class WriteFileTests : IDisposable
     }
 
     [Fact]
-    public async Task WriteFile_RejectsHistoryReducedRead()
-    {
-        await File.WriteAllTextAsync("A.cs", "before\n");
-        var agentContext = CreateAgentContext();
-        var toolharness = new CodingToolHarness();
-        await ReadFileTextAsync(agentContext, toolharness, "A.cs");
-        CreateBeforeFunctionContext(agentContext)
-            .UpdateMiddlewareState<CompactionStateData>(state =>
-                state.WithCompactionApplied(DateTimeOffset.UtcNow.AddSeconds(1)));
-
-        var result = await WriteFileTextAsync(agentContext, toolharness, "A.cs", "after\n");
-
-        result.Should().Contain("kind=\"history_reduced_read\"");
-    }
-
-    [Fact]
     public async Task WriteFile_RejectsStaleLengthOrTimestamp()
     {
         await File.WriteAllTextAsync("A.cs", "before\n");

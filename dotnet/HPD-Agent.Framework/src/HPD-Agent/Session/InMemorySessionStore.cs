@@ -71,6 +71,23 @@ public sealed class InMemorySessionStore : ISessionStore
         return await journal.AppendAsync(proposed, condition, cancellationToken).ConfigureAwait(false);
     }
 
+    public async ValueTask<ThreadJournalReplaceResult> ReplaceThreadEventsAsync(
+        ThreadKey thread,
+        IReadOnlyList<AgentEvent> events,
+        ThreadJournalCursor expectedCursor,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateThreadKey(thread);
+        ArgumentNullException.ThrowIfNull(events);
+        if (events.Count == 0)
+            throw new ArgumentException("A replacement journal cannot be empty.", nameof(events));
+        if (!_threads.TryGetValue(thread, out var journal))
+            throw new InvalidOperationException($"Thread '{thread.ThreadId}' does not exist.");
+        var proposed = events.Select(evt => ThreadEventValidation.PrepareForAppend(
+            thread.SessionId, thread.ThreadId, evt)).ToArray();
+        return await journal.ReplaceAsync(proposed, expectedCursor, cancellationToken).ConfigureAwait(false);
+    }
+
     public async ValueTask<ThreadDescriptor?> GetThreadAsync(
         ThreadKey thread,
         CancellationToken cancellationToken = default)
@@ -128,10 +145,11 @@ public sealed class InMemorySessionStore : ISessionStore
         if (!_threads.TryGetValue(thread, out var journal))
             yield break;
 
-        var cursor = request.After;
+        var cursor = request.After.SequenceNumber;
         while (true)
         {
             var batch = await journal.ReadBatchAsync(
+                request.After.Generation,
                 cursor,
                 request.Through,
                 request.MaxBatchEventCount,
@@ -148,23 +166,24 @@ public sealed class InMemorySessionStore : ISessionStore
 
     public async IAsyncEnumerable<ThreadEventBatch> ObserveThreadEventsAsync(
         ThreadKey thread,
-        long after,
+        ThreadJournalCursor after,
         ThreadObservationOptions options,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ValidateThreadKey(thread);
         ArgumentNullException.ThrowIfNull(options);
-        if (after < 0)
+        if (after.Generation <= 0 || after.SequenceNumber < 0)
             throw new ArgumentOutOfRangeException(nameof(after));
         if (options.MaxBatchEventCount <= 0)
             throw new ArgumentOutOfRangeException(nameof(options), "MaxBatchEventCount must be positive.");
         if (!_threads.TryGetValue(thread, out var journal))
             yield break;
 
-        var cursor = after;
+        var cursor = after.SequenceNumber;
         while (true)
         {
             var read = await journal.ReadOrWaitAsync(
+                after.Generation,
                 cursor,
                 options.MaxBatchEventCount,
                 cancellationToken).ConfigureAwait(false);
@@ -219,9 +238,9 @@ public sealed class InMemorySessionStore : ISessionStore
     private static void ValidateReadRequest(ThreadEventReadRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.After < 0)
+        if (request.After.Generation <= 0 || request.After.SequenceNumber < 0)
             throw new ArgumentOutOfRangeException(nameof(request), "After must be non-negative.");
-        if (request.Through is long through && through < request.After)
+        if (request.Through is long through && through < request.After.SequenceNumber)
             throw new ArgumentOutOfRangeException(nameof(request), "Through cannot be less than After.");
         if (request.MaxBatchEventCount <= 0)
             throw new ArgumentOutOfRangeException(nameof(request), "MaxBatchEventCount must be positive.");
@@ -238,6 +257,7 @@ public sealed class InMemorySessionStore : ISessionStore
         private ThreadDescriptor? _descriptor;
         private int _tailCount;
         private long _head;
+        private long _generation = 1;
         private bool _deleted;
 
         public ThreadJournal(ThreadKey key) => _key = key;
@@ -253,8 +273,9 @@ public sealed class InMemorySessionStore : ISessionStore
             try
             {
                 ThrowIfDeleted();
-                if (condition.ExpectedHead is long expected && expected != _head)
-                    throw new ThreadAppendConflictException(_key, expected, _head);
+                var current = new ThreadJournalCursor(_generation, _head);
+                if (condition.ExpectedCursor is ThreadJournalCursor expected && expected != current)
+                    throw new ThreadAppendConflictException(_key, expected, current);
 
                 var duplicate = proposed.FirstOrDefault(evt => _eventIds.Contains(evt.EventId));
                 if (duplicate is not null)
@@ -270,10 +291,13 @@ public sealed class InMemorySessionStore : ISessionStore
                     committed[index] = evt;
                     AppendToSegment(evt);
                     _eventIds.Add(evt.EventId);
-                    _descriptor = ThreadDescriptorProjection.Apply(_key, _descriptor, _messageIds, evt, _head);
+                    _descriptor = ThreadDescriptorProjection.Apply(_key, _descriptor, _messageIds, evt, _generation, _head);
                 }
 
-                result = new ThreadEventAppendResult(committed, previousHead, _head);
+                result = new ThreadEventAppendResult(
+                    committed,
+                    new ThreadJournalCursor(_generation, previousHead),
+                    new ThreadJournalCursor(_generation, _head));
                 signal = _commitSignal;
                 _commitSignal = NewSignal();
             }
@@ -283,6 +307,58 @@ public sealed class InMemorySessionStore : ISessionStore
             }
 
             signal.TrySetResult();
+            return result;
+        }
+
+        public async ValueTask<ThreadJournalReplaceResult> ReplaceAsync(
+            IReadOnlyList<AgentEvent> proposed,
+            ThreadJournalCursor expectedCursor,
+            CancellationToken cancellationToken)
+        {
+            TaskCompletionSource signal;
+            ThreadJournalReplaceResult result;
+            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                ThrowIfDeleted();
+                var previousCursor = new ThreadJournalCursor(_generation, _head);
+                if (previousCursor != expectedCursor)
+                    throw new ThreadAppendConflictException(_key, expectedCursor, previousCursor);
+                if (proposed.Select(evt => evt.EventId).Distinct(StringComparer.Ordinal).Count() != proposed.Count)
+                    throw new InvalidOperationException("A replacement journal cannot contain duplicate EventIds.");
+
+                _generation++;
+                _segments.Clear();
+                _eventIds.Clear();
+                _messageIds.Clear();
+                _descriptor = null;
+                _tailCount = 0;
+                _head = 0;
+
+                var committed = new AgentEvent[proposed.Count];
+                for (var index = 0; index < proposed.Count; index++)
+                {
+                    var evt = proposed[index] with { ThreadSequenceNumber = ++_head };
+                    committed[index] = evt;
+                    AppendToSegment(evt);
+                    _eventIds.Add(evt.EventId);
+                    _descriptor = ThreadDescriptorProjection.Apply(_key, _descriptor, _messageIds, evt, _generation, _head);
+                }
+
+                result = new ThreadJournalReplaceResult(
+                    committed,
+                    previousCursor,
+                    new ThreadJournalCursor(_generation, _head));
+                signal = _commitSignal;
+                _commitSignal = NewSignal();
+            }
+            finally
+            {
+                _gate.Release();
+            }
+
+            signal.TrySetException(new ThreadJournalReplacedException(
+                _key, result.PreviousCursor, result.CurrentCursor));
             return result;
         }
 
@@ -308,7 +384,7 @@ public sealed class InMemorySessionStore : ISessionStore
                 ThrowIfDeleted();
                 return _descriptor is null
                     ? null
-                    : new ThreadEventHead(_head, _descriptor.UpdatedAt);
+                    : new ThreadEventHead(_generation, _head, _descriptor.UpdatedAt);
             }
             finally
             {
@@ -317,6 +393,7 @@ public sealed class InMemorySessionStore : ISessionStore
         }
 
         public async ValueTask<ThreadEventBatch?> ReadBatchAsync(
+            long generation,
             long after,
             long? through,
             int maxCount,
@@ -326,8 +403,7 @@ public sealed class InMemorySessionStore : ISessionStore
             try
             {
                 ThrowIfDeleted();
-                if (after > _head)
-                    throw new ThreadCursorConflictException(_key, after, _head);
+                ValidateCursor(new ThreadJournalCursor(generation, after));
                 return CopyBatch(after, through ?? _head, maxCount);
             }
             finally
@@ -337,6 +413,7 @@ public sealed class InMemorySessionStore : ISessionStore
         }
 
         public async ValueTask<ReadOrWaitResult> ReadOrWaitAsync(
+            long generation,
             long after,
             int maxCount,
             CancellationToken cancellationToken)
@@ -345,8 +422,7 @@ public sealed class InMemorySessionStore : ISessionStore
             try
             {
                 ThrowIfDeleted();
-                if (after > _head)
-                    throw new ThreadCursorConflictException(_key, after, _head);
+                ValidateCursor(new ThreadJournalCursor(generation, after));
 
                 var batch = CopyBatch(after, _head, maxCount);
                 return batch is null
@@ -400,7 +476,7 @@ public sealed class InMemorySessionStore : ISessionStore
             var events = new AgentEvent[checked((int)(last - first + 1))];
             for (var index = 0; index < events.Length; index++)
                 events[index] = GetAt(first + index);
-            return new ThreadEventBatch(events, first, last);
+            return new ThreadEventBatch(events, _generation, first, last);
         }
 
         private AgentEvent GetAt(long sequence)
@@ -413,6 +489,13 @@ public sealed class InMemorySessionStore : ISessionStore
         {
             if (_deleted)
                 throw new ThreadDeletedException(_key);
+        }
+
+        private void ValidateCursor(ThreadJournalCursor cursor)
+        {
+            var head = new ThreadJournalCursor(_generation, _head);
+            if (cursor.Generation != _generation || cursor.SequenceNumber > _head)
+                throw new ThreadCursorConflictException(_key, cursor, head);
         }
 
         private static TaskCompletionSource NewSignal()

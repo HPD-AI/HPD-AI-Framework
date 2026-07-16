@@ -260,11 +260,13 @@ public class DtoSerializationTests
             "Fork description",
             null,
             new Dictionary<string, object> { ["variant"] = "formal" },
-            new ThreadForkCompactionOptions
+            new ApplyThreadForkCompaction(new CompactionSpecification
             {
-                Mode = ThreadForkCompactionMode.Enabled,
-                Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 3 }
-            });
+                Point = new CompactAtCurrentHead(),
+                Preservation = new PreservePreviousTurns(3),
+                Strategy = new RemovalCompaction(),
+                CommitMode = CompactionCommitMode.Hard
+            }));
 
         // Act
         var json = JsonSerializer.Serialize(original, _options);
@@ -278,9 +280,9 @@ public class DtoSerializationTests
         deserialized.Metadata.Should().NotBeNull();
         deserialized.Metadata!["variant"].ToString().Should().Be("formal");
         deserialized.Compaction.Should().NotBeNull();
-        deserialized.Compaction!.Mode.Should().Be(ThreadForkCompactionMode.Enabled);
-        deserialized.Compaction.Strategy.Should().BeOfType<MessageCountingCompactionOptions>()
-            .Which.PreserveRecentUserTurnCount.Should().Be(3);
+        var forkCompaction = deserialized.Compaction.Should().BeOfType<ApplyThreadForkCompaction>().Subject;
+        forkCompaction.Compaction.Preservation.Should().BeOfType<PreservePreviousTurns>()
+            .Which.Count.Should().Be(3);
     }
 
     [Fact]
@@ -337,8 +339,13 @@ public class DtoSerializationTests
             Request = new ThreadCompactionRequest
             {
                 Continuation = CompactionContinuation.StopAfterCompaction,
-                Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 2 },
-                Retention = new PreserveThreadHistoryOptions()
+                Compaction = new CompactionSpecification
+                {
+                    Point = new CompactAtCurrentHead(),
+                    Preservation = new PreservePreviousTurns(2),
+                    Strategy = new RemovalCompaction(),
+                    CommitMode = CompactionCommitMode.Soft
+                }
             }
         };
 
@@ -348,8 +355,8 @@ public class DtoSerializationTests
         deserialized.Should().NotBeNull();
         deserialized!.SessionId.Should().Be("session-123");
         deserialized.Request.Continuation.Should().Be(CompactionContinuation.StopAfterCompaction);
-        deserialized.Request.Strategy.Should().BeOfType<MessageCountingCompactionOptions>()
-            .Which.PreserveRecentUserTurnCount.Should().Be(2);
+        deserialized.Request.Compaction.Preservation.Should().BeOfType<PreservePreviousTurns>()
+            .Which.Count.Should().Be(2);
     }
 
     [Fact]

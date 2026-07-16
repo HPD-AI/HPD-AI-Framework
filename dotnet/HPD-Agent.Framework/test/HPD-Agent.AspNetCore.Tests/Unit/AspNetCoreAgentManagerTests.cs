@@ -231,11 +231,19 @@ public class AspNetCoreAgentManagerTests : IDisposable
             Name = "Runtime Summarizing",
             Compaction = new CompactionConfig
             {
-                Strategy = new SummarizingCompactionOptions
+                Automatic = new AutomaticCompactionPolicy
                 {
-                    SummarizerProvider = new ClientProviderConfig {
-                        ProviderKey = "test",
-                        ModelName = "summarizer-model"
+                    Trigger = new TurnCountCompactionTrigger(10),
+                    Compaction = new CompactionSpecification
+                    {
+                        Point = new CompactAtCurrentHead(),
+                        Strategy = new SummarizingCompaction
+                        {
+                            Provider = new ClientProviderConfig {
+                                ProviderKey = "test",
+                                ModelName = "summarizer-model"
+                            }
+                        }
                     }
                 }
             }

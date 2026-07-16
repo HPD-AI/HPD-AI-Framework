@@ -61,6 +61,9 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
     connected: false,
     start: vi.fn(async () => {
       client.connected = true;
+      for (const event of events) {
+        for (const handler of [...handlers]) await handler(event);
+      }
     }),
     stop: vi.fn(async () => {
       client.connected = false;
@@ -78,7 +81,11 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
     getThread: vi.fn(async () => thread('main')),
     getThreadEvents: vi.fn(async () => events),
     getThreadRuns: vi.fn(async () => []),
-    getThreadState: vi.fn(async () => ({ latestSequenceNumber: events.length, events, activeRun: null })),
+    getThreadState: vi.fn(async () => ({
+      observedCursor: { generation: 1, sequenceNumber: events.length },
+      activeRun: null,
+      pendingRequests: [],
+    })),
     emit: async (event: AgentEvent) => {
       for (const handler of [...handlers]) await handler(event);
     },

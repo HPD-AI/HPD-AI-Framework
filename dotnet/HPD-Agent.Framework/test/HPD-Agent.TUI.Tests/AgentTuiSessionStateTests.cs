@@ -118,17 +118,17 @@ public sealed class AgentTuiSessionStateTests
             new TextMessageStartEvent("m2", "user") { ThreadSequenceNumber = 3 },
             new TextDeltaEvent("current question", "m2") { ThreadSequenceNumber = 4 },
             new ThreadHistoryCompactionCheckpointEvent(
-                "compact",
-                ["m1"],
-                ["m2"],
-                [],
-                [],
-                nameof(MessageCountingCompactionOptions),
-                nameof(PreserveThreadHistoryOptions),
-                nameof(ExactCompactedMessagesBoundaryOptions),
-                null,
-                DateTimeOffset.UtcNow,
-                ThreadHistoryCompactionMode.Soft)
+                CompactionId: "compact",
+                Point: new CompactionPointDescriptor("currentHead"),
+                Preservation: new CompactionPreservationDescriptor("previousTurns", Count: 1),
+                CompactedMessageIds: ["m1"],
+                PreservedMessageIds: ["m2"],
+                CarriedUserMessageSourceIds: [],
+                AfterPointMessageIds: [],
+                ReplacementMessages: [],
+                Strategy: new CompactionStrategyDescriptor("removal"),
+                CommitMode: CompactionCommitMode.Soft,
+                CompactedAt: DateTimeOffset.UtcNow)
             {
                 ThreadSequenceNumber = 5
             }

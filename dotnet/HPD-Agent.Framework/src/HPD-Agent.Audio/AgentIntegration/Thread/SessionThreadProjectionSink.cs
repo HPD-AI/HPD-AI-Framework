@@ -83,13 +83,14 @@ public sealed class SessionThreadProjectionSink : IThreadProjectionSink
         CancellationToken cancellationToken)
     {
         var key = new ThreadKey(thread.SessionId, thread.ThreadId);
-        if (await _sessionStore.GetThreadAsync(key, cancellationToken).ConfigureAwait(false) is null)
+        var descriptor = await _sessionStore.GetThreadAsync(key, cancellationToken).ConfigureAwait(false);
+        if (descriptor is null)
             return null;
 
         TextMessageEndEvent? completed = null;
         await foreach (var batch in _sessionStore.ReadThreadEventsAsync(
             key,
-            new ThreadEventReadRequest(),
+            new ThreadEventReadRequest(ThreadJournalCursor.Start(descriptor.Generation)),
             cancellationToken).ConfigureAwait(false))
         {
             foreach (var candidate in batch.Events.OfType<TextMessageEndEvent>())

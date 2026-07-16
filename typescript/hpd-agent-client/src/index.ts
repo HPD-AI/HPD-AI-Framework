@@ -11,7 +11,7 @@ export type {
 export * from './types/index.js';
 
 // Transports (for advanced usage)
-export { SseTransport } from './transports/index.js';
+export { SseTransport, ThreadJournalRebasedError } from './transports/index.js';
 
 // HTTP API
 export { AgentHttpApi } from './api.js';

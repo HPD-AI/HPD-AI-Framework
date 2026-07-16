@@ -7,7 +7,7 @@ public static class ThreadEventStoreExtensions
         string sessionId,
         string threadId,
         AgentEvent evt,
-        long? expectedSequenceNumber = null,
+        ThreadJournalCursor? expectedCursor = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(store);
@@ -16,7 +16,7 @@ public static class ThreadEventStoreExtensions
         var result = await store.AppendThreadEventsAsync(
             new ThreadKey(sessionId, threadId),
             [evt],
-            new ThreadAppendCondition(expectedSequenceNumber),
+            new ThreadAppendCondition(expectedCursor),
             cancellationToken).ConfigureAwait(false);
 
         return result.CommittedEvents[0];
@@ -50,7 +50,7 @@ public static class ThreadEventStoreExtensions
         await store.AppendThreadEventsAsync(
             new ThreadKey(sessionId, thread.Id),
             events,
-            new ThreadAppendCondition(ExpectedHead: 0),
+            new ThreadAppendCondition(ThreadJournalCursor.Start(1)),
             cancellationToken).ConfigureAwait(false);
     }
 

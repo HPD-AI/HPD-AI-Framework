@@ -1,37 +1,25 @@
+using System.Text.Json.Serialization;
+
 namespace HPD.Agent;
 
-public enum ThreadForkCompactionMode
-{
-    Inherit,
-    Enabled,
-    Disabled
-}
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(InheritThreadForkCompaction), "inherit")]
+[JsonDerivedType(typeof(DisableThreadForkCompaction), "disabled")]
+[JsonDerivedType(typeof(ApplyThreadForkCompaction), "enabled")]
+public abstract record ThreadForkCompaction;
 
-public sealed record ThreadForkCompactionOptions
-{
-    public ThreadForkCompactionMode Mode { get; init; } = ThreadForkCompactionMode.Inherit;
+public sealed record InheritThreadForkCompaction : ThreadForkCompaction;
 
+public sealed record DisableThreadForkCompaction : ThreadForkCompaction;
 
-    public CompactionStrategyOptions? Strategy { get; init; }
-
-    public static ThreadForkCompactionOptions Inherit { get; } = new();
-
-    public static ThreadForkCompactionOptions Enabled { get; } = new()
-    {
-        Mode = ThreadForkCompactionMode.Enabled
-    };
-
-    public static ThreadForkCompactionOptions Disabled { get; } = new()
-    {
-        Mode = ThreadForkCompactionMode.Disabled
-    };
-}
+public sealed record ApplyThreadForkCompaction(CompactionSpecification Compaction)
+    : ThreadForkCompaction;
 
 public sealed record ThreadForkOptions
 {
     public Dictionary<string, object>? Metadata { get; init; }
 
-    public ThreadForkCompactionOptions? Compaction { get; init; }
+    public ThreadForkCompaction Compaction { get; init; } = new InheritThreadForkCompaction();
 
     public static ThreadForkOptions Default { get; } = new();
 

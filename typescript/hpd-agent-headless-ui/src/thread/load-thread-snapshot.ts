@@ -21,8 +21,8 @@ export async function loadThreadSnapshot(
 
   return {
     thread,
-    events: state?.events ?? [],
-    latestSequenceNumber: state?.latestSequenceNumber ?? 0,
+    events: [],
+    observedCursor: state?.observedCursor ?? { generation: 1, sequenceNumber: 0 },
     runs,
     activeRun: state?.activeRun ?? null,
   };

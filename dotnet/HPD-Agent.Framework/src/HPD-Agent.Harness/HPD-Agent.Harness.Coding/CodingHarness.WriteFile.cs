@@ -113,7 +113,6 @@ public partial class CodingToolHarness
             return new WriteFileValidationResult(FileWriteMode.FillEmpty, RequiresFullRead: false, null, null, null);
 
         var readFileStateKey = typeof(ReadFileState).FullName!;
-        var compactionStateKey = typeof(CompactionStateData).FullName!;
         var priorRead = context
             .Analyze(state => state.MiddlewareState.GetState<ReadFileState>(readFileStateKey))
             ?.FilesByPath.GetValueOrDefault(fullPath);
@@ -136,18 +135,6 @@ public partial class CodingToolHarness
                 priorRead,
                 WriteFileErrorKind.PartialRead,
                 "Existing non-empty file was only partially read. Read the full file before rewriting it.");
-        }
-
-        var compactionState = context
-            .Analyze(state => state.MiddlewareState.GetState<CompactionStateData>(compactionStateKey));
-        if (compactionState?.LastAppliedAt > priorRead.ReadAt)
-        {
-            return new WriteFileValidationResult(
-                FileWriteMode.Rewrite,
-                RequiresFullRead: false,
-                priorRead,
-                WriteFileErrorKind.HistoryReducedRead,
-                "The previous ReadFile result may no longer be visible in context. Read the file again before rewriting it.");
         }
 
         try

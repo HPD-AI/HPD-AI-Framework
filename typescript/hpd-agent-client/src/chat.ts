@@ -9,7 +9,7 @@ import type {
   SearchSessionsRequest,
   Session,
 } from './types/session.js';
-import type { ThreadRun, ThreadRuntimeState } from './types/thread-run.js';
+import type { ThreadJournalCursor, ThreadRun, ThreadRuntimeState } from './types/thread-run.js';
 
 export interface OpenChatOptions {
   agentId: string;
@@ -109,7 +109,7 @@ export class ChatSession {
     return this.client.getThreadRun(this.agentId, this.sessionId, this.threadId, runtimeRunId);
   }
 
-  async subscribeLive(options: { afterSequenceNumber?: number; signal?: AbortSignal } = {}): Promise<ThreadRuntimeState> {
+  async subscribeLive(options: { after?: ThreadJournalCursor; signal?: AbortSignal } = {}): Promise<ThreadRuntimeState> {
     const state = await this.getState();
     if (!state) {
       throw new Error(`Thread '${this.threadId}' was not found in session '${this.sessionId}'.`);
@@ -119,7 +119,10 @@ export class ChatSession {
       agentId: this.agentId,
       sessionId: this.sessionId,
       threadId: this.threadId,
-      afterSequenceNumber: options.afterSequenceNumber ?? 0,
+      after: options.after ?? {
+        generation: state.observedCursor.generation,
+        sequenceNumber: 0,
+      },
       signal: options.signal,
     });
     return state;
@@ -158,7 +161,7 @@ export class ChatSession {
   }
 
   async compactThread(
-    request: ThreadCompactionRequest = {},
+    request: ThreadCompactionRequest,
     options: SendMessageOptions = {},
   ): Promise<InputSubmissionResult> {
     const result = await this.client.submitInput({

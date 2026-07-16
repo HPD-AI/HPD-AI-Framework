@@ -143,119 +143,54 @@ public static class AgentConfigValidator
         if (config.Compaction is null)
             return;
 
-        var hr = config.Compaction;
-
-        ValidateCompactionStrategy(hr.Strategy, errors);
-        if (hr.ForkCompaction?.Strategy is { } forkStrategy)
-            ValidateCompactionStrategy(forkStrategy, errors);
-
-        if (hr.Automatic is { } automatic)
+        if (config.Compaction.Automatic is { } automatic)
+        {
             ValidateCompactionTrigger(automatic.Trigger, errors);
-        ValidateHistoryRetention(hr.Retention, errors);
+            ValidateCompactionSpecification(automatic.Compaction, errors);
+        }
+        if (config.Compaction.ForkCompaction is { } fork)
+            ValidateCompactionSpecification(fork, errors);
     }
 
-    private static void ValidateCompactionStrategy(CompactionStrategyOptions strategy, List<string> errors)
+    private static void ValidateCompactionSpecification(CompactionSpecification specification, List<string> errors)
     {
-        switch (strategy)
+        switch (specification.Point)
         {
-            case MessageCountingCompactionOptions messageCounting:
-                if (messageCounting.PreserveRecentUserTurnCount < 0 || messageCounting.PreserveRecentUserTurnCount > 1000)
-                    errors.Add("MessageCountingCompactionOptions.PreserveRecentUserTurnCount must be between 0 and 1,000.");
+            case CompactAtMessage { MessageId.Length: 0 }:
+                errors.Add("CompactAtMessage.MessageId is required.");
                 break;
-
-            case SummarizingCompactionOptions summarizing:
-                if (summarizing.PreserveRecentUserTurnCount < 0 || summarizing.PreserveRecentUserTurnCount > 1000)
-                    errors.Add("SummarizingCompactionOptions.PreserveRecentUserTurnCount must be between 0 and 1,000.");
-
-                if (summarizing.ResummarizeAfterNewMessages < 0 || summarizing.ResummarizeAfterNewMessages > 100)
-                    errors.Add("SummarizingCompactionOptions.ResummarizeAfterNewMessages must be between 0 and 100.");
-
-                if (summarizing.Memory.RecentUserMessageTokenBudget < 0)
-                    errors.Add("SummaryMemoryOptions.RecentUserMessageTokenBudget must be zero or greater.");
+            case CompactAtTurn { TurnId.Length: 0 }:
+                errors.Add("CompactAtTurn.TurnId is required.");
                 break;
+        }
 
-            default:
-                errors.Add($"Unknown compaction strategy option type: {strategy.GetType().Name}.");
+        switch (specification.Preservation)
+        {
+            case PreservePreviousTurns { Count: < 0 }:
+                errors.Add("PreservePreviousTurns.Count must be zero or greater.");
+                break;
+            case PreservePreviousUserMessages { Limit: PreviousItemCountLimit { Count: < 0 } }:
+                errors.Add("PreviousItemCountLimit.Count must be zero or greater.");
+                break;
+            case PreservePreviousUserMessages { Limit: PreviousTokenBudgetLimit { Tokens: < 0 } }:
+                errors.Add("PreviousTokenBudgetLimit.Tokens must be zero or greater.");
                 break;
         }
     }
 
-    private static void ValidateCompactionTrigger(CompactionTriggerOptions trigger, List<string> errors)
+    private static void ValidateCompactionTrigger(CompactionTrigger trigger, List<string> errors)
     {
         switch (trigger)
         {
-            case CountCompactionTriggerOptions count:
-                if (count.TargetCount <= 1 || count.TargetCount > 1000)
-                    errors.Add("CountCompactionTriggerOptions.TargetCount must be between 2 and 1,000.");
-
-                if (count.Threshold < 0 || count.Threshold > 100)
-                    errors.Add("CountCompactionTriggerOptions.Threshold must be between 0 and 100.");
+            case TurnCountCompactionTrigger { Turns: <= 0 }:
+                errors.Add("TurnCountCompactionTrigger.Turns must be greater than zero.");
                 break;
-
-            case ContextWindowCompactionTriggerOptions contextWindow:
-                if (contextWindow.ContextWindowSize is <= 1000 or > 2000000)
-                    errors.Add("ContextWindowCompactionTriggerOptions.ContextWindowSize must be between 1,000 and 2,000,000 tokens.");
-
-                switch (contextWindow.ThresholdMode)
-                {
-                    case ContextWindowCompactionThresholdMode.Percentage:
-                        if (contextWindow.TriggerPercentage <= 0 || contextWindow.TriggerPercentage >= 1)
-                            errors.Add("ContextWindowCompactionTriggerOptions.TriggerPercentage must be between 0 and 1.");
-                        break;
-
-                    case ContextWindowCompactionThresholdMode.TokenCount:
-                        if (contextWindow.TriggerTokenCount is null or <= 0)
-                            errors.Add("ContextWindowCompactionTriggerOptions.TriggerTokenCount must be greater than zero when ThresholdMode is TokenCount.");
-                        break;
-
-                    default:
-                        errors.Add("ContextWindowCompactionTriggerOptions.ThresholdMode is invalid.");
-                        break;
-                }
+            case InputTokenCompactionTrigger { InputTokens: <= 0 }:
+                errors.Add("InputTokenCompactionTrigger.InputTokens must be greater than zero.");
                 break;
-
-            case CompositeCompactionTriggerOptions composite:
-                if (composite.AnyOf.Count == 0)
-                    errors.Add("CompositeCompactionTriggerOptions.AnyOf must include at least one trigger.");
-
-                foreach (var child in composite.AnyOf)
-                    ValidateCompactionTrigger(child, errors);
-                break;
-
-            default:
-                errors.Add($"Unknown compaction trigger option type: {trigger.GetType().Name}.");
-                break;
-        }
-    }
-
-    private static void ValidateHistoryRetention(CompactionRetentionOptions retention, List<string> errors)
-    {
-        switch (retention)
-        {
-            case PreserveThreadHistoryOptions:
-                break;
-            case CompactThreadHistoryOptions compact:
-                ValidateCompactionBoundary(compact.Boundary, errors);
-                break;
-            default:
-                errors.Add($"Unknown history retention option type: {retention.GetType().Name}.");
-                break;
-        }
-    }
-
-    private static void ValidateCompactionBoundary(CompactionBoundaryOptions boundary, List<string> errors)
-    {
-        switch (boundary)
-        {
-            case IncludePreviousMessagesBoundaryOptions previous when previous.Count < 0:
-                errors.Add("IncludePreviousMessagesBoundaryOptions.Count must be zero or greater.");
-                break;
-            case CompositeCompactionBoundaryOptions composite:
-                if (composite.Policies.Count == 0)
-                    errors.Add("CompositeCompactionBoundaryOptions.Policies must include at least one boundary policy.");
-
-                foreach (var child in composite.Policies)
-                    ValidateCompactionBoundary(child, errors);
+            case ContextPercentageCompactionTrigger percentage
+                when percentage.TotalInputTokens <= 0 || percentage.Percentage is <= 0 or >= 1:
+                errors.Add("ContextPercentageCompactionTrigger requires positive total input tokens and a percentage between zero and one.");
                 break;
         }
     }
@@ -351,10 +286,10 @@ public static class AgentConfigValidator
     {
         // Check if the combination of settings might cause issues
         var maxFunctionCalls = config.MaxAgenticIterations;
-        var maxHistory = config.Compaction?.Strategy switch
+        var maxHistory = config.Compaction?.Automatic?.Compaction.Preservation switch
         {
-            MessageCountingCompactionOptions messageCounting => messageCounting.PreserveRecentUserTurnCount,
-            SummarizingCompactionOptions summarizing => summarizing.PreserveRecentUserTurnCount,
+            PreservePreviousTurns turns => turns.Count,
+            PreservePreviousUserMessages { Limit: PreviousItemCountLimit count } => count.Count,
             _ => 20
         };
 

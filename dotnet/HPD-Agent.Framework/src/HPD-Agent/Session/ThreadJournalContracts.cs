@@ -3,8 +3,14 @@ namespace HPD.Agent;
 /// <summary>Stable identity of one thread journal.</summary>
 public readonly record struct ThreadKey(string SessionId, string ThreadId);
 
+/// <summary>Position in one immutable generation of a thread journal.</summary>
+public readonly record struct ThreadJournalCursor(long Generation, long SequenceNumber)
+{
+    public static ThreadJournalCursor Start(long generation) => new(generation, 0);
+}
+
 /// <summary>Optimistic condition applied to an atomic journal append.</summary>
-public readonly record struct ThreadAppendCondition(long? ExpectedHead = null)
+public readonly record struct ThreadAppendCondition(ThreadJournalCursor? ExpectedCursor = null)
 {
     public static ThreadAppendCondition Any => default;
 }
@@ -12,8 +18,14 @@ public readonly record struct ThreadAppendCondition(long? ExpectedHead = null)
 /// <summary>Result of atomically committing events to one thread journal.</summary>
 public sealed record ThreadEventAppendResult(
     IReadOnlyList<AgentEvent> CommittedEvents,
-    long PreviousHead,
-    long CurrentHead);
+    ThreadJournalCursor PreviousCursor,
+    ThreadJournalCursor CurrentCursor);
+
+/// <summary>Result of atomically replacing a thread journal generation.</summary>
+public sealed record ThreadJournalReplaceResult(
+    IReadOnlyList<AgentEvent> CommittedEvents,
+    ThreadJournalCursor PreviousCursor,
+    ThreadJournalCursor CurrentCursor);
 
 /// <summary>Lightweight metadata for a thread journal. Reading it never projects event history.</summary>
 public sealed record ThreadDescriptor(
@@ -25,6 +37,7 @@ public sealed record ThreadDescriptor(
     ThreadVisibility Visibility,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
+    long Generation,
     long Head,
     int MessageCount,
     ThreadForkDescriptor? Fork,
@@ -52,18 +65,23 @@ public sealed record ThreadListRequest(
 
 /// <summary>Metadata-only view of the current journal head.</summary>
 public sealed record ThreadEventHead(
+    long Generation,
     long ThreadSequenceNumber,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt)
+{
+    public ThreadJournalCursor Cursor => new(Generation, ThreadSequenceNumber);
+}
 
 /// <summary>A bounded, sequence-native journal read.</summary>
 public sealed record ThreadEventReadRequest(
-    long After = 0,
+    ThreadJournalCursor After,
     long? Through = null,
     int MaxBatchEventCount = 256);
 
 /// <summary>A contiguous batch of canonical thread events.</summary>
 public sealed record ThreadEventBatch(
     IReadOnlyList<AgentEvent> Events,
+    long Generation,
     long FirstThreadSequenceNumber,
     long LastThreadSequenceNumber);
 
@@ -82,23 +100,23 @@ public sealed record FileThreadDescriptorState(
 /// <summary>Raised when an optimistic journal append observes a different head.</summary>
 public sealed class ThreadAppendConflictException : InvalidOperationException
 {
-    public ThreadAppendConflictException(ThreadKey thread, long expectedHead, long actualHead)
-        : base($"Thread '{thread.ThreadId}' head mismatch. Expected {expectedHead}, actual {actualHead}.")
+    public ThreadAppendConflictException(ThreadKey thread, ThreadJournalCursor expected, ThreadJournalCursor actual)
+        : base($"Thread '{thread.ThreadId}' cursor mismatch. Expected {expected.Generation}:{expected.SequenceNumber}, actual {actual.Generation}:{actual.SequenceNumber}.")
     {
         Thread = thread;
-        ExpectedHead = expectedHead;
-        ActualHead = actualHead;
+        ExpectedCursor = expected;
+        ActualCursor = actual;
     }
 
     public ThreadKey Thread { get; }
-    public long ExpectedHead { get; }
-    public long ActualHead { get; }
+    public ThreadJournalCursor ExpectedCursor { get; }
+    public ThreadJournalCursor ActualCursor { get; }
 }
 
 public sealed class ThreadCursorConflictException : InvalidOperationException
 {
-    public ThreadCursorConflictException(ThreadKey thread, long cursor, long head)
-        : base($"Thread '{thread.ThreadId}' cursor {cursor} is ahead of head {head}.")
+    public ThreadCursorConflictException(ThreadKey thread, ThreadJournalCursor cursor, ThreadJournalCursor head)
+        : base($"Thread '{thread.ThreadId}' cursor {cursor.Generation}:{cursor.SequenceNumber} is incompatible with head {head.Generation}:{head.SequenceNumber}.")
     {
         Thread = thread;
         Cursor = cursor;
@@ -106,8 +124,8 @@ public sealed class ThreadCursorConflictException : InvalidOperationException
     }
 
     public ThreadKey Thread { get; }
-    public long Cursor { get; }
-    public long Head { get; }
+    public ThreadJournalCursor Cursor { get; }
+    public ThreadJournalCursor Head { get; }
 }
 
 public sealed class ThreadDeletedException : InvalidOperationException
@@ -119,4 +137,19 @@ public sealed class ThreadDeletedException : InvalidOperationException
     }
 
     public ThreadKey Thread { get; }
+}
+
+public sealed class ThreadJournalReplacedException : InvalidOperationException
+{
+    public ThreadJournalReplacedException(ThreadKey thread, ThreadJournalCursor previous, ThreadJournalCursor current)
+        : base($"Thread '{thread.ThreadId}' journal was replaced from generation {previous.Generation} to {current.Generation}. Rehydrate the current generation.")
+    {
+        Thread = thread;
+        PreviousCursor = previous;
+        CurrentCursor = current;
+    }
+
+    public ThreadKey Thread { get; }
+    public ThreadJournalCursor PreviousCursor { get; }
+    public ThreadJournalCursor CurrentCursor { get; }
 }

@@ -1210,8 +1210,8 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
         public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
             AgentTuiRuntimeScope scope,
-            long afterSequenceNumber,
-            long initialObservedHead,
+            ThreadJournalCursor after,
+            ThreadJournalCursor initialObservedCursor,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             await Task.CompletedTask;
@@ -1241,6 +1241,6 @@ public sealed class ExecuteCommandTuiLifecycleTests
         public Task<AgentTuiThreadState> GetThreadStateAsync(
             AgentTuiRuntimeScope scope,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new AgentTuiThreadState(0, null, []));
+            => Task.FromResult(new AgentTuiThreadState(ThreadJournalCursor.Start(1), null, []));
     }
 }

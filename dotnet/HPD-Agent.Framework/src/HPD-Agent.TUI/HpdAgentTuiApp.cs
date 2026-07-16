@@ -34,8 +34,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private readonly HashSet<string> _sessionTitleUpdates = new(StringComparer.Ordinal);
     private string? _activeRuntimeRunId;
     private bool _inputSubmissionPending;
-    private long _lastSequenceNumber;
-    private long _initialObservedHead;
+    private bool _scopeIsDurable;
+    private ThreadJournalCursor _appliedCursor;
+    private ThreadJournalCursor _initialObservedCursor;
     private IReadOnlyList<AgentEvent> _pendingRecoveryRequests = [];
 
     private HpdAgentTuiApp(
@@ -83,8 +84,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         if (initialScope.IsDurable)
         {
             await NotifyDurableScopeEnsuredAsync(initialScope.Scope, linked.Token).ConfigureAwait(false);
-            await HydrateThreadAsync(initialScope.Scope, linked.Token).ConfigureAwait(false);
-            StartObserver(initialScope.Scope, linked.Token);
+            if (await HydrateThreadAsync(initialScope.Scope, linked.Token).ConfigureAwait(false))
+            {
+                _scopeIsDurable = true;
+                StartObserver(initialScope.Scope, linked.Token);
+            }
         }
 
         await _application.RunAsync(options, linked.Token).ConfigureAwait(false);
@@ -132,11 +136,12 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         AgentTuiRuntimeScope scope,
         string notice)
     {
-        _lastSequenceNumber = 0;
-        _initialObservedHead = 0;
+        _appliedCursor = default;
+        _initialObservedCursor = default;
         _pendingRecoveryRequests = [];
         _inputSubmissionPending = false;
         _activeRuntimeRunId = null;
+        _scopeIsDurable = false;
         _scope = scope;
         _state = new AgentTuiSessionState(scope, _registry);
         AgentTuiPerformanceDiagnostics.ConfigureFromEnvironment(_state.State);
@@ -178,7 +183,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         _observeCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _observeTask = ObserveAsync(scope, _lastSequenceNumber, _observeCancellation.Token);
+        _observeTask = ObserveAsync(scope, _appliedCursor, _observeCancellation.Token);
     }
 
     private async ValueTask StartObserverIfNeededAsync(
@@ -334,6 +339,15 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             var ensured = await _runtime.EnsureDurableScopeAsync(scope, CancellationToken.None)
                 .ConfigureAwait(false);
             await NotifyDurableScopeEnsuredAsync(ensured, CancellationToken.None).ConfigureAwait(false);
+            if (!_scopeIsDurable)
+            {
+                if (!await HydrateThreadAsync(ensured, CancellationToken.None).ConfigureAwait(false))
+                {
+                    throw new InvalidOperationException(
+                        $"Thread '{ensured.SessionId}/{ensured.ThreadId}' could not be promoted to durable state.");
+                }
+                _scopeIsDurable = true;
+            }
             await StartObserverIfNeededAsync(ensured, _runCancellationToken)
                 .ConfigureAwait(false);
 
@@ -580,8 +594,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         RebuildShell(
             ensured,
             $"Switched to agent `{ensured.AgentId}`, session `{ensured.SessionId}`, thread `{ensured.ThreadId}`.");
-        await HydrateThreadAsync(ensured, cancellationToken).ConfigureAwait(false);
-        StartObserver(ensured, _runCancellationToken);
+        if (await HydrateThreadAsync(ensured, cancellationToken).ConfigureAwait(false))
+        {
+            _scopeIsDurable = true;
+            StartObserver(ensured, _runCancellationToken);
+        }
     }
 
     private ValueTask NotifyDurableScopeEnsuredAsync(
@@ -601,13 +618,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         return ValueTask.CompletedTask;
     }
 
-    private async Task HydrateThreadAsync(
+    private async Task<bool> HydrateThreadAsync(
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken)
     {
         if (_state is null)
         {
-            return;
+            return false;
         }
 
         AgentTuiThreadState threadState;
@@ -615,6 +632,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         {
             threadState = await _runtime.GetThreadStateAsync(scope, cancellationToken)
                 .ConfigureAwait(false);
+            if (threadState.ObservedCursor.Generation <= 0)
+            {
+                throw new InvalidDataException(
+                    "The durable thread state did not include a valid journal generation.");
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -634,13 +656,16 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                     AgentName: "tui",
                     AgentChain: ["tui"])));
             RequestRender();
-            return;
+            return false;
         }
 
         ReconcileRuntimeState(threadState);
-        _initialObservedHead = threadState.ObservedHead;
+        _initialObservedCursor = threadState.ObservedCursor;
+        if (_appliedCursor.Generation == 0)
+            _appliedCursor = ThreadJournalCursor.Start(threadState.ObservedCursor.Generation);
         _pendingRecoveryRequests = threadState.PendingRequests;
         RequestRender();
+        return true;
     }
 
     private async Task SetSessionTitleFromFirstMessageAsync(
@@ -691,7 +716,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
     private async Task ObserveAsync(
         AgentTuiRuntimeScope scope,
-        long afterSequenceNumber,
+        ThreadJournalCursor after,
         CancellationToken cancellationToken)
     {
         try
@@ -704,18 +729,30 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
             await foreach (var batch in _runtime.ObserveAsync(
                     scope,
-                    afterSequenceNumber,
-                    _initialObservedHead,
+                    after,
+                    _initialObservedCursor,
                     cancellationToken)
                 .WithCancellation(cancellationToken)
                 .ConfigureAwait(false))
             {
-                await OnAgentEventBatchAsync(batch.Events, batch.DeliveryMode, cancellationToken)
+                await OnAgentEventBatchAsync(batch, cancellationToken)
                     .ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+        }
+        catch (ThreadJournalReplacedException rebased)
+        {
+            _handledInteractionIds.Clear();
+            RebuildShell(
+                scope,
+                $"Thread history was compacted into journal generation {rebased.CurrentCursor.Generation}; rehydrating.");
+            if (await HydrateThreadAsync(scope, cancellationToken).ConfigureAwait(false))
+            {
+                _scopeIsDurable = true;
+                StartObserver(scope, _runCancellationToken);
+            }
         }
         catch (Exception ex)
         {
@@ -728,7 +765,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 Cell: new NoticeCell(
                     "Event projection stopped",
                     new HPD.TUI.Components.Text(
-                        $"Position {_lastSequenceNumber + 1} was not applied: {ex.Message}"),
+                        $"Position {_appliedCursor.Generation}:{_appliedCursor.SequenceNumber + 1} was not applied: {ex.Message}"),
                     TranscriptSeverity.Error),
                 Metadata: new TranscriptEntryMetadata(
                     AgentId: scope.AgentId,
@@ -740,10 +777,10 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     }
 
     private async Task OnAgentEventBatchAsync(
-        IReadOnlyList<AgentEvent> events,
-        AgentTuiEventDeliveryMode deliveryMode,
+        AgentTuiEventBatch batch,
         CancellationToken cancellationToken)
     {
+        var events = batch.Events;
         if (_state is null || events.Count == 0)
         {
             return;
@@ -753,13 +790,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         {
             foreach (var evt in events)
             {
-                await OnAgentEventAsync(evt, deliveryMode, cancellationToken).ConfigureAwait(false);
+                await OnAgentEventAsync(evt, batch.DeliveryMode, cancellationToken).ConfigureAwait(false);
             }
         }
 
-        _lastSequenceNumber = Math.Max(
-            _lastSequenceNumber,
-            events[^1].ThreadSequenceNumber);
+        _appliedCursor = batch.LastCursor;
         RequestRender();
     }
 

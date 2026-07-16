@@ -895,74 +895,6 @@ public sealed class Agent
         return unsessionedResult.Build();
     }
 
-    private async Task<AgentTurnResult> RunCompactionInputAsync(
-        CompactThreadInputEvent input,
-        HPD.Events.IEventCoordinator eventCoordinator,
-        CancellationToken cancellationToken)
-    {
-        Session session;
-        Thread thread;
-        if (input.Session is not null || input.Thread is not null)
-        {
-            if (input.Session is null || input.Thread is null)
-                throw new InvalidOperationException("CompactThreadInputEvent must provide both Session and Thread for process-local runs.");
-            session = input.Session;
-            thread = input.Thread;
-        }
-        else if (!string.IsNullOrWhiteSpace(input.SessionId))
-        {
-            (session, thread) = await LoadSessionAndThreadAsync(
-                input.SessionId,
-                input.ThreadId,
-                cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            throw new InvalidOperationException("Explicit compaction requires a scoped session and thread.");
-        }
-
-        var middleware = _middlewarePipeline.Middlewares.OfType<CompactionMiddleware>().SingleOrDefault()
-            ?? throw new InvalidOperationException("Compaction is not configured for this agent.");
-        var runConfig = input.RunConfig ?? new AgentRunConfig();
-        var persistentState = MiddlewareState.LoadFromSession(session, _stateFactories)
-            .Merge(MiddlewareState.LoadFromThread(thread, _stateFactories));
-        var state = AgentLoopState.Initial(
-            thread.Messages,
-            Guid.NewGuid().ToString(),
-            session.Id,
-            _name,
-            persistentState);
-        var agentContext = new Middleware.AgentContext(
-            _name,
-            session.Id,
-            state,
-            eventCoordinator,
-            session,
-            thread,
-            cancellationToken,
-            Config?.SessionStore is { } store ? new ThreadEventPublisher(store, eventCoordinator) : null,
-            _baseClient,
-            _serviceProvider,
-            _runtimeContext?.RuntimeCapabilities,
-            agentId: AgentId,
-            parentAgentMetadata: AgentMetadata,
-            parentAgentStore: Config?.AgentStore,
-            config: Config,
-            clientSet: _clientSet,
-            contentStore: _contentStore,
-            structEvents: GetActiveStructEvents());
-
-        await middleware.CompactExplicitAsync(
-            agentContext.AsBeforeMessageTurn(null, thread.Messages, runConfig),
-            input.Request,
-            cancellationToken).ConfigureAwait(false);
-
-        if (Config?.SessionStoreOptions?.PersistAfterTurn == true)
-            await SaveSessionAndThreadAsync(session, thread, cancellationToken).ConfigureAwait(false);
-
-        return AgentTurnResult.Empty;
-    }
-
     private static bool ShouldEnqueueToRuntime(AgentInputEvent input) => true;
 
     private HPD.Events.IEventCoordinator GetActiveEventCoordinator()
@@ -1040,7 +972,6 @@ public sealed class Agent
             StructEvents = GetActiveStructEvents(),
             RuntimeRunConfig = _runtimeContext?.RunConfig,
             RunMessagesAsync = RunMessagesInputAsync,
-            CompactThreadAsync = RunCompactionInputAsync,
             InterruptAsync = HandleInterruptionAsync,
             TryResolveClientToolBackgroundOperation = ResolveClientToolBackgroundOperation,
             PublishBackgroundTaskNotificationDelivered = PublishBackgroundTaskNotificationDeliveredAsync
@@ -2085,9 +2016,9 @@ public sealed class Agent
                 if (decision is AgentDecision.CallLLM)
                 {    
 
-                    // Determine messages to send with cache-aware compaction
+                    // Select the provider input for this iteration.
                     IEnumerable<ChatMessage> messagesToSend;
-                    int messageCountToSend;  // Track actual count sent for history tracking
+                    int messageCountToSend;
 
                     if (state.InnerClientTracksHistory && state.Iteration > 0)
                     {
@@ -2097,17 +2028,15 @@ public sealed class Agent
                     }
                     else if (state.Iteration == 0)
                     {
-                        // First iteration: Use effectiveMessages (compacted) from PrepareTurnAsync
-                        // This applies compaction for the initial LLM call
-                        // effectiveMessages already contains compacted history if compaction was applied
+                        // The first iteration begins with the prepared thread history and new input.
+                        // BeforeIteration middleware performs any final provider-input projection.
                         messagesToSend = effectiveMessages;
-                        messageCountToSend = effectiveMessages.Count();  // Compacted count!
+                        messageCountToSend = effectiveMessages.Count();
                     }
                     else
                     {
-                        // Subsequent iterations begin from current loop history. The final
-                        // provider-bound projection is owned by BeforeIteration middleware,
-                        // including cached replay and automatic in-turn compaction.
+                        // Subsequent iterations begin from current loop history. BeforeIteration
+                        // middleware owns the final provider-bound projection.
                         messagesToSend = state.CurrentMessages;
                         messageCountToSend = state.CurrentMessages.Count;
                     }
@@ -3141,8 +3070,7 @@ public sealed class Agent
                         var lastRespConvId = _agentTurn.LastResponseConversationId;
                         if (lastRespConvId != null && lastRespConvId.StartsWith("conv_", StringComparison.OrdinalIgnoreCase))
                         {
-                            // For non-tool responses, use messageCountToSend (actual messages sent)
-                            // NOT state.CurrentMessages.Count (which may be uncompacted full history)
+                            // Track the history boundary associated with the provider request.
                             state = state.EnableHistoryTracking(messageCountToSend, lastRespConvId);
                         }
 
@@ -5499,11 +5427,7 @@ public sealed class Agent
 
         var fromMessageIndex = string.IsNullOrWhiteSpace(fromMessageId)
             ? (int?)null
-            : await ResolveForkMessageIndexAsync(
-                sourceThread,
-                fromMessageId,
-                store,
-                cancellationToken).ConfigureAwait(false);
+            : ResolveForkMessageIndex(sourceThread, fromMessageId);
 
         // Create the fork thread metadata and projected read model.
         // The durable copied history is written later by cloning the source event prefix.
@@ -5563,6 +5487,7 @@ public sealed class Agent
             }
         }
 
+        IReadOnlyList<AgentEvent>? targetJournalEvents = null;
         if (!_middlewarePipeline.IsEmpty)
         {
             var forkEventCoordinator = GetActiveEventCoordinator();
@@ -5609,6 +5534,8 @@ public sealed class Agent
                 beforeForkCommitContext,
                 cancellationToken).ConfigureAwait(false);
 
+            targetJournalEvents = beforeForkCommitContext.TargetJournalEvents;
+
             forkContext.State.MiddlewareState.SaveToThread(newThread, _stateFactories);
             if (sourceThread.Session != null)
             {
@@ -5616,7 +5543,23 @@ public sealed class Agent
             }
         }
 
-        if (copyThroughMessageIndex is int copiedIndex)
+        if (targetJournalEvents is not null)
+        {
+            var events = targetJournalEvents.ToList();
+            if (newThread.MiddlewareState.Count > 0)
+            {
+                events.Add(ThreadEventFactory.ThreadMiddlewareStateCommitted(
+                    newThread.SessionId,
+                    newThread.Id,
+                    newThread.MiddlewareState));
+            }
+            await store.AppendThreadEventsAsync(
+                new ThreadKey(newThread.SessionId, newThread.Id),
+                events,
+                new ThreadAppendCondition(ThreadJournalCursor.Start(1)),
+                cancellationToken).ConfigureAwait(false);
+        }
+        else if (copyThroughMessageIndex is int copiedIndex)
         {
             await SaveForkedThreadFromSourceEventsAsync(
                 store,
@@ -5786,11 +5729,9 @@ public sealed class Agent
         return newThread.Id;
     }
 
-    private static async Task<int> ResolveForkMessageIndexAsync(
+    private static int ResolveForkMessageIndex(
         Thread sourceThread,
-        string fromMessageId,
-        ISessionStore store,
-        CancellationToken cancellationToken)
+        string fromMessageId)
     {
         var index = sourceThread.Messages.FindIndex(message =>
             string.Equals(message.MessageId, fromMessageId, StringComparison.Ordinal));
@@ -5798,51 +5739,11 @@ public sealed class Agent
         if (index >= 0)
             return index;
 
-        var replacementMessageIds = await FindReplacementMessageIdsAsync(
-            sourceThread.SessionId,
-            sourceThread.Id,
-            fromMessageId,
-            store,
-            cancellationToken).ConfigureAwait(false);
-
         throw new MessageNotPresentOnThreadException(
             sourceThread.SessionId,
             sourceThread.Id,
             fromMessageId,
-            replacementMessageIds);
-    }
-
-    private static async Task<IReadOnlyList<string>> FindReplacementMessageIdsAsync(
-        string sessionId,
-        string threadId,
-        string messageId,
-        ISessionStore store,
-        CancellationToken cancellationToken)
-    {
-        var key = new ThreadKey(sessionId, threadId);
-        if (await store.GetThreadAsync(key, cancellationToken).ConfigureAwait(false) is null)
-            return [];
-
-        var replacements = new HashSet<string>(StringComparer.Ordinal);
-        await foreach (var batch in store.ReadThreadEventsAsync(
-            key,
-            new ThreadEventReadRequest(),
-            cancellationToken).ConfigureAwait(false))
-        {
-            foreach (var checkpoint in batch.Events.OfType<ThreadHistoryCompactionCheckpointEvent>())
-            {
-                if (!checkpoint.DurableCompactedMessageIds.Contains(messageId, StringComparer.Ordinal))
-                    continue;
-
-                foreach (var replacement in checkpoint.ReplacementMessages)
-                {
-                    if (!string.IsNullOrWhiteSpace(replacement.MessageId))
-                        replacements.Add(replacement.MessageId);
-                }
-            }
-        }
-
-        return replacements.ToList();
+            []);
     }
 
     private static ChatMessage CloneMessageForThread(ChatMessage message)
@@ -5901,9 +5802,13 @@ public sealed class Agent
 
         if (copyThroughSequence is long sequenceNumber)
         {
+            var sourceDescriptor = await store.GetThreadAsync(sourceKey, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"Source thread '{sourceKey.ThreadId}' no longer exists.");
             await foreach (var batch in store.ReadThreadEventsAsync(
                 sourceKey,
-                new ThreadEventReadRequest(Through: sequenceNumber),
+                new ThreadEventReadRequest(
+                    ThreadJournalCursor.Start(sourceDescriptor.Generation),
+                    Through: sequenceNumber),
                 cancellationToken).ConfigureAwait(false))
             {
                 var copiedEvents = batch.Events
@@ -5921,40 +5826,6 @@ public sealed class Agent
         }
 
         var derivedEvents = new List<AgentEvent>();
-
-        var targetMessageIds = newThread.Messages
-            .Select(message => message.MessageId)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Select(id => id!)
-            .ToHashSet(StringComparer.Ordinal);
-        var compactedMessageIds = copiedMessageIds
-            .Where(id => !targetMessageIds.Contains(id))
-            .ToList();
-        if (compactedMessageIds.Count > 0)
-        {
-            var replacementMessages = newThread.Messages
-                .Where(message => string.IsNullOrWhiteSpace(message.MessageId) ||
-                                  !copiedMessageIds.Contains(message.MessageId!))
-                .Select(CloneMessageForThread)
-                .ToList();
-
-            derivedEvents.Add(new ThreadHistoryCompactionCheckpointEvent(
-                Guid.NewGuid().ToString("N"),
-                compactedMessageIds,
-                copiedMessageIds.Where(targetMessageIds.Contains).ToList(),
-                compactedMessageIds,
-                replacementMessages,
-                "ForkMiddleware",
-                "ForkTarget",
-                "ForkCommit",
-                null,
-                DateTimeOffset.UtcNow,
-                ThreadHistoryCompactionMode.Hard)
-            {
-                SessionId = newThread.SessionId,
-                ThreadId = newThread.Id
-            });
-        }
 
         if (newThread.MiddlewareState.Count > 0)
         {
@@ -5993,10 +5864,12 @@ public sealed class Agent
         var activeRuntimeRunIds = new HashSet<string>(StringComparer.Ordinal);
         var activeAtBoundary = new HashSet<string>(StringComparer.Ordinal);
         var completionPositions = new Dictionary<string, long>(StringComparer.Ordinal);
+        var descriptor = await store.GetThreadAsync(sourceThread, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Source thread '{sourceThread.ThreadId}' no longer exists.");
 
         await foreach (var batch in store.ReadThreadEventsAsync(
             sourceThread,
-            new ThreadEventReadRequest(),
+            new ThreadEventReadRequest(ThreadJournalCursor.Start(descriptor.Generation)),
             cancellationToken).ConfigureAwait(false))
         {
             foreach (var evt in batch.Events)
@@ -6063,14 +5936,8 @@ public sealed class Agent
         };
     }
 
-    private static bool IsThreadStructuralEvent(AgentEvent evt) => evt switch
-    {
-        ThreadCreatedEvent => true,
-        ThreadUpdatedEvent => true,
-        ThreadMiddlewareStateCommittedEvent => true,
-        ThreadHistoryCompactionCheckpointEvent => true,
-        _ => false
-    };
+    private static bool IsThreadStructuralEvent(AgentEvent evt) =>
+        evt is ThreadCreatedEvent or ThreadUpdatedEvent or ThreadMiddlewareStateCommittedEvent;
 
     private static int ExpandForkCopyThroughIndex(IReadOnlyList<ChatMessage> messages, int requestedIndex)
     {
@@ -6137,7 +6004,7 @@ public sealed class Agent
 
     private static string? GetMessageTurnId(ChatMessage message) =>
         message.AdditionalProperties?.TryGetValue<string>(
-            ThreadHistoryCompactionMetadata.MessageTurnIdPropertyName,
+            "hpd.messageTurnId",
             out var turnId) == true
             ? turnId
             : null;
@@ -6958,13 +6825,13 @@ public sealed record AgentLoopState
         init
         {
             // Store defensive copy for deserialization path
-            // This is called by JsonSerializer.Deserialize when loading checkpoints
+            // JsonSerializer uses this path when restoring serialized loop state.
             _deserializedMessages = value?.ToList();
         }
     }
 
     /// <summary>
-    /// Deserialized messages storage (used when loading from checkpoint).
+    /// Deserialized message storage used when restoring serialized loop state.
     /// Null during runtime execution (MessagesRef is used instead).
     /// </summary>
     private List<ChatMessage>? _deserializedMessages;
@@ -7127,8 +6994,7 @@ public sealed record AgentLoopState
     };
 
     /// <summary>
-    /// Creates initial state with defensive copy (backward compatibility).
-    /// Used by tests, external code, or when loading from checkpoint.
+    /// Creates initial state with a defensive message copy.
     /// </summary>
     /// <param name="messages">Messages to copy (immutable snapshot)</param>
     /// <param name="runId">Unique identifier for this run</param>
@@ -7292,13 +7158,12 @@ public sealed record AgentLoopState
         this with { ActiveBackgroundOperation = operation };
 
     /// <summary>
-    /// Schema version for forward/backward compatibility.
-    /// Increment when making breaking changes to this record.
+    /// Serialized loop-state schema version.
     /// </summary>
     public int Version { get; init; } = 2;
     
     /// <summary>
-    /// Serializes this state to JSON for checkpointing.
+    /// Serializes this loop state to JSON.
     /// Uses Microsoft.Extensions.AI's built-in serialization for ChatMessage and AIContent.
     /// Handles immutable collections, polymorphic content, and all message types automatically.
     /// </summary>
@@ -8092,8 +7957,8 @@ internal class FunctionCallProcessor
 internal record PreparedTurn
 {
     /// <summary>
-    /// Messages to send to the LLM (includes session history + new input, optionally compacted).
-    /// This is the "effective" message list after all preparation steps.
+    /// Prepared thread history and new input for the first iteration.
+    /// Iteration middleware may project this list before provider invocation.
     /// </summary>
     public required IReadOnlyList<ChatMessage> MessagesForLLM { get; init; }
 
@@ -8141,7 +8006,7 @@ internal class MessageProcessor
 
     /// <summary>
     /// Prepares a complete turn for execution.
-    /// Loads session history, merges options, adds system instructions, applies compaction (with caching), and Middlewares messages.
+    /// Loads thread history, merges options, and adds system instructions.
     /// </summary>
     /// <param name="thread">Thread containing conversation history (null for stateless execution).</param>
     /// <param name="inputMessages">NEW messages from the caller (to be added to history).</param>

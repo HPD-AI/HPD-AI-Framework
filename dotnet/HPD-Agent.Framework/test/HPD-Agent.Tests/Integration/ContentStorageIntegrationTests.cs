@@ -512,6 +512,13 @@ public class ContentStorageIntegrationTests
             CancellationToken cancellationToken = default)
             => _threads.AppendThreadEventsAsync(thread, events, condition, cancellationToken);
 
+        public ValueTask<ThreadJournalReplaceResult> ReplaceThreadEventsAsync(
+            ThreadKey thread,
+            IReadOnlyList<AgentEvent> events,
+            ThreadJournalCursor expectedCursor,
+            CancellationToken cancellationToken = default)
+            => _threads.ReplaceThreadEventsAsync(thread, events, expectedCursor, cancellationToken);
+
         public ValueTask<ThreadDescriptor?> GetThreadAsync(
             ThreadKey thread,
             CancellationToken cancellationToken = default)
@@ -536,7 +543,7 @@ public class ContentStorageIntegrationTests
 
         public IAsyncEnumerable<ThreadEventBatch> ObserveThreadEventsAsync(
             ThreadKey thread,
-            long after,
+            ThreadJournalCursor after,
             ThreadObservationOptions options,
             CancellationToken cancellationToken = default)
             => _threads.ObserveThreadEventsAsync(thread, after, options, cancellationToken);

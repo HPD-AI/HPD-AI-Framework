@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SseTransport } from '../src/transports/sse.js';
+import { SseTransport, ThreadJournalRebasedError } from '../src/transports/sse.js';
 import { EventTypes } from '../src/types/events.js';
 
 function stream(...events: object[]): ReadableStream<Uint8Array> {
   return new ReadableStream({
     start(controller) {
       controller.enqueue(new TextEncoder().encode(events
-        .map((event, index) => `id: ${index + 1}\ndata: ${JSON.stringify(event)}\n\n`)
+        .map((event, index) => `id: 1:${index + 1}\ndata: ${JSON.stringify(event)}\n\n`)
         .join('')));
       controller.close();
     },
@@ -17,7 +17,7 @@ function committedStream(sequenceNumber: number, event: object): ReadableStream<
   return new ReadableStream({
     start(controller) {
       controller.enqueue(new TextEncoder().encode(
-        `id: ${sequenceNumber}\ndata: ${JSON.stringify(event)}\n\n`,
+        `id: 1:${sequenceNumber}\ndata: ${JSON.stringify(event)}\n\n`,
       ));
       controller.close();
     },
@@ -43,7 +43,7 @@ describe('SseTransport runtime', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=0',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:0',
       expect.objectContaining({
         method: 'GET',
       }),
@@ -242,13 +242,13 @@ describe('SseTransport runtime', () => {
       sessionId: 's1',
       agentId: 'a1',
       threadId: 'main',
-      afterSequenceNumber: 4,
+      after: { generation: 1, sequenceNumber: 4 },
     });
     await vi.waitFor(() => expect(events).toEqual(['first', 'second']), { timeout: 2_000 });
 
     expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=4',
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=5',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:4',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:5',
     ]);
   });
 
@@ -268,8 +268,8 @@ describe('SseTransport runtime', () => {
       body: new ReadableStream({
         start(controller) {
           controller.enqueue(new TextEncoder().encode(
-            `id: 1\ndata: ${JSON.stringify({ type: EventTypes.TEXT_DELTA, text: 'first' })}\n\n` +
-            `id: 2\ndata: ${JSON.stringify({ type: EventTypes.TEXT_DELTA, text: 'second' })}\n\n`,
+            `id: 1:1\ndata: ${JSON.stringify({ type: EventTypes.TEXT_DELTA, text: 'first' })}\n\n` +
+            `id: 1:2\ndata: ${JSON.stringify({ type: EventTypes.TEXT_DELTA, text: 'second' })}\n\n`,
           ));
           controller.close();
         },
@@ -282,5 +282,37 @@ describe('SseTransport runtime', () => {
     acknowledgeFirst();
     await vi.waitFor(() => expect(events).toEqual(['first', 'second']));
     transport.disconnect();
+  });
+
+  it('stops stale observation and reports a journal rebase control result', async () => {
+    const transport = new SseTransport('http://localhost:5135');
+    const errors: Error[] = [];
+    transport.onEvent(() => undefined);
+    transport.onError((error) => errors.push(error));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(
+            'event: thread-journal-rebased\n' +
+            'data: {"previousGeneration":1,"currentGeneration":2}\n\n',
+          ));
+          controller.close();
+        },
+      }),
+      text: async () => '',
+    } as Response);
+
+    await transport.connect({
+      sessionId: 's1',
+      agentId: 'a1',
+      threadId: 'main',
+      after: { generation: 1, sequenceNumber: 9 },
+    });
+
+    await vi.waitFor(() => expect(errors).toHaveLength(1));
+    expect(errors[0]).toBeInstanceOf(ThreadJournalRebasedError);
+    expect(errors[0]).toMatchObject({ previousGeneration: 1, currentGeneration: 2 });
+    expect(transport.connected).toBe(false);
   });
 });

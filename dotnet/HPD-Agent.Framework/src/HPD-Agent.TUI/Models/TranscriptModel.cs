@@ -147,6 +147,28 @@ public sealed class TranscriptModel
         }
     }
 
+    /// <summary>
+    /// Replaces every matching entry with one finalized entry at the position of the first match.
+    /// If nothing matches, the replacement is appended.
+    /// </summary>
+    public int ReplaceWhereWith(
+        Func<TranscriptEntry, bool> predicate,
+        TranscriptEntry replacement)
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+        ArgumentNullException.ThrowIfNull(replacement);
+
+        lock (_gate)
+        {
+            var first = _entries.FindIndex(entry => predicate(entry));
+            var removed = _entries.RemoveAll(entry => predicate(entry));
+            _entries.Insert(first < 0 ? _entries.Count : first, replacement.AsFinal());
+            RebuildEntryKeyIndex();
+            MarkChanged();
+            return removed;
+        }
+    }
+
     public void ClearAll()
     {
         lock (_gate)

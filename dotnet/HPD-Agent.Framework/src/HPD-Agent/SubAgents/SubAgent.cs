@@ -248,7 +248,7 @@ public sealed record SubAgentExecutionPolicy(
     string? SharedSessionId = null,
     string? ExistingThreadId = null,
     string? ThreadNamePrefix = null,
-    ThreadForkCompactionOptions? ThreadCompaction = null)
+    ThreadForkCompaction? ThreadCompaction = null)
 {
     public static SubAgentExecutionPolicy Default { get; } =
         new(SubAgentSessionPolicy.ParentSession, SubAgentThreadPolicy.ForkFromParentThread);
@@ -257,7 +257,7 @@ public sealed record SubAgentExecutionPolicy(
 public static class SubAgentExecutionPolicies
 {
     public static SubAgentExecutionPolicy ParentSessionForkedThread(
-        ThreadForkCompactionOptions? compaction = null) =>
+        ThreadForkCompaction? compaction = null) =>
         new(
             SubAgentSessionPolicy.ParentSession,
             SubAgentThreadPolicy.ForkFromParentThread,

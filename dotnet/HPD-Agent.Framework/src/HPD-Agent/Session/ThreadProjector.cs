@@ -196,15 +196,13 @@ public static class ThreadProjector
         List<string> messageOrder,
         ThreadProjectionPurpose purpose)
     {
-        var removed = purpose switch
-        {
-            ThreadProjectionPurpose.ModelContext or ThreadProjectionPurpose.Evaluation =>
-                data.ModelCompactedMessageIds,
-            ThreadProjectionPurpose.ThreadHistory or ThreadProjectionPurpose.ForkConstruction =>
-                data.DurableCompactedMessageIds,
-            ThreadProjectionPurpose.CompleteSemanticExport => [],
-            _ => throw new ArgumentOutOfRangeException(nameof(purpose), purpose, "Unknown thread projection purpose.")
-        };
+        if (data.CommitMode == CompactionCommitMode.Hard ||
+            purpose is ThreadProjectionPurpose.ThreadHistory or
+                ThreadProjectionPurpose.ForkConstruction or
+                ThreadProjectionPurpose.CompleteSemanticExport)
+            return;
+
+        var removed = data.CompactedMessageIds;
 
         var removedIds = removed
             .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -447,7 +445,7 @@ public static class ThreadProjector
                 return this;
 
             AdditionalProperties ??= [];
-            AdditionalProperties[ThreadHistoryCompactionMetadata.MessageTurnIdPropertyName] = messageTurnId;
+            AdditionalProperties["hpd.messageTurnId"] = messageTurnId;
             return this;
         }
 

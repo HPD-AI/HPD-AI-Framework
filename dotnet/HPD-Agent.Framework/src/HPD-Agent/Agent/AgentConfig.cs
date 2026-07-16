@@ -961,191 +961,110 @@ public class ErrorHandlingConfig
     public Func<Exception, int, CancellationToken, Task<TimeSpan?>>? CustomRetryStrategy { get; set; }
 }
 
-/// <summary>
-/// Configuration for conversation compaction using Microsoft.Extensions.AI IChatReducer.
-/// </summary>
+/// <summary>Configuration for canonical thread compaction.</summary>
 public class CompactionConfig
 {
-    /// <summary>
-    /// Default compaction policy for newly forked threads before their first persistence.
-    /// Fork compaction always shapes the new fork target; it does not mutate the source thread.
-    /// </summary>
-    public ThreadForkCompactionOptions ForkCompaction { get; set; } =
-        ThreadForkCompactionOptions.Disabled;
-
-    /// <summary>
-    /// Strategy for reducing conversation history. Strategy-specific settings live on the selected option type.
-    /// </summary>
-    public CompactionStrategyOptions Strategy { get; set; } = new MessageCountingCompactionOptions();
-
-    /// <summary>
-    /// Automatic compaction policy. Null disables automatic compaction while preserving
-    /// explicit compaction and fork compaction.
-    /// </summary>
-    public CompactionAutomaticPolicy? Automatic { get; set; } = new();
-
-    /// <summary>
-    /// Retention policy for durable thread history. PreserveThreadHistoryOptions is soft compaction.
-    /// </summary>
-    public CompactionRetentionOptions Retention { get; set; } = new PreserveThreadHistoryOptions();
-
+    public AutomaticCompactionPolicy? Automatic { get; set; }
+    public CompactionSpecification? ForkCompaction { get; set; }
 }
 
-public sealed record CompactionAutomaticPolicy
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(TurnCountCompactionTrigger), "turnCount")]
+[JsonDerivedType(typeof(InputTokenCompactionTrigger), "inputTokens")]
+[JsonDerivedType(typeof(ContextPercentageCompactionTrigger), "contextPercentage")]
+public abstract record CompactionTrigger;
+
+public sealed record TurnCountCompactionTrigger(int Turns) : CompactionTrigger;
+
+public sealed record InputTokenCompactionTrigger(long InputTokens) : CompactionTrigger;
+
+public sealed record ContextPercentageCompactionTrigger(
+    long TotalInputTokens,
+    double Percentage) : CompactionTrigger;
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(CompactAtCurrentHead), "currentHead")]
+[JsonDerivedType(typeof(CompactAtMessage), "message")]
+[JsonDerivedType(typeof(CompactAtTurn), "turn")]
+public abstract record CompactionPoint;
+
+public sealed record CompactAtCurrentHead : CompactionPoint;
+
+public sealed record CompactAtMessage(
+    string MessageId,
+    long? ExpectedJournalGeneration = null) : CompactionPoint;
+
+public sealed record CompactAtTurn(
+    string TurnId,
+    long? ExpectedJournalGeneration = null) : CompactionPoint;
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(PreserveNoPreviousHistory), "none")]
+[JsonDerivedType(typeof(PreservePreviousTurns), "previousTurns")]
+[JsonDerivedType(typeof(PreservePreviousUserMessages), "previousUserMessages")]
+public abstract record CompactionPreservation;
+
+public sealed record PreserveNoPreviousHistory : CompactionPreservation;
+
+public sealed record PreservePreviousTurns(int Count) : CompactionPreservation;
+
+public sealed record PreservePreviousUserMessages(
+    PreviousHistoryLimit Limit) : CompactionPreservation;
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(PreviousItemCountLimit), "count")]
+[JsonDerivedType(typeof(PreviousTokenBudgetLimit), "tokenBudget")]
+public abstract record PreviousHistoryLimit;
+
+public sealed record PreviousItemCountLimit(int Count) : PreviousHistoryLimit;
+
+public sealed record PreviousTokenBudgetLimit(long Tokens) : PreviousHistoryLimit;
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
+[JsonDerivedType(typeof(RemovalCompaction), "removal")]
+[JsonDerivedType(typeof(SummarizingCompaction), "summarizing")]
+public abstract record CompactionStrategy;
+
+public sealed record RemovalCompaction : CompactionStrategy;
+
+public sealed record SummarizingCompaction : CompactionStrategy
 {
-    public CompactionTriggerOptions Trigger { get; init; } = new CountCompactionTriggerOptions();
+    public ClientProviderConfig? Provider { get; init; }
+    public string? Instructions { get; init; }
+}
+
+public enum CompactionCommitMode
+{
+    Soft,
+    Hard
+}
+
+public sealed record CompactionSpecification
+{
+    public required CompactionPoint Point { get; init; }
+    public CompactionPreservation Preservation { get; init; } = new PreserveNoPreviousHistory();
+    public required CompactionStrategy Strategy { get; init; }
+    public CompactionCommitMode CommitMode { get; init; } = CompactionCommitMode.Soft;
+}
+
+public sealed record AutomaticCompactionPolicy
+{
+    public required CompactionTrigger Trigger { get; init; }
+    public required CompactionSpecification Compaction { get; init; }
     public CompactionContinuation Continuation { get; init; } = CompactionContinuation.Continue;
 }
 
-/// <summary>
-/// Per-run automatic compaction policy. Supplying this object replaces the configured
-/// automatic policy; a null <see cref="Automatic"/> explicitly disables it for the run.
-/// </summary>
+/// <summary>Per-run automatic compaction override. Null disables it for the run.</summary>
 public sealed record CompactionRunPolicy
 {
-    public CompactionAutomaticPolicy? Automatic { get; init; }
-    public CompactionStrategyOptions? Strategy { get; init; }
-    public CompactionRetentionOptions? Retention { get; init; }
-    public ModelContextWindowOptions? ModelContext { get; init; }
+    public AutomaticCompactionPolicy? Automatic { get; init; }
 }
 
 /// <summary>Options for an explicit thread compaction command.</summary>
 public sealed record ThreadCompactionRequest
 {
-    public CompactionStrategyOptions? Strategy { get; init; }
-    public CompactionRetentionOptions? Retention { get; init; }
-    public ModelContextWindowOptions? ModelContext { get; init; }
+    public required CompactionSpecification Compaction { get; init; }
     public CompactionContinuation Continuation { get; init; } = CompactionContinuation.StopAfterCompaction;
-}
-
-public sealed record ModelContextWindowOptions
-{
-    public string? ProviderKey { get; init; }
-    public string? ModelId { get; init; }
-    public int? ContextWindow { get; init; }
-    public int? InputTokenLimit { get; init; }
-    public int? OutputTokenLimit { get; init; }
-}
-
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
-[JsonDerivedType(typeof(MessageCountingCompactionOptions), "messageCounting")]
-[JsonDerivedType(typeof(SummarizingCompactionOptions), "summarizing")]
-public abstract record CompactionStrategyOptions
-{
-    public string? PreserveFromMessageId { get; init; }
-    public string? PreserveFromMessageTurnId { get; init; }
-}
-
-public sealed record MessageCountingCompactionOptions : CompactionStrategyOptions
-{
-    public int PreserveRecentUserTurnCount { get; init; } = 10;
-}
-
-public sealed record SummarizingCompactionOptions : CompactionStrategyOptions
-{
-    public int PreserveRecentUserTurnCount { get; init; } = 5;
-    public int ResummarizeAfterNewMessages { get; init; } = 5;
-    public string? CustomPrompt { get; init; }
-    public ClientProviderConfig? SummarizerProvider { get; init; }
-    public bool UseSingleSummary { get; init; } = true;
-    public SummaryStyle SummaryStyle { get; init; } = SummaryStyle.Handoff;
-    public SummaryMemoryOptions Memory { get; init; } = new();
-}
-
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
-[JsonDerivedType(typeof(CountCompactionTriggerOptions), "count")]
-[JsonDerivedType(typeof(ContextWindowCompactionTriggerOptions), "contextWindow")]
-[JsonDerivedType(typeof(CompositeCompactionTriggerOptions), "composite")]
-public abstract record CompactionTriggerOptions;
-
-public sealed record CountCompactionTriggerOptions : CompactionTriggerOptions
-{
-    public HistoryCountingUnit CountingUnit { get; init; } = HistoryCountingUnit.MessageTurns;
-    public int TargetCount { get; init; } = 20;
-    public int Threshold { get; init; } = 5;
-}
-
-public sealed record ContextWindowCompactionTriggerOptions : CompactionTriggerOptions
-{
-    public int? ContextWindowSize { get; init; }
-    public ContextWindowCompactionThresholdMode ThresholdMode { get; init; } =
-        ContextWindowCompactionThresholdMode.Percentage;
-    public double TriggerPercentage { get; init; } = 0.70;
-    public long? TriggerTokenCount { get; init; }
-}
-
-public enum ContextWindowCompactionThresholdMode
-{
-    Percentage,
-    TokenCount
-}
-
-public sealed record CompositeCompactionTriggerOptions : CompactionTriggerOptions
-{
-    public required IReadOnlyList<CompactionTriggerOptions> AnyOf { get; init; }
-}
-
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
-[JsonDerivedType(typeof(PreserveThreadHistoryOptions), "preserve")]
-[JsonDerivedType(typeof(CompactThreadHistoryOptions), "compact")]
-public abstract record CompactionRetentionOptions;
-
-public sealed record PreserveThreadHistoryOptions : CompactionRetentionOptions;
-
-public sealed record CompactThreadHistoryOptions : CompactionRetentionOptions
-{
-    public CompactionBoundaryOptions Boundary { get; init; } = new ExactCompactedMessagesBoundaryOptions();
-}
-
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")]
-[JsonDerivedType(typeof(ExactCompactedMessagesBoundaryOptions), "exactCompactedMessages")]
-[JsonDerivedType(typeof(IncludePreviousMessagesBoundaryOptions), "includePreviousMessages")]
-[JsonDerivedType(typeof(IncludeMessageTurnBoundaryOptions), "includeMessageTurn")]
-[JsonDerivedType(typeof(IncludeToolCallGroupBoundaryOptions), "includeToolCallGroup")]
-[JsonDerivedType(typeof(CompositeCompactionBoundaryOptions), "composite")]
-public abstract record CompactionBoundaryOptions;
-
-public sealed record ExactCompactedMessagesBoundaryOptions : CompactionBoundaryOptions;
-
-public sealed record IncludePreviousMessagesBoundaryOptions(int Count) : CompactionBoundaryOptions;
-
-public sealed record IncludeMessageTurnBoundaryOptions : CompactionBoundaryOptions;
-
-public sealed record IncludeToolCallGroupBoundaryOptions : CompactionBoundaryOptions;
-
-public sealed record CompositeCompactionBoundaryOptions(IReadOnlyList<CompactionBoundaryOptions> Policies)
-    : CompactionBoundaryOptions;
-
-public enum SummaryStyle
-{
-    Generic,
-    Handoff
-}
-
-public sealed record SummaryMemoryOptions
-{
-    public int RecentUserMessageTokenBudget { get; init; } = 20_000;
-    public bool PreserveRecentUserMessagesSeparately { get; init; } = true;
-    public bool ReinjectCurrentContextAfterCompaction { get; init; } = true;
-    public bool FilterGeneratedContextWrappers { get; init; } = true;
-}
-
-/// <summary>
-/// Strategy for reducing conversation history size.
-/// </summary>
-public enum CompactionStrategy
-{
-    /// <summary>
-    /// Preserve the most recent user turns, translated internally to a whole raw message suffix.
-    /// Fast and simple, but loses older context completely.
-    /// </summary>
-    MessageCounting,
-
-    /// <summary>
-    /// Use LLM to summarize older messages when history exceeds threshold.
-    /// Preserves context through summarization, but requires additional LLM calls.
-    /// </summary>
-    Summarizing
 }
 
 /// <summary>
@@ -1169,24 +1088,6 @@ public enum CompactionContinuation
     StopAfterCompaction
 }
 
-/// <summary>
-/// Unit used to measure conversation history depth for compaction thresholds.
-/// </summary>
-public enum HistoryCountingUnit
-{
-    /// <summary>
-    /// Count RunAsync calls (one per user-visible message turn, regardless of internal tool call depth).
-    /// Default. TargetCount=20 means "keep 20 message turns."
-    /// </summary>
-    MessageTurns,
-
-    /// <summary>
-    /// Count raw ChatMessage protocol objects.
-    /// Use if you need fine-grained control and understand the LLM message protocol.
-    /// Equivalent to the behaviour before this feature was introduced.
-    /// </summary>
-    Messages
-}
 
 
 

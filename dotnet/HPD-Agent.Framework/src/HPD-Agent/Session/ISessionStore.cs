@@ -79,6 +79,16 @@ public interface ISessionStore
         ThreadAppendCondition condition = default,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Atomically replace the complete canonical journal. Every previous event is removed and
+    /// replacement events receive new contiguous positions beginning at one.
+    /// </summary>
+    ValueTask<ThreadJournalReplaceResult> ReplaceThreadEventsAsync(
+        ThreadKey thread,
+        IReadOnlyList<AgentEvent> events,
+        ThreadJournalCursor expectedCursor,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Read a lightweight thread descriptor without projecting its journal.</summary>
     ValueTask<ThreadDescriptor?> GetThreadAsync(
         ThreadKey thread,
@@ -104,7 +114,7 @@ public interface ISessionStore
     /// <summary>Catch up from a cursor and then observe future committed journal events.</summary>
     IAsyncEnumerable<ThreadEventBatch> ObserveThreadEventsAsync(
         ThreadKey thread,
-        long after,
+        ThreadJournalCursor after,
         ThreadObservationOptions options,
         CancellationToken cancellationToken = default);
 

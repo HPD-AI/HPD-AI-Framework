@@ -435,25 +435,6 @@ public sealed class ReadFileTests : IDisposable
     }
 
     [Fact]
-    public async Task ReadFile_DoesNotReturnUnchangedWhenCompactionIsNewerThanPriorRead()
-    {
-        await File.WriteAllTextAsync("reduced.txt", "one\ntwo\n");
-        var agentContext = CreateAgentContext();
-        var toolharness = new CodingToolHarness();
-
-        await ReadFileThroughMiddlewareAsync(agentContext, toolharness, "reduced.txt");
-
-        CreateBeforeFunctionContext(agentContext)
-            .UpdateMiddlewareState<CompactionStateData>(state =>
-                state.WithCompactionApplied(DateTimeOffset.UtcNow.AddSeconds(1)));
-
-        var second = await ReadFileThroughMiddlewareAsync(agentContext, toolharness, "reduced.txt");
-
-        second.Should().Contain("1\tone");
-        second.Should().NotContain("<file_unchanged");
-    }
-
-    [Fact]
     public async Task ReadFile_DoesNotReturnUnchangedWhenSameMetadataSourceContentChanges()
     {
         var agentContext = CreateAgentContext();

@@ -66,7 +66,7 @@ describe('ChatSession', () => {
   it('reads one authoritative thread state through the scoped chat session', async () => {
     const client = new AgentClient('http://localhost:5135');
     const state = {
-      observedHead: 8,
+      observedCursor: { generation: 1, sequenceNumber: 8 },
       activeRun: {
         runtimeRunId: 'run-1',
         agentId: 'a1',
@@ -101,7 +101,7 @@ describe('ChatSession', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          observedHead: 8,
+          observedCursor: { generation: 1, sequenceNumber: 8 },
           activeRun: {
             runtimeRunId: 'run-1',
             agentId: 'a1',
@@ -134,7 +134,7 @@ describe('ChatSession', () => {
 
   it('hydrates control state then replays from the applied cursor', async () => {
     const client = new AgentClient('http://localhost:5135');
-    const state = { observedHead: 9, activeRun: null };
+    const state = { observedCursor: { generation: 3, sequenceNumber: 9 }, activeRun: null };
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({ ok: true, json: async () => state } as Response)
       .mockResolvedValueOnce({
@@ -149,7 +149,7 @@ describe('ChatSession', () => {
     expect(hydrated).toEqual(state);
     expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
       'http://localhost:5135/agents/a1/sessions/s1/threads/main/state',
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=0',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=3:0',
     ]);
     await chat.disconnectLive();
   });

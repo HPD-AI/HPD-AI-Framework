@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent;
@@ -28,9 +27,6 @@ public sealed record ThreadContextUsage
 
 public sealed class ThreadContextUsageEstimator : IThreadContextUsageEstimator
 {
-    private static readonly string CompactionStateKey = typeof(CompactionStateData).FullName
-        ?? throw new InvalidOperationException("Compaction state type has no full name.");
-
     public ValueTask<ThreadContextUsage> EstimateAsync(
         Thread thread,
         AgentRunConfig runConfig,
@@ -40,49 +36,22 @@ public sealed class ThreadContextUsageEstimator : IThreadContextUsageEstimator
         ArgumentNullException.ThrowIfNull(runConfig);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var modelContext = runConfig.Compaction?.ModelContext;
-        var contextWindow = modelContext?.ContextWindow ?? modelContext?.InputTokenLimit;
-        var lastObserved = ReadLastObservedInputTokens(thread);
-        long? estimated = lastObserved.HasValue ? null : EstimateInputTokens(thread.Messages);
-        var effective = lastObserved ?? estimated;
+        var estimated = EstimateInputTokens(thread.Messages);
 
         return ValueTask.FromResult(new ThreadContextUsage
         {
             SessionId = thread.SessionId,
             ThreadId = thread.Id,
-            ProviderKey = modelContext?.ProviderKey,
-            ModelId = modelContext?.ModelId,
-            ContextWindow = contextWindow,
-            LastObservedInputTokens = lastObserved,
+            ProviderKey = null,
+            ModelId = null,
+            ContextWindow = null,
+            LastObservedInputTokens = null,
             EstimatedInputTokens = estimated,
-            EffectiveInputTokens = effective,
-            UsageRatio = contextWindow is > 0 && effective.HasValue
-                ? effective.Value / (double)contextWindow.Value
-                : null,
-            IsEstimate = !lastObserved.HasValue,
-            Source = lastObserved.HasValue
-                ? "last-observed-provider-usage"
-                : "rough-message-estimate"
+            EffectiveInputTokens = estimated,
+            UsageRatio = null,
+            IsEstimate = true,
+            Source = "rough-message-estimate"
         });
-    }
-
-    private static long? ReadLastObservedInputTokens(Thread thread)
-    {
-        var json = thread.GetMiddlewareState(CompactionStateKey);
-        if (string.IsNullOrWhiteSpace(json))
-            return null;
-
-        try
-        {
-            var state = JsonSerializer.Deserialize(
-                json,
-                SessionJsonContext.Default.CompactionStateData);
-            return state?.LastTurnUsage?.InputTokenCount;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
     }
 
     private static long EstimateInputTokens(IEnumerable<ChatMessage> messages)

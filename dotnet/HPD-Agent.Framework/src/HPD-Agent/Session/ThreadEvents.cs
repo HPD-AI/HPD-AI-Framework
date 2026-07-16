@@ -70,24 +70,62 @@ public sealed record ContentAddedEvent(
 public sealed record ThreadMiddlewareStateCommittedEvent(
     IReadOnlyDictionary<string, string> State) : AgentEvent;
 
-public enum ThreadHistoryCompactionMode
+public sealed record CompactionPointDescriptor(
+    string Kind,
+    string? MessageId = null,
+    string? TurnId = null,
+    long? ExpectedJournalGeneration = null)
 {
-    Soft,
-    Hard
+    public static CompactionPointDescriptor From(CompactionPoint point) => point switch
+    {
+        CompactAtCurrentHead => new("currentHead"),
+        CompactAtMessage message => new("message", message.MessageId, null, message.ExpectedJournalGeneration),
+        CompactAtTurn turn => new("turn", null, turn.TurnId, turn.ExpectedJournalGeneration),
+        _ => throw new ArgumentOutOfRangeException(nameof(point))
+    };
+}
+
+public sealed record CompactionPreservationDescriptor(
+    string Kind,
+    int? Count = null,
+    long? TokenBudget = null)
+{
+    public static CompactionPreservationDescriptor From(CompactionPreservation preservation) => preservation switch
+    {
+        PreserveNoPreviousHistory => new("none"),
+        PreservePreviousTurns turns => new("previousTurns", turns.Count),
+        PreservePreviousUserMessages { Limit: PreviousItemCountLimit count } =>
+            new("previousUserMessages", count.Count),
+        PreservePreviousUserMessages { Limit: PreviousTokenBudgetLimit budget } =>
+            new("previousUserMessages", TokenBudget: budget.Tokens),
+        _ => throw new ArgumentOutOfRangeException(nameof(preservation))
+    };
+}
+
+public sealed record CompactionStrategyDescriptor(
+    string Kind,
+    string? Instructions = null)
+{
+    public static CompactionStrategyDescriptor From(CompactionStrategy strategy) => strategy switch
+    {
+        RemovalCompaction => new("removal"),
+        SummarizingCompaction summarizing => new("summarizing", summarizing.Instructions),
+        _ => throw new ArgumentOutOfRangeException(nameof(strategy))
+    };
 }
 
 public sealed record ThreadHistoryCompactionCheckpointEvent(
     string CompactionId,
-    IReadOnlyList<string> ModelCompactedMessageIds,
-    IReadOnlyList<string> RetainedMessageIds,
-    IReadOnlyList<string> DurableCompactedMessageIds,
+    CompactionPointDescriptor Point,
+    CompactionPreservationDescriptor Preservation,
+    IReadOnlyList<string> CompactedMessageIds,
+    IReadOnlyList<string> PreservedMessageIds,
+    IReadOnlyList<string> CarriedUserMessageSourceIds,
+    IReadOnlyList<string> AfterPointMessageIds,
     IReadOnlyList<ChatMessage> ReplacementMessages,
-    string StrategyKind,
-    string RetentionKind,
-    string BoundaryKind,
-    string? SummaryContent,
-    DateTimeOffset CompactedAt,
-    ThreadHistoryCompactionMode Mode) : AgentEvent;
+    CompactionStrategyDescriptor Strategy,
+    CompactionCommitMode CommitMode,
+    DateTimeOffset CompactedAt) : AgentEvent;
 
 public static class ThreadEventFactory
 {

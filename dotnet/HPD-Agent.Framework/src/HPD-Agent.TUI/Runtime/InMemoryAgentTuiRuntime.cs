@@ -33,16 +33,13 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var scope = requested ?? _defaultScope;
         var store = _agent.Config?.SessionStore;
         if (store is not null &&
-            await store.LoadSessionAsync(scope.SessionId, cancellationToken).ConfigureAwait(false) is not null)
+            await store.LoadSessionAsync(scope.SessionId, cancellationToken).ConfigureAwait(false) is not null &&
+            await store.GetThreadAsync(new ThreadKey(scope.SessionId, scope.ThreadId), cancellationToken).ConfigureAwait(false) is not null)
         {
             return new AgentTuiScopeResolution(scope, IsDurable: true);
         }
 
-        return requested is null
-            ? new AgentTuiScopeResolution(
-                await EnsureDurableScopeAsync(scope, cancellationToken).ConfigureAwait(false),
-                IsDurable: true)
-            : new AgentTuiScopeResolution(scope, IsDurable: store is null);
+        return new AgentTuiScopeResolution(scope, IsDurable: store is null);
     }
 
     public async Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
@@ -55,6 +52,15 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             await store.LoadSessionAsync(scope.SessionId, cancellationToken).ConfigureAwait(false) is null)
         {
             await _agent.CreateSessionAsync(scope.SessionId, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+        if (store is not null &&
+            await store.GetThreadAsync(new ThreadKey(scope.SessionId, scope.ThreadId), cancellationToken).ConfigureAwait(false) is null)
+        {
+            await _agent.CreateThreadAsync(
+                    scope.SessionId,
+                    scope.ThreadId,
+                    cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -647,12 +653,12 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
     public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
         AgentTuiRuntimeScope scope,
-        long afterSequenceNumber,
-        long initialObservedHead,
+        ThreadJournalCursor after,
+        ThreadJournalCursor initialObservedCursor,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var cursor = afterSequenceNumber;
-        var catchUpMode = afterSequenceNumber == 0
+        var cursor = after;
+        var catchUpMode = after.SequenceNumber == 0
             ? AgentTuiEventDeliveryMode.Historical
             : AgentTuiEventDeliveryMode.CatchUp;
         var store = _agent.Config?.SessionStore;
@@ -668,7 +674,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             {
                 if (IsInScope(evt, scope))
                 {
-                    yield return CreateDeliveryBatch([evt], AgentTuiEventDeliveryMode.Live, initialObservedHead);
+                    yield return CreateDeliveryBatch([evt], AgentTuiEventDeliveryMode.Live, initialObservedCursor, 0);
                 }
             }
 
@@ -682,21 +688,21 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             cancellationToken).ConfigureAwait(false))
         {
             var catchUp = batch.Events
-                .Where(evt => evt.ThreadSequenceNumber <= initialObservedHead)
+                .Where(evt => evt.ThreadSequenceNumber <= initialObservedCursor.SequenceNumber)
                 .ToArray();
             if (catchUp.Length > 0)
             {
-                yield return CreateDeliveryBatch(catchUp, catchUpMode, initialObservedHead);
-                cursor = catchUp[^1].ThreadSequenceNumber;
+                yield return CreateDeliveryBatch(catchUp, catchUpMode, initialObservedCursor, batch.Generation);
+                cursor = new ThreadJournalCursor(batch.Generation, catchUp[^1].ThreadSequenceNumber);
             }
 
             var live = batch.Events
-                .Where(evt => evt.ThreadSequenceNumber > initialObservedHead)
+                .Where(evt => evt.ThreadSequenceNumber > initialObservedCursor.SequenceNumber)
                 .ToArray();
             if (live.Length > 0)
             {
-                yield return CreateDeliveryBatch(live, AgentTuiEventDeliveryMode.Live, initialObservedHead);
-                cursor = live[^1].ThreadSequenceNumber;
+                yield return CreateDeliveryBatch(live, AgentTuiEventDeliveryMode.Live, initialObservedCursor, batch.Generation);
+                cursor = new ThreadJournalCursor(batch.Generation, live[^1].ThreadSequenceNumber);
             }
         }
     }
@@ -896,14 +902,19 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var store = _agent.Config?.SessionStore;
         if (store is null)
         {
-            return new AgentTuiThreadState(0, GetActiveRun(), GetPendingRequests(scope));
+            return new AgentTuiThreadState(default, GetActiveRun(), GetPendingRequests(scope));
         }
 
         var head = await store.GetThreadEventHeadAsync(
             new ThreadKey(scope.SessionId, scope.ThreadId), cancellationToken).ConfigureAwait(false);
+        if (head is null)
+        {
+            throw new InvalidOperationException(
+                $"Thread '{scope.SessionId}/{scope.ThreadId}' does not have a durable journal.");
+        }
 
         return new AgentTuiThreadState(
-            head?.ThreadSequenceNumber ?? 0,
+            head.Cursor,
             GetActiveRun(),
             GetPendingRequests(scope));
     }
@@ -996,11 +1007,12 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     private static AgentTuiEventBatch CreateDeliveryBatch(
         IReadOnlyList<AgentEvent> events,
         AgentTuiEventDeliveryMode deliveryMode,
-        long initialObservedHead) =>
+        ThreadJournalCursor initialObservedCursor,
+        long generation) =>
         new(
             events,
             deliveryMode,
-            initialObservedHead,
-            events[0].ThreadSequenceNumber,
-            events[^1].ThreadSequenceNumber);
+            initialObservedCursor,
+            new ThreadJournalCursor(generation, events[0].ThreadSequenceNumber),
+            new ThreadJournalCursor(generation, events[^1].ThreadSequenceNumber));
 }

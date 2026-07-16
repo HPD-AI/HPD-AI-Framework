@@ -17,4 +17,4 @@ public record ForkThreadRequest(
     string? Description,
     List<string>? Tags,
     Dictionary<string, object>? Metadata = null,
-    ThreadForkCompactionOptions? Compaction = null);
+    ThreadForkCompaction? Compaction = null);

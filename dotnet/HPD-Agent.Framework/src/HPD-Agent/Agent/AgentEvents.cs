@@ -314,7 +314,7 @@ public sealed record UserMessagesInputEvent : AgentInputEvent
 /// <summary>Explicitly compacts the scoped thread without creating a user message or model turn.</summary>
 public sealed record CompactThreadInputEvent : AgentInputEvent
 {
-    public ThreadCompactionRequest Request { get; init; } = new();
+    public required ThreadCompactionRequest Request { get; init; }
 
     [JsonIgnore]
     public Session? Session { get; init; }

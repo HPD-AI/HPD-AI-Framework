@@ -284,7 +284,6 @@ public class LoggingMiddleware : IAgentMiddleware
 
         if (_options.LogCompactionDetails)
         {
-            AppendCompactionDetails(sb, context);
         }
 
         // Show messages being sent to LLM (helps debug middleware injections like EnvironmentContextMiddleware)
@@ -510,22 +509,6 @@ public class LoggingMiddleware : IAgentMiddleware
         if (normalized.Length <= _options.MessagePreviewLength) return normalized;
 
         return normalized.Substring(0, _options.MessagePreviewLength) + "...";
-    }
-
-    private static void AppendCompactionDetails(StringBuilder sb, BeforeIterationContext context)
-    {
-        var state = context.GetMiddlewareState<CompactionStateData>();
-        if (state is null)
-        {
-            sb.AppendLine("  Compaction: no state");
-            return;
-        }
-
-        sb.AppendLine("  Compaction:");
-        sb.AppendLine($"    MessageTurnCount: {state.MessageTurnCount}");
-        sb.AppendLine($"    LastAppliedAt: {state.LastAppliedAt?.ToString("O") ?? "-"}");
-        sb.AppendLine($"    LastUsageObservedAt: {state.LastUsageObservedAt?.ToString("O") ?? "-"}");
-
     }
 
     private static bool LooksLikeSummarizerInstructions(string value)

@@ -1,14 +1,12 @@
 using Microsoft.Extensions.AI;
 using Xunit;
 using HPD.Agent;
-using HPD.Agent;
-
 using HPD.Agent.Tests.Infrastructure;
 
 namespace HPD.Agent.Tests.Session;
 
 /// <summary>
-/// Tests for ISessionStore implementations (InMemorySessionStore).
+/// Tests for session metadata, thread ownership, and cleanup across built-in stores.
 /// Covers V3 Session/Thread CRUD operations and cleanup.
 /// </summary>
 public class SessionStoreTests : AgentTestBase
@@ -103,6 +101,71 @@ public class SessionStoreTests : AgentTestBase
         // Assert
         Assert.NotNull(loaded);
         Assert.Equal("2", loaded.Metadata["version"].ToString());
+    }
+
+    [Fact]
+    public async Task FileStore_SessionMetadataCrudAndThreadCascade_RoundTripAcrossReopen()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"hpd-session-store-{Guid.NewGuid():N}");
+        try
+        {
+            var session = new HPD.Agent.Session("session-1");
+            session.AddMetadata("title", "original");
+            session.MiddlewareState["permission"] = "allow";
+            var first = new FileSessionStore(directory);
+            await first.SaveSessionAsync(session);
+            await first.SaveInitialThreadAsync(session.Id, session.CreateThread("main"));
+
+            session.AddMetadata("title", "updated");
+            await first.SaveSessionAsync(session);
+
+            var reopened = new FileSessionStore(directory);
+            var loaded = await reopened.LoadSessionAsync(session.Id);
+            var ids = await reopened.ListSessionIdsAsync();
+
+            Assert.NotNull(loaded);
+            Assert.Equal("updated", loaded.Metadata["title"].ToString());
+            Assert.Equal("allow", loaded.MiddlewareState["permission"]);
+            Assert.Contains(session.Id, ids);
+            Assert.NotNull(await reopened.GetThreadAsync(new ThreadKey(session.Id, "main")));
+
+            await reopened.DeleteSessionAsync(session.Id);
+
+            Assert.Null(await reopened.LoadSessionAsync(session.Id));
+            Assert.Null(await reopened.GetThreadAsync(new ThreadKey(session.Id, "main")));
+            Assert.DoesNotContain(session.Id, await reopened.ListSessionIdsAsync());
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public async Task FileStore_DeleteInactiveSessions_HonorsDryRunAndDeletesTheSessionTree()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"hpd-session-store-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new FileSessionStore(directory);
+            var session = new HPD.Agent.Session("inactive-session");
+            await store.SaveSessionAsync(session);
+            await store.SaveInitialThreadAsync(session.Id, session.CreateThread("main"));
+            var sessionDirectory = Path.Combine(directory, "sessions", session.Id);
+            Directory.SetLastWriteTimeUtc(sessionDirectory, DateTime.UtcNow.Subtract(TimeSpan.FromDays(2)));
+
+            Assert.Equal(1, await store.DeleteInactiveSessionsAsync(TimeSpan.FromDays(1), dryRun: true));
+            Assert.True(Directory.Exists(sessionDirectory));
+
+            Assert.Equal(1, await store.DeleteInactiveSessionsAsync(TimeSpan.FromDays(1)));
+            Assert.False(Directory.Exists(sessionDirectory));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, true);
+        }
     }
 
     //──────────────────────────────────────────────────────────────────

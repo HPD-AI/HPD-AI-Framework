@@ -1,6 +1,7 @@
 using HPD.Agent.ClientTools;
 using HPD.Agent.Middleware;
 using HPD.Events;
+using Microsoft.Extensions.DependencyInjection;
 using HPD.Events.Struct;
 
 namespace HPD.Agent;
@@ -65,7 +66,6 @@ internal sealed class AgentInputHandlingContext
     public AgentRunConfig? RuntimeRunConfig { get; init; }
 
     public required Func<UserMessagesInputEvent, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> RunMessagesAsync { get; init; }
-    public required Func<CompactThreadInputEvent, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> CompactThreadAsync { get; init; }
     public required Func<InterruptionRequestEvent, CancellationToken, Task> InterruptAsync { get; init; }
     public required Func<ClientToolBackgroundOperationOutcomeEvent, bool> TryResolveClientToolBackgroundOperation { get; init; }
     public Func<BackgroundTaskNotificationInputEvent, IEventCoordinator, CancellationToken, ValueTask>? PublishBackgroundTaskNotificationDelivered { get; init; }
@@ -167,11 +167,56 @@ internal sealed class AgentInputDispatcher
 
 internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThreadInputEvent>
 {
-    public ValueTask<AgentTurnResult> HandleAsync(
+    public async ValueTask<AgentTurnResult> HandleAsync(
         CompactThreadInputEvent input,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
-        => new(context.CompactThreadAsync(input, context.EventCoordinator, cancellationToken));
+    {
+        if (context.Config.Compaction is null)
+            throw new InvalidOperationException("Compaction is not configured for this agent.");
+
+        Thread thread;
+        if (input.Thread is not null || input.Session is not null)
+        {
+            if (input.Thread is null || input.Session is null)
+                throw new InvalidOperationException("Process-local compaction requires both Session and Thread.");
+            thread = input.Thread;
+        }
+        else
+        {
+            var store = context.Config.SessionStore
+                ?? throw new InvalidOperationException("Scoped compaction requires a session store.");
+            if (string.IsNullOrWhiteSpace(input.SessionId) || string.IsNullOrWhiteSpace(input.ThreadId))
+                throw new InvalidOperationException("Explicit compaction requires a session and thread scope.");
+            thread = await store.ProjectThreadAsync(
+                    input.SessionId,
+                    input.ThreadId,
+                    ThreadProjectionPurpose.ModelContext,
+                    cancellationToken)
+                .ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"Thread '{input.SessionId}/{input.ThreadId}' was not found.");
+        }
+
+        var publisher = context.Config.SessionStore is { } sessionStore
+            ? new ThreadEventPublisher(sessionStore, context.EventCoordinator)
+            : null;
+        var engineContext = new ThreadCompactionContext(
+            thread,
+            thread.Messages,
+            publisher,
+            context.ClientSet?.Summarizer ?? context.ClientSet?.Chat,
+            context.Services?.GetService<IThreadJournalRebaseSeedProvider>());
+        var engine = new ThreadCompactionEngine();
+        await engine.ExecuteAsync(
+            engineContext,
+            input.Request.Compaction,
+            context.AgentName,
+            iteration: 0,
+            CompactionOrigin.Explicit,
+            input.Request.Continuation,
+            cancellationToken).ConfigureAwait(false);
+        return AgentTurnResult.Empty;
+    }
 }
 
 internal sealed class UserMessagesInputHandler : IAgentInputHandler<UserMessagesInputEvent>

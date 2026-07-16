@@ -712,92 +712,11 @@ describe('createThreadProjection', () => {
     });
 
     projection.project({
-      type: EventTypes.AGENT_REQUEST_RESOLVED,
-      requestId: 'p1',
-      sourceName: 'permission',
-      requestEventType: 'PERMISSION_REQUEST',
-      responseEventType: 'PERMISSION_RESPONSE',
-      resolvedAt: '2026-01-01T00:00:00.000Z',
-    });
-    expect(projection.getSnapshot().pendingRuntimeRequests).toHaveLength(0);
-  });
-
-  it('clears pending runtime requests from request lifecycle terminal events', () => {
-    const projection = createThreadProjection();
-
-    projection.project({
-      type: EventTypes.PERMISSION_REQUEST,
+      type: EventTypes.PERMISSION_RESPONSE,
       permissionId: 'p1',
       sourceName: 'permission',
-      functionName: 'Bash',
-      callId: 'c1',
+      approved: true,
     });
-    projection.project({
-      type: EventTypes.CLARIFICATION_REQUEST,
-      requestId: 'c1',
-      sourceName: 'clarification',
-      question: 'Which tenant?',
-    });
-    projection.project({
-      type: EventTypes.CLIENT_TOOL_INVOKE_REQUEST,
-      requestId: 't1',
-      sourceName: 'HPD.Agent.ClientTools',
-      toolName: 'pickFile',
-      callId: 'tc1',
-      arguments: {},
-      description: 'Choose a local file',
-      responsePolicy: 'targetedResponder',
-      target: {
-        responderId: 'desktop',
-        requiredCapabilities: ['client-tool:pickFile'],
-      },
-      visibility: 'allObservers',
-    });
-
-    expect(projection.getSnapshot().pendingRuntimeRequests.map((request) => request.kind))
-      .toEqual(['permission', 'clarification', 'client-tool']);
-    expect(projection.getSnapshot().pendingRuntimeRequests[2]).toMatchObject({
-      id: 't1',
-      kind: 'client-tool',
-      sourceName: 'HPD.Agent.ClientTools',
-      requestEventType: 'CLIENT_TOOL_INVOKE_REQUEST',
-      responsePolicy: 'targetedResponder',
-      target: {
-        responderId: 'desktop',
-        requiredCapabilities: ['client-tool:pickFile'],
-      },
-      visibility: 'allObservers',
-      request: {
-        requestId: 't1',
-        toolName: 'pickFile',
-        description: 'Choose a local file',
-      },
-    });
-
-    projection.project({
-      type: EventTypes.AGENT_REQUEST_RESOLVED,
-      requestId: 'p1',
-      sourceName: 'permission',
-      requestEventType: 'PermissionRequestEvent',
-      responseEventType: 'PermissionResponseEvent',
-      resolvedAt: '2026-01-01T00:00:00.000Z',
-    });
-    projection.project({
-      type: EventTypes.AGENT_REQUEST_EXPIRED,
-      requestId: 'c1',
-      sourceName: 'clarification',
-      requestEventType: 'ClarificationRequestEvent',
-      timeout: '00:01:00',
-      expiredAt: '2026-01-01T00:00:01.000Z',
-    });
-    projection.project({
-      type: EventTypes.AGENT_REQUEST_CANCELLED,
-      requestId: 't1',
-      sourceName: 'client-tools',
-      requestEventType: 'ClientToolInvokeRequestEvent',
-      cancelledAt: '2026-01-01T00:00:02.000Z',
-    });
-
     expect(projection.getSnapshot().pendingRuntimeRequests).toHaveLength(0);
   });
 
@@ -805,27 +724,23 @@ describe('createThreadProjection', () => {
     const projection = createThreadProjection();
 
     projection.project({
-      type: EventTypes.AGENT_REQUEST_STARTED,
+      type: 'CUSTOM_REQUEST',
       requestId: 'custom-1',
       sourceName: 'custom-source',
-      requestEventType: 'CustomRequestEvent',
-      expectedResponseEventType: 'CustomResponseEvent',
       responsePolicy: 'targetedResponder',
       target: { responderGroup: 'reviewers' },
       visibility: 'eligibleRespondersOnly',
-      startedAt: '2026-01-01T00:00:00.000Z',
+      timestamp: '2026-01-01T00:00:00.000Z',
     });
 
     expect(projection.getSnapshot().pendingRuntimeRequests[0]).toMatchObject({
       id: 'custom-1',
       kind: 'custom',
       sourceName: 'custom-source',
-      requestEventType: 'CustomRequestEvent',
-      expectedResponseEventType: 'CustomResponseEvent',
+      requestEventType: 'CUSTOM_REQUEST',
       responsePolicy: 'targetedResponder',
       target: { responderGroup: 'reviewers' },
       visibility: 'eligibleRespondersOnly',
-      startedAt: '2026-01-01T00:00:00.000Z',
     });
 
     projection.project({

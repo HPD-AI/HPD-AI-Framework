@@ -6,7 +6,7 @@ function sseStream(...events: object[]): ReadableStream<Uint8Array> {
   return new ReadableStream({
     start(controller) {
       const payload = events
-        .map((event, index) => `id: ${index + 1}\ndata: ${JSON.stringify(event)}\n\n`)
+        .map((event, index) => `id: 1:${index + 1}\ndata: ${JSON.stringify(event)}\n\n`)
         .join('');
       controller.enqueue(new TextEncoder().encode(payload));
     },

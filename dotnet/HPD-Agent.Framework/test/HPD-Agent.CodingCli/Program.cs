@@ -152,7 +152,7 @@ using var compactionSubscription = agent.Subscribe<CompactionEvent>(evt =>
 {
     CliConsole.WriteErrorLine(
         ConsoleColor.DarkCyan,
-        $"[compact:{evt.Status}] mode={evt.Mode} behavior={evt.Behavior} strategy={evt.Strategy} " +
+        $"[compact:{evt.Status}] origin={evt.Origin} continuation={evt.Continuation} strategy={evt.Strategy} " +
         $"compacted={evt.CompactedMessageCount?.ToString() ?? "-"} removed={evt.MessagesRemoved?.ToString() ?? "-"} " +
         $"reason={evt.Reason ?? "-"}");
 });
@@ -160,7 +160,7 @@ using var compactionCheckpointSubscription = agent.Subscribe<ThreadHistoryCompac
 {
     CliConsole.WriteErrorLine(
         ConsoleColor.DarkCyan,
-        $"[compact:checkpoint] id={evt.CompactionId} model_removed={evt.ModelCompactedMessageIds.Count} durable_removed={evt.DurableCompactedMessageIds.Count} summary={Preview(evt.SummaryContent, 240)}");
+        $"[compact:checkpoint] id={evt.CompactionId} removed={evt.CompactedMessageIds.Count} mode={evt.CommitMode} summary={Preview(evt.ReplacementMessages.FirstOrDefault()?.Text, 240)}");
 });
 using var toolStartSubscription = agent.Subscribe<ToolCallStartEvent>(evt =>
 {
@@ -273,25 +273,17 @@ return 0;
 static void ConfigureDefaultCompaction(AgentBuilder builder)
 {
     builder.Config.Compaction ??= new CompactionConfig();
-    builder.Config.Compaction.Strategy = new SummarizingCompactionOptions
+    builder.Config.Compaction.Automatic = new AutomaticCompactionPolicy
     {
-        PreserveRecentUserTurnCount = 0,
-        ResummarizeAfterNewMessages = 1,
-        SummaryStyle = SummaryStyle.Handoff
-    };
-    builder.Config.Compaction.Automatic = new CompactionAutomaticPolicy
-    {
-        Trigger = new CountCompactionTriggerOptions
+        Trigger = new TurnCountCompactionTrigger(2),
+        Compaction = new CompactionSpecification
         {
-            CountingUnit = HistoryCountingUnit.MessageTurns,
-            TargetCount = 2,
-            Threshold = 0
+            Point = new CompactAtCurrentHead(),
+            Preservation = new PreserveNoPreviousHistory(),
+            Strategy = new SummarizingCompaction(),
+            CommitMode = CompactionCommitMode.Hard
         },
         Continuation = CompactionContinuation.Continue
-    };
-    builder.Config.Compaction.Retention = new CompactThreadHistoryOptions
-    {
-        Boundary = new IncludeMessageTurnBoundaryOptions()
     };
 }
 
@@ -317,18 +309,13 @@ static async Task RunManualCompactionAsync(
     var request = new ThreadCompactionRequest
     {
         Continuation = CompactionContinuation.StopAfterCompaction,
-        Strategy = new SummarizingCompactionOptions
+        Compaction = new CompactionSpecification
         {
-            PreserveRecentUserTurnCount = 0,
-            ResummarizeAfterNewMessages = 1,
-            SummaryStyle = SummaryStyle.Handoff
-        },
-        Retention = hardRetention
-            ? new CompactThreadHistoryOptions
-            {
-                Boundary = new IncludeMessageTurnBoundaryOptions()
-            }
-            : new PreserveThreadHistoryOptions()
+            Point = new CompactAtCurrentHead(),
+            Preservation = new PreserveNoPreviousHistory(),
+            Strategy = new SummarizingCompaction(),
+            CommitMode = hardRetention ? CompactionCommitMode.Hard : CompactionCommitMode.Soft
+        }
     };
 
     CliConsole.WriteErrorLine(

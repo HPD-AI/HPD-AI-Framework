@@ -190,25 +190,25 @@ public abstract class SessionManager : IDisposable
             if (head is null)
             {
                 cache.Events.Clear();
-                cache.AppliedHead = 0;
+                cache.AppliedCursor = default;
                 return null;
             }
 
-            if (head.ThreadSequenceNumber < cache.AppliedHead)
+            if (cache.AppliedCursor.Generation != head.Generation)
             {
                 cache.Events.Clear();
-                cache.AppliedHead = 0;
+                cache.AppliedCursor = ThreadJournalCursor.Start(head.Generation);
             }
 
-            if (head.ThreadSequenceNumber > cache.AppliedHead)
+            if (head.ThreadSequenceNumber > cache.AppliedCursor.SequenceNumber)
             {
                 await foreach (var batch in _store.ReadThreadEventsAsync(
                     key,
-                    new ThreadEventReadRequest(cache.AppliedHead, head.ThreadSequenceNumber),
+                    new ThreadEventReadRequest(cache.AppliedCursor, head.ThreadSequenceNumber),
                     cancellationToken).ConfigureAwait(false))
                 {
                     cache.Events.AddRange(batch.Events.Where(ThreadRunProjector.IsProjectionEvent));
-                    cache.AppliedHead = batch.LastThreadSequenceNumber;
+                    cache.AppliedCursor = new ThreadJournalCursor(batch.Generation, batch.LastThreadSequenceNumber);
                 }
             }
 
@@ -334,7 +334,7 @@ internal sealed class ThreadRunProjectionCache : IDisposable
 {
     public SemaphoreSlim Gate { get; } = new(1, 1);
     public List<AgentEvent> Events { get; } = [];
-    public long AppliedHead { get; set; }
+    public ThreadJournalCursor AppliedCursor { get; set; }
 
     public void Dispose() => Gate.Dispose();
 }

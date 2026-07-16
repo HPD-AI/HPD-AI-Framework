@@ -1,5 +1,5 @@
 import type { AgentEvent, AgentRunInputEvent, RespondResult } from './events.js';
-import type { ThreadRun } from './thread-run.js';
+import type { ThreadJournalCursor, ThreadRun } from './thread-run.js';
 
 export interface InputSubmissionResult {
   runtimeRunId: string;
@@ -31,8 +31,8 @@ export interface RuntimeScope {
   signal?: AbortSignal;
   /** Agent definition ID to run when the input event omits agentId */
   agentId?: string;
-  /** Last committed sequence completely applied by the consumer. */
-  afterSequenceNumber?: number;
+  /** Last committed generation/sequence completely applied by the consumer. */
+  after?: ThreadJournalCursor;
 }
 
 export interface RunTransportOptions {

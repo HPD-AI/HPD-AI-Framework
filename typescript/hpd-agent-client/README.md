@@ -34,7 +34,6 @@ const chat = await client.chat.open({
 client.onAny((event) => applyEvent(event));
 
 const state = await chat.subscribeLive();
-applyEvents(state.events);
 
 const submission = await chat.submitMessage({ contents: [{ $type: 'text', text: 'Hello' }] }, {
   runConfig: {
@@ -82,13 +81,12 @@ client.on(EventTypes.TEXT_DELTA, (event) => {
 
 const state = await client.getThreadState('assistant', 'session-1', 'main');
 if (!state) throw new Error('Thread not found');
-applyEvents(state.events);
 
 await client.start({
   agentId: 'assistant',
   sessionId: 'session-1',
   threadId: 'main',
-  afterSequenceNumber: state.latestSequenceNumber,
+  after: { generation: state.observedCursor.generation, sequenceNumber: 0 },
 });
 
 await client.run({

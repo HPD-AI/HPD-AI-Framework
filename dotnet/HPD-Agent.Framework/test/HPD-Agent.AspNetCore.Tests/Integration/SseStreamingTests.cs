@@ -160,7 +160,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
             var stateResponse = await _client.GetAsync(
                 $"/agents/test-agent/sessions/{sessionId}/threads/main/state");
             var state = await stateResponse.Content.ReadFromJsonAsync<ThreadRuntimeStateDto>();
-            return state is { ObservedHead: > 0 };
+            return state is { ObservedCursor.SequenceNumber: > 0 };
         });
 
         var finalResponse = await _client.GetAsync(
@@ -168,7 +168,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         var json = await finalResponse.Content.ReadAsStringAsync();
         var finalState = JsonSerializer.Deserialize<ThreadRuntimeStateDto>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         finalState.Should().NotBeNull();
-        finalState!.ObservedHead.Should().BeGreaterThan(0);
+        finalState!.ObservedCursor.SequenceNumber.Should().BeGreaterThan(0);
         json.Should().NotContain("\"events\"");
     }
 

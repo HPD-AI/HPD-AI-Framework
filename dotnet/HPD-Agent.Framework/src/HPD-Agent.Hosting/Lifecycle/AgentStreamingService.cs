@@ -184,7 +184,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
             .ToArray() ?? [];
 
         return AgentServiceResult<ThreadRuntimeStateDto>.Success(new ThreadRuntimeStateDto(
-            head.ThreadSequenceNumber,
+            head.Cursor,
             activeRun,
             pendingRequests));
     }

@@ -219,7 +219,7 @@ public sealed class AgentThreadService : IAgentThreadService
                 new ThreadForkOptions
                 {
                     Metadata = request.Metadata,
-                    Compaction = request.Compaction
+                    Compaction = request.Compaction ?? new InheritThreadForkCompaction()
                 },
                 cancellationToken);
         }

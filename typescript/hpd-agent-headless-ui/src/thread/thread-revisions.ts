@@ -1,6 +1,5 @@
 import {
   EventTypes,
-  mapThreadMessages,
   type AgentClient,
   type ThreadMessageReadModel,
 } from '@hpd-research/hpd-agent-client';
@@ -82,9 +81,11 @@ function isToolOnlyRevisionMessage(message: {
 class ThreadRevisionControllerImpl implements ThreadRevisionController {
   readonly scope: ThreadScope;
   private readonly client: AgentClient;
+  private readonly messageLoader: ThreadRevisionControllerOptions['loadMessages'];
 
   constructor(options: ThreadRevisionControllerOptions) {
     this.client = options.client;
+    this.messageLoader = options.loadMessages;
     this.scope = {
       agentId: options.agentId,
       sessionId: options.sessionId,
@@ -112,8 +113,7 @@ class ThreadRevisionControllerImpl implements ThreadRevisionController {
   }
 
   private async loadMessages(): Promise<ThreadMessageReadModel[]> {
-    const messages = await this.client.getThreadMessages(this.scope.sessionId, this.scope.threadId);
-    return mapThreadMessages(messages);
+    return [...await this.messageLoader()];
   }
 
   private async forkAndSend(

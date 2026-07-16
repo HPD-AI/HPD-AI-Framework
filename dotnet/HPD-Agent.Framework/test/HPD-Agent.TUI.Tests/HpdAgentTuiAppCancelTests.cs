@@ -15,6 +15,34 @@ namespace HPD.Agent.TUI.Tests;
 public sealed class HpdAgentTuiAppCancelTests
 {
     [Fact]
+    public async Task FirstInput_PromotesAndHydratesTransientScopeBeforeObservationAndSubmission()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "pending-session", "main");
+        var runtime = new CancelRuntime(scope) { InitialIsDurable = false };
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            static builder => builder.AddAgentTuiDefaults(),
+            new TestTerminal(80, 24));
+        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        var input = new UserMessagesInputEvent
+        {
+            Messages = [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, "hello")],
+            AgentId = scope.AgentId,
+            SessionId = scope.SessionId,
+            ThreadId = scope.ThreadId
+        };
+
+        await InvokePrivate<Task>(app, "SubmitInputAsync", scope, input, null!);
+        var observed = await runtime.ObserverStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        observed.Should().Be(ThreadJournalCursor.Start(1));
+        runtime.Calls.Should().ContainInOrder("ensure", "state", "observe", "submit");
+        runtime.Calls.IndexOf("state").Should().BeLessThan(runtime.Calls.IndexOf("observe"));
+        runtime.Calls.IndexOf("observe").Should().BeLessThan(runtime.Calls.IndexOf("submit"));
+    }
+
+    [Fact]
     public async Task Escape_WithActiveRun_RequestsInterruptAndMarksActivityCancelling()
     {
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
@@ -217,6 +245,13 @@ public sealed class HpdAgentTuiAppCancelTests
 
         public AgentTuiThreadRun? ActiveRun { get; init; }
 
+        public bool InitialIsDurable { get; init; } = true;
+
+        public List<string> Calls { get; } = [];
+
+        public TaskCompletionSource<ThreadJournalCursor> ObserverStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public string? InterruptReason { get; private set; }
 
         public TaskCompletionSource ActiveRunRequested { get; } =
@@ -228,20 +263,31 @@ public sealed class HpdAgentTuiAppCancelTests
         public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
             AgentTuiRuntimeScope? requested,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new AgentTuiScopeResolution(requested ?? _scope, IsDurable: true));
+            => Task.FromResult(new AgentTuiScopeResolution(requested ?? _scope, InitialIsDurable));
 
         public Task<AgentTuiRuntimeScope> EnsureDurableScopeAsync(
             AgentTuiRuntimeScope scope,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(scope);
+        {
+            Calls.Add("ensure");
+            return Task.FromResult(scope);
+        }
 
         public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
             AgentTuiRuntimeScope scope,
-            long afterSequenceNumber,
-            long initialObservedHead,
+            ThreadJournalCursor after,
+            ThreadJournalCursor initialObservedCursor,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            await Task.CompletedTask;
+            Calls.Add("observe");
+            ObserverStarted.TrySetResult(after);
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
             yield break;
         }
 
@@ -249,8 +295,11 @@ public sealed class HpdAgentTuiAppCancelTests
             AgentTuiRuntimeScope scope,
             AgentInputEvent input,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new AgentTuiSubmitResult(
+        {
+            Calls.Add("submit");
+            return Task.FromResult(new AgentTuiSubmitResult(
                 ActiveRun ?? new AgentTuiThreadRun("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
+        }
 
         public Task<AgentTuiInterruptResult> InterruptAsync(
             AgentTuiRuntimeScope scope,
@@ -273,8 +322,9 @@ public sealed class HpdAgentTuiAppCancelTests
             AgentTuiRuntimeScope scope,
             CancellationToken cancellationToken = default)
         {
+            Calls.Add("state");
             ActiveRunRequested.SetResult();
-            return Task.FromResult(new AgentTuiThreadState(0, ActiveRun, []));
+            return Task.FromResult(new AgentTuiThreadState(ThreadJournalCursor.Start(1), ActiveRun, []));
         }
     }
 

@@ -145,7 +145,6 @@ public partial class CodingToolHarness
             return new EditReadValidationResult(null, null, null);
 
         var readFileStateKey = typeof(ReadFileState).FullName!;
-        var compactionStateKey = typeof(CompactionStateData).FullName!;
         var priorRead = context
             .Analyze(state => state.MiddlewareState.GetState<ReadFileState>(readFileStateKey))
             ?.FilesByPath.GetValueOrDefault(fullPath);
@@ -156,16 +155,6 @@ public partial class CodingToolHarness
                 null,
                 EditFileErrorKind.NotRead,
                 "File has not been read yet. Read it first before editing.");
-        }
-
-        var compactionState = context
-            .Analyze(state => state.MiddlewareState.GetState<CompactionStateData>(compactionStateKey));
-        if (compactionState?.LastAppliedAt > priorRead.ReadAt)
-        {
-            return new EditReadValidationResult(
-                priorRead,
-                EditFileErrorKind.HistoryReducedRead,
-                "The previous ReadFile result may no longer be visible in context. Read the file again before editing.");
         }
 
         try

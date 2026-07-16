@@ -14,8 +14,8 @@ public interface IHpdAgentTuiRuntime
 
     IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
         AgentTuiRuntimeScope scope,
-        long afterSequenceNumber,
-        long initialObservedHead,
+        ThreadJournalCursor after,
+        ThreadJournalCursor initialObservedCursor,
         CancellationToken cancellationToken = default);
 
     Task<AgentTuiSubmitResult> SubmitInputAsync(

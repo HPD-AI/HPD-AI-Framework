@@ -389,7 +389,7 @@ describe('AgentClient — session/thread passthroughs', () => {
 
     it('calls GET /state and returns the observation boundary and active run', async () => {
       const state = {
-        observedHead: 4,
+        observedCursor: { generation: 1, sequenceNumber: 4 },
         activeRun: null,
       };
       mockFetchJson(state);

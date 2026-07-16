@@ -27,8 +27,8 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
 
     public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
         AgentTuiRuntimeScope scope,
-        long afterSequenceNumber,
-        long initialObservedHead,
+        ThreadJournalCursor after,
+        ThreadJournalCursor initialObservedCursor,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await foreach (var evt in _events.Reader.ReadAllAsync(cancellationToken))
@@ -36,9 +36,9 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
             yield return new AgentTuiEventBatch(
                 [evt],
                 AgentTuiEventDeliveryMode.Live,
-                initialObservedHead,
-                evt.ThreadSequenceNumber,
-                evt.ThreadSequenceNumber);
+                initialObservedCursor,
+                new ThreadJournalCursor(initialObservedCursor.Generation, evt.ThreadSequenceNumber),
+                new ThreadJournalCursor(initialObservedCursor.Generation, evt.ThreadSequenceNumber));
         }
     }
 

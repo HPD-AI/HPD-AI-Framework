@@ -7,6 +7,7 @@ internal static class ThreadDescriptorProjection
         ThreadDescriptor? current,
         ISet<string> messageIds,
         AgentEvent evt,
+        long generation,
         long head)
     {
         var createdAt = current?.CreatedAt ?? evt.Timestamp;
@@ -60,6 +61,7 @@ internal static class ThreadDescriptorProjection
             visibility,
             createdAt,
             evt.Timestamp,
+            generation,
             head,
             messageIds.Count,
             fork,
@@ -92,13 +94,6 @@ internal static class ThreadDescriptorProjection
                 messageIds.Add(result.MessageId);
                 break;
             case ThreadHistoryCompactionCheckpointEvent compaction:
-                foreach (var id in compaction.DurableCompactedMessageIds)
-                    messageIds.Remove(id);
-                foreach (var message in compaction.ReplacementMessages)
-                {
-                    if (!string.IsNullOrWhiteSpace(message.MessageId))
-                        messageIds.Add(message.MessageId);
-                }
                 break;
         }
     }

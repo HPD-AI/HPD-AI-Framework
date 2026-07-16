@@ -3,6 +3,7 @@ import {
   AgentMessagePolicyProperties,
   formatToolResultPayload,
   isAgentRequestEvent,
+  isAgentResponseEvent,
   isErrorEvent,
   type AgentMessagePersistence,
   type AgentMessageSource,
@@ -171,6 +172,9 @@ class ThreadProjectionImpl implements ThreadProjection {
           arguments: known.arguments,
         }, known);
         break;
+      case EventTypes.PERMISSION_RESPONSE:
+        this.removePendingRequest(known.permissionId);
+        break;
       case EventTypes.CLARIFICATION_REQUEST:
         this.addClarification({
           requestId: known.requestId,
@@ -199,21 +203,13 @@ class ThreadProjectionImpl implements ThreadProjection {
       case EventTypes.CLIENT_TOOL_INVOKE_OUTCOME:
         this.removeClientToolRequest(known.requestId);
         break;
-      case EventTypes.AGENT_REQUEST_RESOLVED:
-      case EventTypes.AGENT_REQUEST_EXPIRED:
-      case EventTypes.AGENT_REQUEST_CANCELLED:
-        this.removePendingRequest(known.requestId);
-        break;
-      case EventTypes.AGENT_REQUEST_STARTED:
-        this.addStartedRequest(known);
-        break;
       case EventTypes.MESSAGE_TURN_STARTED:
         this.startWorkGroup({
           turnId: known.messageTurnId,
           conversationId: known.conversationId,
           runId: this.snapshot.currentRunId,
           eventFlowId: known.eventFlowId,
-          sequenceNumber: known.sequenceNumber,
+          sequenceNumber: known.threadSequenceNumber,
         }, known.agentName, known.timestamp);
         break;
       case EventTypes.MESSAGE_TURN_FINISHED:
@@ -287,6 +283,8 @@ class ThreadProjectionImpl implements ThreadProjection {
             error: event.errorMessage,
           });
           this.emit();
+        } else if (isAgentResponseEvent(event)) {
+          this.removePendingRequest(event.requestId);
         } else if (isAgentRequestEvent(event)) {
           this.addCustomRequest(event);
         }
@@ -765,26 +763,6 @@ class ThreadProjectionImpl implements ThreadProjection {
         item.type !== 'runtime-request' || item.request.id !== requestId),
     });
     this.emit();
-  }
-
-  private addStartedRequest(event: Extract<KnownAgentEvent, { type: typeof EventTypes.AGENT_REQUEST_STARTED }>): void {
-    const base = this.createRequestBase({
-      id: event.requestId,
-      sourceName: event.sourceName,
-      requestEventType: event.requestEventType,
-      expectedResponseEventType: event.expectedResponseEventType,
-      responsePolicy: event.responsePolicy,
-      target: event.target,
-      visibility: event.visibility,
-      startedAt: event.startedAt,
-    });
-
-    const existing = this.snapshot.pendingRuntimeRequests.find((item) => item.id === event.requestId);
-    const request = existing
-      ? mergeRuntimeRequestBase(existing, base)
-      : { ...base, kind: 'custom' as const };
-
-    this.addRuntimeRequest(request, event);
   }
 
   private addCustomRequest(event: AgentRequestEvent): void {
@@ -1371,19 +1349,6 @@ function appendUniqueText(existing: string, next: string): string {
   if (!existing) return next;
   if (existing === next || existing.endsWith(next)) return existing;
   return existing + next;
-}
-
-function mergeRuntimeRequestBase(request: RuntimeRequest, base: RuntimeRequestBase): RuntimeRequest {
-  if (request.kind === 'permission') {
-    return { ...request, ...base, kind: 'permission' };
-  }
-  if (request.kind === 'clarification') {
-    return { ...request, ...base, kind: 'clarification' };
-  }
-  if (request.kind === 'client-tool') {
-    return { ...request, ...base, kind: 'client-tool' };
-  }
-  return { ...request, ...base, kind: 'custom' };
 }
 
 function cloneRuntimeRequest(request: RuntimeRequest): RuntimeRequest {

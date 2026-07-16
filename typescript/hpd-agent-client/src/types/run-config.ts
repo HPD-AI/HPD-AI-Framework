@@ -29,8 +29,6 @@ export type AgentModelTransportMode = 0 | 1 | 2;
 export type AgentPermissionMode = 0 | 1;
 export type UploadStrategy = 0 | 1 | 2;
 export type CompactionContinuation = 0 | 1;
-export type HistoryCountingUnit = 0 | 1;
-export type SummaryStyle = 0 | 1;
 
 export const CompactionContinuations = {
   Continue: 0,
@@ -84,137 +82,133 @@ export interface AudioRunConfig {
   enablePlayback?: boolean;
 }
 
-export interface ModelContextWindowOptions {
-  providerKey?: string;
-  modelId?: string;
-  contextWindow?: number | null;
-  inputTokenLimit?: number | null;
-  outputTokenLimit?: number | null;
+export interface TurnCountCompactionTrigger {
+  $type: 'turnCount';
+  turns: number;
 }
 
-export interface MessageCountingCompactionOptions {
-  $type: 'messageCounting';
-  preserveFromMessageId?: string | null;
-  preserveFromMessageTurnId?: string | null;
-  preserveRecentUserTurnCount?: number;
+export interface InputTokenCompactionTrigger {
+  $type: 'inputTokens';
+  inputTokens: number;
 }
 
-export interface SummaryMemoryOptions {
-  recentUserMessageTokenBudget?: number;
-  preserveRecentUserMessagesSeparately?: boolean;
-  reinjectCurrentContextAfterCompaction?: boolean;
-  filterGeneratedContextWrappers?: boolean;
+export interface ContextPercentageCompactionTrigger {
+  $type: 'contextPercentage';
+  totalInputTokens: number;
+  percentage: number;
 }
 
-export interface SummarizingCompactionOptions {
-  $type: 'summarizing';
-  preserveFromMessageId?: string | null;
-  preserveFromMessageTurnId?: string | null;
-  preserveRecentUserTurnCount?: number;
-  resummarizeAfterNewMessages?: number;
-  customPrompt?: string | null;
-  summarizerProvider?: ClientProviderConfig | null;
-  useSingleSummary?: boolean;
-  summaryStyle?: SummaryStyle;
-  memory?: SummaryMemoryOptions;
+export type CompactionTrigger =
+  | TurnCountCompactionTrigger
+  | InputTokenCompactionTrigger
+  | ContextPercentageCompactionTrigger;
+
+export interface CompactAtCurrentHead {
+  $type: 'currentHead';
 }
 
-export type CompactionStrategyOptions =
-  | MessageCountingCompactionOptions
-  | SummarizingCompactionOptions;
-
-export interface CountCompactionTriggerOptions {
-  $type: 'count';
-  countingUnit?: HistoryCountingUnit;
-  targetCount?: number;
-  threshold?: number;
+export interface CompactAtMessage {
+  $type: 'message';
+  messageId: string;
+  expectedJournalGeneration?: number | null;
 }
 
-export type ContextWindowCompactionThresholdMode = 0 | 1;
-
-export const ContextWindowCompactionThresholdModes = {
-  Percentage: 0,
-  TokenCount: 1,
-} as const;
-
-export interface ContextWindowCompactionTriggerOptions {
-  $type: 'contextWindow';
-  contextWindowSize?: number | null;
-  thresholdMode?: ContextWindowCompactionThresholdMode;
-  triggerPercentage?: number;
-  triggerTokenCount?: number | null;
+export interface CompactAtTurn {
+  $type: 'turn';
+  turnId: string;
+  expectedJournalGeneration?: number | null;
 }
 
-export interface CompositeCompactionTriggerOptions {
-  $type: 'composite';
-  anyOf: CompactionTriggerOptions[];
+export type CompactionPoint = CompactAtCurrentHead | CompactAtMessage | CompactAtTurn;
+
+export interface PreserveNoPreviousHistory {
+  $type: 'none';
 }
 
-export type CompactionTriggerOptions =
-  | CountCompactionTriggerOptions
-  | ContextWindowCompactionTriggerOptions
-  | CompositeCompactionTriggerOptions;
-
-export interface ExactCompactedMessagesBoundaryOptions {
-  $type: 'exactCompactedMessages';
-}
-
-export interface IncludePreviousMessagesBoundaryOptions {
-  $type: 'includePreviousMessages';
+export interface PreservePreviousTurns {
+  $type: 'previousTurns';
   count: number;
 }
 
-export interface IncludeMessageTurnBoundaryOptions {
-  $type: 'includeMessageTurn';
+export interface PreviousItemCountLimit {
+  $type: 'count';
+  count: number;
 }
 
-export interface IncludeToolCallGroupBoundaryOptions {
-  $type: 'includeToolCallGroup';
+export interface PreviousTokenBudgetLimit {
+  $type: 'tokenBudget';
+  tokens: number;
 }
 
-export interface CompositeCompactionBoundaryOptions {
-  $type: 'composite';
-  policies: CompactionBoundaryOptions[];
+export type PreviousHistoryLimit = PreviousItemCountLimit | PreviousTokenBudgetLimit;
+
+export interface PreservePreviousUserMessages {
+  $type: 'previousUserMessages';
+  limit: PreviousHistoryLimit;
 }
 
-export type CompactionBoundaryOptions =
-  | ExactCompactedMessagesBoundaryOptions
-  | IncludePreviousMessagesBoundaryOptions
-  | IncludeMessageTurnBoundaryOptions
-  | IncludeToolCallGroupBoundaryOptions
-  | CompositeCompactionBoundaryOptions;
+export type CompactionPreservation =
+  | PreserveNoPreviousHistory
+  | PreservePreviousTurns
+  | PreservePreviousUserMessages;
 
-export interface PreserveThreadHistoryOptions {
-  $type: 'preserve';
+export interface RemovalCompaction {
+  $type: 'removal';
 }
 
-export interface CompactThreadHistoryOptions {
-  $type: 'compact';
-  boundary?: CompactionBoundaryOptions;
+export interface SummarizingCompaction {
+  $type: 'summarizing';
+  provider?: ClientProviderConfig | null;
+  instructions?: string | null;
 }
 
-export type CompactionRetentionOptions =
-  | PreserveThreadHistoryOptions
-  | CompactThreadHistoryOptions;
+export type CompactionStrategy = RemovalCompaction | SummarizingCompaction;
+export type CompactionCommitMode = 0 | 1;
+
+export const CompactionCommitModes = {
+  Soft: 0,
+  Hard: 1,
+} as const satisfies Record<string, CompactionCommitMode>;
+
+export interface CompactionSpecification {
+  point: CompactionPoint;
+  preservation?: CompactionPreservation;
+  strategy: CompactionStrategy;
+  commitMode?: CompactionCommitMode;
+}
+
+export interface AutomaticCompactionPolicy {
+  trigger: CompactionTrigger;
+  compaction: CompactionSpecification;
+  continuation?: CompactionContinuation;
+}
 
 export interface CompactionRunPolicy {
-  automatic?: CompactionAutomaticPolicy | null;
-  strategy?: CompactionStrategyOptions | null;
-  retention?: CompactionRetentionOptions | null;
-  modelContext?: ModelContextWindowOptions | null;
-}
-
-export interface CompactionAutomaticPolicy {
-  trigger?: CompactionTriggerOptions;
-  continuation?: CompactionContinuation;
+  automatic?: AutomaticCompactionPolicy | null;
 }
 
 export interface ThreadCompactionRequest {
-  strategy?: CompactionStrategyOptions | null;
-  retention?: CompactionRetentionOptions | null;
-  modelContext?: ModelContextWindowOptions | null;
+  compaction: CompactionSpecification;
   continuation?: CompactionContinuation;
 }
+
+export interface InheritThreadForkCompaction {
+  $type: 'inherit';
+}
+
+export interface DisableThreadForkCompaction {
+  $type: 'disabled';
+}
+
+export interface ApplyThreadForkCompaction {
+  $type: 'enabled';
+  compaction: CompactionSpecification;
+}
+
+export type ThreadForkCompaction =
+  | InheritThreadForkCompaction
+  | DisableThreadForkCompaction
+  | ApplyThreadForkCompaction;
 
 /**
  * Per-invocation agent run configuration.

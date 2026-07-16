@@ -3,7 +3,7 @@ using HPD.Agent;
 namespace HPD.Agent.TUI.Runtime;
 
 public sealed record AgentTuiThreadState(
-    long ObservedHead,
+    ThreadJournalCursor ObservedCursor,
     AgentTuiThreadRun? ActiveRun,
     IReadOnlyList<AgentEvent> PendingRequests);
 
@@ -12,9 +12,9 @@ public sealed record AgentTuiSubmitResult(AgentTuiThreadRun Run);
 public sealed record AgentTuiEventBatch(
     IReadOnlyList<AgentEvent> Events,
     AgentTuiEventDeliveryMode DeliveryMode,
-    long InitialObservedHead,
-    long FirstThreadSequenceNumber,
-    long LastThreadSequenceNumber);
+    ThreadJournalCursor InitialObservedCursor,
+    ThreadJournalCursor FirstCursor,
+    ThreadJournalCursor LastCursor);
 
 public enum AgentTuiEventDeliveryMode
 {

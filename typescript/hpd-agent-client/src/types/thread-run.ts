@@ -68,6 +68,11 @@ export interface ThreadRun {
 }
 
 export interface ThreadRuntimeState {
-  observedHead: number;
+  observedCursor: ThreadJournalCursor;
   activeRun: ThreadRun | null;
+}
+
+export interface ThreadJournalCursor {
+  generation: number;
+  sequenceNumber: number;
 }

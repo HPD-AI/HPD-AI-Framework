@@ -21,13 +21,14 @@ public static class ThreadProjectionReader
     {
         ArgumentNullException.ThrowIfNull(store);
         var key = new ThreadKey(sessionId, threadId);
-        if (await store.GetThreadAsync(key, cancellationToken).ConfigureAwait(false) is null)
+        var descriptor = await store.GetThreadAsync(key, cancellationToken).ConfigureAwait(false);
+        if (descriptor is null)
             return null;
 
         var thread = new Thread(sessionId, threadId);
         await foreach (var batch in store.ReadThreadEventsAsync(
             key,
-            new ThreadEventReadRequest(),
+            new ThreadEventReadRequest(ThreadJournalCursor.Start(descriptor.Generation)),
             cancellationToken).ConfigureAwait(false))
             ThreadProjector.Apply(thread, batch.Events, purpose);
         thread.Session = await store.LoadSessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
@@ -40,13 +41,14 @@ public static class ThreadProjectionReader
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(store);
-        if (await store.GetThreadAsync(key, cancellationToken).ConfigureAwait(false) is null)
+        var descriptor = await store.GetThreadAsync(key, cancellationToken).ConfigureAwait(false);
+        if (descriptor is null)
             return null;
 
         var events = new List<AgentEvent>();
         await foreach (var batch in store.ReadThreadEventsAsync(
             key,
-            new ThreadEventReadRequest(),
+            new ThreadEventReadRequest(ThreadJournalCursor.Start(descriptor.Generation)),
             cancellationToken).ConfigureAwait(false))
             events.AddRange(batch.Events);
         return events;

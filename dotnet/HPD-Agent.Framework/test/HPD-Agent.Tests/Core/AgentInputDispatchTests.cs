@@ -119,7 +119,6 @@ public class AgentInputDispatchTests
             EventCoordinator = new EventCoordinator(),
             RunMessagesAsync = (input, _, _) => runMessages?.Invoke(input)
                 ?? Task.FromResult(AgentTurnResult.Empty),
-            CompactThreadAsync = (_, _, _) => Task.FromResult(AgentTurnResult.Empty),
             InterruptAsync = (_, _) => Task.CompletedTask,
             TryResolveClientToolBackgroundOperation = _ => false
         };

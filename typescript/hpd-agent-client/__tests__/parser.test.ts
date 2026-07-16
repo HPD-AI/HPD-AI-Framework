@@ -12,6 +12,7 @@ describe('SseParser', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
+      kind: 'agent-event',
       id: null,
       event: {
         version: '1.0',
@@ -129,6 +130,7 @@ describe('SseParser', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
+      kind: 'agent-event',
       id: null,
       event: {
         version: '1.0',

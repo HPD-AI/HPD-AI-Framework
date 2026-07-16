@@ -53,22 +53,23 @@ public class SubAgentExecutionPolicyTests
         subAgent.ExecutionPolicy.ThreadCompaction.Should().BeNull();
     }
 
-    [Theory]
-    [InlineData(ThreadForkCompactionMode.Enabled)]
-    [InlineData(ThreadForkCompactionMode.Disabled)]
-    public void ParentSessionForkedThread_CanSetThreadCompaction(ThreadForkCompactionMode mode)
+    [Fact]
+    public void ParentSessionForkedThread_CanSetThreadCompaction()
     {
-        var compaction = new ThreadForkCompactionOptions
+        var compaction = new CompactionSpecification
         {
-            Mode = mode,
-            Strategy = new MessageCountingCompactionOptions { PreserveRecentUserTurnCount = 3 }
+            Point = new CompactAtCurrentHead(),
+            Preservation = new PreservePreviousTurns(3),
+            Strategy = new RemovalCompaction(),
+            CommitMode = CompactionCommitMode.Hard
         };
 
-        var policy = SubAgentExecutionPolicies.ParentSessionForkedThread(compaction);
+        var forkCompaction = new ApplyThreadForkCompaction(compaction);
+        var policy = SubAgentExecutionPolicies.ParentSessionForkedThread(forkCompaction);
 
         policy.SessionPolicy.Should().Be(SubAgentSessionPolicy.ParentSession);
         policy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.ForkFromParentThread);
-        policy.ThreadCompaction.Should().BeSameAs(compaction);
+        policy.ThreadCompaction.Should().BeSameAs(forkCompaction);
     }
 
     [Fact]
@@ -164,7 +165,12 @@ public class SubAgentExecutionPolicyTests
             SubAgentSessionPolicy.ParentSession,
             threadPolicy,
             ExistingThreadId: threadPolicy == SubAgentThreadPolicy.ExistingThread ? "existing" : null,
-            ThreadCompaction: ThreadForkCompactionOptions.Enabled);
+            ThreadCompaction: new ApplyThreadForkCompaction(new CompactionSpecification
+            {
+                Point = new CompactAtCurrentHead(),
+                Strategy = new RemovalCompaction(),
+                CommitMode = CompactionCommitMode.Hard
+            }));
 
         var act = () => SubAgent.FromConfig("Bad", "desc", MinimalConfig(), policy);
 

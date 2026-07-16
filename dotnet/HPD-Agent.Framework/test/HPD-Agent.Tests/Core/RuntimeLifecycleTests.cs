@@ -3971,7 +3971,11 @@ public class RuntimeLifecycleTests : AgentTestBase
         var events = new List<AgentEvent>();
         await foreach (var batch in store.ReadThreadEventsAsync(
                            new ThreadKey(sessionId, threadId),
-                           new ThreadEventReadRequest(),
+                           new ThreadEventReadRequest(
+                               ThreadJournalCursor.Start(
+                                   (await store.GetThreadAsync(
+                                       new ThreadKey(sessionId, threadId),
+                                       cancellationToken).ConfigureAwait(false))!.Generation)),
                            cancellationToken).ConfigureAwait(false))
         {
             events.AddRange(batch.Events);

@@ -125,7 +125,7 @@ public class ThreadEventStoreTests : AgentTestBase
         Assert.Equal("final answer", text.Text);
         Assert.True(projectedMessage.AdditionalProperties?.ContainsKey("quote"));
         Assert.Equal("turn-1", projectedMessage.AdditionalProperties?[
-            ThreadHistoryCompactionMetadata.MessageTurnIdPropertyName]);
+            "hpd.messageTurnId"]);
     }
 
     [Fact]
@@ -237,7 +237,7 @@ public class ThreadEventStoreTests : AgentTestBase
         var events = new List<AgentEvent>();
         await foreach (var batch in store.ReadThreadEventsAsync(
             new ThreadKey(session.Id, thread.Id),
-            new ThreadEventReadRequest(MaxBatchEventCount: 2)))
+            new ThreadEventReadRequest(ThreadJournalCursor.Start(1), MaxBatchEventCount: 2)))
         {
             events.AddRange(batch.Events);
             break;
@@ -451,13 +451,13 @@ public class ThreadEventStoreTests : AgentTestBase
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task AppendThreadEvent_ReturnsCommittedValueWithoutMutatingProposedEvent(bool useJsonStore)
+    public async Task AppendThreadEvent_ReturnsCommittedValueWithoutMutatingProposedEvent(bool useFileStore)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-thread-events-{Guid.NewGuid():N}");
 
         try
         {
-            ISessionStore store = useJsonStore
+            ISessionStore store = useFileStore
                 ? new FileSessionStore(tempDir)
                 : new InMemorySessionStore();
             var supplied = ThreadEventFactory.TextDelta(
@@ -508,13 +508,13 @@ public class ThreadEventStoreTests : AgentTestBase
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task AppendThreadEvent_RejectsConflictingScope(bool useJsonStore)
+    public async Task AppendThreadEvent_RejectsConflictingScope(bool useFileStore)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-thread-events-{Guid.NewGuid():N}");
 
         try
         {
-            ISessionStore store = useJsonStore
+            ISessionStore store = useFileStore
                 ? new FileSessionStore(tempDir)
                 : new InMemorySessionStore();
             var evt = new TextDeltaEvent("hello", "msg-1")

@@ -41,12 +41,9 @@ public partial class CodingToolHarness
                 return FormatError(resolvedPath.FullPath, "Cannot read blocked device path.");
 
             var readFileStateKey = typeof(ReadFileState).FullName!;
-            var compactionStateKey = typeof(CompactionStateData).FullName!;
             var priorSnapshot = context
                 .Analyze(s => s.MiddlewareState.GetState<ReadFileState>(readFileStateKey))
                 ?.FilesByPath.GetValueOrDefault(resolvedPath.FullPath);
-            var compactionState = context
-                .Analyze(s => s.MiddlewareState.GetState<CompactionStateData>(compactionStateKey));
 
             var sourceResult = await TryReadFromTextSourcesAsync(resolvedPath.FullPath, CancellationToken.None).ConfigureAwait(false);
             ReadFileTextResult result;
@@ -94,7 +91,7 @@ public partial class CodingToolHarness
                     null).ConfigureAwait(false);
             }
 
-            if (CanReturnUnchanged(priorSnapshot, result, offset, limit, compactionState))
+            if (CanReturnUnchanged(priorSnapshot, result, offset, limit))
                 return FormatFileUnchanged(priorSnapshot!);
 
             var snapshot = new ReadFileSnapshot
@@ -283,15 +280,10 @@ public partial class CodingToolHarness
         ReadFileSnapshot? snapshot,
         ReadFileTextResult result,
         int offset,
-        int limit,
-        CompactionStateData? compactionState)
+        int limit)
     {
         if (snapshot == null)
             return false;
-
-        var priorReadStillVisible =
-            compactionState?.LastAppliedAt is null ||
-            compactionState.LastAppliedAt <= snapshot.ReadAt;
 
         return snapshot.Path == result.Path &&
                snapshot.Offset == offset &&
@@ -300,8 +292,7 @@ public partial class CodingToolHarness
                snapshot.LastWriteTimeUtc == result.LastWriteTimeUtc &&
                snapshot.SourceKind == result.SourceKind &&
                string.Equals(snapshot.SourceVersion, result.SourceVersion, StringComparison.Ordinal) &&
-               snapshot.ReturnedContentHash == result.ReturnedContentHash &&
-               priorReadStillVisible;
+               snapshot.ReturnedContentHash == result.ReturnedContentHash;
     }
 
     private static string ComputeReturnedContentHash(IReadOnlyList<string> lines)

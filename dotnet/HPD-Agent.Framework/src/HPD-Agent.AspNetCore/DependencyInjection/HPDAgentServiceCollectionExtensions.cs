@@ -127,6 +127,10 @@ public static class HPDAgentServiceCollectionExtensions
             sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.MiddlewareResponses);
         services.TryAddSingleton<IAgentStreamingService>(sp =>
             sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Streaming);
+        services.TryAddSingleton<IThreadJournalRebaseSeedProvider>(sp =>
+            new HostedThreadJournalRebaseSeedProvider(
+                sp.GetRequiredService<HPD.Agent.Hosting.Lifecycle.SessionManager>(),
+                sp.GetRequiredService<HPD.Agent.Hosting.Lifecycle.AgentManager>()));
 
         // Register JSON serialization context for AOT (once)
         services.TryAddEnumerable(

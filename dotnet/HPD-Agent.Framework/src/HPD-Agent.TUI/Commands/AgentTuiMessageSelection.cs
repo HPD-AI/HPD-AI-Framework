@@ -31,17 +31,17 @@ public static class AgentTuiMessageSelection
         var threadState = await context.Runtime.GetThreadStateAsync(context.Scope, cancellationToken)
             .ConfigureAwait(false);
         var events = new List<AgentEvent>();
-        if (threadState.ObservedHead > 0)
+        if (threadState.ObservedCursor.SequenceNumber > 0)
         {
             await foreach (var batch in context.Runtime.ObserveAsync(
                     context.Scope,
-                    0,
-                    threadState.ObservedHead,
+                    ThreadJournalCursor.Start(threadState.ObservedCursor.Generation),
+                    threadState.ObservedCursor,
                     cancellationToken)
                 .ConfigureAwait(false))
             {
-                events.AddRange(batch.Events.Where(evt => evt.ThreadSequenceNumber <= threadState.ObservedHead));
-                if (batch.LastThreadSequenceNumber >= threadState.ObservedHead)
+                events.AddRange(batch.Events.Where(evt => evt.ThreadSequenceNumber <= threadState.ObservedCursor.SequenceNumber));
+                if (batch.LastCursor.SequenceNumber >= threadState.ObservedCursor.SequenceNumber)
                     break;
             }
         }
@@ -78,7 +78,7 @@ public static class AgentTuiMessageSelection
                     break;
 
                 case ThreadHistoryCompactionCheckpointEvent checkpoint:
-                    foreach (var messageId in checkpoint.ModelCompactedMessageIds)
+                    foreach (var messageId in checkpoint.CompactedMessageIds)
                     {
                         if (!string.IsNullOrWhiteSpace(messageId))
                             compacted.Add(messageId);
