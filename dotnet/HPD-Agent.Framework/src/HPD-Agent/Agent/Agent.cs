@@ -30,6 +30,8 @@ namespace HPD.Agent;
 public sealed class Agent
 {
     private readonly IChatClient? _baseClient;
+    private readonly AgentChatClientHandle? _defaultChatClientHandle;
+    private readonly AgentChatClientResolver _chatClientResolver;
     private readonly AgentClientSet? _clientSet;
     private readonly string _name;
     private readonly ChatClientMetadata _metadata;
@@ -203,6 +205,13 @@ public sealed class Agent
         Config = config ?? throw new ArgumentNullException(nameof(config));
         _clientSet = clientSet;
         _baseClient = clientSet?.Chat ?? baseClient;
+        _defaultChatClientHandle = _baseClient is null
+            ? null
+            : AgentChatClientHandle.Borrowed(
+                _baseClient,
+                AgentChatClientSource.AgentDefault,
+                clientSet?.GetResolvedConfig(Providers.ProviderClientFamily.Chat));
+        _chatClientResolver = new AgentChatClientResolver(providerRegistry, serviceProvider);
         _name = config.Name ?? "Agent"; // Default to "Agent" to prevent null dictionary key exceptions
 
         // Initialize unified middleware pipeline
@@ -843,7 +852,8 @@ public sealed class Agent
                 input.RunConfig,
                 eventCoordinator,
                 input.ClientInputId,
-                cancellationToken).ConfigureAwait(false))
+                cancellationToken,
+                input.InheritedChatClient).ConfigureAwait(false))
             {
                 result.Add(evt);
             }
@@ -866,7 +876,8 @@ public sealed class Agent
                 input.RunConfig,
                 eventCoordinator,
                 input.ClientInputId,
-                cancellationToken).ConfigureAwait(false))
+                cancellationToken,
+                input.InheritedChatClient).ConfigureAwait(false))
             {
                 result.Add(evt);
             }
@@ -887,7 +898,8 @@ public sealed class Agent
             input.RunConfig,
             eventCoordinator,
             input.ClientInputId,
-            cancellationToken).ConfigureAwait(false))
+            cancellationToken,
+            input.InheritedChatClient).ConfigureAwait(false))
         {
             unsessionedResult.Add(evt);
         }
@@ -971,6 +983,8 @@ public sealed class Agent
             RuntimeCapabilities = _runtimeContext?.RuntimeCapabilities ?? new RuntimeCapabilityRegistry(),
             StructEvents = GetActiveStructEvents(),
             RuntimeRunConfig = _runtimeContext?.RunConfig,
+            ChatClientResolver = _chatClientResolver,
+            DefaultChatClient = _defaultChatClientHandle,
             RunMessagesAsync = RunMessagesInputAsync,
             InterruptAsync = HandleInterruptionAsync,
             TryResolveClientToolBackgroundOperation = ResolveClientToolBackgroundOperation,
@@ -1171,6 +1185,8 @@ public sealed class Agent
                     _baseClient,
                     _serviceProvider,
                     Config,
+                    _chatClientResolver,
+                    _defaultChatClientHandle,
                     _messageProcessor,
                     _functionExecutionCore,
                     runtimeContext,
@@ -1678,7 +1694,8 @@ public sealed class Agent
         AgentRunConfig? runConfig = null,
         HPD.Events.IEventCoordinator? eventCoordinator = null,
         string? clientInputId = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        AgentChatClientHandle? inheritedChatClient = null)
     {
         eventCoordinator ??= _eventCoordinator;
         var orchestrationStartTime = DateTime.UtcNow;
@@ -1749,6 +1766,7 @@ public sealed class Agent
         }
 
         var isResumeTurn = newInputMessages.Count == 0 && thread?.Messages.Count > 0;
+        AgentChatClientLease? chatClientLease = null;
 
         try
         {
@@ -1805,9 +1823,19 @@ public sealed class Agent
             // Collect all response updates to build final history
             var responseUpdates = new List<ChatResponseUpdate>();
 
-            // Resolve override client from AgentRunConfig (if any)
-            // This enables runtime provider switching without rebuilding the agent
-            var overrideChatClient = ResolveClientForOptions(runConfig);
+            var effectiveRunConfig = runConfig ?? new AgentRunConfig();
+            if (ResolveModelTransport(effectiveRunConfig) is Middleware.AgentModelTransport.Chat)
+            {
+                chatClientLease = await _chatClientResolver.ResolveAsync(
+                    new AgentChatClientResolutionRequest
+                    {
+                        AgentConfig = Config ?? throw new InvalidOperationException("Agent configuration is not available."),
+                        RunConfig = effectiveRunConfig,
+                        AgentDefault = _defaultChatClientHandle,
+                        InheritedFallback = inheritedChatClient
+                    },
+                    effectiveCancellationToken).ConfigureAwait(false);
+            }
             var overrideRealtimeClient = ResolveRealtimeClientForOptions(runConfig);
 
             // Resolve background responses settings from AgentRunConfig → Config → false
@@ -1847,7 +1875,8 @@ public sealed class Agent
                 session: session,
                 thread: thread,
                 cancellationToken: effectiveCancellationToken,
-                parentChatClient: _baseClient,  // Pass chat client for SubAgent inheritance
+                effectiveChatClient: chatClientLease?.Handle,
+                chatClientResolver: _chatClientResolver,
                 services: _serviceProvider,     // Pass service provider for DI
                 runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
                 traceId: traceId,                // Propagate trace ID to all middleware-emitted events
@@ -1864,7 +1893,6 @@ public sealed class Agent
             // IMPORTANT: Create runConfig instance ONCE and reuse it throughout the entire turn
             // Middleware may modify runConfig (e.g., AgentPlanAgentMiddleware sets AdditionalSystemInstructions)
             // We must use the SAME instance for BeforeMessageTurnAsync and BeforeIterationAsync
-            var effectiveRunConfig = runConfig ?? new AgentRunConfig();
             var turnPipeline = BuildTurnMiddlewarePipeline(effectiveRunConfig);
             var functionCallProcessor = ReferenceEquals(turnPipeline, _middlewarePipeline)
                 ? _functionCallProcessor
@@ -2249,7 +2277,7 @@ public sealed class Agent
                         // CREATE MODEL REQUEST (V2 - immutable request pattern)
                         var selectedTransport = ResolveModelTransport(effectiveRunConfig);
                         var chatModel = selectedTransport is Middleware.AgentModelTransport.Chat
-                            ? overrideChatClient ?? _baseClient
+                            ? chatClientLease?.Client
                             : null;
                         var realtimeModel = selectedTransport is Middleware.AgentModelTransport.Realtime
                             ? overrideRealtimeClient ?? _clientSet?.Realtime
@@ -3241,6 +3269,8 @@ public sealed class Agent
         }
         finally
         {
+            if (chatClientLease is not null)
+                await chatClientLease.DisposeAsync().ConfigureAwait(false);
             RootAgent = previousRootAgent;
         }
     }
@@ -3728,7 +3758,8 @@ public sealed class Agent
         AgentRunConfig? options,
         HPD.Events.IEventCoordinator eventCoordinator,
         string? clientInputId,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken cancellationToken,
+        AgentChatClientHandle? inheritedChatClient = null)
     {
         // Validation
         if (thread != null)
@@ -3774,7 +3805,8 @@ public sealed class Agent
             runConfig: options,
             eventCoordinator: eventCoordinator,
             clientInputId: clientInputId,
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken,
+            inheritedChatClient: inheritedChatClient);
 
         await using var enumerator = internalStream.GetAsyncEnumerator(cancellationToken);
         string? messageTurnId = null;
@@ -4648,57 +4680,6 @@ public sealed class Agent
         return properties;
     }
 
-    /// <summary>
-    /// Resolves the effective chat client for this run based on AgentRunConfig.
-    /// Priority: OverrideChatClient > ProviderKey/ModelId > null (use default)
-    /// </summary>
-    /// <param name="options">Per-invocation options</param>
-    /// <returns>Override client if specified, null to use default</returns>
-    private IChatClient? ResolveClientForOptions(AgentRunConfig? options)
-    {
-        // Direct override: highest priority (for C# power users)
-        if (options?.OverrideChatClient != null)
-            return options.OverrideChatClient;
-
-        var runClients = CreateRunClientOverrides(options);
-        var hasRunClientOverride =
-            runClients?.GetFamilyConfig(Providers.ProviderClientFamily.Chat) != null;
-
-        if (!hasRunClientOverride)
-            return null;
-
-        var effectiveConfig = Config?.ResolveClientConfig(
-            Providers.ProviderClientFamily.Chat,
-            runClients);
-
-        // Provider config override: use registry to create client
-        var requestedProviderKey = effectiveConfig?.ProviderKey;
-
-        if (!string.IsNullOrEmpty(requestedProviderKey))
-        {
-            if (_providerRegistry == null)
-            {
-                throw new InvalidOperationException(
-                    $"Cannot switch to provider '{requestedProviderKey}' - no provider registry available. " +
-                    "Ensure the agent was built with a provider registry.");
-            }
-
-            var provider = _providerRegistry.GetRequiredProvider<Providers.IChatClientProvider>(requestedProviderKey);
-
-            var modelId = effectiveConfig?.ModelName;
-            if (string.IsNullOrEmpty(modelId))
-            {
-                throw new InvalidOperationException(
-                    $"No model is configured for provider '{requestedProviderKey}'. Configure AgentConfig.Clients.Chat.ModelName or pass AgentRunConfig.Clients.Chat.ModelName.");
-            }
-
-            return provider.CreateChatClient(effectiveConfig!, _serviceProvider);
-        }
-
-        // No override specified
-        return null;
-    }
-
     private IRealtimeClient? ResolveRealtimeClientForOptions(AgentRunConfig? options)
     {
         if (options?.OverrideRealtimeClient != null)
@@ -5512,7 +5493,8 @@ public sealed class Agent
                 session: sourceThread.Session,
                 thread: newThread,
                 cancellationToken: cancellationToken,
-                parentChatClient: _baseClient,
+                effectiveChatClient: _defaultChatClientHandle,
+                chatClientResolver: _chatClientResolver,
                 services: _serviceProvider,
                 runtimeCapabilities: _runtimeContext?.RuntimeCapabilities,
                 agentId: AgentId,

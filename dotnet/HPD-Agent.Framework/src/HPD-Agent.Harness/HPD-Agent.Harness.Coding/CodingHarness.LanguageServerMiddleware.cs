@@ -235,7 +235,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
             Path = resolution.Path,
             Uri = uri,
             LanguageId = languageId,
-            Version = result.Version
+            DocumentVersion = result.Version
         }, cancellationToken).ConfigureAwait(false);
 
         context.UpdateMiddlewareState<LanguageServerState>(state =>
@@ -391,7 +391,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 Path = resolution.Path,
                 Uri = uri,
                 LanguageId = languageId,
-                Version = version
+                DocumentVersion = version
             }, cancellationToken).ConfigureAwait(false);
         }
         else
@@ -414,7 +414,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 Path = resolution.Path,
                 Uri = uri,
                 LanguageId = languageId,
-                Version = version
+                DocumentVersion = version
             }, cancellationToken).ConfigureAwait(false);
         }
 

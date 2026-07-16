@@ -13,13 +13,13 @@ public abstract record LanguageServerEvent : AgentEvent
 public sealed record LanguageServerDocumentOpenedEvent : LanguageServerEvent
 {
     public required string LanguageId { get; init; }
-    public int Version { get; init; }
+    public int DocumentVersion { get; init; }
 }
 
 public sealed record LanguageServerDocumentChangedEvent : LanguageServerEvent
 {
     public required string LanguageId { get; init; }
-    public int Version { get; init; }
+    public int DocumentVersion { get; init; }
 }
 
 public sealed record LanguageServerDocumentClosedEvent : LanguageServerEvent;

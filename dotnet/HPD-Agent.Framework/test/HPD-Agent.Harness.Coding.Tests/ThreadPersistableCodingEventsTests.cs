@@ -1,6 +1,7 @@
 using HPD.Agent;
 using HPD.Agent.Serialization;
 using HPDOS.ToolHarnesses.Middleware;
+using System.Text.Json;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
 
@@ -70,6 +71,28 @@ public sealed class CanonicalCodingEventCodecTests
         decoded.CombinedOutputArtifactPath.Should().BeNull();
         decoded.StdoutContentId.Should().Be("stdout-content");
         decoded.CombinedOutputLocalPath.Should().Be("/tmp/combined.log");
+    }
+
+    [Fact]
+    public void LanguageServerDocumentVersion_DoesNotCollideWithEnvelopeVersion()
+    {
+        CodingHarnessEventSerialization.RegisterEvents();
+        var proposed = new LanguageServerDocumentOpenedEvent
+        {
+            Path = "/repo/A.cs",
+            Uri = "file:///repo/A.cs",
+            LanguageId = "csharp",
+            DocumentVersion = 42
+        };
+
+        var json = AgentEventSerializer.ToJson(proposed);
+        using var document = JsonDocument.Parse(json);
+        document.RootElement.GetProperty("version").GetString().Should().Be("1.0");
+        document.RootElement.GetProperty("documentVersion").GetInt32().Should().Be(42);
+
+        var decoded = AgentEventSerializer.FromJson(json)
+            .Should().BeOfType<LanguageServerDocumentOpenedEvent>().Subject;
+        decoded.DocumentVersion.Should().Be(42);
     }
 
     private static ExecuteCommandProcessStartedEvent Started() => new()

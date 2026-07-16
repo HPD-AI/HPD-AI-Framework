@@ -311,7 +311,7 @@ public abstract class HookContext
     [EditorBrowsable(EditorBrowsableState.Never)]
     public Microsoft.Extensions.AI.IChatClient? GetParentChatClient()
     {
-        return Base.ParentChatClient;
+        return Base.EffectiveChatClient?.Client;
     }
 
     /// <summary>

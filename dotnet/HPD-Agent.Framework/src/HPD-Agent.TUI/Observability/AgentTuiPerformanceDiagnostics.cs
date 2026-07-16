@@ -1,4 +1,5 @@
 using HPD.Agent.TUI.Composition;
+using HPD.Agent.TUI.Runtime;
 using HPD.Events;
 using HPD.TUI.Observability;
 
@@ -82,4 +83,16 @@ public sealed record TranscriptViewRendered(
 {
     public override string FormatSummary()
         => $"transcript render {Duration.TotalMilliseconds:0.###}ms rows={RowsRendered} captured={RowsCaptured} visited={EntriesVisited} cache={CacheHits}/{CacheMisses}";
+}
+
+public sealed record AgentTuiEventBatchApplied(
+    string? AgentId,
+    AgentTuiEventDeliveryMode DeliveryMode,
+    int EventCount,
+    ThreadJournalCursor FirstCursor,
+    ThreadJournalCursor LastCursor,
+    TimeSpan Duration) : AgentTuiPerformanceEvent
+{
+    public override string FormatSummary()
+        => $"event batch {DeliveryMode} {Duration.TotalMilliseconds:0.###}ms events={EventCount} cursor={FirstCursor.Generation}:{FirstCursor.SequenceNumber}-{LastCursor.Generation}:{LastCursor.SequenceNumber}";
 }

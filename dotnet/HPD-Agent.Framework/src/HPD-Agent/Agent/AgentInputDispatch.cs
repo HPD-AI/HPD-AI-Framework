@@ -64,6 +64,8 @@ internal sealed class AgentInputHandlingContext
     public IRuntimeCapabilityRegistry RuntimeCapabilities { get; init; } = new RuntimeCapabilityRegistry();
     public IStructEventHub StructEvents { get; init; } = new StructEventHub();
     public AgentRunConfig? RuntimeRunConfig { get; init; }
+    public AgentChatClientResolver ChatClientResolver { get; init; } = new(null, null);
+    public AgentChatClientHandle? DefaultChatClient { get; init; }
 
     public required Func<UserMessagesInputEvent, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> RunMessagesAsync { get; init; }
     public required Func<InterruptionRequestEvent, CancellationToken, Task> InterruptAsync { get; init; }
@@ -200,21 +202,32 @@ internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThre
         var publisher = context.Config.SessionStore is { } sessionStore
             ? new ThreadEventPublisher(sessionStore, context.EventCoordinator)
             : null;
+        await using var chatLease = input.Request.Compaction.Strategy is SummarizingCompaction summarizing
+            ? await context.ChatClientResolver.ResolveAsync(
+                new AgentChatClientResolutionRequest
+                {
+                    AgentConfig = context.Config,
+                    RunConfig = input.RunConfig ?? context.RuntimeRunConfig,
+                    AgentDefault = context.DefaultChatClient,
+                    DedicatedProvider = summarizing.Provider
+                },
+                cancellationToken).ConfigureAwait(false)
+            : null;
         var engineContext = new ThreadCompactionContext(
             thread,
             thread.Messages,
             publisher,
-            context.ClientSet?.Summarizer ?? context.ClientSet?.Chat,
+            chatLease?.Client,
             context.Services?.GetService<IThreadJournalRebaseSeedProvider>());
-        var engine = new ThreadCompactionEngine();
-        await engine.ExecuteAsync(
-            engineContext,
-            input.Request.Compaction,
-            context.AgentName,
-            iteration: 0,
-            CompactionOrigin.Explicit,
-            input.Request.Continuation,
-            cancellationToken).ConfigureAwait(false);
+        await new ThreadCompactionEngine().ExecuteAsync(
+                engineContext,
+                input.Request.Compaction,
+                context.AgentName,
+                iteration: 0,
+                CompactionOrigin.Explicit,
+                input.Request.Continuation,
+                cancellationToken)
+            .ConfigureAwait(false);
         return AgentTurnResult.Empty;
     }
 }

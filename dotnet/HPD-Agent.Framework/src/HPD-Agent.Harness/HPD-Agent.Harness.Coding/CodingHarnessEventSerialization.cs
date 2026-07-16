@@ -2,10 +2,10 @@ using System.Runtime.CompilerServices;
 using HPD.Agent.Serialization;
 using HPDOS.ToolHarnesses.Middleware;
 
-internal static class CodingToolHarnessEventSerialization
+public static class CodingHarnessEventSerialization
 {
     [ModuleInitializer]
-    internal static void RegisterEvents()
+    public static void RegisterEvents()
     {
         AgentEventSerializer.RegisterEventType(
             typeof(ExecuteCommandProcessStartedEvent),

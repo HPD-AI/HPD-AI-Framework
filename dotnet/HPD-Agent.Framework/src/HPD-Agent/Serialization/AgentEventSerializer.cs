@@ -281,6 +281,19 @@ public static partial class AgentEventSerializer
         if (!typeof(AgentEvent).IsAssignableFrom(eventType) && !typeof(AgentInputEvent).IsAssignableFrom(eventType))
             throw new ArgumentException($"Type '{eventType.FullName}' is not an agent event type.", nameof(eventType));
 
+        if (typeInfo is not null)
+        {
+            var reservedProperty = typeInfo.Properties.FirstOrDefault(static property =>
+                property.Name is "version" or "type");
+            if (reservedProperty is not null)
+            {
+                throw new ArgumentException(
+                    $"Event type '{eventType.FullName}' declares JSON property '{reservedProperty.Name}', " +
+                    "which is reserved by the agent event envelope.",
+                    nameof(eventType));
+            }
+        }
+
         TypeNames[eventType] = discriminator;
         DiscriminatorToType[discriminator] = eventType;
         if (typeInfo is not null)

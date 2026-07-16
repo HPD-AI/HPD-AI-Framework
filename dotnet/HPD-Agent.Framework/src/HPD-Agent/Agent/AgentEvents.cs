@@ -309,6 +309,9 @@ public sealed record UserMessagesInputEvent : AgentInputEvent
     /// <summary>Process-local thread scope for in-memory integrations.</summary>
     [JsonIgnore]
     public Thread? Thread { get; init; }
+
+    [JsonIgnore]
+    internal AgentChatClientHandle? InheritedChatClient { get; init; }
 }
 
 /// <summary>Explicitly compacts the scoped thread without creating a user message or model turn.</summary>

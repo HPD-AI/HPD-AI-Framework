@@ -459,8 +459,8 @@ public sealed class ThreadCompactionEngine : IThreadCompactionEngine
         var response = await client.GetResponseAsync([prompt, .. selected], cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         var text = response.Text?.Trim();
-        if (string.IsNullOrWhiteSpace(text) || !text.Contains("## Exact next action", StringComparison.Ordinal))
-            throw new InvalidOperationException("The compaction summarizer returned an invalid continuation handoff.");
+        if (string.IsNullOrWhiteSpace(text))
+            throw new InvalidOperationException("The compaction summarizer returned an empty continuation handoff.");
         return new ChatMessage(ChatRole.Assistant, text)
         {
             MessageId = Guid.NewGuid().ToString("N"),

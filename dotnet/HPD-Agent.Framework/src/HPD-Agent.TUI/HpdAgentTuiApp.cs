@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using HPD.Agent.TUI.Application;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Composition;
@@ -786,6 +787,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
+        var hasPerformanceSink = AgentTuiPerformanceDiagnostics.TryGetSink(_state.State, out var performanceSink);
+        var startedAt = hasPerformanceSink ? Stopwatch.GetTimestamp() : 0;
         using (_state.Shell.Transcript.BeginUpdate())
         {
             foreach (var evt in events)
@@ -795,6 +798,24 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
 
         _appliedCursor = batch.LastCursor;
+        performanceSink?.Publish(new AgentTuiEventBatchApplied(
+            _scope?.AgentId,
+            batch.DeliveryMode,
+            events.Count,
+            batch.FirstCursor,
+            batch.LastCursor,
+            Stopwatch.GetElapsedTime(startedAt))
+        {
+            SessionId = _scope?.SessionId,
+            ThreadId = _scope?.ThreadId,
+            Metadata = _scope is null
+                ? null
+                : new AgentMetadata
+                {
+                    AgentId = _scope.AgentId,
+                    AgentName = _scope.AgentId
+                }
+        });
         RequestRender();
     }
 

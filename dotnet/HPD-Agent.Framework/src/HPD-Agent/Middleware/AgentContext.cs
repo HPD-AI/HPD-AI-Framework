@@ -38,7 +38,8 @@ public sealed class AgentContext
     private readonly IThreadEventPublisher? _threadEvents;
     private readonly IStructEventHub _structEvents;
     private readonly CancellationToken _cancellationToken;
-    private readonly IChatClient? _parentChatClient;
+    private readonly AgentChatClientHandle? _effectiveChatClient;
+    private readonly AgentChatClientResolver? _chatClientResolver;
     private readonly AgentMetadata? _parentAgentMetadata;
     private readonly IAgentStore? _parentAgentStore;
     private readonly AgentConfig? _config;
@@ -63,9 +64,10 @@ public sealed class AgentContext
     internal IStructEventHub StructEvents => _structEvents;
 
     /// <summary>
-    /// Parent agent's chat client (for SubAgent inheritance).
+    /// Effective chat-client handle for this invocation.
     /// </summary>
-    internal IChatClient? ParentChatClient => _parentChatClient;
+    internal AgentChatClientHandle? EffectiveChatClient => _effectiveChatClient;
+    internal AgentChatClientResolver? ChatClientResolver => _chatClientResolver;
 
     /// <summary>
     /// Parent agent's metadata (for SubAgent and MultiAgent event attribution).
@@ -476,10 +478,10 @@ public sealed class AgentContext
     /// <param name="session">Session metadata (may be null)</param>
     /// <param name="thread">Current thread (may be null)</param>
     /// <param name="cancellationToken">Cancellation token for the operation</param>
-    /// <param name="parentChatClient">Parent agent's chat client (for SubAgent inheritance)</param>
+    /// <param name="effectiveChatClient">Effective invocation client and ownership handle.</param>
     /// <param name="services">Service provider for dependency injection (may be null)</param>
     /// <param name="traceId">OTel-compatible trace ID shared across all events in this turn.</param>
-    public AgentContext(
+    internal AgentContext(
         string agentName,
         string? conversationId,
         AgentLoopState initialState,
@@ -488,7 +490,8 @@ public sealed class AgentContext
         Thread? thread,
         CancellationToken cancellationToken,
         IThreadEventPublisher? threadEvents = null,
-        IChatClient? parentChatClient = null,
+        AgentChatClientHandle? effectiveChatClient = null,
+        AgentChatClientResolver? chatClientResolver = null,
         IServiceProvider? services = null,
         IRuntimeCapabilityRegistry? runtimeCapabilities = null,
         string? traceId = null,
@@ -515,7 +518,8 @@ public sealed class AgentContext
         _thread = thread;
         _interruptionHandler = interruptionHandler;
         _cancellationToken = cancellationToken;
-        _parentChatClient = parentChatClient;
+        _effectiveChatClient = effectiveChatClient;
+        _chatClientResolver = chatClientResolver;
         _parentAgentMetadata = parentAgentMetadata ?? CreateRootAgentMetadata(agentName, agentId);
         _parentAgentStore = parentAgentStore;
         _services = services;

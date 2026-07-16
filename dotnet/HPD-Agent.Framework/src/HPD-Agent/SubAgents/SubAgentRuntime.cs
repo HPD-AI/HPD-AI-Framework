@@ -126,34 +126,52 @@ public static class SubAgentRuntime
                 "Background invocation requires an active agent runtime.");
         }
 
-        var registration = parentContext.RegisterBackgroundTask(
-            new BackgroundTaskDescriptor
-            {
-                Name = definition.Name,
-                SourceKind = BackgroundTaskSourceKind.SubAgent,
-                SourceId = parentContext.FunctionCallId,
-                SessionId = parentContext.SessionId,
-                ThreadId = parentContext.ThreadId,
-                Invocation = parentContext.InvocationSnapshot,
-                Notification = definition.BackgroundNotification,
-                Metadata = CreateBackgroundDescriptorMetadata(definition)
-            },
-            async (backgroundContext, runtimeToken) =>
-            {
-                var result = await InvokeSynchronousCoreAsync(
-                    request with { RequestedMode = AgentInvocationMode.Synchronous },
-                    runtimeToken).ConfigureAwait(false);
-
-                backgroundContext.SetCompletion(
-                    summary: result.Text,
-                    metadata: new Dictionary<string, string>(StringComparer.Ordinal)
+        var inheritedLease = parentContext.GetEffectiveChatClientHandle()?.AcquireLease();
+        BackgroundTaskRegistration registration;
+        try
+        {
+            registration = parentContext.RegisterBackgroundTask(
+                new BackgroundTaskDescriptor
+                {
+                    Name = definition.Name,
+                    SourceKind = BackgroundTaskSourceKind.SubAgent,
+                    SourceId = parentContext.FunctionCallId,
+                    SessionId = parentContext.SessionId,
+                    ThreadId = parentContext.ThreadId,
+                    Invocation = parentContext.InvocationSnapshot,
+                    Notification = definition.BackgroundNotification,
+                    Metadata = CreateBackgroundDescriptorMetadata(definition)
+                },
+                async (backgroundContext, runtimeToken) =>
+                {
+                    try
                     {
-                        ["subAgent.sessionId"] = result.SessionId,
-                        ["subAgent.threadId"] = result.ThreadId,
-                        ["subAgent.runId"] = result.RunId,
-                        ["subAgent.agentId"] = result.AgentId
-                    });
-            });
+                        var result = await InvokeSynchronousCoreAsync(
+                            request with { RequestedMode = AgentInvocationMode.Synchronous },
+                            runtimeToken).ConfigureAwait(false);
+
+                        backgroundContext.SetCompletion(
+                            summary: result.Text,
+                            metadata: new Dictionary<string, string>(StringComparer.Ordinal)
+                            {
+                                ["subAgent.sessionId"] = result.SessionId,
+                                ["subAgent.threadId"] = result.ThreadId,
+                                ["subAgent.runId"] = result.RunId,
+                                ["subAgent.agentId"] = result.AgentId
+                            });
+                    }
+                    finally
+                    {
+                        if (inheritedLease is not null)
+                            await inheritedLease.DisposeAsync().ConfigureAwait(false);
+                    }
+                });
+        }
+        catch
+        {
+            inheritedLease?.Dispose();
+            throw;
+        }
 
         return new AgentInvocationResult
         {
@@ -210,7 +228,8 @@ public static class SubAgentRuntime
                 new ChatMessage(ChatRole.User, request.Input)
             ],
                 SessionId = route.SessionId,
-                ThreadId = route.ThreadId
+                ThreadId = route.ThreadId,
+                InheritedChatClient = request.ParentContext?.GetEffectiveChatClientHandle()
             }, cancellationToken).ConfigureAwait(false);
 
             MarkCompleted(request.ParentContext, route);
@@ -386,15 +405,7 @@ public static class SubAgentRuntime
         if (subAgent.AgentConfig == null)
             throw new InvalidOperationException("Inline-config subagents require AgentConfig.");
 
-        var builder = new AgentBuilder(subAgent.AgentConfig);
-        var parentChatClient = functionContext?.GetParentChatClient();
-        if (subAgent.AgentConfig.ResolveClientConfig(Providers.ProviderClientFamily.Chat) == null &&
-            parentChatClient != null)
-        {
-            builder.WithChatClient(parentChatClient);
-        }
-
-        return builder;
+        return new AgentBuilder(subAgent.AgentConfig);
     }
 
     private static void RegisterToolHarnesses(AgentBuilder builder, SubAgent subAgent)

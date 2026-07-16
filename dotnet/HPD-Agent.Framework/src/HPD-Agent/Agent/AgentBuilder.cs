@@ -37,7 +37,6 @@ internal record AgentBuildDependencies(
     IReadOnlyList<HttpClient>? OwnedHttpClients = null)
 {
     public IChatClient? ClientToUse => ClientSet.Chat;
-    public IChatClient? SummarizerClient => ClientSet.Summarizer;
 }
 
 internal record AgentToolBuildResult(
@@ -2307,45 +2306,6 @@ public class AgentBuilder
             openApiResult?.OwnedHttpClients.Count > 0 ? openApiResult.OwnedHttpClients : null);
     }
 
-    private IChatClient? CreateSummarizerClient(SummarizingCompaction? overrideOptions = null)
-    {
-        var summarizingOptions = overrideOptions
-            ?? _config.Compaction?.Automatic?.Compaction.Strategy as SummarizingCompaction
-            ?? _config.Compaction?.ForkCompaction?.Strategy as SummarizingCompaction;
-        if (summarizingOptions?.Provider == null)
-            return null;
-
-        var summarizerProviderKey = summarizingOptions.Provider.ProviderKey;
-        var summarizerProviderFeatures = _providerRegistry.GetRequiredProvider<IChatClientProvider>(summarizerProviderKey);
-
-        return summarizerProviderFeatures.CreateChatClient(
-            summarizingOptions.Provider,
-            _serviceProvider);
-    }
-
-    private IChatClient? ResolveRunChatClient(AgentRunConfig? runConfig)
-    {
-        if (runConfig?.OverrideChatClient is { } overrideClient)
-            return overrideClient;
-
-        var runClients = CreateRunClientOverrides(runConfig);
-        if (runClients?.GetFamilyConfig(ProviderClientFamily.Chat) is null)
-            return null;
-
-        var effectiveConfig = _config.ResolveClientConfig(ProviderClientFamily.Chat, runClients);
-        if (string.IsNullOrWhiteSpace(effectiveConfig?.ProviderKey))
-            return null;
-
-        var provider = _providerRegistry.GetRequiredProvider<IChatClientProvider>(effectiveConfig.ProviderKey);
-        if (string.IsNullOrWhiteSpace(effectiveConfig.ModelName))
-        {
-            throw new InvalidOperationException(
-                $"No model is configured for provider '{effectiveConfig.ProviderKey}'. Configure AgentConfig.Clients.Chat.ModelName or pass AgentRunConfig.ModelId.");
-        }
-
-        return provider.CreateChatClient(effectiveConfig, _serviceProvider);
-    }
-
     private static AgentClientConfig? CreateRunClientOverrides(AgentRunConfig? options)
     {
         if (options is null)
@@ -2377,7 +2337,6 @@ public class AgentBuilder
 
     private AgentClientSet CreateAgentClientSet(
         IChatClient? chat,
-        IChatClient? summarizer,
         ClientProviderConfig? chatConfig)
     {
         var resolvedConfigs = new Dictionary<ProviderClientFamily, ClientProviderConfig>();
@@ -2431,7 +2390,6 @@ public class AgentBuilder
         return new AgentClientSet
         {
             Chat = chat,
-            Summarizer = summarizer,
             TextToSpeech = textToSpeech,
             SpeechToText = speechToText,
             Realtime = realtime,
@@ -2577,10 +2535,8 @@ public class AgentBuilder
             // Use generic error handler for testing
             var testErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
             var toolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
-            var injectedSummarizerClient = CreateSummarizerClient();
-
             return new AgentBuildDependencies(
-                CreateAgentClientSet(_baseClient, injectedSummarizerClient, chatConfig: null),
+                CreateAgentClientSet(_baseClient, chatConfig: null),
                 toolBuild.MergedOptions,
                 testErrorHandler,
                 OwnedHttpClients: toolBuild.OwnedHttpClients);
@@ -2596,9 +2552,8 @@ public class AgentBuilder
         {
             var runtimeErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
             var toolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
-            var runtimeSummarizerClient = CreateSummarizerClient();
             return new AgentBuildDependencies(
-                CreateAgentClientSet(null, runtimeSummarizerClient, chatConfig: null),
+                CreateAgentClientSet(null, chatConfig: null),
                 toolBuild.MergedOptions,
                 runtimeErrorHandler,
                 OwnedHttpClients: toolBuild.OwnedHttpClients);
@@ -2634,9 +2589,8 @@ public class AgentBuilder
         {
             var runtimeErrorHandler = new HPD.Agent.ErrorHandling.GenericErrorHandler();
             var toolBuild = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
-            var fallbackSummarizerClient = CreateSummarizerClient();
             return new AgentBuildDependencies(
-                CreateAgentClientSet(null, fallbackSummarizerClient, chatConfig: null),
+                CreateAgentClientSet(null, chatConfig: null),
                 toolBuild.MergedOptions,
                 runtimeErrorHandler,
                 OwnedHttpClients: toolBuild.OwnedHttpClients);
@@ -2742,8 +2696,6 @@ public class AgentBuilder
 
         var builtTools = await BuildToolOptionsAsync(cancellationToken).ConfigureAwait(false);
 
-        var summarizerClient = CreateSummarizerClient();
-
         // Create the provider-specific error handler
         var errorHandler = providerFeatures.CreateErrorHandler();
         if (errorHandler == null)
@@ -2751,7 +2703,7 @@ public class AgentBuilder
 
         // Return dependencies instead of creating agent
         return new AgentBuildDependencies(
-            CreateAgentClientSet(clientToUse, summarizerClient, chatProviderConfig),
+            CreateAgentClientSet(clientToUse, chatProviderConfig),
             builtTools.MergedOptions,
             errorHandler,
             builtTools.OwnedHttpClients);

@@ -9,7 +9,6 @@ namespace HPD.Agent;
 public sealed class AgentClientSet : IDisposable
 {
     public IChatClient? Chat { get; init; }
-    public IChatClient? Summarizer { get; init; }
     public ITextToSpeechClient? TextToSpeech { get; init; }
     public ISpeechToTextClient? SpeechToText { get; init; }
     public IRealtimeClient? Realtime { get; init; }
@@ -26,7 +25,6 @@ public sealed class AgentClientSet : IDisposable
 
     public static AgentClientSet ForChat(
         IChatClient? chat,
-        IChatClient? summarizer = null,
         ClientProviderConfig? chatConfig = null)
     {
         var configs = chatConfig == null
@@ -39,7 +37,6 @@ public sealed class AgentClientSet : IDisposable
         return new AgentClientSet
         {
             Chat = chat,
-            Summarizer = summarizer,
             ResolvedConfigs = configs
         };
     }
@@ -52,7 +49,6 @@ public sealed class AgentClientSet : IDisposable
         var disposed = new HashSet<object>(ReferenceEqualityComparer.Instance);
 
         DisposeOnce(Chat, disposed);
-        DisposeOnce(Summarizer, disposed);
         DisposeOnce(TextToSpeech, disposed);
         DisposeOnce(SpeechToText, disposed);
         DisposeOnce(Realtime, disposed);

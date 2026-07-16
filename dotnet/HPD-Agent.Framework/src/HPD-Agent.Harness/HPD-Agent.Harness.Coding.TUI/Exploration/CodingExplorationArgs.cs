@@ -45,6 +45,7 @@ internal static class CodingExplorationArgsParser
     private static int? ReadInt(JsonElement root, string name)
         => root.ValueKind == JsonValueKind.Object &&
            root.TryGetProperty(name, out var value) &&
+           value.ValueKind == JsonValueKind.Number &&
            value.TryGetInt32(out var number)
             ? number
             : null;

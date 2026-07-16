@@ -18,6 +18,18 @@ namespace HPD.Agent.ToolHarness.Coding.TUI.Tests;
 public sealed class ExplorationTuiTests
 {
     [Fact]
+    public async Task ExplorationArgs_StringLimit_DoesNotAbortProjection()
+    {
+        var state = CreateState();
+
+        await state.ApplyEventAsync(new ToolCallStartEvent("call-1", "ReadFile", "message-1"));
+        var action = async () => await state.ApplyEventAsync(
+            new ToolCallArgsEvent("call-1", """{"path":"file.cs","limit":"120"}"""));
+
+        await action.Should().NotThrowAsync();
+    }
+
+    [Fact]
     public void AddCodingHarnessTui_RegistersExplorationHandlersAndStatus()
     {
         var registry = new HpdAgentTuiBuilder()

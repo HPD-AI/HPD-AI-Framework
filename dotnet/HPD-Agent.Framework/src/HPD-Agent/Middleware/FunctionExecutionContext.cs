@@ -18,7 +18,7 @@ namespace HPD.Agent.Middleware;
 public sealed class FunctionExecutionContext
 {
     private readonly AgentLoopState _stateSnapshot;
-    private readonly IChatClient? _parentChatClient;
+    private readonly AgentChatClientHandle? _effectiveChatClient;
     private readonly AgentMetadata? _parentAgentMetadata;
     private readonly ISessionStore? _parentSessionStore;
     private readonly IAgentStore? _parentAgentStore;
@@ -53,7 +53,7 @@ public sealed class FunctionExecutionContext
         Services = hookContext.Services;
         RuntimeCapabilities = hookContext.RuntimeCapabilities;
         _contentStore = hookContext.ContentStore;
-        _parentChatClient = hookContext.GetParentChatClient();
+        _effectiveChatClient = hookContext.Base.EffectiveChatClient;
         _parentAgentMetadata = hookContext.GetParentAgentMetadata();
         _parentSessionStore = hookContext.Session?.Store;
         _parentAgentStore = hookContext.GetParentAgentStore();
@@ -196,7 +196,10 @@ public sealed class FunctionExecutionContext
 
     [EditorBrowsable(EditorBrowsableState.Never)]
     public IChatClient? GetParentChatClient()
-        => _parentChatClient;
+        => _effectiveChatClient?.Client;
+
+    internal AgentChatClientHandle? GetEffectiveChatClientHandle()
+        => _effectiveChatClient;
 
     [EditorBrowsable(EditorBrowsableState.Never)]
     public AgentMetadata? GetParentAgentMetadata()

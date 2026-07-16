@@ -9,6 +9,8 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
     private readonly IChatClient? _baseClient;
     private readonly IServiceProvider? _serviceProvider;
     private readonly AgentConfig? _config;
+    private readonly AgentChatClientResolver _chatClientResolver;
+    private readonly AgentChatClientHandle? _defaultChatClient;
     private readonly MessageProcessor _messageProcessor;
     private readonly FunctionExecutionCore _functionExecutionCore;
     private readonly Middleware.AgentRuntimeContext _runtimeContext;
@@ -19,6 +21,8 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
         IChatClient? baseClient,
         IServiceProvider? serviceProvider,
         AgentConfig? config,
+        AgentChatClientResolver chatClientResolver,
+        AgentChatClientHandle? defaultChatClient,
         MessageProcessor messageProcessor,
         FunctionExecutionCore functionExecutionCore,
         Middleware.AgentRuntimeContext runtimeContext,
@@ -28,6 +32,8 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
         _baseClient = baseClient;
         _serviceProvider = serviceProvider;
         _config = config;
+        _chatClientResolver = chatClientResolver;
+        _defaultChatClient = defaultChatClient;
         _messageProcessor = messageProcessor ?? throw new ArgumentNullException(nameof(messageProcessor));
         _functionExecutionCore = functionExecutionCore ?? throw new ArgumentNullException(nameof(functionExecutionCore));
         _runtimeContext = runtimeContext ?? throw new ArgumentNullException(nameof(runtimeContext));
@@ -50,6 +56,16 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
         }
 
         var effectiveRunConfig = runConfig ?? _runtimeContext.RunConfig ?? new AgentRunConfig();
+        await using var chatLease = HasChatResolutionSource(effectiveRunConfig)
+            ? await _chatClientResolver.ResolveAsync(
+                new AgentChatClientResolutionRequest
+                {
+                    AgentConfig = _config ?? throw new InvalidOperationException("Agent configuration is not available."),
+                    RunConfig = effectiveRunConfig,
+                    AgentDefault = _defaultChatClient
+                },
+                cancellationToken).ConfigureAwait(false)
+            : null;
         var effectiveOptions = effectiveRunConfig.Chat?.MergeWith(_messageProcessor.DefaultOptions)
             ?? _messageProcessor.DefaultOptions
             ?? new ChatOptions();
@@ -70,7 +86,8 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
             session: null,
             thread: null,
             cancellationToken: cancellationToken,
-            parentChatClient: _baseClient,
+            effectiveChatClient: chatLease?.Handle,
+            chatClientResolver: _chatClientResolver,
             services: _serviceProvider,
             runtimeCapabilities: _runtimeContext.RuntimeCapabilities,
             traceId: null,
@@ -112,6 +129,12 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
 
         return results;
     }
+
+    private bool HasChatResolutionSource(AgentRunConfig runConfig)
+        => runConfig.OverrideChatClient is not null ||
+           runConfig.Clients?.GetFamilyConfig(Providers.ProviderClientFamily.Chat) is not null ||
+           runConfig.GetChatProviderOverride() is not null ||
+           _defaultChatClient is not null;
 
     private static RuntimeFunctionExecutionResult ToRuntimeResult(FunctionExecutionOutcome outcome)
     {

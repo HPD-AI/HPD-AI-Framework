@@ -21,11 +21,15 @@ public sealed class CompactionMiddleware : IAgentMiddleware
         if (automatic is null || context.Thread is null || !ShouldCompact(automatic.Trigger, context.Messages))
             return;
 
+        await using var chatLease = await ResolveChatClientAsync(
+            context,
+            automatic.Compaction,
+            cancellationToken).ConfigureAwait(false);
         var engineContext = new ThreadCompactionContext(
             context.Thread,
             context.Messages,
             context.Base.ThreadEvents,
-            context.ClientSet?.Summarizer ?? context.ClientSet?.Chat,
+            chatLease?.Client,
             context.Services?.GetService<IThreadJournalRebaseSeedProvider>());
         var result = await Engine.ExecuteAsync(
                 engineContext,
@@ -65,11 +69,15 @@ public sealed class CompactionMiddleware : IAgentMiddleware
         if (specification is null || context.TargetThread.Messages.Count == 0)
             return;
 
+        await using var chatLease = await ResolveChatClientAsync(
+            context,
+            specification,
+            cancellationToken).ConfigureAwait(false);
         var engineContext = new ThreadCompactionContext(
             context.TargetThread,
             context.TargetThread.Messages,
             Publisher: null,
-            context.ClientSet?.Summarizer ?? context.ClientSet?.Chat);
+            chatLease?.Client);
         var prepared = await Engine.PrepareAsync(engineContext, specification, cancellationToken)
             .ConfigureAwait(false);
         if (prepared is null)
@@ -120,5 +128,31 @@ public sealed class CompactionMiddleware : IAgentMiddleware
                 characters += content.ToString()?.Length ?? 0;
         }
         return Math.Max(1, (long)Math.Ceiling(characters / 4d));
+    }
+
+    private static async ValueTask<AgentChatClientLease?> ResolveChatClientAsync(
+        HookContext context,
+        CompactionSpecification specification,
+        CancellationToken cancellationToken)
+    {
+        if (specification.Strategy is not SummarizingCompaction summarizing)
+            return null;
+
+        var resolver = context.Base.ChatClientResolver
+            ?? throw new InvalidOperationException("Summarizing compaction requires invocation client resolution.");
+        return await resolver.ResolveAsync(
+            new AgentChatClientResolutionRequest
+            {
+                AgentConfig = context.Config
+                    ?? throw new InvalidOperationException("Agent configuration is not available."),
+                RunConfig = context switch
+                {
+                    BeforeIterationContext iteration => iteration.RunConfig,
+                    _ => null
+                },
+                AgentDefault = context.Base.EffectiveChatClient,
+                DedicatedProvider = summarizing.Provider
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 }
