@@ -21,7 +21,7 @@ internal static class ThreadEventJson
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         };
 
-        options.Converters.Add(new ThreadEventJsonConverter());
+        options.Converters.Add(new AgentEventJsonConverter());
         options.TypeInfoResolverChain.Add(new SessionJsonContext());
         options.TypeInfoResolverChain.Add(AgentEventJsonContext.Default);
 
@@ -38,58 +38,5 @@ internal static class ThreadEventJson
 
         options.MakeReadOnly();
         return options;
-    }
-}
-
-internal sealed class ThreadEventJsonConverter : JsonConverter<AgentEvent>
-{
-    private static readonly HashSet<string> ThreadOmittedProperties = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "sessionId",
-        "threadId",
-        "version",
-        "channel",
-        "kind",
-        "direction",
-        "canInterrupt",
-        "exchangeTimestampNs",
-        "metadata",
-        "traceId",
-        "spanId",
-        "parentSpanId",
-        "extensions"
-    };
-
-    public override AgentEvent Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-    {
-        using var document = JsonDocument.ParseValue(ref reader);
-        return AgentEventSerializer.DeserializeEventJson(document.RootElement.GetRawText());
-    }
-
-    public override void Write(Utf8JsonWriter writer, AgentEvent value, JsonSerializerOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-
-        using var document = JsonDocument.Parse(AgentEventSerializer.ToJson(value));
-        writer.WriteStartObject();
-
-        foreach (var property in document.RootElement.EnumerateObject())
-        {
-            if (ThreadOmittedProperties.Contains(property.Name))
-                continue;
-
-            if (property.NameEquals("timestamp") && property.Value.ValueKind == JsonValueKind.String)
-            {
-                if (DateTimeOffset.TryParse(property.Value.GetString(), out var timestamp) &&
-                    timestamp == default)
-                {
-                    continue;
-                }
-            }
-
-            property.WriteTo(writer);
-        }
-
-        writer.WriteEndObject();
     }
 }

@@ -18,7 +18,7 @@ public sealed class CompactionAgentLoopTests : AgentTestBase
             ? Path.Combine(Path.GetTempPath(), $"hpd-compaction-{Guid.NewGuid():N}")
             : null;
         ISessionStore store = useJsonStore
-            ? new JsonSessionStore(tempDirectory!)
+            ? new FileSessionStore(tempDirectory!)
             : new InMemorySessionStore();
 
         try
@@ -70,7 +70,7 @@ public sealed class CompactionAgentLoopTests : AgentTestBase
         client.CapturedRequests[1].Should().Contain(message => message.Text == "first compacted answer");
         client.CapturedRequests[1].Should().Contain(message => message.Text == "second-after-seed");
 
-        var durableThread = await store.LoadThreadAsync(sessionId, "main", TestCancellationToken);
+        var durableThread = await store.ProjectThreadAsync(sessionId, "main", TestCancellationToken);
         durableThread.Should().NotBeNull();
         durableThread!.Messages.Should().Contain(message =>
             message.Text.Contains("seed-history-", StringComparison.Ordinal),

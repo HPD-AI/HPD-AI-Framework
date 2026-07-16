@@ -337,7 +337,7 @@ public static class SubAgentRuntime
             ?? throw new SessionNotFoundException(sessionId);
         session.Store = store;
 
-        if (await store.LoadThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false) != null)
+        if (await store.ProjectThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false) != null)
             throw new InvalidOperationException($"Thread '{threadId}' already exists in session '{sessionId}'.");
 
         var thread = new Thread(sessionId, threadId) { Session = session };
@@ -449,7 +449,7 @@ public static class SubAgentRuntime
         if (store == null)
             return string.Empty;
 
-        var fallbackThread = await store.LoadThreadAsync(
+        var fallbackThread = await store.ProjectThreadAsync(
             route.SessionId,
             route.ThreadId,
             cancellationToken).ConfigureAwait(false);
@@ -526,7 +526,7 @@ public static class SubAgentRuntime
                     ?? throw new InvalidOperationException("ExistingThreadId is required.");
                 var store = agent.Config?.SessionStore
                     ?? throw new InvalidOperationException("No session store configured.");
-                _ = await store.LoadThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false)
+                _ = await store.ProjectThreadAsync(sessionId, threadId, cancellationToken).ConfigureAwait(false)
                     ?? throw new InvalidOperationException($"Existing thread '{threadId}' not found in session '{sessionId}'.");
                 return threadId;
             }
@@ -546,7 +546,7 @@ public static class SubAgentRuntime
                     ?? throw new InvalidOperationException("ForkFromParentThread subagents require a parent ThreadId.");
                 var store = agent.Config?.SessionStore
                     ?? throw new InvalidOperationException("No session store configured.");
-                var parentThread = await store.LoadThreadAsync(parentSessionId, parentThreadId, cancellationToken)
+                var parentThread = await store.ProjectThreadAsync(parentSessionId, parentThreadId, cancellationToken)
                     .ConfigureAwait(false)
                     ?? throw new InvalidOperationException($"Parent thread '{parentThreadId}' not found in session '{parentSessionId}'.");
                 var forkPoint = parentThread.Messages.LastOrDefault()?.MessageId

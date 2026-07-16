@@ -94,7 +94,7 @@ public class SessionBuilderExtensionTests : AgentTestBase
     //──────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void WithSessionStore_WithPath_CreatesJsonSessionStore()
+    public void WithSessionStore_WithPath_CreatesFileSessionStore()
     {
         // Arrange
         var builder = new AgentBuilder();
@@ -107,7 +107,7 @@ public class SessionBuilderExtensionTests : AgentTestBase
 
             // Assert
             Assert.NotNull(builder.Config.SessionStore);
-            Assert.IsType<JsonSessionStore>(builder.Config.SessionStore);
+            Assert.IsType<FileSessionStore>(builder.Config.SessionStore);
             Assert.True(builder.Config.SessionStoreOptions?.PersistAfterTurn);
         }
         finally

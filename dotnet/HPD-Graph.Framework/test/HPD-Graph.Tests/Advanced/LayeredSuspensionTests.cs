@@ -549,6 +549,7 @@ public class TestEventCoordinator : IEventCoordinator
         => _inner.Respond(requestId, response);
 
     public IEventFlowRegistry EventFlows => _inner.EventFlows;
+    public IReadOnlyList<PendingRequestSnapshot> GetPendingRequests() => _inner.GetPendingRequests();
 
 }
 

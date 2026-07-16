@@ -5,12 +5,6 @@ namespace HPD.Agent;
 
 public static class ThreadProjector
 {
-    public static Thread Project(ThreadEventDocument document)
-    {
-        ArgumentNullException.ThrowIfNull(document);
-        return Project(document.SessionId, document.ThreadId, document.Events);
-    }
-
     public static Thread Project(string sessionId, string threadId, IEnumerable<AgentEvent> events)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
@@ -37,7 +31,7 @@ public static class ThreadProjector
             messageOrder.Add(messageId);
         }
 
-        foreach (var evt in events.OrderBy(e => e.SequenceNumber))
+        foreach (var evt in events.OrderBy(e => e.ThreadSequenceNumber))
         {
             Apply(thread, evt, messages, messageOrder);
         }

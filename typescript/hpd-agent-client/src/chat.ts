@@ -5,7 +5,6 @@ import type { InputSubmissionResult, InterruptionResult } from './types/transpor
 import type {
   AIContent,
   ContentReference,
-  ThreadEvent,
   CreateSessionRequest,
   SearchSessionsRequest,
   Session,
@@ -81,8 +80,8 @@ export class ChatManager {
  * Convenience wrapper for a single agent/session/thread chat.
  *
  * ChatSession scopes common chat operations to one agent/session/thread. Transcript
- * rendering is intentionally left to applications via AgentClient.on/onAny and
- * getThreadEvents().
+ * rendering is intentionally left to applications via the acknowledged committed
+ * event observer and AgentClient.on/onAny.
  */
 export class ChatSession {
   readonly agentId: string;
@@ -98,10 +97,6 @@ export class ChatSession {
   dispose(): void {
   }
 
-  async getThreadEvents(): Promise<ThreadEvent[]> {
-    return this.client.getThreadEvents(this.sessionId, this.threadId);
-  }
-
   async getRuns(): Promise<ThreadRun[]> {
     return this.client.getThreadRuns(this.agentId, this.sessionId, this.threadId);
   }
@@ -114,7 +109,7 @@ export class ChatSession {
     return this.client.getThreadRun(this.agentId, this.sessionId, this.threadId, runtimeRunId);
   }
 
-  async subscribeLive(options: { signal?: AbortSignal } = {}): Promise<ThreadRuntimeState> {
+  async subscribeLive(options: { afterSequenceNumber?: number; signal?: AbortSignal } = {}): Promise<ThreadRuntimeState> {
     const state = await this.getState();
     if (!state) {
       throw new Error(`Thread '${this.threadId}' was not found in session '${this.sessionId}'.`);
@@ -124,7 +119,7 @@ export class ChatSession {
       agentId: this.agentId,
       sessionId: this.sessionId,
       threadId: this.threadId,
-      afterSequenceNumber: state.latestSequenceNumber,
+      afterSequenceNumber: options.afterSequenceNumber ?? 0,
       signal: options.signal,
     });
     return state;

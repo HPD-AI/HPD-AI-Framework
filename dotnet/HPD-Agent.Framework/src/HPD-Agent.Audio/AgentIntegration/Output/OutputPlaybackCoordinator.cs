@@ -74,7 +74,7 @@ internal sealed class OutputPlaybackCoordinator
             .ConfigureAwait(false);
         var commit = await _flow.CommitInterruptedAsync(boundary, cancellationToken)
             .ConfigureAwait(false);
-        EmitInterrupted(boundary);
+        await PublishInterruptedAsync(boundary, cancellationToken).ConfigureAwait(false);
         return commit;
     }
 
@@ -98,7 +98,7 @@ internal sealed class OutputPlaybackCoordinator
                         OutputAlignmentPrecision.Unknown,
                         error: null);
                     EmitQueueDepthSample();
-                    EmitQueued(request);
+                    await PublishQueuedAsync(request, cancellationToken).ConfigureAwait(false);
                 }
                 return null;
 
@@ -113,7 +113,7 @@ internal sealed class OutputPlaybackCoordinator
                     playedTextLength: 0,
                     OutputAlignmentPrecision.Unknown,
                     error: null);
-                EmitStarted(started);
+                await PublishStartedAsync(started, cancellationToken).ConfigureAwait(false);
                 return null;
 
             case OutputPlaybackProgressEvent progress:
@@ -127,7 +127,7 @@ internal sealed class OutputPlaybackCoordinator
                     progress.Cursor.PlayedTextLength,
                     progress.Cursor.Precision,
                     error: null);
-                EmitProgress(progress.Cursor);
+                await PublishProgressAsync(progress.Cursor, cancellationToken).ConfigureAwait(false);
                 return null;
 
             case OutputPlaybackCompletedEvent completed:
@@ -145,7 +145,7 @@ internal sealed class OutputPlaybackCoordinator
                     interrupted.Boundary.PlayedTextLength,
                     interrupted.Boundary.Precision,
                     error: null);
-                EmitInterrupted(interrupted.Boundary);
+                await PublishInterruptedAsync(interrupted.Boundary, cancellationToken).ConfigureAwait(false);
                 return interruptedCommit;
 
             case OutputPlaybackClearedEvent cleared:
@@ -195,7 +195,7 @@ internal sealed class OutputPlaybackCoordinator
                     playedTextLength: 0,
                     OutputAlignmentPrecision.Unknown,
                     failed.Error);
-                EmitFailed(failed);
+                await PublishFailedAsync(failed, cancellationToken).ConfigureAwait(false);
                 return failureCommit;
 
             default:
@@ -280,7 +280,7 @@ internal sealed class OutputPlaybackCoordinator
             completed.Cursor.PlayedTextLength,
             completed.Cursor.Precision,
             error: null);
-        EmitProgress(completed.Cursor);
+        await PublishProgressAsync(completed.Cursor, cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask<OutputCommitRecord?> TryCommitPendingFinalAsync(
@@ -305,7 +305,7 @@ internal sealed class OutputPlaybackCoordinator
             completed.Cursor.PlayedTextLength,
             completed.Cursor.Precision,
             error: null);
-        EmitCompleted(completed.Cursor);
+        await PublishCompletedAsync(completed.Cursor, cancellationToken).ConfigureAwait(false);
         return commit;
     }
 
@@ -455,9 +455,9 @@ internal sealed class OutputPlaybackCoordinator
         return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1_000_000;
     }
 
-    private void EmitQueued(OutputPlaybackRequest request)
+    private ValueTask PublishQueuedAsync(OutputPlaybackRequest request, CancellationToken cancellationToken)
     {
-        _options.EmitEvent?.Invoke(WithFlow(new AssistantAudioPlaybackQueuedEvent(
+        return PublishAsync(WithFlow(new AssistantAudioPlaybackQueuedEvent(
             _options.SessionId.Value,
             _flow.Id.Value,
             request.ResponseId.Value,
@@ -465,28 +465,28 @@ internal sealed class OutputPlaybackCoordinator
             request.SegmentIndex,
             request.MediaType ?? "application/octet-stream",
             Played: false,
-            HeardByUser: false), canInterrupt: true));
+            HeardByUser: false), canInterrupt: true), cancellationToken);
     }
 
-    private void EmitStarted(OutputPlaybackStartedEvent started)
+    private ValueTask PublishStartedAsync(OutputPlaybackStartedEvent started, CancellationToken cancellationToken)
     {
         if (!_requests.TryGetValue(started.SegmentId, out var request))
         {
-            return;
+            return ValueTask.CompletedTask;
         }
 
-        _options.EmitEvent?.Invoke(WithFlow(new AssistantAudioPlaybackStartedEvent(
+        return PublishAsync(WithFlow(new AssistantAudioPlaybackStartedEvent(
             _options.SessionId.Value,
             _flow.Id.Value,
             started.ResponseId.Value,
             started.SegmentId.Value,
             started.SegmentIndex,
-            request.MediaType ?? "application/octet-stream"), canInterrupt: true));
+            request.MediaType ?? "application/octet-stream"), canInterrupt: true), cancellationToken);
     }
 
-    private void EmitProgress(OutputPlaybackCursor cursor)
+    private ValueTask PublishProgressAsync(OutputPlaybackCursor cursor, CancellationToken cancellationToken)
     {
-        _options.EmitEvent?.Invoke(WithFlow(new AssistantAudioPlaybackProgressEvent(
+        return PublishAsync(WithFlow(new AssistantAudioPlaybackProgressEvent(
             _options.SessionId.Value,
             _flow.Id.Value,
             cursor.ResponseId.Value,
@@ -496,18 +496,18 @@ internal sealed class OutputPlaybackCoordinator
             cursor.PlayedTextLength,
             cursor.Precision.ToString(),
             Played: false,
-            HeardByUser: false), canInterrupt: true));
+            HeardByUser: false), canInterrupt: true), cancellationToken);
     }
 
-    private void EmitCompleted(OutputPlaybackCursor cursor)
+    private ValueTask PublishCompletedAsync(OutputPlaybackCursor cursor, CancellationToken cancellationToken)
     {
         if (cursor.SegmentId is not { } segmentId ||
             !_requests.TryGetValue(segmentId, out var request))
         {
-            return;
+            return ValueTask.CompletedTask;
         }
 
-        _options.EmitEvent?.Invoke(WithFlow(new AssistantAudioPlaybackCompletedEvent(
+        return PublishAsync(WithFlow(new AssistantAudioPlaybackCompletedEvent(
             _options.SessionId.Value,
             _flow.Id.Value,
             cursor.ResponseId.Value,
@@ -518,12 +518,12 @@ internal sealed class OutputPlaybackCoordinator
             HeardByUser: true,
             cursor.PlayedDuration,
             cursor.PlayedTextLength,
-            cursor.Precision.ToString()), canInterrupt: false));
+            cursor.Precision.ToString()), canInterrupt: false), cancellationToken);
     }
 
-    private void EmitInterrupted(OutputPlaybackBoundary boundary)
+    private ValueTask PublishInterruptedAsync(OutputPlaybackBoundary boundary, CancellationToken cancellationToken)
     {
-        _options.EmitEvent?.Invoke(WithFlow(new AssistantAudioPlaybackInterruptedEvent(
+        return PublishAsync(WithFlow(new AssistantAudioPlaybackInterruptedEvent(
             _options.SessionId.Value,
             _flow.Id.Value,
             boundary.ResponseId.Value,
@@ -533,12 +533,12 @@ internal sealed class OutputPlaybackCoordinator
             boundary.PlayedTextLength,
             boundary.Precision.ToString(),
             Played: boundary.PlayedTextLength > 0,
-            HeardByUser: boundary.PlayedTextLength > 0), canInterrupt: false));
+            HeardByUser: boundary.PlayedTextLength > 0), canInterrupt: false), cancellationToken);
     }
 
-    private void EmitFailed(OutputPlaybackFailedEvent failed)
+    private ValueTask PublishFailedAsync(OutputPlaybackFailedEvent failed, CancellationToken cancellationToken)
     {
-        _options.EmitEvent?.Invoke(WithFlow(new AssistantAudioPlaybackFailedEvent(
+        return PublishAsync(WithFlow(new AssistantAudioPlaybackFailedEvent(
             _options.SessionId.Value,
             _flow.Id.Value,
             failed.ResponseId.Value,
@@ -546,7 +546,15 @@ internal sealed class OutputPlaybackCoordinator
             failed.SegmentIndex,
             failed.Error,
             Played: false,
-            HeardByUser: false), canInterrupt: false));
+            HeardByUser: false), canInterrupt: false), cancellationToken);
+    }
+
+    private async ValueTask PublishAsync(AgentEvent evt, CancellationToken cancellationToken)
+    {
+        if (_options.PublishEventAsync is { } publish)
+        {
+            await publish(evt, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private TEvent WithFlow<TEvent>(TEvent evt, bool canInterrupt)
@@ -575,7 +583,7 @@ internal sealed record OutputPlaybackCoordinatorOptions
 
     public OutputInterruptibility Interruptibility { get; init; } = OutputInterruptibility.Interruptible;
 
-    public Action<AgentEvent>? EmitEvent { get; init; }
+    public Func<AgentEvent, CancellationToken, ValueTask<AgentEvent>>? PublishEventAsync { get; init; }
 
     public IStructEventHub? StructEvents { get; init; }
 

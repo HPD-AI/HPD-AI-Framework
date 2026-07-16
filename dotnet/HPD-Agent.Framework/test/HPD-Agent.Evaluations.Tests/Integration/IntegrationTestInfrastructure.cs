@@ -153,15 +153,19 @@ internal sealed class FakeSessionStore : ISessionStore
     public void AddThread(string sessionId, Thread thread) =>
         _threads[(sessionId, thread.Id)] = thread;
 
-    public Task<Thread?> LoadThreadAsync(string sessionId, string threadId, CancellationToken ct = default) =>
+    public Task<Thread?> ProjectThreadAsync(string sessionId, string threadId, CancellationToken ct = default) =>
         Task.FromResult(_threads.GetValueOrDefault((sessionId, threadId)));
     public Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default) => Task.FromResult<Session?>(null);
     public Task SaveSessionAsync(Session session, CancellationToken ct = default) => Task.CompletedTask;
     public Task<List<string>> ListSessionIdsAsync(CancellationToken ct = default) => Task.FromResult(new List<string>());
     public Task DeleteSessionAsync(string sessionId, CancellationToken ct = default) => Task.CompletedTask;
-    public Task<ThreadEventDocument?> LoadThreadDocumentAsync(string sessionId, string threadId, CancellationToken ct = default) => Task.FromResult<ThreadEventDocument?>(null);
-    public Task AppendThreadEventAsync(string sessionId, string threadId, AgentEvent evt, long? expectedSequenceNumber = null, CancellationToken ct = default) => Task.CompletedTask;
-    public Task<List<string>> ListThreadIdsAsync(string sessionId, CancellationToken ct = default) => Task.FromResult(new List<string>());
+    public ValueTask<ThreadEventAppendResult> AppendThreadEventsAsync(ThreadKey thread, IReadOnlyList<AgentEvent> events, ThreadAppendCondition condition = default, CancellationToken ct = default) =>
+        ValueTask.FromResult(new ThreadEventAppendResult(events, 0, events.Count));
+    public ValueTask<ThreadDescriptor?> GetThreadAsync(ThreadKey thread, CancellationToken ct = default) => ValueTask.FromResult<ThreadDescriptor?>(null);
+    public ValueTask<ThreadEventHead?> GetThreadEventHeadAsync(ThreadKey thread, CancellationToken ct = default) => ValueTask.FromResult<ThreadEventHead?>(null);
+    public async IAsyncEnumerable<ThreadDescriptor> ListThreadsAsync(string sessionId, ThreadListRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) { await Task.CompletedTask; yield break; }
+    public async IAsyncEnumerable<ThreadEventBatch> ReadThreadEventsAsync(ThreadKey thread, ThreadEventReadRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) { await Task.CompletedTask; yield break; }
+    public async IAsyncEnumerable<ThreadEventBatch> ObserveThreadEventsAsync(ThreadKey thread, long after, ThreadObservationOptions options, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) { await Task.CompletedTask; yield break; }
     public Task DeleteThreadAsync(string sessionId, string threadId, CancellationToken ct = default) => Task.CompletedTask;
     public Task<int> DeleteInactiveSessionsAsync(TimeSpan threshold, bool dryRun = false, CancellationToken ct = default) => Task.FromResult(0);
 }

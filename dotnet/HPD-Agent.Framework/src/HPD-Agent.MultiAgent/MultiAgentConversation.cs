@@ -257,14 +257,14 @@ internal sealed class MultiAgentConversationRuntime : IMultiAgentConversationRun
         await _sessionSetup.Value.ConfigureAwait(false);
 
         var rootThreadId = NormalizeThreadId(_config.RootThreadId);
-        var thread = await _store.LoadThreadAsync(_sessionId, rootThreadId, cancellationToken).ConfigureAwait(false);
+        var thread = await _store.ProjectThreadAsync(_sessionId, rootThreadId, cancellationToken).ConfigureAwait(false);
         if (thread == null)
         {
             var bootstrap = new Agent.Agent(new AgentConfig { Name = "MultiAgentConversationBootstrap" }, null, null);
             bootstrap.Config!.SessionStore = _store;
             bootstrap.Config.SessionStoreOptions = new SessionStoreOptions { PersistAfterTurn = true };
             await bootstrap.CreateThreadAsync(_sessionId, rootThreadId, "Workflow", cancellationToken).ConfigureAwait(false);
-            thread = await _store.LoadThreadAsync(_sessionId, rootThreadId, cancellationToken).ConfigureAwait(false);
+            thread = await _store.ProjectThreadAsync(_sessionId, rootThreadId, cancellationToken).ConfigureAwait(false);
         }
 
         if (thread != null)
@@ -291,7 +291,7 @@ internal sealed class MultiAgentConversationRuntime : IMultiAgentConversationRun
         CancellationToken cancellationToken)
     {
         var threadId = BuildAgentThreadId(context.NodeId);
-        var existing = await _store.LoadThreadAsync(_sessionId, threadId, cancellationToken).ConfigureAwait(false);
+        var existing = await _store.ProjectThreadAsync(_sessionId, threadId, cancellationToken).ConfigureAwait(false);
         if (existing != null)
         {
             return threadId;
@@ -300,7 +300,7 @@ internal sealed class MultiAgentConversationRuntime : IMultiAgentConversationRun
         if (forkFromRoot)
         {
             var rootThreadId = await _rootSetup.Value.ConfigureAwait(false);
-            var root = await _store.LoadThreadAsync(_sessionId, rootThreadId, cancellationToken).ConfigureAwait(false)
+            var root = await _store.ProjectThreadAsync(_sessionId, rootThreadId, cancellationToken).ConfigureAwait(false)
                 ?? throw new InvalidOperationException($"Workflow root thread '{rootThreadId}' was not found.");
             var forkPoint = root.Messages.LastOrDefault()?.MessageId
                 ?? throw new InvalidOperationException($"Workflow root thread '{rootThreadId}' has no message to fork from.");
@@ -322,7 +322,7 @@ internal sealed class MultiAgentConversationRuntime : IMultiAgentConversationRun
                 cancellationToken).ConfigureAwait(false);
         }
 
-        var thread = await _store.LoadThreadAsync(_sessionId, threadId, cancellationToken).ConfigureAwait(false);
+        var thread = await _store.ProjectThreadAsync(_sessionId, threadId, cancellationToken).ConfigureAwait(false);
         if (thread != null)
         {
             ApplyWorkflowMetadata(thread, context.NodeId, context.Agent);

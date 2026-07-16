@@ -10,6 +10,7 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
 
     private readonly string _agentId;
     private readonly HPD.Events.IEventCoordinator _runtimeCoordinator;
+    private readonly IThreadEventPublisher? _threadEvents;
     private readonly ChannelWriter<AgentInputEvent> _runtimeWriter;
     private readonly IBackgroundTaskNotificationStrategyRegistry? _strategyRegistry;
     private readonly Channel<BackgroundTaskEvent> _finalStateEvents;
@@ -26,6 +27,7 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
     public BackgroundTaskNotificationDispatcher(
         string agentId,
         HPD.Events.IEventCoordinator runtimeCoordinator,
+        IThreadEventPublisher? threadEvents,
         ChannelWriter<AgentInputEvent> runtimeWriter,
         AgentRunConfig? runConfig,
         IBackgroundTaskNotificationStrategyRegistry? strategyRegistry = null,
@@ -37,6 +39,7 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
 
         _agentId = agentId;
         _runtimeCoordinator = runtimeCoordinator;
+        _threadEvents = threadEvents;
         _runtimeWriter = runtimeWriter;
         _runConfig = runConfig;
         _strategyRegistry = strategyRegistry;
@@ -168,7 +171,7 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
         {
             foreach (var item in scoped)
             {
-                _runtimeCoordinator.Emit(new BackgroundTaskNotificationQueuedEvent
+                await PublishAsync(new BackgroundTaskNotificationQueuedEvent
                 {
                     NotificationId = item.Notification.NotificationId,
                     TaskIds = item.Notification.TaskIds,
@@ -176,7 +179,7 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
                     Reason = item.Reason,
                     SessionId = sessionId,
                     ThreadId = threadId
-                });
+                }, cancellationToken).ConfigureAwait(false);
             }
 
             var input = new BackgroundTaskNotificationInputEvent(scoped.Select(item => item.Notification).ToList())
@@ -209,9 +212,9 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
             return _notifiedFinalStateTaskIds.Add(taskId);
     }
 
-    private Task PublishSuppressedAsync(BackgroundTaskEvent evt, string notificationId, string reason)
+    private async Task PublishSuppressedAsync(BackgroundTaskEvent evt, string notificationId, string reason)
     {
-        _runtimeCoordinator.Emit(new BackgroundTaskNotificationSuppressedEvent
+        await PublishAsync(new BackgroundTaskNotificationSuppressedEvent
         {
             NotificationId = notificationId,
             TaskIds = [evt.TaskId],
@@ -219,8 +222,23 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
             Reason = reason,
             SessionId = evt.SessionId ?? evt.Invocation?.SessionId,
             ThreadId = evt.ThreadId ?? evt.Invocation?.ThreadId
-        });
-        return Task.CompletedTask;
+        }, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private async ValueTask PublishAsync(AgentEvent evt, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(evt.SessionId) &&
+            !string.IsNullOrWhiteSpace(evt.ThreadId) &&
+            _threadEvents is not null)
+        {
+            await _threadEvents.CommitAndPublishAsync(
+                new ThreadKey(evt.SessionId, evt.ThreadId),
+                evt,
+                cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        await _runtimeCoordinator.EmitAsync(evt, cancellationToken).ConfigureAwait(false);
     }
 
     public static UserMessagesInputEvent ToUserMessagesInput(BackgroundTaskNotificationInputEvent input)

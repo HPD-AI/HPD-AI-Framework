@@ -44,10 +44,10 @@ public sealed class LocalSandboxMiddleware : IAgentMiddleware, IAsyncDisposable
         await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
         PublishCapabilities(context.RuntimeCapabilities);
         context.RegisterAsyncDisposable(this);
-        context.Emit(new ProcessIsolationInitializedEvent
+        await context.PublishAsync(new ProcessIsolationInitializedEvent
         {
             Platform = PlatformDetector.Current.ToString()
-        });
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task BeforeMessageTurnAsync(BeforeMessageTurnContext context, CancellationToken cancellationToken)

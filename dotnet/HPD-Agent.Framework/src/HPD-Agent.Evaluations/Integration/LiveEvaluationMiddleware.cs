@@ -181,7 +181,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         {
             var errorMessage = $"Evaluator '{evaluatorName}' timed out after {timeoutSeconds}s.";
 
-            hookCtx.Emit(new EvalFailedEvent
+            await hookCtx.PublishAsync(new EvalFailedEvent
             {
                 EvaluatorName = evaluatorName,
                 SessionId = turnCtx.SessionId,
@@ -189,13 +189,13 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
                 TurnIndex = turnCtx.TurnIndex,
                 ErrorMessage = errorMessage,
                 TimedOut = true,
-            });
+            }, ct).ConfigureAwait(false);
             return;
         }
         catch (Exception ex)
         {
             var errorMessage = ex.Message;
-            hookCtx.Emit(new EvalFailedEvent
+            await hookCtx.PublishAsync(new EvalFailedEvent
             {
                 EvaluatorName = evaluatorName,
                 SessionId = turnCtx.SessionId,
@@ -204,7 +204,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
                 ErrorMessage = errorMessage,
                 TimedOut = false,
                 Exception = ex,
-            });
+            }, ct).ConfigureAwait(false);
             return;
         }
 
@@ -251,7 +251,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
         }
 
         // Emit EvalScoreEvent
-        hookCtx.Emit(new EvalScoreEvent
+        await hookCtx.PublishAsync(new EvalScoreEvent
         {
             EvaluatorName = evaluatorName,
             EvaluatorVersion = version,
@@ -261,7 +261,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
             ThreadId = turnCtx.ThreadId,
             TurnIndex = turnCtx.TurnIndex,
             EvaluatorDuration = evaluatorDuration,
-        });
+        }, ct).ConfigureAwait(false);
 
         // Annotation queue: if a queue is configured and the score falls below the threshold,
         // enqueue the turn for human review and emit AnnotationRequestedEvent.
@@ -305,7 +305,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
 
                 if (failed)
                 {
-                    hookCtx.Emit(new EvalPolicyViolationEvent
+                    await hookCtx.PublishAsync(new EvalPolicyViolationEvent
                     {
                         EvaluatorName = evaluatorName,
                         MetricName = metricName,
@@ -313,7 +313,7 @@ public sealed class LiveEvaluationMiddleware : IAgentMiddleware
                         ThreadId = turnCtx.ThreadId,
                         TurnIndex = turnCtx.TurnIndex,
                         Result = result,
-                    });
+                    }, ct).ConfigureAwait(false);
                 }
             }
         }

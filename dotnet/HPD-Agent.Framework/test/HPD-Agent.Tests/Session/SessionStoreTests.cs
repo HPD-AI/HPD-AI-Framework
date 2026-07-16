@@ -121,7 +121,7 @@ public class SessionStoreTests : AgentTestBase
 
         // Act
         await store.SaveInitialThreadAsync("session-1", thread);
-        var loaded = await store.LoadThreadAsync("session-1", "thread-1");
+        var loaded = await store.ProjectThreadAsync("session-1", "thread-1");
 
         // Assert
         Assert.NotNull(loaded);
@@ -137,7 +137,7 @@ public class SessionStoreTests : AgentTestBase
         var store = new InMemorySessionStore();
 
         // Act
-        var result = await store.LoadThreadAsync("session-1", "non-existent");
+        var result = await store.ProjectThreadAsync("session-1", "non-existent");
 
         // Assert
         Assert.Null(result);
@@ -155,14 +155,14 @@ public class SessionStoreTests : AgentTestBase
 
         // Act
         await store.DeleteThreadAsync("session-1", "thread-to-delete");
-        var loaded = await store.LoadThreadAsync("session-1", "thread-to-delete");
+        var loaded = await store.ProjectThreadAsync("session-1", "thread-to-delete");
 
         // Assert
         Assert.Null(loaded);
     }
 
     [Fact]
-    public async Task InMemoryStore_ListThreadIds_ReturnsAllThreads()
+    public async Task InMemoryStore_ListThreads_ReturnsAllDescriptors()
     {
         // Arrange
         var store = new InMemorySessionStore();
@@ -172,7 +172,8 @@ public class SessionStoreTests : AgentTestBase
         await store.SaveInitialThreadAsync("session-1", session.CreateThread("thread-3"));
 
         // Act
-        var ids = await store.ListThreadIdsAsync("session-1");
+        var descriptors = await store.CollectThreadDescriptorsAsync("session-1");
+        var ids = descriptors.Select(item => item.Key.ThreadId).ToList();
 
         // Assert
         Assert.Equal(3, ids.Count);
@@ -182,13 +183,13 @@ public class SessionStoreTests : AgentTestBase
     }
 
     [Fact]
-    public async Task InMemoryStore_ListThreadIds_EmptyForNonExistentSession()
+    public async Task InMemoryStore_ListThreads_EmptyForNonExistentSession()
     {
         // Arrange
         var store = new InMemorySessionStore();
 
         // Act
-        var ids = await store.ListThreadIdsAsync("non-existent-session");
+        var ids = await store.CollectThreadDescriptorsAsync("non-existent-session");
 
         // Assert
         Assert.Empty(ids);
@@ -211,7 +212,7 @@ public class SessionStoreTests : AgentTestBase
 
         // Assert
         Assert.Null(await store.LoadSessionAsync("session-1"));
-        Assert.Null(await store.LoadThreadAsync("session-1", "thread-1"));
+        Assert.Null(await store.ProjectThreadAsync("session-1", "thread-1"));
     }
 
     //──────────────────────────────────────────────────────────────────

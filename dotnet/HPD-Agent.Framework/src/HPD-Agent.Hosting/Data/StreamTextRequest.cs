@@ -20,6 +20,10 @@ public sealed record InterruptionSubmissionDto(
     ThreadRunDto? ActiveRun = null);
 
 public sealed record ThreadRuntimeStateDto(
-    long LatestSequenceNumber,
+    long ObservedHead,
     ThreadRunDto? ActiveRun,
-    IReadOnlyList<AgentEvent> Events);
+    IReadOnlyList<PendingAgentRequestDto> PendingRequests);
+
+public sealed record PendingAgentRequestDto(
+    AgentEvent Request,
+    DateTimeOffset CreatedAt);

@@ -52,7 +52,7 @@ public class SubAgentRuntimeTests
         var agent = await BuildAgentAsync(store);
         await agent.CreateSessionAsync("parent-session");
 
-        var parentThread = (await store.LoadThreadAsync("parent-session", "main"))!;
+        var parentThread = (await store.ProjectThreadAsync("parent-session", "main"))!;
         parentThread.AddMessage(new ChatMessage(ChatRole.User, "Parent context"));
         parentThread.AddMessage(new ChatMessage(ChatRole.Assistant, "Parent answer"));
         await store.SaveInitialThreadAsync("parent-session", parentThread);
@@ -70,7 +70,7 @@ public class SubAgentRuntimeTests
         route.SessionId.Should().Be("parent-session");
         route.ThreadId.Should().StartWith("subagent/reviewer/");
 
-        var childThread = await store.LoadThreadAsync(route.SessionId, route.ThreadId);
+        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId);
         childThread.Should().NotBeNull();
         childThread!.Messages.Should().HaveCount(parentThread.Messages.Count);
         childThread.Kind.Should().Be(ThreadKind.SubAgent);
@@ -97,7 +97,7 @@ public class SubAgentRuntimeTests
         var agent = await BuildAgentAsync(store);
         await agent.CreateSessionAsync("parent-session");
 
-        var parentThread = (await store.LoadThreadAsync("parent-session", "main"))!;
+        var parentThread = (await store.ProjectThreadAsync("parent-session", "main"))!;
         parentThread.AddMessage(new ChatMessage(ChatRole.User, "This should not be copied"));
         await store.SaveInitialThreadAsync("parent-session", parentThread);
 
@@ -113,7 +113,7 @@ public class SubAgentRuntimeTests
         route.SessionId.Should().Be("parent-session");
         route.ThreadId.Should().StartWith("subagent/researcher/");
 
-        var childThread = await store.LoadThreadAsync(route.SessionId, route.ThreadId);
+        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId);
         childThread.Should().NotBeNull();
         childThread!.Messages.Should().BeEmpty();
         childThread.Kind.Should().Be(ThreadKind.SubAgent);
@@ -140,7 +140,7 @@ public class SubAgentRuntimeTests
             });
         await agent.CreateSessionAsync("parent-session");
 
-        var parentThread = (await store.LoadThreadAsync("parent-session", "main"))!;
+        var parentThread = (await store.ProjectThreadAsync("parent-session", "main"))!;
         for (var i = 0; i < 4; i++)
         {
             parentThread.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
@@ -156,7 +156,7 @@ public class SubAgentRuntimeTests
 
         var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
-        var childThread = await store.LoadThreadAsync(route.SessionId, route.ThreadId);
+        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId);
         childThread!.Messages.Select(message => message.MessageId)
             .Should().Equal("message-2", "message-3");
         strategy.CallCount.Should().Be(1);
@@ -181,7 +181,7 @@ public class SubAgentRuntimeTests
             });
         await agent.CreateSessionAsync("parent-session");
 
-        var parentThread = (await store.LoadThreadAsync("parent-session", "main"))!;
+        var parentThread = (await store.ProjectThreadAsync("parent-session", "main"))!;
         for (var i = 0; i < 3; i++)
         {
             parentThread.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
@@ -197,7 +197,7 @@ public class SubAgentRuntimeTests
 
         var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
-        var childThread = await store.LoadThreadAsync(route.SessionId, route.ThreadId);
+        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId);
         childThread!.Messages.Select(message => message.MessageId)
             .Should().Equal("message-0", "message-1", "message-2");
         strategy.CallCount.Should().Be(0);
@@ -222,7 +222,7 @@ public class SubAgentRuntimeTests
             });
         await agent.CreateSessionAsync("parent-session");
 
-        var parentThread = (await store.LoadThreadAsync("parent-session", "main"))!;
+        var parentThread = (await store.ProjectThreadAsync("parent-session", "main"))!;
         for (var i = 0; i < 4; i++)
         {
             parentThread.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
@@ -250,7 +250,7 @@ public class SubAgentRuntimeTests
 
         var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
-        var childThread = await store.LoadThreadAsync(route.SessionId, route.ThreadId);
+        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId);
         childThread!.Messages.Select(message => message.MessageId)
             .Should().Equal("message-2", "message-3");
         strategy.CallCount.Should().Be(0);
@@ -275,7 +275,7 @@ public class SubAgentRuntimeTests
             });
         await agent.CreateSessionAsync("parent-session");
 
-        var parentThread = (await store.LoadThreadAsync("parent-session", "main"))!;
+        var parentThread = (await store.ProjectThreadAsync("parent-session", "main"))!;
         for (var i = 0; i < 3; i++)
         {
             parentThread.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
@@ -303,7 +303,7 @@ public class SubAgentRuntimeTests
 
         var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
-        var childThread = await store.LoadThreadAsync(route.SessionId, route.ThreadId);
+        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId);
         childThread!.Messages.Select(message => message.MessageId)
             .Should().Equal("message-2");
         strategy.CallCount.Should().Be(1);
@@ -332,7 +332,7 @@ public class SubAgentRuntimeTests
             });
         await agent.CreateSessionAsync("parent-session");
 
-        var parentThread = (await store.LoadThreadAsync("parent-session", "main"))!;
+        var parentThread = (await store.ProjectThreadAsync("parent-session", "main"))!;
         for (var i = 0; i < 5; i++)
         {
             parentThread.AddMessage(new ChatMessage(ChatRole.User, $"Parent context {i}") { MessageId = $"message-{i}" });
@@ -353,7 +353,7 @@ public class SubAgentRuntimeTests
 
         var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
 
-        var childThread = await store.LoadThreadAsync(route.SessionId, route.ThreadId);
+        var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId);
         childThread!.Messages.Select(message => message.MessageId)
             .Should().Equal("message-2", "message-3", "message-4");
         defaultStrategy.CallCount.Should().Be(0);
@@ -384,7 +384,7 @@ public class SubAgentRuntimeTests
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "ParentAgent");
         var session = (await store.LoadSessionAsync(sessionId))!;
         session.Store = store;
-        var thread = (await store.LoadThreadAsync(sessionId, threadId))!;
+        var thread = (await store.ProjectThreadAsync(sessionId, threadId))!;
         var agentContext = new AgentContext(
             "ParentAgent",
             "conversation-1",

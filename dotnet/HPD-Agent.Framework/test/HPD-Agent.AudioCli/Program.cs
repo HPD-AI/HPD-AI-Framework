@@ -989,7 +989,7 @@ static IReadOnlyDictionary<(string OutputFlowId, int SegmentIndex), AssistantAud
 
 static async Task PrintThreadAsync(InMemorySessionStore sessionStore, string sessionId, string threadId)
 {
-    var thread = await sessionStore.LoadThreadAsync(sessionId, threadId);
+    var thread = await sessionStore.ProjectThreadAsync(sessionId, threadId);
     Console.WriteLine();
     if (thread is null)
     {

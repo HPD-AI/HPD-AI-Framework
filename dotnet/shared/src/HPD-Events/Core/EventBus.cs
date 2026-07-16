@@ -27,6 +27,9 @@ public sealed class EventBus :
     /// <inheritdoc />
     public IEventFlowRegistry EventFlows => _coordinator.EventFlows;
 
+    public IReadOnlyList<PendingRequestSnapshot> GetPendingRequests()
+        => _coordinator.GetPendingRequests();
+
     /// <inheritdoc />
     public void Emit(Event evt) => _coordinator.Emit(evt);
 
@@ -70,6 +73,13 @@ public sealed class EventBus :
         where TResponse : Event, IResponseEvent =>
         _coordinator.StartRequest<TRequest, TResponse>(request, options);
 
+    public RequestHandle RegisterRequest<TRequest, TResponse>(
+        TRequest request,
+        RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent =>
+        _coordinator.RegisterRequest<TRequest, TResponse>(request, options);
+
     /// <inheritdoc />
     public Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
@@ -86,6 +96,13 @@ public sealed class EventBus :
     /// <inheritdoc />
     public RespondResult Respond(string requestId, Event response) =>
         _coordinator.Respond(requestId, response);
+
+    public ValueTask<RespondResult> RespondAsync(
+        string requestId,
+        Event response,
+        Func<Event, CancellationToken, ValueTask<Event>> beforeCompletion,
+        CancellationToken cancellationToken = default) =>
+        _coordinator.RespondAsync(requestId, response, beforeCompletion, cancellationToken);
 
     /// <inheritdoc />
     public void SetParent(IEventBus parent)

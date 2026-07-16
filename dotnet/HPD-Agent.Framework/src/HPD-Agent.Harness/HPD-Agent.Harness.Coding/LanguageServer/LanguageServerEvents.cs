@@ -6,7 +6,6 @@ namespace HPDOS.ToolHarnesses.Middleware;
 public abstract record LanguageServerEvent : AgentEvent
 {
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;
-    public override bool ShouldPersistToThread() => true;
     public required string Path { get; init; }
     public required string Uri { get; init; }
 }

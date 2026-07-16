@@ -50,6 +50,22 @@ public sealed record AgentTurnResult
 }
 
 /// <summary>
+/// Receipt returned when input is accepted by a running agent runtime.
+/// </summary>
+public sealed record AgentRuntimeInputSubmission(
+    AgentInputEvent Input,
+    Task<AgentRuntimeInputOutcome> Completion);
+
+/// <summary>
+/// Execution outcome reported by the runtime queue. Hosted lifecycle controllers use this
+/// result to commit their terminal thread-run fact; the core runtime does not create one.
+/// </summary>
+public sealed record AgentRuntimeInputOutcome(
+    AgentTurnResult Result,
+    bool Cancelled,
+    Exception? Error);
+
+/// <summary>
 /// Represents one tool call observed during an agent turn.
 /// </summary>
 public sealed record AgentToolCallResult

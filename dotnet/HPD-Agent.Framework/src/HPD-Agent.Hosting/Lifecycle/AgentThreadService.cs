@@ -22,8 +22,13 @@ public sealed class AgentThreadService : IAgentThreadService
         if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
             return AgentServiceResult<IReadOnlyList<ThreadDto>>.NotFound;
 
-        var threads = await LoadSessionThreadsAsync(sessionId, cancellationToken);
-        var dtos = threads.Select(thread => thread.ToDto(sessionId)).ToList();
+        var threads = await _sessionManager.Store.CollectThreadDescriptorsAsync(
+            sessionId,
+            cancellationToken: cancellationToken);
+        var childCounts = CountDirectForks(threads);
+        var dtos = threads
+            .Select(thread => thread.ToDto(childCounts.GetValueOrDefault(thread.Key.ThreadId)))
+            .ToList();
 
         return AgentServiceResult<IReadOnlyList<ThreadDto>>.Success(dtos);
     }
@@ -35,10 +40,15 @@ public sealed class AgentThreadService : IAgentThreadService
         if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
             return AgentServiceResult<ThreadGraphDto>.NotFound;
 
-        var threads = await LoadSessionThreadsAsync(sessionId, cancellationToken);
-        var dtos = threads.Select(thread => thread.ToDto(sessionId)).ToList();
-        var forkGroups = BuildForkGroups(threads);
-        var runtimeChildren = BuildRuntimeChildren(threads);
+        var threads = await _sessionManager.Store.CollectThreadDescriptorsAsync(
+            sessionId,
+            cancellationToken: cancellationToken);
+        var childCounts = CountDirectForks(threads);
+        var dtos = threads
+            .Select(thread => thread.ToDto(childCounts.GetValueOrDefault(thread.Key.ThreadId)))
+            .ToList();
+        var forkGroups = BuildDescriptorForkGroups(threads);
+        var runtimeChildren = BuildDescriptorRuntimeChildren(threads);
 
         return AgentServiceResult<ThreadGraphDto>.Success(new ThreadGraphDto(dtos, forkGroups, runtimeChildren));
     }
@@ -48,10 +58,11 @@ public sealed class AgentThreadService : IAgentThreadService
         string threadId,
         CancellationToken cancellationToken = default)
     {
-        var thread = await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken);
+        var thread = await _sessionManager.Store.GetThreadAsync(
+            new ThreadKey(sessionId, threadId), cancellationToken);
         return thread == null
             ? AgentServiceResult<ThreadDto>.NotFound
-            : AgentServiceResult<ThreadDto>.Success(thread.ToDto(sessionId));
+            : AgentServiceResult<ThreadDto>.Success(thread.ToDto());
     }
 
     public async Task<AgentServiceResult<ThreadDto>> CreateThreadAsync(
@@ -67,7 +78,8 @@ public sealed class AgentThreadService : IAgentThreadService
             ? Guid.NewGuid().ToString()
             : request.ThreadId;
 
-        if (await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken) != null)
+        if (await _sessionManager.Store.GetThreadAsync(
+                new ThreadKey(sessionId, threadId), cancellationToken).ConfigureAwait(false) != null)
             return AgentServiceResult<ThreadDto>.Conflict;
 
         var session = await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken)
@@ -81,10 +93,12 @@ public sealed class AgentThreadService : IAgentThreadService
         MergeThreadMetadata(thread, request.Metadata);
         await _sessionManager.Store.SaveInitialThreadAsync(sessionId, thread, cancellationToken);
 
-        thread = await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken)
+        var descriptor = await _sessionManager.Store.GetThreadAsync(
+                new ThreadKey(sessionId, threadId), cancellationToken)
+            .ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Thread '{threadId}' not found after creation.");
 
-        return AgentServiceResult<ThreadDto>.Success(thread.ToDto(sessionId));
+        return AgentServiceResult<ThreadDto>.Success(descriptor.ToDto());
     }
 
     public Task<AgentServiceResult<ThreadDto>> ForkThreadAsync(
@@ -106,7 +120,7 @@ public sealed class AgentThreadService : IAgentThreadService
         UpdateThreadRequest request,
         CancellationToken cancellationToken = default)
     {
-        var thread = await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken);
+        var thread = await _sessionManager.Store.ProjectThreadAsync(sessionId, threadId, cancellationToken);
         if (thread == null)
             return AgentServiceResult<ThreadDto>.NotFound;
 
@@ -135,7 +149,7 @@ public sealed class AgentThreadService : IAgentThreadService
         if (threadId == "main")
             return AgentServiceResult.Validation("ProtectedThread", "Cannot delete the 'main' thread.");
 
-        var thread = await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken);
+        var thread = await _sessionManager.Store.ProjectThreadAsync(sessionId, threadId, cancellationToken);
         if (thread == null)
             return AgentServiceResult.NotFound;
 
@@ -176,19 +190,6 @@ public sealed class AgentThreadService : IAgentThreadService
         }
     }
 
-    public async Task<AgentServiceResult<IReadOnlyList<AgentEvent>>> GetEventsAsync(
-        string sessionId,
-        string threadId,
-        CancellationToken cancellationToken = default)
-    {
-        var document = await _sessionManager.Store.LoadThreadDocumentAsync(sessionId, threadId, cancellationToken);
-        if (document == null && await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken) == null)
-            return AgentServiceResult<IReadOnlyList<AgentEvent>>.NotFound;
-
-        return AgentServiceResult<IReadOnlyList<AgentEvent>>.Success(
-            document?.Events.OrderBy(e => e.SequenceNumber).ToList() ?? []);
-    }
-
     private async Task<AgentServiceResult<ThreadDto>> ForkThreadCoreAsync(
         string agentId,
         string sessionId,
@@ -199,7 +200,8 @@ public sealed class AgentThreadService : IAgentThreadService
         if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
             return AgentServiceResult<ThreadDto>.NotFound;
 
-        if (await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken) == null)
+        if (await _sessionManager.Store.GetThreadAsync(
+                new ThreadKey(sessionId, threadId), cancellationToken).ConfigureAwait(false) == null)
             return AgentServiceResult<ThreadDto>.NotFound;
 
         var newThreadId = string.IsNullOrWhiteSpace(request.NewThreadId)
@@ -228,7 +230,7 @@ public sealed class AgentThreadService : IAgentThreadService
                 ex.Message);
         }
 
-        var newThread = await _sessionManager.Store.LoadThreadAsync(sessionId, newThreadId, cancellationToken)
+        var newThread = await _sessionManager.Store.ProjectThreadAsync(sessionId, newThreadId, cancellationToken)
             ?? throw new InvalidOperationException($"Thread '{newThreadId}' not found after fork.");
 
         ApplyThreadMetadata(newThread, request.Name, request.Description, request.Tags, metadata: null);
@@ -268,7 +270,7 @@ public sealed class AgentThreadService : IAgentThreadService
         string threadId,
         CancellationToken cancellationToken)
     {
-        var thread = await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken);
+        var thread = await _sessionManager.Store.ProjectThreadAsync(sessionId, threadId, cancellationToken);
         if (thread == null)
             return;
 
@@ -287,7 +289,7 @@ public sealed class AgentThreadService : IAgentThreadService
     {
         if (thread.ForkedFrom != null)
         {
-            var parent = await _sessionManager.Store.LoadThreadAsync(sessionId, thread.ForkedFrom, cancellationToken);
+            var parent = await _sessionManager.Store.ProjectThreadAsync(sessionId, thread.ForkedFrom, cancellationToken);
             if (parent != null && parent.ChildThreads.Contains(threadId))
             {
                 parent.ChildThreads.Remove(threadId);
@@ -346,90 +348,120 @@ public sealed class AgentThreadService : IAgentThreadService
         }
     }
 
-    private async Task<List<Thread>> LoadSessionThreadsAsync(
-        string sessionId,
-        CancellationToken cancellationToken)
+    private static Dictionary<string, int> CountDirectForks(IReadOnlyList<ThreadDescriptor> threads)
+        => threads
+            .Where(thread => thread.Fork is not null)
+            .GroupBy(thread => thread.Fork!.SourceThreadId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+
+    private static IReadOnlyList<ThreadForkGroupDto> BuildDescriptorForkGroups(
+        IReadOnlyList<ThreadDescriptor> threads)
     {
-        var threadIds = await _sessionManager.Store.ListThreadIdsAsync(sessionId, cancellationToken);
-        var threads = new List<Thread>();
+        var visible = threads
+            .Where(IsVisibleBranchThread)
+            .ToDictionary(thread => thread.Key.ThreadId, StringComparer.Ordinal);
 
-        foreach (var threadId in threadIds)
-        {
-            var thread = await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken);
-            if (thread != null)
-                threads.Add(thread);
-        }
-
-        return threads;
-    }
-
-    private static IReadOnlyList<ThreadForkGroupDto> BuildForkGroups(IReadOnlyList<Thread> threads)
-    {
-        return ThreadForkGraph.BuildVisibleForkGroups(threads)
-            .Select(ToForkGroupDto)
-            .ToList();
-    }
-
-    private static IReadOnlyList<ThreadRuntimeChildDto> BuildRuntimeChildren(IReadOnlyList<Thread> threads)
-    {
         return threads
-            .Where(IsRuntimeChildThread)
-            .OrderBy(thread => thread.ParentThreadId, StringComparer.Ordinal)
-            .ThenBy(thread => thread.CreatedAt)
-            .ThenBy(thread => thread.Id, StringComparer.Ordinal)
-            .Select(ToRuntimeChild)
-            .ToList();
+            .Where(IsVisibleBranchThread)
+            .Where(thread => thread.Fork is not null &&
+                visible.ContainsKey(thread.Fork.SourceThreadId))
+            .GroupBy(
+                thread => (thread.Fork!.SourceThreadId, thread.Fork.MessageId),
+                new ForkDescriptorKeyComparer())
+            .OrderBy(group => group.Key.SourceThreadId, StringComparer.Ordinal)
+            .ThenBy(group => group.Min(thread => thread.Fork?.MessageIndex ?? -1))
+            .ThenBy(group => group.Key.MessageId ?? string.Empty, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var source = visible[group.Key.SourceThreadId];
+                var forks = group
+                    .OrderBy(thread => thread.CreatedAt)
+                    .ThenBy(thread => thread.Key.ThreadId, StringComparer.Ordinal)
+                    .ToArray();
+                var forkIndex = forks.Select(thread => thread.Fork?.MessageIndex)
+                    .FirstOrDefault(index => index is not null);
+                var choiceIndex = forkIndex is null ? 0 : forkIndex.Value + 1;
+                var members = new List<ThreadForkGroupMemberDto>
+                {
+                    ToForkMember(source, 0, isSource: true, choiceIndex)
+                };
+                for (var index = 0; index < forks.Length; index++)
+                {
+                    members.Add(ToForkMember(forks[index], index + 1, isSource: false, choiceIndex));
+                }
+
+                return new ThreadForkGroupDto(
+                    $"{group.Key.SourceThreadId}@{group.Key.MessageId ?? "root"}",
+                    group.Key.SourceThreadId,
+                    group.Key.MessageId,
+                    forkIndex,
+                    choiceIndex,
+                    members);
+            })
+            .ToArray();
     }
 
-    private static bool IsVisibleBranchThread(Thread thread) =>
-        thread.Kind == ThreadKind.MainAgent &&
-        thread.Visibility == ThreadVisibility.Visible;
-
-    private static bool IsRuntimeChildThread(Thread thread) =>
-        !string.IsNullOrWhiteSpace(thread.ParentThreadId) ||
-        thread.Kind != ThreadKind.MainAgent ||
-        thread.Visibility == ThreadVisibility.Hidden;
-
-    private static ThreadRuntimeChildDto ToRuntimeChild(Thread thread)
-    {
-        var parentSessionId = thread.ParentSessionId ?? thread.SessionId;
-        var parentThreadId = thread.ParentThreadId ?? thread.ForkedFrom ?? string.Empty;
-        return new ThreadRuntimeChildDto(
-            thread.Id,
-            parentSessionId,
-            parentThreadId,
-            thread.GetDisplayName(),
-            thread.Kind,
-            thread.Visibility,
-            thread.SubAgentName,
-            thread.SubAgentRunId,
-            thread.SubAgentSourceKind,
-            thread.ParentToolCallId,
-            thread.SessionPolicy,
-            thread.ThreadPolicy,
+    private static ThreadForkGroupMemberDto ToForkMember(
+        ThreadDescriptor thread,
+        int index,
+        bool isSource,
+        int choiceIndex)
+        => new(
+            thread.Key.ThreadId,
+            thread.Name ?? thread.Key.ThreadId,
+            index,
+            isSource,
+            thread.Metadata.TryGetValue("inputMessageId", out var inputMessageId)
+                ? inputMessageId?.ToString()
+                : null,
+            choiceIndex,
             thread.MessageCount,
-            thread.CreatedAt,
-            thread.LastActivity);
+            thread.CreatedAt.UtcDateTime,
+            thread.UpdatedAt.UtcDateTime);
+
+    private static IReadOnlyList<ThreadRuntimeChildDto> BuildDescriptorRuntimeChildren(
+        IReadOnlyList<ThreadDescriptor> threads)
+        => threads
+            .Where(thread => thread.RuntimeChild is not null ||
+                thread.Kind != ThreadKind.MainAgent ||
+                thread.Visibility == ThreadVisibility.Hidden)
+            .OrderBy(thread => thread.RuntimeChild?.ParentThreadId, StringComparer.Ordinal)
+            .ThenBy(thread => thread.CreatedAt)
+            .ThenBy(thread => thread.Key.ThreadId, StringComparer.Ordinal)
+            .Select(thread => new ThreadRuntimeChildDto(
+                thread.Key.ThreadId,
+                thread.RuntimeChild?.ParentSessionId ?? thread.Key.SessionId,
+                thread.RuntimeChild?.ParentThreadId ?? thread.Fork?.SourceThreadId ?? string.Empty,
+                thread.Name ?? thread.Key.ThreadId,
+                thread.Kind,
+                thread.Visibility,
+                thread.RuntimeChild?.SubAgentName,
+                thread.RuntimeChild?.SubAgentRunId,
+                thread.RuntimeChild?.SubAgentSourceKind,
+                thread.RuntimeChild?.ParentToolCallId,
+                thread.RuntimeChild?.SessionPolicy,
+                thread.RuntimeChild?.ThreadPolicy,
+                thread.MessageCount,
+                thread.CreatedAt.UtcDateTime,
+                thread.UpdatedAt.UtcDateTime))
+            .ToArray();
+
+    private static bool IsVisibleBranchThread(ThreadDescriptor thread)
+        => thread.Kind == ThreadKind.MainAgent &&
+           thread.Visibility == ThreadVisibility.Visible;
+
+    private sealed class ForkDescriptorKeyComparer
+        : IEqualityComparer<(string SourceThreadId, string? MessageId)>
+    {
+        public bool Equals(
+            (string SourceThreadId, string? MessageId) x,
+            (string SourceThreadId, string? MessageId) y)
+            => string.Equals(x.SourceThreadId, y.SourceThreadId, StringComparison.Ordinal) &&
+               string.Equals(x.MessageId, y.MessageId, StringComparison.Ordinal);
+
+        public int GetHashCode((string SourceThreadId, string? MessageId) value)
+            => HashCode.Combine(
+                StringComparer.Ordinal.GetHashCode(value.SourceThreadId),
+                value.MessageId is null ? 0 : StringComparer.Ordinal.GetHashCode(value.MessageId));
     }
-
-    private static ThreadForkGroupDto ToForkGroupDto(ThreadForkGroup group) =>
-        new(
-            group.Id,
-            group.SourceThreadId,
-            group.ForkedAtMessageId,
-            group.ForkedAtMessageIndex,
-            group.ChoiceMessageIndex,
-            group.Members.Select(ToForkGroupMember).ToList());
-
-    private static ThreadForkGroupMemberDto ToForkGroupMember(ThreadForkGroupMember member) =>
-        new(
-            member.Thread.Id,
-            member.Thread.GetDisplayName(),
-            member.Index,
-            member.IsSource,
-            member.ChoiceMessageId,
-            member.ChoiceMessageIndex,
-            member.Thread.MessageCount,
-            member.Thread.CreatedAt,
-            member.Thread.LastActivity);
 }

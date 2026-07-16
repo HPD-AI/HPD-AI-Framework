@@ -70,6 +70,24 @@ public sealed class TranscriptModelTests
     }
 
     [Fact]
+    public void BeginUpdate_PublishesOneVersionForManyMutations()
+    {
+        var model = new TranscriptModel();
+
+        using (model.BeginUpdate())
+        {
+            model.AddFinal(Row("1", null, "first"));
+            model.AddFinal(Row("2", null, "second"));
+            model.UpsertLive(Row("3", "live:3", "third"));
+
+            model.Version.Should().Be(0);
+        }
+
+        model.Count.Should().Be(3);
+        model.Version.Should().Be(1);
+    }
+
+    [Fact]
     public void TranscriptEntry_FromEvent_CarriesAgentMetadata()
     {
         var evt = new TextDeltaEvent("hello", "message")

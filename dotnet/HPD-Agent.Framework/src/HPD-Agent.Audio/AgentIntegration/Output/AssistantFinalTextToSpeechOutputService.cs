@@ -116,7 +116,7 @@ public sealed class AssistantFinalTextToSpeechOutputService
                 Thread = request.Thread,
                 Correlation = correlation,
                 Options = request.Options,
-                EmitEvent = request.EmitEvent
+                PublishEventAsync = request.PublishEventAsync
             },
             cancellationToken).ConfigureAwait(false);
         var outputResult = segmentResult.ToOutputResult(request.SessionId);
@@ -220,5 +220,5 @@ public sealed record AssistantFinalTextToSpeechOutputRequest
 
     public AssistantTextToSpeechOutputOptions? Options { get; init; }
 
-    public Action<AgentEvent>? EmitEvent { get; init; }
+    public Func<AgentEvent, CancellationToken, ValueTask<AgentEvent>>? PublishEventAsync { get; init; }
 }

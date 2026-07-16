@@ -77,7 +77,7 @@ internal sealed class ProgressiveOutputCoordinator
                     SessionId = _options.SessionId,
                     Sink = _options.OutputSink,
                     EventFlowHandle = _options.EventFlowHandle,
-                    EmitEvent = _options.EmitEvent,
+                    PublishEventAsync = _options.PublishEventAsync,
                     StructEvents = _options.StructEvents,
                     CaptureStructEventSamplesInTrace = _options.CaptureStructEventSamplesInTrace
                 }, _flow);
@@ -117,7 +117,7 @@ internal sealed class ProgressiveOutputCoordinator
                 ToOutputDisposition(commit.Disposition));
         }
 
-        EmitCompleted(responseId, results, commit);
+        await PublishCompletedAsync(responseId, results, commit, cancellationToken).ConfigureAwait(false);
         return new ProgressiveOutputCompletion
         {
             SessionId = _options.SessionId,
@@ -146,10 +146,11 @@ internal sealed class ProgressiveOutputCoordinator
         };
     }
 
-    private void EmitCompleted(
+    private async ValueTask PublishCompletedAsync(
         ResponseId responseId,
         IReadOnlyList<AssistantTextToSpeechOutputResult> results,
-        OutputCommitRecord? commit)
+        OutputCommitRecord? commit,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(_flow.Snapshot.Text) && results.Count == 0)
         {
@@ -164,14 +165,17 @@ internal sealed class ProgressiveOutputCoordinator
                 : nameof(AssistantTextToSpeechOutputStatus.SynthesisFailedTextOnly));
         var played = OutputWasHeard(commit);
 
-        _options.EmitEvent?.Invoke(new AssistantAudioOutputCompletedEvent(
+        if (_options.PublishEventAsync is { } publish)
+        {
+            await publish(new AssistantAudioOutputCompletedEvent(
             _options.SessionId.Value,
             _flow.Id.Value,
             responseId.Value,
             disposition,
             synthesized,
             Played: played,
-            HeardByUser: played));
+            HeardByUser: played), cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private static bool OutputWasHeard(OutputCommitRecord? commit)
@@ -233,7 +237,7 @@ internal sealed record ProgressiveOutputCoordinatorOptions
 
     public string? RequestId { get; init; }
 
-    public Action<AgentEvent>? EmitEvent { get; init; }
+    public Func<AgentEvent, CancellationToken, ValueTask<AgentEvent>>? PublishEventAsync { get; init; }
 
     public IAudioOutputSink? OutputSink { get; init; }
 

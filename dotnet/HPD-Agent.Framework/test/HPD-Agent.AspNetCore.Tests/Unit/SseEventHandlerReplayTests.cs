@@ -13,8 +13,6 @@ public sealed class SseEventHandlerReplayTests
     public async Task StreamEventsAsync_ReplaysOnlyCommittedEventsAfterTheCursor()
     {
         var store = new InMemorySessionStore();
-        var agent = await CreateAgentAsync(store);
-        await agent.CreateSessionAsync("session-1");
         await store.AppendThreadEventAsync(
             "session-1",
             "main",
@@ -23,15 +21,15 @@ public sealed class SseEventHandlerReplayTests
             "session-1",
             "main",
             new TextDeltaEvent("second", "message-1"));
-        var committed = await store.LoadThreadDocumentAsync("session-1", "main");
-        var firstSequence = committed!.Events
+        var committed = await store.CollectThreadEventsAsync("session-1", "main");
+        var firstSequence = committed!
             .OfType<TextDeltaEvent>()
             .Single(evt => evt.Text == "first")
-            .SequenceNumber;
-        var secondSequence = committed.Events
+            .ThreadSequenceNumber;
+        var secondSequence = committed
             .OfType<TextDeltaEvent>()
             .Single(evt => evt.Text == "second")
-            .SequenceNumber;
+            .ThreadSequenceNumber;
         var context = new DefaultHttpContext();
         context.Request.QueryString = new QueryString($"?after={firstSequence}");
         context.Response.Body = new MemoryStream();
@@ -39,9 +37,8 @@ public sealed class SseEventHandlerReplayTests
 
         var streamTask = SseEventHandler.StreamEventsAsync(
             context,
-            agent,
-            "session-1",
-            "main",
+            store,
+            new ThreadKey("session-1", "main"),
             timeout.Token);
         while (context.Response.Body.Length < 20)
         {
@@ -57,25 +54,5 @@ public sealed class SseEventHandlerReplayTests
         body.Should().Contain("second");
         body.Should().NotContain($"id: {firstSequence}\n");
         body.Should().NotContain("first");
-    }
-
-    private static Task<Agent> CreateAgentAsync(ISessionStore store)
-    {
-        var config = new AgentConfig
-        {
-            Name = "sse-replay-test",
-            Clients = new AgentClientConfig
-            {
-                Chat = new ClientProviderConfig
-                {
-                    ProviderKey = "test",
-                    ModelName = "test-model"
-                }
-            }
-        };
-
-        return new AgentBuilder(config, new TestProviderRegistry(new FakeChatClient()))
-            .WithSessionStore(store)
-            .BuildAsync();
     }
 }

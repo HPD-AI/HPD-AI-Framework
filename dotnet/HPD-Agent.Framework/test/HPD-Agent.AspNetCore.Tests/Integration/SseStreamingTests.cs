@@ -76,27 +76,15 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         submission.Should().NotBeNull();
         submission!.RuntimeRunId.Should().NotBeNullOrWhiteSpace();
 
-        await WaitUntilAsync(async () =>
-        {
-            var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/threads/main/events");
-            using var events = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
-            return events.RootElement.EnumerateArray().Any(e =>
-                e.GetProperty("type").GetString() == "TEXT_MESSAGE_START" &&
-                e.TryGetProperty("clientInputId", out var clientInputId) &&
-                clientInputId.GetString() == "client-input-1");
-        });
+        var threadEvents = await ObserveUntilAsync(
+            sessionId,
+            events => events.OfType<TextMessageStartEvent>().Any(e => e.ClientInputId == "client-input-1") &&
+                      events.OfType<TextDeltaEvent>().Any());
 
-        var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/threads/main/events");
-        using var events = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
-        var threadEvents = events.RootElement.EnumerateArray().ToArray();
-        threadEvents.Should().NotContain(e => e.GetProperty("type").GetString() == EventTypes.Input.USER_MESSAGES_INPUT);
-        threadEvents.Any(e =>
-            e.GetProperty("type").GetString() == "TEXT_MESSAGE_START" &&
-            e.TryGetProperty("clientInputId", out var clientInputId) &&
-            clientInputId.GetString() == "client-input-1")
-            .Should()
-            .BeTrue();
-        threadEvents.Should().Contain(e => e.GetProperty("type").GetString() == EventTypes.Content.TEXT_DELTA);
+        threadEvents.Should().NotContain(e => e is UserMessagesInputEvent);
+        threadEvents.OfType<TextMessageStartEvent>()
+            .Should().Contain(e => e.ClientInputId == "client-input-1");
+        threadEvents.Should().Contain(e => e is TextDeltaEvent);
     }
 
     [Fact]
@@ -137,13 +125,10 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         var response = await PostInputAsync(sessionId, "main", CreateInputJson("Save this message"));
         response.StatusCode.Should().Be(HttpStatusCode.Accepted);
 
-        await WaitUntilAsync(async () =>
-        {
-            var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/threads/main/events");
-            using var events = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
-            return events.RootElement.EnumerateArray()
-                .Any(e => e.GetProperty("type").GetString() == "TEXT_DELTA");
-        });
+        var threadEvents = await ObserveUntilAsync(
+            sessionId,
+            events => events.Any(e => e is TextDeltaEvent));
+        threadEvents.Should().Contain(e => e is TextDeltaEvent);
     }
 
     [Fact]
@@ -161,7 +146,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task ThreadState_ReturnsHistoryAndOneAuthoritativeCursor()
+    public async Task ThreadState_ReturnsControlStateWithoutHistoryPayload()
     {
         var sessionId = await CreateTestSession();
         var response = await PostInputAsync(
@@ -175,14 +160,16 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
             var stateResponse = await _client.GetAsync(
                 $"/agents/test-agent/sessions/{sessionId}/threads/main/state");
             var state = await stateResponse.Content.ReadFromJsonAsync<ThreadRuntimeStateDto>();
-            return state is { LatestSequenceNumber: > 0 } && state.Events.Count > 0;
+            return state is { ObservedHead: > 0 };
         });
 
         var finalResponse = await _client.GetAsync(
             $"/agents/test-agent/sessions/{sessionId}/threads/main/state");
-        var finalState = await finalResponse.Content.ReadFromJsonAsync<ThreadRuntimeStateDto>();
+        var json = await finalResponse.Content.ReadAsStringAsync();
+        var finalState = JsonSerializer.Deserialize<ThreadRuntimeStateDto>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         finalState.Should().NotBeNull();
-        finalState!.LatestSequenceNumber.Should().Be(finalState.Events.Max(static evt => evt.SequenceNumber));
+        finalState!.ObservedHead.Should().BeGreaterThan(0);
+        json.Should().NotContain("\"events\"");
     }
 
     [Fact]
@@ -241,5 +228,38 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         }
 
         (await condition()).Should().BeTrue();
+    }
+
+    private async Task<IReadOnlyList<AgentEvent>> ObserveUntilAsync(
+        string sessionId,
+        Func<IReadOnlyList<AgentEvent>, bool> completed)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/events?after=0");
+        request.Headers.Accept.ParseAdd("text/event-stream");
+        using var response = await _client.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            timeout.Token);
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
+        using var reader = new StreamReader(stream);
+        var observed = new List<AgentEvent>();
+
+        while (!completed(observed))
+        {
+            var line = await reader.ReadLineAsync(timeout.Token);
+            if (line is null)
+                throw new EndOfStreamException("The committed event observation stream ended before the expected event arrived.");
+            if (!line.StartsWith("data: ", StringComparison.Ordinal))
+                continue;
+
+            observed.Add(AgentEventSerializer.DeserializeEventJson(line[6..]));
+        }
+
+        return observed;
     }
 }

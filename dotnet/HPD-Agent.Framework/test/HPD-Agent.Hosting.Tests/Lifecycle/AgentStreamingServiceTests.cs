@@ -16,7 +16,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
     public AgentStreamingServiceTests()
     {
         _sessionManager = new TestSessionManager(_sessionStore);
-        _agentManager = new TestAgentManager(_agentStore);
+        _agentManager = new TestAgentManager(_agentStore, _sessionStore);
         _service = new AgentStreamingService(_sessionManager, _agentManager);
     }
 
@@ -114,9 +114,15 @@ public sealed class AgentStreamingServiceTests : IDisposable
     public async Task EstimateContextUsageAsync_ReturnsThreadUsageForScopedThread()
     {
         var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("session-usage");
-        var thread = (await _sessionStore.LoadThreadAsync(sessionId, threadId))!;
-        thread.AddMessage(new ChatMessage(ChatRole.User, "12345678"));
-        await _sessionStore.SaveInitialThreadAsync(sessionId, thread);
+        await _sessionStore.AppendThreadEventAsync(
+            sessionId,
+            threadId,
+            ThreadEventFactory.ContentAdded(
+                sessionId,
+                threadId,
+                "usage-message",
+                new TextContent("12345678"),
+                role: ChatRole.User.Value));
 
         var result = await _service.EstimateContextUsageAsync(
             "agent-1",
@@ -159,17 +165,126 @@ public sealed class AgentStreamingServiceTests : IDisposable
 
         result.Status.Should().Be(AgentServiceStatus.Success);
         result.Value!.ActiveRun.Should().BeNull();
-        result.Value.Events.Should().ContainSingle(evt => evt is ThreadRunStartedEvent);
+        result.Value.ObservedHead.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task GetThreadStateAsync_ReturnsPendingThreadRequestsWithoutReplayingHistory()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("session-pending-request");
+        var stored = await _agentManager.CreateDefinitionAsync(
+            new AgentConfig
+            {
+                Name = "agent-1",
+                MaxAgenticIterations = 1,
+                Clients = new AgentClientConfig
+                {
+                    Chat = new ClientProviderConfig
+                    {
+                        ProviderKey = "test",
+                        ModelName = "test-model"
+                    }
+                }
+            },
+            "agent-1");
+        var runtime = await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, threadId);
+        var request = new PermissionRequestEvent(
+            "permission-1",
+            "test",
+            "function",
+            null,
+            "call-1",
+            null)
+        {
+            SessionId = sessionId,
+            ThreadId = threadId
+        };
+        var handle = runtime.EventCoordinator.RegisterRequest<PermissionRequestEvent, PermissionResponseEvent>(request);
+
+        var result = await _service.GetThreadStateAsync(stored.Id, sessionId, threadId);
+
+        var pending = result.Value!.PendingRequests.Should().ContainSingle().Subject;
+        pending.Request.Should().BeSameAs(request);
+        pending.CreatedAt.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(5));
+        handle.Cancel("test complete");
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_CommitsStartBeforeExposure_AndCompletionBeforeRelease()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("session-hosted-run");
+        var stored = await _agentManager.CreateDefinitionAsync(
+            new AgentConfig
+            {
+                Name = "agent-1",
+                MaxAgenticIterations = 1,
+                Clients = new AgentClientConfig
+                {
+                    Chat = new ClientProviderConfig
+                    {
+                        ProviderKey = "test",
+                        ModelName = "test-model"
+                    }
+                }
+            },
+            "agent-1");
+        _agentManager.ChatClient.EnqueueTextResponse("done");
+
+        var submitted = await _service.SubmitInputAsync(
+            stored.Id,
+            sessionId,
+            threadId,
+            new UserMessagesInputEvent
+            {
+                Messages = [new ChatMessage(ChatRole.User, "hello")]
+            });
+
+        submitted.Status.Should().Be(AgentServiceStatus.Success);
+        var runtimeRunId = submitted.Value!.RuntimeRunId;
+
+        var observed = new List<AgentEvent>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await foreach (var batch in _sessionStore.ObserveThreadEventsAsync(
+            new ThreadKey(sessionId, threadId),
+            0,
+            new ThreadObservationOptions(),
+            timeout.Token))
+        {
+            observed.AddRange(batch.Events);
+            if (observed.OfType<ThreadRunCompletedEvent>().Any(evt => evt.RuntimeRunId == runtimeRunId))
+                break;
+        }
+
+        var startedIndex = observed.FindIndex(evt => evt is ThreadRunStartedEvent started && started.RuntimeRunId == runtimeRunId);
+        var completedIndex = observed.FindIndex(evt => evt is ThreadRunCompletedEvent completed && completed.RuntimeRunId == runtimeRunId);
+        startedIndex.Should().BeGreaterThanOrEqualTo(0);
+        completedIndex.Should().BeGreaterThan(startedIndex);
+
+        await WaitUntilAsync(
+            () => _sessionManager.GetActiveThreadRun(sessionId, threadId) is null,
+            TimeSpan.FromSeconds(5));
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> predicate, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (!predicate())
+        {
+            if (DateTimeOffset.UtcNow >= deadline)
+                throw new TimeoutException("Condition was not satisfied before the test timeout.");
+            await Task.Delay(10);
+        }
     }
 
     private sealed class TestSessionManager(ISessionStore store) : SessionManager(store);
 
-    private sealed class TestAgentManager(IAgentStore store) : AgentManager(store)
+    private sealed class TestAgentManager(IAgentStore store, ISessionStore sessionStore) : AgentManager(store)
     {
+        public FakeChatClient ChatClient { get; } = new();
+
         protected override Task<Agent> BuildAgentAsync(string agentId, CancellationToken ct)
         {
-            var chatClient = new FakeChatClient();
-            var registry = new TestProviderRegistry(chatClient);
+            var registry = new TestProviderRegistry(ChatClient);
             return new AgentBuilder(new AgentConfig
                 {
                     Name = agentId,
@@ -184,7 +299,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
                     }
                 }, registry)
                 .WithAgentId(agentId)
-                .WithSessionStore(new InMemorySessionStore())
+                .WithSessionStore(sessionStore)
                 .BuildAsync(ct);
         }
 

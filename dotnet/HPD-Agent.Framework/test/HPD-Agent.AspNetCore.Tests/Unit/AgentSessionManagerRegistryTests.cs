@@ -127,7 +127,7 @@ public class AgentSessionManagerRegistryTests
     }
 
     [Fact]
-    public void CreatePair_CreatesJsonSessionStore_WhenPathProvided()
+    public void CreatePair_CreatesFileSessionStore_WhenPathProvided()
     {
         // Arrange
         var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());

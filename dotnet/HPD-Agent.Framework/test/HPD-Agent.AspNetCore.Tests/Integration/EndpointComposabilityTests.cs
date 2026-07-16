@@ -256,7 +256,7 @@ public class EndpointComposabilityTests
 
     private sealed class UnsupportedStreamingService : IAgentStreamingService
     {
-        public Task<AgentServiceResult<AgentStreamLease>> GetAgentForThreadAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<AgentServiceResult<ThreadJournalLease>> GetThreadJournalAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<InputSubmissionDto>> SubmitInputAsync(string agentId, string sessionId, string threadId, AgentInputEvent input, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<ThreadRuntimeStateDto>> GetThreadStateAsync(string agentId, string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<ThreadContextUsage>> EstimateContextUsageAsync(string agentId, string sessionId, string threadId, AgentRunConfig? runConfig, CancellationToken cancellationToken = default) => throw new NotSupportedException();

@@ -76,7 +76,7 @@ public sealed class AgentTuiSessionStateTests
     }
 
     [Fact]
-    public async Task ApplyEventAsync_ContinuesAfterHandlerFailure()
+    public async Task ApplyEventAsync_StopsAtHandlerFailure()
     {
         var afterFailure = new CountingEventHandler();
         var state = new AgentTuiSessionState(
@@ -86,13 +86,11 @@ public sealed class AgentTuiSessionStateTests
                 .AddEventHandler("sample.after", afterFailure)
                 .Build());
 
-        await state.ApplyEventAsync(new TextDeltaEvent("hello", "m1"));
+        var action = async () => await state.ApplyEventAsync(new TextDeltaEvent("hello", "m1"));
 
-        afterFailure.Count.Should().Be(1);
-        ReadRows(state.Shell.Transcript)
-            .Any(row => row.Cell is NoticeCell { Severity: TranscriptSeverity.Error })
-            .Should()
-            .BeTrue();
+        await action.Should().ThrowAsync<InvalidOperationException>();
+        afterFailure.Count.Should().Be(0);
+        state.Shell.Transcript.Count.Should().Be(0);
     }
 
     [Fact]
@@ -115,10 +113,10 @@ public sealed class AgentTuiSessionStateTests
     {
         var events = new AgentEvent[]
         {
-            new TextMessageStartEvent("m1", "user") { SequenceNumber = 1 },
-            new TextDeltaEvent("old question", "m1") { SequenceNumber = 2 },
-            new TextMessageStartEvent("m2", "user") { SequenceNumber = 3 },
-            new TextDeltaEvent("current question", "m2") { SequenceNumber = 4 },
+            new TextMessageStartEvent("m1", "user") { ThreadSequenceNumber = 1 },
+            new TextDeltaEvent("old question", "m1") { ThreadSequenceNumber = 2 },
+            new TextMessageStartEvent("m2", "user") { ThreadSequenceNumber = 3 },
+            new TextDeltaEvent("current question", "m2") { ThreadSequenceNumber = 4 },
             new ThreadHistoryCompactionCheckpointEvent(
                 "compact",
                 ["m1"],
@@ -132,7 +130,7 @@ public sealed class AgentTuiSessionStateTests
                 DateTimeOffset.UtcNow,
                 ThreadHistoryCompactionMode.Soft)
             {
-                SequenceNumber = 5
+                ThreadSequenceNumber = 5
             }
         };
 

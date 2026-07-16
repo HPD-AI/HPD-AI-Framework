@@ -43,6 +43,7 @@ public sealed class AgentRuntimeContext :
     public AgentClientSet? ClientSet { get; }
     public IServiceProvider? Services { get; }
     public IEventCoordinator EventCoordinator { get; }
+    public IThreadEventPublisher? ThreadEvents { get; }
     public IEventFlowRegistry EventFlows => EventCoordinator.EventFlows;
     public IStructEventHub StructEvents { get; }
     public IContentStore? ContentStore { get; }
@@ -64,6 +65,7 @@ public sealed class AgentRuntimeContext :
         Func<InterruptionRequestEvent, CancellationToken, ValueTask> runtimeInterruptionHandler,
         Func<bool> hasActiveRuntimeInputs,
         CancellationToken runtimeCancellationToken,
+        IThreadEventPublisher? threadEvents = null,
         AgentClientSet? clientSet = null,
         AgentRunConfig? runConfig = null,
         IContentStore? contentStore = null)
@@ -72,6 +74,7 @@ public sealed class AgentRuntimeContext :
         Config = config ?? throw new ArgumentNullException(nameof(config));
         Services = services;
         EventCoordinator = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
+        ThreadEvents = threadEvents;
         StructEvents = structEvents ?? throw new ArgumentNullException(nameof(structEvents));
         _runtimeInputWriter = runtimeInputWriter ?? throw new ArgumentNullException(nameof(runtimeInputWriter));
         _runtimeInterruptionHandler = runtimeInterruptionHandler ?? throw new ArgumentNullException(nameof(runtimeInterruptionHandler));
@@ -84,10 +87,26 @@ public sealed class AgentRuntimeContext :
         CreatedAt = DateTimeOffset.UtcNow;
     }
 
-    public void Emit(AgentEvent evt)
+    public async ValueTask<AgentEvent> PublishAsync(
+        AgentEvent evt,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(evt);
-        EventCoordinator.Emit(evt);
+        var hasSession = !string.IsNullOrWhiteSpace(evt.SessionId);
+        var hasThread = !string.IsNullOrWhiteSpace(evt.ThreadId);
+        if (hasSession != hasThread)
+            throw new InvalidOperationException("A canonical event must provide both SessionId and ThreadId.");
+
+        if (hasSession && ThreadEvents is not null)
+        {
+            return await ThreadEvents.CommitAndPublishAsync(
+                new ThreadKey(evt.SessionId!, evt.ThreadId!),
+                evt,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        await EventCoordinator.EmitAsync(evt, cancellationToken).ConfigureAwait(false);
+        return evt;
     }
 
     /// <summary>
@@ -156,13 +175,14 @@ public sealed class AgentRuntimeContext :
             TaskId = Guid.NewGuid().ToString("N"),
             Descriptor = descriptor,
             EventCoordinator = EventCoordinator,
+            ThreadEvents = ThreadEvents,
             Services = Services,
             StartedAt = DateTimeOffset.UtcNow
         };
 
         RegisterBackgroundTaskCore(async runtimeToken =>
         {
-            Emit(new BackgroundTaskStartedEvent
+            await PublishAsync(new BackgroundTaskStartedEvent
             {
                 TaskId = backgroundContext.TaskId,
                 Name = backgroundContext.Name,
@@ -175,7 +195,7 @@ public sealed class AgentRuntimeContext :
                 Invocation = backgroundContext.Invocation,
                 Metadata = backgroundContext.Metadata,
                 StartedAt = backgroundContext.StartedAt
-            });
+            }, runtimeToken).ConfigureAwait(false);
 
             try
             {
@@ -183,7 +203,7 @@ public sealed class AgentRuntimeContext :
 
                 var completedAt = DateTimeOffset.UtcNow;
                 var completion = backgroundContext.Completion;
-                Emit(new BackgroundTaskCompletedEvent
+                await PublishAsync(new BackgroundTaskCompletedEvent
                 {
                     TaskId = backgroundContext.TaskId,
                     Name = backgroundContext.Name,
@@ -198,11 +218,11 @@ public sealed class AgentRuntimeContext :
                     CompletedAt = completedAt,
                     DurationMilliseconds = Math.Max(0, (long)(completedAt - backgroundContext.StartedAt).TotalMilliseconds),
                     Summary = completion?.Summary
-                });
+                }, runtimeToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException ex)
             {
-                Emit(new BackgroundTaskCancelledEvent
+                await PublishAsync(new BackgroundTaskCancelledEvent
                 {
                     TaskId = backgroundContext.TaskId,
                     Name = backgroundContext.Name,
@@ -220,12 +240,12 @@ public sealed class AgentRuntimeContext :
                     Reason = runtimeToken.IsCancellationRequested
                         ? "runtime-stopping"
                         : ex.Message
-                });
+                }, CancellationToken.None).ConfigureAwait(false);
                 throw;
             }
             catch (Exception ex)
             {
-                Emit(new BackgroundTaskFaultedEvent
+                await PublishAsync(new BackgroundTaskFaultedEvent
                 {
                     TaskId = backgroundContext.TaskId,
                     Name = backgroundContext.Name,
@@ -240,7 +260,7 @@ public sealed class AgentRuntimeContext :
                     FaultedAt = DateTimeOffset.UtcNow,
                     ExceptionType = ex.GetType().FullName ?? ex.GetType().Name,
                     ErrorMessage = ex.Message
-                });
+                }, CancellationToken.None).ConfigureAwait(false);
                 throw;
             }
         });
@@ -251,9 +271,10 @@ public sealed class AgentRuntimeContext :
             backgroundContext.SourceKind);
     }
 
-    public BackgroundHandleRegistration RegisterHandle(
+    public async ValueTask<BackgroundHandleRegistration> RegisterHandleAsync(
         BackgroundHandleDescriptor descriptor,
-        IBackgroundHandle handle)
+        IBackgroundHandle handle,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentException.ThrowIfNullOrWhiteSpace(descriptor.Name);
@@ -284,25 +305,34 @@ public sealed class AgentRuntimeContext :
                 throw new InvalidOperationException($"A background handle with id '{handleId}' is already registered.");
         }
 
+        try
+        {
+            await PublishAsync(new BackgroundHandleRegisteredEvent
+            {
+                HandleId = handleId,
+                Name = normalizedDescriptor.Name,
+                HandleKind = normalizedDescriptor.Kind,
+                SourceKind = normalizedDescriptor.SourceKind,
+                SourceId = normalizedDescriptor.SourceId,
+                SessionId = normalizedDescriptor.SessionId ?? normalizedDescriptor.Invocation?.SessionId,
+                ThreadId = normalizedDescriptor.ThreadId ?? normalizedDescriptor.Invocation?.ThreadId,
+                Invocation = normalizedDescriptor.Invocation,
+                SupportedOperations = normalizedDescriptor.SupportedOperations,
+                Metadata = normalizedDescriptor.Metadata,
+                RegisteredAt = registeredAt
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            lock (_lock)
+                _backgroundHandles.Remove(handleId);
+            throw;
+        }
+
         if (handle is IAsyncDisposable asyncDisposable)
             RegisterAsyncDisposable(asyncDisposable);
         else if (handle is IDisposable disposable)
             RegisterDisposable(disposable);
-
-        Emit(new BackgroundHandleRegisteredEvent
-        {
-            HandleId = handleId,
-            Name = normalizedDescriptor.Name,
-            HandleKind = normalizedDescriptor.Kind,
-            SourceKind = normalizedDescriptor.SourceKind,
-            SourceId = normalizedDescriptor.SourceId,
-            SessionId = normalizedDescriptor.SessionId ?? normalizedDescriptor.Invocation?.SessionId,
-            ThreadId = normalizedDescriptor.ThreadId ?? normalizedDescriptor.Invocation?.ThreadId,
-            Invocation = normalizedDescriptor.Invocation,
-            SupportedOperations = normalizedDescriptor.SupportedOperations,
-            Metadata = normalizedDescriptor.Metadata,
-            RegisteredAt = registeredAt
-        });
 
         return new BackgroundHandleRegistration(
             handleId,
@@ -624,6 +654,7 @@ public abstract class RuntimeHookContext
     public AgentClientSet? ClientSet => Base.ClientSet;
     public IServiceProvider? Services => Base.Services;
     public IEventCoordinator EventCoordinator => Base.EventCoordinator;
+    public IThreadEventPublisher? ThreadEvents => Base.ThreadEvents;
     public IEventFlowRegistry EventFlows => Base.EventFlows;
     public IStructEventHub StructEvents => Base.StructEvents;
     public IContentStore? ContentStore => Base.ContentStore;
@@ -633,7 +664,8 @@ public abstract class RuntimeHookContext
     public CancellationToken RuntimeCancellationToken => Base.RuntimeCancellationToken;
     public bool HasActiveRuntimeInputs => Base.HasActiveRuntimeInputs;
 
-    public void Emit(AgentEvent evt) => Base.Emit(evt);
+    public ValueTask<AgentEvent> PublishAsync(AgentEvent evt, CancellationToken cancellationToken = default)
+        => Base.PublishAsync(evt, cancellationToken);
 
     /// <summary>
     /// Submit semantic user input to the agent runtime loop.
@@ -645,7 +677,8 @@ public abstract class RuntimeHookContext
     public ValueTask RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default) =>
         Base.RunAsync(input, cancellationToken);
     public BackgroundTaskRegistration RegisterBackgroundTask(BackgroundTaskDescriptor descriptor, Func<BackgroundTaskContext, CancellationToken, Task> taskFactory) => Base.RegisterBackgroundTask(descriptor, taskFactory);
-    public BackgroundHandleRegistration RegisterHandle(BackgroundHandleDescriptor descriptor, IBackgroundHandle handle) => Base.RegisterHandle(descriptor, handle);
+    public ValueTask<BackgroundHandleRegistration> RegisterHandleAsync(BackgroundHandleDescriptor descriptor, IBackgroundHandle handle, CancellationToken cancellationToken = default)
+        => Base.RegisterHandleAsync(descriptor, handle, cancellationToken);
     public bool TryGetHandle(string handleId, BackgroundHandleScope scope, out RegisteredBackgroundHandle handle) => Base.TryGetHandle(handleId, scope, out handle);
     public IReadOnlyList<RegisteredBackgroundHandle> ListHandles(BackgroundHandleQuery query) => Base.ListHandles(query);
     public ClientToolBackgroundOperationRegistration RegisterClientToolBackgroundOperation(ClientToolBackgroundOperationDescriptor descriptor) => Base.RegisterClientToolBackgroundOperation(descriptor);

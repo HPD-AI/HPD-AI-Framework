@@ -12,9 +12,10 @@ public interface IHpdAgentTuiRuntime
         AgentTuiRuntimeScope scope,
         CancellationToken cancellationToken = default);
 
-    IAsyncEnumerable<AgentEvent> ObserveAsync(
+    IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
         AgentTuiRuntimeScope scope,
         long afterSequenceNumber,
+        long initialObservedHead,
         CancellationToken cancellationToken = default);
 
     Task<AgentTuiSubmitResult> SubmitInputAsync(

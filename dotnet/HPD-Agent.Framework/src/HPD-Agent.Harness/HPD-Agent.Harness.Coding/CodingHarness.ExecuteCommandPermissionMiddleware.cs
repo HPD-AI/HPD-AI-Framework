@@ -191,7 +191,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
                 });
                 foreach (var rule in rulesToPersist)
                 {
-                    context.Emit(new ExecuteCommandPermissionRulePersistedEvent(
+                    await context.PublishAsync(new ExecuteCommandPermissionRulePersistedEvent(
                         permissionId,
                         MiddlewareName,
                         callId,
@@ -203,7 +203,8 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
                             plan,
                             rule,
                             decision: "persisted",
-                            persistedRuleIds: rulesToPersist.Select(item => item.Id).ToArray())));
+                            persistedRuleIds: rulesToPersist.Select(item => item.Id).ToArray())), cancellationToken)
+                        .ConfigureAwait(false);
                 }
                 return new ExecuteCommandPermissionCheckResult(
                     plan.Fingerprint.Value,

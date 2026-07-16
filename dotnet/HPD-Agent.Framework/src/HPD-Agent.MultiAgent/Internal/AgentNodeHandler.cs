@@ -215,13 +215,11 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         using (agent.SubscribeAny(evt =>
         {
             // Bubble agent events up to graph event stream
-            context.EventCoordinator?.Emit(evt);
-
             if (evt is TextDeltaEvent textEvt)
             {
                 response.Append(textEvt.Text);
             }
-            return ValueTask.CompletedTask;
+            return context.EventCoordinator?.EmitAsync(evt) ?? ValueTask.CompletedTask;
         }))
         {
             await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct);
@@ -260,8 +258,6 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
 
         using (agent.SubscribeAny(evt =>
         {
-            context.EventCoordinator?.Emit(evt);
-
             // Capture the final structured result using reflection
             // StructuredResultEvent<T> is generic, so we check by name and use reflection
             var evtType = evt.GetType();
@@ -280,7 +276,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
                     }
                 }
             }
-            return ValueTask.CompletedTask;
+            return context.EventCoordinator?.EmitAsync(evt) ?? ValueTask.CompletedTask;
         }))
         {
             await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct);
@@ -316,8 +312,6 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
 
         using (agent.SubscribeAny(evt =>
         {
-            context.EventCoordinator?.Emit(evt);
-
             // Capture the final structured result using reflection
             var evtType = evt.GetType();
             if (evtType.IsGenericType &&
@@ -336,7 +330,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
                     }
                 }
             }
-            return ValueTask.CompletedTask;
+            return context.EventCoordinator?.EmitAsync(evt) ?? ValueTask.CompletedTask;
         }))
         {
             await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct);
@@ -393,8 +387,6 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
 
         using (agent.SubscribeAny(evt =>
         {
-            context.EventCoordinator?.Emit(evt);
-
             // Look for handoff tool calls
             if (evt is ToolCallStartEvent toolCall && toolCall.Name.StartsWith("handoff_to_"))
             {
@@ -406,7 +398,7 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
             {
                 responseText.Append(textEvt.Text);
             }
-            return ValueTask.CompletedTask;
+            return context.EventCoordinator?.EmitAsync(evt) ?? ValueTask.CompletedTask;
         }))
         {
             await RunAgentAsync(agent, context, _nodeId, input, options, messages, runConfig, ct);
@@ -616,13 +608,13 @@ internal sealed class AgentNodeHandler : IGraphNodeHandler<AgentGraphContext>
         catch (TimeoutException)
         {
             // Handle timeout based on configuration
-            context.EventCoordinator.Emit(new NodeApprovalTimeoutEvent
+            await context.EventCoordinator.EmitAsync(new NodeApprovalTimeoutEvent
             {
                 RequestId = requestId,
                 SourceName = $"AgentNode:{nodeId}",
                 NodeId = nodeId,
                 WaitedFor = approval.Timeout
-            });
+            }, cancellationToken).ConfigureAwait(false);
 
             return approval.TimeoutBehavior switch
             {

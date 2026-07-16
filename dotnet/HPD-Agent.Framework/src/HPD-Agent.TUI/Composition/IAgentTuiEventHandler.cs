@@ -10,13 +10,15 @@ public sealed class AgentTuiEventContext
         ChatShellModel shell,
         AgentTuiNavigationModel navigation,
         HpdAgentTuiRegistry registry,
-        AgentTuiStateBag state)
+        AgentTuiStateBag state,
+        AgentTuiEventDeliveryMode deliveryMode = AgentTuiEventDeliveryMode.Live)
     {
         Scope = scope ?? throw new ArgumentNullException(nameof(scope));
         Shell = shell ?? throw new ArgumentNullException(nameof(shell));
         Navigation = navigation ?? throw new ArgumentNullException(nameof(navigation));
         Registry = registry ?? throw new ArgumentNullException(nameof(registry));
         State = state ?? throw new ArgumentNullException(nameof(state));
+        DeliveryMode = deliveryMode;
     }
 
     public AgentTuiRuntimeScope Scope { get; }
@@ -28,6 +30,8 @@ public sealed class AgentTuiEventContext
     public HpdAgentTuiRegistry Registry { get; }
 
     public AgentTuiStateBag State { get; }
+
+    public AgentTuiEventDeliveryMode DeliveryMode { get; }
 }
 
 public interface IAgentTuiEventHandler

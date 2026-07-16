@@ -137,7 +137,7 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
         return Task.CompletedTask;
     }
 
-    public Task AfterFunctionAsync(
+    public async Task AfterFunctionAsync(
         AfterFunctionContext context,
         CancellationToken cancellationToken)
     {
@@ -148,7 +148,7 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
                 PlanToolMetadataKeys.Event,
                 out var evt))
         {
-            return Task.CompletedTask;
+            return;
         }
 
         context.UpdateState(s =>
@@ -162,9 +162,8 @@ public class AgentPlanAgentMiddleware : IAgentMiddleware
             };
         });
 
-        context.Emit(evt);
+        await context.PublishAsync(evt);
 
-        return Task.CompletedTask;
     }
 
     /// <summary>

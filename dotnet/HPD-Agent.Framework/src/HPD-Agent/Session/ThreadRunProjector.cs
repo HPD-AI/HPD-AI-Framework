@@ -71,6 +71,18 @@ public sealed record ThreadRunProjectionBackgroundHandle(
 
 public static class ThreadRunProjector
 {
+    public static bool IsProjectionEvent(AgentEvent evt) => evt is
+        ThreadRunStartedEvent or
+        ThreadRunCompletedEvent or
+        ModelBackgroundOperationStartedEvent or
+        ModelBackgroundOperationStatusEvent or
+        BackgroundTaskStartedEvent or
+        BackgroundTaskCompletedEvent or
+        BackgroundTaskCancelledEvent or
+        BackgroundTaskFaultedEvent or
+        BackgroundHandleRegisteredEvent or
+        BackgroundHandleStatusChangedEvent;
+
     public static IReadOnlyList<ThreadRunProjection> Project(
         string agentId,
         string sessionId,
@@ -86,7 +98,7 @@ public static class ThreadRunProjector
         var runs = new List<ThreadRunProjectionBuilder>();
         ThreadRunProjectionBuilder? current = null;
 
-        foreach (var evt in events.OrderBy(evt => evt.SequenceNumber))
+        foreach (var evt in events.OrderBy(evt => evt.ThreadSequenceNumber))
         {
             switch (evt)
             {

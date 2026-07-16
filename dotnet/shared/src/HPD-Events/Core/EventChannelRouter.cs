@@ -163,6 +163,25 @@ internal sealed class EventChannelRouter : IDisposable
         where TRequest : Event, IRequestEvent
         where TResponse : Event, IResponseEvent
     {
+        var handle = RegisterRequest<TRequest, TResponse>(request, options);
+        try
+        {
+            Emit(request);
+            return handle;
+        }
+        catch
+        {
+            handle.Cancel("Request publication failed.");
+            throw;
+        }
+    }
+
+    public RequestHandle RegisterRequest<TRequest, TResponse>(
+        TRequest request,
+        RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent
+    {
         ArgumentNullException.ThrowIfNull(request);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -206,32 +225,47 @@ internal sealed class EventChannelRouter : IDisposable
                 ExpireLocalRequest(request.RequestId);
         });
 
-        try
-        {
-            PublishDiagnostic(new RequestStartedEvent(
-                request.RequestId,
-                request.SourceName,
-                typeof(TRequest).Name,
-                typeof(TResponse).Name,
-                request.ResponsePolicy,
-                request.Target,
-                request.Visibility,
-                session.CreatedAt), skipSubscriberId: null);
-
-            Emit(request);
-        }
-        catch
-        {
-            _requestSessions.TryRemove(request.RequestId, out _);
-            session.DisposeCancellation();
-            throw;
-        }
+        PublishDiagnostic(new RequestStartedEvent(
+            request.RequestId,
+            request.SourceName,
+            typeof(TRequest).Name,
+            typeof(TResponse).Name,
+            request.ResponsePolicy,
+            request.Target,
+            request.Visibility,
+            session.CreatedAt), skipSubscriberId: null);
 
         return new RequestHandle(
             request.RequestId,
             completion.Task,
             () => session.ToSnapshot(),
             reason => CancelLocalRequest(request.RequestId, reason));
+    }
+
+    public IReadOnlyList<PendingRequestSnapshot> GetPendingRequests()
+    {
+        var pending = new List<PendingRequestSnapshot>();
+        CollectPendingRequests(pending);
+        return pending
+            .OrderBy(item => item.Session.CreatedAt)
+            .ToArray();
+    }
+
+    private void CollectPendingRequests(List<PendingRequestSnapshot> pending)
+    {
+        foreach (var session in _requestSessions.Values)
+        {
+            var snapshot = session.ToSnapshot();
+            if (snapshot.State == RequestState.Pending)
+            {
+                pending.Add(new PendingRequestSnapshot(session.Request, snapshot));
+            }
+        }
+
+        foreach (var child in _children.Keys)
+        {
+            child.CollectPendingRequests(pending);
+        }
     }
 
     internal async Task<TResponse> RequestAsync<TRequest, TResponse>(
@@ -308,6 +342,55 @@ internal sealed class EventChannelRouter : IDisposable
         return matches[0].CompleteLocalResponse(requestId, response);
     }
 
+    public async ValueTask<RespondResult> RespondAsync(
+        string requestId,
+        Event response,
+        Func<Event, CancellationToken, ValueTask<Event>> beforeCompletion,
+        bool publishRejection = true,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(requestId))
+            throw new ArgumentException("Request ID cannot be null or whitespace", nameof(requestId));
+
+        ArgumentNullException.ThrowIfNull(response);
+        ArgumentNullException.ThrowIfNull(beforeCompletion);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var matches = new List<EventChannelRouter>();
+        FindRequestSessions(requestId, matches);
+        if (matches.Count == 0)
+        {
+            var terminal = FindTerminalRequest(requestId);
+            var status = terminal?.Status switch
+            {
+                RespondStatus.Accepted => RespondStatus.AlreadyResolved,
+                RespondStatus.TimedOut => RespondStatus.TimedOut,
+                RespondStatus.Cancelled => RespondStatus.Cancelled,
+                _ => RespondStatus.NotFound
+            };
+            var result = RespondResult.For(status, requestId, terminal?.Message ?? "No pending request session found.");
+            if (publishRejection)
+                PublishResponseRejected(requestId, response, result);
+            return result;
+        }
+
+        if (matches.Count > 1)
+        {
+            var result = RespondResult.For(
+                RespondStatus.AmbiguousRequest,
+                requestId,
+                $"Multiple pending request sessions found for request ID '{requestId}' in the coordinator hierarchy.");
+            PublishResponseRejected(requestId, response, result);
+            return result;
+        }
+
+        return await matches[0].CompleteLocalResponseAsync(
+            requestId,
+            response,
+            beforeCompletion,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public EventCoordinatorStats GetStats()
     {
         var stats = GetBusStats();
@@ -371,8 +454,7 @@ internal sealed class EventChannelRouter : IDisposable
             return null;
 
         var enriched = _eventEnricher?.Invoke(evt) ?? evt;
-        if (enriched.SequenceNumber == 0)
-            enriched.SequenceNumber = Interlocked.Increment(ref _sequenceCounter);
+        var deliveryOrdinal = Interlocked.Increment(ref _sequenceCounter);
 
         if (enriched.EventFlowId is not null && enriched.CanInterrupt && enriched is not EventDroppedEvent)
         {
@@ -383,7 +465,7 @@ internal sealed class EventChannelRouter : IDisposable
                 PublishDiagnostic(new EventDroppedEvent(
                     enriched.EventFlowId,
                     enriched.GetType().Name,
-                    enriched.SequenceNumber),
+                    deliveryOrdinal),
                     skipSubscriberId: null);
                 return null;
             }
@@ -441,8 +523,7 @@ internal sealed class EventChannelRouter : IDisposable
 
     private void PublishDiagnostic(Event diagnostic, Guid? skipSubscriberId)
     {
-        if (diagnostic.SequenceNumber == 0)
-            diagnostic.SequenceNumber = Interlocked.Increment(ref _sequenceCounter);
+        Interlocked.Increment(ref _sequenceCounter);
 
         PublishPrepared(diagnostic, skipSubscriberId);
         BubblePrepared(diagnostic);
@@ -557,7 +638,7 @@ internal sealed class EventChannelRouter : IDisposable
             return result;
         }
 
-        if (!_requestSessions.TryRemove(requestId, out session))
+        if (!session.TryBeginResolution())
         {
             var result = RespondResult.For(RespondStatus.AlreadyResolved, requestId, "Request has already resolved.");
             PublishResponseRejected(requestId, response, result);
@@ -565,6 +646,7 @@ internal sealed class EventChannelRouter : IDisposable
         }
 
         var resolvedAt = DateTimeOffset.UtcNow;
+        _requestSessions.TryRemove(requestId, out _);
         session.MarkResolved(resolvedAt);
         session.DisposeCancellation();
         _terminalRequests[requestId] = new TerminalRequestState(RespondStatus.Accepted, "Request has already resolved.");
@@ -582,9 +664,94 @@ internal sealed class EventChannelRouter : IDisposable
         return RespondResult.For(RespondStatus.Accepted, requestId);
     }
 
+    private async ValueTask<RespondResult> CompleteLocalResponseAsync(
+        string requestId,
+        Event response,
+        Func<Event, CancellationToken, ValueTask<Event>> beforeCompletion,
+        CancellationToken cancellationToken)
+    {
+        if (!_requestSessions.TryGetValue(requestId, out var session))
+            return RespondResult.For(RespondStatus.NotFound, requestId, "No pending request session found.");
+
+        if (response is not IResponseEvent responseEvent)
+        {
+            var result = RespondResult.For(
+                RespondStatus.ResponseTypeMismatch,
+                requestId,
+                "Response event must implement IResponseEvent.");
+            PublishResponseRejected(requestId, response, result);
+            return result;
+        }
+
+        if (!session.ExpectedResponseType.IsInstanceOfType(response))
+        {
+            var result = RespondResult.For(
+                RespondStatus.ResponseTypeMismatch,
+                requestId,
+                $"Response type mismatch. Expected {session.ExpectedResponseType.Name}, got {response.GetType().Name}.");
+            PublishResponseRejected(requestId, response, result);
+            return result;
+        }
+
+        if (!MatchesTarget(session, responseEvent))
+        {
+            var result = RespondResult.For(
+                RespondStatus.TargetMismatch,
+                requestId,
+                "Response did not match the request responder target.");
+            PublishResponseRejected(requestId, response, result);
+            return result;
+        }
+
+        if (!session.TryBeginResolution())
+        {
+            var result = RespondResult.For(RespondStatus.AlreadyResolved, requestId, "Request has already resolved.");
+            PublishResponseRejected(requestId, response, result);
+            return result;
+        }
+
+        Event completedResponse;
+        try
+        {
+            completedResponse = await beforeCompletion(response, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            session.RevertResolution();
+            throw;
+        }
+
+        if (completedResponse.GetType() != response.GetType() ||
+            completedResponse is not IResponseEvent completedResponseEvent ||
+            !StringComparer.Ordinal.Equals(completedResponseEvent.RequestId, requestId))
+        {
+            session.RevertResolution();
+            throw new InvalidOperationException(
+                "The response completion boundary must return the same response type and request identity.");
+        }
+
+        var resolvedAt = DateTimeOffset.UtcNow;
+        _requestSessions.TryRemove(requestId, out _);
+        session.MarkResolved(resolvedAt);
+        session.DisposeCancellation();
+        _terminalRequests[requestId] = new TerminalRequestState(RespondStatus.Accepted, "Request has already resolved.");
+        session.Completion.TrySetResult(completedResponse);
+
+        PublishDiagnostic(new RequestResolvedEvent(
+            requestId,
+            session.SourceName,
+            session.RequestType.Name,
+            completedResponse.GetType().Name,
+            completedResponseEvent.ResponderId,
+            completedResponseEvent.ResponderGroup,
+            resolvedAt), skipSubscriberId: null);
+
+        return RespondResult.For(RespondStatus.Accepted, requestId);
+    }
+
     private CancelRequestResult CancelLocalRequest(string requestId, string? reason)
     {
-        if (!_requestSessions.TryRemove(requestId, out var session))
+        if (!_requestSessions.TryGetValue(requestId, out var session))
         {
             if (_terminalRequests.TryGetValue(requestId, out var terminal))
             {
@@ -601,7 +768,10 @@ internal sealed class EventChannelRouter : IDisposable
         }
 
         var cancelledAt = DateTimeOffset.UtcNow;
-        session.MarkCancelled(cancelledAt);
+        if (!session.TryMarkCancelled(cancelledAt))
+            return new CancelRequestResult(CancelRequestStatus.AlreadyResolved, requestId);
+
+        _requestSessions.TryRemove(requestId, out _);
         session.DisposeCancellation();
         _terminalRequests[requestId] = new TerminalRequestState(RespondStatus.Cancelled, reason ?? "Request was cancelled.");
         session.Completion.TrySetCanceled();
@@ -617,11 +787,14 @@ internal sealed class EventChannelRouter : IDisposable
 
     private void ExpireLocalRequest(string requestId)
     {
-        if (!_requestSessions.TryRemove(requestId, out var session))
+        if (!_requestSessions.TryGetValue(requestId, out var session))
             return;
 
         var expiredAt = DateTimeOffset.UtcNow;
-        session.MarkExpired(expiredAt);
+        if (!session.TryMarkExpired(expiredAt))
+            return;
+
+        _requestSessions.TryRemove(requestId, out _);
         session.DisposeCancellation();
         _terminalRequests[requestId] = new TerminalRequestState(RespondStatus.TimedOut, "Request timed out.");
         session.Completion.TrySetCanceled();
@@ -718,20 +891,27 @@ internal sealed class EventChannelRouter : IDisposable
 
         foreach (var (requestId, session) in _requestSessions)
         {
-            _requestSessions.TryRemove(requestId, out _);
-            session.MarkCancelled(DateTimeOffset.UtcNow);
+            if (!session.TryMarkCancelled(DateTimeOffset.UtcNow) ||
+                !_requestSessions.TryRemove(requestId, out _))
+            {
+                // A reserved response may already be crossing its durable completion
+                // boundary. It owns terminal cleanup and must not be cancelled after
+                // commit has potentially begun.
+                continue;
+            }
+
             session.DisposeCancellation();
             _terminalRequests[requestId] = new TerminalRequestState(RespondStatus.Cancelled, "Coordinator disposed.");
             session.Completion.TrySetCanceled();
         }
 
-        _requestSessions.Clear();
         _children.Clear();
     }
 
     private sealed class RequestSession
     {
-        private RequestState _state = RequestState.Pending;
+        private const int ResolvingState = 4;
+        private int _state = (int)RequestState.Pending;
         private DateTimeOffset? _resolvedAt;
 
         public RequestSession(
@@ -775,22 +955,55 @@ internal sealed class EventChannelRouter : IDisposable
         public DateTimeOffset CreatedAt { get; }
         public CancellationTokenRegistration CancellationRegistration { get; set; }
 
+        public bool TryBeginResolution() =>
+            Interlocked.CompareExchange(
+                ref _state,
+                ResolvingState,
+                (int)RequestState.Pending) == (int)RequestState.Pending;
+
+        public void RevertResolution()
+        {
+            if (Interlocked.CompareExchange(
+                    ref _state,
+                    (int)RequestState.Pending,
+                    ResolvingState) != ResolvingState)
+            {
+                throw new InvalidOperationException("Request resolution reservation was lost.");
+            }
+        }
+
         public void MarkResolved(DateTimeOffset resolvedAt)
         {
-            _state = RequestState.Resolved;
+            if (Interlocked.CompareExchange(
+                    ref _state,
+                    (int)RequestState.Resolved,
+                    ResolvingState) != ResolvingState)
+            {
+                throw new InvalidOperationException("Request must be reserved before it can resolve.");
+            }
             _resolvedAt = resolvedAt;
         }
 
-        public void MarkExpired(DateTimeOffset expiredAt)
+        public bool TryMarkExpired(DateTimeOffset expiredAt)
         {
-            _state = RequestState.Expired;
+            if (Interlocked.CompareExchange(
+                    ref _state,
+                    (int)RequestState.Expired,
+                    (int)RequestState.Pending) != (int)RequestState.Pending)
+                return false;
             _resolvedAt = expiredAt;
+            return true;
         }
 
-        public void MarkCancelled(DateTimeOffset cancelledAt)
+        public bool TryMarkCancelled(DateTimeOffset cancelledAt)
         {
-            _state = RequestState.Cancelled;
+            if (Interlocked.CompareExchange(
+                    ref _state,
+                    (int)RequestState.Cancelled,
+                    (int)RequestState.Pending) != (int)RequestState.Pending)
+                return false;
             _resolvedAt = cancelledAt;
+            return true;
         }
 
         public RequestSnapshot ToSnapshot() => new(
@@ -801,7 +1014,9 @@ internal sealed class EventChannelRouter : IDisposable
             ResponsePolicy,
             Target,
             Visibility,
-            _state,
+            Volatile.Read(ref _state) == ResolvingState
+                ? RequestState.Pending
+                : (RequestState)Volatile.Read(ref _state),
             CreatedAt,
             _resolvedAt);
 

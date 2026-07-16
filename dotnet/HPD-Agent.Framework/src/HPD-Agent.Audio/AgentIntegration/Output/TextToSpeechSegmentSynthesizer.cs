@@ -220,7 +220,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                 .ConfigureAwait(false);
             var sinkAccepted = await TryStartOutputSinkAsync(stream, context, cancellationToken)
                 .ConfigureAwait(false);
-            context.EmitEvent?.Invoke(new AssistantAudioOutputStreamStartedEvent(
+            await context.PublishAsync(new AssistantAudioOutputStreamStartedEvent(
                 context.SessionId.Value,
                 outputFlow.Id.Value,
                 requestWithProvider.ResponseId.Value,
@@ -232,7 +232,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                 requestWithProvider.Language,
                 requestWithProvider.OutputFormat,
                 mediaType,
-                stream.PayloadKind.ToString()));
+                stream.PayloadKind.ToString()), cancellationToken).ConfigureAwait(false);
             await outputFlow.AppendAudioChunkAsync(chunk, cancellationToken)
                 .ConfigureAwait(false);
             if (sinkAccepted)
@@ -240,7 +240,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                 await context.OutputSink!.WriteAsync(chunk, cancellationToken)
                     .ConfigureAwait(false);
             }
-            context.EmitEvent?.Invoke(new AssistantAudioOutputChunkReadyEvent(
+            await context.PublishAsync(new AssistantAudioOutputChunkReadyEvent(
                 context.SessionId.Value,
                 outputFlow.Id.Value,
                 requestWithProvider.ResponseId.Value,
@@ -256,7 +256,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                 chunk.SizeBytes,
                 chunk.Duration,
                 chunk.IsFinalChunk,
-                chunk.Payload.Kind.ToString()));
+                chunk.Payload.Kind.ToString()), cancellationToken).ConfigureAwait(false);
             var completion = new OutputAudioStreamCompletion
             {
                 OutputFlowId = outputFlow.Id,
@@ -275,7 +275,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                 await context.OutputSink!.CompleteAsync(completion, cancellationToken)
                     .ConfigureAwait(false);
             }
-            context.EmitEvent?.Invoke(new AssistantAudioOutputStreamCompletedEvent(
+            await context.PublishAsync(new AssistantAudioOutputStreamCompletedEvent(
                 context.SessionId.Value,
                 outputFlow.Id.Value,
                 requestWithProvider.ResponseId.Value,
@@ -284,7 +284,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                 OutputAudioStreamDisposition.Completed.ToString(),
                 1,
                 chunk.SizeBytes,
-                chunk.Duration));
+                chunk.Duration), cancellationToken).ConfigureAwait(false);
 
             _ledgerTraceWriter.AppendTtsResult(
                 ledger,
@@ -329,7 +329,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                     Duration = chunk.Duration,
                     CapturedAt = DateTimeOffset.UtcNow
                 }, cancellationToken).ConfigureAwait(false);
-                context.EmitEvent?.Invoke(new AssistantAudioOutputArtifactCapturedEvent(
+                await context.PublishAsync(new AssistantAudioOutputArtifactCapturedEvent(
                     context.SessionId.Value,
                     outputFlow.Id.Value,
                     requestWithProvider.ResponseId.Value,
@@ -339,7 +339,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                     artifact.Artifact,
                     artifact.SizeBytes,
                     artifact.Sha256,
-                    chunk.Duration));
+                    chunk.Duration), cancellationToken).ConfigureAwait(false);
                 _ledgerTraceWriter.AppendOutputArtifact(
                     ledger,
                     trace,
@@ -553,7 +553,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                         .ConfigureAwait(false);
                 }
 
-                context.EmitEvent?.Invoke(new AssistantAudioOutputChunkReadyEvent(
+                await context.PublishAsync(new AssistantAudioOutputChunkReadyEvent(
                     context.SessionId.Value,
                     outputFlow.Id.Value,
                     request.ResponseId.Value,
@@ -569,7 +569,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                     chunk.SizeBytes,
                     chunk.Duration,
                     chunk.IsFinalChunk,
-                    chunk.Payload.Kind.ToString()));
+                    chunk.Payload.Kind.ToString()), cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -597,7 +597,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                 .ConfigureAwait(false);
         }
 
-        context.EmitEvent?.Invoke(new AssistantAudioOutputStreamCompletedEvent(
+        await context.PublishAsync(new AssistantAudioOutputStreamCompletedEvent(
             context.SessionId.Value,
             outputFlow.Id.Value,
             request.ResponseId.Value,
@@ -606,7 +606,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
             OutputAudioStreamDisposition.Completed.ToString(),
             sequence,
             audioBuffer.Length,
-            completion.Duration));
+            completion.Duration), cancellationToken).ConfigureAwait(false);
 
         _ledgerTraceWriter.AppendTtsResult(
             ledger,
@@ -653,7 +653,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                 Duration = completion.Duration,
                 CapturedAt = DateTimeOffset.UtcNow
             }, cancellationToken).ConfigureAwait(false);
-            context.EmitEvent?.Invoke(new AssistantAudioOutputArtifactCapturedEvent(
+            await context.PublishAsync(new AssistantAudioOutputArtifactCapturedEvent(
                 context.SessionId.Value,
                 outputFlow.Id.Value,
                 request.ResponseId.Value,
@@ -663,7 +663,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
                 artifact.Artifact,
                 artifact.SizeBytes,
                 artifact.Sha256,
-                completion.Duration));
+                completion.Duration), cancellationToken).ConfigureAwait(false);
             _ledgerTraceWriter.AppendOutputArtifact(
                 ledger,
                 trace,
@@ -724,7 +724,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
         var sinkAccepted = await TryStartOutputSinkAsync(stream, context, cancellationToken)
             .ConfigureAwait(false);
 
-        context.EmitEvent?.Invoke(new AssistantAudioOutputStreamStartedEvent(
+        await context.PublishAsync(new AssistantAudioOutputStreamStartedEvent(
             context.SessionId.Value,
             outputFlow.Id.Value,
             request.ResponseId.Value,
@@ -736,7 +736,7 @@ internal sealed class TextToSpeechSegmentSynthesizer : ITextToSpeechSegmentSynth
             request.Language,
             request.OutputFormat,
             mediaType,
-            stream.PayloadKind.ToString()));
+            stream.PayloadKind.ToString()), cancellationToken).ConfigureAwait(false);
 
         return new OutputAudioStreamStart(stream, sinkAccepted);
     }
@@ -777,7 +777,15 @@ internal sealed record TextToSpeechSynthesisContext
 
     public required AssistantTextToSpeechOutputOptions Options { get; init; }
 
-    public Action<AgentEvent>? EmitEvent { get; init; }
+    public Func<AgentEvent, CancellationToken, ValueTask<AgentEvent>>? PublishEventAsync { get; init; }
+
+    public async ValueTask PublishAsync(AgentEvent evt, CancellationToken cancellationToken)
+    {
+        if (PublishEventAsync is { } publish)
+        {
+            await publish(evt, cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     public IAudioOutputSink? OutputSink { get; init; }
 

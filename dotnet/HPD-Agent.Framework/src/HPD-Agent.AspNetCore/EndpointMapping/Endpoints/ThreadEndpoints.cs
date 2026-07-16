@@ -51,11 +51,6 @@ internal static class ThreadEndpoints
             .WithName("DeleteThread")
             .WithSummary("Delete a thread");
 
-        endpoints.MapGet("/sessions/{sid}/threads/{bid}/events", (string sid, string bid, CancellationToken ct) =>
-                GetEvents(sid, bid, threads, ct))
-            .WithName("GetThreadEvents")
-            .WithSummary("Get the normalized event log for a thread");
-
     }
 
     private static async Task<Results<Ok<List<ThreadDto>>, NotFound, ValidationProblem>> ListThreads(
@@ -196,25 +191,6 @@ internal static class ThreadEndpoints
         catch (Exception ex)
         {
             return Validation("DeleteThreadError", ex.Message);
-        }
-    }
-
-    private static async Task<Results<Ok<List<AgentEvent>>, NotFound, ValidationProblem>> GetEvents(
-        string sid,
-        string bid,
-        IAgentThreadService threads,
-        CancellationToken ct = default)
-    {
-        try
-        {
-            var result = await threads.GetEventsAsync(sid, bid, ct);
-            return result.Status == AgentServiceStatus.NotFound
-                ? TypedResults.NotFound()
-                : TypedResults.Ok(result.Value!.ToList());
-        }
-        catch (Exception ex)
-        {
-            return Validation("GetEventsError", ex.Message);
         }
     }
 

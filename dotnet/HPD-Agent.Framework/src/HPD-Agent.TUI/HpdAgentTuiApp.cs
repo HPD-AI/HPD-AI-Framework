@@ -35,6 +35,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private string? _activeRuntimeRunId;
     private bool _inputSubmissionPending;
     private long _lastSequenceNumber;
+    private long _initialObservedHead;
+    private IReadOnlyList<AgentEvent> _pendingRecoveryRequests = [];
 
     private HpdAgentTuiApp(
         IHpdAgentTuiRuntime runtime,
@@ -131,6 +133,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         string notice)
     {
         _lastSequenceNumber = 0;
+        _initialObservedHead = 0;
+        _pendingRecoveryRequests = [];
         _inputSubmissionPending = false;
         _activeRuntimeRunId = null;
         _scope = scope;
@@ -634,11 +638,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
 
         ReconcileRuntimeState(threadState);
-        foreach (var evt in threadState.Events.OrderBy(static evt => evt.SequenceNumber))
-        {
-            await _state.ApplyEventAsync(evt, cancellationToken).ConfigureAwait(false);
-        }
-
+        _initialObservedHead = threadState.ObservedHead;
+        _pendingRecoveryRequests = threadState.PendingRequests;
         RequestRender();
     }
 
@@ -695,19 +696,90 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     {
         try
         {
-            await foreach (var evt in _runtime.ObserveAsync(scope, afterSequenceNumber, cancellationToken)
+            foreach (var pendingRequest in _pendingRecoveryRequests)
+            {
+                await HandleInteractionAsync(pendingRequest, cancellationToken).ConfigureAwait(false);
+            }
+            _pendingRecoveryRequests = [];
+
+            await foreach (var batch in _runtime.ObserveAsync(
+                    scope,
+                    afterSequenceNumber,
+                    _initialObservedHead,
+                    cancellationToken)
                 .WithCancellation(cancellationToken)
                 .ConfigureAwait(false))
             {
-                await OnAgentEventAsync(evt, cancellationToken).ConfigureAwait(false);
+                await OnAgentEventBatchAsync(batch.Events, batch.DeliveryMode, cancellationToken)
+                    .ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
+        catch (Exception ex)
+        {
+            if (_state is null)
+                return;
+
+            _state.Shell.Transcript.AddFinal(new TranscriptEntry(
+                Id: $"event-projection-failed-{Guid.NewGuid():N}",
+                EntryKey: null,
+                Cell: new NoticeCell(
+                    "Event projection stopped",
+                    new HPD.TUI.Components.Text(
+                        $"Position {_lastSequenceNumber + 1} was not applied: {ex.Message}"),
+                    TranscriptSeverity.Error),
+                Metadata: new TranscriptEntryMetadata(
+                    AgentId: scope.AgentId,
+                    AgentName: "tui",
+                    AgentChain: ["tui"])));
+            _state.Shell.FooterText = "state: projection failed";
+            RequestRender();
+        }
+    }
+
+    private async Task OnAgentEventBatchAsync(
+        IReadOnlyList<AgentEvent> events,
+        AgentTuiEventDeliveryMode deliveryMode,
+        CancellationToken cancellationToken)
+    {
+        if (_state is null || events.Count == 0)
+        {
+            return;
+        }
+
+        using (_state.Shell.Transcript.BeginUpdate())
+        {
+            foreach (var evt in events)
+            {
+                await OnAgentEventAsync(evt, deliveryMode, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        _lastSequenceNumber = Math.Max(
+            _lastSequenceNumber,
+            events[^1].ThreadSequenceNumber);
+        RequestRender();
     }
 
     private async Task OnAgentEventAsync(
+        AgentEvent evt,
+        AgentTuiEventDeliveryMode deliveryMode,
+        CancellationToken cancellationToken)
+    {
+        if (_scope is null || _state is null)
+        {
+            return;
+        }
+
+        await _state.ApplyEventAsync(evt, cancellationToken, deliveryMode).ConfigureAwait(false);
+        TrackRuntimeRun(evt);
+
+        await HandleInteractionAsync(evt, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task HandleInteractionAsync(
         AgentEvent evt,
         CancellationToken cancellationToken)
     {
@@ -716,95 +788,54 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
-        TrackRuntimeRun(evt);
-        await _state.ApplyEventAsync(evt, cancellationToken).ConfigureAwait(false);
-        RequestRender();
-
-        if (_dialogs is null)
+        if (_dialogs is not null &&
+            evt is IRequestEvent request &&
+            !string.IsNullOrWhiteSpace(request.RequestId) &&
+            _registry.TryFindInteractionHandler(evt, out var handler) &&
+            _handledInteractionIds.Add(request.RequestId))
         {
-            return;
-        }
-
-        if (evt is not IRequestEvent request ||
-            string.IsNullOrWhiteSpace(request.RequestId) ||
-            !_registry.TryFindInteractionHandler(evt, out var handler))
-        {
-            return;
-        }
-
-        if (!_handledInteractionIds.Add(request.RequestId))
-        {
-            return;
-        }
-
-        try
-        {
-            var result = await handler.Value.HandleAsync(
-                new AgentTuiInteractionContext(
-                    _scope,
-                    _state.Shell,
-                    _state.Shell.Navigation,
-                    _runtime,
-                    _dialogs,
-                    evt),
-                cancellationToken).ConfigureAwait(false);
-
-            switch (result.Kind)
+            try
             {
-                case AgentTuiInteractionResultKind.AnswerRequest when result.Response is not null:
-                    await _runtime.AnswerRequestAsync(_scope, result.Response, cancellationToken)
-                        .ConfigureAwait(false);
-                    break;
+                var result = await handler.Value.HandleAsync(
+                    new AgentTuiInteractionContext(
+                        _scope,
+                        _state.Shell,
+                        _state.Shell.Navigation,
+                        _runtime,
+                        _dialogs,
+                        evt),
+                    cancellationToken).ConfigureAwait(false);
 
-                case AgentTuiInteractionResultKind.InterruptTurn:
-                    await _runtime.InterruptAsync(
-                            _scope,
-                            expectedRuntimeRunId: null,
-                            reason: result.Reason ?? "Interrupted by TUI interaction.",
-                            cancellationToken: cancellationToken)
-                        .ConfigureAwait(false);
-                    break;
+                switch (result.Kind)
+                {
+                    case AgentTuiInteractionResultKind.AnswerRequest when result.Response is not null:
+                        await _runtime.AnswerRequestAsync(_scope, result.Response, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
 
-                case AgentTuiInteractionResultKind.Error:
-                    _state.Shell.Transcript.AddFinal(new TranscriptEntry(
-                        Id: $"interaction-error-{Guid.NewGuid():N}",
-                        EntryKey: null,
-                        Cell: new NoticeCell(
-                            "Interaction failed",
-                            new HPD.TUI.Components.Text(result.Reason ?? "Interaction failed."),
-                            TranscriptSeverity.Error),
-                        Metadata: new TranscriptEntryMetadata(
-                            AgentId: _scope.AgentId,
-                            AgentName: "tui",
-                            AgentChain: ["tui"])));
-                    break;
+                    case AgentTuiInteractionResultKind.InterruptTurn:
+                        await _runtime.InterruptAsync(
+                                _scope,
+                                expectedRuntimeRunId: null,
+                                reason: result.Reason ?? "Interrupted by TUI interaction.",
+                                cancellationToken: cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+
+                    case AgentTuiInteractionResultKind.Error:
+                        throw new InvalidOperationException(result.Reason ?? "Interaction failed.");
+                }
             }
-
-            RequestRender();
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            _state.Shell.Transcript.AddFinal(new TranscriptEntry(
-                Id: $"interaction-error-{Guid.NewGuid():N}",
-                EntryKey: null,
-                Cell: new NoticeCell(
-                    $"Interaction handler '{handler.Key}' failed",
-                    new HPD.TUI.Components.Text(ex.Message),
-                    TranscriptSeverity.Error),
-                Metadata: new TranscriptEntryMetadata(
-                    AgentId: _scope.AgentId,
-                    AgentName: "tui",
-                    AgentChain: ["tui"])));
-            RequestRender();
+            catch
+            {
+                _handledInteractionIds.Remove(request.RequestId);
+                throw;
+            }
         }
     }
 
     private void TrackRuntimeRun(AgentEvent evt)
     {
-        _lastSequenceNumber = Math.Max(_lastSequenceNumber, evt.SequenceNumber);
         switch (evt)
         {
             case ThreadRunStartedEvent started:
@@ -823,7 +854,6 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
     private void ReconcileRuntimeState(AgentTuiThreadState threadState)
     {
-        _lastSequenceNumber = Math.Max(_lastSequenceNumber, threadState.LatestSequenceNumber);
         _activeRuntimeRunId = threadState.ActiveRun is { Status: var status } activeRun &&
             string.Equals(status, "active", StringComparison.OrdinalIgnoreCase)
                 ? activeRun.RuntimeRunId

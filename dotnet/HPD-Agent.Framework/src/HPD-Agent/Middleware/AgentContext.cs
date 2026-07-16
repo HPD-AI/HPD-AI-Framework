@@ -35,6 +35,7 @@ public sealed class AgentContext
     private volatile bool _middlewareExecuting = false;
     private int _stateGeneration = 0;
     private readonly IEventCoordinator _events;
+    private readonly IThreadEventPublisher? _threadEvents;
     private readonly IStructEventHub _structEvents;
     private readonly CancellationToken _cancellationToken;
     private readonly IChatClient? _parentChatClient;
@@ -57,6 +58,7 @@ public sealed class AgentContext
     /// Event coordinator (internal access for adapters).
     /// </summary>
     internal IEventCoordinator EventCoordinator => _events;
+    internal IThreadEventPublisher? ThreadEvents => _threadEvents;
 
     internal IStructEventHub StructEvents => _structEvents;
 
@@ -367,23 +369,28 @@ public sealed class AgentContext
         _middlewareExecuting = executing;
     }
 
-    //
-    // EVENT EMISSION (always available)
-    //
-
-    /// <summary>
-    /// Emits an event to the agent's event stream for external handling.
-    /// Events are delivered immediately (not batched).
-    /// </summary>
-    /// <param name="evt">The event to emit</param>
-    /// <exception cref="ArgumentNullException">If event is null</exception>
-    public void Emit(AgentEvent evt)
+    public async ValueTask<AgentEvent> PublishAsync(
+        AgentEvent evt,
+        CancellationToken cancellationToken = default)
     {
-        if (evt == null) throw new ArgumentNullException(nameof(evt));
-        // Stamp the turn's traceId onto every middleware-emitted event that doesn't already have one.
+        ArgumentNullException.ThrowIfNull(evt);
         if (TraceId is not null && evt.TraceId is null)
             evt = evt with { TraceId = TraceId };
-        _events.Emit(evt);
+
+        if (_thread is not null)
+        {
+            evt = ThreadEventValidation.PrepareForAppend(_thread.SessionId, _thread.Id, evt);
+            if (_threadEvents is not null)
+            {
+                return await _threadEvents.CommitAndPublishAsync(
+                    new ThreadKey(_thread.SessionId, _thread.Id),
+                    evt,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        await _events.EmitAsync(evt, cancellationToken).ConfigureAwait(false);
+        return evt;
     }
 
     /// <summary>
@@ -401,10 +408,43 @@ public sealed class AgentContext
             request = (TRequest)(request with { TraceId = TraceId });
 
         var effectiveTimeout = timeout ?? TimeSpan.FromMinutes(5);
-        return await _events.RequestAsync<TRequest, TResponse>(
+        if (_thread is not null)
+        {
+            request = (TRequest)ThreadEventValidation.PrepareForAppend(
+                _thread.SessionId,
+                _thread.Id,
+                request);
+        }
+
+        var handle = _events.RegisterRequest<TRequest, TResponse>(
             request,
-            effectiveTimeout,
-            _cancellationToken);
+            new HPD.Events.RequestOptions
+            {
+                Timeout = effectiveTimeout,
+                CancellationToken = _cancellationToken
+            });
+
+        try
+        {
+            if (_thread is not null && _threadEvents is not null)
+            {
+                await _threadEvents.CommitAndPublishAsync(
+                    new ThreadKey(_thread.SessionId, _thread.Id),
+                    request,
+                    _cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await _events.EmitAsync(request, _cancellationToken).ConfigureAwait(false);
+            }
+
+            return (TResponse)await handle.Response.ConfigureAwait(false);
+        }
+        catch
+        {
+            handle.Cancel("Request publication or wait failed.");
+            throw;
+        }
     }
 
     public async ValueTask RunAsync(
@@ -447,6 +487,7 @@ public sealed class AgentContext
         Session? session,
         Thread? thread,
         CancellationToken cancellationToken,
+        IThreadEventPublisher? threadEvents = null,
         IChatClient? parentChatClient = null,
         IServiceProvider? services = null,
         IRuntimeCapabilityRegistry? runtimeCapabilities = null,
@@ -468,6 +509,7 @@ public sealed class AgentContext
         _contentStore = contentStore;
         _state = initialState ?? throw new ArgumentNullException(nameof(initialState));
         _events = eventCoordinator ?? throw new ArgumentNullException(nameof(eventCoordinator));
+        _threadEvents = threadEvents;
         _structEvents = structEvents ?? new StructEventHub();
         _session = session;
         _thread = thread;

@@ -25,7 +25,7 @@ public sealed class AgentContentService : IAgentContentService
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
         ArgumentNullException.ThrowIfNull(content);
 
-        if (await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken) == null)
+        if (await _sessionManager.Store.GetThreadAsync(new ThreadKey(sessionId, threadId), cancellationToken) == null)
             return AgentServiceResult<ContentDto>.NotFound;
 
         var scope = ContentStoreScopes.ForThread(sessionId, threadId);
@@ -63,7 +63,7 @@ public sealed class AgentContentService : IAgentContentService
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        if (await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken) == null)
+        if (await _sessionManager.Store.GetThreadAsync(new ThreadKey(sessionId, threadId), cancellationToken) == null)
             return AgentServiceResult<IReadOnlyList<ContentDto>>.NotFound;
 
         var content = await _contentStore.QueryAsync(
@@ -91,7 +91,7 @@ public sealed class AgentContentService : IAgentContentService
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
         ArgumentException.ThrowIfNullOrWhiteSpace(contentId);
 
-        if (await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken) == null)
+        if (await _sessionManager.Store.GetThreadAsync(new ThreadKey(sessionId, threadId), cancellationToken) == null)
             return AgentServiceResult<AgentContentDownload>.NotFound;
 
         var scope = ContentStoreScopes.ForThread(sessionId, threadId);
@@ -118,7 +118,7 @@ public sealed class AgentContentService : IAgentContentService
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
         ArgumentException.ThrowIfNullOrWhiteSpace(contentId);
 
-        if (await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken) == null)
+        if (await _sessionManager.Store.GetThreadAsync(new ThreadKey(sessionId, threadId), cancellationToken) == null)
             return AgentServiceResult.NotFound;
 
         var scope = ContentStoreScopes.ForThread(sessionId, threadId);

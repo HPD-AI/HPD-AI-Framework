@@ -34,10 +34,9 @@ public interface IThreadCompactionPlanner
 
 public interface IThreadHistoryCompactor
 {
-    Task<ThreadCompactionResult> CompactAsync(
+    ThreadCompactionResult Compact(
         Thread thread,
-        ThreadCompactionPlan plan,
-        CancellationToken cancellationToken);
+        ThreadCompactionPlan plan);
 }
 
 public sealed class ThreadCompactionPlanner : IThreadCompactionPlanner
@@ -231,10 +230,9 @@ public sealed class ThreadCompactionPlanner : IThreadCompactionPlanner
 
 public sealed class ThreadHistoryCompactor : IThreadHistoryCompactor
 {
-    public async Task<ThreadCompactionResult> CompactAsync(
+    public ThreadCompactionResult Compact(
         Thread thread,
-        ThreadCompactionPlan plan,
-        CancellationToken cancellationToken)
+        ThreadCompactionPlan plan)
     {
         ArgumentNullException.ThrowIfNull(thread);
         ArgumentNullException.ThrowIfNull(plan);
@@ -270,15 +268,6 @@ public sealed class ThreadHistoryCompactor : IThreadHistoryCompactor
 
         if (durableRemovedIds.Count > 0)
             ApplyToLiveThread(thread, durableRemovedIds, replacementMessages);
-
-        if (thread.Session?.Store is { } store)
-        {
-            await store.AppendThreadEventAsync(
-                thread.SessionId,
-                thread.Id,
-                checkpointEvent,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-        }
 
         return new ThreadCompactionResult(
             compactionId,

@@ -49,10 +49,9 @@ public sealed class AgentThreadRunService : IAgentThreadRunService
         string threadId,
         CancellationToken cancellationToken)
     {
-        var document = await _sessionManager.Store.LoadThreadDocumentAsync(sessionId, threadId, cancellationToken)
+        var events = await _sessionManager.GetThreadRunProjectionEventsAsync(sessionId, threadId, cancellationToken)
             .ConfigureAwait(false);
-        if (document == null && await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken)
-                .ConfigureAwait(false) == null)
+        if (events is null)
             return null;
 
         var active = _sessionManager.GetActiveThreadRun(sessionId, threadId);
@@ -64,7 +63,7 @@ public sealed class AgentThreadRunService : IAgentThreadRunService
                 agentId,
                 sessionId,
                 threadId,
-                document?.Events ?? [],
+                events,
                 activeRuntimeRunId)
             .ToList();
 

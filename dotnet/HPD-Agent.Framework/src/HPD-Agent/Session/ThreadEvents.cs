@@ -12,57 +12,6 @@ public static class ThreadEventTypes
     public const string ThreadHistoryCompactionCheckpoint = "THREAD_HISTORY_COMPACTION_CHECKPOINT";
 }
 
-public sealed record ThreadEventDocument
-{
-    public string Schema { get; init; } = "hpd.agent.thread.events";
-    public int Version { get; init; } = 2;
-    public required string SessionId { get; init; }
-    public required string ThreadId { get; init; }
-    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
-    public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;
-    public long NextSequenceNumber { get; init; } = 1;
-    public List<AgentEvent> Events { get; init; } = [];
-}
-
-public sealed record ThreadEventStreamMetadata
-{
-    public string Schema { get; init; } = "hpd.agent.thread.meta";
-    public int Version { get; init; } = 1;
-    public required string SessionId { get; init; }
-    public required string ThreadId { get; init; }
-    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
-    public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;
-    public long NextSequenceNumber { get; init; } = 1;
-    public string? Name { get; init; }
-    public string? Description { get; init; }
-    public List<string>? Tags { get; init; }
-    public ThreadKind Kind { get; init; } = ThreadKind.MainAgent;
-    public ThreadVisibility Visibility { get; init; } = ThreadVisibility.Visible;
-    public string? ParentSessionId { get; init; }
-    public string? ParentThreadId { get; init; }
-    public string? SubAgentName { get; init; }
-    public string? SubAgentRunId { get; init; }
-    public string? SubAgentSourceKind { get; init; }
-    public string? ParentToolCallId { get; init; }
-    public string? SessionPolicy { get; init; }
-    public string? ThreadPolicy { get; init; }
-    public int MessageCount { get; init; }
-}
-
-public sealed record ThreadProjectionCache
-{
-    public const int CurrentVersion = 2;
-
-    public string Schema { get; init; } = "hpd.agent.thread.projection-cache";
-    public int Version { get; init; } = CurrentVersion;
-    public required string SessionId { get; init; }
-    public required string ThreadId { get; init; }
-    public required long LastSequenceNumber { get; init; }
-    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
-    public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;
-    public required Thread Thread { get; init; }
-}
-
 public sealed record ThreadCreatedEvent(
     string? Name,
     string? Description,
@@ -545,10 +494,7 @@ public static class ThreadEventFactory
             ToolCallEndEvent toolCompleted =>
                 Scope(sessionId, threadId, toolCompleted with { EventFlowId = messageTurnId }),
 
-            _ when evt.ShouldPersistToThread() =>
-                Scope(sessionId, threadId, evt),
-
-            _ => null
+            _ => Scope(sessionId, threadId, evt)
         };
     }
 
@@ -556,7 +502,7 @@ public static class ThreadEventFactory
         where T : AgentEvent =>
         evt with
         {
-            EventId = evt.EventId ?? Guid.NewGuid().ToString("N"),
+            EventId = evt.EventId,
             SessionId = sessionId,
             ThreadId = threadId
         };

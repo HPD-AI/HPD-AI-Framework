@@ -366,74 +366,6 @@ describe('AgentClient — session/thread passthroughs', () => {
     });
   });
 
-  describe('getThreadEvents', () => {
-    it('calls GET /sessions/{sid}/threads/{bid}/events and returns thread events', async () => {
-      const events = [
-        {
-          eventId: 'evt-1',
-          sessionId: 'sess-1',
-          threadId: 'thread-1',
-          type: 'TEXT_DELTA',
-          messageId: 'msg-1',
-          text: 'Hi',
-          sequenceNumber: 1,
-          timestamp: '2024-01-01T00:00:00Z',
-        },
-      ];
-      mockFetchJson(events);
-
-      const result = await client.getThreadEvents('sess-1', 'thread-1');
-
-      const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0];
-      expect(String(url)).toBe(`${BASE}/sessions/sess-1/threads/thread-1/events`);
-      expect(result).toEqual(events);
-    });
-
-    it('returns an empty event list when an existing thread has no event document yet', async () => {
-      vi.spyOn(globalThis, 'fetch')
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 404,
-          json: async () => null,
-          text: async () => 'Unknown error',
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => THREAD,
-          text: async () => '',
-        } as Response);
-
-      const result = await client.getThreadEvents('sess-1', 'thread-1');
-
-      expect(result).toEqual([]);
-      expect(((fetch as unknown as { mock: { calls: any[] } }).mock).calls.map(([url]) => String(url))).toEqual([
-        `${BASE}/sessions/sess-1/threads/thread-1/events`,
-        `${BASE}/sessions/sess-1/threads/thread-1`,
-      ]);
-    });
-
-    it('still throws when thread events 404 because the thread is missing', async () => {
-      vi.spyOn(globalThis, 'fetch')
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 404,
-          json: async () => null,
-          text: async () => 'Unknown error',
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 404,
-          json: async () => null,
-          text: async () => 'Not Found',
-        } as Response);
-
-      await expect(client.getThreadEvents('sess-1', 'missing')).rejects.toMatchObject({
-        statusCode: 404,
-      });
-    });
-  });
-
   describe('thread runs', () => {
     it('calls GET /agents/{agentId}/sessions/{sid}/threads/{bid}/runs and returns runs', async () => {
       const runs = [{
@@ -455,11 +387,10 @@ describe('AgentClient — session/thread passthroughs', () => {
       expect(result).toEqual(runs);
     });
 
-    it('calls GET /state and returns history, cursor, and the active run together', async () => {
+    it('calls GET /state and returns the observation boundary and active run', async () => {
       const state = {
-        latestSequenceNumber: 4,
+        observedHead: 4,
         activeRun: null,
-        events: [{ type: 'TEXT_DELTA', sequenceNumber: 4, text: 'done', messageId: 'm1' }],
       };
       mockFetchJson(state);
 

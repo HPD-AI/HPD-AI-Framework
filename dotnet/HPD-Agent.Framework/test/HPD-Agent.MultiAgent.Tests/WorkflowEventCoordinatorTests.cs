@@ -25,7 +25,7 @@ public class WorkflowEventCoordinatorTests
     // ── Subscriptions ─────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task Emit_Calls_All_Registered_Observers()
+    public async Task PublishAsync_Calls_All_Registered_Observers()
     {
         var coordinator = new WorkflowEventCoordinator();
         var obs1 = new RecordingObserver();
@@ -40,7 +40,7 @@ public class WorkflowEventCoordinatorTests
             Metadata = new AgentMetadata { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
         };
 
-        coordinator.Emit(evt);
+        await coordinator.PublishAsync(evt);
         await Task.WhenAll(
             obs1.WaitForCountAsync(1),
             obs2.WaitForCountAsync(1));
@@ -50,12 +50,12 @@ public class WorkflowEventCoordinatorTests
     }
 
     [Fact]
-    public async Task Emit_When_No_Observers_Does_Nothing()
+    public async Task PublishAsync_When_No_Observers_Does_Nothing()
     {
         var coordinator = new WorkflowEventCoordinator();
 
         // Should not throw even with no observers
-        var act = () => coordinator.Emit(
+        var act = async () => await coordinator.PublishAsync(
             new WorkflowStartedEvent
             {
                 WorkflowName = "W",
@@ -63,11 +63,11 @@ public class WorkflowEventCoordinatorTests
                 Metadata = new AgentMetadata { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
             });
 
-        act.Should().NotThrow();
+        await act.Should().NotThrowAsync();
     }
 
     [Fact]
-    public async Task Emit_Filters_By_TEvent_Generic_Type()
+    public async Task PublishAsync_Filters_By_TEvent_Generic_Type()
     {
         var coordinator = new WorkflowEventCoordinator();
 
@@ -76,7 +76,7 @@ public class WorkflowEventCoordinatorTests
         using var subscription = coordinator.Subscribe<WorkflowAgentCompletedEvent>(typedObserver.HandleAsync);
 
         // Emit a WorkflowStartedEvent — should NOT reach the typed observer
-        coordinator.Emit(new WorkflowStartedEvent
+        await coordinator.PublishAsync(new WorkflowStartedEvent
         {
             WorkflowName = "W",
             NodeCount = 1,
@@ -88,7 +88,7 @@ public class WorkflowEventCoordinatorTests
     }
 
     [Fact]
-    public async Task Emit_Typed_Observer_Receives_Matching_Event()
+    public async Task PublishAsync_Typed_Observer_Receives_Matching_Event()
     {
         var coordinator = new WorkflowEventCoordinator();
         var typedObserver = new TypedRecordingObserver<WorkflowAgentCompletedEvent>();
@@ -103,7 +103,7 @@ public class WorkflowEventCoordinatorTests
             Metadata = new AgentMetadata { AgentName = "W", AgentId = "w-1", AgentChain = ["W"] }
         };
 
-        coordinator.Emit(nodeCompletedEvt);
+        await coordinator.PublishAsync(nodeCompletedEvt);
         await typedObserver.WaitForCountAsync(1);
 
         typedObserver.Received.Should().ContainSingle().Which.Should().Be(nodeCompletedEvt);
@@ -116,7 +116,7 @@ public class WorkflowEventCoordinatorTests
         var refusingObserver = new RefusingObserver();
         using var subscription = coordinator.SubscribeAny(refusingObserver.HandleAsync);
 
-        coordinator.Emit(new WorkflowStartedEvent
+        await coordinator.PublishAsync(new WorkflowStartedEvent
         {
             WorkflowName = "W",
             NodeCount = 1,
@@ -128,7 +128,7 @@ public class WorkflowEventCoordinatorTests
     }
 
     [Fact]
-    public async Task Emit_Observer_Exception_Does_Not_Propagate()
+    public async Task PublishAsync_Observer_Exception_Does_Not_Propagate()
     {
         var coordinator = new WorkflowEventCoordinator();
         var throwingObserver = new ThrowingObserver();
@@ -144,8 +144,8 @@ public class WorkflowEventCoordinatorTests
         };
 
         // The throwing observer must not kill the dispatch
-        var act = () => coordinator.Emit(evt);
-        act.Should().NotThrow();
+        var act = async () => await coordinator.PublishAsync(evt);
+        await act.Should().NotThrowAsync();
         await Task.Delay(50);
 
         // The healthy observer must still receive the original event. It may

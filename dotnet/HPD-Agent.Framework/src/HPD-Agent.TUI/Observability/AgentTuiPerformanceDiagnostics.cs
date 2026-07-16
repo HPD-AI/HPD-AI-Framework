@@ -66,7 +66,6 @@ public abstract record AgentTuiPerformanceEvent : AgentEvent, IObservabilityEven
 
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
 
-    public override bool ShouldPersistToThread() => false;
 
     public virtual string FormatSummary()
         => $"tui {GetType().Name} kind={Kind} channel={Channel}";

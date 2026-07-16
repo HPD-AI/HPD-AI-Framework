@@ -43,7 +43,7 @@ describe('SseTransport runtime', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events/live?after=0',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=0',
       expect.objectContaining({
         method: 'GET',
       }),
@@ -247,8 +247,8 @@ describe('SseTransport runtime', () => {
     await vi.waitFor(() => expect(events).toEqual(['first', 'second']), { timeout: 2_000 });
 
     expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events/live?after=4',
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events/live?after=5',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=4',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=5',
     ]);
   });
 

@@ -249,33 +249,10 @@ public abstract class HookContext
     public void UpdateState(Func<AgentLoopState, AgentLoopState> transform)
         => Base.UpdateState(transform);
 
-    /// <summary>
-    /// Emits an event to the agent's event stream for external handling.
-    /// </summary>
-    /// <param name="evt">The event to emit</param>
-    /// <exception cref="InvalidOperationException">Thrown if EventCoordinator is not configured</exception>
-    public void Emit(AgentEvent evt)
-        => Base.Emit(evt);
-
-    /// <summary>
-    /// Attempts to emit an event to the agent's event stream.
-    /// Silently does nothing if EventCoordinator is not configured.
-    /// </summary>
-    /// <param name="evt">The event to emit</param>
-    /// <returns>True if event was emitted, false if EventCoordinator not configured</returns>
-    public bool TryEmit(AgentEvent evt)
-    {
-        try
-        {
-            Base.Emit(evt);
-            return true;
-        }
-        catch (InvalidOperationException)
-        {
-            // EventCoordinator not configured
-            return false;
-        }
-    }
+    public ValueTask<AgentEvent> PublishAsync(
+        AgentEvent evt,
+        CancellationToken cancellationToken = default)
+        => Base.PublishAsync(evt, cancellationToken);
 
     /// <summary>
     /// Starts a request session and waits for its matching response.

@@ -36,7 +36,6 @@ public class EventTests
         Assert.Equal(EventKind.Content, evt.Kind);
         Assert.Equal(EventChannel.Synchronous, evt.Channel);
         Assert.Equal(EventDirection.Downstream, evt.Direction);
-        Assert.Equal(0, evt.SequenceNumber);
         Assert.Equal(0, evt.ExchangeTimestampNs);
         Assert.True(evt.CanInterrupt);
         Assert.Null(evt.EventFlowId);
@@ -83,14 +82,6 @@ public class EventTests
     public void Event_DoesNotExposeExtensionsProperty()
     {
         Assert.Null(typeof(Event).GetProperty("Extensions"));
-    }
-
-    [Fact]
-    public void Event_SequenceNumber_CanBeSet()
-    {
-        var evt = new TestEvent { SequenceNumber = 123 };
-
-        Assert.Equal(123, evt.SequenceNumber);
     }
 
     [Fact]

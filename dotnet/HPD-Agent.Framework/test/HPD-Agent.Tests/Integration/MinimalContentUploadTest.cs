@@ -17,11 +17,11 @@ public class MinimalContentUploadTest
 
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir);
             var contentStore = new LocalFileContentStore(Path.Combine(tempDir, "content"));
             var session = await store.LoadSessionAsync("minimal-session") ?? new HPD.Agent.Session("minimal-session");
             session.Store = store;
-            var thread = await store.LoadThreadAsync("minimal-session", "main") ?? session.CreateThread("main");
+            var thread = await store.ProjectThreadAsync("minimal-session", "main") ?? session.CreateThread("main");
             thread.Session = session;
 
             // Verify session has store

@@ -85,6 +85,7 @@ public sealed class RunConfigComposerTests
                 SessionId = scope.SessionId,
                 ThreadId = scope.ThreadId
             },
+            AgentTuiEventDeliveryMode.Live,
             CancellationToken.None);
         InvokePrivate(app, "SubmitPrompt", "hello".AsMemory());
 
@@ -153,9 +154,10 @@ public sealed class RunConfigComposerTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(scope);
 
-        public async IAsyncEnumerable<AgentEvent> ObserveAsync(
+        public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
             AgentTuiRuntimeScope scope,
             long afterSequenceNumber,
+            long initialObservedHead,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             await Task.CompletedTask;

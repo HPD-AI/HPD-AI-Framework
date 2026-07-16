@@ -10,9 +10,7 @@ import type { AgentTransport, RuntimeScope, RunTransportOptions, SubmitInputResu
 import type {
   Session,
   Thread,
-  ThreadMessage,
   ThreadGraph,
-  ThreadEvent,
   ContentReference,
   CreateSessionRequest,
   SearchSessionsRequest,
@@ -327,14 +325,6 @@ export class AgentClient {
 
   deleteThread(sessionId: string, threadId: string, options?: { recursive?: boolean }): Promise<void> {
     return this.api.deleteThread(sessionId, threadId, options);
-  }
-
-  getThreadEvents(sessionId: string, threadId: string): Promise<ThreadEvent[]> {
-    return this.api.getThreadEvents(sessionId, threadId);
-  }
-
-  getThreadMessages(sessionId: string, threadId: string): Promise<ThreadMessage[]> {
-    return this.api.getThreadMessages(sessionId, threadId);
   }
 
   getThreadRuns(agentId: string, sessionId: string, threadId: string): Promise<ThreadRun[]> {

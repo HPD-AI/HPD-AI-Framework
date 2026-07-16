@@ -175,7 +175,7 @@ public partial class CodingToolHarness
                 outputStore,
                 context.InvocationSnapshot);
 
-            context.TryEmit(new ExecuteCommandProcessStartedEvent
+            await context.TryPublishAsync(new ExecuteCommandProcessStartedEvent
             {
                 ToolCallId = context.FunctionCallId,
                 FunctionName = context.FunctionName,
@@ -191,7 +191,7 @@ public partial class CodingToolHarness
                 AutoBackgroundEligible = false,
                 ProcessId = null,
                 TimeoutMilliseconds = (int)request.Timeout.TotalMilliseconds
-            });
+            }, cancellationToken).ConfigureAwait(false);
 
             var completionTask = handle.WaitAsync(CancellationToken.None).AsTask();
             var completed = await Task.WhenAny(
@@ -232,14 +232,15 @@ public partial class CodingToolHarness
                     result,
                     environmentContext.ShellExecutable,
                     cancellationToken).ConfigureAwait(false);
-                EmitExecuteCommandProcessExitedEvent(
+                await EmitExecuteCommandProcessExitedEventAsync(
                     context,
                     request,
                     baseCommand,
                     category,
                     result,
                     outputMetadata,
-                    duration);
+                    duration,
+                    cancellationToken).ConfigureAwait(false);
 
                 await handle.DisposeAsync().ConfigureAwait(false);
                 await outputStore.DisposeAsync().ConfigureAwait(false);
@@ -256,7 +257,7 @@ public partial class CodingToolHarness
                     duration);
             }
 
-            RegisterBackgroundProcess(context, background);
+            await RegisterBackgroundProcessAsync(context, background, cancellationToken).ConfigureAwait(false);
 
             return FormatExecuteCommandBackgroundStarted(request, background.OutputStore.CombinedPath);
         }
@@ -325,7 +326,7 @@ public partial class CodingToolHarness
                 outputSink,
                 cancellationToken).ConfigureAwait(false);
 
-            context.TryEmit(new ExecuteCommandProcessStartedEvent
+            await context.TryPublishAsync(new ExecuteCommandProcessStartedEvent
             {
                 ToolCallId = context.FunctionCallId,
                 FunctionName = context.FunctionName,
@@ -341,14 +342,15 @@ public partial class CodingToolHarness
                 AutoBackgroundEligible = false,
                 ProcessId = null,
                 TimeoutMilliseconds = (int)request.Timeout.TotalMilliseconds
-            });
+            }, cancellationToken).ConfigureAwait(false);
 
-            eventState.TryEmitProgress(
+            await eventState.TryEmitProgressAsync(
                 context,
                 request,
                 baseCommand,
                 category,
-                stopwatch.Elapsed);
+                stopwatch.Elapsed,
+                cancellationToken).ConfigureAwait(false);
 
             if (_executeCommandOptions.AutoBackgroundAfter is { } autoBackgroundAfter &&
                 autoBackgroundAfter >= TimeSpan.Zero)
@@ -360,14 +362,15 @@ public partial class CodingToolHarness
                     .ConfigureAwait(false);
             if (completed != completionTask)
             {
-                eventState.TryEmitProgress(
+                await eventState.TryEmitProgressAsync(
                     context,
                     request,
                     baseCommand,
                     category,
-                    stopwatch.Elapsed);
+                    stopwatch.Elapsed,
+                    cancellationToken).ConfigureAwait(false);
 
-                var background = TryRegisterExistingHandleAsBackground(
+                var background = await TryRegisterExistingHandleAsBackgroundAsync(
                         request,
                         context,
                         environmentContext.ShellExecutable,
@@ -375,12 +378,13 @@ public partial class CodingToolHarness
                         category,
                         handle,
                         outputStore,
-                        context.InvocationSnapshot);
+                        context.InvocationSnapshot,
+                        cancellationToken).ConfigureAwait(false);
 
                     if (background is not null)
                     {
                         ownershipTransferred = true;
-                        context.TryEmit(new ExecuteCommandAutoBackgroundedEvent
+                        await context.TryPublishAsync(new ExecuteCommandAutoBackgroundedEvent
                         {
                             ToolCallId = context.FunctionCallId,
                             FunctionName = context.FunctionName,
@@ -393,7 +397,7 @@ public partial class CodingToolHarness
                             BackgroundHandleId = request.CommandId,
                             BackgroundedAt = DateTimeOffset.UtcNow,
                             ElapsedMilliseconds = (long)stopwatch.Elapsed.TotalMilliseconds
-                        });
+                        }, cancellationToken).ConfigureAwait(false);
 
                         return FormatExecuteCommandBackgroundStarted(
                             request,
@@ -431,14 +435,15 @@ public partial class CodingToolHarness
                 result,
                 environmentContext.ShellExecutable,
                 cancellationToken).ConfigureAwait(false);
-            EmitExecuteCommandProcessExitedEvent(
+            await EmitExecuteCommandProcessExitedEventAsync(
                 context,
                 request,
                 baseCommand,
                 category,
                 result,
                 outputMetadata,
-                stopwatch.Elapsed);
+                stopwatch.Elapsed,
+                cancellationToken).ConfigureAwait(false);
 
             return FormatExecuteCommandResult(
                 request,
@@ -925,7 +930,7 @@ public partial class CodingToolHarness
         return builder.ToString();
     }
 
-    private ExecuteCommandProcessHandle? TryRegisterExistingHandleAsBackground(
+    private async ValueTask<ExecuteCommandProcessHandle?> TryRegisterExistingHandleAsBackgroundAsync(
         ExecuteCommandRequest request,
         FunctionExecutionContext context,
         string shell,
@@ -933,7 +938,8 @@ public partial class CodingToolHarness
         ExecuteCommandCategory category,
         IProcessInvocationHandle handle,
         ExecuteCommandOutputStoreSession outputStore,
-        FunctionInvocationSnapshot invocation)
+        FunctionInvocationSnapshot invocation,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(context.SessionId) ||
             !context.CanRegisterBackgroundTasks ||
@@ -959,7 +965,7 @@ public partial class CodingToolHarness
 
         try
         {
-            RegisterBackgroundProcess(context, background);
+            await RegisterBackgroundProcessAsync(context, background, cancellationToken).ConfigureAwait(false);
             return background;
         }
         catch
@@ -968,11 +974,12 @@ public partial class CodingToolHarness
         }
     }
 
-    private static void RegisterBackgroundProcess(
+    private static async ValueTask RegisterBackgroundProcessAsync(
         FunctionExecutionContext context,
-        ExecuteCommandProcessHandle background)
+        ExecuteCommandProcessHandle background,
+        CancellationToken cancellationToken)
     {
-        context.RegisterBackgroundHandle(
+        await context.RegisterBackgroundHandleAsync(
             new BackgroundHandleDescriptor
             {
                 HandleId = background.CommandId,
@@ -986,7 +993,8 @@ public partial class CodingToolHarness
                                       BackgroundHandleOperation.Artifacts,
                 Metadata = background.NotificationMetadata
             },
-            background);
+            background,
+            cancellationToken).ConfigureAwait(false);
 
         context.BackgroundTasks!.RegisterBackgroundTask(
             new BackgroundTaskDescriptor
@@ -1134,16 +1142,17 @@ public partial class CodingToolHarness
         return builder.ToString();
     }
 
-    private static void EmitExecuteCommandProcessExitedEvent(
+    private static async ValueTask EmitExecuteCommandProcessExitedEventAsync(
         FunctionExecutionContext context,
         ExecuteCommandRequest request,
         string baseCommand,
         ExecuteCommandCategory category,
         ProcessInvocationResult result,
         ExecuteCommandOutputStoreMetadata outputMetadata,
-        TimeSpan duration)
+        TimeSpan duration,
+        CancellationToken cancellationToken)
     {
-        context.TryEmit(new ExecuteCommandProcessExitedEvent
+        await context.TryPublishAsync(new ExecuteCommandProcessExitedEvent
         {
             ToolCallId = context.FunctionCallId,
             FunctionName = context.FunctionName,
@@ -1174,16 +1183,17 @@ public partial class CodingToolHarness
             StdoutLocalPath = outputMetadata.Stdout.LocalPath,
             StderrLocalPath = outputMetadata.Stderr.LocalPath,
             CombinedOutputLocalPath = outputMetadata.Combined.LocalPath
-        });
+        }, cancellationToken).ConfigureAwait(false);
     }
 
-    internal static void EmitExecuteCommandOutputChunkEvent(
+    internal static async ValueTask EmitExecuteCommandOutputChunkEventAsync(
         FunctionExecutionContext context,
         ExecuteCommandRequest request,
         string baseCommand,
         ExecuteCommandCategory category,
         ProcessOutputChunk evt,
-        ExecuteCommandEventState state)
+        ExecuteCommandEventState state,
+        CancellationToken cancellationToken)
     {
         var observation = state.Observe(evt.Stream, evt.Bytes.Length);
         if (!state.TryReserveOutputEvent())
@@ -1195,7 +1205,7 @@ public partial class CodingToolHarness
             out var binary,
             out var truncated);
 
-        context.TryEmit(new ExecuteCommandOutputChunkEvent
+        await context.TryPublishAsync(new ExecuteCommandOutputChunkEvent
         {
             ToolCallId = context.FunctionCallId,
             FunctionName = context.FunctionName,
@@ -1213,7 +1223,7 @@ public partial class CodingToolHarness
             Truncated = truncated,
             Suppressed = state.OutputEventsSuppressed,
             Binary = binary
-        });
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private static void WriteExecuteCommandStreamElement(
@@ -2214,12 +2224,13 @@ internal sealed class ExecuteCommandEventState
         }
     }
 
-    public void TryEmitProgress(
+    public async ValueTask TryEmitProgressAsync(
         FunctionExecutionContext context,
         ExecuteCommandRequest request,
         string baseCommand,
         ExecuteCommandCategory category,
-        TimeSpan elapsed)
+        TimeSpan elapsed,
+        CancellationToken cancellationToken)
     {
         long stdoutBytes;
         long stderrBytes;
@@ -2236,7 +2247,7 @@ internal sealed class ExecuteCommandEventState
             suppressed = _outputEventsSuppressed;
         }
 
-        context.TryEmit(new ExecuteCommandProgressEvent
+        await context.TryPublishAsync(new ExecuteCommandProgressEvent
         {
             ToolCallId = context.FunctionCallId,
             FunctionName = context.FunctionName,
@@ -2253,7 +2264,7 @@ internal sealed class ExecuteCommandEventState
             CombinedBytesDiscarded = 0,
             OutputObserved = stdoutBytes + stderrBytes > 0,
             OutputEventsSuppressed = suppressed
-        });
+        }, cancellationToken).ConfigureAwait(false);
     }
 }
 
@@ -2275,13 +2286,14 @@ internal sealed class ExecuteCommandOutputSink(
             chunk.ObservedAt,
             cancellationToken).ConfigureAwait(false);
 
-        CodingToolHarness.EmitExecuteCommandOutputChunkEvent(
+        await CodingToolHarness.EmitExecuteCommandOutputChunkEventAsync(
             context,
             request,
             baseCommand,
             category,
             chunk,
-            eventState);
+            eventState,
+            cancellationToken).ConfigureAwait(false);
     }
 }
 

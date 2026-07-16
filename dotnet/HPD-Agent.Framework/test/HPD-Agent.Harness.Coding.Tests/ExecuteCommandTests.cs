@@ -1762,9 +1762,10 @@ public sealed class ExecuteCommandTests : IDisposable
             return new BackgroundTaskRegistration(backgroundContext.TaskId, descriptor.Name, descriptor.SourceKind);
         }
 
-        public BackgroundHandleRegistration RegisterHandle(
+        public ValueTask<BackgroundHandleRegistration> RegisterHandleAsync(
             BackgroundHandleDescriptor descriptor,
-            IBackgroundHandle handle)
+            IBackgroundHandle handle,
+            CancellationToken cancellationToken = default)
         {
             var handleId = descriptor.HandleId ?? Guid.NewGuid().ToString("N");
             var normalized = descriptor with
@@ -1778,11 +1779,11 @@ public sealed class ExecuteCommandTests : IDisposable
                 handle,
                 DateTimeOffset.UtcNow);
             _handles.Add(handleId, registered);
-            return new BackgroundHandleRegistration(
+            return ValueTask.FromResult(new BackgroundHandleRegistration(
                 handleId,
                 descriptor.Name,
                 descriptor.Kind,
-                descriptor.SourceKind);
+                descriptor.SourceKind));
         }
 
         public bool TryGetHandle(
@@ -1828,10 +1829,14 @@ public sealed class ExecuteCommandTests : IDisposable
         public Task SaveSessionAsync(Session session, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<List<string>> ListSessionIdsAsync(CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
         public Task DeleteSessionAsync(string sessionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<Thread?> LoadThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => Task.FromResult<Thread?>(null);
-        public Task<ThreadEventDocument?> LoadThreadDocumentAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => Task.FromResult<ThreadEventDocument?>(null);
-        public Task AppendThreadEventAsync(string sessionId, string threadId, AgentEvent evt, long? expectedSequenceNumber = null, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<List<string>> ListThreadIdsAsync(string sessionId, CancellationToken cancellationToken = default) => Task.FromResult(new List<string>());
+        public Task<Thread?> ProjectThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => Task.FromResult<Thread?>(null);
+        public ValueTask<ThreadEventAppendResult> AppendThreadEventsAsync(ThreadKey thread, IReadOnlyList<AgentEvent> events, ThreadAppendCondition condition = default, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new ThreadEventAppendResult(events, 0, events.Count));
+        public ValueTask<ThreadDescriptor?> GetThreadAsync(ThreadKey thread, CancellationToken cancellationToken = default) => ValueTask.FromResult<ThreadDescriptor?>(null);
+        public ValueTask<ThreadEventHead?> GetThreadEventHeadAsync(ThreadKey thread, CancellationToken cancellationToken = default) => ValueTask.FromResult<ThreadEventHead?>(null);
+        public async IAsyncEnumerable<ThreadDescriptor> ListThreadsAsync(string sessionId, ThreadListRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default) { await Task.CompletedTask; yield break; }
+        public async IAsyncEnumerable<ThreadEventBatch> ReadThreadEventsAsync(ThreadKey thread, ThreadEventReadRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default) { await Task.CompletedTask; yield break; }
+        public async IAsyncEnumerable<ThreadEventBatch> ObserveThreadEventsAsync(ThreadKey thread, long after, ThreadObservationOptions options, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default) { await Task.CompletedTask; yield break; }
         public Task DeleteThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<int> DeleteInactiveSessionsAsync(TimeSpan inactivityThreshold, bool dryRun = false, CancellationToken cancellationToken = default) => Task.FromResult(0);
     }

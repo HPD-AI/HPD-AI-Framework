@@ -119,22 +119,6 @@ public static partial class EventTypes
 
     #endregion
 
-    #region Request Lifecycle Events
-
-    /// <summary>
-    /// Generic request-session lifecycle events projected onto the Agent event surface.
-    /// </summary>
-    public static class RequestLifecycle
-    {
-        public const string AGENT_REQUEST_STARTED = "AGENT_REQUEST_STARTED";
-        public const string AGENT_REQUEST_RESOLVED = "AGENT_REQUEST_RESOLVED";
-        public const string AGENT_REQUEST_EXPIRED = "AGENT_REQUEST_EXPIRED";
-        public const string AGENT_REQUEST_CANCELLED = "AGENT_REQUEST_CANCELLED";
-        public const string AGENT_RESPONSE_REJECTED = "AGENT_RESPONSE_REJECTED";
-    }
-
-    #endregion
-
     #region Permission Events
 
     /// <summary>

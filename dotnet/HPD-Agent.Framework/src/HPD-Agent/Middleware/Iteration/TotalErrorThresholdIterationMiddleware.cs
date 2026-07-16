@@ -95,13 +95,13 @@ public class TotalErrorThresholdMiddleware : IAgentMiddleware
     /// Called BEFORE the LLM call begins.
     /// Checks if we're already at threshold to prevent wasted LLM calls.
     /// </summary>
-    public Task BeforeIterationAsync(
+    public async Task BeforeIterationAsync(
         BeforeIterationContext context,
         CancellationToken cancellationToken)
     {
         // Skip check on first iteration (no previous errors to check)
         if (context.Iteration == 0)
-            return Task.CompletedTask;
+            return;
 
         // Check threshold
         var currentErrorCount = context.GetMiddlewareState<TotalErrorThresholdStateData>()?
@@ -110,23 +110,22 @@ public class TotalErrorThresholdMiddleware : IAgentMiddleware
         if (currentErrorCount >= MaxTotalErrors)
         {
             // Already at threshold - terminate before wasting LLM call
-            TriggerTermination(context, currentErrorCount);
+            await TriggerTerminationAsync(context, currentErrorCount);
         }
 
-        return Task.CompletedTask;
     }
 
     /// <summary>
     /// Called AFTER tool execution completes.
     /// Counts any errors and updates total error count.
     /// </summary>
-    public Task AfterIterationAsync(
+    public async Task AfterIterationAsync(
         AfterIterationContext context,
         CancellationToken cancellationToken)
     {
         // If no tool results, nothing to analyze
         if (context.ToolResults.Count == 0)
-            return Task.CompletedTask;
+            return;
 
         // Count ALL errors in this iteration (regardless of type or consecutiveness)
         var errorCount = context.ToolResults.Count(IsError);
@@ -145,11 +144,10 @@ public class TotalErrorThresholdMiddleware : IAgentMiddleware
 
             if (currentTotalCount >= MaxTotalErrors)
             {
-                TriggerTermination(context, currentTotalCount);
+                await TriggerTerminationAsync(context, currentTotalCount);
             }
         }
 
-        return Task.CompletedTask;
     }
 
     //      
@@ -203,7 +201,7 @@ public class TotalErrorThresholdMiddleware : IAgentMiddleware
     /// Triggers termination by setting termination flag and reason in context.
     /// Emits event for observability.
     /// </summary>
-    private void TriggerTermination(HookContext context, int totalErrorCount)
+    private async Task TriggerTerminationAsync(HookContext context, int totalErrorCount)
     {
         // Format termination message with current counts
         var message = TerminationMessageTemplate
@@ -221,7 +219,7 @@ public class TotalErrorThresholdMiddleware : IAgentMiddleware
         // Emit TextDeltaEvent for user visibility (matching original behavior)
         try
         {
-            context.Emit(new TextDeltaEvent(message, Guid.NewGuid().ToString()));
+            await context.PublishAsync(new TextDeltaEvent(message, Guid.NewGuid().ToString()));
         }
         catch (InvalidOperationException)
         {
@@ -231,7 +229,7 @@ public class TotalErrorThresholdMiddleware : IAgentMiddleware
         // Emit observability event
         try
         {
-            context.Emit(new TotalErrorThresholdExceededEvent(
+            await context.PublishAsync(new TotalErrorThresholdExceededEvent(
                 AgentName: context.AgentName,
                 TotalErrorCount: totalErrorCount,
                 MaxTotalErrors: MaxTotalErrors,

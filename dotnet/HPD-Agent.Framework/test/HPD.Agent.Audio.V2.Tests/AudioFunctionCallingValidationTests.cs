@@ -40,13 +40,13 @@ public sealed class AudioFunctionCallingValidationTests
             "audio-function-session",
             "main");
 
-        var document = await store.LoadThreadDocumentAsync("audio-function-session", "main");
-        Assert.NotNull(document);
+        var events = await store.CollectThreadEventsAsync("audio-function-session", "main");
+        Assert.NotNull(events);
 
-        var starts = document.Events.OfType<ToolCallStartEvent>().ToArray();
-        var args = document.Events.OfType<ToolCallArgsEvent>().ToArray();
-        var results = document.Events.OfType<ToolCallResultEvent>().ToArray();
-        var ends = document.Events.OfType<ToolCallEndEvent>().ToArray();
+        var starts = events.OfType<ToolCallStartEvent>().ToArray();
+        var args = events.OfType<ToolCallArgsEvent>().ToArray();
+        var results = events.OfType<ToolCallResultEvent>().ToArray();
+        var ends = events.OfType<ToolCallEndEvent>().ToArray();
 
         Assert.Collection(
             starts,
@@ -98,7 +98,7 @@ public sealed class AudioFunctionCallingValidationTests
                 Assert.Contains("20", result.Result.Text ?? string.Empty);
             });
 
-        var thread = await store.LoadThreadAsync("audio-function-session", "main");
+        var thread = await store.ProjectThreadAsync("audio-function-session", "main");
         Assert.NotNull(thread);
         var finalAssistantMessage = Assert.Single(thread.Messages, message =>
             message.Role == ChatRole.Assistant &&

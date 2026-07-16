@@ -541,18 +541,23 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         }
     }
 
-    public async IAsyncEnumerable<AgentEvent> ObserveAsync(
+    public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
         AgentTuiRuntimeScope scope,
         long afterSequenceNumber,
+        long initialObservedHead,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(scope);
         var cursor = afterSequenceNumber;
+        var catchUpMode = afterSequenceNumber == 0
+            ? AgentTuiEventDeliveryMode.Historical
+            : AgentTuiEventDeliveryMode.CatchUp;
         while (!cancellationToken.IsCancellationRequested)
         {
+            var pendingCatchUp = new List<AgentEvent>(256);
             using var request = new HttpRequestMessage(
                 HttpMethod.Get,
-                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/events/live?after={cursor}");
+                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/events?after={cursor}");
             using var response = await _http.SendAsync(
                     request,
                     HttpCompletionOption.ResponseHeadersRead,
@@ -591,18 +596,57 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                     continue;
                 }
 
-                if (evt.SequenceNumber > 0 && evt.SequenceNumber <= cursor)
+                if (evt.ThreadSequenceNumber > 0 && evt.ThreadSequenceNumber <= cursor)
                 {
                     continue;
                 }
 
-                cursor = Math.Max(cursor, evt.SequenceNumber);
-                yield return evt;
+                if (evt.ThreadSequenceNumber <= initialObservedHead)
+                {
+                    pendingCatchUp.Add(evt);
+                    if (pendingCatchUp.Count < 256 && evt.ThreadSequenceNumber < initialObservedHead)
+                        continue;
+
+                    var catchUp = pendingCatchUp.ToArray();
+                    yield return CreateDeliveryBatch(catchUp, catchUpMode, initialObservedHead);
+                    cursor = Math.Max(cursor, catchUp[^1].ThreadSequenceNumber);
+                    pendingCatchUp.Clear();
+                    continue;
+                }
+
+                if (pendingCatchUp.Count > 0)
+                {
+                    var catchUp = pendingCatchUp.ToArray();
+                    yield return CreateDeliveryBatch(catchUp, catchUpMode, initialObservedHead);
+                    cursor = Math.Max(cursor, catchUp[^1].ThreadSequenceNumber);
+                    pendingCatchUp.Clear();
+                }
+
+                yield return CreateDeliveryBatch([evt], AgentTuiEventDeliveryMode.Live, initialObservedHead);
+                cursor = Math.Max(cursor, evt.ThreadSequenceNumber);
+            }
+
+            if (pendingCatchUp.Count > 0)
+            {
+                var catchUp = pendingCatchUp.ToArray();
+                yield return CreateDeliveryBatch(catchUp, catchUpMode, initialObservedHead);
+                cursor = Math.Max(cursor, catchUp[^1].ThreadSequenceNumber);
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
         }
     }
+
+    private static AgentTuiEventBatch CreateDeliveryBatch(
+        IReadOnlyList<AgentEvent> events,
+        AgentTuiEventDeliveryMode deliveryMode,
+        long initialObservedHead) =>
+        new(
+            events,
+            deliveryMode,
+            initialObservedHead,
+            events[0].ThreadSequenceNumber,
+            events[^1].ThreadSequenceNumber);
 
     public async Task<AgentTuiSubmitResult> SubmitInputAsync(
         AgentTuiRuntimeScope scope,
@@ -780,29 +824,30 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         }
 
         var root = document.RootElement;
-        var events = new List<AgentEvent>();
-        if (root.TryGetProperty("events", out var eventsElement) && eventsElement.ValueKind == JsonValueKind.Array)
+        var activeRun = root.TryGetProperty("activeRun", out var activeRunElement)
+            ? ParseThreadRun(activeRunElement)
+            : null;
+        var observedHead = root.TryGetProperty("observedHead", out var headElement)
+            ? headElement.GetInt64()
+            : 0;
+        var pendingRequests = new List<AgentEvent>();
+        if (root.TryGetProperty("pendingRequests", out var pendingElement) &&
+            pendingElement.ValueKind == JsonValueKind.Array)
         {
-            foreach (var element in eventsElement.EnumerateArray())
+            foreach (var pending in pendingElement.EnumerateArray())
             {
-                if (AgentEventSerializer.FromJson(element.GetRawText()) is AgentEvent evt)
+                if (pending.TryGetProperty("request", out var requestElement) &&
+                    AgentEventSerializer.FromJson(requestElement.GetRawText()) is AgentEvent request)
                 {
-                    events.Add(evt);
+                    pendingRequests.Add(request);
                 }
             }
         }
 
-        var activeRun = root.TryGetProperty("activeRun", out var activeRunElement)
-            ? ParseThreadRun(activeRunElement)
-            : null;
-        var latestSequenceNumber = root.TryGetProperty("latestSequenceNumber", out var latestElement)
-            ? latestElement.GetInt64()
-            : events.Count == 0 ? 0 : events.Max(static evt => evt.SequenceNumber);
-
         return new AgentTuiThreadState(
-            latestSequenceNumber,
+            observedHead,
             activeRun,
-            events);
+            pendingRequests);
     }
 
     private static AgentTuiThreadRun? ParseThreadRun(JsonElement root)

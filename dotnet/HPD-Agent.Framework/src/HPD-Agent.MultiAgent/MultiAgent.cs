@@ -126,12 +126,12 @@ public class MultiAgent
         => WithSessionStore(new InMemorySessionStore());
 
     /// <summary>
-    /// Use a JSON file-backed session store for multi-agent conversation policies.
+    /// Use the segmented local-file session store for multi-agent conversation policies.
     /// </summary>
-    public MultiAgent WithJsonSessionStore(string rootDirectory)
+    public MultiAgent WithFileSessionStore(string rootDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
-        return WithSessionStore(new JsonSessionStore(rootDirectory));
+        return WithSessionStore(new FileSessionStore(rootDirectory));
     }
 
     /// <summary>
@@ -283,7 +283,7 @@ public class MultiAgent
         {
             throw new InvalidOperationException(
                 "A session store is required when multi-agent conversation policies are enabled. " +
-                "Call WithSessionStore(), WithInMemorySessionStore(), or WithJsonSessionStore().");
+                "Call WithSessionStore(), WithInMemorySessionStore(), or WithFileSessionStore().");
         }
 
         // Create agent factories for deferred building (agents are built at execution time

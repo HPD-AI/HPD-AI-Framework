@@ -1,5 +1,4 @@
 using System.Text.Json.Serialization;
-using HPD.Agent;
 using HPD.Events;
 
 namespace HPD.Agent.MCP;
@@ -13,7 +12,11 @@ public enum McpLiveUpdateKind
     ResourceUpdated
 }
 
-public abstract record McpLiveUpdateEvent : AgentEvent
+/// <summary>
+/// Process-local notification about the capabilities exposed by a connected MCP server.
+/// These notifications are not thread facts and therefore never enter an agent thread journal.
+/// </summary>
+public abstract record McpLiveUpdateEvent : Event
 {
     public override EventKind Kind { get; init; } = EventKind.Diagnostic;
 

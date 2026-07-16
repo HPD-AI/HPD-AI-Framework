@@ -12,7 +12,7 @@ public class HPDAgentConfig
     /// The session store to use for this agent.
     /// Owns session lifecycle (list, create, delete) and is shared with the agent for thread persistence.
     /// Defaults to <see cref="InMemorySessionStore"/> if not set.
-    /// Use <see cref="JsonSessionStore"/> for persistence across restarts.
+    /// Use <see cref="FileSessionStore"/> for persistence across restarts.
     /// </summary>
     /// <remarks>
     /// The hosting layer owns the store, not the AgentBuilder. The store is created at startup
@@ -22,7 +22,7 @@ public class HPDAgentConfig
     /// </remarks>
     /// <summary>
     /// Path to a directory where sessions are persisted as JSON files.
-    /// When set, a <see cref="JsonSessionStore"/> is created automatically.
+    /// When set, a <see cref="FileSessionStore"/> is created automatically.
     /// Ignored when <see cref="SessionStore"/> is set explicitly.
     /// </summary>
     public string? SessionStorePath { get; set; }
@@ -43,7 +43,7 @@ public class HPDAgentConfig
 
     /// <summary>
     /// Whether to automatically persist conversation history after each completed turn.
-    /// Only meaningful when <see cref="SessionStore"/> is a durable store (e.g. <see cref="JsonSessionStore"/>).
+    /// Only meaningful when <see cref="SessionStore"/> is a durable store (e.g. <see cref="FileSessionStore"/>).
     /// Default: false.
     /// </summary>
     public bool PersistAfterTurn { get; set; } = false;

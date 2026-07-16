@@ -36,7 +36,7 @@ public sealed class AgentTuiPerformanceDiagnosticsTests
             .Which.Should().BeOfType<TranscriptViewRendered>().Subject;
         evt.Kind.Should().Be(EventKind.Diagnostic);
         evt.Channel.Should().Be(EventChannel.Streaming);
-        evt.ShouldPersistToThread().Should().BeFalse();
+        evt.ThreadSequenceNumber.Should().Be(0);
         evt.AgentId.Should().Be("agent-1");
         evt.SessionId.Should().Be("session-1");
         evt.ThreadId.Should().Be("thread-1");

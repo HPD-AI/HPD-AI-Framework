@@ -199,7 +199,7 @@ public class PIIMiddleware : IAgentMiddleware
         var blockedMatch = allMatches.FirstOrDefault(m => m.Strategy == PIIStrategy.Block);
         if (blockedMatch != null)
         {
-            EmitPIIDetectedEvent(context, blockedMatch.PIIType, PIIStrategy.Block, 1);
+            await EmitPIIDetectedEventAsync(context, blockedMatch.PIIType, PIIStrategy.Block, 1);
             throw new PIIBlockedException(
                 $"PII of type '{blockedMatch.PIIType}' detected. Message blocked for security.",
                 blockedMatch.PIIType);
@@ -230,7 +230,7 @@ public class PIIMiddleware : IAgentMiddleware
         // Emit events for each PII type detected
         foreach (var (piiType, (strategy, count)) in emittedTypes)
         {
-            EmitPIIDetectedEvent(context, piiType, strategy, count);
+            await EmitPIIDetectedEventAsync(context, piiType, strategy, count);
         }
 
         return processedText;
@@ -358,11 +358,11 @@ public class PIIMiddleware : IAgentMiddleware
         return sum % 10 == 0;
     }
 
-    private void EmitPIIDetectedEvent(HookContext context, string piiType, PIIStrategy strategy, int count)
+    private async Task EmitPIIDetectedEventAsync(HookContext context, string piiType, PIIStrategy strategy, int count)
     {
         try
         {
-            context.Emit(new PIIDetectedEvent(
+            await context.PublishAsync(new PIIDetectedEvent(
                 AgentName: context.AgentName,
                 PIIType: piiType,
                 Strategy: strategy,

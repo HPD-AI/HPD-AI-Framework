@@ -13,7 +13,7 @@ describe('thread message helpers', () => {
   it('projects durable thread events into materialized thread messages', () => {
     const events: ThreadEvent[] = [
       {
-        type: EventTypes.MESSAGE_STARTED,
+        type: EventTypes.TEXT_MESSAGE_START,
         messageId: 'm1',
         role: 'assistant',
         createdAt: '2026-01-01T00:00:00.000Z',
@@ -55,15 +55,10 @@ describe('thread message helpers', () => {
   it('projects streaming text events into materialized thread messages', () => {
     const events: ThreadEvent[] = [
       {
-        type: EventTypes.MESSAGE_STARTED,
-        messageId: 'u1',
-        role: 'user',
-        createdAt: '2026-01-01T00:00:00.000Z',
-      },
-      {
         type: EventTypes.TEXT_MESSAGE_START,
         messageId: 'u1',
         role: 'user',
+        createdAt: '2026-01-01T00:00:00.000Z',
       },
       {
         type: EventTypes.TEXT_DELTA,
@@ -107,6 +102,7 @@ describe('thread message helpers', () => {
           { $type: 'text', text: 'who ' },
           { $type: 'text', text: 'are you' },
         ],
+        additionalProperties: undefined,
         reasoningText: undefined,
         source: undefined,
         visibility: undefined,
@@ -123,6 +119,7 @@ describe('thread message helpers', () => {
           { $type: 'reasoning', text: 'thinking' },
           { $type: 'text', text: 'I am HPD-OS.' },
         ],
+        additionalProperties: undefined,
         reasoningText: 'thinking',
         source: undefined,
         visibility: undefined,
@@ -137,7 +134,7 @@ describe('thread message helpers', () => {
   it('preserves HPD message policy from message and text-start events', () => {
     const events: ThreadEvent[] = [
       {
-        type: EventTypes.MESSAGE_STARTED,
+        type: EventTypes.TEXT_MESSAGE_START,
         messageId: 'sys1',
         role: 'system',
         source: 'BackgroundNotification',
@@ -148,13 +145,6 @@ describe('thread message helpers', () => {
           'hpd.message.visibility': 'Hidden',
           'hpd.message.persistence': 'ThreadHistory',
         },
-      },
-      {
-        type: EventTypes.TEXT_MESSAGE_START,
-        messageId: 'sys1',
-        role: 'system',
-        source: 'BackgroundNotification',
-        visibility: 'Hidden',
       },
       {
         type: EventTypes.TEXT_DELTA,

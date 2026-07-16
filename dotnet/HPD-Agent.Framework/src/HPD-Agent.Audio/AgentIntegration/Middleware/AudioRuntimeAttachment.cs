@@ -248,12 +248,12 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
                 RequestId = context.TraceId,
                 ResponseId = responseId,
                 Options = outputOptions,
-                EmitEvent = agentEvent => context.TryEmit(agentEvent)
+                PublishEventAsync = context.PublishAsync
             },
             cancellationToken).ConfigureAwait(false);
 
         SetLastOutputResults([result]);
-        EmitAssistantOutputEvent(context, result);
+        await PublishAssistantOutputEventAsync(context, result, cancellationToken).ConfigureAwait(false);
     }
 
     public IAsyncEnumerable<AgentModelUpdate>? WrapModelTurnStreamingAsync(
@@ -297,7 +297,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             RouteMode = options.AssistantOutputProgressiveRouteMode,
             PushTextAggregationMode = options.AssistantOutputPushTextAggregationMode,
             RequestId = request.State.RunId,
-            EmitEvent = agentEvent => request.EventCoordinator?.Emit(agentEvent),
+            PublishEventAsync = request.EventPublisher,
             OutputSink = options.AssistantAudioOutputSink,
             EnablePlayback = options.EnableAssistantOutputPlayback,
             EventFlowHandle = eventFlowHandle,
@@ -349,9 +349,10 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
         }
     }
 
-    private static void EmitAssistantOutputEvent(
+    private static async ValueTask PublishAssistantOutputEventAsync(
         AfterMessageTurnContext context,
-        AssistantTextToSpeechOutputResult result)
+        AssistantTextToSpeechOutputResult result,
+        CancellationToken cancellationToken)
     {
         switch (result.Status)
         {
@@ -361,7 +362,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
                     .OfType<AudioTtsSynthesisTraceRecord>()
                     .LastOrDefault(t => t.Disposition == TtsSynthesisDisposition.Failed);
 
-                context.TryEmit(new AssistantAudioOutputFailedEvent(
+                await context.PublishAsync(new AssistantAudioOutputFailedEvent(
                     result.SessionId.Value,
                     result.OutputFlowId.Value,
                     result.ResponseId.Value,
@@ -371,7 +372,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
                     synthesis?.Language,
                     synthesis?.OutputFormat,
                     result.Error ?? synthesis?.Error,
-                    result.Status.ToString()));
+                    result.Status.ToString()), cancellationToken).ConfigureAwait(false);
                 break;
             }
         }

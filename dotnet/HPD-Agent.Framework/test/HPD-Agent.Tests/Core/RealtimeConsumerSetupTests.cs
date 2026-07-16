@@ -80,7 +80,7 @@ public sealed class RealtimeConsumerSetupTests
                 Assert.Empty(item.Contents.OfType<AudioContent>());
             });
 
-        var thread = await store.LoadThreadAsync("consumer-realtime-session", "main");
+        var thread = await store.ProjectThreadAsync("consumer-realtime-session", "main");
         Assert.NotNull(thread);
         Assert.Equal("Answer this audio.", thread.Messages[0].Text);
         Assert.Equal("Realtime answer.", thread.Messages[^1].Text);

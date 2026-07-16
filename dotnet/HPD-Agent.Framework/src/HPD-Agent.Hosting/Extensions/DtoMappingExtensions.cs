@@ -57,6 +57,39 @@ public static class DtoMappingExtensions
             thread.ThreadPolicy);
     }
 
+    public static ThreadDto ToDto(this ThreadDescriptor descriptor, int totalForks = 0)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+
+        return new ThreadDto(
+            descriptor.Key.ThreadId,
+            descriptor.Key.SessionId,
+            descriptor.Name ?? descriptor.Key.ThreadId,
+            descriptor.Description,
+            descriptor.Fork?.SourceThreadId,
+            descriptor.Fork?.MessageId,
+            descriptor.Fork?.MessageIndex,
+            descriptor.CreatedAt.UtcDateTime,
+            descriptor.UpdatedAt.UtcDateTime,
+            descriptor.MessageCount,
+            descriptor.Tags.ToList(),
+            Ancestors: null,
+            totalForks,
+            descriptor.Metadata.Count > 0
+                ? new Dictionary<string, object>(descriptor.Metadata, StringComparer.Ordinal)
+                : null,
+            descriptor.Kind,
+            descriptor.Visibility,
+            descriptor.RuntimeChild?.ParentSessionId,
+            descriptor.RuntimeChild?.ParentThreadId,
+            descriptor.RuntimeChild?.SubAgentName,
+            descriptor.RuntimeChild?.SubAgentRunId,
+            descriptor.RuntimeChild?.SubAgentSourceKind,
+            descriptor.RuntimeChild?.ParentToolCallId,
+            descriptor.RuntimeChild?.SessionPolicy,
+            descriptor.RuntimeChild?.ThreadPolicy);
+    }
+
     /// <summary>
     /// Convert ContentInfo to ContentDto.
     /// </summary>

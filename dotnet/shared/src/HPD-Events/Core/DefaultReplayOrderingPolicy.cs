@@ -27,7 +27,6 @@ public sealed class DefaultReplayOrderingPolicy<TEvent> : IReplayOrderingPolicy<
             source.Priority,
             0,
             source.SourceOrdinal,
-            sourceSequence,
-            evt.SequenceNumber);
+            sourceSequence);
     }
 }

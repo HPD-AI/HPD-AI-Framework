@@ -139,14 +139,14 @@ public class ContentUploadMiddleware : IAgentMiddleware
         // Validate strategy can be satisfied
         if (strategy == UploadStrategy.Hosted && !canUseHosted)
         {
-            context.Emit(new HostedFileUploadFailedEvent(
+            await context.PublishAsync(new HostedFileUploadFailedEvent(
                 ErrorMessage: "UploadStrategy.Hosted requested but current provider does not support HostedFileClient"));
             return data;  // Keep original
         }
 
         if (strategy == UploadStrategy.Local && !canUseLocal)
         {
-            context.Emit(new ContentUploadFailedEvent(
+            await context.PublishAsync(new ContentUploadFailedEvent(
                 ErrorMessage: "UploadStrategy.Local requested but no IContentStore configured"));
             return data;  // Keep original
         }
@@ -216,7 +216,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
                 uploadOptions,
                 cancellationToken);
 
-            context.Emit(new HostedFileUploadedEvent(
+            await context.PublishAsync(new HostedFileUploadedEvent(
                 FileId: hostedContent.FileId,
                 MediaType: mediaType,
                 SizeBytes: data.Data.Length));
@@ -225,7 +225,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
         }
         catch (Exception ex)
         {
-            context.Emit(new HostedFileUploadFailedEvent(
+            await context.PublishAsync(new HostedFileUploadFailedEvent(
                 ErrorMessage: $"Hosted upload failed: {ex.Message}"));
             return null;
         }
@@ -259,7 +259,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
                 ContentReferenceResolverMiddleware.CreateContentUri(info.Id),
                 mediaType);
 
-            context.Emit(new ContentUploadedEvent(
+            await context.PublishAsync(new ContentUploadedEvent(
                 ContentId: info.Id,
                 MediaType: mediaType,
                 SizeBytes: data.Data.Length));
@@ -268,7 +268,7 @@ public class ContentUploadMiddleware : IAgentMiddleware
         }
         catch (Exception ex)
         {
-            context.Emit(new ContentUploadFailedEvent(
+            await context.PublishAsync(new ContentUploadFailedEvent(
                 ErrorMessage: $"Local upload failed: {ex.Message}"));
             return null;
         }

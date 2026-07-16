@@ -43,6 +43,8 @@ public sealed record AgentModelTurnRequest
 
     public IEventCoordinator? EventCoordinator { get; init; }
 
+    public Func<AgentEvent, CancellationToken, ValueTask<AgentEvent>>? EventPublisher { get; init; }
+
     public HPD.Events.Struct.IStructEventHub? StructEvents { get; init; }
 
     public AgentModelTurnRequest Override(

@@ -31,6 +31,9 @@ public sealed class EventCoordinator :
     /// <inheritdoc />
     public IEventFlowRegistry EventFlows => _events.EventFlows;
 
+    public IReadOnlyList<PendingRequestSnapshot> GetPendingRequests()
+        => _events.GetPendingRequests();
+
     /// <inheritdoc />
     public void Emit(Event evt) => _events.Emit(evt);
 
@@ -98,6 +101,16 @@ public sealed class EventCoordinator :
         return _events.StartRequest<TRequest, TResponse>(request, options);
     }
 
+    public RequestHandle RegisterRequest<TRequest, TResponse>(
+        TRequest request,
+        RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return _events.RegisterRequest<TRequest, TResponse>(request, options);
+    }
+
     /// <inheritdoc />
     public async Task<TResponse> RequestAsync<TRequest, TResponse>(
         TRequest request,
@@ -131,6 +144,33 @@ public sealed class EventCoordinator :
 
         return parent is not null && result.Status == RespondStatus.NotFound
             ? parent.Respond(requestId, response)
+            : result;
+    }
+
+    public async ValueTask<RespondResult> RespondAsync(
+        string requestId,
+        Event response,
+        Func<Event, CancellationToken, ValueTask<Event>> beforeCompletion,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(beforeCompletion);
+
+        var parent = _events.ParentCoordinator as EventCoordinator;
+        var result = await _events.RespondAsync(
+            requestId,
+            response,
+            beforeCompletion,
+            publishRejection: parent is null,
+            cancellationToken).ConfigureAwait(false);
+        if (result.Accepted)
+            return result;
+
+        return parent is not null && result.Status == RespondStatus.NotFound
+            ? await parent.RespondAsync(
+                requestId,
+                response,
+                beforeCompletion,
+                cancellationToken).ConfigureAwait(false)
             : result;
     }
 

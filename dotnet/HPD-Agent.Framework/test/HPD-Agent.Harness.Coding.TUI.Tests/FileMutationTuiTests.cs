@@ -1,5 +1,6 @@
 using System.Text.Json;
 using HPD.Agent;
+using HPD.Agent.Serialization;
 using HPD.Agent.TUI;
 using HPD.Agent.TUI.Application;
 using HPD.Agent.TUI.Composition;
@@ -484,20 +485,9 @@ public sealed class FileMutationTuiTests
 
         projected.Should().NotBeNull();
 
-        var document = new ThreadEventDocument
-        {
-            SessionId = "session-1",
-            ThreadId = "thread-1",
-            Events = [projected!]
-        };
-        var json = JsonSerializer.Serialize(document, SessionJsonContext.Combined.ThreadEventDocument);
-        var roundTrip = JsonSerializer.Deserialize<ThreadEventDocument>(
-            json,
-            SessionJsonContext.Combined.ThreadEventDocument);
-
-        roundTrip.Should().NotBeNull();
-        roundTrip!.Events.Should().ContainSingle();
-        return roundTrip.Events[0];
+        var json = AgentEventSerializer.ToJson(projected!);
+        return AgentEventSerializer.FromJson(json)
+            .Should().BeAssignableTo<AgentEvent>().Subject;
     }
 
     private static string RenderTranscript(

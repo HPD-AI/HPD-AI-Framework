@@ -158,7 +158,7 @@ export class SseTransport implements AgentTransport {
       `${this.baseUrl}/agents/${encodeURIComponent(this.agentId!)}` +
       `/sessions/${encodeURIComponent(this.sessionId!)}` +
       `/threads/${encodeURIComponent(this.threadId!)}` +
-      `/events/live?after=${this.cursor}`,
+      `/events?after=${this.cursor}`,
       {
         method: 'GET',
         headers: { Accept: 'text/event-stream' },
@@ -241,7 +241,7 @@ export class SseTransport implements AgentTransport {
   }
 
   private async dispatchCommitted(id: string | null, event: AgentEvent): Promise<void> {
-    const sequenceNumber = parseCommittedSequence(id, event.sequenceNumber);
+    const sequenceNumber = parseCommittedSequence(id, event.threadSequenceNumber);
     if (sequenceNumber <= this.cursor) return;
 
     await this.eventHandler!(event);
@@ -416,15 +416,15 @@ function parseInterruptionStatus(value: unknown): InterruptionStatus {
   }
 }
 
-function parseCommittedSequence(id: string | null, eventSequenceNumber: number | undefined): number {
+function parseCommittedSequence(id: string | null, eventThreadSequenceNumber: number | undefined): number {
   const idSequenceNumber = id !== null && id !== '' ? Number(id) : undefined;
   if (idSequenceNumber !== undefined &&
-      eventSequenceNumber !== undefined &&
-      idSequenceNumber !== eventSequenceNumber) {
-    throw new Error('SSE id did not match the event sequenceNumber');
+      eventThreadSequenceNumber !== undefined &&
+      idSequenceNumber !== eventThreadSequenceNumber) {
+    throw new Error('SSE id did not match the event threadSequenceNumber');
   }
 
-  const sequenceNumber = idSequenceNumber ?? eventSequenceNumber;
+  const sequenceNumber = idSequenceNumber ?? eventThreadSequenceNumber;
   if (!Number.isSafeInteger(sequenceNumber) || sequenceNumber! <= 0) {
     throw new Error('SSE event did not include a valid committed sequence');
   }

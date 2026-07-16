@@ -42,9 +42,4 @@ public interface IAgentThreadService
         bool recursive = false,
         CancellationToken cancellationToken = default);
 
-    Task<AgentServiceResult<IReadOnlyList<AgentEvent>>> GetEventsAsync(
-        string sessionId,
-        string threadId,
-        CancellationToken cancellationToken = default);
-
 }

@@ -54,12 +54,12 @@ public class ThreadTreeV3DeleteTests : AgentTestBase
         main.Session = session;
 
         await agent.ForkThreadAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
-        (await store.LoadThreadAsync(session.Id, "main"))!.ChildThreads.Should().Equal("fork-1");
+        (await store.ProjectThreadAsync(session.Id, "main"))!.ChildThreads.Should().Equal("fork-1");
 
         await agent.DeleteThreadAsync(session.Id, "fork-1");
 
-        var afterMain = await store.LoadThreadAsync(session.Id, "main");
-        var deleted = await store.LoadThreadAsync(session.Id, "fork-1");
+        var afterMain = await store.ProjectThreadAsync(session.Id, "main");
+        var deleted = await store.ProjectThreadAsync(session.Id, "fork-1");
         afterMain!.ChildThreads.Should().BeEmpty();
         afterMain.TotalForks.Should().Be(0);
         deleted.Should().BeNull();
@@ -80,14 +80,14 @@ public class ThreadTreeV3DeleteTests : AgentTestBase
         var forkMessageId = main.Messages[0].MessageId!;
 
         await agent.ForkThreadAsync(main, "fork-1", fromMessageId: forkMessageId);
-        main = (await store.LoadThreadAsync(session.Id, "main"))!;
+        main = (await store.ProjectThreadAsync(session.Id, "main"))!;
         main.Session = session;
         await agent.ForkThreadAsync(main, "fork-2", fromMessageId: forkMessageId);
 
         await agent.DeleteThreadAsync(session.Id, "fork-1");
 
-        var afterMain = await store.LoadThreadAsync(session.Id, "main");
-        var afterFork2 = await store.LoadThreadAsync(session.Id, "fork-2");
+        var afterMain = await store.ProjectThreadAsync(session.Id, "main");
+        var afterFork2 = await store.ProjectThreadAsync(session.Id, "fork-2");
         afterMain!.ChildThreads.Should().Equal("fork-2");
         afterFork2!.ForkedFrom.Should().Be("main");
         afterFork2.ForkedAtMessageId.Should().Be(forkMessageId);

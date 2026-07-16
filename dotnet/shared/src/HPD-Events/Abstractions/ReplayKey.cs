@@ -8,8 +8,7 @@ public readonly record struct ReplayKey(
     int SourcePriority,
     int EventPriority,
     int SourceOrdinal,
-    long SourceSequence,
-    long EventSequenceNumber) : IComparable<ReplayKey>
+    long SourceSequence) : IComparable<ReplayKey>
 {
     /// <inheritdoc />
     public int CompareTo(ReplayKey other)
@@ -30,10 +29,6 @@ public readonly record struct ReplayKey(
         if (sourceOrdinal != 0)
             return sourceOrdinal;
 
-        var sourceSequence = SourceSequence.CompareTo(other.SourceSequence);
-        if (sourceSequence != 0)
-            return sourceSequence;
-
-        return EventSequenceNumber.CompareTo(other.EventSequenceNumber);
+        return SourceSequence.CompareTo(other.SourceSequence);
     }
 }

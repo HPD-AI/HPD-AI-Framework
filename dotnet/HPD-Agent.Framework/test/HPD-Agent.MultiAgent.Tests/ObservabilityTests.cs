@@ -788,12 +788,12 @@ public class ObservabilityTests
 
         var act = async () =>
         {
-            coordinator.Emit(new GraphExecutionStartedEvent
+            await coordinator.PublishAsync(new GraphExecutionStartedEvent
             {
                 NodeCount = 1,
                 GraphContext = new GraphExecutionContext { GraphId = "coord-trace", TotalNodes = 1 }
             });
-            coordinator.Emit(new WorkflowStartedEvent
+            await coordinator.PublishAsync(new WorkflowStartedEvent
             {
                 WorkflowName = "CoordFlow",
                 NodeCount = 1
@@ -884,7 +884,7 @@ public class ObservabilityTests
         };
 
         // Act - publish directly through the coordinator
-        coordinator.Emit(startEvt);
+        await coordinator.PublishAsync(startEvt);
         await Task.Delay(50);
 
         // Assert — MetricsObserver registered the workflow
@@ -909,7 +909,7 @@ public class ObservabilityTests
         // Act & Assert — must not throw
         var act = async () =>
         {
-            coordinator.Emit(startEvt);
+            await coordinator.PublishAsync(startEvt);
             await Task.Delay(50);
         };
         await act.Should().NotThrowAsync();

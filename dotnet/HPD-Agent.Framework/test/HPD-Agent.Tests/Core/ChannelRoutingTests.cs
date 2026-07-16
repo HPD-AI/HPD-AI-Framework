@@ -61,7 +61,7 @@ public class ChannelRoutingTests
     }
 
     [Fact]
-    public async Task SequenceNumber_AssignedByCoordinator()
+    public async Task Coordinator_DoesNotMutateDomainOrderingState()
     {
         var coordinator = new HPD.Events.Core.EventCoordinator();
         await using var subscription = coordinator.CreateChannelInbox(EventChannel.Streaming);
@@ -73,8 +73,8 @@ public class ChannelRoutingTests
         var first = await ReadFirstAsync(subscription.Reader, cts.Token);
         var second = await ReadFirstAsync(subscription.Reader, cts.Token);
 
-        Assert.True(first.SequenceNumber > 0);
-        Assert.True(second.SequenceNumber > first.SequenceNumber);
+        Assert.Equal(0, ((AgentEvent)first).ThreadSequenceNumber);
+        Assert.Equal(0, ((AgentEvent)second).ThreadSequenceNumber);
     }
 
     [Fact]

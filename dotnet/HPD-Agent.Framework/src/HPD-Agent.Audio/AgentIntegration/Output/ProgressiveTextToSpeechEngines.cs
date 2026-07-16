@@ -177,7 +177,9 @@ internal abstract class ProgressiveTextToSpeechEngineBase : IProgressiveTextToSp
         }
     }
 
-    protected void EnsureStarted(ResponseId responseId)
+    protected async ValueTask EnsureStartedAsync(
+        ResponseId responseId,
+        CancellationToken cancellationToken)
     {
         if (_started)
         {
@@ -185,7 +187,7 @@ internal abstract class ProgressiveTextToSpeechEngineBase : IProgressiveTextToSp
         }
 
         _started = true;
-        Options.EmitEvent?.Invoke(new AssistantAudioOutputStartedEvent(
+        await PublishAsync(new AssistantAudioOutputStartedEvent(
             Options.SessionId.Value,
             OutputFlow.Id.Value,
             responseId.Value,
@@ -193,14 +195,15 @@ internal abstract class ProgressiveTextToSpeechEngineBase : IProgressiveTextToSp
             Options.OutputOptions?.ModelId,
             Options.OutputOptions?.VoiceId,
             Options.OutputOptions?.Language,
-            Options.OutputOptions?.OutputFormat));
+            Options.OutputOptions?.OutputFormat), cancellationToken).ConfigureAwait(false);
     }
 
-    protected void EmitSegmentEvent(
+    protected async ValueTask PublishSegmentEventAsync(
         AssistantTextToSpeechOutputResult result,
         OutputSegmentId segmentId,
         int segmentIndex,
-        bool isFinalSegment)
+        bool isFinalSegment,
+        CancellationToken cancellationToken)
     {
         switch (result.Status)
         {
@@ -209,7 +212,7 @@ internal abstract class ProgressiveTextToSpeechEngineBase : IProgressiveTextToSp
                 var synthesis = result.Trace
                     .OfType<AudioTtsSynthesisTraceRecord>()
                     .LastOrDefault(t => t.Disposition is TtsSynthesisDisposition.Failed or TtsSynthesisDisposition.Unsupported);
-                Options.EmitEvent?.Invoke(new AssistantAudioOutputSegmentFailedEvent(
+                await PublishAsync(new AssistantAudioOutputSegmentFailedEvent(
                     result.SessionId.Value,
                     result.OutputFlowId.Value,
                     result.ResponseId.Value,
@@ -222,9 +225,17 @@ internal abstract class ProgressiveTextToSpeechEngineBase : IProgressiveTextToSp
                     synthesis?.OutputFormat,
                     result.Error ?? synthesis?.Error,
                     result.Status.ToString(),
-                    isFinalSegment));
+                    isFinalSegment), cancellationToken).ConfigureAwait(false);
                 break;
             }
+        }
+    }
+
+    protected async ValueTask PublishAsync(AgentEvent evt, CancellationToken cancellationToken)
+    {
+        if (Options.PublishEventAsync is { } publish)
+        {
+            await publish(evt, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -327,7 +338,7 @@ internal sealed class SegmentTextToSpeechEngine : ProgressiveTextToSpeechEngineB
 
         if (_emitStartedEvent)
         {
-            EnsureStarted(responseId);
+            await EnsureStartedAsync(responseId, cancellationToken).ConfigureAwait(false);
         }
 
         await _deltas.Writer.WriteAsync(
@@ -442,7 +453,7 @@ internal sealed class SegmentTextToSpeechEngine : ProgressiveTextToSpeechEngineB
                     Thread = Options.Thread,
                     Correlation = CreateCorrelation(),
                     Options = Options.OutputOptions,
-                    EmitEvent = Options.EmitEvent,
+                    PublishEventAsync = Options.PublishEventAsync,
                     OutputSink = Options.OutputSink,
                     EnablePlayback = Options.EnablePlayback,
                     RecordPlaybackStartFailure = AddPlaybackStartFailure
@@ -450,7 +461,12 @@ internal sealed class SegmentTextToSpeechEngine : ProgressiveTextToSpeechEngineB
                 cancellationToken).ConfigureAwait(false)).ToOutputResult(Options.SessionId);
 
         AddResult(result);
-        EmitSegmentEvent(result, segment.SegmentId, segment.SegmentIndex, segment.IsFinalSegment);
+        await PublishSegmentEventAsync(
+            result,
+            segment.SegmentId,
+            segment.SegmentIndex,
+            segment.IsFinalSegment,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private TextToSpeechSegmentRequest CreateTextToSpeechRequest(
@@ -578,7 +594,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
         _textDeltas.Add(delta);
         await OutputFlow.AppendTextAsync(responseId, textDelta, isFinal: false, cancellationToken)
             .ConfigureAwait(false);
-        EnsureStarted(responseId);
+        await EnsureStartedAsync(responseId, cancellationToken).ConfigureAwait(false);
 
         if (_fallbackEngine is not null)
         {
@@ -623,7 +639,12 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
                         SourceTextLength = textDelta.Length
                     },
                     cancellationToken).ConfigureAwait(false);
-                EmitPushTextInputSent(responseId, sourceStart, textDelta.Length, isFinalInput: false);
+                await PublishPushTextInputSentAsync(
+                    responseId,
+                    sourceStart,
+                    textDelta.Length,
+                    isFinalInput: false,
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException && CanFallbackToSegments())
             {
@@ -657,11 +678,12 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
                 _terminalPushException.Message,
                 TtsSynthesisDisposition.Failed);
             AddResult(failed);
-            EmitSegmentEvent(
-                failed,
-                failed.SegmentId ?? new OutputSegmentId($"{OutputFlow.Id.Value}:push-text-0001"),
-                failed.SegmentIndex ?? 0,
-                isFinalSegment: true);
+                await PublishSegmentEventAsync(
+                    failed,
+                    failed.SegmentId ?? new OutputSegmentId($"{OutputFlow.Id.Value}:push-text-0001"),
+                    failed.SegmentIndex ?? 0,
+                    isFinalSegment: true,
+                    cancellationToken).ConfigureAwait(false);
             return CreateCompletion(responseId);
         }
 
@@ -686,7 +708,12 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
                     IsFinalInput = true
                 },
                 cancellationToken).ConfigureAwait(false);
-            EmitPushTextInputSent(responseId, _generatedTextLength, 0, isFinalInput: true);
+            await PublishPushTextInputSentAsync(
+                responseId,
+                _generatedTextLength,
+                0,
+                isFinalInput: true,
+                cancellationToken).ConfigureAwait(false);
             await _stream.CompleteInputAsync(cancellationToken).ConfigureAwait(false);
 
             if (_reader is not null)
@@ -708,11 +735,12 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
                 ex.Message,
                 TtsSynthesisDisposition.Failed);
             AddResult(failed);
-            EmitSegmentEvent(
+            await PublishSegmentEventAsync(
                 failed,
                 failed.SegmentId ?? new OutputSegmentId($"{OutputFlow.Id.Value}:push-text-0001"),
                 failed.SegmentIndex ?? 0,
-                isFinalSegment: true);
+                isFinalSegment: true,
+                cancellationToken).ConfigureAwait(false);
             return CreateCompletion(responseId);
         }
 
@@ -731,11 +759,12 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
         var result = await StoreSynthesizedStreamAsync(responseId, cancellationToken)
             .ConfigureAwait(false);
         AddResult(result);
-        EmitSegmentEvent(
+        await PublishSegmentEventAsync(
             result,
             result.SegmentId ?? new OutputSegmentId($"{OutputFlow.Id.Value}:audio-0001"),
             result.SegmentIndex ?? 0,
-            isFinalSegment: true);
+            isFinalSegment: true,
+            cancellationToken).ConfigureAwait(false);
         return CreateCompletion(responseId);
     }
 
@@ -757,7 +786,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
         }
 
         var providerKey = ResolveProviderKey(Options.OutputOptions);
-        Options.EmitEvent?.Invoke(new AssistantAudioPushTextStreamOpeningEvent(
+        await PublishAsync(new AssistantAudioPushTextStreamOpeningEvent(
             Options.SessionId.Value,
             OutputFlow.Id.Value,
             Options.InitialResponseId.Value,
@@ -766,7 +795,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
             Options.OutputOptions.VoiceId,
             Options.OutputOptions.Language,
             Options.OutputOptions.OutputFormat,
-            Options.PushTextAggregationMode.ToString()));
+            Options.PushTextAggregationMode.ToString()), cancellationToken).ConfigureAwait(false);
         _stream ??= await _streamFactory.OpenStreamAsync(
             new PushTextToSpeechStreamRequest
             {
@@ -784,7 +813,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
                 InputAggregationMode = Options.PushTextAggregationMode
             },
             cancellationToken).ConfigureAwait(false);
-        Options.EmitEvent?.Invoke(new AssistantAudioPushTextStreamOpenedEvent(
+        await PublishAsync(new AssistantAudioPushTextStreamOpenedEvent(
             Options.SessionId.Value,
             OutputFlow.Id.Value,
             Options.InitialResponseId.Value,
@@ -793,24 +822,25 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
             Options.OutputOptions.VoiceId,
             Options.OutputOptions.Language,
             Options.OutputOptions.OutputFormat,
-            Options.PushTextAggregationMode.ToString()));
+            Options.PushTextAggregationMode.ToString()), cancellationToken).ConfigureAwait(false);
         _reader ??= Task.Run(() => ReadAudioAsync(_stream, cancellationToken), cancellationToken);
     }
 
-    private void EmitPushTextInputSent(
+    private ValueTask PublishPushTextInputSentAsync(
         ResponseId responseId,
         int sourceTextStart,
         int sourceTextLength,
-        bool isFinalInput)
+        bool isFinalInput,
+        CancellationToken cancellationToken)
     {
-        Options.EmitEvent?.Invoke(new AssistantAudioPushTextInputSentEvent(
+        return PublishAsync(new AssistantAudioPushTextInputSentEvent(
             Options.SessionId.Value,
             OutputFlow.Id.Value,
             responseId.Value,
             sourceTextStart,
             sourceTextLength,
             isFinalInput,
-            Options.PushTextAggregationMode.ToString()));
+            Options.PushTextAggregationMode.ToString()), cancellationToken);
     }
 
     private async ValueTask ActivateSegmentFallbackAsync(CancellationToken cancellationToken)
@@ -896,7 +926,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
                     await Options.OutputSink!.WriteAsync(chunk, cancellationToken)
                         .ConfigureAwait(false);
                 }
-                Options.EmitEvent?.Invoke(new AssistantAudioOutputChunkReadyEvent(
+                await PublishAsync(new AssistantAudioOutputChunkReadyEvent(
                     Options.SessionId.Value,
                     OutputFlow.Id.Value,
                     _responseId.Value,
@@ -912,7 +942,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
                     chunk.SizeBytes,
                     chunk.Duration,
                     chunk.IsFinalChunk,
-                    chunk.Payload.Kind.ToString()));
+                    chunk.Payload.Kind.ToString()), cancellationToken).ConfigureAwait(false);
             }
         }
     }
@@ -954,7 +984,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
             _audioSinkAccepted = result.Disposition == OutputSinkStartDisposition.Accepted;
             AddPlaybackStartFailure(result);
         }
-        Options.EmitEvent?.Invoke(new AssistantAudioOutputStreamStartedEvent(
+        await PublishAsync(new AssistantAudioOutputStreamStartedEvent(
             Options.SessionId.Value,
             OutputFlow.Id.Value,
             _responseId.Value,
@@ -966,7 +996,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
             Options.OutputOptions?.Language,
             Options.OutputOptions?.OutputFormat,
             mediaType,
-            payloadKind.ToString()));
+            payloadKind.ToString()), cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask CompletePushAudioStreamAsync(
@@ -997,7 +1027,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
             await Options.OutputSink!.CompleteAsync(completion, cancellationToken)
                 .ConfigureAwait(false);
         }
-        Options.EmitEvent?.Invoke(new AssistantAudioOutputStreamCompletedEvent(
+        await PublishAsync(new AssistantAudioOutputStreamCompletedEvent(
             Options.SessionId.Value,
             OutputFlow.Id.Value,
             responseId.Value,
@@ -1006,7 +1036,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
             OutputAudioStreamDisposition.Completed.ToString(),
             _chunkSequence,
             _audioBuffer.Length,
-            completion.Duration));
+            completion.Duration), cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask<AssistantTextToSpeechOutputResult> StoreSynthesizedStreamAsync(
@@ -1134,7 +1164,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
                 Duration = _audioDuration > TimeSpan.Zero ? _audioDuration : null,
                 CapturedAt = DateTimeOffset.UtcNow
             }, cancellationToken).ConfigureAwait(false);
-            Options.EmitEvent?.Invoke(new AssistantAudioOutputArtifactCapturedEvent(
+            await PublishAsync(new AssistantAudioOutputArtifactCapturedEvent(
                 Options.SessionId.Value,
                 OutputFlow.Id.Value,
                 responseId.Value,
@@ -1144,7 +1174,7 @@ internal sealed class PushTextToSpeechEngine : ProgressiveTextToSpeechEngineBase
                 artifact.Artifact,
                 artifact.SizeBytes,
                 artifact.Sha256,
-                _audioDuration > TimeSpan.Zero ? _audioDuration : null));
+                _audioDuration > TimeSpan.Zero ? _audioDuration : null), cancellationToken).ConfigureAwait(false);
             LedgerTraceWriter.AppendOutputArtifact(
                 ledger,
                 trace,
@@ -1327,7 +1357,7 @@ internal sealed class UnsupportedPushTextToSpeechEngine : ProgressiveTextToSpeec
         _generatedTextLength += textDelta.Length;
         await OutputFlow.AppendTextAsync(responseId, textDelta, isFinal: false, cancellationToken)
             .ConfigureAwait(false);
-        EnsureStarted(responseId);
+        await EnsureStartedAsync(responseId, cancellationToken).ConfigureAwait(false);
     }
 
     public override ValueTask<ProgressiveTextToSpeechEngineCompletion> CompleteAsync(

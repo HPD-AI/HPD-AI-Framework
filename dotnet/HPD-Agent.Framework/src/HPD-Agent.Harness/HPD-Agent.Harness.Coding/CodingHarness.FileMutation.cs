@@ -493,7 +493,10 @@ public partial class CodingToolHarness
                     finalLastWrite,
                     created,
                     changed);
-                eventEmitted = EmitFileMutationEvent(request.FunctionContext, mutationEvent);
+                eventEmitted = await EmitFileMutationEventAsync(
+                    request.FunctionContext,
+                    mutationEvent,
+                    cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -694,13 +697,14 @@ public partial class CodingToolHarness
             });
     }
 
-    private static bool EmitFileMutationEvent(
+    private static async ValueTask<bool> EmitFileMutationEventAsync(
         FunctionExecutionContext context,
-        FileMutationAppliedEvent mutationEvent)
+        FileMutationAppliedEvent mutationEvent,
+        CancellationToken cancellationToken)
     {
         try
         {
-            return context.TryEmit(mutationEvent);
+            return await context.TryPublishAsync(mutationEvent, cancellationToken).ConfigureAwait(false);
         }
         catch
         {

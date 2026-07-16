@@ -25,9 +25,13 @@ public sealed class WorkflowEventCoordinator : IDisposable
     internal IEventCoordinator Inner => _inner;
 
     /// <summary>
-    /// Publish an event through the workflow coordinator.
+    /// Publish a stateless workflow event through the in-process coordinator.
+    /// Thread-scoped events must already have crossed their canonical commit boundary.
     /// </summary>
-    public void Emit(HPD.Events.Event evt) => _inner.Emit(evt);
+    public ValueTask PublishAsync(
+        HPD.Events.Event evt,
+        CancellationToken cancellationToken = default) =>
+        _inner.EmitAsync(evt, cancellationToken);
 
     // ── Approval ──────────────────────────────────────────────────────────────
 

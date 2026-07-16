@@ -1482,6 +1482,7 @@ public sealed class LanguageServerMiddlewareTests
         public List<Event> Captured { get; } = [];
 
         public IEventFlowRegistry EventFlows => _inner.EventFlows;
+        public IReadOnlyList<PendingRequestSnapshot> GetPendingRequests() => _inner.GetPendingRequests();
 
         public void Emit(Event evt)
             => Captured.Add(evt);
@@ -1523,6 +1524,13 @@ public sealed class LanguageServerMiddlewareTests
             where TResponse : Event, IResponseEvent
             => _inner.StartRequest<TRequest, TResponse>(request, options);
 
+        public RequestHandle RegisterRequest<TRequest, TResponse>(
+            TRequest request,
+            RequestOptions? options = null)
+            where TRequest : Event, IRequestEvent
+            where TResponse : Event, IResponseEvent
+            => _inner.RegisterRequest<TRequest, TResponse>(request, options);
+
         public Task<TResponse> RequestAsync<TRequest, TResponse>(
             TRequest request,
             TimeSpan timeout,
@@ -1536,6 +1544,9 @@ public sealed class LanguageServerMiddlewareTests
 
         public RespondResult Respond(string requestId, Event response)
             => _inner.Respond(requestId, response);
+
+        public ValueTask<RespondResult> RespondAsync(string requestId, Event response, Func<Event, CancellationToken, ValueTask<Event>> beforeCompletion, CancellationToken cancellationToken = default)
+            => _inner.RespondAsync(requestId, response, beforeCompletion, cancellationToken);
 
         public EventCoordinatorStats GetStats()
             => _inner.GetStats();

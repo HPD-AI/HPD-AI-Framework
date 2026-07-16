@@ -66,6 +66,7 @@ internal sealed class AgentRuntimeFunctionExecutor : IRuntimeFunctionExecutor
             conversationId: _runtimeContext.RuntimeId,
             initialState: state,
             eventCoordinator: _eventCoordinator,
+            threadEvents: _runtimeContext.ThreadEvents,
             session: null,
             thread: null,
             cancellationToken: cancellationToken,

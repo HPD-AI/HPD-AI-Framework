@@ -15,8 +15,7 @@ public class ReplayTimelineTests
                 source.Priority,
                 evt.Name.StartsWith("priority", StringComparison.Ordinal) ? -10 : 0,
                 source.SourceOrdinal,
-                sourceSequence,
-                evt.SequenceNumber);
+                sourceSequence);
     }
 
     [Fact]

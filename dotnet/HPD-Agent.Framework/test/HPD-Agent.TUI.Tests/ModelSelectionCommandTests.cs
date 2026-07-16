@@ -1087,9 +1087,10 @@ public sealed class ModelSelectionCommandTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(scope);
 
-        public async IAsyncEnumerable<AgentEvent> ObserveAsync(
+        public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
             AgentTuiRuntimeScope scope,
             long afterSequenceNumber,
+            long initialObservedHead,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             await Task.CompletedTask;

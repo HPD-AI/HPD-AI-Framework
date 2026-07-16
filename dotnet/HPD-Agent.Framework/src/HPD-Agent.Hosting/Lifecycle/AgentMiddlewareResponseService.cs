@@ -31,7 +31,25 @@ public sealed class AgentMiddlewareResponseService : IAgentMiddlewareResponseSer
                 $"Thread '{threadId}' in session '{sessionId}' does not have an active runtime for agent '{agentId}'.");
         }
 
-        var result = await agent.TryAnswerRequestAsync(response, cancellationToken)
+        if (response is not AgentEvent agentResponse)
+            throw new ArgumentException("Hosted request responses must be AgentEvents.", nameof(response));
+
+        if ((!string.IsNullOrWhiteSpace(agentResponse.SessionId) &&
+             !StringComparer.Ordinal.Equals(agentResponse.SessionId, sessionId)) ||
+            (!string.IsNullOrWhiteSpace(agentResponse.ThreadId) &&
+             !StringComparer.Ordinal.Equals(agentResponse.ThreadId, threadId)))
+        {
+            return AgentServiceResult<RespondResult>.ConflictWith(
+                "ResponseScopeMismatch",
+                "Response scope does not match the requested session and thread.");
+        }
+
+        var scopedResponse = (IResponseEvent)(agentResponse with
+        {
+            SessionId = sessionId,
+            ThreadId = threadId
+        });
+        var result = await agent.TryAnswerRequestAsync(scopedResponse, cancellationToken)
             .ConfigureAwait(false);
 
         return result.Accepted
@@ -48,7 +66,7 @@ public sealed class AgentMiddlewareResponseService : IAgentMiddlewareResponseSer
         if (session == null)
             return false;
 
-        var thread = await _sessionManager.Store.LoadThreadAsync(sessionId, threadId, cancellationToken);
-        return thread != null;
+        return await _sessionManager.Store.GetThreadAsync(
+            new ThreadKey(sessionId, threadId), cancellationToken).ConfigureAwait(false) != null;
     }
 }

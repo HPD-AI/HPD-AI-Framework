@@ -29,7 +29,7 @@ public class ThreadOperationTests : AgentTestBase
 
         // Act
         await store.SaveInitialThreadAsync("test-session", thread);
-        var loaded = await store.LoadThreadAsync("test-session", "main");
+        var loaded = await store.ProjectThreadAsync("test-session", "main");
 
         // Assert
         Assert.NotNull(loaded);
@@ -45,7 +45,7 @@ public class ThreadOperationTests : AgentTestBase
         var store = new InMemorySessionStore();
 
         // Act
-        var result = await store.LoadThreadAsync("no-session", "no-thread");
+        var result = await store.ProjectThreadAsync("no-session", "no-thread");
 
         // Assert
         Assert.Null(result);
@@ -65,14 +65,14 @@ public class ThreadOperationTests : AgentTestBase
 
         // Act
         await store.DeleteThreadAsync("test-session", "to-delete");
-        var loaded = await store.LoadThreadAsync("test-session", "to-delete");
+        var loaded = await store.ProjectThreadAsync("test-session", "to-delete");
 
         // Assert
         Assert.Null(loaded);
     }
 
     [Fact]
-    public async Task InMemoryStore_ListThreadIds_ReturnsAllThreads()
+    public async Task InMemoryStore_ListThreads_ReturnsAllDescriptors()
     {
         // Arrange
         var store = new InMemorySessionStore();
@@ -84,7 +84,8 @@ public class ThreadOperationTests : AgentTestBase
         await store.SaveInitialThreadAsync("test-session", session.CreateThread("casual"));
 
         // Act
-        var ids = await store.ListThreadIdsAsync("test-session");
+        var descriptors = await store.CollectThreadDescriptorsAsync("test-session");
+        var ids = descriptors.Select(item => item.Key.ThreadId).ToList();
 
         // Assert
         Assert.Equal(3, ids.Count);
@@ -107,7 +108,7 @@ public class ThreadOperationTests : AgentTestBase
         await store.DeleteSessionAsync("test-session");
 
         // Assert
-        var threads = await store.ListThreadIdsAsync("test-session");
+        var threads = await store.CollectThreadDescriptorsAsync("test-session");
         Assert.Empty(threads);
     }
 
@@ -134,8 +135,8 @@ public class ThreadOperationTests : AgentTestBase
         await store.SaveInitialThreadAsync("test-session", thread2);
 
         // Act
-        var loaded1 = await store.LoadThreadAsync("test-session", "thread-1");
-        var loaded2 = await store.LoadThreadAsync("test-session", "thread-2");
+        var loaded1 = await store.ProjectThreadAsync("test-session", "thread-1");
+        var loaded2 = await store.ProjectThreadAsync("test-session", "thread-2");
 
         // Assert
         Assert.Single(loaded1!.Messages);
@@ -157,9 +158,9 @@ public class ThreadOperationTests : AgentTestBase
         await store.DeleteThreadAsync("test-session", "remove");
 
         // Assert
-        var kept = await store.LoadThreadAsync("test-session", "keep");
+        var kept = await store.ProjectThreadAsync("test-session", "keep");
         Assert.NotNull(kept);
-        var removed = await store.LoadThreadAsync("test-session", "remove");
+        var removed = await store.ProjectThreadAsync("test-session", "remove");
         Assert.Null(removed);
     }
 
@@ -193,7 +194,7 @@ public class ThreadOperationTests : AgentTestBase
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-test-{Guid.NewGuid():N}");
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir);
             var session = new HPD.Agent.Session("test-session");
             await store.SaveSessionAsync(session);
 
@@ -203,7 +204,7 @@ public class ThreadOperationTests : AgentTestBase
 
             // Act
             await store.SaveInitialThreadAsync("test-session", thread);
-            var loaded = await store.LoadThreadAsync("test-session", "main");
+            var loaded = await store.ProjectThreadAsync("test-session", "main");
 
             // Assert
             Assert.NotNull(loaded);
@@ -219,13 +220,13 @@ public class ThreadOperationTests : AgentTestBase
     }
 
     [Fact]
-    public async Task JsonStore_ListThreadIds_ReturnsAllThreads()
+    public async Task FileStore_ListThreads_ReturnsAllDescriptors()
     {
         // Arrange
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-test-{Guid.NewGuid():N}");
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir);
             var session = new HPD.Agent.Session("test-session");
             await store.SaveSessionAsync(session);
 
@@ -233,7 +234,8 @@ public class ThreadOperationTests : AgentTestBase
             await store.SaveInitialThreadAsync("test-session", session.CreateThread("formal"));
 
             // Act
-            var ids = await store.ListThreadIdsAsync("test-session");
+            var descriptors = await store.CollectThreadDescriptorsAsync("test-session");
+            var ids = descriptors.Select(item => item.Key.ThreadId).ToList();
 
             // Assert
             Assert.Equal(2, ids.Count);
@@ -254,7 +256,7 @@ public class ThreadOperationTests : AgentTestBase
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-test-{Guid.NewGuid():N}");
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir);
             var session = new HPD.Agent.Session("test-session");
             await store.SaveSessionAsync(session);
 
@@ -262,7 +264,7 @@ public class ThreadOperationTests : AgentTestBase
 
             // Act
             await store.DeleteThreadAsync("test-session", "to-delete");
-            var loaded = await store.LoadThreadAsync("test-session", "to-delete");
+            var loaded = await store.ProjectThreadAsync("test-session", "to-delete");
 
             // Assert
             Assert.Null(loaded);
@@ -291,7 +293,7 @@ public class ThreadOperationTests : AgentTestBase
 
         // Act
         await store.SaveInitialThreadAsync("test-session", thread);
-        var loaded = await store.LoadThreadAsync("test-session", "formal");
+        var loaded = await store.ProjectThreadAsync("test-session", "formal");
 
         // Assert
         Assert.Equal("Formal tone approach", loaded!.Description);
@@ -310,7 +312,7 @@ public class ThreadOperationTests : AgentTestBase
 
         // Act
         await store.SaveInitialThreadAsync("test-session", thread);
-        var loaded = await store.LoadThreadAsync("test-session", "experiment");
+        var loaded = await store.ProjectThreadAsync("test-session", "experiment");
 
         // Assert
         Assert.NotNull(loaded!.Tags);
@@ -379,7 +381,7 @@ public class ThreadOperationTests : AgentTestBase
         // Act - fork at message 3 (after "Response 2")
         var agent = await CreateAgentWithStoreAsync(store);
         await agent.ForkThreadAsync("test-session", "main", "formal", source.Messages[3].MessageId!);
-        var forked = await store.LoadThreadAsync("test-session", "formal");
+        var forked = await store.ProjectThreadAsync("test-session", "formal");
 
         // Assert
         Assert.NotNull(forked);
@@ -409,7 +411,7 @@ public class ThreadOperationTests : AgentTestBase
         // Act - fork at message 1 (after "Second")
         var agent = await CreateAgentWithStoreAsync(store);
         await agent.ForkThreadAsync("test-session", "main", "alt", source.Messages[1].MessageId!);
-        var forked = await store.LoadThreadAsync("test-session", "alt");
+        var forked = await store.ProjectThreadAsync("test-session", "alt");
 
         // Assert - should have messages 0 and 1
         Assert.NotNull(forked);
@@ -433,7 +435,7 @@ public class ThreadOperationTests : AgentTestBase
         // Act
         var agent = await CreateAgentWithStoreAsync(store);
         await agent.ForkThreadAsync("test-session", "main", "alt", source.Messages[0].MessageId!);
-        var forked = await store.LoadThreadAsync("test-session", "alt");
+        var forked = await store.ProjectThreadAsync("test-session", "alt");
 
         // Assert - thread-scoped state copied
         Assert.NotNull(forked);
@@ -456,18 +458,24 @@ public class ThreadOperationTests : AgentTestBase
 
         var agent = await CreateAgentWithStoreAsync(store);
         await agent.ForkThreadAsync("test-session", "main", "alt", source.Messages[0].MessageId!);
-        var forked = await store.LoadThreadAsync("test-session", "alt");
+        var forked = await store.ProjectThreadAsync("test-session", "alt");
         Assert.NotNull(forked);
 
         // Act - modify forked thread state
         forked.MiddlewareState["PlanModePersistentState"] = "{\"step\":5}";
-        await store.SaveInitialThreadAsync("test-session", forked);
+        await store.AppendThreadEventAsync(
+            "test-session",
+            "alt",
+            ThreadEventFactory.ThreadMiddlewareStateCommitted(
+                "test-session",
+                "alt",
+                forked.MiddlewareState));
 
         // Assert - source unchanged
-        var reloadedSource = await store.LoadThreadAsync("test-session", "main");
+        var reloadedSource = await store.ProjectThreadAsync("test-session", "main");
         Assert.Equal("{\"step\":1}", reloadedSource!.MiddlewareState["PlanModePersistentState"]);
 
-        var reloadedForked = await store.LoadThreadAsync("test-session", "alt");
+        var reloadedForked = await store.ProjectThreadAsync("test-session", "alt");
         Assert.Equal("{\"step\":5}", reloadedForked!.MiddlewareState["PlanModePersistentState"]);
     }
 
@@ -512,8 +520,8 @@ public class ThreadOperationTests : AgentTestBase
         await store.SaveInitialThreadAsync("test-session", thread2);
 
         // Act
-        var loaded1 = await store.LoadThreadAsync("test-session", "thread-1");
-        var loaded2 = await store.LoadThreadAsync("test-session", "thread-2");
+        var loaded1 = await store.ProjectThreadAsync("test-session", "thread-1");
+        var loaded2 = await store.ProjectThreadAsync("test-session", "thread-2");
 
         // Assert
         Assert.Equal("{\"plan\":\"A\"}", loaded1!.MiddlewareState["PlanModePersistentState"]);

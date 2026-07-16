@@ -47,7 +47,7 @@ public class SessionManagerTests : IDisposable
     {
         var (sessionId, _) = await _manager.CreateSessionAsync();
 
-        var thread = await _store.LoadThreadAsync(sessionId, "main");
+        var thread = await _store.ProjectThreadAsync(sessionId, "main");
         thread.Should().NotBeNull();
     }
 
@@ -116,8 +116,9 @@ public class SessionManagerTests : IDisposable
         var (sidA, _) = await _manager.CreateSessionAsync();
         var (sidB, _) = await _manager.CreateSessionAsync();
 
-        _manager.TryStartThreadRun("agent", sidA, "main", out _).Should().BeTrue();
-        _manager.TryStartThreadRun("agent", sidB, "main", out _).Should().BeTrue();
+        _manager.TryReserveThreadRun("agent", sidA, "main", out _).Should().BeTrue();
+        _manager.TryReserveThreadRun("agent", sidB, "main", out var runB).Should().BeTrue();
+        _manager.ActivateThreadRun(sidB, "main", runB.RuntimeRunId).Should().BeTrue();
 
         _manager.RemoveSession(sidA);
 
@@ -200,30 +201,33 @@ public class SessionManagerTests : IDisposable
     // ──────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public void TryStartThreadRun_ReturnsFalse_WhenThreadAlreadyHasActiveRun()
+    public void TryReserveThreadRun_ReturnsFalse_WhenThreadAlreadyHasReservedRun()
     {
-        _manager.TryStartThreadRun("agent", "session-1", "thread-1", out var first).Should().BeTrue();
-        _manager.TryStartThreadRun("agent", "session-1", "thread-1", out var second).Should().BeFalse();
+        _manager.TryReserveThreadRun("agent", "session-1", "thread-1", out var first).Should().BeTrue();
+        _manager.TryReserveThreadRun("agent", "session-1", "thread-1", out var second).Should().BeFalse();
 
         second.Should().Be(first);
     }
 
     [Fact]
-    public void TryStartThreadRun_AllowsDifferentThreadsAndSessions()
+    public void TryReserveThreadRun_AllowsDifferentThreadsAndSessions()
     {
-        _manager.TryStartThreadRun("agent", "session-1", "thread-1", out _).Should().BeTrue();
+        _manager.TryReserveThreadRun("agent", "session-1", "thread-1", out _).Should().BeTrue();
 
-        _manager.TryStartThreadRun("agent", "session-1", "thread-2", out _).Should().BeTrue();
-        _manager.TryStartThreadRun("agent", "session-2", "thread-1", out _).Should().BeTrue();
+        _manager.TryReserveThreadRun("agent", "session-1", "thread-2", out _).Should().BeTrue();
+        _manager.TryReserveThreadRun("agent", "session-2", "thread-1", out _).Should().BeTrue();
     }
 
     [Fact]
     public void CompleteThreadRun_OnlyCompletesMatchingRuntimeRun()
     {
-        _manager.TryStartThreadRun("agent", "session-1", "thread-1", out var run).Should().BeTrue();
+        _manager.TryReserveThreadRun("agent", "session-1", "thread-1", out var run).Should().BeTrue();
+        _manager.GetActiveThreadRun("session-1", "thread-1").Should().BeNull();
+        _manager.ActivateThreadRun("session-1", "thread-1", run.RuntimeRunId).Should().BeTrue();
 
         _manager.CompleteThreadRun("session-1", "thread-1", "other-run").Should().BeFalse();
-        _manager.GetActiveThreadRun("session-1", "thread-1").Should().Be(run);
+        _manager.GetActiveThreadRun("session-1", "thread-1").Should().BeEquivalentTo(
+            run with { Ownership = ThreadRunOwnership.Active });
 
         _manager.CompleteThreadRun("session-1", "thread-1", run.RuntimeRunId).Should().BeTrue();
         _manager.GetActiveThreadRun("session-1", "thread-1").Should().BeNull();

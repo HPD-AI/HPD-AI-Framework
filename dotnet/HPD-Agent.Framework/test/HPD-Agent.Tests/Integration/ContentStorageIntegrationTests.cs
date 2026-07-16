@@ -17,7 +17,7 @@ namespace HPD.Agent.Tests.Integration;
 public class ContentStorageIntegrationTests
 {
     [Fact]
-    public async Task EndToEnd_ImageUpload_WithJsonSessionStore()
+    public async Task EndToEnd_ImageUpload_WithFileSessionStore()
     {
         // Arrange: Create a temporary directory for test storage
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-test-{Guid.NewGuid():N}");
@@ -25,7 +25,7 @@ public class ContentStorageIntegrationTests
 
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir);
             var contentStore = new LocalFileContentStore(Path.Combine(tempDir, "content"));
 
             // Create fake chat client and enqueue a response
@@ -42,7 +42,7 @@ public class ContentStorageIntegrationTests
             // Load session and thread (sets session.Store automatically)
             var session = await store.LoadSessionAsync("test-session") ?? new SessionModel("test-session");
             session.Store = store;
-            var thread = await store.LoadThreadAsync("test-session", "main") ?? session.CreateThread("main");
+            var thread = await store.ProjectThreadAsync("test-session", "main") ?? session.CreateThread("main");
             thread.Session = session;
             Assert.NotNull(session.Store);
             Assert.Same(store, session.Store);
@@ -145,7 +145,7 @@ public class ContentStorageIntegrationTests
 
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir);
             var contentStore = new LocalFileContentStore(Path.Combine(tempDir, "content"));
 
             // Create fake chat client and enqueue a response
@@ -160,7 +160,7 @@ public class ContentStorageIntegrationTests
 
             var session = await store.LoadSessionAsync("multi-content-session") ?? new SessionModel("multi-content-session");
             session.Store = store;
-            var thread = await store.LoadThreadAsync("multi-content-session", "main") ?? session.CreateThread("main");
+            var thread = await store.ProjectThreadAsync("multi-content-session", "main") ?? session.CreateThread("main");
             thread.Session = session;
 
             // Create different content types
@@ -248,7 +248,7 @@ public class ContentStorageIntegrationTests
 
         var session = await store.LoadSessionAsync("no-content-store-session") ?? new SessionModel("no-content-store-session");
         session.Store = store;
-        var thread = await store.LoadThreadAsync("no-content-store-session", "main") ?? session.CreateThread("main");
+        var thread = await store.ProjectThreadAsync("no-content-store-session", "main") ?? session.CreateThread("main");
         thread.Session = session;
 
         var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
@@ -292,7 +292,7 @@ public class ContentStorageIntegrationTests
 
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir);
             var contentStore = new LocalFileContentStore(Path.Combine(tempDir, "content"));
 
             // Create fake chat client and enqueue a response
@@ -308,7 +308,7 @@ public class ContentStorageIntegrationTests
             // First run: Upload content
             var session1 = await store.LoadSessionAsync("roundtrip-session") ?? new SessionModel("roundtrip-session");
             session1.Store = store;
-            var thread1 = await store.LoadThreadAsync("roundtrip-session", "main") ?? session1.CreateThread("main");
+            var thread1 = await store.ProjectThreadAsync("roundtrip-session", "main") ?? session1.CreateThread("main");
             thread1.Session = session1;
             var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x01, 0x02, 0x03 };
 
@@ -333,7 +333,7 @@ public class ContentStorageIntegrationTests
             // Second run: Load session and thread, verify content still accessible
             var session2 = await store.LoadSessionAsync("roundtrip-session") ?? new SessionModel("roundtrip-session");
             session2.Store = store;
-            var thread2 = await store.LoadThreadAsync("roundtrip-session", "main") ?? session2.CreateThread("main");
+            var thread2 = await store.ProjectThreadAsync("roundtrip-session", "main") ?? session2.CreateThread("main");
             thread2.Session = session2;
             Assert.NotNull(session2);
 
@@ -367,10 +367,10 @@ public class ContentStorageIntegrationTests
 
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir);
             var session = await store.LoadSessionAsync("convenience-session") ?? new SessionModel("convenience-session");
             session.Store = store;
-            var thread = await store.LoadThreadAsync("convenience-session", "main") ?? session.CreateThread("main");
+            var thread = await store.ProjectThreadAsync("convenience-session", "main") ?? session.CreateThread("main");
             thread.Session = session;
 
             thread.AddMessage(new ChatMessage(ChatRole.User, "Test message"));
@@ -479,6 +479,7 @@ public class ContentStorageIntegrationTests
     private class TestSessionStore : ISessionStore
     {
         private readonly Dictionary<string, SessionModel> _sessions = new();
+        private readonly InMemorySessionStore _threads = new();
 
         public Task<SessionModel?> LoadSessionAsync(string sessionId, CancellationToken cancellationToken = default)
         {
@@ -501,22 +502,44 @@ public class ContentStorageIntegrationTests
             return Task.CompletedTask;
         }
 
-        public Task<Thread?> LoadThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default)
+        public Task<Thread?> ProjectThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default)
             => Task.FromResult<Thread?>(null);
 
-        public Task<ThreadEventDocument?> LoadThreadDocumentAsync(string sessionId, string threadId, CancellationToken cancellationToken = default)
-            => Task.FromResult<ThreadEventDocument?>(null);
-
-        public Task AppendThreadEventAsync(
-            string sessionId,
-            string threadId,
-            AgentEvent evt,
-            long? expectedSequenceNumber = null,
+        public ValueTask<ThreadEventAppendResult> AppendThreadEventsAsync(
+            ThreadKey thread,
+            IReadOnlyList<AgentEvent> events,
+            ThreadAppendCondition condition = default,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+            => _threads.AppendThreadEventsAsync(thread, events, condition, cancellationToken);
 
-        public Task<List<string>> ListThreadIdsAsync(string sessionId, CancellationToken cancellationToken = default)
-            => Task.FromResult(new List<string>());
+        public ValueTask<ThreadDescriptor?> GetThreadAsync(
+            ThreadKey thread,
+            CancellationToken cancellationToken = default)
+            => _threads.GetThreadAsync(thread, cancellationToken);
+
+        public IAsyncEnumerable<ThreadDescriptor> ListThreadsAsync(
+            string sessionId,
+            ThreadListRequest request,
+            CancellationToken cancellationToken = default)
+            => _threads.ListThreadsAsync(sessionId, request, cancellationToken);
+
+        public ValueTask<ThreadEventHead?> GetThreadEventHeadAsync(
+            ThreadKey thread,
+            CancellationToken cancellationToken = default)
+            => _threads.GetThreadEventHeadAsync(thread, cancellationToken);
+
+        public IAsyncEnumerable<ThreadEventBatch> ReadThreadEventsAsync(
+            ThreadKey thread,
+            ThreadEventReadRequest request,
+            CancellationToken cancellationToken = default)
+            => _threads.ReadThreadEventsAsync(thread, request, cancellationToken);
+
+        public IAsyncEnumerable<ThreadEventBatch> ObserveThreadEventsAsync(
+            ThreadKey thread,
+            long after,
+            ThreadObservationOptions options,
+            CancellationToken cancellationToken = default)
+            => _threads.ObserveThreadEventsAsync(thread, after, options, cancellationToken);
 
         public Task DeleteThreadAsync(string sessionId, string threadId, CancellationToken cancellationToken = default)
             => Task.CompletedTask;

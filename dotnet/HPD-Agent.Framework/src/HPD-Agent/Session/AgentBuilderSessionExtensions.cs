@@ -70,7 +70,7 @@ public static class AgentBuilderSessionExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentException.ThrowIfNullOrWhiteSpace(storagePath);
 
-        var store = new JsonSessionStore(storagePath);
+        var store = new FileSessionStore(storagePath);
         return builder.WithSessionStore(store, persistAfterTurn);
     }
 }

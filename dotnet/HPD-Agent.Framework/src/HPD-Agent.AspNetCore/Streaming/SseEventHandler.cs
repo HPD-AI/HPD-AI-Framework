@@ -1,98 +1,88 @@
-using HPD.Agent;
 using HPD.Agent.Serialization;
 using Microsoft.AspNetCore.Http;
-using System.Text;
 
 namespace HPD.Agent.AspNetCore.Streaming;
 
-/// <summary>
-/// Handles SSE (Server-Sent Events) streaming for agent events.
-/// </summary>
+/// <summary>Adapts canonical journal observation to Server-Sent Events.</summary>
 internal static class SseEventHandler
 {
-    /// <summary>
-    /// Stream agent events as SSE to the HTTP response.
-    /// </summary>
+    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(15);
+
     public static async Task StreamEventsAsync(
         HttpContext context,
-        Agent agent,
-        string sessionId,
-        string threadId,
+        ISessionStore store,
+        ThreadKey thread,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
-        ArgumentNullException.ThrowIfNull(agent);
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
+        ArgumentNullException.ThrowIfNull(store);
 
         context.Response.ContentType = "text/event-stream";
         context.Response.Headers.CacheControl = "no-cache";
         context.Response.Headers.Connection = "keep-alive";
 
-        await context.Response.Body.FlushAsync(cancellationToken);
+        var cursor = ParseAppliedCursor(context.Request);
+        await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
 
-        var cursor = context.Request.Query.TryGetValue("after", out var after) &&
-            long.TryParse(after.ToString(), out var parsedAfter) && parsedAfter >= 0
-                ? parsedAfter
-                : 0;
-        var store = agent.Config?.SessionStore
-            ?? throw new InvalidOperationException("Agent live observation requires a session store.");
-        var lastWrite = DateTimeOffset.UtcNow;
         try
         {
+            await using var observer = store.ObserveThreadEventsAsync(
+                thread,
+                cursor,
+                new ThreadObservationOptions(),
+                cancellationToken).GetAsyncEnumerator(cancellationToken);
+
+            Task<bool>? pendingMove = null;
             while (!cancellationToken.IsCancellationRequested)
             {
-                var document = await store.LoadThreadDocumentAsync(sessionId, threadId, cancellationToken)
-                    .ConfigureAwait(false);
-                if (document is not null)
+                pendingMove ??= observer.MoveNextAsync().AsTask();
+                var heartbeat = Task.Delay(HeartbeatInterval, cancellationToken);
+                if (await Task.WhenAny(pendingMove, heartbeat).ConfigureAwait(false) == heartbeat)
                 {
-                    foreach (var evt in document.Events
-                        .Where(evt => evt.SequenceNumber > cursor)
-                        .OrderBy(evt => evt.SequenceNumber))
-                    {
-                        var json = AgentEventSerializer.ToJson(evt);
-                        await context.Response.WriteAsync($"id: {evt.SequenceNumber}\n", cancellationToken)
-                            .ConfigureAwait(false);
-                        await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken)
-                            .ConfigureAwait(false);
-                        cursor = evt.SequenceNumber;
-                        lastWrite = DateTimeOffset.UtcNow;
-                    }
+                    await context.Response.WriteAsync(": heartbeat\n\n", cancellationToken).ConfigureAwait(false);
+                    await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    continue;
                 }
 
-                if (DateTimeOffset.UtcNow - lastWrite >= TimeSpan.FromSeconds(15))
+                if (!await pendingMove.ConfigureAwait(false))
+                    return;
+                pendingMove = null;
+
+                foreach (var evt in observer.Current.Events)
                 {
-                    await context.Response.WriteAsync(": heartbeat\n\n", cancellationToken)
+                    var json = AgentEventSerializer.ToJson(evt);
+                    await context.Response.WriteAsync($"id: {evt.ThreadSequenceNumber}\n", cancellationToken)
                         .ConfigureAwait(false);
-                    lastWrite = DateTimeOffset.UtcNow;
+                    await context.Response.WriteAsync("event: agent-event\n", cancellationToken)
+                        .ConfigureAwait(false);
+                    await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken)
+                        .ConfigureAwait(false);
                 }
-
                 await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
-                await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken).ConfigureAwait(false);
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Client disconnected or request cancelled — exit cleanly, no error event needed.
+            // Client disconnected.
         }
-        catch (Exception ex)
+        catch
         {
-            // SSE headers already sent — cannot return a 5xx response.
-            // Serialize the error as a MessageTurnErrorEvent so the client renders it gracefully.
-            try
-            {
-                var errorEvt = new MessageTurnErrorEvent(ex.Message, ex);
-                var json = AgentEventSerializer.ToJson(errorEvt);
-                var data = $"data: {json}\n\n";
-                var bytes = Encoding.UTF8.GetBytes(data);
-                await context.Response.Body.WriteAsync(bytes, CancellationToken.None);
-                await context.Response.Body.FlushAsync(CancellationToken.None);
-            }
-            catch
-            {
-                // Response stream already closed — nothing we can do.
-            }
+            // Headers are already committed. Closing the connection is the protocol error signal;
+            // clients reconnect from their last successfully applied journal position.
+            context.Abort();
+            throw;
         }
     }
 
+    private static long ParseAppliedCursor(HttpRequest request)
+    {
+        var value = request.Query.TryGetValue("after", out var queryValue)
+            ? queryValue.ToString()
+            : request.Headers.TryGetValue("Last-Event-ID", out var headerValue)
+                ? headerValue.ToString()
+                : "0";
+        if (!long.TryParse(value, out var cursor) || cursor < 0)
+            throw new BadHttpRequestException("The event cursor must be a non-negative integer.");
+        return cursor;
+    }
 }

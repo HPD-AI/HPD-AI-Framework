@@ -77,13 +77,13 @@ public class CircuitBreakerMiddleware : IAgentMiddleware
     /// Checks if executing these tools would exceed the threshold.
     /// Also updates state to track the tool calls (V2 fix).
     /// </summary>
-    public Task BeforeToolExecutionAsync(
+    public async Task BeforeToolExecutionAsync(
         BeforeToolExecutionContext context,
         CancellationToken cancellationToken)
     {
         // No tool calls = nothing to check
         if (context.ToolCalls.Count == 0)
-            return Task.CompletedTask;
+            return;
 
         // Read state using Analyze for safety
         var cbState = context.Analyze(s =>
@@ -101,8 +101,8 @@ public class CircuitBreakerMiddleware : IAgentMiddleware
             // Check if executing this tool would exceed the limit
             if (predictedCount >= MaxConsecutiveCalls)
             {
-                TriggerCircuitBreaker(context, toolName, predictedCount);
-                return Task.CompletedTask;
+                await TriggerCircuitBreakerAsync(context, toolName, predictedCount);
+                return;
             }
         }
 
@@ -122,7 +122,6 @@ public class CircuitBreakerMiddleware : IAgentMiddleware
             return updatedState;
         });
 
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -184,7 +183,7 @@ public class CircuitBreakerMiddleware : IAgentMiddleware
     /// <summary>
     /// Triggers the circuit breaker, preventing tool execution and terminating the loop.
     /// </summary>
-    private void TriggerCircuitBreaker(BeforeToolExecutionContext context, string toolName, int count)
+    private async Task TriggerCircuitBreakerAsync(BeforeToolExecutionContext context, string toolName, int count)
     {
         // Skip tool execution
         context.SkipToolExecution = true;
@@ -209,7 +208,7 @@ public class CircuitBreakerMiddleware : IAgentMiddleware
         // Emit TextDeltaEvent for user visibility
         try
         {
-            context.Emit(new TextDeltaEvent(message, Guid.NewGuid().ToString()));
+            await context.PublishAsync(new TextDeltaEvent(message, Guid.NewGuid().ToString()));
         }
         catch (InvalidOperationException)
         {
@@ -219,7 +218,7 @@ public class CircuitBreakerMiddleware : IAgentMiddleware
         // Emit CircuitBreakerTriggeredEvent for observability
         try
         {
-            context.Emit(new CircuitBreakerTriggeredEvent(
+            await context.PublishAsync(new CircuitBreakerTriggeredEvent(
                 AgentName: context.AgentName,
                 FunctionName: toolName,
                 ConsecutiveCount: count,

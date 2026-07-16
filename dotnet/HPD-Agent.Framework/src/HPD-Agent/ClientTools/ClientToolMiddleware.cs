@@ -721,10 +721,9 @@ public class ClientToolMiddleware : IAgentMiddleware
         // Block execution (we have the result from Client)
         context.BlockExecution = true;
 
-        context.OverrideResult = outcome.Outcome switch
+        if (outcome.Outcome == ClientToolInvokeOutcomeKind.AcceptedBackground)
         {
-            ClientToolInvokeOutcomeKind.Completed => HandleCompletedOutcome(context, outcome),
-            ClientToolInvokeOutcomeKind.AcceptedBackground => HandleAcceptedBackgroundOutcome(
+            context.OverrideResult = await HandleAcceptedBackgroundOutcomeAsync(
                 context,
                 providerBinding,
                 tool,
@@ -732,7 +731,14 @@ public class ClientToolMiddleware : IAgentMiddleware
                 requestId,
                 resolvedMode,
                 invocationModePolicy,
-                outcome),
+                outcome,
+                ct).ConfigureAwait(false);
+            return;
+        }
+
+        context.OverrideResult = outcome.Outcome switch
+        {
+            ClientToolInvokeOutcomeKind.Completed => HandleCompletedOutcome(context, outcome),
             ClientToolInvokeOutcomeKind.Rejected =>
                 $"Client tool request rejected: {outcome.ErrorMessage ?? "No reason provided."}",
             ClientToolInvokeOutcomeKind.Failed =>
@@ -853,7 +859,7 @@ public class ClientToolMiddleware : IAgentMiddleware
         return ConvertContentToResult(outcome.Content);
     }
 
-    private object? HandleAcceptedBackgroundOutcome(
+    private async ValueTask<object?> HandleAcceptedBackgroundOutcomeAsync(
         BeforeFunctionContext context,
         ClientToolProviderToolBinding? providerBinding,
         ClientToolDefinition? tool,
@@ -861,7 +867,8 @@ public class ClientToolMiddleware : IAgentMiddleware
         string requestId,
         AgentInvocationMode resolvedMode,
         AgentInvocationModePolicy invocationModePolicy,
-        ClientToolInvokeOutcomeEvent outcome)
+        ClientToolInvokeOutcomeEvent outcome,
+        CancellationToken cancellationToken)
     {
         if (invocationModePolicy == AgentInvocationModePolicy.SynchronousOnly ||
             resolvedMode == AgentInvocationMode.Synchronous)
@@ -906,7 +913,7 @@ public class ClientToolMiddleware : IAgentMiddleware
                 context.SessionId,
                 context.ThreadId,
                 metadata);
-            handleRegistration = context.BackgroundHandles.RegisterHandle(
+            handleRegistration = await context.BackgroundHandles.RegisterHandleAsync(
                 new BackgroundHandleDescriptor
                 {
                     HandleId = clientOperationId,
@@ -921,7 +928,8 @@ public class ClientToolMiddleware : IAgentMiddleware
                         : outcome.SupportedOperations,
                     Metadata = metadata
                 },
-                handle);
+                handle,
+                cancellationToken).ConfigureAwait(false);
         }
 
         ClientToolProviderBackgroundOperationRegistration? providerOperation = null;

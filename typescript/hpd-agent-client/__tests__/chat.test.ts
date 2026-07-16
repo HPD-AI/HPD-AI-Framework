@@ -19,26 +19,12 @@ describe('ChatSession', () => {
   beforeEach(() => vi.resetAllMocks());
   afterEach(() => vi.restoreAllMocks());
 
-  it('opens an existing session from search metadata and reads thread events', async () => {
+  it('opens an existing session from search metadata', async () => {
     const client = new AgentClient('http://localhost:5135');
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
         ok: true,
         json: async () => [{ id: 's1', createdAt: '', lastActivity: '', metadata: {} }],
-        text: async () => '',
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => [{
-          eventId: 'evt-1',
-          sessionId: 's1',
-          threadId: 'main',
-          type: EventTypes.TEXT_DELTA,
-          messageId: 'm1',
-          text: 'history',
-          sequenceNumber: 1,
-          timestamp: '2026-01-01T00:00:00Z',
-        }],
         text: async () => '',
       } as Response);
 
@@ -46,39 +32,7 @@ describe('ChatSession', () => {
       agentId: 'a1',
       session: { search: { metadata: { project: 'p1' } } },
     });
-    const events = await chat.getThreadEvents();
-
     expect(chat.sessionId).toBe('s1');
-    expect(events).toEqual([
-      expect.objectContaining({ eventId: 'evt-1', type: EventTypes.TEXT_DELTA }),
-    ]);
-    chat.dispose();
-  });
-
-  it('reads thread events through the scoped chat session', async () => {
-    const client = new AgentClient('http://localhost:5135');
-    vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => [{
-          eventId: 'evt-1',
-          sessionId: 's1',
-          threadId: 'main',
-          type: EventTypes.TEXT_DELTA,
-          messageId: 'm1',
-          text: 'history',
-          sequenceNumber: 1,
-          timestamp: '2026-01-01T00:00:00Z',
-        }],
-        text: async () => '',
-      } as Response);
-
-    const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
-    const events = await chat.getThreadEvents();
-
-    expect(events).toEqual([
-      expect.objectContaining({ eventId: 'evt-1', type: EventTypes.TEXT_DELTA }),
-    ]);
     chat.dispose();
   });
 
@@ -112,8 +66,7 @@ describe('ChatSession', () => {
   it('reads one authoritative thread state through the scoped chat session', async () => {
     const client = new AgentClient('http://localhost:5135');
     const state = {
-      latestSequenceNumber: 8,
-      events: [],
+      observedHead: 8,
       activeRun: {
         runtimeRunId: 'run-1',
         agentId: 'a1',
@@ -148,8 +101,7 @@ describe('ChatSession', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          latestSequenceNumber: 8,
-          events: [],
+          observedHead: 8,
           activeRun: {
             runtimeRunId: 'run-1',
             agentId: 'a1',
@@ -180,9 +132,9 @@ describe('ChatSession', () => {
     chat.dispose();
   });
 
-  it('hydrates state before subscribing after the committed cursor', async () => {
+  it('hydrates control state then replays from the applied cursor', async () => {
     const client = new AgentClient('http://localhost:5135');
-    const state = { latestSequenceNumber: 9, activeRun: null, events: [] };
+    const state = { observedHead: 9, activeRun: null };
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({ ok: true, json: async () => state } as Response)
       .mockResolvedValueOnce({
@@ -197,7 +149,7 @@ describe('ChatSession', () => {
     expect(hydrated).toEqual(state);
     expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
       'http://localhost:5135/agents/a1/sessions/s1/threads/main/state',
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events/live?after=9',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=0',
     ]);
     await chat.disconnectLive();
   });

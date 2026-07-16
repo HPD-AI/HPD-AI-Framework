@@ -60,7 +60,7 @@ public class EvalTestWebApplicationFactory : IDisposable
                 services.AddSingleton<IDatasetStore>(DatasetStore);
                 services.AddHPDAgent("test-agent", options =>
                 {
-                    options.SessionStore = new JsonSessionStore(Path.Combine(Path.GetTempPath(), $"hpd-eval-tests-{Guid.NewGuid()}"));
+                    options.SessionStore = new FileSessionStore(Path.Combine(Path.GetTempPath(), $"hpd-eval-tests-{Guid.NewGuid()}"));
                 });
             })
             .Configure(app =>

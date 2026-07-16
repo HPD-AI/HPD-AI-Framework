@@ -47,34 +47,6 @@ public class EventCoordinatorTests
     private record DerivedTestEvent(string Message) : BaseTestEvent(Message);
 
     [Fact]
-    public void Emit_AssignsSequenceNumber()
-    {
-        var coordinator = new EventCoordinator();
-        var evt = new TestEvent("test");
-
-        coordinator.Emit(evt);
-
-        Assert.Equal(1, evt.SequenceNumber);
-    }
-
-    [Fact]
-    public void Emit_SequenceNumbers_AreMonotonicallyIncreasing()
-    {
-        var coordinator = new EventCoordinator();
-        var evt1 = new TestEvent("first");
-        var evt2 = new TestEvent("second");
-        var evt3 = new TestEvent("third");
-
-        coordinator.Emit(evt1);
-        coordinator.Emit(evt2);
-        coordinator.Emit(evt3);
-
-        Assert.Equal(1, evt1.SequenceNumber);
-        Assert.Equal(2, evt2.SequenceNumber);
-        Assert.Equal(3, evt3.SequenceNumber);
-    }
-
-    [Fact]
     public async Task Subscribe_ReceivesEmittedEventWithoutRunAsync()
     {
         using var coordinator = new EventCoordinator();
@@ -399,7 +371,7 @@ public class EventCoordinatorTests
     }
 
     [Fact]
-    public async Task SetParent_BubblesEventsToParentSubscribersWithoutChangingSequence()
+    public async Task SetParent_BubblesEventsToParentSubscribersWithoutMutatingDomainEvent()
     {
         using var parent = new EventCoordinator();
         using var child = new EventCoordinator();
@@ -413,13 +385,12 @@ public class EventCoordinatorTests
         var result = await ReadOneAsync(parentStream.Reader, cts.Token);
 
         Assert.Same(evt, result);
-        Assert.Equal(1, result.SequenceNumber);
         Assert.Equal(EventDirection.Upstream, result.Direction);
         Assert.Equal(EventChannel.Control, result.Channel);
     }
 
     [Fact]
-    public async Task SetParent_ParentEnricherAppliesToBubbledEventsWithoutChangingSequence()
+    public async Task SetParent_ParentEnricherAppliesToBubbledEvents()
     {
         using var parent = new EventCoordinator(
             eventEnricher: evt => evt is EnrichableControlEvent control
@@ -434,7 +405,6 @@ public class EventCoordinatorTests
 
         var result = await ReadOneAsync(parentStream.Reader, cts.Token);
 
-        Assert.Equal(1, result.SequenceNumber);
         Assert.True(result.ParentEnriched);
     }
 
@@ -525,6 +495,104 @@ public class EventCoordinatorTests
 
         Assert.Equal(RespondStatus.ResponseTypeMismatch, result.Status);
         handle.Cancel("test complete");
+    }
+
+    [Fact]
+    public async Task RespondAsync_CompletesBoundaryBeforeReleasingRequester()
+    {
+        using var coordinator = new EventCoordinator();
+        var handle = coordinator.RegisterRequest<TestRequestEvent, TestResponseEvent>(
+            new TestRequestEvent("durable-request", "test", "request"));
+        var boundaryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseBoundary = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var respond = coordinator.RespondAsync(
+            "durable-request",
+            new TestResponseEvent("durable-request", "responder", "response"),
+            async (_, _) =>
+            {
+                boundaryEntered.SetResult();
+                await releaseBoundary.Task;
+                return new TestResponseEvent("durable-request", "responder", "response");
+            }).AsTask();
+
+        await boundaryEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(handle.Response.IsCompleted);
+
+        releaseBoundary.SetResult();
+        Assert.True((await respond).Accepted);
+        Assert.Equal("response", ((TestResponseEvent)await handle.Response).Message);
+    }
+
+    [Fact]
+    public async Task RespondAsync_DisposeDoesNotCancelAReservedDurableCompletion()
+    {
+        var coordinator = new EventCoordinator();
+        var handle = coordinator.RegisterRequest<TestRequestEvent, TestResponseEvent>(
+            new TestRequestEvent("disposing-request", "test", "request"));
+        var boundaryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseBoundary = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var response = new TestResponseEvent("disposing-request", "responder", "response");
+
+        var responding = coordinator.RespondAsync(
+            "disposing-request",
+            response,
+            async (committed, _) =>
+            {
+                boundaryEntered.SetResult();
+                await releaseBoundary.Task;
+                return committed;
+            }).AsTask();
+
+        await boundaryEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        coordinator.Dispose();
+        releaseBoundary.SetResult();
+
+        Assert.True((await responding).Accepted);
+        Assert.Same(response, await handle.Response);
+    }
+
+    [Fact]
+    public async Task RespondAsync_BoundaryFailureLeavesRequestAnswerable()
+    {
+        using var coordinator = new EventCoordinator();
+        var handle = coordinator.RegisterRequest<TestRequestEvent, TestResponseEvent>(
+            new TestRequestEvent("retryable-request", "test", "request"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await coordinator.RespondAsync(
+                "retryable-request",
+                new TestResponseEvent("retryable-request", "responder", "first"),
+                (_, _) => throw new InvalidOperationException("commit failed")));
+
+        Assert.False(handle.Response.IsCompleted);
+
+        var retry = await coordinator.RespondAsync(
+            "retryable-request",
+            new TestResponseEvent("retryable-request", "responder", "second"),
+            (response, _) => ValueTask.FromResult(response));
+
+        Assert.True(retry.Accepted);
+        Assert.Equal("second", ((TestResponseEvent)await handle.Response).Message);
+    }
+
+    [Fact]
+    public void GetPendingRequests_IncludesChildSessionsAndRemovesTerminalRequests()
+    {
+        using var parent = new EventCoordinator();
+        using var child = new EventCoordinator();
+        child.SetParent(parent);
+        var request = new TestRequestEvent("pending-request", "child", "request");
+        var handle = child.RegisterRequest<TestRequestEvent, TestResponseEvent>(request);
+
+        var pending = parent.GetPendingRequests();
+
+        var item = Assert.Single(pending);
+        Assert.Same(request, item.Request);
+        Assert.Equal(RequestState.Pending, item.Session.State);
+
+        handle.Cancel("test complete");
+        Assert.Empty(parent.GetPendingRequests());
     }
 
     [Fact]

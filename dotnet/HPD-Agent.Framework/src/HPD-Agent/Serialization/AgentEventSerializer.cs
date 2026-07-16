@@ -113,11 +113,6 @@ public static partial class AgentEventSerializer
         // Thread events removed - threading is now an application-level concern
 
         // Request Lifecycle Events
-        [typeof(AgentRequestStartedEvent)] = EventTypes.RequestLifecycle.AGENT_REQUEST_STARTED,
-        [typeof(AgentRequestResolvedEvent)] = EventTypes.RequestLifecycle.AGENT_REQUEST_RESOLVED,
-        [typeof(AgentRequestExpiredEvent)] = EventTypes.RequestLifecycle.AGENT_REQUEST_EXPIRED,
-        [typeof(AgentRequestCancelledEvent)] = EventTypes.RequestLifecycle.AGENT_REQUEST_CANCELLED,
-        [typeof(AgentResponseRejectedEvent)] = EventTypes.RequestLifecycle.AGENT_RESPONSE_REJECTED,
 
         // Observability Events
         [typeof(CollapsedToolsVisibleEvent)] = EventTypes.Observability.COLLAPSED_TOOLS_VISIBLE,

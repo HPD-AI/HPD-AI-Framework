@@ -109,11 +109,39 @@ public sealed record BackgroundTaskContext
 
     public IEventCoordinator? EventCoordinator { get; init; }
 
+    internal IThreadEventPublisher? ThreadEvents { get; init; }
+
     public IEventFlowRegistry? EventFlows => EventCoordinator?.EventFlows;
 
     public IServiceProvider? Services { get; init; }
 
     public DateTimeOffset StartedAt { get; init; } = DateTimeOffset.UtcNow;
+
+    public async ValueTask<AgentEvent> PublishAsync(
+        AgentEvent evt,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(evt);
+        var sessionId = evt.SessionId ?? SessionId ?? Invocation?.SessionId;
+        var threadId = evt.ThreadId ?? ThreadId ?? Invocation?.ThreadId;
+        if (!string.IsNullOrWhiteSpace(sessionId) && !string.IsNullOrWhiteSpace(threadId))
+        {
+            evt = evt with { SessionId = sessionId, ThreadId = threadId };
+            if (ThreadEvents is not null)
+            {
+                return await ThreadEvents.CommitAndPublishAsync(
+                    new ThreadKey(sessionId, threadId),
+                    evt,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        if (EventCoordinator is null)
+            throw new InvalidOperationException("Background task context does not have an event publisher.");
+
+        await EventCoordinator.EmitAsync(evt, cancellationToken).ConfigureAwait(false);
+        return evt;
+    }
 
     /// <summary>
     /// Reports completion details for the background task.

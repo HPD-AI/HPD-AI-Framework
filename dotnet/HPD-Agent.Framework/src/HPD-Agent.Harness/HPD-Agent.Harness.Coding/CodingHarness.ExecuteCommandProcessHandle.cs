@@ -159,8 +159,8 @@ internal sealed class ExecuteCommandProcessHandle :
                 CancellationToken.None).ConfigureAwait(false);
 
         var result = await WaitForCompletionAsync(CancellationToken.None).ConfigureAwait(false);
-        EmitProcessExited(backgroundContext.EventCoordinator, result);
-        EmitStatusChanged(backgroundContext.EventCoordinator);
+        await PublishProcessExitedAsync(backgroundContext, result).ConfigureAwait(false);
+        await PublishStatusChangedAsync(backgroundContext).ConfigureAwait(false);
 
         if (runtimeToken.IsCancellationRequested)
             throw new OperationCanceledException(runtimeToken);
@@ -260,14 +260,14 @@ internal sealed class ExecuteCommandProcessHandle :
             ContentId = output.ContentId
         };
 
-    private void EmitProcessExited(
-        IEventCoordinator? eventCoordinator,
+    private async ValueTask PublishProcessExitedAsync(
+        BackgroundTaskContext backgroundContext,
         ProcessInvocationResult result)
     {
-        if (eventCoordinator is null || OutputMetadata is null)
+        if (OutputMetadata is null)
             return;
 
-        eventCoordinator.Emit(new ExecuteCommandProcessExitedEvent
+        await backgroundContext.PublishAsync(new ExecuteCommandProcessExitedEvent
         {
             ToolCallId = _invocation.FunctionCallId,
             FunctionName = _invocation.FunctionName,
@@ -301,15 +301,12 @@ internal sealed class ExecuteCommandProcessHandle :
             StdoutLocalPath = OutputMetadata.Stdout.LocalPath,
             StderrLocalPath = OutputMetadata.Stderr.LocalPath,
             CombinedOutputLocalPath = OutputMetadata.Combined.LocalPath
-        });
+        }, CancellationToken.None).ConfigureAwait(false);
     }
 
-    private void EmitStatusChanged(IEventCoordinator? eventCoordinator)
+    private async ValueTask PublishStatusChangedAsync(BackgroundTaskContext backgroundContext)
     {
-        if (eventCoordinator is null)
-            return;
-
-        eventCoordinator.Emit(new BackgroundHandleStatusChangedEvent
+        await backgroundContext.PublishAsync(new BackgroundHandleStatusChangedEvent
         {
             HandleId = CommandId,
             Status = Status.ToString().ToLowerInvariant(),
@@ -318,7 +315,7 @@ internal sealed class ExecuteCommandProcessHandle :
             TraceId = _invocation.TraceId,
             Metadata = NotificationMetadata,
             ObservedAt = CompletedAt ?? DateTimeOffset.UtcNow
-        });
+        }, CancellationToken.None).ConfigureAwait(false);
     }
 
     private static ExecuteCommandProcessHandleStatus ToBackgroundStatus(ProcessCompletionKind completionKind)

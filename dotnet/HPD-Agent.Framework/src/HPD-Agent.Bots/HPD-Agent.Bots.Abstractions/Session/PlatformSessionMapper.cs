@@ -63,8 +63,10 @@ public sealed class PlatformSessionMapper
             if (session?.Metadata != null && MetadataContainsPlatformKey(session.Metadata, platformKey))
             {
                 // Return the first thread (always "main" for adapter-created sessions)
-                var threadIds = await _manager.Store.ListThreadIdsAsync(sessionId, ct);
-                var threadId  = threadIds.Count > 0 ? threadIds[0] : "main";
+                var threads = await _manager.Store.CollectThreadDescriptorsAsync(
+                    sessionId,
+                    cancellationToken: ct);
+                var threadId = threads.Count > 0 ? threads[0].Key.ThreadId : "main";
                 return (sessionId, threadId);
             }
         }

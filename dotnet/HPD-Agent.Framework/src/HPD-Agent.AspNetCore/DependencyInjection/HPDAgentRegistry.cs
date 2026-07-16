@@ -36,7 +36,7 @@ internal sealed class HPDAgentRegistry
         var options = optionsMonitor.Get(name);
 
         ISessionStore sessionStore = options.SessionStore
-            ?? (options.SessionStorePath != null ? new JsonSessionStore(options.SessionStorePath) : new InMemorySessionStore());
+            ?? (options.SessionStorePath != null ? new FileSessionStore(options.SessionStorePath) : new InMemorySessionStore());
         IAgentStore agentStore = options.AgentStore ?? new InMemoryAgentStore();
         IContentStore contentStore = options.ContentStore ??= new InMemoryContentStore();
 

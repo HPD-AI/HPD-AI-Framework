@@ -66,34 +66,15 @@ public sealed class SessionThreadProjectionSink : IThreadProjectionSink
         }
 
         var completed = ThreadEventFactory.TextMessageCompleted(thread.SessionId, thread.ThreadId, null, messageId, 0);
-        await _sessionStore.AppendThreadEventAsync(
+        var committed = await _sessionStore.AppendThreadEventAsync(
             thread.SessionId,
             thread.ThreadId,
             completed,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        return await ResolveProjectedEventRefAsync(
-            thread,
-            completed.EventId,
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask<ThreadProjectedEventRef> ResolveProjectedEventRefAsync(
-        ThreadRef thread,
-        string? eventId,
-        CancellationToken cancellationToken)
-    {
-        var document = await _sessionStore.LoadThreadDocumentAsync(
-            thread.SessionId,
-            thread.ThreadId,
-            cancellationToken).ConfigureAwait(false);
-
-        var evt = document?.Events.LastOrDefault(e =>
-            string.Equals(e.EventId, eventId, StringComparison.Ordinal));
-
-        return evt is null
-            ? new ThreadProjectedEventRef(eventId ?? string.Empty, 0)
-            : new ThreadProjectedEventRef(evt.EventId ?? string.Empty, evt.SequenceNumber);
+        return new ThreadProjectedEventRef(
+            committed.EventId,
+            committed.ThreadSequenceNumber);
     }
 
     private async ValueTask<ThreadProjectedEventRef?> ResolveExistingProjectionAsync(
@@ -101,18 +82,26 @@ public sealed class SessionThreadProjectionSink : IThreadProjectionSink
         string messageId,
         CancellationToken cancellationToken)
     {
-        var document = await _sessionStore.LoadThreadDocumentAsync(
-            thread.SessionId,
-            thread.ThreadId,
-            cancellationToken).ConfigureAwait(false);
+        var key = new ThreadKey(thread.SessionId, thread.ThreadId);
+        if (await _sessionStore.GetThreadAsync(key, cancellationToken).ConfigureAwait(false) is null)
+            return null;
 
-        var completed = document?.Events.LastOrDefault(e =>
-            e is TextMessageEndEvent completedEvent
-            && string.Equals(completedEvent.MessageId, messageId, StringComparison.Ordinal));
+        TextMessageEndEvent? completed = null;
+        await foreach (var batch in _sessionStore.ReadThreadEventsAsync(
+            key,
+            new ThreadEventReadRequest(),
+            cancellationToken).ConfigureAwait(false))
+        {
+            foreach (var candidate in batch.Events.OfType<TextMessageEndEvent>())
+            {
+                if (string.Equals(candidate.MessageId, messageId, StringComparison.Ordinal))
+                    completed = candidate;
+            }
+        }
 
         return completed is null
             ? null
-            : new ThreadProjectedEventRef(completed.EventId ?? string.Empty, completed.SequenceNumber);
+            : new ThreadProjectedEventRef(completed.EventId, completed.ThreadSequenceNumber);
     }
 
     private static string CreateMessageId(ThreadProjectionRecord record)

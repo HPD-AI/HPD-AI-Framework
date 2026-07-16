@@ -23,9 +23,10 @@ namespace HPD.Agent;
 // Session types
 [JsonSerializable(typeof(Session))]
 [JsonSerializable(typeof(Thread))]
-[JsonSerializable(typeof(ThreadEventDocument))]
-[JsonSerializable(typeof(ThreadEventStreamMetadata))]
-[JsonSerializable(typeof(ThreadProjectionCache))]
+[JsonSerializable(typeof(ThreadDescriptor))]
+[JsonSerializable(typeof(ThreadForkDescriptor))]
+[JsonSerializable(typeof(ThreadRuntimeChildDescriptor))]
+[JsonSerializable(typeof(FileThreadDescriptorState))]
 [JsonSerializable(typeof(ThreadKind))]
 [JsonSerializable(typeof(ThreadVisibility))]
 [JsonSerializable(typeof(ThreadHistoryCompactionCheckpointEvent))]

@@ -36,7 +36,6 @@ public sealed class Markdown : IComponent
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _themeOverride = theme;
-        ParseSource();
     }
 
     public string Source => _source;
@@ -44,7 +43,11 @@ public sealed class Markdown : IComponent
     public void SetSource(string source)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
-        ParseSource();
+        _document = null;
+        _parseAttempted = false;
+        _tableModels.Clear();
+        _tableLayouts.Clear();
+        _blockText.Clear();
     }
 
     public Measurement Measure(in RenderContext context, int maxWidth)

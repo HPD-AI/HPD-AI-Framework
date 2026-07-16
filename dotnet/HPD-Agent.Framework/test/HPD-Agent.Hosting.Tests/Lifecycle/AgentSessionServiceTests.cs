@@ -24,7 +24,7 @@ public class AgentSessionServiceTests : IDisposable
         var session = await _service.CreateSessionAsync();
 
         session.Id.Should().NotBeNullOrWhiteSpace();
-        (await _store.LoadThreadAsync(session.Id, "main")).Should().NotBeNull();
+        (await _store.ProjectThreadAsync(session.Id, "main")).Should().NotBeNull();
     }
 
     [Fact]

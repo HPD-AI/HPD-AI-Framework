@@ -206,7 +206,7 @@ public interface IAgentMiddleware
     ///     }
     ///
     ///     // Emit final count after stream completes
-    ///     context.Emit(new TokenUsageEvent(tokenCount));
+    ///     await context.PublishAsync(new TokenUsageEvent(tokenCount), ct);
     /// }
     /// </code>
     ///

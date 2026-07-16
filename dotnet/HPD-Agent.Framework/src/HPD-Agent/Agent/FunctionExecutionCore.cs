@@ -428,6 +428,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 ToolHarnessName = preparation.ToolHarnessName,
                 SkillName = null,
                 EventCoordinator = agentContext.EventCoordinator,
+                EventPublisher = agentContext.PublishAsync,
                 StructEvents = agentContext.StructEvents,
                 BackgroundTasks = _getBackgroundTaskRegistry(),
                 BackgroundHandles = _getBackgroundHandleRegistry()
@@ -482,7 +483,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
 
         if (bodyResult.Exception is { } ex)
         {
-            agentContext.Emit(new MiddlewareErrorEvent(
+            await agentContext.PublishAsync(new MiddlewareErrorEvent(
                 "FunctionExecution",
                 $"Error executing function '{functionCall.Name}': {ex.Message}") { Exception = ex });
 
@@ -520,7 +521,7 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
         }
         catch (Exception afterEx)
         {
-            agentContext.Emit(new MiddlewareErrorEvent(
+            await agentContext.PublishAsync(new MiddlewareErrorEvent(
                 "AfterFunctionMiddleware",
                 $"Error in AfterFunction middleware: {afterEx.Message}") { Exception = afterEx });
         }

@@ -465,7 +465,7 @@ export type ThreadEvent = AgentEvent & {
   eventId?: string;
   sessionId?: string;
   threadId?: string;
-  sequenceNumber?: number;
+  threadSequenceNumber?: number;
   timestamp?: string;
   eventFlowId?: string;
 };

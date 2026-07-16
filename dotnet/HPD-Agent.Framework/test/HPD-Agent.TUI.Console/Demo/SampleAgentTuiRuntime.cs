@@ -25,14 +25,20 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         CancellationToken cancellationToken = default)
         => Task.FromResult(scope);
 
-    public async IAsyncEnumerable<AgentEvent> ObserveAsync(
+    public async IAsyncEnumerable<AgentTuiEventBatch> ObserveAsync(
         AgentTuiRuntimeScope scope,
         long afterSequenceNumber,
+        long initialObservedHead,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await foreach (var evt in _events.Reader.ReadAllAsync(cancellationToken))
         {
-            yield return evt;
+            yield return new AgentTuiEventBatch(
+                [evt],
+                AgentTuiEventDeliveryMode.Live,
+                initialObservedHead,
+                evt.ThreadSequenceNumber,
+                evt.ThreadSequenceNumber);
         }
     }
 
@@ -73,9 +79,9 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         lock (_gate)
         {
             return Task.FromResult(new AgentTuiThreadState(
-                _history.Count == 0 ? 0 : _history.Max(static evt => evt.SequenceNumber),
+                _history.Count == 0 ? 0 : _history.Max(static evt => evt.ThreadSequenceNumber),
                 _activeRun,
-                _history.ToArray()));
+                []));
         }
     }
 

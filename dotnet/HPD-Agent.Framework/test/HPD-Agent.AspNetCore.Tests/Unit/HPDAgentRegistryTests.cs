@@ -92,14 +92,14 @@ public class HPDAgentRegistryTests
     }
 
     [Fact]
-    public void AddHPDAgent_CreatesJsonSessionStore_WhenPathProvided()
+    public void AddHPDAgent_CreatesFileSessionStore_WhenPathProvided()
     {
         var tempPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         try
         {
-            var sp = BuildProvider(opts => opts.SessionStore = new JsonSessionStore(tempPath));
+            var sp = BuildProvider(opts => opts.SessionStore = new FileSessionStore(tempPath));
             var sm = sp.GetRequiredService<SessionManager>();
-            sm.Store.Should().BeOfType<JsonSessionStore>();
+            sm.Store.Should().BeOfType<FileSessionStore>();
         }
         finally
         {

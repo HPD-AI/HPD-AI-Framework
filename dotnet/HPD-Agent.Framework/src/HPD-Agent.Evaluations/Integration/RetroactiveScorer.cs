@@ -50,7 +50,7 @@ public static class RetroactiveScorer
             ? EvaluationExecutionHelpers.WithTracing(chatConfiguration)
             : EvaluationExecutionHelpers.BuildChatConfiguration(judgeConfig);
 
-        var thread = await sessionStore.LoadThreadAsync(sessionId, threadId, ct).ConfigureAwait(false)
+        var thread = await sessionStore.ProjectThreadAsync(sessionId, threadId, ct).ConfigureAwait(false)
             ?? throw new ArgumentException($"Thread '{threadId}' in session '{sessionId}' not found.", nameof(threadId));
 
         var cases = await ScoreThreadInternalAsync(
@@ -76,8 +76,8 @@ public static class RetroactiveScorer
         options ??= new();
         chatConfiguration = EvaluationExecutionHelpers.WithTracing(chatConfiguration);
 
-        var thread1Task = sessionStore.LoadThreadAsync(sessionId, threadId1, ct);
-        var thread2Task = sessionStore.LoadThreadAsync(sessionId, threadId2, ct);
+        var thread1Task = sessionStore.ProjectThreadAsync(sessionId, threadId1, ct);
+        var thread2Task = sessionStore.ProjectThreadAsync(sessionId, threadId2, ct);
 
         var thread1 = await thread1Task.ConfigureAwait(false)
             ?? throw new ArgumentException($"Thread '{threadId1}' not found.");
@@ -110,7 +110,7 @@ public static class RetroactiveScorer
         var options = new RetroactiveScorerOptions();
         var scoreTasks = threadIds.Select(async threadId =>
         {
-            var thread = await sessionStore.LoadThreadAsync(sessionId, threadId, ct).ConfigureAwait(false);
+            var thread = await sessionStore.ProjectThreadAsync(sessionId, threadId, ct).ConfigureAwait(false);
             if (thread is null) return (threadId, 0.0, 0);
 
             var cases = await ScoreThreadInternalAsync(

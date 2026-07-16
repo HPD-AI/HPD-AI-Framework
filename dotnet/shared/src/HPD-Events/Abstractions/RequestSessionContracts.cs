@@ -134,6 +134,10 @@ public sealed record RequestSnapshot(
     DateTimeOffset CreatedAt,
     DateTimeOffset? ResolvedAt);
 
+public sealed record PendingRequestSnapshot(
+    Event Request,
+    RequestSnapshot Session);
+
 public sealed class RequestHandle
 {
     private readonly Func<string?, CancelRequestResult> _cancel;

@@ -228,7 +228,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
         await RefreshUnavailableServersAsync(context, cancellationToken).ConfigureAwait(false);
 
         var diagnosticSets = result.Diagnostics;
-        context.TryEmit(new LanguageServerDocumentOpenedEvent
+        await context.PublishAsync(new LanguageServerDocumentOpenedEvent
         {
             SessionId = context.SessionId,
             ThreadId = context.ThreadId,
@@ -236,7 +236,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
             Uri = uri,
             LanguageId = languageId,
             Version = result.Version
-        });
+        }, cancellationToken).ConfigureAwait(false);
 
         context.UpdateMiddlewareState<LanguageServerState>(state =>
         {
@@ -300,14 +300,14 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 Kind = watchedChangeKind
             },
             cancellationToken).ConfigureAwait(false);
-        context.TryEmit(new LanguageServerWatchedFileChangedEvent
+        await context.PublishAsync(new LanguageServerWatchedFileChangedEvent
         {
             SessionId = context.SessionId,
             ThreadId = context.ThreadId,
             Path = resolution.Path,
             Uri = uri,
             ChangeKind = watchedChangeKind
-        });
+        }, cancellationToken).ConfigureAwait(false);
 
         if (mutation.Kind == CodingFileMutationKind.Deleted)
         {
@@ -320,13 +320,13 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                         Uri = uri
                     },
                     cancellationToken).ConfigureAwait(false);
-                context.TryEmit(new LanguageServerDocumentClosedEvent
+                await context.PublishAsync(new LanguageServerDocumentClosedEvent
                 {
                     SessionId = context.SessionId,
                     ThreadId = context.ThreadId,
                     Path = resolution.Path,
                     Uri = uri
-                });
+                }, cancellationToken).ConfigureAwait(false);
             }
 
             context.UpdateMiddlewareState<LanguageServerState>(state =>
@@ -384,7 +384,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
 
             diagnostics = openResult.Diagnostics;
             opened = openResult.Opened;
-            context.TryEmit(new LanguageServerDocumentOpenedEvent
+            await context.PublishAsync(new LanguageServerDocumentOpenedEvent
             {
                 SessionId = context.SessionId,
                 ThreadId = context.ThreadId,
@@ -392,7 +392,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 Uri = uri,
                 LanguageId = languageId,
                 Version = version
-            });
+            }, cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -407,7 +407,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 cancellationToken).ConfigureAwait(false);
 
             diagnostics = changeResult.Diagnostics;
-            context.TryEmit(new LanguageServerDocumentChangedEvent
+            await context.PublishAsync(new LanguageServerDocumentChangedEvent
             {
                 SessionId = context.SessionId,
                 ThreadId = context.ThreadId,
@@ -415,7 +415,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 Uri = uri,
                 LanguageId = languageId,
                 Version = version
-            });
+            }, cancellationToken).ConfigureAwait(false);
         }
 
         await _languageServerService.SaveDocumentAsync(
@@ -426,13 +426,13 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 Text = text
             },
             cancellationToken).ConfigureAwait(false);
-        context.TryEmit(new LanguageServerDocumentSavedEvent
+        await context.PublishAsync(new LanguageServerDocumentSavedEvent
         {
             SessionId = context.SessionId,
             ThreadId = context.ThreadId,
             Path = resolution.Path,
             Uri = uri
-        });
+        }, cancellationToken).ConfigureAwait(false);
 
         diagnostics = await _languageServerService.GetDiagnosticsAsync(
             new LanguageServerDiagnosticRequest
@@ -444,7 +444,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 StartedAt = diagnosticStartedAt
             },
             cancellationToken).ConfigureAwait(false);
-        context.TryEmit(new LanguageServerDiagnosticsReceivedEvent
+        await context.PublishAsync(new LanguageServerDiagnosticsReceivedEvent
         {
             SessionId = context.SessionId,
             ThreadId = context.ThreadId,
@@ -461,7 +461,7 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
                 diagnostic.Severity == LanguageServerDiagnosticSeverity.Hint)),
             Diagnostics = CreateDiagnosticSummaries(diagnostics, MaxDiagnosticSummariesPerEvent),
             DiagnosticsTruncated = diagnostics.Sum(set => set.Diagnostics.Count) > MaxDiagnosticSummariesPerEvent
-        });
+        }, cancellationToken).ConfigureAwait(false);
 
         await RefreshUnavailableServersAsync(context, cancellationToken).ConfigureAwait(false);
 

@@ -26,13 +26,13 @@ public class AgentConfig
 
     public string Name { get; set; } = "HPD-Agent";
     public string SystemInstructions { get; set; } = "You are a helpful assistant.";
-    
+
     /// <summary>
     /// Maximum number of turns the agent can take to call functions before requiring continuation permission.
     /// Each turn allows the LLM to analyze previous results and decide whether to call more functions or provide a final response.
     /// </summary>
     public int MaxAgenticIterations { get; set; } = 10;
-    
+
     /// <summary>
     /// How many additional turns to allow when user chooses to continue beyond the limit.
     /// This includes extra iterations for the LLM to complete its task and generate a final response.
@@ -276,14 +276,14 @@ public class AgentConfig
 
     /// <summary>
     /// Optional session store for durable execution and crash recovery.
-    /// Use InMemorySessionStore for development/testing or JsonSessionStore for production.
+    /// Use InMemorySessionStore for development/testing or FileSessionStore for production.
     /// </summary>
     /// <remarks>
     /// <para>
     /// <b>Example - Auto-save mode:</b>
     /// <code>
     /// var agent = new AgentBuilder()
-    ///     .WithSessionStore(new JsonSessionStore("./sessions"), autoSave: true)
+    ///     .WithSessionStore(new FileSessionStore("./sessions"), autoSave: true)
     ///     .Build();
     ///
     /// // One line - load, run, save all handled
@@ -844,11 +844,11 @@ public class ValidationConfig
 {
     /// <summary>
     /// Whether to perform async validation (network calls) during agent building.
-    /// 
+    ///
     /// ⚡ Performance Impact:
     /// - true: Validates API keys and credits via network calls (2-5+ seconds)
     /// - false: Skip network validation for instant builds (recommended for development)
-    /// 
+    ///
     ///  Recommended Usage:
     /// - Development/Testing: false (fast iteration)
     /// - Production/CI: true (catch issues early)

@@ -26,6 +26,6 @@ public static class ServiceCollectionExtensions
         string storagePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(storagePath);
-        return services.AddSessionStore(new JsonSessionStore(storagePath));
+        return services.AddSessionStore(new FileSessionStore(storagePath));
     }
 }

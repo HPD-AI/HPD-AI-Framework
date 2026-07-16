@@ -11,9 +11,10 @@ public interface IAgentBackgroundHandleRegistry
     /// <param name="descriptor">The handle descriptor.</param>
     /// <param name="handle">The handle implementation.</param>
     /// <returns>The accepted handle registration.</returns>
-    BackgroundHandleRegistration RegisterHandle(
+    ValueTask<BackgroundHandleRegistration> RegisterHandleAsync(
         BackgroundHandleDescriptor descriptor,
-        IBackgroundHandle handle);
+        IBackgroundHandle handle,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Attempts to find a handle by id within the supplied scope.

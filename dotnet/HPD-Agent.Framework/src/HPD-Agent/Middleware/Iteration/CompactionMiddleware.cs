@@ -30,7 +30,7 @@ public class CompactionMiddleware : IAgentMiddleware
 
         if (policy.Mode == CompactionRunMode.Disabled)
         {
-            EmitCompactionEvent(context, CompactionStatus.Skipped,
+            await EmitCompactionEventAsync(context, CompactionStatus.Skipped,
                 reason: "Explicitly disabled via RunConfig.Compaction.Mode", startTime: startTime,
                 strategyOptions: policy.Strategy,
                 mode: policy.Mode,
@@ -40,7 +40,7 @@ public class CompactionMiddleware : IAgentMiddleware
 
         if (context.ThreadHistory == null || context.ThreadHistory.Count == 0)
         {
-            EmitCompactionEvent(context, CompactionStatus.Skipped,
+            await EmitCompactionEventAsync(context, CompactionStatus.Skipped,
                 reason: "No messages present", startTime: startTime,
                 strategyOptions: policy.Strategy,
                 mode: policy.Mode,
@@ -50,15 +50,16 @@ public class CompactionMiddleware : IAgentMiddleware
         }
 
         var hrState = context.GetMiddlewareState<CompactionStateData>();
-        IReadOnlyList<string>? sourceMessageIds = null;
-        var cacheApplied = policy.Mode == CompactionRunMode.Auto &&
-            TryApplyCachedCompaction(
+        var cacheResult = policy.Mode == CompactionRunMode.Auto
+            ? await TryApplyCachedCompactionAsync(
                 context,
                 context.ThreadHistory,
                 hrState?.LastCompaction,
                 startTime,
-                policy,
-                out sourceMessageIds);
+                policy)
+            : (Applied: false, SourceMessageIds: (IReadOnlyList<string>?)null);
+        var cacheApplied = cacheResult.Applied;
+        var sourceMessageIds = cacheResult.SourceMessageIds;
 
         sourceMessageIds ??= GetMessageIds(
             context.ThreadHistory.Where(message => message.Role != ChatRole.System));
@@ -68,7 +69,7 @@ public class CompactionMiddleware : IAgentMiddleware
         {
             if (!cacheApplied)
             {
-                EmitCompactionEvent(context, CompactionStatus.Skipped,
+                await EmitCompactionEventAsync(context, CompactionStatus.Skipped,
                     reason: decision.Description ?? "Compaction threshold not met",
                     startTime: startTime,
                     originalMessageCount: context.ThreadHistory.Count,
@@ -83,7 +84,7 @@ public class CompactionMiddleware : IAgentMiddleware
         var strategy = ResolveStrategy(policy.Strategy, context.RunConfig);
         if (strategy == null)
         {
-            EmitCompactionEvent(context, CompactionStatus.Skipped,
+            await EmitCompactionEventAsync(context, CompactionStatus.Skipped,
                 reason: "No compaction strategy is configured", startTime: startTime,
                 strategyOptions: policy.Strategy,
                 mode: policy.Mode,
@@ -95,7 +96,7 @@ public class CompactionMiddleware : IAgentMiddleware
         var systemMessages = context.ThreadHistory.Where(m => m.Role == ChatRole.System).ToList();
         var conversationMessages = context.ThreadHistory.Where(m => m.Role != ChatRole.System).ToList();
 
-        EmitCompactionEvent(context, CompactionStatus.Started,
+        await EmitCompactionEventAsync(context, CompactionStatus.Started,
             reason: decision.Description ?? "Compaction started",
             startTime: startTime,
             originalMessageCount: conversationMessages.Count,
@@ -110,7 +111,7 @@ public class CompactionMiddleware : IAgentMiddleware
         // when the memento layer adds a context-boundary replacement message.
         if (result.ModelCompactedMessages.Count == 0)
         {
-            EmitCompactionEvent(context, CompactionStatus.Skipped,
+            await EmitCompactionEventAsync(context, CompactionStatus.Skipped,
                 reason: GetNothingToCompactReason(policy.Strategy),
                 startTime: startTime,
                 originalMessageCount: conversationMessages.Count,
@@ -135,7 +136,7 @@ public class CompactionMiddleware : IAgentMiddleware
 
         await ApplyThreadCompactionAsync(context, result, policy, cancellationToken).ConfigureAwait(false);
 
-        EmitCompactionEvent(context, CompactionStatus.Performed,
+        await EmitCompactionEventAsync(context, CompactionStatus.Performed,
             startTime: startTime,
             originalMessageCount: conversationMessages.Count,
             compactedMessageCount: result.ModelVisibleMessages.Count,
@@ -169,13 +170,14 @@ public class CompactionMiddleware : IAgentMiddleware
 
         var startTime = DateTimeOffset.UtcNow;
         var hrState = context.GetMiddlewareState<CompactionStateData>();
-        var cacheApplied = TryApplyCachedCompaction(
+        var cacheResult = await TryApplyCachedCompactionAsync(
             context,
             context.Messages,
             hrState?.LastCompaction,
             startTime,
-            policy,
-            out var sourceMessageIds);
+            policy);
+        var cacheApplied = cacheResult.Applied;
+        var sourceMessageIds = cacheResult.SourceMessageIds;
 
         sourceMessageIds ??= GetMessageIds(
             context.Messages.Where(message => message.Role != ChatRole.System));
@@ -200,7 +202,7 @@ public class CompactionMiddleware : IAgentMiddleware
         var systemMessages = context.Messages.Where(message => message.Role == ChatRole.System).ToList();
         var conversationMessages = context.Messages.Where(message => message.Role != ChatRole.System).ToList();
 
-        EmitCompactionEvent(context, CompactionStatus.Started,
+        await EmitCompactionEventAsync(context, CompactionStatus.Started,
             reason: decision.Description ?? "Iteration compaction started",
             startTime: startTime,
             originalMessageCount: conversationMessages.Count,
@@ -213,7 +215,7 @@ public class CompactionMiddleware : IAgentMiddleware
         {
             if (!cacheApplied)
             {
-                EmitCompactionEvent(context, CompactionStatus.Skipped,
+                await EmitCompactionEventAsync(context, CompactionStatus.Skipped,
                     reason: GetNothingToCompactReason(policy.Strategy),
                     startTime: startTime,
                     originalMessageCount: conversationMessages.Count,
@@ -239,7 +241,7 @@ public class CompactionMiddleware : IAgentMiddleware
         if (policy.Retention is CompactThreadHistoryOptions)
             await ApplyThreadCompactionAsync(context, result, policy, cancellationToken).ConfigureAwait(false);
 
-        EmitCompactionEvent(context, CompactionStatus.Performed,
+        await EmitCompactionEventAsync(context, CompactionStatus.Performed,
             startTime: startTime,
             originalMessageCount: conversationMessages.Count,
             compactedMessageCount: result.ModelVisibleMessages.Count,
@@ -264,11 +266,9 @@ public class CompactionMiddleware : IAgentMiddleware
         if (plan is null)
             return;
 
-        var threadCompaction = await ThreadHistoryCompactor
-            .CompactAsync(context.Thread, plan, cancellationToken)
-            .ConfigureAwait(false);
+        var threadCompaction = ThreadHistoryCompactor.Compact(context.Thread, plan);
 
-        context.Emit(threadCompaction.CheckpointEvent);
+        await context.PublishAsync(threadCompaction.CheckpointEvent, cancellationToken);
     }
 
     public Task AfterMessageTurnAsync(
@@ -295,7 +295,7 @@ public class CompactionMiddleware : IAgentMiddleware
 
         if (context.TargetThread.Messages.Count == 0)
         {
-            EmitCompactionEvent(context, CompactionStatus.Skipped,
+            await EmitCompactionEventAsync(context, CompactionStatus.Skipped,
                 reason: "No messages present on fork target", startTime: startTime);
             return;
         }
@@ -304,7 +304,7 @@ public class CompactionMiddleware : IAgentMiddleware
         var strategy = ResolveStrategy(strategyOptions, new AgentRunConfig());
         if (strategy == null)
         {
-            EmitCompactionEvent(context, CompactionStatus.Skipped,
+            await EmitCompactionEventAsync(context, CompactionStatus.Skipped,
                 reason: "No compaction strategy is configured", startTime: startTime,
                 strategyOptions: strategyOptions);
             return;
@@ -319,7 +319,7 @@ public class CompactionMiddleware : IAgentMiddleware
 
         if (conversationMessages.Count == 0)
         {
-            EmitCompactionEvent(context, CompactionStatus.Skipped,
+            await EmitCompactionEventAsync(context, CompactionStatus.Skipped,
                 reason: "No non-system messages present on fork target", startTime: startTime,
                 strategyOptions: strategyOptions);
             return;
@@ -327,12 +327,12 @@ public class CompactionMiddleware : IAgentMiddleware
 
         if (forkCompaction.PreferCache &&
             forkCompaction.Strategy is null &&
-            TryApplyCachedForkCompaction(context, conversationMessages, systemMessages, startTime))
+            await TryApplyCachedForkCompactionAsync(context, conversationMessages, systemMessages, startTime))
         {
             return;
         }
 
-        EmitCompactionEvent(context, CompactionStatus.Started,
+        await EmitCompactionEventAsync(context, CompactionStatus.Started,
             reason: "Compacting fork target before thread commit",
             startTime: startTime,
             originalMessageCount: conversationMessages.Count,
@@ -347,7 +347,7 @@ public class CompactionMiddleware : IAgentMiddleware
         var snapshot = CompactionSnapshot.FromResult(result);
         StoreCompactionState(context, snapshot);
 
-        EmitCompactionEvent(context, CompactionStatus.Performed,
+        await EmitCompactionEventAsync(context, CompactionStatus.Performed,
             startTime: startTime,
             originalMessageCount: conversationMessages.Count,
             compactedMessageCount: result.ModelVisibleMessages.Count,
@@ -372,7 +372,7 @@ public class CompactionMiddleware : IAgentMiddleware
         };
     }
 
-    private bool TryApplyCachedForkCompaction(
+    private async Task<bool> TryApplyCachedForkCompactionAsync(
         BeforeThreadForkCommitContext context,
         IReadOnlyList<ChatMessage> conversationMessages,
         IReadOnlyList<ChatMessage> systemMessages,
@@ -397,7 +397,7 @@ public class CompactionMiddleware : IAgentMiddleware
         context.UpdateMiddlewareState<CompactionStateData>(state =>
             state.WithCompactionApplied(DateTimeOffset.UtcNow));
 
-        EmitCompactionEvent(context, CompactionStatus.CacheHit,
+        await EmitCompactionEventAsync(context, CompactionStatus.CacheHit,
             startTime: startTime,
             originalMessageCount: conversationMessages.Count,
             compactedMessageCount: modelVisibleMessages.Count,
@@ -409,17 +409,15 @@ public class CompactionMiddleware : IAgentMiddleware
         return true;
     }
 
-    private bool TryApplyCachedCompaction(
+    private async Task<(bool Applied, IReadOnlyList<string>? SourceMessageIds)> TryApplyCachedCompactionAsync(
         HookContext context,
         List<ChatMessage> messages,
         CompactionSnapshot? cached,
         DateTimeOffset startTime,
-        EffectiveCompactionPolicy policy,
-        out IReadOnlyList<string>? sourceMessageIds)
+        EffectiveCompactionPolicy policy)
     {
-        sourceMessageIds = null;
         if (cached is null || cached.ModelVisibleMessages.Count == 0)
-            return false;
+            return (false, null);
 
         var cachedModelVisibleIds = GetMessageIds(cached.ModelVisibleMessages).ToHashSet(StringComparer.Ordinal);
         var systemMessages = messages
@@ -429,12 +427,12 @@ public class CompactionMiddleware : IAgentMiddleware
             .ToList();
         var conversationMessages = messages.Where(message => message.Role != ChatRole.System).ToList();
         if (!TryGetMessagesAfterCachedOriginalPrefix(conversationMessages, cached, out var newMessages))
-            return false;
+            return (false, null);
 
         var sourcePrefixIds = policy.Retention is PreserveThreadHistoryOptions
             ? cached.OriginalMessageIds
             : GetMessageIds(cached.ModelVisibleMessages);
-        sourceMessageIds = sourcePrefixIds
+        var sourceMessageIds = sourcePrefixIds
             .Concat(GetMessageIds(newMessages))
             .Distinct(StringComparer.Ordinal)
             .ToList();
@@ -442,7 +440,7 @@ public class CompactionMiddleware : IAgentMiddleware
         var modelVisibleMessages = CloneMessages(cached.ModelVisibleMessages);
         var projectedMessages = systemMessages.Concat(modelVisibleMessages).Concat(newMessages).ToList();
         if (HaveSameMessageIdentity(messages, projectedMessages))
-            return true;
+            return (true, sourceMessageIds);
 
         messages.Clear();
         messages.AddRange(projectedMessages);
@@ -450,7 +448,7 @@ public class CompactionMiddleware : IAgentMiddleware
         context.UpdateMiddlewareState<CompactionStateData>(state =>
             state.WithCompactionApplied(DateTimeOffset.UtcNow));
 
-        EmitCompactionEvent(context, CompactionStatus.CacheHit,
+        await EmitCompactionEventAsync(context, CompactionStatus.CacheHit,
             startTime: startTime,
             originalMessageCount: conversationMessages.Count,
             compactedMessageCount: modelVisibleMessages.Count + newMessages.Count,
@@ -462,7 +460,7 @@ public class CompactionMiddleware : IAgentMiddleware
             mode: policy.Mode,
             behavior: policy.Behavior);
 
-        return true;
+        return (true, sourceMessageIds);
     }
 
     private static bool HaveSameMessageIdentity(
@@ -722,7 +720,7 @@ public class CompactionMiddleware : IAgentMiddleware
             "No composite trigger threshold met");
     }
 
-    private void EmitCompactionEvent(
+    private async Task EmitCompactionEventAsync(
         HookContext context,
         CompactionStatus status,
         DateTimeOffset startTime,
@@ -740,7 +738,7 @@ public class CompactionMiddleware : IAgentMiddleware
         {
             var duration = DateTimeOffset.UtcNow - startTime;
 
-            context.Emit(new CompactionEvent(
+            await context.PublishAsync(new CompactionEvent(
                 AgentName: context.AgentName,
                 Iteration: 0,
                 Status: status,

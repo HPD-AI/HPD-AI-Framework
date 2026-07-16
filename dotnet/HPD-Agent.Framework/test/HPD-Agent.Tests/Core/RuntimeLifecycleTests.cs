@@ -160,13 +160,12 @@ public class RuntimeLifecycleTests : AgentTestBase
         public override EventKind Kind { get; init; } = EventKind.Diagnostic;
     }
 
-    private sealed record RuntimeBridgePersistableEvent(string Value) : AgentEvent
+    private sealed record RuntimeCanonicalEvent(string Value) : AgentEvent
     {
         public override EventKind Kind { get; init; } = EventKind.Diagnostic;
-        public override bool ShouldPersistToThread() => true;
     }
 
-    private sealed record RuntimeBridgeLiveOnlyEvent(string Value) : AgentEvent
+    private sealed record RuntimeStatelessEvent(string Value) : AgentEvent
     {
         public override EventKind Kind { get; init; } = EventKind.Diagnostic;
     }
@@ -814,15 +813,13 @@ public class RuntimeLifecycleTests : AgentTestBase
         var order = new List<string>();
         var middleware = new RuntimeHookRecordingMiddleware("A", order)
         {
-            OnAfterStarted = (context, _) =>
+            OnAfterStarted = async (context, cancellationToken) =>
             {
-                context.Emit(new RuntimeHookProbeEvent("started", context.RuntimeId));
-                return Task.CompletedTask;
+                await context.PublishAsync(new RuntimeHookProbeEvent("started", context.RuntimeId), cancellationToken);
             },
-            OnAfterStopped = (context, _) =>
+            OnAfterStopped = async (context, cancellationToken) =>
             {
-                context.Emit(new RuntimeHookProbeEvent("stopped", context.RuntimeId));
-                return Task.CompletedTask;
+                await context.PublishAsync(new RuntimeHookProbeEvent("stopped", context.RuntimeId), cancellationToken);
             }
         };
         var agent = CreateAgentWithMiddlewares(
@@ -1271,10 +1268,9 @@ public class RuntimeLifecycleTests : AgentTestBase
         var order = new List<string>();
         var middleware = new RuntimeHookRecordingMiddleware("A", order)
         {
-            OnAfterStarted = (context, _) =>
+            OnAfterStarted = async (context, cancellationToken) =>
             {
-                context.Emit(new RuntimeHookProbeEvent("started", context.RuntimeId));
-                return Task.CompletedTask;
+                await context.PublishAsync(new RuntimeHookProbeEvent("started", context.RuntimeId), cancellationToken);
             }
         };
         var agent = CreateAgentWithMiddlewares(
@@ -1309,10 +1305,9 @@ public class RuntimeLifecycleTests : AgentTestBase
         var observer = new RuntimeProbeObserver(observed, observedSignal);
         var middleware = new RuntimeHookRecordingMiddleware("A", order)
         {
-            OnAfterStarted = (context, _) =>
+            OnAfterStarted = async (context, cancellationToken) =>
             {
-                context.Emit(new RuntimeHookProbeEvent("started", context.RuntimeId));
-                return Task.CompletedTask;
+                await context.PublishAsync(new RuntimeHookProbeEvent("started", context.RuntimeId), cancellationToken);
             }
         };
         var agent = await new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
@@ -1646,10 +1641,9 @@ public class RuntimeLifecycleTests : AgentTestBase
         var order = new List<string>();
         var middleware = new RuntimeHookRecordingMiddleware("A", order)
         {
-            OnAfterStopped = (context, _) =>
+            OnAfterStopped = async (context, cancellationToken) =>
             {
-                context.Emit(new RuntimeHookProbeEvent("final", context.RuntimeId));
-                return Task.CompletedTask;
+                await context.PublishAsync(new RuntimeHookProbeEvent("final", context.RuntimeId), cancellationToken);
             }
         };
         var agent = CreateAgentWithMiddlewares(
@@ -2302,7 +2296,7 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
-    public async Task RuntimeCoordinator_PersistsScopedPersistableEvents()
+    public async Task RuntimePublisher_PersistsEveryScopedCanonicalEvent()
     {
         var store = new InMemorySessionStore();
         var session = new global::HPD.Agent.Session("session-bridge");
@@ -2318,14 +2312,13 @@ public class RuntimeLifecycleTests : AgentTestBase
         config.SessionStore = store;
         var middleware = new RuntimeHookRecordingMiddleware("A", [])
         {
-            OnAfterStarted = (context, _) =>
+            OnAfterStarted = async (context, ct) =>
             {
-                context.Emit(new RuntimeBridgePersistableEvent("durable-runtime-event")
+                await context.PublishAsync(new RuntimeCanonicalEvent("durable-runtime-event")
                 {
                     SessionId = session.Id,
                     ThreadId = thread.Id
-                });
-                return Task.CompletedTask;
+                }, ct);
             }
         };
         var agent = CreateAgentWithMiddlewares(
@@ -2339,12 +2332,12 @@ public class RuntimeLifecycleTests : AgentTestBase
             store,
             session.Id,
             thread.Id,
-            snapshot => snapshot.OfType<RuntimeBridgePersistableEvent>().Any(),
+            snapshot => snapshot.OfType<RuntimeCanonicalEvent>().Any(),
             TestCancellationToken);
 
         await agent.StopAsync(TestCancellationToken);
 
-        var persisted = Assert.Single(events.OfType<RuntimeBridgePersistableEvent>());
+        var persisted = Assert.Single(events.OfType<RuntimeCanonicalEvent>());
         Assert.Equal("durable-runtime-event", persisted.Value);
         Assert.False(string.IsNullOrWhiteSpace(persisted.EventId));
         Assert.Equal(session.Id, persisted.SessionId);
@@ -2352,7 +2345,7 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
-    public async Task RuntimeCoordinator_DoesNotPersistScopedLiveOnlyEvents()
+    public async Task RuntimePublisher_DoesNotPersistUnscopedStatelessEvents()
     {
         var store = new InMemorySessionStore();
         var session = new global::HPD.Agent.Session("session-live-only");
@@ -2369,14 +2362,9 @@ public class RuntimeLifecycleTests : AgentTestBase
         var observed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var middleware = new RuntimeHookRecordingMiddleware("A", [])
         {
-            OnAfterStarted = (context, _) =>
+            OnAfterStarted = async (context, ct) =>
             {
-                context.Emit(new RuntimeBridgeLiveOnlyEvent("live-runtime-event")
-                {
-                    SessionId = session.Id,
-                    ThreadId = thread.Id
-                });
-                return Task.CompletedTask;
+                await context.PublishAsync(new RuntimeStatelessEvent("stateless-runtime-event"), ct);
             }
         };
         var agent = CreateAgentWithMiddlewares(
@@ -2384,7 +2372,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             client: new FakeChatClient(),
             middlewares: [middleware]);
 
-        using var subscription = agent.Subscribe<RuntimeBridgeLiveOnlyEvent>(_ =>
+        using var subscription = agent.Subscribe<RuntimeStatelessEvent>(_ =>
         {
             observed.TrySetResult();
             return ValueTask.CompletedTask;
@@ -2397,11 +2385,11 @@ public class RuntimeLifecycleTests : AgentTestBase
         var events = await ReadThreadEventsAsync(store, session.Id, thread.Id, TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
-        Assert.DoesNotContain(events, evt => evt is RuntimeBridgeLiveOnlyEvent);
+        Assert.DoesNotContain(events, evt => evt is RuntimeStatelessEvent);
     }
 
     [Fact]
-    public async Task RuntimeCoordinator_PersistsRuntimeInputLifecycleEventsOnce()
+    public async Task RuntimeQueue_ReportsExecutionOutcome_WithoutFabricatingHostedLifecycleEvents()
     {
         var fakeClient = new FakeChatClient();
         fakeClient.EnqueueTextResponse("runtime input response");
@@ -2418,40 +2406,59 @@ public class RuntimeLifecycleTests : AgentTestBase
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = CreateAgentWithMiddlewares(config: config, client: fakeClient);
-        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         const string runtimeRunId = "runtime-run-bridge";
 
-        using var subscription = agent.Subscribe<ThreadRunCompletedEvent>(evt =>
-        {
-            if (evt.RuntimeRunId == runtimeRunId)
-                completed.TrySetResult();
-
-            return ValueTask.CompletedTask;
-        });
-
         await agent.StartAsync(cancellationToken: TestCancellationToken);
-        await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "hello runtime")],
+        var submission = await agent.EnqueueAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "hello runtime")],
             Session = session,
             Thread = thread,
             SessionId = session.Id,
             ThreadId = thread.Id,
             RuntimeRunId = runtimeRunId
         }, TestCancellationToken);
-        await completed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        var outcome = await submission.Completion.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
 
-        var events = await WaitForThreadEventsAsync(
-            store,
-            session.Id,
-            thread.Id,
-            snapshot =>
-                snapshot.OfType<ThreadRunStartedEvent>().Count(evt => evt.RuntimeRunId == runtimeRunId) == 1 &&
-                snapshot.OfType<ThreadRunCompletedEvent>().Count(evt => evt.RuntimeRunId == runtimeRunId) == 1,
+        var events = await ReadThreadEventsAsync(store, session.Id, thread.Id, TestCancellationToken);
+
+        await agent.StopAsync(TestCancellationToken);
+
+        Assert.False(outcome.Cancelled);
+        Assert.Null(outcome.Error);
+        Assert.DoesNotContain(events, evt => evt is ThreadRunStartedEvent or ThreadRunCompletedEvent);
+    }
+
+    [Fact]
+    public async Task RuntimeQueue_ForcedStop_CompletesQueuedReceiptAsCancelled()
+    {
+        var blockingClient = new BlockingChatClient();
+        var middleware = new RuntimeHookRecordingMiddleware("stop-without-drain", [])
+        {
+            OnBeforeStop = (context, _) =>
+            {
+                context.DrainPendingInputs = false;
+                return Task.CompletedTask;
+            }
+        };
+        var agent = CreateAgentWithMiddlewares(
+            client: blockingClient,
+            middlewares: [middleware]);
+
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
+        var active = await agent.EnqueueAsync(
+            new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "active")] },
+            TestCancellationToken);
+        await blockingClient.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        var queued = await agent.EnqueueAsync(
+            new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "queued")] },
             TestCancellationToken);
 
         await agent.StopAsync(TestCancellationToken);
 
-        Assert.Single(events.OfType<ThreadRunStartedEvent>(), evt => evt.RuntimeRunId == runtimeRunId);
-        Assert.Single(events.OfType<ThreadRunCompletedEvent>(), evt => evt.RuntimeRunId == runtimeRunId);
+        var activeOutcome = await active.Completion.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        var queuedOutcome = await queued.Completion.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        Assert.True(queuedOutcome.Cancelled);
+        Assert.Null(activeOutcome.Error);
+        Assert.Null(queuedOutcome.Error);
     }
 
     [Fact]
@@ -2523,10 +2530,7 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         Assert.Contains(snapshot, evt => evt is BackgroundTaskNotificationQueuedEvent queued &&
             queued.NotificationId == deliveredEvent.NotificationId);
-        Assert.Contains(snapshot, evt => evt is ThreadRunStartedEvent started &&
-            started.RuntimeRunId == deliveredEvent.RuntimeRunId);
-        Assert.Contains(snapshot, evt => evt is ThreadRunCompletedEvent completed &&
-            completed.RuntimeRunId == deliveredEvent.RuntimeRunId);
+        Assert.DoesNotContain(snapshot, evt => evt is ThreadRunStartedEvent or ThreadRunCompletedEvent);
         Assert.Contains(fakeClient.CapturedRequests, request =>
             request.Any(message =>
                 message.Role == ChatRole.System &&
@@ -2610,13 +2614,12 @@ public class RuntimeLifecycleTests : AgentTestBase
         var config = await CreateBackgroundNotificationConfigAsync();
         var middleware = new RuntimeHookRecordingMiddleware("A", [])
         {
-            OnAfterStarted = (context, _) =>
+            OnAfterStarted = async (context, cancellationToken) =>
             {
-                context.Emit(CreateCompletedBackgroundTaskEvent(
+                await context.PublishAsync(CreateCompletedBackgroundTaskEvent(
                     taskId: "task-none",
                     name: "quiet-work",
-                    policy: BackgroundTaskNotificationRule.None));
-                return Task.CompletedTask;
+                    policy: BackgroundTaskNotificationRule.None), cancellationToken);
             }
         };
         var agent = CreateAgentWithMiddlewares(
@@ -2649,17 +2652,16 @@ public class RuntimeLifecycleTests : AgentTestBase
         var config = await CreateBackgroundNotificationConfigAsync();
         var middleware = new RuntimeHookRecordingMiddleware("A", [])
         {
-            OnAfterStarted = (context, _) =>
+            OnAfterStarted = async (context, cancellationToken) =>
             {
-                context.Emit(CreateCompletedBackgroundTaskEvent(
+                await context.PublishAsync(CreateCompletedBackgroundTaskEvent(
                     taskId: "task-completed",
                     name: "completed-work",
-                    policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true)));
-                context.Emit(CreateFaultedBackgroundTaskEvent(
+                    policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true)), cancellationToken);
+                await context.PublishAsync(CreateFaultedBackgroundTaskEvent(
                     taskId: "task-faulted",
                     name: "faulted-work",
-                    policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true)));
-                return Task.CompletedTask;
+                    policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Faulted: true)), cancellationToken);
             }
         };
         var agent = CreateAgentWithMiddlewares(
@@ -2701,16 +2703,15 @@ public class RuntimeLifecycleTests : AgentTestBase
         var config = await CreateBackgroundNotificationConfigAsync();
         var middleware = new RuntimeHookRecordingMiddleware("A", [])
         {
-            OnAfterStarted = (context, _) =>
+            OnAfterStarted = async (context, cancellationToken) =>
             {
-                context.Emit(CreateCompletedBackgroundTaskEvent(
+                await context.PublishAsync(CreateCompletedBackgroundTaskEvent(
                     taskId: "task-missing-scope",
                     name: "orphan-work",
                     policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true),
                     sessionId: null,
                     threadId: null,
-                    includeInvocation: false));
-                return Task.CompletedTask;
+                    includeInvocation: false), cancellationToken);
             }
         };
         var agent = CreateAgentWithMiddlewares(
@@ -2742,9 +2743,9 @@ public class RuntimeLifecycleTests : AgentTestBase
         var config = await CreateBackgroundNotificationConfigAsync();
         var middleware = new RuntimeHookRecordingMiddleware("A", [])
         {
-            OnAfterStarted = (context, _) =>
+            OnAfterStarted = async (context, cancellationToken) =>
             {
-                context.Emit(new BackgroundTaskCancelledEvent
+                await context.PublishAsync(new BackgroundTaskCancelledEvent
                 {
                     TaskId = "task-cancelled",
                     Name = "stopping-work",
@@ -2756,8 +2757,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                     Notification = new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true),
                     CancelledAt = DateTimeOffset.UtcNow,
                     Reason = "runtime-stopping"
-                });
-                return Task.CompletedTask;
+                }, cancellationToken);
             }
         };
         var agent = CreateAgentWithMiddlewares(
@@ -2789,9 +2789,9 @@ public class RuntimeLifecycleTests : AgentTestBase
         var config = await CreateBackgroundNotificationConfigAsync();
         var middleware = new RuntimeHookRecordingMiddleware("A", [])
         {
-            OnAfterStarted = (context, _) =>
+            OnAfterStarted = async (context, cancellationToken) =>
             {
-                context.Emit(CreateCompletedBackgroundTaskEvent(
+                await context.PublishAsync(CreateCompletedBackgroundTaskEvent(
                     taskId: "task-handled",
                     name: "handled-work",
                     policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true),
@@ -2799,8 +2799,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                     {
                         [BackgroundTaskNotificationMetadataKeys.SuppressNotification] = "true",
                         [BackgroundTaskNotificationMetadataKeys.SuppressNotificationReason] = "handled-by-foreground-stop"
-                    }));
-                return Task.CompletedTask;
+                    }), cancellationToken);
             }
         };
         var agent = CreateAgentWithMiddlewares(
@@ -2833,14 +2832,13 @@ public class RuntimeLifecycleTests : AgentTestBase
         var config = await CreateBackgroundNotificationConfigAsync();
         var middleware = new RuntimeHookRecordingMiddleware("A", [])
         {
-            OnAfterStarted = (context, _) =>
+            OnAfterStarted = async (context, cancellationToken) =>
             {
-                context.Emit(CreateCompletedBackgroundTaskEvent(
+                await context.PublishAsync(CreateCompletedBackgroundTaskEvent(
                     taskId: "task-drained",
                     name: "drained-work",
                     policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true),
-                    summary: "Drained background task completed."));
-                return Task.CompletedTask;
+                    summary: "Drained background task completed."), cancellationToken);
             }
         };
         var agent = CreateAgentWithMiddlewares(
@@ -2863,9 +2861,9 @@ public class RuntimeLifecycleTests : AgentTestBase
         var config = await CreateBackgroundNotificationConfigAsync();
         var middleware = new RuntimeHookRecordingMiddleware("A", [])
         {
-            OnAfterStarted = (context, _) =>
+            OnAfterStarted = async (context, cancellationToken) =>
             {
-                context.Emit(CreateCompletedBackgroundTaskEvent(
+                await context.PublishAsync(CreateCompletedBackgroundTaskEvent(
                     taskId: "task-command",
                     name: "dotnet-test",
                     policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true),
@@ -2878,8 +2876,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                         ["baseCommand"] = "dotnet",
                         ["category"] = "test"
                     },
-                    summary: "Command completed."));
-                return Task.CompletedTask;
+                    summary: "Command completed."), cancellationToken);
             }
         };
         var agent = CreateAgentWithMiddlewares(
@@ -2958,10 +2955,10 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         await userFinished.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
 
-        runtimeContext!.Emit(CreateCompletedBackgroundTaskEvent(
+        await runtimeContext!.PublishAsync(CreateCompletedBackgroundTaskEvent(
             taskId: "task-runtime-config",
             name: "runtime-config-work",
-            policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true)));
+            policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true)), TestCancellationToken);
 
         await delivered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
@@ -2983,11 +2980,10 @@ public class RuntimeLifecycleTests : AgentTestBase
             policy: new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true));
         var middleware = new RuntimeHookRecordingMiddleware("A", [])
         {
-            OnAfterStarted = (context, _) =>
+            OnAfterStarted = async (context, cancellationToken) =>
             {
-                context.Emit(finalStateEvent);
-                context.Emit(finalStateEvent);
-                return Task.CompletedTask;
+                var committed = await context.PublishAsync(finalStateEvent, cancellationToken);
+                await context.EventCoordinator.EmitAsync(committed, cancellationToken);
             }
         };
         var agent = CreateAgentWithMiddlewares(
@@ -3973,13 +3969,12 @@ public class RuntimeLifecycleTests : AgentTestBase
         CancellationToken cancellationToken)
     {
         var events = new List<AgentEvent>();
-        await foreach (var evt in store.ReadThreadEventsAsync(
-                           sessionId,
-                           threadId,
-                           ReplayReadOptions.All,
+        await foreach (var batch in store.ReadThreadEventsAsync(
+                           new ThreadKey(sessionId, threadId),
+                           new ThreadEventReadRequest(),
                            cancellationToken).ConfigureAwait(false))
         {
-            events.Add(evt);
+            events.AddRange(batch.Events);
         }
 
         return events;

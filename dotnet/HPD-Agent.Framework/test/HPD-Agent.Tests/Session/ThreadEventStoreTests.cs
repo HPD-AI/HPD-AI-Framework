@@ -27,7 +27,7 @@ public class ThreadEventStoreTests : AgentTestBase
         await store.AppendThreadEventAsync(session.Id, thread.Id, ThreadEventFactory.TextDelta(session.Id, thread.Id, null, "msg-1", "hello", 0));
         await store.AppendThreadEventAsync(session.Id, thread.Id, ThreadEventFactory.TextMessageCompleted(session.Id, thread.Id, null, "msg-1", 0));
 
-        var loaded = await store.LoadThreadAsync(session.Id, thread.Id);
+        var loaded = await store.ProjectThreadAsync(session.Id, thread.Id);
 
         Assert.NotNull(loaded);
         Assert.Single(loaded.Messages);
@@ -45,12 +45,12 @@ public class ThreadEventStoreTests : AgentTestBase
 
         await store.SaveInitialThreadAsync(session.Id, thread);
 
-        var document = await store.LoadThreadDocumentAsync(session.Id, thread.Id);
-        var evt = Assert.Single(document!.Events);
+        var events = await store.CollectThreadEventsAsync(session.Id, thread.Id);
+        var evt = Assert.Single(events!);
         Assert.IsType<ThreadCreatedEvent>(evt);
-        Assert.Equal(2, document.NextSequenceNumber);
+        Assert.Equal(1, evt.ThreadSequenceNumber);
 
-        var projected = await store.LoadThreadAsync(session.Id, thread.Id);
+        var projected = await store.ProjectThreadAsync(session.Id, thread.Id);
         Assert.Equal("main", projected!.Name);
         Assert.Null(projected.ForkedFrom);
         Assert.Null(projected.ForkedAtMessageId);
@@ -65,9 +65,7 @@ public class ThreadEventStoreTests : AgentTestBase
         var message = new ChatMessage(ChatRole.User, "durable");
         message.MessageId = "msg-1";
 
-        var document = ThreadEventDocumentBuilder.Create(
-            "session-1",
-            "main",
+        var events = Sequence(
             [
                 ThreadEventFactory.ThreadCreated(thread),
                 ThreadEventFactory.TurnStarted("session-1", "main", "turn-1", "session-1", "agent-1", "Agent", 1, false),
@@ -77,7 +75,7 @@ public class ThreadEventStoreTests : AgentTestBase
                 ThreadEventFactory.TurnCompleted("session-1", "main", "turn-1", "session-1", "agent-1", "Agent", 1, "done", TimeSpan.FromMilliseconds(10), 1)
             ]);
 
-        var projected = ThreadProjector.Project(document);
+        var projected = ThreadProjector.Project("session-1", "main", events);
 
         Assert.Single(projected.Messages);
         Assert.Equal("durable", projected.Messages[0].Text);
@@ -96,9 +94,7 @@ public class ThreadEventStoreTests : AgentTestBase
             ["source"] = "selection"
         };
 
-        var document = ThreadEventDocumentBuilder.Create(
-            "session-1",
-            "main",
+        var events = Sequence(
             [
                 ThreadEventFactory.ThreadCreated(thread),
                 ThreadEventFactory.ReasoningStarted("session-1", "main", "turn-1", "assistant-1", ChatRole.Assistant.Value, 0),
@@ -120,7 +116,7 @@ public class ThreadEventStoreTests : AgentTestBase
                 ThreadEventFactory.TextMessageCompleted("session-1", "main", "turn-1", "assistant-1", 0)
             ]);
 
-        var projected = ThreadProjector.Project(document);
+        var projected = ThreadProjector.Project("session-1", "main", events);
 
         var projectedMessage = Assert.Single(projected.Messages);
         var reasoning = Assert.Single(projectedMessage.Contents.OfType<TextReasoningContent>());
@@ -139,9 +135,7 @@ public class ThreadEventStoreTests : AgentTestBase
         var assistant = new ChatMessage(ChatRole.Assistant, []) { MessageId = "assistant-1" };
         var tool = new ChatMessage(ChatRole.Tool, []) { MessageId = "tool-1" };
 
-        var document = ThreadEventDocumentBuilder.Create(
-            "session-1",
-            "main",
+        var events = Sequence(
             [
                 ThreadEventFactory.ThreadCreated(thread),
                 ThreadEventFactory.ToolCallStarted(
@@ -177,7 +171,7 @@ public class ThreadEventStoreTests : AgentTestBase
                     "ListDirectory")
             ]);
 
-        var projected = ThreadProjector.Project(document);
+        var projected = ThreadProjector.Project("session-1", "main", events);
 
         var assistantMessage = Assert.Single(projected.Messages.Where(m => m.Role == ChatRole.Assistant));
         var call = Assert.Single(assistantMessage.Contents.OfType<FunctionCallContent>());
@@ -228,73 +222,7 @@ public class ThreadEventStoreTests : AgentTestBase
     }
 
     [Fact]
-    public void ThreadEventFactory_PersistsRequestSessionProjectionEvents()
-    {
-        var now = DateTimeOffset.UtcNow;
-        AgentEvent[] events =
-        [
-            new AgentRequestStartedEvent(
-                "request-1",
-                "source",
-                "PermissionRequestEvent",
-                "PermissionResponseEvent",
-                ResponsePolicy.FirstValidResponseWins,
-                null,
-                RequestVisibility.AllObservers,
-                now),
-            new AgentRequestResolvedEvent(
-                "request-1",
-                "source",
-                "PermissionRequestEvent",
-                "PermissionResponseEvent",
-                null,
-                null,
-                now),
-            new AgentRequestExpiredEvent(
-                "request-2",
-                "source",
-                "PermissionRequestEvent",
-                TimeSpan.FromSeconds(30),
-                now),
-            new AgentRequestCancelledEvent(
-                "request-3",
-                "source",
-                "PermissionRequestEvent",
-                "cancelled",
-                now),
-            new AgentResponseRejectedEvent(
-                "request-1",
-                "PermissionResponseEvent",
-                RespondStatus.AlreadyResolved,
-                "Request has already resolved.",
-                "client-a",
-                null,
-                now)
-        ];
-
-        foreach (var evt in events)
-        {
-            var threadEvent = ThreadEventFactory.FromAgentEvent(
-                "session-1",
-                "main",
-                evt,
-                messageTurnId: null,
-                conversationId: null,
-                iteration: 0,
-                inputMessageCount: 0,
-                isResume: false,
-                terminationReason: null,
-                turnMessageCount: 0);
-
-            Assert.NotNull(threadEvent);
-            Assert.True(evt.ShouldPersistToThread());
-            Assert.Equal("session-1", threadEvent.SessionId);
-            Assert.Equal("main", threadEvent.ThreadId);
-        }
-    }
-
-    [Fact]
-    public async Task InMemoryStore_ReadThreadEvents_UsesReplayOptions()
+    public async Task InMemoryStore_ReadThreadEvents_UsesBoundedSequenceRange()
     {
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("session-1");
@@ -307,26 +235,29 @@ public class ThreadEventStoreTests : AgentTestBase
             ThreadEventFactory.TurnStarted("session-1", "main", "turn-1", "session-1", "agent-1", "Agent", 0, false));
 
         var events = new List<AgentEvent>();
-        await foreach (var evt in store.ReadThreadEventsAsync(
-            session.Id,
-            thread.Id,
-            new HPD.Events.ReplayReadOptions(null, null, null, 2)))
+        await foreach (var batch in store.ReadThreadEventsAsync(
+            new ThreadKey(session.Id, thread.Id),
+            new ThreadEventReadRequest(MaxBatchEventCount: 2)))
         {
-            events.Add(evt);
+            events.AddRange(batch.Events);
+            break;
         }
 
         Assert.Equal(2, events.Count);
-        Assert.Equal([1, 2], events.Select(e => e.SequenceNumber));
+        Assert.Equal([1, 2], events.Select(e => e.ThreadSequenceNumber));
     }
 
+    private static IReadOnlyList<AgentEvent> Sequence(IReadOnlyList<AgentEvent> events) =>
+        events.Select((evt, index) => evt with { ThreadSequenceNumber = index + 1 }).ToArray();
+
     [Fact]
-    public async Task JsonSessionStore_WritesThreadEventStreamAndLazyProjectionCache()
+    public async Task FileSessionStore_WritesSegmentedCanonicalJournalAndDescriptor()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-thread-events-{Guid.NewGuid():N}");
 
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir);
             var session = new HPD.Agent.Session("session-1");
             var thread = session.CreateThread("main");
 
@@ -337,64 +268,50 @@ public class ThreadEventStoreTests : AgentTestBase
                 thread.Id,
                 ThreadEventFactory.TurnStarted("session-1", "main", "turn-1", "session-1", "agent-1", "Agent", 0, false));
 
-            var threadDir = Path.Combine(tempDir, "session-1", "threads", "main");
-            var threadJsonPath = Path.Combine(threadDir, "thread.json");
-            var eventsPath = Path.Combine(threadDir, "thread.events.jsonl");
-            var metadataPath = Path.Combine(threadDir, "thread.meta.json");
-            var oldSnapshotPath = Path.Combine(threadDir, "thread.snapshot.json");
-            var projectionPath = Path.Combine(threadDir, "thread.projection.json");
+            var threadDir = Path.Combine(tempDir, "sessions", "session-1", "threads", "main");
+            var journalDir = Path.Combine(threadDir, "journal");
+            var descriptorPath = Path.Combine(threadDir, "thread.descriptor.json");
+            var indexPath = Path.Combine(threadDir, "journal.index");
 
-            Assert.False(File.Exists(threadJsonPath));
-            Assert.False(File.Exists(oldSnapshotPath));
-            Assert.True(File.Exists(eventsPath));
-            Assert.True(File.Exists(metadataPath));
-            Assert.False(File.Exists(projectionPath));
+            var segmentPath = Assert.Single(Directory.GetFiles(journalDir, "segment-*.events"));
+            Assert.True(File.Exists(descriptorPath));
+            Assert.True(File.Exists(indexPath));
 
-            var eventDocuments = (await File.ReadAllLinesAsync(eventsPath))
+            var eventDocuments = (await File.ReadAllLinesAsync(segmentPath))
                 .Where(line => !string.IsNullOrWhiteSpace(line))
                 .Select(line => JsonDocument.Parse(line))
                 .ToList();
-            var events = eventDocuments.Select(document => document.RootElement).ToList();
+            var events = eventDocuments
+                .SelectMany(document => document.RootElement.EnumerateArray().Select(element => element.Clone()))
+                .ToList();
 
             Assert.Contains(events, e => e.GetProperty("type").GetString() == ThreadEventTypes.ThreadCreated);
             Assert.Contains(events, e => e.GetProperty("type").GetString() == EventTypes.MessageTurn.MESSAGE_TURN_STARTED);
             Assert.All(events, e =>
             {
-                Assert.False(e.TryGetProperty("sessionId", out _));
-                Assert.False(e.TryGetProperty("threadId", out _));
-                Assert.False(e.TryGetProperty("channel", out _));
-                Assert.False(e.TryGetProperty("kind", out _));
-                Assert.False(e.TryGetProperty("direction", out _));
-                Assert.False(e.TryGetProperty("canInterrupt", out _));
-                Assert.False(e.TryGetProperty("exchangeTimestampNs", out _));
+                Assert.Equal(session.Id, e.GetProperty("sessionId").GetString());
+                Assert.Equal(thread.Id, e.GetProperty("threadId").GetString());
+                Assert.True(e.GetProperty("threadSequenceNumber").GetInt64() > 0);
             });
 
-            using var metadata = JsonDocument.Parse(await File.ReadAllTextAsync(metadataPath));
-            Assert.Equal("hpd.agent.thread.meta", metadata.RootElement.GetProperty("schema").GetString());
-            Assert.Equal(3, metadata.RootElement.GetProperty("nextSequenceNumber").GetInt64());
-            Assert.Equal("MainAgent", metadata.RootElement.GetProperty("kind").GetString());
-            Assert.Equal("Visible", metadata.RootElement.GetProperty("visibility").GetString());
+            using var descriptor = JsonDocument.Parse(await File.ReadAllTextAsync(descriptorPath));
+            Assert.Equal("hpd.agent.thread-descriptor", descriptor.RootElement.GetProperty("schema").GetString());
+            Assert.Equal(2, descriptor.RootElement.GetProperty("descriptor").GetProperty("head").GetInt64());
+            Assert.Equal("MainAgent", descriptor.RootElement.GetProperty("descriptor").GetProperty("kind").GetString());
+            Assert.Equal("Visible", descriptor.RootElement.GetProperty("descriptor").GetProperty("visibility").GetString());
 
-            var document = await store.LoadThreadDocumentAsync(session.Id, thread.Id, TestCancellationToken);
+            var document = await store.CollectThreadEventsAsync(session.Id, thread.Id, TestCancellationToken);
             Assert.NotNull(document);
-            Assert.Contains(document.Events, e => EventType(e) == ThreadEventTypes.ThreadCreated);
-            Assert.Contains(document.Events, e => EventType(e) == EventTypes.MessageTurn.MESSAGE_TURN_STARTED);
-            Assert.All(document.Events, e =>
+            Assert.Contains(document, e => EventType(e) == ThreadEventTypes.ThreadCreated);
+            Assert.Contains(document, e => EventType(e) == EventTypes.MessageTurn.MESSAGE_TURN_STARTED);
+            Assert.All(document, e =>
             {
                 Assert.Equal(session.Id, e.SessionId);
                 Assert.Equal(thread.Id, e.ThreadId);
             });
 
-            Assert.False(File.Exists(projectionPath));
-
-            var loadedThread = await store.LoadThreadAsync(session.Id, thread.Id, TestCancellationToken);
+            var loadedThread = await store.ProjectThreadAsync(session.Id, thread.Id, TestCancellationToken);
             Assert.NotNull(loadedThread);
-            Assert.True(File.Exists(projectionPath));
-
-            using var projection = JsonDocument.Parse(await File.ReadAllTextAsync(projectionPath));
-            Assert.Equal("hpd.agent.thread.projection-cache", projection.RootElement.GetProperty("schema").GetString());
-            Assert.Equal(ThreadProjectionCache.CurrentVersion, projection.RootElement.GetProperty("version").GetInt32());
-            Assert.Equal(2, projection.RootElement.GetProperty("lastSequenceNumber").GetInt64());
 
             foreach (var eventDocument in eventDocuments)
                 eventDocument.Dispose();
@@ -407,13 +324,13 @@ public class ThreadEventStoreTests : AgentTestBase
     }
 
     [Fact]
-    public async Task JsonSessionStore_IncrementalProjection_PreservesToolCallWhenCacheSplitsToolEvents()
+    public async Task FileSessionStore_Projection_PreservesToolCallAcrossSeparateAppendFrames()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-thread-tool-cache-{Guid.NewGuid():N}");
 
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir);
             var session = new HPD.Agent.Session("session-1");
             var thread = session.CreateThread("main");
             var assistant = new ChatMessage(ChatRole.Assistant, []) { MessageId = "assistant-1" };
@@ -439,7 +356,7 @@ public class ThreadEventStoreTests : AgentTestBase
                 thread.Id,
                 ThreadEventFactory.ToolCallArgs(session.Id, thread.Id, "turn-1", "call-1", """{"path":"README.md"}""", 0));
 
-            var cachedBeforeEnd = await store.LoadThreadAsync(session.Id, thread.Id, TestCancellationToken);
+            var cachedBeforeEnd = await store.ProjectThreadAsync(session.Id, thread.Id, TestCancellationToken);
             Assert.NotNull(cachedBeforeEnd);
             Assert.DoesNotContain(
                 cachedBeforeEnd.Messages.SelectMany(message => message.Contents),
@@ -472,7 +389,7 @@ public class ThreadEventStoreTests : AgentTestBase
                     0,
                     "ReadFile"));
 
-            var loaded = await store.LoadThreadAsync(session.Id, thread.Id, TestCancellationToken);
+            var loaded = await store.ProjectThreadAsync(session.Id, thread.Id, TestCancellationToken);
 
             Assert.NotNull(loaded);
             var assistantMessage = Assert.Single(loaded.Messages.Where(m => m.Role == ChatRole.Assistant));
@@ -500,26 +417,26 @@ public class ThreadEventStoreTests : AgentTestBase
 
         await store.AppendThreadEventAsync("session-1", "main", new TextDeltaEvent("hello", "msg-1"));
 
-        var document = await store.LoadThreadDocumentAsync("session-1", "main");
-        var evt = Assert.Single(document!.Events);
+        var document = await store.CollectThreadEventsAsync("session-1", "main");
+        var evt = Assert.Single(document!);
         Assert.False(string.IsNullOrWhiteSpace(evt.EventId));
         Assert.Equal("session-1", evt.SessionId);
         Assert.Equal("main", evt.ThreadId);
     }
 
     [Fact]
-    public async Task JsonSessionStore_AppendThreadEvent_AssignsMissingDurableIdentityAndScope()
+    public async Task FileSessionStore_AppendThreadEvent_AssignsMissingDurableIdentityAndScope()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-thread-events-{Guid.NewGuid():N}");
 
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir);
 
             await store.AppendThreadEventAsync("session-1", "main", new TextDeltaEvent("hello", "msg-1"));
 
-            var document = await store.LoadThreadDocumentAsync("session-1", "main");
-            var evt = Assert.Single(document!.Events);
+            var document = await store.CollectThreadEventsAsync("session-1", "main");
+            var evt = Assert.Single(document!);
             Assert.False(string.IsNullOrWhiteSpace(evt.EventId));
             Assert.Equal("session-1", evt.SessionId);
             Assert.Equal("main", evt.ThreadId);
@@ -534,24 +451,25 @@ public class ThreadEventStoreTests : AgentTestBase
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task AppendThreadEvent_StampsAssignedSequenceOnSuppliedCanonicalEvent(bool useJsonStore)
+    public async Task AppendThreadEvent_ReturnsCommittedValueWithoutMutatingProposedEvent(bool useJsonStore)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-thread-events-{Guid.NewGuid():N}");
 
         try
         {
             ISessionStore store = useJsonStore
-                ? new JsonSessionStore(tempDir)
+                ? new FileSessionStore(tempDir)
                 : new InMemorySessionStore();
             var supplied = ThreadEventFactory.TextDelta(
                 "session-1", "main", "turn-1", "msg-1", "hello", 0);
 
-            await store.AppendThreadEventAsync("session-1", "main", supplied);
+            var committed = await store.AppendThreadEventAsync("session-1", "main", supplied);
 
-            var persisted = Assert.Single((await store.LoadThreadDocumentAsync("session-1", "main"))!.Events);
+            var persisted = Assert.Single((await store.CollectThreadEventsAsync("session-1", "main"))!);
             Assert.Equal(persisted.EventId, supplied.EventId);
-            Assert.Equal(persisted.SequenceNumber, supplied.SequenceNumber);
-            Assert.True(supplied.SequenceNumber > 0);
+            Assert.Equal(persisted.ThreadSequenceNumber, committed.ThreadSequenceNumber);
+            Assert.True(committed.ThreadSequenceNumber > 0);
+            Assert.Equal(0, supplied.ThreadSequenceNumber);
         }
         finally
         {
@@ -561,28 +479,24 @@ public class ThreadEventStoreTests : AgentTestBase
     }
 
     [Fact]
-    public async Task JsonSessionStore_AppendThreadEvent_PersistsEventFlowId()
+    public async Task FileSessionStore_AppendThreadEvent_PersistsCanonicalScopeAndFlowId()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-thread-events-{Guid.NewGuid():N}");
 
         try
         {
-            var store = new JsonSessionStore(tempDir);
+            var store = new FileSessionStore(tempDir);
 
             await store.AppendThreadEventAsync(
                 "session-1",
                 "main",
                 ThreadEventFactory.TextDelta("session-1", "main", "turn-1", "msg-1", "hello", 0));
 
-            var eventsPath = Path.Combine(tempDir, "session-1", "threads", "main", "thread.events.jsonl");
-            var line = Assert.Single(await File.ReadAllLinesAsync(eventsPath));
-            using var json = JsonDocument.Parse(line);
-
-            Assert.Equal("turn-1", json.RootElement.GetProperty("eventFlowId").GetString());
-
-            var document = await store.LoadThreadDocumentAsync("session-1", "main");
-            var evt = Assert.Single(document!.Events);
+            var document = await store.CollectThreadEventsAsync("session-1", "main");
+            var evt = Assert.Single(document!);
             Assert.Equal("turn-1", evt.EventFlowId);
+            Assert.Equal("session-1", evt.SessionId);
+            Assert.Equal("main", evt.ThreadId);
         }
         finally
         {
@@ -601,7 +515,7 @@ public class ThreadEventStoreTests : AgentTestBase
         try
         {
             ISessionStore store = useJsonStore
-                ? new JsonSessionStore(tempDir)
+                ? new FileSessionStore(tempDir)
                 : new InMemorySessionStore();
             var evt = new TextDeltaEvent("hello", "msg-1")
             {
@@ -610,96 +524,9 @@ public class ThreadEventStoreTests : AgentTestBase
             };
 
             var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                store.AppendThreadEventAsync("session-1", "main", evt));
+                store.AppendThreadEventAsync("session-1", "main", evt).AsTask());
 
             Assert.Contains("does not match", exception.Message);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir))
-                Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task JsonSessionStore_LoadThreadDocument_HydratesEventScopeFromStreamMetadata()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-thread-events-{Guid.NewGuid():N}");
-
-        try
-        {
-            var threadDir = Path.Combine(tempDir, "session-1", "threads", "main");
-            Directory.CreateDirectory(threadDir);
-            await File.WriteAllTextAsync(
-                Path.Combine(threadDir, "thread.meta.json"),
-                """
-                {
-                  "schema": "hpd.agent.thread.event-stream",
-                  "version": 1,
-                  "sessionId": "session-1",
-                  "threadId": "main",
-                  "createdAt": "2026-01-01T00:00:00+00:00",
-                  "updatedAt": "2026-01-01T00:00:00+00:00",
-                  "nextSequenceNumber": 2
-                }
-                """);
-            await File.WriteAllTextAsync(
-                Path.Combine(threadDir, "thread.events.jsonl"),
-                """
-                {"type":"THREAD_CREATED","eventId":"evt-1","name":"Main","createdAt":"2026-01-01T00:00:00+00:00","sequenceNumber":1}
-                
-                """);
-
-            var store = new JsonSessionStore(tempDir);
-
-            var document = await store.LoadThreadDocumentAsync("session-1", "main");
-
-            var evt = Assert.Single(document!.Events);
-            Assert.Equal("session-1", evt.SessionId);
-            Assert.Equal("main", evt.ThreadId);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir))
-                Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task JsonSessionStore_LoadThreadDocument_RejectsConflictingEventScope()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-thread-events-{Guid.NewGuid():N}");
-
-        try
-        {
-            var threadDir = Path.Combine(tempDir, "session-1", "threads", "main");
-            Directory.CreateDirectory(threadDir);
-            await File.WriteAllTextAsync(
-                Path.Combine(threadDir, "thread.meta.json"),
-                """
-                {
-                  "schema": "hpd.agent.thread.event-stream",
-                  "version": 1,
-                  "sessionId": "session-1",
-                  "threadId": "main",
-                  "createdAt": "2026-01-01T00:00:00+00:00",
-                  "updatedAt": "2026-01-01T00:00:00+00:00",
-                  "nextSequenceNumber": 2
-                }
-                """);
-            await File.WriteAllTextAsync(
-                Path.Combine(threadDir, "thread.events.jsonl"),
-                """
-                {"type":"THREAD_CREATED","eventId":"evt-1","sessionId":"other-session","threadId":"main","name":"Main","createdAt":"2026-01-01T00:00:00+00:00","sequenceNumber":1}
-                
-                """);
-
-            var store = new JsonSessionStore(tempDir);
-
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                store.LoadThreadDocumentAsync("session-1", "main"));
-
-            Assert.Contains("session scope", exception.Message);
         }
         finally
         {
@@ -722,14 +549,14 @@ public class ThreadEventStoreTests : AgentTestBase
         await agent.CreateSessionAsync(sessionId, cancellationToken: TestCancellationToken);
         await agent.RunAsync("who are you", sessionId, "main", cancellationToken: TestCancellationToken);
 
-        var document = await store.LoadThreadDocumentAsync(sessionId, "main", TestCancellationToken);
+        var document = await store.CollectThreadEventsAsync(sessionId, "main", TestCancellationToken);
         Assert.NotNull(document);
 
-        var textDeltas = document.Events.OfType<TextDeltaEvent>().ToList();
+        var textDeltas = document.OfType<TextDeltaEvent>().ToList();
         Assert.Contains(textDeltas, e => e.Text == "who are you");
         Assert.Contains(textDeltas, e => e.Text == "hello human");
 
-        var loaded = await store.LoadThreadAsync(sessionId, "main", TestCancellationToken);
+        var loaded = await store.ProjectThreadAsync(sessionId, "main", TestCancellationToken);
         Assert.NotNull(loaded);
         Assert.Equal(2, loaded.Messages.Count);
         Assert.Equal("who are you", loaded.Messages[0].Text);
@@ -763,8 +590,8 @@ public class ThreadEventStoreTests : AgentTestBase
 
         Assert.Contains("No responses queued", ex.Message);
 
-        var document = await store.LoadThreadDocumentAsync(session.Id, thread.Id, TestCancellationToken);
-        var failed = Assert.IsType<MessageTurnErrorEvent>(Assert.Single(document!.Events.Where(e => EventType(e) == EventTypes.MessageTurn.MESSAGE_TURN_ERROR)));
+        var document = await store.CollectThreadEventsAsync(session.Id, thread.Id, TestCancellationToken);
+        var failed = Assert.IsType<MessageTurnErrorEvent>(Assert.Single(document!.Where(e => EventType(e) == EventTypes.MessageTurn.MESSAGE_TURN_ERROR)));
 
         Assert.False(string.IsNullOrWhiteSpace(failed.MessageTurnId));
         Assert.Equal("session-1", failed.ConversationId);
@@ -797,10 +624,10 @@ public class ThreadEventStoreTests : AgentTestBase
         {
         }
 
-        var document = await store.LoadThreadDocumentAsync(session.Id, thread.Id, TestCancellationToken);
+        var document = await store.CollectThreadEventsAsync(session.Id, thread.Id, TestCancellationToken);
         Assert.NotNull(document);
 
-        var reasoningEvents = document.Events
+        var reasoningEvents = document
             .Where(e => EventType(e) is EventTypes.Reasoning.REASONING_MESSAGE_START
                 or EventTypes.Reasoning.REASONING_DELTA
                 or EventTypes.Reasoning.REASONING_MESSAGE_END)
@@ -809,13 +636,13 @@ public class ThreadEventStoreTests : AgentTestBase
         Assert.Contains(reasoningEvents, e => EventType(e) == EventTypes.Reasoning.REASONING_MESSAGE_START);
         Assert.Contains(reasoningEvents, e => EventType(e) == EventTypes.Reasoning.REASONING_MESSAGE_END);
 
-        var matchingDeltas = document.Events
+        var matchingDeltas = document
             .OfType<ReasoningDeltaEvent>()
             .Where(e => e.Text == "private thought" && e.ProtectedData == "protected-reasoning")
             .ToList();
         Assert.NotEmpty(matchingDeltas);
 
-        var loaded = await store.LoadThreadAsync(session.Id, thread.Id, TestCancellationToken);
+        var loaded = await store.ProjectThreadAsync(session.Id, thread.Id, TestCancellationToken);
         Assert.NotNull(loaded);
         var assistantMessage = Assert.Single(loaded.Messages.Where(m => m.Role == ChatRole.Assistant));
         var committedReasoning = Assert.Single(assistantMessage.Contents.OfType<TextReasoningContent>());
@@ -868,10 +695,10 @@ public class ThreadEventStoreTests : AgentTestBase
         {
         }
 
-        var document = await store.LoadThreadDocumentAsync(session.Id, thread.Id, TestCancellationToken);
+        var document = await store.CollectThreadEventsAsync(session.Id, thread.Id, TestCancellationToken);
         Assert.NotNull(document);
 
-        var toolEventTypes = document.Events
+        var toolEventTypes = document
             .Where(e => EventType(e) is EventTypes.Tool.TOOL_CALL_START
                 or EventTypes.Tool.TOOL_CALL_ARGS
                 or EventTypes.Tool.TOOL_CALL_RESULT
@@ -885,12 +712,12 @@ public class ThreadEventStoreTests : AgentTestBase
         Assert.Contains(EventTypes.Tool.TOOL_CALL_RESULT, toolEventTypes);
 
         var started = Assert.IsType<ToolCallStartEvent>(
-            document.Events.Last(e => EventType(e) == EventTypes.Tool.TOOL_CALL_START));
+            document.Last(e => EventType(e) == EventTypes.Tool.TOOL_CALL_START));
         Assert.Equal("call-1", started.CallId);
         Assert.Equal("Calculator", started.Name);
 
         var completed = Assert.IsType<ToolCallEndEvent>(
-            document.Events.Last(e => EventType(e) == EventTypes.Tool.TOOL_CALL_END));
+            document.Last(e => EventType(e) == EventTypes.Tool.TOOL_CALL_END));
         Assert.Equal("call-1", completed.CallId);
         Assert.NotNull(completed.MessageId);
         Assert.Equal("Calculator", completed.Name);

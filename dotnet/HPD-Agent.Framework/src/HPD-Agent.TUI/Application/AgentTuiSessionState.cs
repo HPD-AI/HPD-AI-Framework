@@ -27,36 +27,22 @@ public sealed class AgentTuiSessionState
 
     public async ValueTask ApplyEventAsync(
         AgentEvent evt,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        AgentTuiEventDeliveryMode deliveryMode = AgentTuiEventDeliveryMode.Live)
     {
         ArgumentNullException.ThrowIfNull(evt);
 
-        var context = new AgentTuiEventContext(Scope, Shell, Shell.Navigation, _registry, _state);
+        var context = new AgentTuiEventContext(
+            Scope,
+            Shell,
+            Shell.Navigation,
+            _registry,
+            _state,
+            deliveryMode);
         foreach (var handler in _registry.FindEventHandlers(evt))
         {
-            try
-            {
-                await handler.Value.HandleAsync(evt, context, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                Shell.Transcript.AddFinal(new TranscriptEntry(
-                    Id: $"event-handler-error-{Guid.NewGuid():N}",
-                    EntryKey: null,
-                    Cell: new NoticeCell(
-                        $"Event handler '{handler.Key}' failed",
-                        new Text(ex.Message),
-                        TranscriptSeverity.Error),
-                    Metadata: new TranscriptEntryMetadata(
-                        AgentId: Scope.AgentId,
-                        AgentName: "tui",
-                        AgentChain: ["tui"])));
-            }
+            await handler.Value.HandleAsync(evt, context, cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 }

@@ -24,8 +24,8 @@ public sealed class SessionThreadProjectionSinkTests
             InputContentId = content.Id
         });
 
-        var loaded = await store.LoadThreadAsync(thread.SessionId, thread.ThreadId);
-        var document = await store.LoadThreadDocumentAsync(thread.SessionId, thread.ThreadId);
+        var loaded = await store.ProjectThreadAsync(thread.SessionId, thread.ThreadId);
+        var events = await store.CollectThreadEventsAsync(thread.SessionId, thread.ThreadId);
 
         Assert.NotNull(loaded);
         var message = Assert.Single(loaded.Messages);
@@ -33,13 +33,13 @@ public sealed class SessionThreadProjectionSinkTests
         Assert.Equal("audio-turn-turn-real", message.MessageId);
         Assert.Equal("transcript from real session seam", message.Text);
 
-        Assert.NotNull(document);
-        Assert.Equal(projected.EventId, document.Events.Last().EventId);
-        Assert.Equal(document.Events.Last().SequenceNumber, projected.SequenceNumber);
+        Assert.NotNull(events);
+        Assert.Equal(projected.EventId, events.Last().EventId);
+        Assert.Equal(events.Last().ThreadSequenceNumber, projected.SequenceNumber);
         Assert.True(projected.SequenceNumber > 0);
-        Assert.DoesNotContain(document.Events.OfType<ContentAddedEvent>(), e => e.Content is AudioContent or DataContent);
+        Assert.DoesNotContain(events.OfType<ContentAddedEvent>(), e => e.Content is AudioContent or DataContent);
 
-        var textDelta = Assert.Single(document.Events.OfType<TextDeltaEvent>());
+        var textDelta = Assert.Single(events.OfType<TextDeltaEvent>());
         Assert.Equal("transcript from real session seam", textDelta.Text);
     }
 
@@ -60,8 +60,8 @@ public sealed class SessionThreadProjectionSinkTests
         var first = await sink.ProjectAsync(thread, record);
         var second = await sink.ProjectAsync(thread, record);
 
-        var loaded = await store.LoadThreadAsync(thread.SessionId, thread.ThreadId);
-        var document = await store.LoadThreadDocumentAsync(thread.SessionId, thread.ThreadId);
+        var loaded = await store.ProjectThreadAsync(thread.SessionId, thread.ThreadId);
+        var events = await store.CollectThreadEventsAsync(thread.SessionId, thread.ThreadId);
 
         Assert.Equal(first, second);
         Assert.NotNull(loaded);
@@ -69,10 +69,10 @@ public sealed class SessionThreadProjectionSinkTests
         Assert.Equal("audio-turn-turn-idempotent", message.MessageId);
         Assert.Equal("transcript projected once", message.Text);
 
-        Assert.NotNull(document);
-        Assert.Single(document.Events.OfType<TextMessageStartEvent>());
-        Assert.Single(document.Events.OfType<TextDeltaEvent>());
-        Assert.Single(document.Events.OfType<TextMessageEndEvent>());
+        Assert.NotNull(events);
+        Assert.Single(events.OfType<TextMessageStartEvent>());
+        Assert.Single(events.OfType<TextDeltaEvent>());
+        Assert.Single(events.OfType<TextMessageEndEvent>());
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class SessionThreadProjectionSinkTests
             ResponseId = new ResponseId("response-real")
         });
 
-        var loaded = await store.LoadThreadAsync(thread.SessionId, thread.ThreadId);
+        var loaded = await store.ProjectThreadAsync(thread.SessionId, thread.ThreadId);
 
         Assert.NotNull(loaded);
         var message = Assert.Single(loaded.Messages);

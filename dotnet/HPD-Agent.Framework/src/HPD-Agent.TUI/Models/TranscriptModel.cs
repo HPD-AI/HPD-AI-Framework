@@ -7,6 +7,18 @@ public sealed class TranscriptModel
     private readonly Dictionary<string, int> _entryKeys = new(StringComparer.Ordinal);
     private int _historyEpoch;
     private int _version;
+    private int _updateDepth;
+    private bool _updatePending;
+
+    public IDisposable BeginUpdate()
+    {
+        lock (_gate)
+        {
+            _updateDepth++;
+        }
+
+        return new UpdateScope(this);
+    }
 
     public int Count
     {
@@ -48,7 +60,7 @@ public sealed class TranscriptModel
         lock (_gate)
         {
             AddEntry(entry.AsFinal());
-            _version++;
+            MarkChanged();
         }
     }
 
@@ -65,12 +77,12 @@ public sealed class TranscriptModel
             if (_entryKeys.TryGetValue(entry.EntryKey, out var index))
             {
                 _entries[index] = entry.AsLive();
-                _version++;
+                MarkChanged();
                 return;
             }
 
             AddEntry(entry.AsLive());
-            _version++;
+            MarkChanged();
         }
     }
 
@@ -85,12 +97,12 @@ public sealed class TranscriptModel
             if (_entryKeys.TryGetValue(entryKey, out var index))
             {
                 _entries[index] = committed.AsFinal();
-                _version++;
+                MarkChanged();
                 return;
             }
 
             AddEntry(committed.AsFinal());
-            _version++;
+            MarkChanged();
         }
     }
 
@@ -112,7 +124,7 @@ public sealed class TranscriptModel
 
             _entries.RemoveAt(index);
             RebuildEntryKeyIndex();
-            _version++;
+            MarkChanged();
             return true;
         }
     }
@@ -130,7 +142,7 @@ public sealed class TranscriptModel
             }
 
             RebuildEntryKeyIndex();
-            _version++;
+            MarkChanged();
             return removed;
         }
     }
@@ -142,7 +154,7 @@ public sealed class TranscriptModel
             _entries.Clear();
             _entryKeys.Clear();
             _historyEpoch++;
-            _version++;
+            MarkChanged();
         }
     }
 
@@ -163,7 +175,7 @@ public sealed class TranscriptModel
             _entryKeys.Clear();
             AddEntry(replacement.AsFinal());
             _historyEpoch++;
-            _version++;
+            MarkChanged();
         }
     }
 
@@ -210,6 +222,43 @@ public sealed class TranscriptModel
                 _entryKeys[key] = i;
             }
         }
+    }
+
+    private void MarkChanged()
+    {
+        if (_updateDepth > 0)
+        {
+            _updatePending = true;
+            return;
+        }
+
+        _version++;
+    }
+
+    private void EndUpdate()
+    {
+        lock (_gate)
+        {
+            if (_updateDepth == 0)
+            {
+                throw new InvalidOperationException("Transcript update scope was already completed.");
+            }
+
+            _updateDepth--;
+            if (_updateDepth == 0 && _updatePending)
+            {
+                _updatePending = false;
+                _version++;
+            }
+        }
+    }
+
+    private sealed class UpdateScope(TranscriptModel owner) : IDisposable
+    {
+        private TranscriptModel? _owner = owner;
+
+        public void Dispose()
+            => Interlocked.Exchange(ref _owner, null)?.EndUpdate();
     }
 
 }

@@ -46,6 +46,7 @@ public sealed class FunctionExecutionContext
         RunConfig = request.RunConfig;
         ResultMetadata = request.ResultMetadata;
         EventCoordinator = request.EventCoordinator;
+        ThreadEvents = hookContext.Base.ThreadEvents;
         StructEvents = request.StructEvents;
         BackgroundTasks = request.BackgroundTasks;
         BackgroundHandles = request.BackgroundHandles;
@@ -85,6 +86,7 @@ public sealed class FunctionExecutionContext
     public int? ToolCallIndex => InvocationSnapshot.ToolCallIndex;
 
     public IEventCoordinator? EventCoordinator { get; }
+    public IThreadEventPublisher? ThreadEvents { get; }
 
     public IEventFlowRegistry? EventFlows => EventCoordinator?.EventFlows;
 
@@ -110,24 +112,40 @@ public sealed class FunctionExecutionContext
         return analyzer(_stateSnapshot);
     }
 
-    public void Emit(AgentEvent evt)
+    public async ValueTask<AgentEvent> PublishAsync(
+        AgentEvent evt,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(evt);
 
         if (EventCoordinator is null)
             throw new InvalidOperationException("Function execution context does not have an event coordinator.");
 
-        EventCoordinator.Emit(WithInvocationScope(evt));
+        var scoped = WithInvocationScope(evt);
+        if (!string.IsNullOrWhiteSpace(scoped.SessionId) &&
+            !string.IsNullOrWhiteSpace(scoped.ThreadId) &&
+            ThreadEvents is not null)
+        {
+            return await ThreadEvents.CommitAndPublishAsync(
+                new ThreadKey(scoped.SessionId, scoped.ThreadId),
+                scoped,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        await EventCoordinator.EmitAsync(scoped, cancellationToken).ConfigureAwait(false);
+        return scoped;
     }
 
-    public bool TryEmit(AgentEvent evt)
+    public async ValueTask<bool> TryPublishAsync(
+        AgentEvent evt,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(evt);
 
         if (EventCoordinator is null)
             return false;
 
-        EventCoordinator.Emit(WithInvocationScope(evt));
+        await PublishAsync(evt, cancellationToken).ConfigureAwait(false);
         return true;
     }
 
@@ -144,9 +162,32 @@ public sealed class FunctionExecutionContext
 
         var tracedRequest = WithInvocationScope(request);
         var effectiveTimeout = timeout ?? TimeSpan.FromMinutes(5);
-        return await EventCoordinator.RequestAsync<TRequest, TResponse>(
+        var handle = EventCoordinator.RegisterRequest<TRequest, TResponse>(
             tracedRequest,
-            effectiveTimeout).ConfigureAwait(false);
+            new RequestOptions { Timeout = effectiveTimeout });
+
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(tracedRequest.SessionId) &&
+                !string.IsNullOrWhiteSpace(tracedRequest.ThreadId) &&
+                ThreadEvents is not null)
+            {
+                await ThreadEvents.CommitAndPublishAsync(
+                    new ThreadKey(tracedRequest.SessionId, tracedRequest.ThreadId),
+                    tracedRequest).ConfigureAwait(false);
+            }
+            else
+            {
+                await EventCoordinator.EmitAsync(tracedRequest).ConfigureAwait(false);
+            }
+
+            return (TResponse)await handle.Response.ConfigureAwait(false);
+        }
+        catch
+        {
+            handle.Cancel("Request publication or wait failed.");
+            throw;
+        }
     }
 
     [EditorBrowsable(EditorBrowsableState.Never)]
@@ -219,15 +260,16 @@ public sealed class FunctionExecutionContext
     /// <param name="handle">The handle implementation.</param>
     /// <returns>The accepted background handle registration.</returns>
     /// <exception cref="InvalidOperationException">Thrown when no active runtime can accept background handles.</exception>
-    public BackgroundHandleRegistration RegisterBackgroundHandle(
+    public async ValueTask<BackgroundHandleRegistration> RegisterBackgroundHandleAsync(
         BackgroundHandleDescriptor descriptor,
-        IBackgroundHandle handle)
+        IBackgroundHandle handle,
+        CancellationToken cancellationToken = default)
     {
         if (BackgroundHandles is null)
             throw new InvalidOperationException(
                 "Function background handle registration requires an active agent runtime.");
 
-        return BackgroundHandles.RegisterHandle(
+        return await BackgroundHandles.RegisterHandleAsync(
             descriptor with
             {
                 SourceId = descriptor.SourceId ?? descriptor.HandleId ?? FunctionCallId,
@@ -235,7 +277,8 @@ public sealed class FunctionExecutionContext
                 ThreadId = descriptor.ThreadId ?? InvocationSnapshot.ThreadId,
                 Invocation = descriptor.Invocation ?? InvocationSnapshot
             },
-            handle);
+            handle,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private TEvent WithInvocationScope<TEvent>(TEvent evt)

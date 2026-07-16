@@ -191,9 +191,15 @@ public readonly struct OperationStatus : IEquatable<OperationStatus>
 public abstract record AgentEvent : HPD.Events.Event
 {
     /// <summary>
-    /// Stable ID assigned when the event is persisted into a thread history.
+    /// Stable identity assigned when the event is created. Canonical commit preserves it.
     /// </summary>
-    public string? EventId { get; init; }
+    public string EventId { get; init; } = Guid.NewGuid().ToString("N");
+
+    /// <summary>
+    /// Authoritative position in a committed thread journal. Zero means the event is stateless
+    /// or has not yet been committed. HPD-Events never assigns or changes this value.
+    /// </summary>
+    public long ThreadSequenceNumber { get; init; }
 
     /// <summary>
     /// Durable session scope when this event is persisted or replayed from a thread.
@@ -206,9 +212,8 @@ public abstract record AgentEvent : HPD.Events.Event
     public string? ThreadId { get; init; }
 
     /// <summary>
-    /// Live metadata about which agent emitted this event.
-    /// This is omitted from durable thread event JSON by default because thread ownership
-    /// and durable attribution live on thread metadata.
+    /// Canonical attribution for the agent that emitted this event.
+    /// When present, this metadata is persisted so live observation and replay remain identical.
     /// </summary>
     public AgentMetadata? Metadata { get; init; }
 
@@ -230,12 +235,6 @@ public abstract record AgentEvent : HPD.Events.Event
     /// Null for root-level events (MessageTurnStartedEvent).
     /// </summary>
     public string? ParentSpanId { get; init; }
-
-    /// <summary>
-    /// Whether this event type should be recorded into durable thread history.
-    /// This is event type policy, not serialized event payload.
-    /// </summary>
-    public virtual bool ShouldPersistToThread() => false;
 
     /// <summary>
     /// Optional content-store persistence policy for this event type.
@@ -278,7 +277,6 @@ public sealed record ThreadRunStartedEvent(
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
     public override EventChannel Channel { get; init; } = EventChannel.Control;
-    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -293,7 +291,6 @@ public sealed record ThreadRunCompletedEvent(
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
     public override EventChannel Channel { get; init; } = EventChannel.Control;
-    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -364,7 +361,6 @@ public record MessageTurnStartedEvent : AgentEvent
     public string AgentName { get; init; }
 
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToThread() => true;
 
     public int? InputMessageCount { get; init; }
     public bool? IsResume { get; init; }
@@ -411,7 +407,6 @@ public record MessageTurnFinishedEvent : AgentEvent
     public UsageDetails? Usage { get; init; }
 
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToThread() => true;
 
     public int? Iteration { get; init; }
     public string? TerminationReason { get; init; }
@@ -534,7 +529,6 @@ public record TextMessageStartEvent(
     AdditionalPropertiesDictionary? AdditionalProperties = null) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
-    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -543,7 +537,6 @@ public record TextMessageStartEvent(
 public record TextDeltaEvent(string Text, string MessageId) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
-    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -552,7 +545,6 @@ public record TextDeltaEvent(string Text, string MessageId) : AgentEvent
 public record TextMessageEndEvent(string MessageId) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
-    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -606,7 +598,6 @@ public sealed record UserAudioTranscriptFailedEvent(
 public record ReasoningMessageStartEvent(string MessageId, string Role) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
-    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -615,7 +606,6 @@ public record ReasoningMessageStartEvent(string MessageId, string Role) : AgentE
 public record ReasoningDeltaEvent(string Text, string MessageId, string? ProtectedData = null) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
-    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -624,7 +614,6 @@ public record ReasoningDeltaEvent(string Text, string MessageId, string? Protect
 public record ReasoningMessageEndEvent(string MessageId) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
-    public override bool ShouldPersistToThread() => true;
 }
 
 #endregion
@@ -662,7 +651,6 @@ public record ToolCallStartEvent(
     ToolCallType? CallType = null) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -671,7 +659,6 @@ public record ToolCallStartEvent(
 public record ToolCallArgsEvent(string CallId, string ArgsJson) : AgentEvent
 {
     public override EventChannel Channel { get; init; } = EventChannel.Streaming;
-    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -684,7 +671,6 @@ public record ToolCallEndEvent(
     string ArgsJson) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -698,7 +684,6 @@ public record ToolCallResultEvent(
     string? Name = null) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToThread() => true;
 
     public string? MessageId { get; init; }
 }
@@ -837,7 +822,6 @@ public enum BackgroundTaskSourceKind
 public abstract record BackgroundTaskEvent : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToThread() => true;
 
     public required string TaskId { get; init; }
 
@@ -909,7 +893,6 @@ public sealed record BackgroundTaskFaultedEvent : BackgroundTaskEvent, IErrorEve
 public sealed record BackgroundHandleRegisteredEvent : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToThread() => true;
 
     public required string HandleId { get; init; }
 
@@ -936,7 +919,6 @@ public sealed record BackgroundHandleRegisteredEvent : AgentEvent
 public sealed record BackgroundHandleStatusChangedEvent : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToThread() => true;
 
     public required string HandleId { get; init; }
 
@@ -954,7 +936,6 @@ public sealed record BackgroundTaskNotificationQueuedEvent : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
     public override EventChannel Channel { get; init; } = EventChannel.Control;
-    public override bool ShouldPersistToThread() => true;
 
     public required string NotificationId { get; init; }
 
@@ -972,7 +953,6 @@ public sealed record BackgroundTaskNotificationDeliveredEvent : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
     public override EventChannel Channel { get; init; } = EventChannel.Control;
-    public override bool ShouldPersistToThread() => true;
 
     public required string NotificationId { get; init; }
 
@@ -988,7 +968,6 @@ public sealed record BackgroundTaskNotificationSuppressedEvent : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
     public override EventChannel Channel { get; init; } = EventChannel.Control;
-    public override bool ShouldPersistToThread() => true;
 
     public required string NotificationId { get; init; }
 
@@ -1006,73 +985,6 @@ public sealed record BackgroundTaskNotificationSuppressedEvent : AgentEvent
 public interface IAgentRequestEvent : HPD.Events.IRequestEvent;
 
 public interface IAgentResponseEvent : HPD.Events.IResponseEvent;
-
-public sealed record AgentRequestStartedEvent(
-    string RequestId,
-    string SourceName,
-    string RequestEventType,
-    string ExpectedResponseEventType,
-    HPD.Events.ResponsePolicy ResponsePolicy,
-    HPD.Events.ResponderTarget? Target,
-    HPD.Events.RequestVisibility Visibility,
-    DateTimeOffset StartedAt) : AgentEvent
-{
-    public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToThread() => true;
-}
-
-public sealed record AgentRequestResolvedEvent(
-    string RequestId,
-    string SourceName,
-    string RequestEventType,
-    string ResponseEventType,
-    string? ResponderId,
-    string? ResponderGroup,
-    DateTimeOffset ResolvedAt) : AgentEvent
-{
-    public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToThread() => true;
-}
-
-public sealed record AgentRequestExpiredEvent(
-    string RequestId,
-    string SourceName,
-    string RequestEventType,
-    TimeSpan Timeout,
-    DateTimeOffset ExpiredAt) : AgentEvent
-{
-    public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToThread() => true;
-}
-
-public sealed record AgentRequestCancelledEvent(
-    string RequestId,
-    string SourceName,
-    string RequestEventType,
-    string? Reason,
-    DateTimeOffset CancelledAt) : AgentEvent
-{
-    public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToThread() => true;
-}
-
-public sealed record AgentResponseRejectedEvent(
-    string RequestId,
-    string ResponseEventType,
-    HPD.Events.RespondStatus Status,
-    string? Reason,
-    string? ResponderId,
-    string? ResponderGroup,
-    DateTimeOffset RejectedAt) : AgentEvent
-{
-    public override HPD.Events.EventChannel Channel { get; init; } = HPD.Events.EventChannel.Control;
-    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
-    public override bool ShouldPersistToThread() => true;
-}
 
 /// <summary>
 /// Middleware requests permission to execute a function.
@@ -1330,7 +1242,6 @@ public record ModelBackgroundOperationStartedEvent(
 ) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToThread() => true;
 }
 
 /// <summary>
@@ -1343,10 +1254,6 @@ public record ModelBackgroundOperationStatusEvent(
 ) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
-    public override bool ShouldPersistToThread() =>
-        Status.IsTerminal ||
-        !string.IsNullOrWhiteSpace(StatusMessage) &&
-        !StatusMessage.StartsWith("Polling attempt ", StringComparison.OrdinalIgnoreCase);
 }
 
 #endregion

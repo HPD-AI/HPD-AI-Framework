@@ -30,7 +30,7 @@ public interface ISessionStore
     /// </summary>
     /// <remarks>
     /// <para><b>V3 Change:</b> Returns Session (metadata) instead of the former monolithic session type.</para>
-    /// <para>Messages are stored as thread events and projected into Thread objects by LoadThreadAsync.</para>
+    /// <para>Messages are stored as thread events and reconstructed through <see cref="ThreadProjectionReader"/>.</para>
     /// </remarks>
     Task<Session?> LoadSessionAsync(
         string sessionId,
@@ -70,68 +70,42 @@ public interface ISessionStore
     // ═══════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Load a thread (conversation path) from persistent storage.
-    /// Returns null if thread doesn't exist.
+    /// Atomically append events to the thread's canonical journal.
+    /// Implementations return new committed values with authoritative thread positions.
     /// </summary>
-    /// <remarks>
-    /// <para><b>V3 Addition:</b> Threads contain messages and thread-scoped middleware state.</para>
-    /// </remarks>
-    Task<Thread?> LoadThreadAsync(
-        string sessionId,
-        string threadId,
+    ValueTask<ThreadEventAppendResult> AppendThreadEventsAsync(
+        ThreadKey thread,
+        IReadOnlyList<AgentEvent> events,
+        ThreadAppendCondition condition = default,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Load the event-sourced thread document from persistent storage.
-    /// Returns null if the thread does not exist.
-    /// </summary>
-    Task<ThreadEventDocument?> LoadThreadDocumentAsync(
-        string sessionId,
-        string threadId,
+    /// <summary>Read a lightweight thread descriptor without projecting its journal.</summary>
+    ValueTask<ThreadDescriptor?> GetThreadAsync(
+        ThreadKey thread,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Append a thread event to the thread's durable event stream.
-    /// Implementations assign the event sequence number before persisting.
-    /// </summary>
-    Task AppendThreadEventAsync(
+    /// <summary>List lightweight thread descriptors without projecting journal history.</summary>
+    IAsyncEnumerable<ThreadDescriptor> ListThreadsAsync(
         string sessionId,
-        string threadId,
-        AgentEvent evt,
-        long? expectedSequenceNumber = null,
+        ThreadListRequest request,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Read thread events for deterministic replay.
-    /// </summary>
-    IAsyncEnumerable<AgentEvent> ReadThreadEventsAsync(
-        string sessionId,
-        string threadId,
-        HPD.Events.ReplayReadOptions options,
-        CancellationToken cancellationToken = default)
-    {
-        return ReadAsync(cancellationToken);
+    /// <summary>Read the current committed journal head without decoding events.</summary>
+    ValueTask<ThreadEventHead?> GetThreadEventHeadAsync(
+        ThreadKey thread,
+        CancellationToken cancellationToken = default);
 
-        async IAsyncEnumerable<AgentEvent> ReadAsync(
-            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
-        {
-            var document = await LoadThreadDocumentAsync(sessionId, threadId, ct).ConfigureAwait(false);
-            if (document is null)
-                yield break;
+    /// <summary>Read canonical events in bounded, contiguous sequence batches.</summary>
+    IAsyncEnumerable<ThreadEventBatch> ReadThreadEventsAsync(
+        ThreadKey thread,
+        ThreadEventReadRequest request,
+        CancellationToken cancellationToken = default);
 
-            await foreach (var evt in document.Events.FilterByReplayOptions(options, ct).ConfigureAwait(false))
-                yield return evt;
-        }
-    }
-
-    /// <summary>
-    /// List all thread IDs for a session.
-    /// </summary>
-    /// <remarks>
-    /// <para><b>V3 Addition:</b> Enables UI to show all conversation variants.</para>
-    /// </remarks>
-    Task<List<string>> ListThreadIdsAsync(
-        string sessionId,
+    /// <summary>Catch up from a cursor and then observe future committed journal events.</summary>
+    IAsyncEnumerable<ThreadEventBatch> ObserveThreadEventsAsync(
+        ThreadKey thread,
+        long after,
+        ThreadObservationOptions options,
         CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -30,7 +30,21 @@ public static class AgentTuiMessageSelection
 
         var threadState = await context.Runtime.GetThreadStateAsync(context.Scope, cancellationToken)
             .ConfigureAwait(false);
-        var events = threadState.Events;
+        var events = new List<AgentEvent>();
+        if (threadState.ObservedHead > 0)
+        {
+            await foreach (var batch in context.Runtime.ObserveAsync(
+                    context.Scope,
+                    0,
+                    threadState.ObservedHead,
+                    cancellationToken)
+                .ConfigureAwait(false))
+            {
+                events.AddRange(batch.Events.Where(evt => evt.ThreadSequenceNumber <= threadState.ObservedHead));
+                if (batch.LastThreadSequenceNumber >= threadState.ObservedHead)
+                    break;
+            }
+        }
 
         return GetUserMessages(events, policy);
     }
@@ -48,7 +62,7 @@ public static class AgentTuiMessageSelection
         var createdAt = new Dictionary<string, DateTimeOffset?>(StringComparer.Ordinal);
         var compacted = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var evt in events.OrderBy(static evt => evt.SequenceNumber))
+        foreach (var evt in events.OrderBy(static evt => evt.ThreadSequenceNumber))
         {
             switch (evt)
             {

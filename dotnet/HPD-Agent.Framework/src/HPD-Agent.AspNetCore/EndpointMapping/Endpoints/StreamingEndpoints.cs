@@ -48,8 +48,8 @@ internal static class StreamingEndpoints
             .WithName("GetAgentThreadRuntimeState")
             .WithSummary("Get one authoritative thread history and active-run snapshot");
 
-        // GET /agents/{agentId}/sessions/{sid}/threads/{bid}/events/live - SSE observer
-        endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/events/live",
+        // One stream performs finite catch-up and remains attached for future commits.
+        endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/events",
                 async (string agentId, string sid, string bid, HttpContext context, CancellationToken ct) =>
                     await ObserveEventsWithSse(agentId, sid, bid, context, streaming, ct))
             .WithName("ObserveLiveEventsWithSse")
@@ -101,11 +101,12 @@ internal static class StreamingEndpoints
         IAgentStreamingService streaming,
         CancellationToken ct = default)
     {
-        var leaseResult = await streaming.GetAgentForThreadAsync(agentId, sid, bid, ct);
+        var leaseResult = await streaming.GetThreadJournalAsync(agentId, sid, bid, ct);
         if (leaseResult.Status == AgentServiceStatus.NotFound)
             return TypedResults.NotFound();
 
-        await SseEventHandler.StreamEventsAsync(context, leaseResult.Value!.Agent, sid, bid, ct);
+        var journal = leaseResult.Value!;
+        await SseEventHandler.StreamEventsAsync(context, journal.Store, journal.Thread, ct);
         return TypedResults.Empty;
     }
 

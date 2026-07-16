@@ -154,7 +154,7 @@ public sealed class FunctionExecutionContextTests
     }
 
     [Fact]
-    public async Task FunctionExecutionContext_Emit_EmitsEvent()
+    public async Task FunctionExecutionContext_PublishAsync_EmitsEvent()
     {
         var coordinator = new EventCoordinator();
         var observed = new TaskCompletionSource<TestAgentEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -165,7 +165,7 @@ public sealed class FunctionExecutionContextTests
         });
         var context = CreateContext(eventCoordinator: coordinator, traceId: "trace-1");
 
-        context.Emit(new TestAgentEvent());
+        await context.PublishAsync(new TestAgentEvent());
 
         var evt = await observed.Task.WaitAsync(TimeSpan.FromSeconds(5));
         evt.TraceId.Should().Be("trace-1");
@@ -174,7 +174,7 @@ public sealed class FunctionExecutionContextTests
     }
 
     [Fact]
-    public async Task FunctionExecutionContext_Emit_PreservesExplicitEventScope()
+    public async Task FunctionExecutionContext_PublishAsync_PreservesExplicitEventScope()
     {
         var coordinator = new EventCoordinator();
         var observed = new TaskCompletionSource<TestAgentEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -185,7 +185,7 @@ public sealed class FunctionExecutionContextTests
         });
         var context = CreateContext(eventCoordinator: coordinator, traceId: "trace-1");
 
-        context.Emit(new TestAgentEvent
+        await context.PublishAsync(new TestAgentEvent
         {
             SessionId = "explicit-session",
             ThreadId = "explicit-thread",
@@ -210,21 +210,21 @@ public sealed class FunctionExecutionContextTests
     }
 
     [Fact]
-    public void FunctionExecutionContext_TryEmit_ReturnsFalseWithoutCoordinator()
+    public async Task FunctionExecutionContext_TryPublishAsync_ReturnsFalseWithoutCoordinator()
     {
         var context = CreateContext(eventCoordinator: null);
 
-        context.TryEmit(new TestAgentEvent()).Should().BeFalse();
+        (await context.TryPublishAsync(new TestAgentEvent())).Should().BeFalse();
     }
 
     [Fact]
-    public void FunctionExecutionContext_Emit_ThrowsWithoutCoordinator()
+    public async Task FunctionExecutionContext_PublishAsync_ThrowsWithoutCoordinator()
     {
         var context = CreateContext(eventCoordinator: null);
 
-        var act = () => context.Emit(new TestAgentEvent());
+        var act = async () => await context.PublishAsync(new TestAgentEvent());
 
-        act.Should().Throw<InvalidOperationException>()
+        await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*event coordinator*");
     }
 

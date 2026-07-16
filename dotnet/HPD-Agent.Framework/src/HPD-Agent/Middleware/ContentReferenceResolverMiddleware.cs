@@ -104,7 +104,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
 
             if (info == null)
             {
-                context.Emit(new ContentReferenceResolutionFailedEvent(
+                await context.PublishAsync(new ContentReferenceResolutionFailedEvent(
                     ContentUri: uriContent.Uri,
                     ErrorMessage: $"Content not found in store: {contentId}"));
                 return null;
@@ -118,7 +118,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
 
             if (directUri != null)
             {
-                context.Emit(new ContentReferenceResolvedEvent(
+                await context.PublishAsync(new ContentReferenceResolvedEvent(
                     ContentUri: uriContent.Uri,
                     ResolutionKind: ContentReferenceResolutionKind.DirectUri,
                     MediaType: info.ContentType,
@@ -153,7 +153,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
         }
         catch (Exception ex)
         {
-            context.Emit(new ContentReferenceResolutionFailedEvent(
+            await context.PublishAsync(new ContentReferenceResolutionFailedEvent(
                 ContentUri: uriContent.Uri,
                 ErrorMessage: $"Resolution failed: {ex.Message}"));
             return null;
@@ -183,7 +183,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
                 new HostedFileClientOptions { Purpose = "assistants" },
                 cancellationToken).ConfigureAwait(false);
 
-            context.Emit(new ContentReferenceResolvedEvent(
+            await context.PublishAsync(new ContentReferenceResolvedEvent(
                 ContentUri: sourceUri,
                 ResolutionKind: ContentReferenceResolutionKind.HostedFile,
                 MediaType: info.ContentType,
@@ -193,7 +193,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
         }
         catch (Exception ex)
         {
-            context.Emit(new HostedFileUploadFailedEvent(
+            await context.PublishAsync(new HostedFileUploadFailedEvent(
                 ErrorMessage: $"Hosted upload from content store failed: {ex.Message}"));
             return null;
         }
@@ -215,7 +215,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
         using var memory = new MemoryStream();
         await stream.CopyToAsync(memory, cancellationToken).ConfigureAwait(false);
 
-        context.Emit(new ContentReferenceResolvedEvent(
+        await context.PublishAsync(new ContentReferenceResolvedEvent(
             ContentUri: sourceUri,
             ResolutionKind: ContentReferenceResolutionKind.BufferedData,
             MediaType: info.ContentType,

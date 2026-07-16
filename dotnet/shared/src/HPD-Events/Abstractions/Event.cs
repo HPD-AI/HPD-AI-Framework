@@ -30,12 +30,6 @@ public abstract record Event : IEvent
     public virtual EventDirection Direction { get; init; } = EventDirection.Downstream;
 
     /// <summary>
-    /// Sequence number for ordering (assigned by coordinator).
-    /// Automatically incremented by the event coordinator to maintain event order.
-    /// </summary>
-    public long SequenceNumber { get; set; }
-
-    /// <summary>
     /// Event flow ID for interruptible event flow grouping.
     /// Events with the same EventFlowId can be interrupted as a group.
     /// Null if event is not part of an interruptible event flow.

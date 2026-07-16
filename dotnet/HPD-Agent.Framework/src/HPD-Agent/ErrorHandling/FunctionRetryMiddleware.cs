@@ -96,13 +96,16 @@ public class RetryMiddleware : IAgentMiddleware
                 }
 
                 // Emit retry event for observability
-                request.EventCoordinator?.Emit(new FunctionRetryEvent(
-                    FunctionName: request.Function?.Name ?? "Unknown",
-                    Attempt: attempt + 1,
-                    MaxRetries: maxRetries,
-                    Delay: delay.Value,
-                    ExceptionType: ex.GetType().Name,
-                    ErrorMessage: ex.Message) { Exception = ex });
+                if (request.EventPublisher is not null)
+                {
+                    await request.EventPublisher(new FunctionRetryEvent(
+                        FunctionName: request.Function?.Name ?? "Unknown",
+                        Attempt: attempt + 1,
+                        MaxRetries: maxRetries,
+                        Delay: delay.Value,
+                        ExceptionType: ex.GetType().Name,
+                        ErrorMessage: ex.Message) { Exception = ex }, cancellationToken).ConfigureAwait(false);
+                }
 
                 // Wait before retry
                 await Task.Delay(delay.Value, cancellationToken);
@@ -152,12 +155,15 @@ public class RetryMiddleware : IAgentMiddleware
                         // Emit retry event BEFORE retry attempt (like Gemini CLI)
                         if (attempt > 0)
                         {
-                            request.EventCoordinator?.Emit(new ModelCallRetryEvent(
-                                Attempt: attempt,
-                                MaxRetries: maxRetries,
-                                Delay: delay!.Value,
-                                ExceptionType: lastException!.GetType().Name,
-                                ErrorMessage: lastException!.Message) { Exception = lastException });
+                            if (request.EventPublisher is not null)
+                            {
+                                await request.EventPublisher(new ModelCallRetryEvent(
+                                    Attempt: attempt,
+                                    MaxRetries: maxRetries,
+                                    Delay: delay!.Value,
+                                    ExceptionType: lastException!.GetType().Name,
+                                    ErrorMessage: lastException!.Message) { Exception = lastException }, cancellationToken).ConfigureAwait(false);
+                            }
                         }
 
                         // Stream updates to channel - progressive streaming 

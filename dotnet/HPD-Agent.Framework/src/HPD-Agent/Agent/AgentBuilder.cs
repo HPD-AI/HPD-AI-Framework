@@ -109,9 +109,9 @@ public class AgentBuilder
     // AIContextProvider factory (protocol-specific, stored as object for extensibility)
     internal object? _contextProviderFactory;
 
-    //     
+    //
     // AOT-COMPATIBLE ToolHarness REGISTRY (Phase: AOT ToolHarness Registry Hybrid)
-    //     
+    //
     // These fields enable reflection-free ToolHarness instantiation in hot paths.
     // The source generator creates a ToolRegistry.All array with direct delegates.
 
@@ -1064,9 +1064,9 @@ public class AgentBuilder
         return this;
     }
 
-    //   
+    //
     // PROTOCOL-SPECIFIC CONFIGURATION
-    //   
+    //
     // Protocol-specific configuration methods (WithContextProviderFactory, etc.) are now
     // provided via extension methods in protocol adapter projects (HPD-Agent.Microsoft, etc.)
 
@@ -1085,9 +1085,9 @@ public class AgentBuilder
     /// </summary>
     internal object? GeTMetadataProviderFactory() => _contextProviderFactory;
 
-    //   
+    //
     // DUAL-LAYER OBSERVABILITY ARCHITECTURE
-    //   
+    //
     // HPD-Agent implements a dual-layer observability model that combines:
     // 1. LLM-level instrumentation (Microsoft.Extensions.AI middleware)
     // 2. Agent-level instrumentation (HPD's specialized services)
@@ -1160,7 +1160,7 @@ public class AgentBuilder
     // .WithCaching()    → Automatic: Microsoft middleware only
     //
     // Result: Zero boilerplate, production-grade observability at both layers.
-    //   
+    //
 
     /// <summary>
     /// Enables dual-layer telemetry tracking for complete observability:
@@ -1822,7 +1822,7 @@ public class AgentBuilder
         var buildData = await BuildDependenciesAsync(cancellationToken).ConfigureAwait(false);
 
         // Default session store: InMemorySessionStore for zero-config out-of-the-box experience (V3)
-        // Users can override with WithSessionStore() for persistent storage (JsonSessionStore, etc.)
+        // Users can override with WithSessionStore() for persistent storage (FileSessionStore, etc.)
         if (_config.SessionStore == null)
         {
             _config.SessionStore = new InMemorySessionStore();
@@ -2015,7 +2015,7 @@ public class AgentBuilder
 
         //
         // AUTO-REGISTER FUNCTION-LEVEL MIDDLEWARE
-        //     
+        //
         // These are registered in execution order (first = outermost):
         // - FunctionRetryMiddleware wraps timeout (retry the entire timeout operation)
         // - FunctionTimeoutMiddleware wraps execution (timeout individual attempts)
@@ -2049,9 +2049,9 @@ public class AgentBuilder
             var containerMiddleware = new ContainerMiddleware(
                 buildData.MergedOptions.Tools,
                 _explicitlyRegisteredToolHarnesses.ToImmutableHashSet(StringComparer.OrdinalIgnoreCase),
-                _availableToolHarnesses,           // toolharness factory registry for scoped middleware 
-                _HARNESScopedMiddlewares,    // builder-time DI instances 
-                _toolharnessMiddlewareConfigs,    // config-ctor middleware configs from ToolHarnessReference 
+                _availableToolHarnesses,           // toolharness factory registry for scoped middleware
+                _HARNESScopedMiddlewares,    // builder-time DI instances
+                _toolharnessMiddlewareConfigs,    // config-ctor middleware configs from ToolHarnessReference
                 _config.Collapsing,
                 containerLogger);
             _middlewares.Add(containerMiddleware);
@@ -2805,7 +2805,7 @@ public class AgentBuilder
     }
 
     public bool IsProviderRegistered(string providerKey) => _providerRegistry.IsRegistered(providerKey);
-    
+
     public IReadOnlyCollection<string> GetAvailableProviders() => _providerRegistry.GetRegisteredProviders();
 
     private static bool TryGetExactConfigurationValue(IConfiguration configuration, string key, out string value)
@@ -2995,7 +2995,7 @@ public class AgentBuilder
         var chatConfig = EnsureChatClientConfig();
         if (chatConfig.DefaultMicrosoftChatOptions == null)
             chatConfig.DefaultMicrosoftChatOptions = new ChatOptions();
-            
+
         // Add to tools list
         var tools = chatConfig.DefaultMicrosoftChatOptions.Tools?.ToList() ?? new List<AITool>();
         tools.Add(function);
@@ -3004,7 +3004,7 @@ public class AgentBuilder
         // Enable auto tool mode if not already set
         if (chatConfig.DefaultMicrosoftChatOptions.ToolMode == null)
             chatConfig.DefaultMicrosoftChatOptions.ToolMode = ChatToolMode.Auto;
-            
+
         return this;
     }
 
@@ -3445,9 +3445,9 @@ public static class AgentBuilderMiddlewareExtensions
         return builder;
     }
 
-    //      
+    //
     // FUNCTION-LEVEL ERROR HANDLING MIDDLEWARE
-    //      
+    //
 
     /// <summary>
     /// Adds function RetryMiddleware  with provider-aware retry logic.
@@ -3865,9 +3865,9 @@ public static class AgentBuilderMiddlewareExtensions
         return builder;
     }
 
-    //      
+    //
     // PII PROTECTION
-    //      
+    //
 
     /// <summary>
     /// Adds PII (Personally Identifiable Information) protection middleware
@@ -3939,9 +3939,9 @@ public static class AgentBuilderMiddlewareExtensions
         return builder;
     }
 
-    //      
+    //
     // TOOL Collapsing
-    //      
+    //
 
     /// <summary>
     /// Enables tool Collapsing middleware for ToolHarness collapsing and skills architecture.
@@ -4009,10 +4009,10 @@ public static class AgentBuilderMiddlewareExtensions
         builder.Config.Collapsing ??= new CollapsingConfig();
         builder.Config.Collapsing.Enabled = true;
         configure(builder.Config.Collapsing);
-        
+
         // NOTE: The ToolCollapsingMiddleware will be instantiated and added to the pipeline
         // during Build() after the Agent is constructed. See Build() for registration logic.
-        
+
         return builder;
     }
 
@@ -4054,8 +4054,8 @@ public static class AgentBuilderMemoryExtensions
     /// Configures the agent's deep, static, read-only knowledge base.
     /// This utilizes an Indexed Retrieval (RAG) system for the agent's core expertise.
     /// </summary>
-    /// 
-    
+    ///
+
 
     /// <summary>
     /// Configures compaction to manage model context and optional durable thread history.

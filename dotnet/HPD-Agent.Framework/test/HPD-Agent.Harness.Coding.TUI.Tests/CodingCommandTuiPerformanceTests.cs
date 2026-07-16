@@ -186,7 +186,6 @@ public sealed class CodingCommandTuiPerformanceTests
         events.Should().HaveCount(2);
         events[0].Applied.Should().BeTrue();
         events[0].OutputLinesInCell.Should().Be(0);
-        events[0].ShouldPersistToThread().Should().BeFalse();
         events[0].Kind.Should().Be(EventKind.Diagnostic);
         events[0].Channel.Should().Be(EventChannel.Streaming);
         events[0].SessionId.Should().Be("session");

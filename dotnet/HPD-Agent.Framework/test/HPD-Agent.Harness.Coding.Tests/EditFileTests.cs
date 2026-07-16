@@ -642,6 +642,7 @@ public sealed class EditFileTests : IDisposable
         private readonly EventCoordinator _inner = new();
 
         public IEventFlowRegistry EventFlows => _inner.EventFlows;
+        public IReadOnlyList<PendingRequestSnapshot> GetPendingRequests() => _inner.GetPendingRequests();
 
         public void Emit(Event evt) => throw new InvalidOperationException("boom");
 
@@ -671,6 +672,13 @@ public sealed class EditFileTests : IDisposable
             where TResponse : Event, IResponseEvent
             => _inner.StartRequest<TRequest, TResponse>(request, options);
 
+        public RequestHandle RegisterRequest<TRequest, TResponse>(
+            TRequest request,
+            RequestOptions? options = null)
+            where TRequest : Event, IRequestEvent
+            where TResponse : Event, IResponseEvent
+            => _inner.RegisterRequest<TRequest, TResponse>(request, options);
+
         public Task<TResponse> RequestAsync<TRequest, TResponse>(TRequest request, TimeSpan timeout, CancellationToken ct = default)
             where TRequest : Event, IRequestEvent
             where TResponse : Event, IResponseEvent
@@ -679,6 +687,9 @@ public sealed class EditFileTests : IDisposable
         public RespondResult Respond(Event response) => _inner.Respond(response);
 
         public RespondResult Respond(string requestId, Event response) => _inner.Respond(requestId, response);
+
+        public ValueTask<RespondResult> RespondAsync(string requestId, Event response, Func<Event, CancellationToken, ValueTask<Event>> beforeCompletion, CancellationToken cancellationToken = default)
+            => _inner.RespondAsync(requestId, response, beforeCompletion, cancellationToken);
 
         public EventCoordinatorStats GetStats() => _inner.GetStats();
     }

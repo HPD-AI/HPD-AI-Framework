@@ -116,7 +116,7 @@ public sealed record FunctionRequest
     /// </para>
     /// <para><b>Example (RetryMiddleware):</b></para>
     /// <code>
-    /// request.EventCoordinator?.Emit(new FunctionRetryEvent(
+    /// await request.PublishAsync(new FunctionRetryEvent(
     ///     FunctionName: request.FunctionName,
     ///     Attempt: attempt,
     ///     MaxRetries: maxRetries,
@@ -124,10 +124,16 @@ public sealed record FunctionRequest
     ///     Exception: ex,
     ///     ExceptionType: ex.GetType().Name,
     ///     ErrorMessage: ex.Message
-    /// ));
+    /// ), cancellationToken);
     /// </code>
     /// </remarks>
     public HPD.Events.IEventCoordinator? EventCoordinator { get; init; }
+
+    /// <summary>
+    /// Canonical AgentEvent publication boundary for this invocation. Middleware must use
+    /// this delegate instead of emitting scoped AgentEvents through the raw coordinator.
+    /// </summary>
+    public Func<AgentEvent, CancellationToken, ValueTask<AgentEvent>>? EventPublisher { get; init; }
 
     /// <summary>
     /// Process-local struct event hub available to function bodies for realtime sample lanes.

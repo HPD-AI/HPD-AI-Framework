@@ -82,13 +82,13 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         {
             SessionId = "session",
             ThreadId = "main",
-            SequenceNumber = 1
+            ThreadSequenceNumber = 1
         };
         var second = new ThreadRunCompletedEvent("run-1", "agent", Cancelled: false)
         {
             SessionId = "session",
             ThreadId = "main",
-            SequenceNumber = 2
+            ThreadSequenceNumber = 2
         };
         var handler = new SequentialSseHandler(first, second);
         using var http = new HttpClient(handler)
@@ -102,19 +102,20 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var observed = new List<AgentEvent>();
 
-        await foreach (var evt in runtime.ObserveAsync(
+        await foreach (var batch in runtime.ObserveAsync(
             new AgentTuiRuntimeScope("agent", "session", "main"),
             afterSequenceNumber: 0,
+            initialObservedHead: 2,
             cancellationToken: timeout.Token))
         {
-            observed.Add(evt);
+            observed.AddRange(batch.Events);
             if (observed.Count == 2)
             {
                 break;
             }
         }
 
-        observed.Select(static evt => evt.SequenceNumber).Should().Equal(1, 2);
+        observed.Select(static evt => evt.ThreadSequenceNumber).Should().Equal(1, 2);
         handler.Requests.Should().Equal("?after=0", "?after=1");
     }
 
@@ -152,7 +153,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    $"id: {evt.SequenceNumber}\ndata: {AgentEventSerializer.ToJson(evt)}\n\n",
+                    $"id: {evt.ThreadSequenceNumber}\ndata: {AgentEventSerializer.ToJson(evt)}\n\n",
                     Encoding.UTF8,
                     "text/event-stream")
             });

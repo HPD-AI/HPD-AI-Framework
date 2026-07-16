@@ -95,13 +95,6 @@ export const EventTypes = {
   TOOL_CALL_END: 'TOOL_CALL_END',
   TOOL_CALL_RESULT: 'TOOL_CALL_RESULT',
 
-  // Request Lifecycle
-  AGENT_REQUEST_STARTED: 'AGENT_REQUEST_STARTED',
-  AGENT_REQUEST_RESOLVED: 'AGENT_REQUEST_RESOLVED',
-  AGENT_REQUEST_EXPIRED: 'AGENT_REQUEST_EXPIRED',
-  AGENT_REQUEST_CANCELLED: 'AGENT_REQUEST_CANCELLED',
-  AGENT_RESPONSE_REJECTED: 'AGENT_RESPONSE_REJECTED',
-
   // Permissions
   PERMISSION_REQUEST: 'PERMISSION_REQUEST',
   PERMISSION_RESPONSE: 'PERMISSION_RESPONSE',
@@ -188,7 +181,7 @@ export interface BaseEvent {
   eventId?: string;
   sessionId?: string;
   threadId?: string;
-  sequenceNumber?: number;
+  threadSequenceNumber?: number;
   timestamp?: string;
   eventFlowId?: string;
   streamId?: string;
@@ -779,62 +772,6 @@ export interface ToolCallResultEvent extends BaseEvent {
 }
 
 // ============================================
-// Request Lifecycle Events
-// ============================================
-
-export interface AgentRequestStartedEvent extends BaseEvent {
-  type: typeof EventTypes.AGENT_REQUEST_STARTED;
-  requestId: string;
-  sourceName: string;
-  requestEventType: string;
-  expectedResponseEventType: string;
-  responsePolicy: ResponsePolicy;
-  target?: ResponderTarget | null;
-  visibility: RequestVisibility;
-  startedAt: string;
-}
-
-export interface AgentRequestResolvedEvent extends BaseEvent {
-  type: typeof EventTypes.AGENT_REQUEST_RESOLVED;
-  requestId: string;
-  sourceName: string;
-  requestEventType: string;
-  responseEventType: string;
-  responderId?: string | null;
-  responderGroup?: string | null;
-  resolvedAt: string;
-}
-
-export interface AgentRequestExpiredEvent extends BaseEvent {
-  type: typeof EventTypes.AGENT_REQUEST_EXPIRED;
-  requestId: string;
-  sourceName: string;
-  requestEventType: string;
-  timeout: string | number;
-  expiredAt: string;
-}
-
-export interface AgentRequestCancelledEvent extends BaseEvent {
-  type: typeof EventTypes.AGENT_REQUEST_CANCELLED;
-  requestId: string;
-  sourceName: string;
-  requestEventType: string;
-  reason?: string | null;
-  cancelledAt: string;
-}
-
-export interface AgentResponseRejectedEvent extends BaseEvent {
-  type: typeof EventTypes.AGENT_RESPONSE_REJECTED;
-  requestId: string;
-  responseEventType: string;
-  status: RespondStatus;
-  reason?: string | null;
-  responderId?: string | null;
-  responderGroup?: string | null;
-  rejectedAt: string;
-}
-
-// ============================================
 // Permission Events
 // ============================================
 
@@ -1057,12 +994,6 @@ export type KnownAgentEvent =
   | ToolCallArgsEvent
   | ToolCallEndEvent
   | ToolCallResultEvent
-  // Request Lifecycle Events
-  | AgentRequestStartedEvent
-  | AgentRequestResolvedEvent
-  | AgentRequestExpiredEvent
-  | AgentRequestCancelledEvent
-  | AgentResponseRejectedEvent
   // Permission Events
   | PermissionRequestEvent
   | PermissionResponseEvent
@@ -1150,37 +1081,15 @@ export function isClientToolInvokeRequestEvent(
   return event.type === EventTypes.CLIENT_TOOL_INVOKE_REQUEST;
 }
 
-export function isAgentRequestResolvedEvent(event: BaseEvent): event is AgentRequestResolvedEvent {
-  return event.type === EventTypes.AGENT_REQUEST_RESOLVED;
-}
-
-export function isAgentRequestExpiredEvent(event: BaseEvent): event is AgentRequestExpiredEvent {
-  return event.type === EventTypes.AGENT_REQUEST_EXPIRED;
-}
-
-export function isAgentRequestCancelledEvent(event: BaseEvent): event is AgentRequestCancelledEvent {
-  return event.type === EventTypes.AGENT_REQUEST_CANCELLED;
-}
-
 export function isAgentRequestEvent(event: AgentEvent): event is AgentEvent & AgentRequestEvent {
   return hasStringProperty(event, 'requestId') &&
     hasStringProperty(event, 'sourceName') &&
-    !isRequestLifecycleEvent(event) &&
     !isKnownResponseEvent(event);
 }
 
 export function isAgentResponseEvent(event: BaseEvent): event is AgentResponseEvent {
   return hasStringProperty(event, 'requestId') &&
-    !isRequestLifecycleEvent(event) &&
     isKnownResponseEvent(event);
-}
-
-function isRequestLifecycleEvent(event: BaseEvent): boolean {
-  return event.type === EventTypes.AGENT_REQUEST_STARTED ||
-    event.type === EventTypes.AGENT_REQUEST_RESOLVED ||
-    event.type === EventTypes.AGENT_REQUEST_EXPIRED ||
-    event.type === EventTypes.AGENT_REQUEST_CANCELLED ||
-    event.type === EventTypes.AGENT_RESPONSE_REJECTED;
 }
 
 function isKnownResponseEvent(event: BaseEvent): boolean {

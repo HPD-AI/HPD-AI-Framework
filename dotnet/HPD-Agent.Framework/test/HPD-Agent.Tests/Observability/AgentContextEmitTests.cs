@@ -11,7 +11,7 @@ using Xunit;
 namespace HPD.Agent.Tests.Observability;
 
 /// <summary>
-/// Unit tests for <see cref="AgentContext.Emit"/> TraceId stamping behaviour.
+/// Unit tests for <see cref="AgentContext.PublishAsync"/> TraceId stamping behaviour.
 ///
 /// Rules verified:
 ///   1. An event emitted with TraceId = null is stamped with the context's TraceId.
@@ -46,14 +46,14 @@ public class AgentContextEmitTests
     // ── Stamping ──────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Emit_EventWithNullTraceId_GetsStampedWithContextTraceId()
+    public async Task PublishAsync_EventWithNullTraceId_GetsStampedWithContextTraceId()
     {
         var (ctx, coordinator) = BuildContext("aaaa0000bbbb1111cccc2222dddd3333");
 
         var evt = new TextDeltaEvent("hello", "msg-1");
         evt.TraceId.Should().BeNull();
 
-        ctx.Emit(evt);
+        await ctx.PublishAsync(evt);
 
         coordinator.Captured.Should().ContainSingle();
         var captured = (TextDeltaEvent)coordinator.Captured[0];
@@ -61,13 +61,13 @@ public class AgentContextEmitTests
     }
 
     [Fact]
-    public void Emit_EventAlreadyHasTraceId_OriginalValuePreserved()
+    public async Task PublishAsync_EventAlreadyHasTraceId_OriginalValuePreserved()
     {
         var (ctx, coordinator) = BuildContext("context-trace-id-here-aaaabbbbcccc");
 
         var evt = new TextDeltaEvent("hello", "msg-1") { TraceId = "event-trace-id-here-11112222333" };
 
-        ctx.Emit(evt);
+        await ctx.PublishAsync(evt);
 
         coordinator.Captured.Should().ContainSingle();
         var captured = (TextDeltaEvent)coordinator.Captured[0];
@@ -75,13 +75,13 @@ public class AgentContextEmitTests
     }
 
     [Fact]
-    public void Emit_ContextTraceIdIsNull_EventPassesThroughUnchanged()
+    public async Task PublishAsync_ContextTraceIdIsNull_EventPassesThroughUnchanged()
     {
         var (ctx, coordinator) = BuildContext(null);
 
         var evt = new TextDeltaEvent("hello", "msg-1");
 
-        ctx.Emit(evt);
+        await ctx.PublishAsync(evt);
 
         coordinator.Captured.Should().ContainSingle();
         var captured = (TextDeltaEvent)coordinator.Captured[0];
@@ -89,13 +89,13 @@ public class AgentContextEmitTests
     }
 
     [Fact]
-    public void Emit_ContextTraceIdIsNull_EventWithExistingTraceIdPreserved()
+    public async Task PublishAsync_ContextTraceIdIsNull_EventWithExistingTraceIdPreserved()
     {
         var (ctx, coordinator) = BuildContext(null);
 
         var evt = new TextDeltaEvent("hello", "msg-1") { TraceId = "some-trace-id-111122223333aaaa" };
 
-        ctx.Emit(evt);
+        await ctx.PublishAsync(evt);
 
         var captured = (TextDeltaEvent)coordinator.Captured[0];
         captured.TraceId.Should().Be("some-trace-id-111122223333aaaa");
@@ -104,24 +104,24 @@ public class AgentContextEmitTests
     // ── Null guard ────────────────────────────────────────────────────────────
 
     [Fact]
-    public void Emit_NullEvent_ThrowsArgumentNullException()
+    public async Task PublishAsync_NullEvent_ThrowsArgumentNullException()
     {
         var (ctx, _) = BuildContext("anytraceaaaa0000bbbb1111cccc2222");
-        ctx.Invoking(c => c.Emit(null!))
-           .Should().Throw<ArgumentNullException>();
+        await ctx.Awaiting(c => c.PublishAsync(null!).AsTask())
+            .Should().ThrowAsync<ArgumentNullException>();
     }
 
     // ── Multiple events ───────────────────────────────────────────────────────
 
     [Fact]
-    public void Emit_MultipleEvents_AllStampedWithSameTraceId()
+    public async Task PublishAsync_MultipleEvents_AllStampedWithSameTraceId()
     {
         var traceId = "fixed-trace-00001111222233334444";
         var (ctx, coordinator) = BuildContext(traceId);
 
-        ctx.Emit(new TextDeltaEvent("a", "msg-1"));
-        ctx.Emit(new TextDeltaEvent("b", "msg-1"));
-        ctx.Emit(new TextDeltaEvent("c", "msg-1"));
+        await ctx.PublishAsync(new TextDeltaEvent("a", "msg-1"));
+        await ctx.PublishAsync(new TextDeltaEvent("b", "msg-1"));
+        await ctx.PublishAsync(new TextDeltaEvent("c", "msg-1"));
 
         coordinator.Captured.Should().HaveCount(3);
         coordinator.Captured.Cast<AgentEvent>()
@@ -129,13 +129,13 @@ public class AgentContextEmitTests
     }
 
     [Fact]
-    public void Emit_MixedEvents_OnlyNullTraceIdEventsAreStamped()
+    public async Task PublishAsync_MixedEvents_OnlyNullTraceIdEventsAreStamped()
     {
         var traceId = "contexttracexxxxyyyyzzzz00001111";
         var (ctx, coordinator) = BuildContext(traceId);
 
-        ctx.Emit(new TextDeltaEvent("no-trace", "msg-1"));                  // null → stamped
-        ctx.Emit(new TextDeltaEvent("has-trace", "msg-2") { TraceId = "override-trace-xxxxxxxxxxaaaaaa" }); // existing → preserved
+        await ctx.PublishAsync(new TextDeltaEvent("no-trace", "msg-1"));
+        await ctx.PublishAsync(new TextDeltaEvent("has-trace", "msg-2") { TraceId = "override-trace-xxxxxxxxxxaaaaaa" });
 
         coordinator.Captured.Should().HaveCount(2);
         ((AgentEvent)coordinator.Captured[0]).TraceId.Should().Be(traceId);
@@ -172,12 +172,18 @@ public class AgentContextEmitTests
         public RequestHandle StartRequest<TRequest, TResponse>(TRequest request, RequestOptions? options = null)
             where TRequest : Event, IRequestEvent
             where TResponse : Event, IResponseEvent => _inner.StartRequest<TRequest, TResponse>(request, options);
+        public RequestHandle RegisterRequest<TRequest, TResponse>(TRequest request, RequestOptions? options = null)
+            where TRequest : Event, IRequestEvent
+            where TResponse : Event, IResponseEvent => _inner.RegisterRequest<TRequest, TResponse>(request, options);
         public Task<TResponse> RequestAsync<TRequest, TResponse>(TRequest request, TimeSpan timeout, CancellationToken ct = default)
             where TRequest : Event, IRequestEvent
             where TResponse : Event, IResponseEvent => _inner.RequestAsync<TRequest, TResponse>(request, timeout, ct);
         public RespondResult Respond(Event response) => _inner.Respond(response);
         public RespondResult Respond(string requestId, Event response) => _inner.Respond(requestId, response);
+        public ValueTask<RespondResult> RespondAsync(string requestId, Event response, Func<Event, CancellationToken, ValueTask<Event>> beforeCompletion, CancellationToken cancellationToken = default)
+            => _inner.RespondAsync(requestId, response, beforeCompletion, cancellationToken);
         public IEventFlowRegistry EventFlows => _inner.EventFlows;
+        public IReadOnlyList<PendingRequestSnapshot> GetPendingRequests() => _inner.GetPendingRequests();
         public EventCoordinatorStats GetStats() => _inner.GetStats();
     }
 }

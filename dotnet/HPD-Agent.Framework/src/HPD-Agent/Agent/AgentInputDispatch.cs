@@ -67,7 +67,7 @@ internal sealed class AgentInputHandlingContext
     public required Func<UserMessagesInputEvent, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> RunMessagesAsync { get; init; }
     public required Func<InterruptionRequestEvent, CancellationToken, Task> InterruptAsync { get; init; }
     public required Func<ClientToolBackgroundOperationOutcomeEvent, bool> TryResolveClientToolBackgroundOperation { get; init; }
-    public Action<BackgroundTaskNotificationInputEvent, IEventCoordinator>? PublishBackgroundTaskNotificationDelivered { get; init; }
+    public Func<BackgroundTaskNotificationInputEvent, IEventCoordinator, CancellationToken, ValueTask>? PublishBackgroundTaskNotificationDelivered { get; init; }
 }
 
 internal sealed class AgentInputDispatcher
@@ -190,7 +190,10 @@ internal sealed class BackgroundTaskNotificationInputHandler : IAgentInputHandle
 
         var result = await context.RunMessagesAsync(userInput, context.EventCoordinator, cancellationToken)
             .ConfigureAwait(false);
-        context.PublishBackgroundTaskNotificationDelivered?.Invoke(input, context.EventCoordinator);
+        if (context.PublishBackgroundTaskNotificationDelivered is { } publishDelivered)
+        {
+            await publishDelivered(input, context.EventCoordinator, cancellationToken).ConfigureAwait(false);
+        }
         return result;
     }
 }

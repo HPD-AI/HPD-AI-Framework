@@ -501,11 +501,8 @@ public sealed class AgentWorkflowInstance
         // Create event coordinator for unified streaming
         var eventCoordinator = new EventCoordinator();
 
-        // Set up parent for hierarchical event bubbling if provided
-        if (parentCoordinator != null)
-        {
-            eventCoordinator.SetParent(parentCoordinator);
-        }
+        // Internal graph events remain local. Only the public event produced by
+        // WrapGraphEvent crosses the workflow boundary below.
 
         // Build workflow-level execution context
         var executionId = Guid.NewGuid().ToString("N");
@@ -583,9 +580,9 @@ public sealed class AgentWorkflowInstance
             catch (Exception ex)
             {
                 // Emit error event
-                eventCoordinator.Emit(new MessageTurnErrorEvent(
+                await eventCoordinator.EmitAsync(new MessageTurnErrorEvent(
                     ErrorMessage: ex.Message,
-                    Exception: ex));
+                    Exception: ex), CancellationToken.None).ConfigureAwait(false);
             }
             finally
             {
@@ -600,10 +597,10 @@ public sealed class AgentWorkflowInstance
             var wrappedEvent = WrapGraphEvent(evt, workflowContext);
             if (wrappedEvent != null)
             {
-                _eventCoordinator.Emit(wrappedEvent);
+                await _eventCoordinator.PublishAsync(wrappedEvent, cancellationToken).ConfigureAwait(false);
                 if (parentCoordinator is not null && !ReferenceEquals(parentCoordinator, _eventCoordinator.Inner))
                 {
-                    parentCoordinator.Emit(wrappedEvent);
+                    await parentCoordinator.EmitAsync(wrappedEvent, cancellationToken).ConfigureAwait(false);
                 }
 
                 yield return wrappedEvent;

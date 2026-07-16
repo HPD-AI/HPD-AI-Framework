@@ -5,7 +5,7 @@ namespace HPD.Agent.Hosting.Lifecycle;
 
 public interface IAgentStreamingService
 {
-    Task<AgentServiceResult<AgentStreamLease>> GetAgentForThreadAsync(
+    Task<AgentServiceResult<ThreadJournalLease>> GetThreadJournalAsync(
         string agentId,
         string sessionId,
         string threadId,
@@ -47,4 +47,4 @@ public interface IAgentStreamingService
         string? runtimeRunId = null);
 }
 
-public sealed record AgentStreamLease(Agent Agent);
+public sealed record ThreadJournalLease(ISessionStore Store, ThreadKey Thread);

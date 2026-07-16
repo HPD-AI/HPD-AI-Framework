@@ -11,9 +11,6 @@ public interface IEvent
     /// <summary>Event classification for filtering, diagnostics, and observers.</summary>
     EventKind Kind { get; }
 
-    /// <summary>Coordinator-assigned monotonic sequence number. Zero when unset.</summary>
-    long SequenceNumber { get; }
-
     /// <summary>External high-resolution timestamp in nanoseconds since Unix epoch. Zero when unset.</summary>
     long ExchangeTimestampNs { get; }
 }

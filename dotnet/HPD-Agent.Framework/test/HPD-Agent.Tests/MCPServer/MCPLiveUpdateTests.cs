@@ -1,6 +1,7 @@
 using FluentAssertions;
+using HPD.Agent;
 using HPD.Agent.MCP;
-using HPD.Agent.Serialization;
+using HPD.Events;
 using HPD.Events.Core;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -26,7 +27,7 @@ public sealed class MCPLiveUpdateTests
     }
 
     [Fact]
-    public void McpLiveUpdateEvents_RoundTripThroughAgentEventSerializer()
+    public void McpLiveUpdateEvents_AreProcessLocalEvents_NotCanonicalThreadEvents()
     {
         var evt = new McpServerChangedEvent
         {
@@ -36,15 +37,11 @@ public sealed class MCPLiveUpdateTests
             ObservedAt = DateTimeOffset.Parse("2026-06-28T12:00:00Z")
         };
 
-        var json = AgentEventSerializer.ToJson(evt);
-        var roundTrip = AgentEventSerializer.FromJson(json);
-
-        json.Should().Contain("\"type\":\"MCP_SERVER_CHANGED\"");
-        roundTrip.Should().BeOfType<McpServerChangedEvent>()
-            .Which.Should().Match<McpServerChangedEvent>(e =>
-                e.ServerName == "fixture" &&
-                e.ChangeKind == McpLiveUpdateKind.ResourceUpdated &&
-                e.Uri == "fixture://hello");
+        evt.Should().BeAssignableTo<Event>();
+        evt.Should().NotBeAssignableTo<AgentEvent>();
+        evt.ServerName.Should().Be("fixture");
+        evt.ChangeKind.Should().Be(McpLiveUpdateKind.ResourceUpdated);
+        evt.Uri.Should().Be("fixture://hello");
     }
 
     [Fact]

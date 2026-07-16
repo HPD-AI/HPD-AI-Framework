@@ -60,7 +60,7 @@ public class ErrorTrackingMiddleware : IAgentMiddleware
     /// Called when ANY error occurs (model call, tool call, iteration).
     /// Increments failure counter and triggers termination if threshold exceeded.
     /// </summary>
-    public Task OnErrorAsync(ErrorContext context, CancellationToken cancellationToken)
+    public async Task OnErrorAsync(ErrorContext context, CancellationToken cancellationToken)
     {
         //   Immediate state update - visible to all subsequent hooks!
         context.UpdateMiddlewareState<ErrorTrackingStateData>(s => s.IncrementFailures());
@@ -71,10 +71,9 @@ public class ErrorTrackingMiddleware : IAgentMiddleware
 
         if (currentFailures >= MaxConsecutiveErrors)
         {
-            TriggerTermination(context, currentFailures);
+            await TriggerTerminationAsync(context, currentFailures);
         }
 
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -102,7 +101,7 @@ public class ErrorTrackingMiddleware : IAgentMiddleware
     /// <summary>
     /// Triggers termination, preventing further LLM calls and signaling the agent loop.
     /// </summary>
-    private void TriggerTermination(ErrorContext context, int errorCount)
+    private async Task TriggerTerminationAsync(ErrorContext context, int errorCount)
     {
         // Format termination message using template
         var formattedMessage = TerminationMessageTemplate
@@ -139,7 +138,7 @@ public class ErrorTrackingMiddleware : IAgentMiddleware
                 CompletedFunctions: completedFunctions,
                 AgentName: context.AgentName);
 
-            context.Emit(snapshot);
+            await context.PublishAsync(snapshot);
         }
         catch (Exception)
         {
@@ -150,7 +149,7 @@ public class ErrorTrackingMiddleware : IAgentMiddleware
         // Emit TextDeltaEvent for user visibility
         try
         {
-            context.Emit(new TextDeltaEvent(userMessage, Guid.NewGuid().ToString()));
+            await context.PublishAsync(new TextDeltaEvent(userMessage, Guid.NewGuid().ToString()));
         }
         catch (InvalidOperationException)
         {
@@ -160,7 +159,7 @@ public class ErrorTrackingMiddleware : IAgentMiddleware
         // Emit observability event
         try
         {
-            context.Emit(new MaxConsecutiveErrorsExceededEvent(
+            await context.PublishAsync(new MaxConsecutiveErrorsExceededEvent(
                 AgentName: context.AgentName,
                 ConsecutiveErrors: errorCount,
                 MaxConsecutiveErrors: MaxConsecutiveErrors,

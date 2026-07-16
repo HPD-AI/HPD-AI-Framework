@@ -94,7 +94,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         Assert.Contains(capturedEvents, evt => evt is MessageTurnFinishedEvent);
         Assert.Equal("Hello realtime", string.Concat(capturedEvents.OfType<TextDeltaEvent>().Select(evt => evt.Text)));
 
-        var thread = await store.LoadThreadAsync("session-1", "main", TestCancellationToken);
+        var thread = await store.ProjectThreadAsync("session-1", "main", TestCancellationToken);
         Assert.NotNull(thread);
         Assert.Equal("Say hello.", thread.Messages[0].Text);
         Assert.Equal("Hello realtime", thread.Messages[1].Text);
@@ -156,10 +156,10 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             evt.MessageId == "user-audio-1" &&
             evt.Text == "How are you doing today?");
 
-        var thread = await store.LoadThreadAsync("session-transcript", "main", TestCancellationToken);
-        var document = await store.LoadThreadDocumentAsync("session-transcript", "main", TestCancellationToken);
+        var thread = await store.ProjectThreadAsync("session-transcript", "main", TestCancellationToken);
+        var document = await store.CollectThreadEventsAsync("session-transcript", "main", TestCancellationToken);
         Assert.NotNull(document);
-        Assert.Contains(document.Events, evt => evt is TextDeltaEvent text && text.MessageId == "user-audio-1");
+        Assert.Contains(document, evt => evt is TextDeltaEvent text && text.MessageId == "user-audio-1");
         Assert.NotNull(thread);
         var userMessage = Assert.Single(thread.Messages, message => message.MessageId == "user-audio-1");
         Assert.Equal(ChatRole.User, userMessage.Role);
@@ -220,7 +220,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             evt.MessageId == "user-audio-after-final" &&
             evt.Text == "How are you doing today?");
 
-        var thread = await store.LoadThreadAsync(
+        var thread = await store.ProjectThreadAsync(
             "session-transcript-after-final",
             "main",
             TestCancellationToken);
@@ -278,7 +278,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             agent.Dispose();
         }
 
-        var thread = await store.LoadThreadAsync(
+        var thread = await store.ProjectThreadAsync(
             "session-transcript-replaced",
             "main",
             TestCancellationToken);
@@ -326,7 +326,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             agent.Dispose();
         }
 
-        var thread = await store.LoadThreadAsync("session-dup", "main", TestCancellationToken);
+        var thread = await store.ProjectThreadAsync("session-dup", "main", TestCancellationToken);
         Assert.NotNull(thread);
         Assert.Equal("The final answer is 20.", thread.Messages.Last(m => m.Role == ChatRole.Assistant).Text);
     }
@@ -359,7 +359,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
             agent.Dispose();
         }
 
-        var thread = await store.LoadThreadAsync("session-tools", "main", TestCancellationToken);
+        var thread = await store.ProjectThreadAsync("session-tools", "main", TestCancellationToken);
         Assert.NotNull(thread);
         Assert.Equal(4, thread.Messages.Count);
         Assert.Equal(ChatRole.User, thread.Messages[0].Role);
@@ -420,7 +420,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         Assert.Equal(["Say first done.", "Now add 10 and 7."], sentUserTexts);
         Assert.Single(SentContents<FunctionResultContent>(session), result => result.CallId == "call-add");
 
-        var thread = await store.LoadThreadAsync("session-multi", "main", TestCancellationToken);
+        var thread = await store.ProjectThreadAsync("session-multi", "main", TestCancellationToken);
         Assert.NotNull(thread);
         Assert.Contains(thread.Messages, message => message.Text == "The answer is 17.");
     }
@@ -458,7 +458,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
 
         Assert.Contains("provider.error", ex.Message);
 
-        var thread = await store.LoadThreadAsync("session-error", "main", TestCancellationToken);
+        var thread = await store.ProjectThreadAsync("session-error", "main", TestCancellationToken);
         Assert.NotNull(thread);
         Assert.Single(thread.Messages);
         Assert.Equal("Trigger provider failure.", thread.Messages[0].Text);
@@ -519,7 +519,7 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
                 Assert.Equal(20, ReadIntResult(result));
             });
 
-        var thread = await store.LoadThreadAsync("session-parallel", "main", TestCancellationToken);
+        var thread = await store.ProjectThreadAsync("session-parallel", "main", TestCancellationToken);
         Assert.NotNull(thread);
         Assert.Equal(2, thread.Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>().Count());
         Assert.Equal(2, thread.Messages.SelectMany(message => message.Contents).OfType<FunctionResultContent>().Count());

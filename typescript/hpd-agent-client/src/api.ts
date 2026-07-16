@@ -28,9 +28,7 @@ import type {
 import type {
   ContentReference,
   Thread,
-  ThreadEvent,
   ThreadGraph,
-  ThreadMessage,
   CreateThreadRequest,
   CreateSessionRequest,
   ForkThreadRequest,
@@ -42,7 +40,6 @@ import type {
 } from './types/session.js';
 import type { ThreadRun, ThreadRuntimeState } from './types/thread-run.js';
 import type { TransportRequestOptions } from './transports/options.js';
-import { projectThreadEventsToMessages } from './thread-messages.js';
 
 export class AgentHttpApi {
   private readonly baseUrl: string;
@@ -237,24 +234,6 @@ export class AgentHttpApi {
       const text = await response.text().catch(() => 'Unknown error');
       throw new Error(`Failed to delete thread: HTTP ${response.status}: ${text}`);
     }
-  }
-
-  async getThreadEvents(sessionId: string, threadId: string): Promise<ThreadEvent[]> {
-    const response = await this.fetch(this.url(`/sessions/${sessionId}/threads/${threadId}/events`), {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    if (response.status === 404 && await this.getThread(sessionId, threadId) !== null) {
-      return [];
-    }
-
-    return this.readJson(response, 'Failed to get thread events');
-  }
-
-  async getThreadMessages(sessionId: string, threadId: string): Promise<ThreadMessage[]> {
-    const events = await this.getThreadEvents(sessionId, threadId);
-    return projectThreadEventsToMessages(events);
   }
 
   async getThreadRuns(agentId: string, sessionId: string, threadId: string): Promise<ThreadRun[]> {

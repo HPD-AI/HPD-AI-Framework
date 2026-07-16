@@ -19,9 +19,12 @@ namespace HPD.Events;
 /// </summary>
 public interface IEventCoordinator
 {
+    /// <summary>Returns answerable requests currently owned by this coordinator hierarchy.</summary>
+    IReadOnlyList<PendingRequestSnapshot> GetPendingRequests();
+
     /// <summary>
     /// Publish an event downstream without waiting for subscriber mailbox capacity.
-    /// The event is assigned a sequence number and routed to matching subscriber mailboxes.
+    /// The event is routed to matching subscriber mailboxes without mutating domain ordering fields.
     /// If a parent coordinator is set, event bubbles up automatically.
     /// </summary>
     /// <remarks>
@@ -103,6 +106,16 @@ public interface IEventCoordinator
         where TResponse : Event, IResponseEvent;
 
     /// <summary>
+    /// Register an answerable request session without publishing the request.
+    /// The caller owns publication after any required durable commit.
+    /// </summary>
+    RequestHandle RegisterRequest<TRequest, TResponse>(
+        TRequest request,
+        RequestOptions? options = null)
+        where TRequest : Event, IRequestEvent
+        where TResponse : Event, IResponseEvent;
+
+    /// <summary>
     /// Emit a request event and wait for its matching response.
     /// The request session is registered before the request is emitted.
     /// </summary>
@@ -122,6 +135,16 @@ public interface IEventCoordinator
     /// Attempt to resolve a pending request with a matching response.
     /// </summary>
     RespondResult Respond(string requestId, Event response);
+
+    /// <summary>
+    /// Validates and reserves a matching request, runs the required completion boundary,
+    /// and only then releases the waiting requester.
+    /// </summary>
+    ValueTask<RespondResult> RespondAsync(
+        string requestId,
+        Event response,
+        Func<Event, CancellationToken, ValueTask<Event>> beforeCompletion,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Registry for managing interruptible event flows.
