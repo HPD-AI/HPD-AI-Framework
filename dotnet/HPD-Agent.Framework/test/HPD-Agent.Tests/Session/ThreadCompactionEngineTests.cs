@@ -1,6 +1,7 @@
 using FluentAssertions;
 using HPD.Events.Core;
 using Microsoft.Extensions.AI;
+using System.Runtime.CompilerServices;
 using Xunit;
 
 namespace HPD.Agent.Tests.Session;
@@ -249,11 +250,121 @@ public sealed class ThreadCompactionEngineTests
         conflict.Which.Head.Generation.Should().Be(1);
     }
 
+    [Fact]
+    public async Task SummarizingCompaction_UsesAnIsolatedTextOnlyModelRequest()
+    {
+        var thread = new Thread("session", "thread");
+        thread.Messages.Add(new ChatMessage(ChatRole.System, "You are the coding agent."));
+        thread.Messages.Add(new ChatMessage(ChatRole.User, "Inspect the workspace."));
+        thread.Messages.Add(new ChatMessage(
+            ChatRole.Assistant,
+            [new FunctionCallContent("call-1", "ReadFile", new Dictionary<string, object?>())]));
+        thread.Messages.Add(new ChatMessage(
+            ChatRole.Tool,
+            [new FunctionResultContent("call-1", "file contents")]));
+        thread.Messages.Add(new ChatMessage(
+            ChatRole.Assistant,
+            [new TestInputRequestContent("input-1")]));
+        thread.Messages.Add(new ChatMessage(
+            ChatRole.User,
+            [new TestInputResponseContent("input-1")]));
+        thread.Messages.Add(new ChatMessage(ChatRole.Assistant, "The workspace uses .NET."));
+        foreach (var (message, index) in thread.Messages.Select((message, index) => (message, index)))
+            message.MessageId = $"message-{index}";
+        var client = new CapturingChatClient(new ChatMessage(ChatRole.Assistant, "Continuation handoff"));
+
+        var prepared = await new ThreadCompactionEngine().PrepareAsync(
+            new ThreadCompactionContext(thread, thread.Messages, null, client),
+            SummarizeAtHead());
+
+        prepared.Should().NotBeNull();
+        client.Options.Should().NotBeNull();
+        client.Options!.ToolMode.Should().Be(ChatToolMode.None);
+        client.Options.Tools.Should().BeEmpty();
+        client.Messages.Should().HaveCount(3);
+        client.Messages[0].Text.Should().Be("Inspect the workspace.");
+        client.Messages[1].Text.Should().Be("The workspace uses .NET.");
+        client.Messages[2].Role.Should().Be(ChatRole.System);
+        client.Messages.SelectMany(static message => message.Contents)
+            .Should().NotContain(content =>
+                content.GetType() == typeof(FunctionCallContent) ||
+                content.GetType() == typeof(FunctionResultContent) ||
+                content.GetType() == typeof(TestInputRequestContent) ||
+                content.GetType() == typeof(TestInputResponseContent));
+        prepared!.ResultingMessages.Should().ContainSingle().Which.Text.Should().Be("Continuation handoff");
+    }
+
+    [Fact]
+    public async Task SummarizingCompaction_IncorporatesAPreviousHandoff()
+    {
+        var thread = new Thread("session", "thread");
+        thread.Messages.Add(new ChatMessage(ChatRole.Assistant, "Earlier continuation handoff")
+        {
+            MessageId = "summary-1"
+        });
+        thread.Messages.Add(new ChatMessage(ChatRole.User, "Continue the implementation")
+        {
+            MessageId = "message-1"
+        });
+        var client = new CapturingChatClient(new ChatMessage(ChatRole.Assistant, "Updated continuation handoff"));
+
+        var prepared = await new ThreadCompactionEngine().PrepareAsync(
+            new ThreadCompactionContext(thread, thread.Messages, null, client),
+            SummarizeAtHead());
+
+        client.Messages[0].Text.Should().Be("Earlier continuation handoff");
+        client.Messages[1].Text.Should().Be("Continue the implementation");
+        client.Messages[^1].Role.Should().Be(ChatRole.System);
+        prepared!.ResultingMessages.Should().ContainSingle().Which.Text.Should().Be("Updated continuation handoff");
+    }
+
+    [Fact]
+    public async Task SummarizingCompaction_PropagatesCancellationToTheClient()
+    {
+        var thread = CreateThread(2);
+        var client = new CapturingChatClient(new ChatMessage(ChatRole.Assistant, "unused"));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        var action = async () => await new ThreadCompactionEngine().PrepareAsync(
+            new ThreadCompactionContext(thread, thread.Messages, null, client),
+            SummarizeAtHead(),
+            cancellation.Token);
+
+        await action.Should().ThrowAsync<OperationCanceledException>();
+        client.CancellationToken.Should().Be(cancellation.Token);
+        thread.Messages.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task SummarizingCompaction_RejectsAStructuredToolRequest()
+    {
+        var thread = CreateThread(2);
+        var client = new CapturingChatClient(new ChatMessage(
+            ChatRole.Assistant,
+            [new FunctionCallContent("call-1", "ReadFile", new Dictionary<string, object?>())]));
+
+        var action = async () => await new ThreadCompactionEngine().PrepareAsync(
+            new ThreadCompactionContext(thread, thread.Messages, null, client),
+            SummarizeAtHead());
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*tool request instead of a continuation handoff*");
+        thread.Messages.Should().HaveCount(2);
+    }
+
     private static CompactionSpecification RemoveAtHead(CompactionCommitMode mode) => new()
     {
         Point = new CompactAtCurrentHead(),
         Strategy = new RemovalCompaction(),
         CommitMode = mode
+    };
+
+    private static CompactionSpecification SummarizeAtHead() => new()
+    {
+        Point = new CompactAtCurrentHead(),
+        Strategy = new SummarizingCompaction(),
+        CommitMode = CompactionCommitMode.Soft
     };
 
     private static Thread CreateThread(int messageCount)
@@ -281,4 +392,38 @@ public sealed class ThreadCompactionEngineTests
             CancellationToken cancellationToken = default) =>
             ValueTask.FromResult<IReadOnlyList<AgentEvent>>(events);
     }
+
+    private sealed class CapturingChatClient(ChatMessage response) : IChatClient
+    {
+        public IReadOnlyList<ChatMessage> Messages { get; private set; } = [];
+        public ChatOptions? Options { get; private set; }
+        public CancellationToken CancellationToken { get; private set; }
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            Messages = messages.ToArray();
+            Options = options;
+            CancellationToken = cancellationToken;
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(new ChatResponse(response));
+        }
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
+    }
+
+    private sealed class TestInputRequestContent(string requestId) : InputRequestContent(requestId);
+    private sealed class TestInputResponseContent(string requestId) : InputResponseContent(requestId);
 }

@@ -1,5 +1,6 @@
 using HPD.Agent.TUI.Models;
 using HPD.TUI.Core;
+using HPD.TUI.Forms;
 
 namespace HPD.Agent.TUI.Composition;
 
@@ -45,6 +46,70 @@ public interface IAgentTuiDialogService
         string title,
         bool allowEmpty = false,
         CancellationToken cancellationToken = default);
+
+    async Task<AgentTuiDialogResult<TResult>> FormAsync<TResult>(
+        string title,
+        FormDefinition<TResult> form,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ArgumentNullException.ThrowIfNull(form);
+        FormUpdateSession<TResult>? updates = null;
+        try
+        {
+            return await ShowAsync<TResult>(
+                    $"form:{Guid.NewGuid():N}",
+                    context =>
+                    {
+                        var controller = new FormController(form.Model);
+                        updates = new FormUpdateSession<TResult>(
+                            form,
+                            controller,
+                            cancellationToken: cancellationToken);
+                        var finishing = 0;
+
+                        void Finish(AgentTuiDialogResult<TResult> result)
+                        {
+                            if (Interlocked.Exchange(ref finishing, 1) != 0)
+                            {
+                                return;
+                            }
+
+                            _ = FinishAsync(result);
+                        }
+
+                        async Task FinishAsync(AgentTuiDialogResult<TResult> result)
+                        {
+                            if (!await updates.FlushAsync().ConfigureAwait(false))
+                            {
+                                Interlocked.Exchange(ref finishing, 0);
+                                return;
+                            }
+
+                            if (result.IsSubmitted)
+                            {
+                                context.Submit(result.Value!);
+                            }
+                            else
+                            {
+                                context.Cancel();
+                            }
+                        }
+
+                        controller.Submitted = _ =>
+                            Finish(AgentTuiDialogResult<TResult>.Submitted(form.BuildResult()));
+                        controller.Canceled = () =>
+                            Finish(AgentTuiDialogResult<TResult>.Canceled());
+                        return new FormView(form.Model, controller, updateMode: form.UpdateMode);
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            updates?.Dispose();
+        }
+    }
 
     async Task<TResult?> RunFlowAsync<TResult>(
         Func<AgentTuiDialogFlowContext, CancellationToken, ValueTask<TResult?>> flow,
@@ -179,6 +244,15 @@ public sealed class AgentTuiDialogFlowContext
     {
         var value = await _dialogs.ConfirmAsync(title, defaultValue, cancellationToken)
             .ConfigureAwait(false);
+        return Complete(value);
+    }
+
+    public async ValueTask<AgentTuiDialogStepResult<TResult>> FormAsync<TResult>(
+        string title,
+        FormDefinition<TResult> form,
+        CancellationToken cancellationToken = default)
+    {
+        var value = await _dialogs.FormAsync(title, form, cancellationToken).ConfigureAwait(false);
         return Complete(value);
     }
 

@@ -4,21 +4,21 @@ using HPD.TUI.Flows;
 
 namespace HPD.TUI.Forms;
 
-public sealed class DecimalFormField : FormField<decimal?>
+public sealed class LongFormField : FormField<long?>
 {
-    private readonly decimal? _initialValue;
+    private readonly long? _initialValue;
     private readonly TextFormField _editor;
-    private decimal? _value;
+    private long? _value;
 
-    public DecimalFormField(
+    public LongFormField(
         string key,
         string label,
-        decimal? value = null,
+        long? value = null,
         string? description = null,
         bool isRequired = false,
-        decimal? minimum = null,
-        decimal? maximum = null,
-        decimal step = 0.1m,
+        long? minimum = null,
+        long? maximum = null,
+        long step = 1,
         NumericFieldInteraction interaction = NumericFieldInteraction.StepperAndInput)
         : base(key, label, description, isRequired)
     {
@@ -48,15 +48,15 @@ public sealed class DecimalFormField : FormField<decimal?>
         }
     }
 
-    public decimal? Minimum { get; }
+    public long? Minimum { get; }
 
-    public decimal? Maximum { get; }
+    public long? Maximum { get; }
 
-    public decimal Step { get; }
+    public long Step { get; }
 
     public NumericFieldInteraction InteractionMode { get; }
 
-    public override decimal? Value => IsEditing ? Parse(_editor.Value) : _value;
+    public override long? Value => IsEditing ? Parse(_editor.Value) : _value;
 
     public override string DisplayValue => IsEditing
         ? _editor.DisplayValue
@@ -159,9 +159,9 @@ public sealed class DecimalFormField : FormField<decimal?>
                 : PromptValidationResult.Valid;
         }
 
-        if (!decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed))
+        if (!long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
         {
-            return PromptValidationResult.Invalid("Must be a number.");
+            return PromptValidationResult.Invalid("Must be an integer.");
         }
 
         if (Minimum is { } min && parsed < min)
@@ -174,15 +174,25 @@ public sealed class DecimalFormField : FormField<decimal?>
             : PromptValidationResult.Valid;
     }
 
-    private static decimal? Parse(string value)
-        => decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed)
+    private static long? Parse(string value)
+        => long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : null;
 
-    private void StepBy(decimal delta)
+    private void StepBy(long delta)
     {
         var previous = _value;
-        var next = (_value ?? Minimum ?? 0m) + delta;
+        var origin = _value ?? Minimum ?? 0;
+        long next;
+        try
+        {
+            next = checked(origin + delta);
+        }
+        catch (OverflowException)
+        {
+            next = delta > 0 ? long.MaxValue : long.MinValue;
+        }
+
         if (Minimum is { } min)
         {
             next = Math.Max(next, min);

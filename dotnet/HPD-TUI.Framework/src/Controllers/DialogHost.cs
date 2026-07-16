@@ -21,19 +21,27 @@ public sealed class DialogHost : IComponent
 
     public IReadOnlyList<DialogLayer> Layers => _layers;
 
-    public void Push(Overlay overlay, IComponent? focus = null, Action? onClose = null)
+    public void Push(
+        Overlay overlay,
+        IComponent? focus = null,
+        Action? onClose = null,
+        bool focusHandlesEscape = false)
     {
         ArgumentNullException.ThrowIfNull(overlay);
 
-        _layers.Add(new DialogLayer(overlay, focus, onClose));
+        _layers.Add(new DialogLayer(overlay, focus, onClose, focusHandlesEscape));
         _focus.PushFocus(focus ?? overlay);
     }
 
-    public void PushInline(IComponent component, IComponent? focus = null, Action? onClose = null)
+    public void PushInline(
+        IComponent component,
+        IComponent? focus = null,
+        Action? onClose = null,
+        bool focusHandlesEscape = false)
     {
         ArgumentNullException.ThrowIfNull(component);
 
-        _layers.Add(new DialogLayer(null, focus ?? component, onClose));
+        _layers.Add(new DialogLayer(null, focus ?? component, onClose, focusHandlesEscape));
         _focus.PushFocus(focus ?? component);
     }
 
@@ -77,17 +85,27 @@ public sealed class DialogHost : IComponent
     {
         if (_layers.Count > 0)
         {
-            if (key.Key == KeyCode.Escape)
+            var layer = _layers[^1];
+            if (key.Key == KeyCode.Escape && !layer.FocusHandlesEscape)
             {
                 Pop();
                 return true;
             }
 
-            return _focus.HandleInput(in key);
+            if (_focus.HandleInput(in key))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         return _content.HandleInput(in key);
     }
 }
 
-public sealed record DialogLayer(Overlay? Overlay, IComponent? Focus, Action? OnClose);
+public sealed record DialogLayer(
+    Overlay? Overlay,
+    IComponent? Focus,
+    Action? OnClose,
+    bool FocusHandlesEscape);

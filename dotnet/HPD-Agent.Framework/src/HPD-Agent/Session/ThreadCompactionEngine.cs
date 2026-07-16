@@ -109,7 +109,8 @@ public sealed class ThreadCompactionEngine : IThreadCompactionEngine
 
         Preserve concrete paths, symbols, commands, errors, tests, results, and applicable
         tool-derived findings. Incorporate an earlier handoff as authoritative context. Do not
-        invent information, critique the prior work, end with a question, or offer more help.
+        invent information, critique the prior work, end with a question, offer more help, call
+        tools, or emit tool-call protocol markup.
         """;
 
     public async ValueTask<ThreadCompactionExecutionResult> ExecuteAsync(
@@ -454,10 +455,16 @@ public sealed class ThreadCompactionEngine : IThreadCompactionEngine
     {
         var client = context.SummarizerClient
             ?? throw new InvalidOperationException("Summarizing compaction requires a chat client.");
-        var prompt = new ChatMessage(ChatRole.System,
-            string.IsNullOrWhiteSpace(strategy.Instructions) ? DefaultInstructions : strategy.Instructions);
-        var response = await client.GetResponseAsync([prompt, .. selected], cancellationToken: cancellationToken)
+        var messages = CreateSummarizerMessages(selected, strategy);
+        var options = new ChatOptions
+        {
+            Tools = [],
+            ToolMode = ChatToolMode.None
+        };
+        var response = await client.GetResponseAsync(messages, options, cancellationToken)
             .ConfigureAwait(false);
+        if (response.Messages.SelectMany(static message => message.Contents).Any(IsToolDependentContent))
+            throw new InvalidOperationException("The compaction summarizer returned a tool request instead of a continuation handoff.");
         var text = response.Text?.Trim();
         if (string.IsNullOrWhiteSpace(text))
             throw new InvalidOperationException("The compaction summarizer returned an empty continuation handoff.");
@@ -467,6 +474,36 @@ public sealed class ThreadCompactionEngine : IThreadCompactionEngine
             CreatedAt = DateTimeOffset.UtcNow
         };
     }
+
+    private static IReadOnlyList<ChatMessage> CreateSummarizerMessages(
+        IReadOnlyList<ChatMessage> selected,
+        SummarizingCompaction strategy)
+    {
+        var messages = new List<ChatMessage>(selected.Count + 1);
+        foreach (var message in selected)
+        {
+            // Agent instructions must not compete with the summarization instruction. Tool and
+            // interaction protocol messages are relational and can prompt the model to continue
+            // an old call instead of summarizing the conversation.
+            if (message.Role == ChatRole.System || message.Contents.Any(IsToolDependentContent))
+                continue;
+
+            messages.Add(message);
+        }
+
+        // Keep the summarization instruction closest to generation, matching MEAI's reducer
+        // behavior and preventing older conversational instructions from taking precedence.
+        messages.Add(new ChatMessage(
+            ChatRole.System,
+            string.IsNullOrWhiteSpace(strategy.Instructions) ? DefaultInstructions : strategy.Instructions));
+        return messages;
+    }
+
+    private static bool IsToolDependentContent(AIContent content) => content
+        is FunctionCallContent
+        or FunctionResultContent
+        or InputRequestContent
+        or InputResponseContent;
 
     private static ChatMessage CloneCarriedUserMessage(ChatMessage source) =>
         new(source.Role, source.Contents.ToArray())
