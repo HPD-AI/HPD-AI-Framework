@@ -18,7 +18,7 @@ public partial class CodingToolHarness
         nameof(ExecuteCommand)
     ];
 
-    [SubAgent]
+    // [SubAgent]
     public SubAgent Explore()
     {
         return SubAgent.FromConfig(
@@ -39,7 +39,7 @@ public partial class CodingToolHarness
             backgroundNotification: null);
     }
 
-    [SubAgent]
+    // [SubAgent]
     public SubAgent Worker()
     {
         return SubAgent.FromConfig(
@@ -60,7 +60,7 @@ public partial class CodingToolHarness
             backgroundNotification: null);
     }
 
-    [SubAgent]
+    // [SubAgent]
     public SubAgent Reviewer()
     {
         return SubAgent.FromConfig(

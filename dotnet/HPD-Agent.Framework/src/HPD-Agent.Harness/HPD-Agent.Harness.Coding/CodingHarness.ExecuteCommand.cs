@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Xml;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
@@ -15,6 +16,9 @@ using Microsoft.Extensions.AI;
 
 public partial class CodingToolHarness
 {
+    private static readonly Regex AnsiEscapeSequencePattern = new(
+        "\\u001B(?:\\[[0-?]*[ -/]*[@-~]|\\][^\\u0007]*(?:\\u0007|\\u001B\\\\)|[@-_])",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private const int DefaultExecuteCommandTimeoutMilliseconds = 120_000;
     private const int MaxExecuteCommandTimeoutMilliseconds = 30 * 60 * 1000;
     private const int MaxInlineCommandOutputChars = 30_000;
@@ -1084,7 +1088,7 @@ public partial class CodingToolHarness
             WriteExecuteCommandOutputHandleAttributes(writer, metadata.Combined);
         else
             writer.WriteAttributeString("local_path", background.OutputStore.CombinedPath);
-        writer.WriteString(tail);
+        writer.WriteString(SanitizeTerminalOutputForXml(tail));
         writer.WriteEndElement();
 
         if (metadata is not null)
@@ -1244,7 +1248,7 @@ public partial class CodingToolHarness
         WriteExecuteCommandOutputHandleAttributes(writer, handle);
 
         if (!string.IsNullOrEmpty(streamResult.Preview))
-            writer.WriteString(streamResult.Preview);
+            writer.WriteString(SanitizeTerminalOutputForXml(streamResult.Preview));
 
         writer.WriteEndElement();
     }
@@ -1331,6 +1335,22 @@ public partial class CodingToolHarness
             preview.Length,
             false,
             stream.Truncated || previewTruncated);
+    }
+
+    private static string SanitizeTerminalOutputForXml(string value)
+    {
+        var withoutAnsi = AnsiEscapeSequencePattern.Replace(value, "");
+        if (withoutAnsi.All(static ch => XmlConvert.IsXmlChar(ch)))
+            return withoutAnsi;
+
+        var builder = new StringBuilder(withoutAnsi.Length);
+        foreach (var rune in withoutAnsi.EnumerateRunes())
+        {
+            if (rune.Value > char.MaxValue || XmlConvert.IsXmlChar((char)rune.Value))
+                builder.Append(rune);
+        }
+
+        return builder.ToString();
     }
 
     private static string BuildHeadTailPreview(string text, int maxChars, out bool truncated)

@@ -42,20 +42,9 @@ public class CodingToolHarnessAgentBuilderTests
             "ListDirectory",
             "GlobSearch",
             "Grep",
-            "ExecuteCommand",
-            "explore",
-            "worker",
-            "reviewer"
+            "ExecuteCommand"
         ]);
-
-        var explore = agent.DefaultOptions!.Tools!
-            .OfType<AIFunction>()
-            .Single(tool => tool.Name == "explore");
-        explore.JsonSchema.GetProperty("properties").TryGetProperty("taskName", out _).Should().BeTrue();
-        explore.JsonSchema.GetProperty("required")
-            .EnumerateArray()
-            .Select(static item => item.GetString())
-            .Should().Contain(["taskName", "input"]);
+        toolNames.Should().NotContain(["explore", "worker", "reviewer"]);
     }
 
     [Fact]

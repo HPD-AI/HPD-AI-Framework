@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using System.Xml.Linq;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
@@ -669,6 +670,26 @@ public sealed class ExecuteCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task ExecuteCommand_ForegroundRun_SanitizesTerminalControlSequences()
+    {
+        var runner = new FakeProcessProvider
+        {
+            Result = CreateResult(stdout: "\u001B[31mwarning\u001B[0m\u0007\n", exitCode: 0)
+        };
+
+        var result = await new CodingToolHarness().ExecuteCommand(
+            context: CreateContext(runner),
+            command: "printf warning");
+
+        var xml = result.ToString();
+        xml.Should().Contain("warning");
+        xml.Should().NotContain("\u001B");
+        xml.Should().NotContain("[31m");
+        xml.Should().NotContain("\u0007");
+        XDocument.Parse(xml).Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task ExecuteCommand_ForegroundRun_CommitsArtifactsWhenSessionContentStoreExists()
     {
         var store = new InMemorySessionStore();
@@ -907,6 +928,40 @@ public sealed class ExecuteCommandTests : IDisposable
         var readXml = read.ToString();
         readXml.Should().Contain("server ready");
         readXml.Should().Contain("status=\"completed\"");
+    }
+
+    [Fact]
+    public async Task ExecuteCommand_BackgroundRead_SanitizesTerminalControlSequences()
+    {
+        var sessionId = $"session-{Guid.NewGuid():N}";
+        var completion = new TaskCompletionSource<ProcessInvocationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runner = new FakeProcessProvider { Completion = completion.Task };
+        var registry = new TestBackgroundTaskRegistry();
+        var toolharness = new CodingToolHarness(null, null, executeCommandOptions: new ExecuteCommandOptions
+        {
+            BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
+        });
+        var context = CreateContext(runner, backgroundTasks: registry, sessionId: sessionId);
+
+        var start = await toolharness.ExecuteCommand(
+            context: context,
+            command: "python3 app.py",
+            invocationMode: "background");
+        var handleId = ExtractAttribute(start.ToString()!, "background_handle_id");
+        completion.SetResult(CreateResult(stderr: "\u001B[31mserver warning\u001B[0m\u0007\n", exitCode: 0));
+        await registry.WhenIdleAsync();
+
+        var read = await toolharness.ExecuteCommand(
+            action: ExecuteCommandAction.ReadOutput,
+            backgroundHandleId: handleId,
+            context: context);
+
+        var xml = read.ToString();
+        xml.Should().Contain("server warning");
+        xml.Should().NotContain("\u001B");
+        xml.Should().NotContain("[31m");
+        xml.Should().NotContain("\u0007");
+        XDocument.Parse(xml).Should().NotBeNull();
     }
 
     [Fact]
