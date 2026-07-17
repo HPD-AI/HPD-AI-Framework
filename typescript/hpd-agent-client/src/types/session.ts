@@ -172,6 +172,9 @@ export interface Thread {
   /** Subagent name when this is a subagent thread */
   subAgentName?: string;
 
+  /** Caller-assigned name for this individual subagent task */
+  subAgentTaskName?: string;
+
   /** Subagent run id when this is a subagent thread */
   subAgentRunId?: string;
 
@@ -251,11 +254,13 @@ export interface ThreadRuntimeChild {
   kind: ThreadKind;
   visibility: ThreadVisibility;
   subAgentName?: string;
+  subAgentTaskName?: string;
   subAgentRunId?: string;
   subAgentSourceKind?: string;
   parentToolCallId?: string;
   sessionPolicy?: string;
   threadPolicy?: string;
+  status?: string;
   messageCount: number;
   createdAt: string; // ISO 8601
   lastActivity: string; // ISO 8601

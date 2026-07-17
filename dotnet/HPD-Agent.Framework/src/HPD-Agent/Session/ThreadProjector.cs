@@ -76,6 +76,26 @@ public static class ThreadProjector
                 break;
             }
 
+            case ThreadRunStartedEvent:
+            {
+                if (thread.Kind == ThreadKind.SubAgent)
+                    thread.SubAgentStatus = ThreadRunStatus.Active;
+                break;
+            }
+
+            case ThreadRunCompletedEvent completed:
+            {
+                if (thread.Kind == ThreadKind.SubAgent)
+                {
+                    thread.SubAgentStatus = completed.ErrorType is not null
+                        ? ThreadRunStatus.Failed
+                        : completed.Cancelled
+                            ? ThreadRunStatus.Cancelled
+                            : ThreadRunStatus.Completed;
+                }
+                break;
+            }
+
             case ContentAddedEvent data:
             {
                 if (data.Content is null)
@@ -245,6 +265,7 @@ public static class ThreadProjector
             data.ParentSessionId,
             data.ParentThreadId,
             data.SubAgentName,
+            data.SubAgentTaskName,
             data.SubAgentRunId,
             data.SubAgentSourceKind,
             data.ParentToolCallId,
@@ -270,6 +291,7 @@ public static class ThreadProjector
             data.ParentSessionId,
             data.ParentThreadId,
             data.SubAgentName,
+            data.SubAgentTaskName,
             data.SubAgentRunId,
             data.SubAgentSourceKind,
             data.ParentToolCallId,
@@ -293,6 +315,7 @@ public static class ThreadProjector
         string? parentSessionId,
         string? parentThreadId,
         string? subAgentName,
+        string? subAgentTaskName,
         string? subAgentRunId,
         string? subAgentSourceKind,
         string? parentToolCallId,
@@ -313,6 +336,7 @@ public static class ThreadProjector
         thread.ParentSessionId = parentSessionId;
         thread.ParentThreadId = parentThreadId;
         thread.SubAgentName = subAgentName;
+        thread.SubAgentTaskName = subAgentTaskName;
         thread.SubAgentRunId = subAgentRunId;
         thread.SubAgentSourceKind = subAgentSourceKind;
         thread.ParentToolCallId = parentToolCallId;

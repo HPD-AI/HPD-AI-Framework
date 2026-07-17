@@ -204,6 +204,9 @@ internal static class ReflectionToolFactory
                 var input = jsonArgs.TryGetProperty("input", out var inputProperty)
                     ? inputProperty.GetString() ?? string.Empty
                     : string.Empty;
+                var taskName = jsonArgs.TryGetProperty("taskName", out var taskNameProperty)
+                    ? taskNameProperty.GetString() ?? string.Empty
+                    : string.Empty;
                 var requestedMode = AgentInvocationModes.ReadRequestedMode(jsonArgs);
 
                 var result = await SubAgentRuntime.InvokeAsync(
@@ -211,6 +214,7 @@ internal static class ReflectionToolFactory
                     {
                         Definition = subAgent,
                         Input = input,
+                        TaskName = taskName,
                         ParentContext = functionContext,
                         RequestedMode = requestedMode
                     },
@@ -911,10 +915,10 @@ internal static class ReflectionToolFactory
     {
         var schema = includeInvocationMode
             ? """
-              {"type":"object","properties":{"input":{"type":"string","description":"The user's question or task for the sub-agent. Pass the full request here."},"invocationMode":{"type":"string","enum":["synchronous","background"],"description":"Whether to wait for the result now or run in the background. Use synchronous unless the task can continue independently."}},"required":["input"],"additionalProperties":false}
+              {"type":"object","properties":{"taskName":{"type":"string","description":"A short name for this delegated task, used to identify its thread in the current session."},"input":{"type":"string","description":"The user's question or task for the sub-agent. Pass the full request here."},"invocationMode":{"type":"string","enum":["synchronous","background"],"description":"Whether to wait for the result now or run in the background. Use synchronous unless the task can continue independently."}},"required":["taskName","input"],"additionalProperties":false}
               """
             : """
-              {"type":"object","properties":{"input":{"type":"string","description":"The user's question or task for the sub-agent. Pass the full request here."}},"required":["input"],"additionalProperties":false}
+              {"type":"object","properties":{"taskName":{"type":"string","description":"A short name for this delegated task, used to identify its thread in the current session."},"input":{"type":"string","description":"The user's question or task for the sub-agent. Pass the full request here."}},"required":["taskName","input"],"additionalProperties":false}
               """;
         using var document = JsonDocument.Parse(schema);
         return document.RootElement.Clone();

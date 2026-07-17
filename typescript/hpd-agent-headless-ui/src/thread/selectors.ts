@@ -335,7 +335,7 @@ export function getParentThreadId(thread: Thread | ThreadRuntimeChild | null | u
 
 export function getThreadDisplayName(thread: Thread | ThreadRuntimeChild | null | undefined): string {
   if (!thread) return '';
-  return thread.name ?? thread.subAgentName ?? ('id' in thread ? thread.id : thread.threadId);
+  return thread.subAgentTaskName ?? thread.name ?? thread.subAgentName ?? ('id' in thread ? thread.id : thread.threadId);
 }
 
 export function getThreadKindLabel(thread: Thread | ThreadRuntimeChild | null | undefined): string {

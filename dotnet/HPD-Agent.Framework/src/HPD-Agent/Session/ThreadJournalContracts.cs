@@ -53,11 +53,13 @@ public sealed record ThreadRuntimeChildDescriptor(
     string? ParentSessionId,
     string? ParentThreadId,
     string? SubAgentName,
+    string? SubAgentTaskName,
     string? SubAgentRunId,
     string? SubAgentSourceKind,
     string? ParentToolCallId,
     string? SessionPolicy,
-    string? ThreadPolicy);
+    string? ThreadPolicy,
+    string? Status);
 
 public sealed record ThreadListRequest(
     bool IncludeHidden = true,

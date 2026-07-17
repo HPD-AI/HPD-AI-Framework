@@ -27,6 +27,12 @@ public static class SubAgentRuntime
         public required string Input { get; init; }
 
         /// <summary>
+        /// Gets the caller-assigned name for this individual delegated task.
+        /// This is distinct from the reusable subagent role name.
+        /// </summary>
+        public required string TaskName { get; init; }
+
+        /// <summary>
         /// Gets the parent function execution context, when the subagent is invoked from a tool call.
         /// </summary>
         public FunctionExecutionContext? ParentContext { get; init; }
@@ -87,6 +93,7 @@ public static class SubAgentRuntime
         ArgumentNullException.ThrowIfNull(request.Definition);
 
         var definition = request.Definition;
+        ValidateTaskName(request.TaskName);
         AgentInvocationMode mode;
         try
         {
@@ -97,7 +104,7 @@ public static class SubAgentRuntime
         catch (InvalidOperationException ex)
         {
             return AgentInvocationModes.CreateReceiptResult(
-                definition.Name,
+                request.TaskName,
                 BackgroundTaskSourceKind.SubAgent,
                 ex.Message,
                 "invalid_invocation_mode");
@@ -121,7 +128,7 @@ public static class SubAgentRuntime
         if (parentContext is null || !parentContext.CanRegisterBackgroundTasks)
         {
             return AgentInvocationModes.CreateReceiptResult(
-                definition.Name,
+                request.TaskName,
                 BackgroundTaskSourceKind.SubAgent,
                 "Background invocation requires an active agent runtime.");
         }
@@ -133,14 +140,14 @@ public static class SubAgentRuntime
             registration = parentContext.RegisterBackgroundTask(
                 new BackgroundTaskDescriptor
                 {
-                    Name = definition.Name,
+                    Name = request.TaskName,
                     SourceKind = BackgroundTaskSourceKind.SubAgent,
                     SourceId = parentContext.FunctionCallId,
                     SessionId = parentContext.SessionId,
                     ThreadId = parentContext.ThreadId,
                     Invocation = parentContext.InvocationSnapshot,
                     Notification = definition.BackgroundNotification,
-                    Metadata = CreateBackgroundDescriptorMetadata(definition)
+                    Metadata = CreateBackgroundDescriptorMetadata(definition, request.TaskName)
                 },
                 async (backgroundContext, runtimeToken) =>
                 {
@@ -157,7 +164,8 @@ public static class SubAgentRuntime
                                 ["subAgent.sessionId"] = result.SessionId,
                                 ["subAgent.threadId"] = result.ThreadId,
                                 ["subAgent.runId"] = result.RunId,
-                                ["subAgent.agentId"] = result.AgentId
+                                ["subAgent.agentId"] = result.AgentId,
+                                ["subAgent.taskName"] = request.TaskName
                             });
                     }
                     finally
@@ -211,6 +219,7 @@ public static class SubAgentRuntime
             agent,
             definition,
             request.ParentContext,
+            request.TaskName,
             cancellationToken).ConfigureAwait(false);
 
         try
@@ -252,13 +261,16 @@ public static class SubAgentRuntime
         }
     }
 
-    private static IReadOnlyDictionary<string, string> CreateBackgroundDescriptorMetadata(SubAgent definition)
+    private static IReadOnlyDictionary<string, string> CreateBackgroundDescriptorMetadata(
+        SubAgent definition,
+        string taskName)
     {
         var metadata = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["invocation.kind"] = "subagent",
             ["invocation.mode"] = "background",
             ["subAgent.name"] = definition.Name,
+            ["subAgent.taskName"] = taskName,
             ["subAgent.sourceKind"] = definition.SourceKind.ToString()
         };
 
@@ -280,24 +292,27 @@ public static class SubAgentRuntime
         Agent agent,
         SubAgent subAgent,
         FunctionExecutionContext? functionContext,
+        string taskName,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(agent);
         ArgumentNullException.ThrowIfNull(subAgent);
+        ValidateTaskName(taskName);
 
         var policy = subAgent.ExecutionPolicy;
         policy.Validate();
 
         var runId = Guid.NewGuid().ToString("N");
-        var sessionId = await ResolveSessionAsync(agent, subAgent, functionContext, runId, cancellationToken)
+        var sessionId = await ResolveSessionAsync(agent, subAgent, functionContext, taskName, runId, cancellationToken)
             .ConfigureAwait(false);
-        var threadId = await ResolveThreadAsync(agent, subAgent, functionContext, sessionId, runId, cancellationToken)
+        var threadId = await ResolveThreadAsync(agent, subAgent, functionContext, taskName, sessionId, runId, cancellationToken)
             .ConfigureAwait(false);
 
         functionContext?.ResultMetadata.Set("subAgentStatus", "started");
         functionContext?.ResultMetadata.Set("subAgentSessionId", sessionId);
         functionContext?.ResultMetadata.Set("subAgentThreadId", threadId);
         functionContext?.ResultMetadata.Set("subAgentName", subAgent.Name);
+        functionContext?.ResultMetadata.Set("subAgentTaskName", taskName);
         functionContext?.ResultMetadata.Set("subAgentRunId", runId);
 
         return new SubAgentInvocationRoute(sessionId, threadId, runId);
@@ -474,6 +489,7 @@ public static class SubAgentRuntime
         Agent agent,
         SubAgent subAgent,
         FunctionExecutionContext? functionContext,
+        string taskName,
         string runId,
         CancellationToken cancellationToken)
     {
@@ -488,7 +504,7 @@ public static class SubAgentRuntime
                 var sessionId = Guid.NewGuid().ToString("N");
                 await agent.CreateSessionAsync(
                     sessionId,
-                    BuildMetadata(subAgent, functionContext, runId),
+                    BuildMetadata(subAgent, functionContext, taskName, runId),
                     cancellationToken).ConfigureAwait(false);
                 return sessionId;
             }
@@ -504,7 +520,7 @@ public static class SubAgentRuntime
                 {
                     await agent.CreateSessionAsync(
                         sessionId,
-                        BuildMetadata(subAgent, functionContext, runId),
+                        BuildMetadata(subAgent, functionContext, taskName, runId),
                         cancellationToken).ConfigureAwait(false);
                 }
                 return sessionId;
@@ -519,12 +535,13 @@ public static class SubAgentRuntime
         Agent agent,
         SubAgent subAgent,
         FunctionExecutionContext? functionContext,
+        string taskName,
         string sessionId,
         string runId,
         CancellationToken cancellationToken)
     {
         var policy = subAgent.ExecutionPolicy;
-        var metadata = BuildMetadata(subAgent, functionContext, runId);
+        var metadata = BuildMetadata(subAgent, functionContext, taskName, runId);
 
         switch (policy.ThreadPolicy)
         {
@@ -545,7 +562,7 @@ public static class SubAgentRuntime
 
             case SubAgentThreadPolicy.FreshThread:
             {
-                var threadId = BuildThreadId(subAgent, runId);
+                var threadId = BuildThreadId(subAgent, taskName, runId);
                 await CreateEmptyThreadAsync(agent, sessionId, threadId, metadata, cancellationToken).ConfigureAwait(false);
                 return threadId;
             }
@@ -567,7 +584,7 @@ public static class SubAgentRuntime
                     ?? throw new InvalidOperationException($"Parent thread '{parentThreadId}' not found in session '{parentSessionId}'.");
                 var forkPoint = parentThread.Messages.LastOrDefault()?.MessageId
                     ?? throw new InvalidOperationException("Cannot fork subagent thread from an empty parent thread.");
-                var threadId = BuildThreadId(subAgent, runId);
+                var threadId = BuildThreadId(subAgent, taskName, runId);
                 var forkOptions = new ThreadForkOptions
                 {
                     Metadata = metadata,
@@ -589,44 +606,53 @@ public static class SubAgentRuntime
         }
     }
 
-    private static string BuildThreadId(SubAgent subAgent, string runId)
+    private static string BuildThreadId(SubAgent subAgent, string taskName, string runId)
     {
         var prefix = string.IsNullOrWhiteSpace(subAgent.ExecutionPolicy.ThreadNamePrefix)
             ? $"subagent/{Normalize(subAgent.Name)}"
             : subAgent.ExecutionPolicy.ThreadNamePrefix!.Trim('/');
-        return $"{prefix}/{runId[..Math.Min(12, runId.Length)]}";
+        return $"{prefix}/{Normalize(taskName)}/{runId[..Math.Min(12, runId.Length)]}";
     }
 
     private static Dictionary<string, object> BuildMetadata(
         SubAgent subAgent,
         FunctionExecutionContext? functionContext,
+        string taskName,
         string runId)
     {
-        var metadata = new Dictionary<string, object>(StringComparer.Ordinal)
-        {
-            ["kind"] = "subagent",
-            ["subAgentName"] = subAgent.Name,
-            ["subAgentSourceKind"] = subAgent.SourceKind.ToString(),
-            ["parentSessionId"] = functionContext?.SessionId ?? string.Empty,
-            ["parentThreadId"] = functionContext?.ThreadId ?? string.Empty,
-            ["parentToolCallId"] = functionContext?.FunctionCallId ?? string.Empty,
-            ["subAgentRunId"] = runId,
-            ["sessionPolicy"] = subAgent.ExecutionPolicy.SessionPolicy.ToString(),
-            ["threadPolicy"] = subAgent.ExecutionPolicy.ThreadPolicy.ToString(),
-            ["visibility"] = "hidden",
-            ["createdBy"] = "subagent"
-        };
+        var metadata = subAgent.Metadata is null
+            ? new Dictionary<string, object>(StringComparer.Ordinal)
+            : new Dictionary<string, object>(subAgent.Metadata, StringComparer.Ordinal);
+
+        // Runtime-owned routing fields are authoritative and cannot be replaced by
+        // application metadata supplied on the reusable subagent definition.
+        metadata["kind"] = "subagent";
+        metadata["subAgentName"] = subAgent.Name;
+        metadata["subAgentTaskName"] = taskName;
+        metadata["subAgentSourceKind"] = subAgent.SourceKind.ToString();
+        metadata["parentSessionId"] = functionContext?.SessionId ?? string.Empty;
+        metadata["parentThreadId"] = functionContext?.ThreadId ?? string.Empty;
+        metadata["parentToolCallId"] = functionContext?.FunctionCallId ?? string.Empty;
+        metadata["subAgentRunId"] = runId;
+        metadata["sessionPolicy"] = subAgent.ExecutionPolicy.SessionPolicy.ToString();
+        metadata["threadPolicy"] = subAgent.ExecutionPolicy.ThreadPolicy.ToString();
+        metadata["visibility"] = "hidden";
+        metadata["createdBy"] = "subagent";
 
         if (!string.IsNullOrWhiteSpace(subAgent.AgentId))
             metadata["subAgentAgentId"] = subAgent.AgentId;
 
-        if (subAgent.Metadata != null)
-        {
-            foreach (var kvp in subAgent.Metadata)
-                metadata[kvp.Key] = kvp.Value;
-        }
-
         return metadata;
+    }
+
+    private static void ValidateTaskName(string taskName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(taskName);
+        if (taskName.Length > 80)
+            throw new ArgumentException("Subagent task names cannot exceed 80 characters.", nameof(taskName));
+
+        if (!taskName.Any(char.IsLetterOrDigit))
+            throw new ArgumentException("Subagent task names must contain at least one letter or number.", nameof(taskName));
     }
 
     private static string Normalize(string value)

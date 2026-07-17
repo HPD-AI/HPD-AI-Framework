@@ -75,6 +75,9 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("        var input = jsonArgs.TryGetProperty(\"input\", out var inputProp)");
         sb.AppendLine("            ? inputProp.GetString() ?? string.Empty");
         sb.AppendLine("            : string.Empty;");
+        sb.AppendLine("        var taskName = jsonArgs.TryGetProperty(\"taskName\", out var taskNameProp)");
+        sb.AppendLine("            ? taskNameProp.GetString() ?? string.Empty");
+        sb.AppendLine("            : string.Empty;");
         sb.AppendLine("        var requestedMode = global::HPD.Agent.AgentInvocationModes.ReadRequestedMode(jsonArgs);");
         sb.AppendLine();
         sb.AppendLine("        var result = await global::HPD.Agent.SubAgentRuntime.InvokeAsync(");
@@ -82,6 +85,7 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("            {");
         sb.AppendLine("                Definition = subAgentDef,");
         sb.AppendLine("                Input = input,");
+        sb.AppendLine("                TaskName = taskName,");
         sb.AppendLine("                ParentContext = functionContext,");
         sb.AppendLine("                RequestedMode = requestedMode");
         sb.AppendLine("            },");

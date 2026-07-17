@@ -306,6 +306,7 @@ export interface ThreadCreatedEvent extends BaseEvent {
   parentSessionId?: string | null;
   parentThreadId?: string | null;
   subAgentName?: string | null;
+  subAgentTaskName?: string | null;
   subAgentRunId?: string | null;
   subAgentSourceKind?: string | null;
   parentToolCallId?: string | null;
@@ -329,6 +330,7 @@ export interface ThreadUpdatedEvent extends BaseEvent {
   parentSessionId?: string | null;
   parentThreadId?: string | null;
   subAgentName?: string | null;
+  subAgentTaskName?: string | null;
   subAgentRunId?: string | null;
   subAgentSourceKind?: string | null;
   parentToolCallId?: string | null;

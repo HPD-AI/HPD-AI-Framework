@@ -436,11 +436,13 @@ public sealed class AgentThreadService : IAgentThreadService
                 thread.Kind,
                 thread.Visibility,
                 thread.RuntimeChild?.SubAgentName,
+                thread.RuntimeChild?.SubAgentTaskName,
                 thread.RuntimeChild?.SubAgentRunId,
                 thread.RuntimeChild?.SubAgentSourceKind,
                 thread.RuntimeChild?.ParentToolCallId,
                 thread.RuntimeChild?.SessionPolicy,
                 thread.RuntimeChild?.ThreadPolicy,
+                thread.RuntimeChild?.Status,
                 thread.MessageCount,
                 thread.CreatedAt.UtcDateTime,
                 thread.UpdatedAt.UtcDateTime))

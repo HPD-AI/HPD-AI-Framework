@@ -1221,9 +1221,13 @@ $@"    /// <summary>
     [System.CodeDom.Compiler.GeneratedCodeAttribute(""HPDToolSourceGenerator"", ""1.0.0.0"")]
     public class {ToolHarness.ClassName}SubAgentInputArgs
     {{
+        [System.Text.Json.Serialization.JsonPropertyName(""taskName"")]
+        [System.ComponentModel.Description(""A short name for this delegated task, used to identify its thread in the current session."")]
+        public required string TaskName {{ get; set; }}
+
         [System.Text.Json.Serialization.JsonPropertyName(""input"")]
         [System.ComponentModel.Description(""The user's question or task for the sub-agent. Pass the full request here."")]
-        public string Input {{ get; set; }} = string.Empty;
+        public required string Input {{ get; set; }}
     }}
 
     /// <summary>
@@ -1232,9 +1236,13 @@ $@"    /// <summary>
     [System.CodeDom.Compiler.GeneratedCodeAttribute(""HPDToolSourceGenerator"", ""1.0.0.0"")]
     public class {ToolHarness.ClassName}SubAgentInputWithModeArgs
     {{
+        [System.Text.Json.Serialization.JsonPropertyName(""taskName"")]
+        [System.ComponentModel.Description(""A short name for this delegated task, used to identify its thread in the current session."")]
+        public required string TaskName {{ get; set; }}
+
         [System.Text.Json.Serialization.JsonPropertyName(""input"")]
         [System.ComponentModel.Description(""The user's question or task for the sub-agent. Pass the full request here."")]
-        public string Input {{ get; set; }} = string.Empty;
+        public required string Input {{ get; set; }}
 
         [System.Text.Json.Serialization.JsonPropertyName(""invocationMode"")]
         [System.ComponentModel.Description(""Whether to wait for the result now or run in the background. Use synchronous unless the task can continue independently."")]

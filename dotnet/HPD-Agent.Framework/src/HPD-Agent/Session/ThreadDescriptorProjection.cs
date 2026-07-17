@@ -33,7 +33,7 @@ internal static class ThreadDescriptorProjection
                 metadata = CopyMetadata(created.ThreadMetadata);
                 fork = CreateFork(created.ForkedFrom, created.ForkedAtMessageId, created.ForkedAtMessageIndex);
                 runtimeChild = CreateRuntimeChild(created.ParentSessionId, created.ParentThreadId, created.SubAgentName,
-                    created.SubAgentRunId, created.SubAgentSourceKind, created.ParentToolCallId,
+                    created.SubAgentTaskName, created.SubAgentRunId, created.SubAgentSourceKind, created.ParentToolCallId,
                     created.SessionPolicy, created.ThreadPolicy);
                 break;
 
@@ -46,8 +46,23 @@ internal static class ThreadDescriptorProjection
                 metadata = CopyMetadata(updated.ThreadMetadata);
                 fork = CreateFork(updated.ForkedFrom, updated.ForkedAtMessageId, updated.ForkedAtMessageIndex);
                 runtimeChild = CreateRuntimeChild(updated.ParentSessionId, updated.ParentThreadId, updated.SubAgentName,
-                    updated.SubAgentRunId, updated.SubAgentSourceKind, updated.ParentToolCallId,
+                    updated.SubAgentTaskName, updated.SubAgentRunId, updated.SubAgentSourceKind, updated.ParentToolCallId,
                     updated.SessionPolicy, updated.ThreadPolicy);
+                break;
+
+            case ThreadRunStartedEvent when runtimeChild is not null:
+                runtimeChild = runtimeChild with { Status = ThreadRunStatus.Active };
+                break;
+
+            case ThreadRunCompletedEvent completed when runtimeChild is not null:
+                runtimeChild = runtimeChild with
+                {
+                    Status = completed.ErrorType is not null
+                        ? ThreadRunStatus.Failed
+                        : completed.Cancelled
+                            ? ThreadRunStatus.Cancelled
+                            : ThreadRunStatus.Completed
+                };
                 break;
         }
 
@@ -105,6 +120,7 @@ internal static class ThreadDescriptorProjection
         string? parentSessionId,
         string? parentThreadId,
         string? subAgentName,
+        string? subAgentTaskName,
         string? subAgentRunId,
         string? subAgentSourceKind,
         string? parentToolCallId,
@@ -112,6 +128,6 @@ internal static class ThreadDescriptorProjection
         string? threadPolicy)
         => parentSessionId is null && parentThreadId is null && subAgentName is null
             ? null
-            : new ThreadRuntimeChildDescriptor(parentSessionId, parentThreadId, subAgentName, subAgentRunId,
-                subAgentSourceKind, parentToolCallId, sessionPolicy, threadPolicy);
+            : new ThreadRuntimeChildDescriptor(parentSessionId, parentThreadId, subAgentName, subAgentTaskName, subAgentRunId,
+                subAgentSourceKind, parentToolCallId, sessionPolicy, threadPolicy, Status: null);
 }

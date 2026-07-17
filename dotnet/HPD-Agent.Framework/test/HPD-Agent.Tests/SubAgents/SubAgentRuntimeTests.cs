@@ -34,6 +34,7 @@ public class SubAgentRuntimeTests
             {
                 Definition = subAgent,
                 Input = "review this",
+                TaskName = "review-current-change",
                 ParentContext = null
             },
             CancellationToken.None);
@@ -42,7 +43,58 @@ public class SubAgentRuntimeTests
         result.Background.Should().NotBeNull();
         result.Background!.Status.Should().Be("background_unavailable");
         result.Background.SourceKind.Should().Be(BackgroundTaskSourceKind.SubAgent);
-        result.Background.Name.Should().Be("Reviewer");
+        result.Background.Name.Should().Be("review-current-change");
+    }
+
+    [Fact]
+    public async Task InvokeAsync_AllowsAgentAsTaskName()
+    {
+        var subAgent = SubAgent.FromConfig(
+            "Reviewer",
+            "Reviews in the background.",
+            MinimalConfig(),
+            executionPolicy: null,
+            metadata: null,
+            invocationModePolicy: AgentInvocationModePolicy.BackgroundOnly,
+            backgroundNotification: null);
+
+        var result = await SubAgentRuntime.InvokeAsync(
+            new SubAgentRuntime.SubAgentInvocationRequest
+            {
+                Definition = subAgent,
+                Input = "review this",
+                TaskName = "agent",
+                ParentContext = null
+            },
+            CancellationToken.None);
+
+        result.Background!.Name.Should().Be("agent");
+    }
+
+    [Fact]
+    public async Task InvokeAsync_RejectsTaskNameWithoutLettersOrNumbers()
+    {
+        var subAgent = SubAgent.FromConfig(
+            "Reviewer",
+            "Reviews in the background.",
+            MinimalConfig(),
+            executionPolicy: null,
+            metadata: null,
+            invocationModePolicy: AgentInvocationModePolicy.BackgroundOnly,
+            backgroundNotification: null);
+
+        Func<Task> act = async () => await SubAgentRuntime.InvokeAsync(
+            new SubAgentRuntime.SubAgentInvocationRequest
+            {
+                Definition = subAgent,
+                Input = "review this",
+                TaskName = "---",
+                ParentContext = null
+            },
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<ArgumentException>()
+            .WithMessage("*at least one letter or number*");
     }
 
     [Fact]
@@ -65,16 +117,18 @@ public class SubAgentRuntimeTests
             executionPolicy: null,
             metadata: new Dictionary<string, object> { ["purpose"] = "review-current-thread" });
 
-        var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
+        var route = await SubAgentRuntime.ResolveInvocationRouteAsync(
+            agent, subAgent, context, "review-storage", CancellationToken.None);
 
         route.SessionId.Should().Be("parent-session");
-        route.ThreadId.Should().StartWith("subagent/reviewer/");
+        route.ThreadId.Should().StartWith("subagent/reviewer/review-storage/");
 
         var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId, ThreadProjectionPurpose.ThreadHistory);
         childThread.Should().NotBeNull();
         childThread!.Messages.Should().HaveCount(parentThread.Messages.Count);
         childThread.Kind.Should().Be(ThreadKind.SubAgent);
         childThread.SubAgentName.Should().Be("Reviewer");
+        childThread.SubAgentTaskName.Should().Be("review-storage");
         childThread.ParentSessionId.Should().Be("parent-session");
         childThread.ParentThreadId.Should().Be("main");
         childThread.SessionPolicy.Should().Be(nameof(SubAgentSessionPolicy.ParentSession));
@@ -83,6 +137,22 @@ public class SubAgentRuntimeTests
         childThread.Metadata["purpose"].Should().Be("review-current-thread");
         childThread.Metadata.Should().NotContainKey("kind");
         childThread.Metadata.Should().NotContainKey("parentThreadId");
+
+        var descriptor = await store.GetThreadAsync(new ThreadKey(route.SessionId, route.ThreadId));
+        descriptor!.RuntimeChild!.SubAgentName.Should().Be("Reviewer");
+        descriptor.RuntimeChild.SubAgentTaskName.Should().Be("review-storage");
+
+        await store.AppendThreadEventsAsync(
+            new ThreadKey(route.SessionId, route.ThreadId),
+            [Scope(route, new ThreadRunStartedEvent("child-run", "Reviewer", DateTimeOffset.UtcNow))]);
+        descriptor = await store.GetThreadAsync(new ThreadKey(route.SessionId, route.ThreadId));
+        descriptor!.RuntimeChild!.Status.Should().Be(ThreadRunStatus.Active);
+
+        await store.AppendThreadEventsAsync(
+            new ThreadKey(route.SessionId, route.ThreadId),
+            [Scope(route, new ThreadRunCompletedEvent("child-run", "Reviewer", false, "TestFailure"))]);
+        descriptor = await store.GetThreadAsync(new ThreadKey(route.SessionId, route.ThreadId));
+        descriptor!.RuntimeChild!.Status.Should().Be(ThreadRunStatus.Failed);
 
         context.ResultMetadata.TryGet<string>("subAgentStatus", out var status).Should().BeTrue();
         status.Should().Be("started");
@@ -108,10 +178,11 @@ public class SubAgentRuntimeTests
             MinimalConfig(),
             SubAgentExecutionPolicies.ParentSessionFreshThread());
 
-        var route = await SubAgentRuntime.ResolveInvocationRouteAsync(agent, subAgent, context, CancellationToken.None);
+        var route = await SubAgentRuntime.ResolveInvocationRouteAsync(
+            agent, subAgent, context, "fresh-research", CancellationToken.None);
 
         route.SessionId.Should().Be("parent-session");
-        route.ThreadId.Should().StartWith("subagent/researcher/");
+        route.ThreadId.Should().StartWith("subagent/researcher/fresh-research/");
 
         var childThread = await store.ProjectThreadAsync(route.SessionId, route.ThreadId, ThreadProjectionPurpose.ThreadHistory);
         childThread.Should().NotBeNull();
@@ -189,5 +260,13 @@ public class SubAgentRuntimeTests
             events,
             ThreadAppendCondition.Any);
     }
+
+    private static AgentEvent Scope(SubAgentRuntime.SubAgentInvocationRoute route, AgentEvent evt)
+        => evt with
+        {
+            EventId = Guid.NewGuid().ToString("N"),
+            SessionId = route.SessionId,
+            ThreadId = route.ThreadId
+        };
 
 }

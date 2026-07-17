@@ -32,6 +32,7 @@ public class SubAgentCapabilityGenerationTests
         code.Should().Contain("SubAgentRuntime.SubAgentInvocationRequest");
         code.Should().Contain("Definition = subAgentDef");
         code.Should().Contain("Input = input");
+        code.Should().Contain("TaskName = taskName");
         code.Should().Contain("ParentContext = functionContext");
         code.Should().Contain("RequestedMode = requestedMode");
         code.Should().Contain("return result.ToToolResult()");
@@ -43,6 +44,7 @@ public class SubAgentCapabilityGenerationTests
         var code = MakeCapability().GenerateRegistrationCode(MakeToolHarness());
 
         code.Should().Contain("TryGetProperty(\"input\"");
+        code.Should().Contain("TryGetProperty(\"taskName\"");
         code.Should().Contain("SubAgentInputArgs");
         code.Should().NotContain("TryGetProperty(\"query\"");
         code.Should().NotContain("SubAgentQueryArgs");

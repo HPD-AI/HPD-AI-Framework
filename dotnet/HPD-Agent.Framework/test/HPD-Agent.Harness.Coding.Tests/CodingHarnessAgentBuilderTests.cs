@@ -6,6 +6,7 @@ using HPD.Agent.ErrorHandling;
 using HPD.Agent.Middleware;
 using HPD.Agent.Providers;
 using HPD.Events.Core;
+using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
@@ -41,7 +42,89 @@ public class CodingToolHarnessAgentBuilderTests
             "ListDirectory",
             "GlobSearch",
             "Grep",
-            "ExecuteCommand"
+            "ExecuteCommand",
+            "explore",
+            "worker",
+            "reviewer"
+        ]);
+
+        var explore = agent.DefaultOptions!.Tools!
+            .OfType<AIFunction>()
+            .Single(tool => tool.Name == "explore");
+        explore.JsonSchema.GetProperty("properties").TryGetProperty("taskName", out _).Should().BeTrue();
+        explore.JsonSchema.GetProperty("required")
+            .EnumerateArray()
+            .Select(static item => item.GetString())
+            .Should().Contain(["taskName", "input"]);
+    }
+
+    [Fact]
+    public void CodingSubAgents_UseFocusedToolProfilesWithoutRecursiveDelegation()
+    {
+        var harness = new CodingToolHarness();
+
+        var explorer = harness.Explore();
+        var worker = harness.Worker();
+        var reviewer = harness.Reviewer();
+
+        explorer.InvocationModePolicy.Should().Be(AgentInvocationModePolicy.ModelChoice);
+        worker.InvocationModePolicy.Should().Be(AgentInvocationModePolicy.ModelChoice);
+        reviewer.InvocationModePolicy.Should().Be(AgentInvocationModePolicy.ModelChoice);
+
+        explorer.ExecutionPolicy.Should().Be(SubAgentExecutionPolicy.Default);
+        worker.ExecutionPolicy.Should().Be(SubAgentExecutionPolicy.Default);
+        reviewer.ExecutionPolicy.Should().Be(SubAgentExecutionPolicy.Default);
+
+        GetCodingFunctions(explorer).Should().BeEquivalentTo([
+            "ReadFile", "ListDirectory", "GlobSearch", "Grep"
+        ]);
+        GetCodingFunctions(reviewer).Should().BeEquivalentTo([
+            "ReadFile", "ListDirectory", "GlobSearch", "Grep"
+        ]);
+        GetCodingFunctions(worker).Should().BeEquivalentTo([
+            "ReadFile", "ListDirectory", "GlobSearch", "Grep",
+            "EditFile", "WriteFile", "ExecuteCommand"
+        ]);
+
+        GetCodingFunctions(explorer).Should().NotContain(["explore", "worker", "reviewer"]);
+        GetCodingFunctions(worker).Should().NotContain(["explore", "worker", "reviewer"]);
+        GetCodingFunctions(reviewer).Should().NotContain(["explore", "worker", "reviewer"]);
+    }
+
+    [Fact]
+    public async Task CodingSubAgentToolProfiles_PreserveCodingHarnessScopedMiddleware()
+    {
+        using var chatClient = new TestChatClient();
+        var subAgent = new CodingToolHarness().Explore();
+        subAgent.AgentConfig!.Clients = new AgentClientConfig
+        {
+            Chat = new ClientProviderConfig
+            {
+                ProviderKey = "test",
+                ModelName = "test-model"
+            }
+        };
+
+        var agent = await new AgentBuilder(subAgent.AgentConfig, new TestProviderRegistry(chatClient))
+            .BuildAsync();
+
+        var toolNames = agent.DefaultOptions?.Tools?
+            .OfType<AIFunction>()
+            .Select(tool => tool.Name)
+            .ToArray();
+
+        toolNames.Should().BeEquivalentTo(["ReadFile", "ListDirectory", "GlobSearch", "Grep"]);
+        agent.Middlewares.Should().ContainSingle(middleware => middleware is ContainerMiddleware);
+
+        var collapse = typeof(CodingToolHarness)
+            .GetCustomAttributes(typeof(CollapseAttribute), inherit: false)
+            .OfType<CollapseAttribute>()
+            .Should().ContainSingle().Subject;
+
+        collapse.Middlewares.Should().BeEquivalentTo([
+            typeof(EnvironmentContextMiddleware),
+            typeof(CodingLanguageServerMiddleware),
+            typeof(ExecuteCommandPermissionMiddleware)
         ]);
     }
 
@@ -144,6 +227,13 @@ public class CodingToolHarnessAgentBuilderTests
             return await tool.InvokeAsync(arguments);
 
         return await hpdFunction.InvokeAsync(arguments, CreateFunctionContext(tool));
+    }
+
+    private static IReadOnlyList<string> GetCodingFunctions(SubAgent subAgent)
+    {
+        var reference = subAgent.AgentConfig!.ToolHarnesses.Should().ContainSingle().Subject;
+        reference.Name.Should().Be(nameof(CodingToolHarness));
+        return reference.Functions!;
     }
 
     private static FunctionExecutionContext CreateFunctionContext(AIFunction function)

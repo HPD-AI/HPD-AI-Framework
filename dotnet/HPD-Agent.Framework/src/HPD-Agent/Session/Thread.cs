@@ -135,6 +135,10 @@ public class Thread
     /// <summary>Name of the subagent that owns this thread, when Kind is SubAgent.</summary>
     public string? SubAgentName { get; set; }
 
+    public string? SubAgentTaskName { get; set; }
+
+    public string? SubAgentStatus { get; set; }
+
     /// <summary>Run id of the subagent invocation that created this thread.</summary>
     public string? SubAgentRunId { get; set; }
 
@@ -279,6 +283,8 @@ public class Thread
         string? parentSessionId = null,
         string? parentThreadId = null,
         string? subAgentName = null,
+        string? subAgentTaskName = null,
+        string? subAgentStatus = null,
         string? subAgentRunId = null,
         string? subAgentSourceKind = null,
         string? parentToolCallId = null,
@@ -302,6 +308,8 @@ public class Thread
         ParentSessionId = parentSessionId;
         ParentThreadId = parentThreadId;
         SubAgentName = subAgentName;
+        SubAgentTaskName = subAgentTaskName;
+        SubAgentStatus = subAgentStatus;
         SubAgentRunId = subAgentRunId;
         SubAgentSourceKind = subAgentSourceKind;
         ParentToolCallId = parentToolCallId;
@@ -370,6 +378,8 @@ public class Thread
             ParentThreadId = parentThreadId;
         if (TryRemoveString(metadata, "subAgentName", out var subAgentName))
             SubAgentName = subAgentName;
+        if (TryRemoveString(metadata, "subAgentTaskName", out var subAgentTaskName))
+            SubAgentTaskName = subAgentTaskName;
         if (TryRemoveString(metadata, "subAgentRunId", out var subAgentRunId))
             SubAgentRunId = subAgentRunId;
         if (TryRemoveString(metadata, "subAgentSourceKind", out var subAgentSourceKind))
