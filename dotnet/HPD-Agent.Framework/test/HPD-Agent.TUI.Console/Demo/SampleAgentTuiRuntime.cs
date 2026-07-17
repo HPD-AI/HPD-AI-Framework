@@ -79,7 +79,9 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         lock (_gate)
         {
             return Task.FromResult(new AgentTuiThreadState(
-                _history.Count == 0 ? 0 : _history.Max(static evt => evt.ThreadSequenceNumber),
+                _history.Count == 0
+                    ? new ThreadJournalCursor(1, 0)
+                    : new ThreadJournalCursor(1, _history.Max(static evt => evt.ThreadSequenceNumber)),
                 _activeRun,
                 []));
         }

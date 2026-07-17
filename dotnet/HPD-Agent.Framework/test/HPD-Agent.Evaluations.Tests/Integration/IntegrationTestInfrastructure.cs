@@ -160,12 +160,14 @@ internal sealed class FakeSessionStore : ISessionStore
     public Task<List<string>> ListSessionIdsAsync(CancellationToken ct = default) => Task.FromResult(new List<string>());
     public Task DeleteSessionAsync(string sessionId, CancellationToken ct = default) => Task.CompletedTask;
     public ValueTask<ThreadEventAppendResult> AppendThreadEventsAsync(ThreadKey thread, IReadOnlyList<AgentEvent> events, ThreadAppendCondition condition = default, CancellationToken ct = default) =>
-        ValueTask.FromResult(new ThreadEventAppendResult(events, 0, events.Count));
+        ValueTask.FromResult(new ThreadEventAppendResult(events, new ThreadJournalCursor(1, 0), new ThreadJournalCursor(1, events.Count)));
+    public ValueTask<ThreadJournalReplaceResult> ReplaceThreadEventsAsync(ThreadKey thread, IReadOnlyList<AgentEvent> events, ThreadJournalCursor expectedCursor, CancellationToken ct = default) =>
+        ValueTask.FromResult(new ThreadJournalReplaceResult(events, expectedCursor, new ThreadJournalCursor(expectedCursor.Generation + 1, events.Count)));
     public ValueTask<ThreadDescriptor?> GetThreadAsync(ThreadKey thread, CancellationToken ct = default) => ValueTask.FromResult<ThreadDescriptor?>(null);
     public ValueTask<ThreadEventHead?> GetThreadEventHeadAsync(ThreadKey thread, CancellationToken ct = default) => ValueTask.FromResult<ThreadEventHead?>(null);
     public async IAsyncEnumerable<ThreadDescriptor> ListThreadsAsync(string sessionId, ThreadListRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) { await Task.CompletedTask; yield break; }
     public async IAsyncEnumerable<ThreadEventBatch> ReadThreadEventsAsync(ThreadKey thread, ThreadEventReadRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) { await Task.CompletedTask; yield break; }
-    public async IAsyncEnumerable<ThreadEventBatch> ObserveThreadEventsAsync(ThreadKey thread, long after, ThreadObservationOptions options, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) { await Task.CompletedTask; yield break; }
+    public async IAsyncEnumerable<ThreadEventBatch> ObserveThreadEventsAsync(ThreadKey thread, ThreadJournalCursor after, ThreadObservationOptions options, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) { await Task.CompletedTask; yield break; }
     public Task DeleteThreadAsync(string sessionId, string threadId, CancellationToken ct = default) => Task.CompletedTask;
     public Task<int> DeleteInactiveSessionsAsync(TimeSpan threshold, bool dryRun = false, CancellationToken ct = default) => Task.FromResult(0);
 }

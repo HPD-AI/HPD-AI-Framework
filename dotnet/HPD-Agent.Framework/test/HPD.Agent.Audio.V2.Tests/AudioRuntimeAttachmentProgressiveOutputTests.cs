@@ -1360,7 +1360,8 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             thread: null,
             CancellationToken.None,
             traceId: "00000000000000000000000000000003",
-            contentStore: contentStore);
+            contentStore: contentStore,
+            structEvents: new HPD.Events.Struct.StructEventHub());
         var assistant = new ChatMessage(ChatRole.Assistant, assistantText);
         var finalResponse = new ChatResponse([assistant])
         {

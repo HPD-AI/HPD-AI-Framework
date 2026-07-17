@@ -13,6 +13,7 @@ using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
 using HPD.Agent.Providers.Audio.Meai;
 using HPD.Agent.Middleware;
+using HPD.Events.Struct;
 using HPD.Events.Core;
 using Microsoft.Extensions.AI;
 
@@ -655,7 +656,8 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             session: session,
             thread: thread,
             CancellationToken.None,
-            traceId: "00000000000000000000000000000001");
+            traceId: "00000000000000000000000000000001",
+            structEvents: new HPD.Events.Struct.StructEventHub());
 
         var factory = typeof(AgentContext).GetMethod(
             "AsBeforeMessageTurn",
@@ -681,7 +683,8 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             session: null,
             thread: null,
             CancellationToken.None,
-            traceId: "00000000000000000000000000000001");
+            traceId: "00000000000000000000000000000001",
+            structEvents: new HPD.Events.Struct.StructEventHub());
 
         var factory = typeof(AgentContext).GetMethod(
             "AsBeforeIteration",

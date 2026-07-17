@@ -121,10 +121,13 @@ public class ContentStorageIntegrationTests
             await session.SaveAsync();
             await store.SaveInitialThreadAsync(session.Id, thread);
 
-            // Assert: Verify thread stream was saved with URI reference (not bytes)
-            var threadEventsFile = Path.Combine(tempDir, session.Id, "threads", thread.Id, "thread.events.jsonl");
-            Assert.True(File.Exists(threadEventsFile));
-            var threadEventsJson = await File.ReadAllTextAsync(threadEventsFile);
+            // Assert: Verify thread journal was saved with URI reference (not bytes)
+            // FileSessionStore stores at {basePath}/sessions/{sessionId}/threads/{threadId}/journal/
+            var journalDir = Path.Combine(tempDir, "sessions", session.Id, "threads", thread.Id, "journal");
+            Assert.True(Directory.Exists(journalDir));
+            var segmentFiles = Directory.GetFiles(journalDir, "segment-*.events", SearchOption.AllDirectories);
+            Assert.NotEmpty(segmentFiles);
+            var threadEventsJson = await File.ReadAllTextAsync(segmentFiles[0]);
             Assert.Contains($"hpd-content://{contentId}", threadEventsJson);
             Assert.DoesNotContain("\"Data\":", threadEventsJson); // Binary data NOT in thread event stream
         }
@@ -379,7 +382,7 @@ public class ContentStorageIntegrationTests
             await session.SaveAsync();
 
             // Assert: Session saved
-            var sessionFile = Path.Combine(tempDir, session.Id, "session.json");
+            var sessionFile = Path.Combine(tempDir, "sessions", session.Id, "session.meta.json");
             Assert.True(File.Exists(sessionFile));
         }
         finally

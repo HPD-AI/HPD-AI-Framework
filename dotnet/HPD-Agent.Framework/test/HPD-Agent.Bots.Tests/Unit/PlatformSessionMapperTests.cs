@@ -161,8 +161,10 @@ public class PlatformSessionMapperTests : IDisposable
         var (sessionId, _) = await _mapper.ResolveAsync(key);
 
         // Delete threads from the store to simulate a session with no threads
-        var threads = await _store.ListThreadIdsAsync(sessionId);
-        foreach (var b in threads)
+        var threadIds = new List<string>();
+        await foreach (var t in _store.ListThreadsAsync(sessionId, new ThreadListRequest(MaxCount: int.MaxValue)))
+            threadIds.Add(t.Key.ThreadId);
+        foreach (var b in threadIds)
             await _store.DeleteThreadAsync(sessionId, b);
 
         // Resolve again — no threads means fallback to "main"

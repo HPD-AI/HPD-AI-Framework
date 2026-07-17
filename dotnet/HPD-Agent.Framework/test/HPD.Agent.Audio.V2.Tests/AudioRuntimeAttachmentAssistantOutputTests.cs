@@ -8,6 +8,7 @@ using HPD.Agent.Audio.Ledger;
 using HPD.Agent.Audio.Trace;
 using HPD.Agent.Middleware;
 using HPD.Events.Core;
+using HPD.Events.Struct;
 using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Audio.V2.Tests;
@@ -285,7 +286,8 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
             thread: null,
             CancellationToken.None,
             traceId: "00000000000000000000000000000002",
-            contentStore: contentStore);
+            contentStore: contentStore,
+            structEvents: new HPD.Events.Struct.StructEventHub());
         var assistant = new ChatMessage(ChatRole.Assistant, assistantText);
         var finalResponse = new ChatResponse([assistant])
         {

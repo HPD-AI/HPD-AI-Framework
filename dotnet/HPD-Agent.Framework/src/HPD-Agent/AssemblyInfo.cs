@@ -23,3 +23,6 @@ using System.Runtime.CompilerServices;
 
 // Make internals visible to the audio test project (needed for Session/Thread construction in audio middleware tests)
 [assembly: InternalsVisibleTo("HPD-Agent.Audio.Tests")]
+
+// Make internals visible to the audio V2 test project (needed for AgentContext construction in attachment integration tests)
+[assembly: InternalsVisibleTo("HPD.Agent.Audio.V2.Tests")]
