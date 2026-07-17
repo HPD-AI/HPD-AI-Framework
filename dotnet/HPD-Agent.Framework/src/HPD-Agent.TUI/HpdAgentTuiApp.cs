@@ -20,6 +20,7 @@ namespace HPD.Agent.TUI;
 
 public sealed class HpdAgentTuiApp : IAsyncDisposable
 {
+    private static readonly TimeSpan CancelConfirmationWindow = TimeSpan.FromSeconds(2);
     private readonly IHpdAgentTuiRuntime _runtime;
     private readonly AgentTuiRuntimeScope? _requestedScope;
     private readonly HpdAgentTuiRegistry _registry;
@@ -34,6 +35,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private readonly HashSet<string> _handledInteractionIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _sessionTitleUpdates = new(StringComparer.Ordinal);
     private string? _activeRuntimeRunId;
+    private string? _cancelConfirmationRunId;
+    private DateTimeOffset _cancelConfirmationExpiresAt;
     private bool _inputSubmissionPending;
     private bool _scopeIsDurable;
     private ThreadJournalCursor _appliedCursor;
@@ -414,7 +417,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 return false;
             }
 
-            _ = CancelActiveRunAsync(_scope, _state);
+            _ = ConfirmCancelActiveRunAsync(_scope, _state);
             return true;
         }
 
@@ -437,7 +440,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         return _state.Shell.Navigation.Back();
     }
 
-    private async Task CancelActiveRunAsync(
+    private async Task ConfirmCancelActiveRunAsync(
         AgentTuiRuntimeScope scope,
         AgentTuiSessionState state)
     {
@@ -450,12 +453,25 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             if (activeRun is null ||
                 !string.Equals(activeRun.Status, "active", StringComparison.OrdinalIgnoreCase))
             {
+                ClearCancelConfirmation();
                 state.Shell.FooterText = "state: ready";
                 RequestRender();
                 return;
             }
 
             var shortRunId = ShortId(activeRun.RuntimeRunId);
+            var now = DateTimeOffset.UtcNow;
+            if (!string.Equals(_cancelConfirmationRunId, activeRun.RuntimeRunId, StringComparison.Ordinal) ||
+                now > _cancelConfirmationExpiresAt)
+            {
+                _cancelConfirmationRunId = activeRun.RuntimeRunId;
+                _cancelConfirmationExpiresAt = now + CancelConfirmationWindow;
+                state.Shell.FooterText = $"state: running | press Esc again to cancel run {shortRunId}";
+                RequestRender();
+                return;
+            }
+
+            ClearCancelConfirmation();
             state.Shell.FooterText = $"state: cancelling | run: {shortRunId}";
             UpsertRunActivity(
                 state,
@@ -497,6 +513,12 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                     AgentChain: ["tui"])));
             RequestRender();
         }
+    }
+
+    private void ClearCancelConfirmation()
+    {
+        _cancelConfirmationRunId = null;
+        _cancelConfirmationExpiresAt = default;
     }
 
     private static void UpsertRunActivity(

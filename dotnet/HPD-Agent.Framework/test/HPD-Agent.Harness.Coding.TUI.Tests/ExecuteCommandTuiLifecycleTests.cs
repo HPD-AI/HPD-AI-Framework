@@ -79,7 +79,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
                 evt.FeedbackText == null);
         dialogs.LastShowKey.Should().Be("execute-command-permission:permission-1");
         dialogs.ShowPromptCount.Should().Be(1);
-        shell.FooterText.Should().Be("state: running | Esc cancels");
+        shell.FooterText.Should().Be("state: running | press Esc twice to cancel");
     }
 
     [Fact]

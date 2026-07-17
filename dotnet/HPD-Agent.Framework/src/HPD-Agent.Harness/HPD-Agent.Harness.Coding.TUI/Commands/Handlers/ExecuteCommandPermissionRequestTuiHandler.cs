@@ -30,7 +30,7 @@ public sealed class ExecuteCommandPermissionRequestTuiHandler :
             $"execute-command-permission:{request.PermissionId}",
             dialog => new ExecuteCommandPermissionDialogComponent(request, dialog, _theme),
             cancellationToken).ConfigureAwait(false);
-        context.Shell.FooterText = "state: running | Esc cancels";
+        context.Shell.FooterText = "state: running | press Esc twice to cancel";
 
         return AgentTuiInteractionResult.AnswerRequest(
             response.IsSubmitted && response.Value is not null
