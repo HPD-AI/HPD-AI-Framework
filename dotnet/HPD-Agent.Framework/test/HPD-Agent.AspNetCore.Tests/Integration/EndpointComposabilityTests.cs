@@ -222,7 +222,6 @@ public class EndpointComposabilityTests
         public Task<AgentServiceResult<ThreadDto>> ForkThreadAsync(string agentId, string sessionId, string threadId, ForkThreadRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<ThreadDto>> UpdateThreadAsync(string sessionId, string threadId, UpdateThreadRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult> DeleteThreadAsync(string sessionId, string threadId, bool recursive = false, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<AgentServiceResult<IReadOnlyList<AgentEvent>>> GetEventsAsync(string sessionId, string threadId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AgentServiceResult<ThreadGraphDto>> GetThreadGraphAsync(string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 

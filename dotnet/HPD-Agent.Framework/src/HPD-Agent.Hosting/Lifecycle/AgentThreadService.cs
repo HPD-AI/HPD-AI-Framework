@@ -60,9 +60,15 @@ public sealed class AgentThreadService : IAgentThreadService
     {
         var thread = await _sessionManager.Store.GetThreadAsync(
             new ThreadKey(sessionId, threadId), cancellationToken);
-        return thread == null
-            ? AgentServiceResult<ThreadDto>.NotFound
-            : AgentServiceResult<ThreadDto>.Success(thread.ToDto());
+        if (thread is null)
+            return AgentServiceResult<ThreadDto>.NotFound;
+
+        var descriptors = await _sessionManager.Store.CollectThreadDescriptorsAsync(
+            sessionId,
+            cancellationToken: cancellationToken);
+        var totalForks = descriptors.Count(candidate =>
+            StringComparer.Ordinal.Equals(candidate.Fork?.SourceThreadId, threadId));
+        return AgentServiceResult<ThreadDto>.Success(thread.ToDto(totalForks));
     }
 
     public async Task<AgentServiceResult<ThreadDto>> CreateThreadAsync(
@@ -366,7 +372,7 @@ public sealed class AgentThreadService : IAgentThreadService
             .Where(thread => thread.Fork is not null &&
                 visible.ContainsKey(thread.Fork.SourceThreadId))
             .GroupBy(
-                thread => (thread.Fork!.SourceThreadId, thread.Fork.MessageId),
+                thread => (SourceThreadId: ResolveForkGroupSource(thread, visible), thread.Fork!.MessageId),
                 new ForkDescriptorKeyComparer())
             .OrderBy(group => group.Key.SourceThreadId, StringComparer.Ordinal)
             .ThenBy(group => group.Min(thread => thread.Fork?.MessageIndex ?? -1))
@@ -399,6 +405,23 @@ public sealed class AgentThreadService : IAgentThreadService
                     members);
             })
             .ToArray();
+    }
+
+    private static string ResolveForkGroupSource(
+        ThreadDescriptor thread,
+        IReadOnlyDictionary<string, ThreadDescriptor> visible)
+    {
+        var messageId = thread.Fork!.MessageId;
+        var sourceId = thread.Fork.SourceThreadId;
+
+        while (visible.TryGetValue(sourceId, out var source) &&
+               source.Fork is not null &&
+               StringComparer.Ordinal.Equals(source.Fork.MessageId, messageId))
+        {
+            sourceId = source.Fork.SourceThreadId;
+        }
+
+        return sourceId;
     }
 
     private static ThreadForkGroupMemberDto ToForkMember(

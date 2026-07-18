@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
@@ -108,38 +107,31 @@ public class RecursiveThreadDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
             new StreamTextRequest("Seed fork message"));
         inputResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
 
-        for (var i = 0; i < 50; i++)
-        {
-            var messageId = await TryGetFirstUserMessageIdAsync(sessionId, threadId);
-            if (!string.IsNullOrWhiteSpace(messageId))
-                return messageId!;
-
-            await Task.Delay(50);
-        }
+        var messageId = await TryGetFirstUserMessageIdAsync(
+            sessionId,
+            threadId,
+            TimeSpan.FromSeconds(15));
+        if (!string.IsNullOrWhiteSpace(messageId))
+            return messageId!;
 
         throw new TimeoutException("Timed out waiting for a persisted fork message.");
     }
 
-    private async Task<string?> TryGetFirstUserMessageIdAsync(string sessionId, string threadId)
+    private async Task<string?> TryGetFirstUserMessageIdAsync(
+        string sessionId,
+        string threadId,
+        TimeSpan? timeout = null)
     {
-        var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/threads/{threadId}/events");
-        eventsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        using var document = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
-        foreach (var evt in document.RootElement.EnumerateArray())
-        {
-            if (evt.GetProperty("type").GetString() != "TEXT_MESSAGE_START")
-                continue;
-
-            if (evt.TryGetProperty("role", out var role) &&
-                string.Equals(role.GetString(), "user", StringComparison.OrdinalIgnoreCase) &&
-                evt.TryGetProperty("messageId", out var messageId))
-            {
-                return messageId.GetString();
-            }
-        }
-
-        return null;
+        var events = await SseTestEventReader.ReadUntilAsync(
+            _client,
+            sessionId,
+            threadId,
+            static observed => observed.OfType<TextMessageStartEvent>()
+                .Any(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase)),
+            timeout ?? TimeSpan.FromMilliseconds(150));
+        return events.OfType<TextMessageStartEvent>()
+            .FirstOrDefault(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase))
+            ?.MessageId;
     }
 
     private async Task<ThreadDto?> GetThread(string sessionId, string threadId)
@@ -382,38 +374,31 @@ public class RecursiveThreadDeleteGuardTests : IClassFixture<TestWebApplicationF
             new StreamTextRequest("Seed fork message"));
         inputResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
 
-        for (var i = 0; i < 50; i++)
-        {
-            var messageId = await TryGetFirstUserMessageIdAsync(sessionId, threadId);
-            if (!string.IsNullOrWhiteSpace(messageId))
-                return messageId!;
-
-            await Task.Delay(50);
-        }
+        var messageId = await TryGetFirstUserMessageIdAsync(
+            sessionId,
+            threadId,
+            TimeSpan.FromSeconds(15));
+        if (!string.IsNullOrWhiteSpace(messageId))
+            return messageId!;
 
         throw new TimeoutException("Timed out waiting for a persisted fork message.");
     }
 
-    private async Task<string?> TryGetFirstUserMessageIdAsync(string sessionId, string threadId)
+    private async Task<string?> TryGetFirstUserMessageIdAsync(
+        string sessionId,
+        string threadId,
+        TimeSpan? timeout = null)
     {
-        var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/threads/{threadId}/events");
-        eventsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        using var document = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
-        foreach (var evt in document.RootElement.EnumerateArray())
-        {
-            if (evt.GetProperty("type").GetString() != "TEXT_MESSAGE_START")
-                continue;
-
-            if (evt.TryGetProperty("role", out var role) &&
-                string.Equals(role.GetString(), "user", StringComparison.OrdinalIgnoreCase) &&
-                evt.TryGetProperty("messageId", out var messageId))
-            {
-                return messageId.GetString();
-            }
-        }
-
-        return null;
+        var events = await SseTestEventReader.ReadUntilAsync(
+            _client,
+            sessionId,
+            threadId,
+            static observed => observed.OfType<TextMessageStartEvent>()
+                .Any(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase)),
+            timeout ?? TimeSpan.FromMilliseconds(150));
+        return events.OfType<TextMessageStartEvent>()
+            .FirstOrDefault(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase))
+            ?.MessageId;
     }
 
     [Fact]

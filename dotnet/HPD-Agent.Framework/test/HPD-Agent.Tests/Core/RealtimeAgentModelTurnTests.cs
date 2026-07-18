@@ -92,7 +92,12 @@ public sealed class RealtimeAgentModelTurnTests : AgentTestBase
         Assert.Contains(capturedEvents, evt => evt is TextMessageEndEvent);
         Assert.Contains(capturedEvents, evt => evt is AgentTurnFinishedEvent);
         Assert.Contains(capturedEvents, evt => evt is MessageTurnFinishedEvent);
-        Assert.Equal("Hello realtime", string.Concat(capturedEvents.OfType<TextDeltaEvent>().Select(evt => evt.Text)));
+        var assistantText = capturedEvents
+            .OfType<TextDeltaEvent>()
+            .GroupBy(evt => evt.MessageId)
+            .Select(group => string.Concat(group.Select(evt => evt.Text)))
+            .Last();
+        Assert.Equal("Hello realtime", assistantText);
 
         var thread = await store.ProjectThreadAsync("session-1", "main", ThreadProjectionPurpose.ThreadHistory, TestCancellationToken);
         Assert.NotNull(thread);

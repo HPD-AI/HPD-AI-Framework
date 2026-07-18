@@ -237,7 +237,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
-            $"/agents/test-agent/sessions/{sessionId}/threads/main/events?after=0");
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/events?after=1:0");
         request.Headers.Accept.ParseAdd("text/event-stream");
         using var response = await _client.SendAsync(
             request,

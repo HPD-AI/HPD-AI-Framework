@@ -80,6 +80,7 @@ public sealed class BotStreamingRunner(
 
             var agent = await agentManager.GetOrBuildAgentAsync(request.AgentId, ct);
             var buffer = new StringBuilder();
+            var assistantMessageIds = new HashSet<string>(StringComparer.Ordinal);
             var lastUpdatedText = string.Empty;
             using var debounce = new BotDebounceTimer(request.DebounceMs);
 
@@ -99,7 +100,12 @@ public sealed class BotStreamingRunner(
             {
                 switch (evt)
                 {
-                    case TextDeltaEvent delta:
+                    case TextMessageStartEvent start when
+                        string.Equals(start.Role, "assistant", StringComparison.OrdinalIgnoreCase):
+                        assistantMessageIds.Add(start.MessageId);
+                        break;
+
+                    case TextDeltaEvent delta when assistantMessageIds.Contains(delta.MessageId):
                         buffer.Append(delta.Text);
                         if (request.Strategy != StreamingStrategy.BufferAndPost)
                         {
@@ -107,7 +113,7 @@ public sealed class BotStreamingRunner(
                         }
                         break;
 
-                    case TextMessageEndEvent:
+                    case TextMessageEndEvent end when assistantMessageIds.Remove(end.MessageId):
                         debounce.Cancel();
                         if (request.Strategy != StreamingStrategy.BufferAndPost)
                             await FlushTextUpdateAsync().ConfigureAwait(false);

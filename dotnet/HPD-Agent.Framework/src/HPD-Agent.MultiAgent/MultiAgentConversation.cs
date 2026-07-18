@@ -273,13 +273,18 @@ internal sealed class MultiAgentConversationRuntime : IMultiAgentConversationRun
 
             if (_config.Mode == MultiAgentConversationMode.ForkThreadPerAgent && thread.Messages.Count == 0)
             {
-                thread.AddMessage(new ChatMessage(ChatRole.User, _originalInput)
-                {
-                    MessageId = $"workflow-input-{Normalize(_executionId)}"
-                });
+                var messageId = $"workflow-input-{Normalize(_executionId)}";
+                await _store.AppendThreadEventsAsync(
+                    new ThreadKey(_sessionId, rootThreadId),
+                    [
+                        new TextMessageStartEvent(messageId, "user", AgentMessageSource.UserInput),
+                        new TextDeltaEvent(_originalInput, messageId),
+                        new TextMessageEndEvent(messageId)
+                    ],
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
             }
 
-            await _store.SaveInitialThreadAsync(_sessionId, thread, cancellationToken).ConfigureAwait(false);
+            await _store.AppendThreadUpdatedAsync(thread, cancellationToken).ConfigureAwait(false);
         }
 
         return rootThreadId;

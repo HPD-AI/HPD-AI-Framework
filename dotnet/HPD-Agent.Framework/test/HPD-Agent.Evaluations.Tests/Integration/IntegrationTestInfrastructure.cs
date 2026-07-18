@@ -148,28 +148,30 @@ internal sealed class StubDeterministicEvaluator : HpdDeterministicEvaluatorBase
 /// </summary>
 internal sealed class FakeSessionStore : ISessionStore
 {
-    private readonly Dictionary<(string sessionId, string threadId), Thread> _threads = new();
+    private readonly InMemorySessionStore _inner = new();
 
-    public void AddThread(string sessionId, Thread thread) =>
-        _threads[(sessionId, thread.Id)] = thread;
+    public void AddThread(string sessionId, Thread thread)
+    {
+        if (_inner.LoadSessionAsync(sessionId).GetAwaiter().GetResult() is null)
+            _inner.SaveSessionAsync(new Session(sessionId)).GetAwaiter().GetResult();
+        _inner.SaveInitialThreadAsync(sessionId, thread).GetAwaiter().GetResult();
+    }
 
-    public Task<Thread?> ProjectThreadAsync(string sessionId, string threadId, CancellationToken ct = default) =>
-        Task.FromResult(_threads.GetValueOrDefault((sessionId, threadId)));
-    public Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default) => Task.FromResult<Session?>(null);
-    public Task SaveSessionAsync(Session session, CancellationToken ct = default) => Task.CompletedTask;
-    public Task<List<string>> ListSessionIdsAsync(CancellationToken ct = default) => Task.FromResult(new List<string>());
-    public Task DeleteSessionAsync(string sessionId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default) => _inner.LoadSessionAsync(sessionId, ct);
+    public Task SaveSessionAsync(Session session, CancellationToken ct = default) => _inner.SaveSessionAsync(session, ct);
+    public Task<List<string>> ListSessionIdsAsync(CancellationToken ct = default) => _inner.ListSessionIdsAsync(ct);
+    public Task DeleteSessionAsync(string sessionId, CancellationToken ct = default) => _inner.DeleteSessionAsync(sessionId, ct);
     public ValueTask<ThreadEventAppendResult> AppendThreadEventsAsync(ThreadKey thread, IReadOnlyList<AgentEvent> events, ThreadAppendCondition condition = default, CancellationToken ct = default) =>
-        ValueTask.FromResult(new ThreadEventAppendResult(events, new ThreadJournalCursor(1, 0), new ThreadJournalCursor(1, events.Count)));
+        _inner.AppendThreadEventsAsync(thread, events, condition, ct);
     public ValueTask<ThreadJournalReplaceResult> ReplaceThreadEventsAsync(ThreadKey thread, IReadOnlyList<AgentEvent> events, ThreadJournalCursor expectedCursor, CancellationToken ct = default) =>
-        ValueTask.FromResult(new ThreadJournalReplaceResult(events, expectedCursor, new ThreadJournalCursor(expectedCursor.Generation + 1, events.Count)));
-    public ValueTask<ThreadDescriptor?> GetThreadAsync(ThreadKey thread, CancellationToken ct = default) => ValueTask.FromResult<ThreadDescriptor?>(null);
-    public ValueTask<ThreadEventHead?> GetThreadEventHeadAsync(ThreadKey thread, CancellationToken ct = default) => ValueTask.FromResult<ThreadEventHead?>(null);
-    public async IAsyncEnumerable<ThreadDescriptor> ListThreadsAsync(string sessionId, ThreadListRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) { await Task.CompletedTask; yield break; }
-    public async IAsyncEnumerable<ThreadEventBatch> ReadThreadEventsAsync(ThreadKey thread, ThreadEventReadRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) { await Task.CompletedTask; yield break; }
-    public async IAsyncEnumerable<ThreadEventBatch> ObserveThreadEventsAsync(ThreadKey thread, ThreadJournalCursor after, ThreadObservationOptions options, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default) { await Task.CompletedTask; yield break; }
-    public Task DeleteThreadAsync(string sessionId, string threadId, CancellationToken ct = default) => Task.CompletedTask;
-    public Task<int> DeleteInactiveSessionsAsync(TimeSpan threshold, bool dryRun = false, CancellationToken ct = default) => Task.FromResult(0);
+        _inner.ReplaceThreadEventsAsync(thread, events, expectedCursor, ct);
+    public ValueTask<ThreadDescriptor?> GetThreadAsync(ThreadKey thread, CancellationToken ct = default) => _inner.GetThreadAsync(thread, ct);
+    public ValueTask<ThreadEventHead?> GetThreadEventHeadAsync(ThreadKey thread, CancellationToken ct = default) => _inner.GetThreadEventHeadAsync(thread, ct);
+    public IAsyncEnumerable<ThreadDescriptor> ListThreadsAsync(string sessionId, ThreadListRequest request, CancellationToken ct = default) => _inner.ListThreadsAsync(sessionId, request, ct);
+    public IAsyncEnumerable<ThreadEventBatch> ReadThreadEventsAsync(ThreadKey thread, ThreadEventReadRequest request, CancellationToken ct = default) => _inner.ReadThreadEventsAsync(thread, request, ct);
+    public IAsyncEnumerable<ThreadEventBatch> ObserveThreadEventsAsync(ThreadKey thread, ThreadJournalCursor after, ThreadObservationOptions options, CancellationToken ct = default) => _inner.ObserveThreadEventsAsync(thread, after, options, ct);
+    public Task DeleteThreadAsync(string sessionId, string threadId, CancellationToken ct = default) => _inner.DeleteThreadAsync(sessionId, threadId, ct);
+    public Task<int> DeleteInactiveSessionsAsync(TimeSpan threshold, bool dryRun = false, CancellationToken ct = default) => _inner.DeleteInactiveSessionsAsync(threshold, dryRun, ct);
 }
 
 // ── ThreadBuilder ─────────────────────────────────────────────────────────

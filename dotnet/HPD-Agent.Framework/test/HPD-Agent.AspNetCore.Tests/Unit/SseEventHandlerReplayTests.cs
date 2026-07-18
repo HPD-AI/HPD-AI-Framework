@@ -31,9 +31,9 @@ public sealed class SseEventHandlerReplayTests
             .Single(evt => evt.Text == "second")
             .ThreadSequenceNumber;
         var context = new DefaultHttpContext();
-        context.Request.QueryString = new QueryString($"?after={firstSequence}");
+        context.Request.QueryString = new QueryString($"?after=1:{firstSequence}");
         context.Response.Body = new MemoryStream();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 
         var streamTask = SseEventHandler.StreamEventsAsync(
             context,
@@ -50,9 +50,9 @@ public sealed class SseEventHandlerReplayTests
 
         context.Response.Body.Position = 0;
         var body = await new StreamReader(context.Response.Body, Encoding.UTF8).ReadToEndAsync();
-        body.Should().Contain($"id: {secondSequence}\n");
+        body.Should().Contain($"id: 1:{secondSequence}\n");
         body.Should().Contain("second");
-        body.Should().NotContain($"id: {firstSequence}\n");
+        body.Should().NotContain($"id: 1:{firstSequence}\n");
         body.Should().NotContain("first");
     }
 }

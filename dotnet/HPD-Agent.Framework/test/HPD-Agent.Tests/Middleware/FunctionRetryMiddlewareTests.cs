@@ -351,7 +351,15 @@ public class FunctionRetryMiddlewareTests
             retryEvents.Add(evt);
             return ValueTask.CompletedTask;
         });
-        var request = CreateFunctionRequest() with { EventCoordinator = eventCoordinator };
+        var request = CreateFunctionRequest() with
+        {
+            EventCoordinator = eventCoordinator,
+            EventPublisher = async (evt, ct) =>
+            {
+                await eventCoordinator.EmitAsync(evt, ct);
+                return evt;
+            }
+        };
 
         int attempts = 0;
         Func<FunctionRequest, Task<object?>> handler = async (req) =>

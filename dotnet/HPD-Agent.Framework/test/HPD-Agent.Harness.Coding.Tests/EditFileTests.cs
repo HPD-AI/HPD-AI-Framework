@@ -422,7 +422,7 @@ public sealed class EditFileTests : IDisposable
     {
         var source = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
-            "dotnet/HPD-Agent.Framework/src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/CodingHarness.EditFile.cs"));
+            "src/HPD-Agent.Harness/HPD-Agent.Harness.Coding/CodingHarness.EditFile.cs"));
 
         source.Should().NotContain("LanguageServer");
         source.Should().NotContain("LSP");
@@ -571,7 +571,7 @@ public sealed class EditFileTests : IDisposable
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null && !Directory.Exists(Path.Combine(directory.FullName, ".git")))
+        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "HPD-Agent.slnx")))
             directory = directory.Parent;
 
         return directory?.FullName ?? AppContext.BaseDirectory;

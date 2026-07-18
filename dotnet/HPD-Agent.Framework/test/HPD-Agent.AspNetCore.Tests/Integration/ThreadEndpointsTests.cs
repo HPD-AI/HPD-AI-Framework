@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
@@ -40,38 +39,31 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
             new StreamTextRequest("Seed fork message"));
         inputResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
 
-        for (var i = 0; i < 50; i++)
-        {
-            var messageId = await TryGetFirstUserMessageIdAsync(sessionId, threadId);
-            if (!string.IsNullOrWhiteSpace(messageId))
-                return messageId!;
-
-            await Task.Delay(50);
-        }
+        var messageId = await TryGetFirstUserMessageIdAsync(
+            sessionId,
+            threadId,
+            TimeSpan.FromSeconds(15));
+        if (!string.IsNullOrWhiteSpace(messageId))
+            return messageId!;
 
         throw new TimeoutException("Timed out waiting for a persisted fork message.");
     }
 
-    private async Task<string?> TryGetFirstUserMessageIdAsync(string sessionId, string threadId)
+    private async Task<string?> TryGetFirstUserMessageIdAsync(
+        string sessionId,
+        string threadId,
+        TimeSpan? timeout = null)
     {
-        var eventsResponse = await _client.GetAsync($"/sessions/{sessionId}/threads/{threadId}/events");
-        eventsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        using var document = JsonDocument.Parse(await eventsResponse.Content.ReadAsStringAsync());
-        foreach (var evt in document.RootElement.EnumerateArray())
-        {
-            if (evt.GetProperty("type").GetString() != "TEXT_MESSAGE_START")
-                continue;
-
-            if (evt.TryGetProperty("role", out var role) &&
-                string.Equals(role.GetString(), "user", StringComparison.OrdinalIgnoreCase) &&
-                evt.TryGetProperty("messageId", out var messageId))
-            {
-                return messageId.GetString();
-            }
-        }
-
-        return null;
+        var events = await SseTestEventReader.ReadUntilAsync(
+            _client,
+            sessionId,
+            threadId,
+            static observed => observed.OfType<TextMessageStartEvent>()
+                .Any(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase)),
+            timeout ?? TimeSpan.FromMilliseconds(150));
+        return events.OfType<TextMessageStartEvent>()
+            .FirstOrDefault(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase))
+            ?.MessageId;
     }
 
     #region GET /sessions/{sid}/threads
@@ -467,34 +459,36 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
 
     #endregion
 
-    #region GET /sessions/{sid}/threads/{bid}/events
+    #region GET /agents/{agentId}/sessions/{sid}/threads/{bid}/events
 
     [Fact]
-    public async Task GetThreadEvents_ReturnsNormalizedThreadEvents()
+    public async Task ObserveThreadEvents_ReplaysNormalizedThreadEvents()
     {
         var sessionId = await CreateTestSession();
 
-        var response = await _client.GetAsync($"/sessions/{sessionId}/threads/main/events");
+        var events = await SseTestEventReader.ReadUntilAsync(
+            _client,
+            sessionId,
+            "main",
+            static observed => observed.Any(evt => evt is ThreadCreatedEvent),
+            TimeSpan.FromSeconds(15));
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        document.RootElement.EnumerateArray()
-            .Should()
-            .Contain(e => e.GetProperty("type").GetString() == ThreadEventTypes.ThreadCreated);
+        events.Should().Contain(evt => evt is ThreadCreatedEvent);
     }
 
     [Fact]
-    public async Task GetThreadEvents_Returns404_WhenThreadNotFound()
+    public async Task ObserveThreadEvents_Returns404_WhenThreadNotFound()
     {
         var sessionId = await CreateTestSession();
 
-        var response = await _client.GetAsync($"/sessions/{sessionId}/threads/nonexistent/events");
+        var response = await _client.GetAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads/nonexistent/events?after=1:0");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task GetThreadEvents_ReturnsForkEvent_ForForkedThread()
+    public async Task ObserveThreadEvents_ReplaysForkMetadata_ForForkedThread()
     {
         var sessionId = await CreateTestSession();
         var forkMessageId = await EnsureForkMessageAsync(sessionId);
@@ -505,17 +499,17 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
             forkRequest);
         forkResponse.StatusCode.Should().Be(HttpStatusCode.Created);
 
-        var response = await _client.GetAsync($"/sessions/{sessionId}/threads/fork-1/events");
+        var events = await SseTestEventReader.ReadUntilAsync(
+            _client,
+            sessionId,
+            "fork-1",
+            static observed => observed.Any(evt => evt is ThreadCreatedEvent),
+            TimeSpan.FromSeconds(15));
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var events = document.RootElement.EnumerateArray().ToList();
-        events.Should().Contain(e => e.GetProperty("type").GetString() == ThreadEventTypes.ThreadCreated);
-
-        var created = events.Single(e => e.GetProperty("type").GetString() == ThreadEventTypes.ThreadCreated);
-        created.GetProperty("forkedFrom").GetString().Should().Be("main");
-        created.GetProperty("forkedAtMessageId").GetString().Should().Be(forkMessageId);
-        created.GetProperty("forkedAtMessageIndex").GetInt32().Should().Be(0);
+        var created = events.OfType<ThreadCreatedEvent>().Should().ContainSingle().Which;
+        created.ForkedFrom.Should().Be("main");
+        created.ForkedAtMessageId.Should().Be(forkMessageId);
+        created.ForkedAtMessageIndex.Should().Be(0);
     }
 
     #endregion

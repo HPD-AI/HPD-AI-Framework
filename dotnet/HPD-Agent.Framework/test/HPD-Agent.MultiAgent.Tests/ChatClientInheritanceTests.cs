@@ -163,7 +163,7 @@ public class ChatClientInheritanceTests
         // Assert
         await act.Should()
             .ThrowAsync<InvalidOperationException>()
-            .WithMessage("*No chat model is configured for this agent run*");
+            .WithMessage("*No chat model is available for this invocation*");
     }
 
     [Fact]

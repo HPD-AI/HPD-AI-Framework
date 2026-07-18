@@ -162,7 +162,11 @@ public class AgentBuilderWithToolTests
         client.EnqueueToolCall(
             "support_escalation",
             "call-subagent",
-            new Dictionary<string, object?> { ["input"] = "help with this order" });
+            new Dictionary<string, object?>
+            {
+                ["taskName"] = "order_escalation",
+                ["input"] = "help with this order"
+            });
         client.EnqueueTextResponse("child handled escalation");
         client.EnqueueTextResponse("parent saw escalation");
 
@@ -224,7 +228,11 @@ public class AgentBuilderWithToolTests
         client.EnqueueToolCall(
             "support_escalation",
             "call-subagent",
-            new Dictionary<string, object?> { ["input"] = "help with this order" });
+            new Dictionary<string, object?>
+            {
+                ["taskName"] = "order_escalation",
+                ["input"] = "help with this order"
+            });
         client.EnqueueTextResponse("child handled escalation");
         client.EnqueueTextResponse("parent saw escalation");
 

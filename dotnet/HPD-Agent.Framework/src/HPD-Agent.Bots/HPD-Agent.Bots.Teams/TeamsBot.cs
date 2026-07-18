@@ -174,14 +174,26 @@ public sealed class TeamsBot(
 
             var agentId = _config.ResolveAgentId();
             var agent = await _agentManager.GetOrBuildAgentAsync(agentId, ct);
+            var assistantMessageIds = new HashSet<string>(StringComparer.Ordinal);
             await using var subscription = ((IEventInboxSource)agent.EventCoordinator).CreateInbox<AgentEvent>();
 
             async Task HandleEventAsync(AgentEvent evt)
             {
                 switch (evt)
                 {
-                    case TextDeltaEvent delta when !string.IsNullOrEmpty(delta.Text):
+                    case TextMessageStartEvent start when
+                        string.Equals(start.Role, "assistant", StringComparison.OrdinalIgnoreCase):
+                        assistantMessageIds.Add(start.MessageId);
+                        break;
+
+                    case TextDeltaEvent delta when
+                        assistantMessageIds.Contains(delta.MessageId) &&
+                        !string.IsNullOrEmpty(delta.Text):
                         turn.QueueTextChunk(delta.Text);
+                        break;
+
+                    case TextMessageEndEvent end:
+                        assistantMessageIds.Remove(end.MessageId);
                         break;
 
                     case CardContentEvent card:

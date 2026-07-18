@@ -31,7 +31,7 @@ public class ThreadTreeV3DeleteTests : AgentTestBase
         var fork1 = await agent.ForkThreadAsync(main, "fork-1", fromMessageId: main.Messages[0].MessageId!);
         fork1.Session = session;
         fork1.AddMessage(AssistantMessage("Response"));
-        await store.SaveInitialThreadAsync(session.Id, fork1);
+        await store.AppendThreadUpdatedAsync(fork1);
         await agent.ForkThreadAsync(fork1, "fork-1a", fromMessageId: fork1.Messages[0].MessageId!);
 
         var act = async () => await agent.DeleteThreadAsync(session.Id, "fork-1");

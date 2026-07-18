@@ -1340,6 +1340,11 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             Session = CreateSession("session-progressive"),
             ContentStore = contentStore,
             EventCoordinator = coordinator,
+            EventPublisher = async (evt, ct) =>
+            {
+                await coordinator.EmitAsync(evt, ct);
+                return evt;
+            },
             EventFlows = coordinator.EventFlows,
             StructEvents = structEvents
         };
