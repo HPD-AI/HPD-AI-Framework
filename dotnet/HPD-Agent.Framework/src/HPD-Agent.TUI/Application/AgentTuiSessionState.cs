@@ -39,7 +39,7 @@ public sealed class AgentTuiSessionState
             _registry,
             _state,
             deliveryMode);
-        foreach (var handler in _registry.FindEventHandlers(evt))
+        foreach (var handler in _registry.FindEventHandlers(evt, Scope))
         {
             await handler.Value.HandleAsync(evt, context, cancellationToken)
                 .ConfigureAwait(false);

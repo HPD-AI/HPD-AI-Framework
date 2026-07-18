@@ -23,7 +23,13 @@ public sealed record AudioArtifactRef(
     long? SizeBytes,
     string? Sha256);
 
-public sealed record ThreadRef(string SessionId, string ThreadId);
+/// <summary>
+/// Identifies the agent-owned session thread targeted by an audio operation.
+/// </summary>
+/// <param name="AgentId">Durable identity of the agent associated with the thread.</param>
+/// <param name="SessionId">Session containing the thread.</param>
+/// <param name="ThreadId">Thread receiving the operation.</param>
+public sealed record ThreadRef(string AgentId, string SessionId, string ThreadId);
 
 public sealed record ThreadProjectedEventRef(string EventId, long SequenceNumber);
 

@@ -15,8 +15,8 @@ public sealed class HpdAgentTuiRegistry
     private readonly IReadOnlyList<AgentTuiContribution<IAgentTuiAutocompleteProvider>> _autocompleteProviders;
     private readonly IReadOnlyDictionary<string, HpdAgentTuiShortcutDescriptor> _shortcuts;
     private readonly HpdAgentTuiShortcutDescriptor[] _shortcutList;
-    private readonly IReadOnlyList<AgentTuiContribution<IAgentTuiEventHandler>> _eventHandlers;
-    private readonly IReadOnlyList<AgentTuiContribution<IAgentTuiInteractionHandler>> _interactionHandlers;
+    private readonly IReadOnlyList<AgentTuiEventContribution<IAgentTuiEventHandler>> _eventHandlers;
+    private readonly IReadOnlyList<AgentTuiEventContribution<IAgentTuiInteractionHandler>> _interactionHandlers;
     private readonly IReadOnlyDictionary<string, HpdAgentTuiPageDescriptor> _pages;
     private readonly HpdAgentTuiPageDescriptor[] _pageList;
     private readonly IAgentTuiPromptFactory? _promptFactory;
@@ -29,8 +29,8 @@ public sealed class HpdAgentTuiRegistry
         IReadOnlyDictionary<(TuiSlot Slot, string Key), IAgentTuiWidget> widgets,
         IReadOnlyDictionary<string, IAgentTuiAutocompleteProvider> autocompleteProviders,
         IEnumerable<HpdAgentTuiShortcutDescriptor> shortcuts,
-        IReadOnlyDictionary<string, IAgentTuiEventHandler> eventHandlers,
-        IReadOnlyDictionary<string, IAgentTuiInteractionHandler> interactionHandlers,
+        IReadOnlyDictionary<string, AgentTuiEventHandlerRegistration> eventHandlers,
+        IReadOnlyDictionary<string, AgentTuiInteractionHandlerRegistration> interactionHandlers,
         IEnumerable<IAgentTuiTranscriptRendererAdapter> transcriptRenderers,
         IAgentTuiShellComponent? header,
         IAgentTuiShellComponent? footer,
@@ -74,10 +74,16 @@ public sealed class HpdAgentTuiRegistry
         _shortcuts = shortcuts.ToDictionary(shortcut => shortcut.Key, StringComparer.Ordinal);
         _shortcutList = _shortcuts.Values.ToArray();
         _eventHandlers = eventHandlers
-            .Select(pair => new AgentTuiContribution<IAgentTuiEventHandler>(pair.Key, pair.Value))
+            .Select(pair => new AgentTuiEventContribution<IAgentTuiEventHandler>(
+                pair.Key,
+                pair.Value.Handler,
+                pair.Value.Scope))
             .ToArray();
         _interactionHandlers = interactionHandlers
-            .Select(pair => new AgentTuiContribution<IAgentTuiInteractionHandler>(pair.Key, pair.Value))
+            .Select(pair => new AgentTuiEventContribution<IAgentTuiInteractionHandler>(
+                pair.Key,
+                pair.Value.Handler,
+                pair.Value.Scope))
             .ToArray();
         TranscriptRenderers = new AgentTuiTranscriptRendererRegistry(transcriptRenderers);
         Header = header;
@@ -123,9 +129,9 @@ public sealed class HpdAgentTuiRegistry
 
     public IReadOnlyList<HpdAgentTuiShortcutDescriptor> Shortcuts => _shortcutList;
 
-    public IReadOnlyList<AgentTuiContribution<IAgentTuiEventHandler>> EventHandlers => _eventHandlers;
+    public IReadOnlyList<AgentTuiEventContribution<IAgentTuiEventHandler>> EventHandlers => _eventHandlers;
 
-    public IReadOnlyList<AgentTuiContribution<IAgentTuiInteractionHandler>> InteractionHandlers => _interactionHandlers;
+    public IReadOnlyList<AgentTuiEventContribution<IAgentTuiInteractionHandler>> InteractionHandlers => _interactionHandlers;
 
     public bool TryFindSlashCommand(
         ReadOnlySpan<char> commandLine,
@@ -185,13 +191,16 @@ public sealed class HpdAgentTuiRegistry
         return _pages.TryGetValue(pageId, out page!);
     }
 
-    public IEnumerable<AgentTuiContribution<IAgentTuiEventHandler>> FindEventHandlers(AgentEvent evt)
+    public IEnumerable<AgentTuiEventContribution<IAgentTuiEventHandler>> FindEventHandlers(
+        AgentEvent evt,
+        Runtime.AgentTuiRuntimeScope selectedScope)
     {
         ArgumentNullException.ThrowIfNull(evt);
+        ArgumentNullException.ThrowIfNull(selectedScope);
 
         foreach (var candidate in _eventHandlers)
         {
-            if (candidate.Value.CanHandle(evt))
+            if (candidate.Scope.Includes(evt, selectedScope) && candidate.Value.CanHandle(evt))
             {
                 yield return candidate;
             }
@@ -200,13 +209,15 @@ public sealed class HpdAgentTuiRegistry
 
     public bool TryFindInteractionHandler(
         AgentEvent request,
-        out AgentTuiContribution<IAgentTuiInteractionHandler> handler)
+        Runtime.AgentTuiRuntimeScope selectedScope,
+        out AgentTuiEventContribution<IAgentTuiInteractionHandler> handler)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(selectedScope);
 
         foreach (var candidate in _interactionHandlers)
         {
-            if (candidate.Value.CanHandle(request))
+            if (candidate.Scope.Includes(request, selectedScope) && candidate.Value.CanHandle(request))
             {
                 handler = candidate;
                 return true;

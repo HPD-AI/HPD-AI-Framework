@@ -40,6 +40,9 @@ export interface Session {
  * Request to create a new session.
  */
 export interface CreateSessionRequest {
+  /** Optional stable agent identity that owns the default main thread */
+  agentId?: string;
+
   /** Optional session ID (generated if not provided) */
   sessionId?: string;
 
@@ -108,6 +111,9 @@ export interface Thread {
   /** Parent session ID */
   sessionId: string;
 
+  /** Agent identity selected when continuation does not choose another agent */
+  defaultAgentId: string;
+
   /** Optional display name for this thread */
   name?: string;
 
@@ -175,8 +181,8 @@ export interface Thread {
   /** Caller-assigned name for this individual subagent task */
   subAgentTaskName?: string;
 
-  /** Subagent run id when this is a subagent thread */
-  subAgentRunId?: string;
+  /** Delegation invocation that created this subagent thread */
+  invocationId?: string;
 
   /** Subagent definition source kind when this is a subagent thread */
   subAgentSourceKind?: string;
@@ -248,6 +254,9 @@ export interface ThreadForkGroupMember {
  */
 export interface ThreadRuntimeChild {
   threadId: string;
+  sessionId: string;
+  /** Child agent identity selected by default for continuation */
+  defaultAgentId: string;
   parentSessionId: string;
   parentThreadId: string;
   name: string;
@@ -255,7 +264,7 @@ export interface ThreadRuntimeChild {
   visibility: ThreadVisibility;
   subAgentName?: string;
   subAgentTaskName?: string;
-  subAgentRunId?: string;
+  invocationId?: string;
   subAgentSourceKind?: string;
   parentToolCallId?: string;
   sessionPolicy?: string;

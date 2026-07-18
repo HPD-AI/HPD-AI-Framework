@@ -37,19 +37,19 @@ internal static class SessionEndpoints
 
         // GET /sessions/{sessionId} - Get session metadata
         endpoints.MapGet("/sessions/{sessionId}", (string sessionId, CancellationToken ct) =>
-                GetSession(sessionId, sessions, ct))
+                GetSession(RouteValue.Decode(sessionId), sessions, ct))
             .WithName("GetSession")
             .WithSummary("Get session metadata by ID");
 
         // PATCH /sessions/{sessionId} - Update session metadata (merge semantics)
         endpoints.MapPatch("/sessions/{sessionId}", (string sessionId, UpdateSessionRequest request, CancellationToken ct) =>
-                UpdateSession(sessionId, request, sessions, ct))
+                UpdateSession(RouteValue.Decode(sessionId), request, sessions, ct))
             .WithName("UpdateSession")
             .WithSummary("Update session metadata with merge semantics");
 
         // DELETE /sessions/{sessionId} - Delete session + all threads
         endpoints.MapDelete("/sessions/{sessionId}", (string sessionId, CancellationToken ct) =>
-                DeleteSession(sessionId, sessions, ct))
+                DeleteSession(RouteValue.Decode(sessionId), sessions, ct))
             .WithName("DeleteSession")
             .WithSummary("Delete a session and all its threads");
     }

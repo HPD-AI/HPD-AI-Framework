@@ -1,7 +1,7 @@
 namespace HPD.Agent;
 
 /// <summary>
-/// Resolves a thread-owned runtime for a durable agent definition.
+/// Resolves a runtime for a durable agent definition and thread scope.
 /// </summary>
 public interface IAgentRuntimeResolver
 {
@@ -18,6 +18,6 @@ public interface IAgentRuntimeResolver
 /// </summary>
 public interface IAgentRuntimeLease : IAsyncDisposable
 {
-    /// <summary>The acquired thread-owned agent runtime.</summary>
+    /// <summary>The acquired agent runtime for the requested thread scope.</summary>
     Agent Agent { get; }
 }

@@ -15,9 +15,9 @@ public static class ThreadProjector
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
         var orderedEvents = events.OrderBy(evt => evt.ThreadSequenceNumber).ToArray();
-        var ownerAgentId = orderedEvents.OfType<ThreadCreatedEvent>().FirstOrDefault()?.OwnerAgentId
-            ?? throw new InvalidOperationException($"Thread '{threadId}' has no creation event with an owner.");
-        var thread = new Thread(sessionId, threadId, ownerAgentId);
+        var defaultAgentId = orderedEvents.OfType<ThreadCreatedEvent>().FirstOrDefault()?.DefaultAgentId
+            ?? throw new InvalidOperationException($"Thread '{threadId}' has no creation event with a default agent.");
+        var thread = new Thread(sessionId, threadId, defaultAgentId);
         Apply(thread, orderedEvents, purpose);
         return thread;
     }
@@ -259,7 +259,7 @@ public static class ThreadProjector
     {
         ApplyHeader(
             thread,
-            data.OwnerAgentId,
+            data.DefaultAgentId,
             data.Name,
             data.Description,
             data.Tags,
@@ -286,7 +286,7 @@ public static class ThreadProjector
     {
         ApplyHeader(
             thread,
-            data.OwnerAgentId,
+            data.DefaultAgentId,
             data.Name,
             data.Description,
             data.Tags,
@@ -311,7 +311,7 @@ public static class ThreadProjector
 
     private static void ApplyHeader(
         Thread thread,
-        string ownerAgentId,
+        string defaultAgentId,
         string? name,
         string? description,
         List<string>? tags,
@@ -333,7 +333,7 @@ public static class ThreadProjector
         List<string> childThreads,
         Dictionary<string, string>? ancestors)
     {
-        thread.OwnerAgentId = ownerAgentId;
+        thread.DefaultAgentId = defaultAgentId;
         thread.Name = name;
         thread.Description = description;
         thread.Tags = tags;

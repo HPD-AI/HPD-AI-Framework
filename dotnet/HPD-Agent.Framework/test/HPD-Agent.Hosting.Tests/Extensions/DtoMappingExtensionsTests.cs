@@ -142,7 +142,7 @@ public class DtoMappingExtensionsTests
             middlewareState: new Dictionary<string, string>(),
             metadata: new Dictionary<string, object> { ["surface"] = "hpdos" },
             childThreads: [],
-            ownerAgentId: "agent-1");
+            defaultAgentId: "agent-1");
 
         // Act
         var dto = forkedThread.ToDto("session-123");

@@ -15,7 +15,7 @@ public sealed class SessionThreadProjectionSinkTests
         var store = new InMemorySessionStore();
         var sink = new SessionThreadProjectionSink(store);
         var content = TestInputContent.Audio("thread-real.wav", "audio/wav", sizeBytes: 8192);
-        var thread = new ThreadRef("session-real", "main");
+        var thread = new ThreadRef("audio-test-agent", "session-real", "main");
 
         var projected = await sink.ProjectAsync(thread, new ThreadProjectionRecord
         {
@@ -49,7 +49,7 @@ public sealed class SessionThreadProjectionSinkTests
         var store = new InMemorySessionStore();
         var sink = new SessionThreadProjectionSink(store);
         var content = TestInputContent.Audio("thread-idempotent.wav", "audio/wav", sizeBytes: 8192);
-        var thread = new ThreadRef("session-idempotent", "main");
+        var thread = new ThreadRef("audio-test-agent", "session-idempotent", "main");
         var record = new ThreadProjectionRecord
         {
             TurnId = new AudioTurnId("turn-idempotent"),
@@ -80,7 +80,7 @@ public sealed class SessionThreadProjectionSinkTests
     {
         var store = new InMemorySessionStore();
         var sink = new SessionThreadProjectionSink(store);
-        var thread = new ThreadRef("session-assistant-output", "main");
+        var thread = new ThreadRef("audio-test-agent", "session-assistant-output", "main");
 
         await sink.ProjectAsync(thread, new ThreadProjectionRecord
         {

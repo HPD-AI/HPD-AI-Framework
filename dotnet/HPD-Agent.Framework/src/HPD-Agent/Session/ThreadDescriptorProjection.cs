@@ -11,7 +11,7 @@ internal static class ThreadDescriptorProjection
         long head)
     {
         var createdAt = current?.CreatedAt ?? evt.Timestamp;
-        var owner = current?.Owner ?? new ThreadAgentBinding(string.Empty);
+        var defaultAgent = current?.DefaultAgent ?? new ThreadDefaultAgentBinding(string.Empty);
         var name = current?.Name;
         var description = current?.Description;
         IReadOnlyList<string> tags = current?.Tags ?? [];
@@ -25,7 +25,7 @@ internal static class ThreadDescriptorProjection
         switch (evt)
         {
             case ThreadCreatedEvent created:
-                owner = new ThreadAgentBinding(created.OwnerAgentId);
+                defaultAgent = new ThreadDefaultAgentBinding(created.DefaultAgentId);
                 createdAt = new DateTimeOffset(created.CreatedAt, TimeSpan.Zero);
                 name = created.Name;
                 description = created.Description;
@@ -40,7 +40,7 @@ internal static class ThreadDescriptorProjection
                 break;
 
             case ThreadUpdatedEvent updated:
-                owner = new ThreadAgentBinding(updated.OwnerAgentId);
+                defaultAgent = new ThreadDefaultAgentBinding(updated.DefaultAgentId);
                 name = updated.Name;
                 description = updated.Description;
                 tags = updated.Tags?.ToArray() ?? [];
@@ -72,7 +72,7 @@ internal static class ThreadDescriptorProjection
         TrackMessage(messageIds, evt);
         return new ThreadDescriptor(
             key,
-            owner,
+            defaultAgent,
             name,
             description,
             tags,

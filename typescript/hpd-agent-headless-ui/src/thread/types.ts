@@ -343,6 +343,26 @@ export interface ThreadActivity {
   pendingRequestCount: number;
 }
 
+export type SubAgentInvocationStatus = 'active' | 'completed' | 'failed' | 'cancelled';
+
+/** Parent-side durable projection of one delegation to a child-agent thread. */
+export interface SubAgentInvocation {
+  invocationId: string;
+  parentToolCallId?: string;
+  childAgentId?: string;
+  childSessionId?: string;
+  childThreadId?: string;
+  roleName?: string;
+  taskName?: string;
+  mode?: 'Synchronous' | 'Background';
+  status: SubAgentInvocationStatus;
+  summary?: string | null;
+  errorType?: string | null;
+  errorMessage?: string | null;
+  startedAt?: string;
+  completedAt?: string;
+}
+
 export type ThreadErrorKind = 'controller' | 'run' | 'work' | 'tool' | 'thread';
 
 export interface ThreadErrorInfo {
@@ -367,6 +387,7 @@ export interface ThreadProjectionSnapshot {
   pendingRuntimeRequests: RuntimeRequest[];
   contextUsage: ThreadContextUsage | null;
   threadRun: ThreadRunView | null;
+  subAgentInvocations: SubAgentInvocation[];
   activity: ThreadActivity;
   currentTurnId: string | null;
   currentConversationId: string | null;
@@ -518,6 +539,7 @@ export interface ThreadBranchNavigator {
   getSnapshot(): ThreadBranchNavigationSnapshot;
   load(threadId?: string): Promise<ThreadBranchNavigationSnapshot>;
   selectThread(threadId: string): Promise<ThreadBranchNavigationSnapshot>;
+  getRuntimeChildScope(threadId: string): ThreadScope | null;
   selectForkGroupMember(groupId: string, threadId: string): Promise<ThreadBranchNavigationSnapshot>;
   previousInGroup(groupId: string): Promise<ThreadBranchNavigationSnapshot>;
   nextInGroup(groupId: string): Promise<ThreadBranchNavigationSnapshot>;

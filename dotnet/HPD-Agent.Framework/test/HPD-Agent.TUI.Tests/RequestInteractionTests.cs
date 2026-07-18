@@ -24,6 +24,7 @@ public sealed class RequestInteractionTests
             .Contain(["hpd.permission", "hpd.continuation", "hpd.clarification"]);
         registry.TryFindInteractionHandler(
             new PermissionRequestEvent("permission-1", "permissions", "shell.exec", null, "call-1", null),
+            new AgentTuiRuntimeScope("agent", "session", "main"),
             out var handler).Should().BeTrue();
         handler.Key.Should().Be("hpd.permission");
     }
@@ -73,13 +74,55 @@ public sealed class RequestInteractionTests
 
         registry.TryFindInteractionHandler(
                 new ClarificationRequestEvent("clarify-1", "sample", "Question?"),
+                new AgentTuiRuntimeScope("agent", "session", "main"),
                 out var handler)
             .Should().BeTrue();
         handler.Key.Should().Be("sample.clarification");
 
         registry.TryFindInteractionHandler(
                 new PermissionRequestEvent("permission-1", "sample", "tool", null, "call-1", null),
+                new AgentTuiRuntimeScope("agent", "session", "main"),
                 out _)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void InteractionHandlers_ApplyTheirRegisteredEventScope()
+    {
+        var registry = new HpdAgentTuiBuilder()
+            .AddInteractionHandler<PermissionRequestEvent>(
+                "permission",
+                new PermissionRequestInteractionHandler(),
+                AgentTuiEventScope.CurrentThreadAndDescendants)
+            .AddInteractionHandler<ClarificationRequestEvent>(
+                "clarification",
+                new ClarificationRequestInteractionHandler())
+            .Build();
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var childPermission = new PermissionRequestEvent(
+            "permission-child",
+            "permissions",
+            "shell.exec",
+            null,
+            "call-child",
+            null)
+        {
+            SessionId = "session",
+            ThreadId = "subagent/explore/invocation-1"
+        };
+        var childClarification = new ClarificationRequestEvent(
+            "clarification-child",
+            "clarification",
+            "Question?")
+        {
+            SessionId = "session",
+            ThreadId = "subagent/explore/invocation-1"
+        };
+
+        registry.TryFindInteractionHandler(childPermission, scope, out var permission)
+            .Should().BeTrue();
+        permission.Key.Should().Be("permission");
+        registry.TryFindInteractionHandler(childClarification, scope, out _)
             .Should().BeFalse();
     }
 

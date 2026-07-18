@@ -20,20 +20,26 @@ public sealed class AgentStreamingService : IAgentStreamingService
         _logger = logger;
     }
 
-    public async Task<AgentServiceResult<ThreadJournalLease>> GetThreadJournalAsync(
+    public async Task<AgentServiceResult<ThreadEventObservationLease>> ObserveThreadEventsAsync(
         string agentId,
         string sessionId,
         string threadId,
         CancellationToken cancellationToken = default)
     {
         if (await _sessionManager.Store.LoadSessionAsync(sessionId, cancellationToken) == null)
-            return AgentServiceResult<ThreadJournalLease>.NotFound;
+            return AgentServiceResult<ThreadEventObservationLease>.NotFound;
 
         var key = new ThreadKey(sessionId, threadId);
         if (await _sessionManager.Store.GetThreadAsync(key, cancellationToken).ConfigureAwait(false) == null)
-            return AgentServiceResult<ThreadJournalLease>.NotFound;
+            return AgentServiceResult<ThreadEventObservationLease>.NotFound;
 
-        return AgentServiceResult<ThreadJournalLease>.Success(new ThreadJournalLease(_sessionManager.Store, key));
+        var liveEvents = _agentManager.CreateRuntimeEventInbox(
+            agentId,
+            sessionId,
+            threadId,
+            HPD.Events.EventInboxOptions.Deterministic());
+        return AgentServiceResult<ThreadEventObservationLease>.Success(
+            new ThreadEventObservationLease(_sessionManager.Store, key, liveEvents));
     }
 
     public async Task<AgentServiceResult<InputSubmissionDto>> SubmitInputAsync(

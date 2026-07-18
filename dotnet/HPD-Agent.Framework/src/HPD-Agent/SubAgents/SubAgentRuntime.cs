@@ -667,13 +667,8 @@ public static class SubAgentRuntime
                     ?? throw new InvalidOperationException("ExistingThreadId is required.");
                 var store = agent.Config?.SessionStore
                     ?? throw new InvalidOperationException("No session store configured.");
-                var existing = await store.GetThreadAsync(new ThreadKey(sessionId, threadId), cancellationToken).ConfigureAwait(false)
+                _ = await store.GetThreadAsync(new ThreadKey(sessionId, threadId), cancellationToken).ConfigureAwait(false)
                     ?? throw new InvalidOperationException($"Existing thread '{threadId}' not found in session '{sessionId}'.");
-                if (!string.Equals(existing.Owner.AgentId, subAgent.AgentId, StringComparison.Ordinal))
-                {
-                    throw new InvalidOperationException(
-                        $"Existing thread '{sessionId}/{threadId}' belongs to agent '{existing.Owner.AgentId}', not '{subAgent.AgentId}'.");
-                }
                 return threadId;
             }
 
@@ -759,7 +754,7 @@ public static class SubAgentRuntime
         metadata["visibility"] = "hidden";
         metadata["createdBy"] = "subagent";
 
-        metadata["ownerAgentId"] = subAgent.AgentId;
+        metadata["defaultAgentId"] = subAgent.AgentId;
 
         return metadata;
     }

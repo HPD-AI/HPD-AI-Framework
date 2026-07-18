@@ -83,7 +83,7 @@ public class DtoSerializationTests
         var original = new ThreadDto(
             Id: "thread-1",
             SessionId: "session-123",
-            OwnerAgentId: "agent-1",
+            DefaultAgentId: "agent-1",
             Name: "Main Thread",
             Description: "Primary conversation thread",
             ForkedFrom: "parent-thread",
@@ -125,7 +125,7 @@ public class DtoSerializationTests
         var original = new ThreadDto(
             Id: "thread-1",
             SessionId: "session-123",
-            OwnerAgentId: "agent-1",
+            DefaultAgentId: "agent-1",
             Name: "Main",
             Description: null,
             ForkedFrom: null,

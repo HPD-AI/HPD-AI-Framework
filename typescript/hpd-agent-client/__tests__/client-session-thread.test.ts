@@ -46,6 +46,7 @@ const SESSION = { id: 'sess-1', createdAt: '2024-01-01T00:00:00Z', lastActivity:
 const THREAD  = {
   id: 'thread-1',
   sessionId: 'sess-1',
+  defaultAgentId: 'agent-1',
   createdAt: '2024-01-01T00:00:00Z',
   lastActivity: '2024-01-01T00:00:00Z',
   messageCount: 0,
@@ -157,11 +158,15 @@ describe('AgentClient — session/thread passthroughs', () => {
   describe('createSession', () => {
     it('calls POST /sessions and returns the created session', async () => {
       mockFetchJson(SESSION, 201);
-      const result = await client.createSession({ metadata: { env: 'test' } });
+      const result = await client.createSession({ agentId: 'agent-1', metadata: { env: 'test' } });
 
       const [url, init] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0];
       expect(String(url)).toBe(`${BASE}/sessions`);
       expect(init?.method).toBe('POST');
+      expect(JSON.parse(String(init?.body))).toEqual({
+        agentId: 'agent-1',
+        metadata: { env: 'test' },
+      });
       expect(result).toEqual(SESSION);
     });
 
@@ -227,6 +232,7 @@ describe('AgentClient — session/thread passthroughs', () => {
     it('returns subagent thread metadata from the server DTO unchanged', async () => {
       const subAgentThread = {
         ...THREAD,
+        defaultAgentId: 'reviewer-agent',
         id: 'subagent/reviewer/run-1',
         name: 'Reviewer',
         kind: 'SubAgent',
@@ -234,7 +240,7 @@ describe('AgentClient — session/thread passthroughs', () => {
         parentSessionId: 'sess-1',
         parentThreadId: 'main',
         subAgentName: 'Reviewer',
-        subAgentRunId: 'run-1',
+        invocationId: 'run-1',
       };
       mockFetchJson(subAgentThread);
 

@@ -157,13 +157,13 @@ public class Session
     /// Creates a new thread owned by this session.
     /// Internal - only the framework creates threads via Agent.LoadSessionAndThreadAsync() or Agent.ForkThreadAsync().
     /// </summary>
-    /// <param name="ownerAgentId">Stable agent identity that owns the thread.</param>
+    /// <param name="defaultAgentId">Agent identity selected when continuation does not choose another agent.</param>
     /// <param name="threadId">Thread ID (defaults to generated GUID).</param>
     /// <returns>A new Thread linked to this Session</returns>
-    internal Thread CreateThread(string ownerAgentId, string? threadId = null)
+    internal Thread CreateThread(string defaultAgentId, string? threadId = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(ownerAgentId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(defaultAgentId);
         var id = threadId ?? Guid.NewGuid().ToString();
-        return new Thread(Id, id, ownerAgentId) { Session = this };
+        return new Thread(Id, id, defaultAgentId) { Session = this };
     }
 }

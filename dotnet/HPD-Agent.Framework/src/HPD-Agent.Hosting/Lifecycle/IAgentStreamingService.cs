@@ -5,7 +5,7 @@ namespace HPD.Agent.Hosting.Lifecycle;
 
 public interface IAgentStreamingService
 {
-    Task<AgentServiceResult<ThreadJournalLease>> GetThreadJournalAsync(
+    Task<AgentServiceResult<ThreadEventObservationLease>> ObserveThreadEventsAsync(
         string agentId,
         string sessionId,
         string threadId,
@@ -47,4 +47,25 @@ public interface IAgentStreamingService
         string? runtimeRunId = null);
 }
 
-public sealed record ThreadJournalLease(ISessionStore Store, ThreadKey Thread);
+/// <summary>
+/// Owns the two sources required for complete hosted event delivery: the canonical thread
+/// journal and the selected runtime's live event inbox.
+/// </summary>
+public sealed class ThreadEventObservationLease : IAsyncDisposable
+{
+    public ThreadEventObservationLease(
+        ISessionStore store,
+        ThreadKey thread,
+        HPD.Events.EventInbox<AgentEvent> liveEvents)
+    {
+        Store = store ?? throw new ArgumentNullException(nameof(store));
+        Thread = thread;
+        LiveEvents = liveEvents;
+    }
+
+    public ISessionStore Store { get; }
+    public ThreadKey Thread { get; }
+    public HPD.Events.EventInbox<AgentEvent> LiveEvents { get; }
+
+    public ValueTask DisposeAsync() => LiveEvents.DisposeAsync();
+}

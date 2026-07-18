@@ -32,33 +32,33 @@ internal static class StreamingEndpoints
         // POST /agents/{agentId}/sessions/{sid}/threads/{bid}/inputs - Submit runtime-owned input
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/inputs",
                 async (string agentId, string sid, string bid, JsonElement request, CancellationToken ct) =>
-                    await SubmitInput(agentId, sid, bid, request, streaming, ct))
+                    await SubmitInput(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, streaming, ct))
             .WithName("SubmitAgentInput")
             .WithSummary("Submit an agent input event to the runtime");
 
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/context-usage",
                 async (string agentId, string sid, string bid, JsonElement? request, CancellationToken ct) =>
-                    await EstimateContextUsage(agentId, sid, bid, request, streaming, ct))
+                    await EstimateContextUsage(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, streaming, ct))
             .WithName("EstimateAgentThreadContextUsage")
             .WithSummary("Estimate model context usage for the current thread");
 
         endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/state",
                 async (string agentId, string sid, string bid, CancellationToken ct) =>
-                    ToValueHttpResult(await streaming.GetThreadStateAsync(agentId, sid, bid, ct)))
+                    ToValueHttpResult(await streaming.GetThreadStateAsync(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), ct)))
             .WithName("GetAgentThreadRuntimeState")
             .WithSummary("Get one authoritative thread history and active-run snapshot");
 
         // One stream performs finite catch-up and remains attached for future commits.
         endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/events",
                 async (string agentId, string sid, string bid, HttpContext context, CancellationToken ct) =>
-                    await ObserveEventsWithSse(agentId, sid, bid, context, streaming, ct))
+                    await ObserveEventsWithSse(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), context, streaming, ct))
             .WithName("ObserveLiveEventsWithSse")
-            .WithSummary("Replay and observe committed events for one thread using SSE");
+            .WithSummary("Replay durable thread events and observe all live runtime events using SSE");
 
         // POST /agents/{agentId}/sessions/{sid}/threads/{bid}/interrupt - Explicit runtime interruption
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/interrupt",
                 async (string agentId, string sid, string bid, JsonElement? request, CancellationToken ct) =>
-                    await Interrupt(agentId, sid, bid, request, streaming, ct))
+                    await Interrupt(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, streaming, ct))
             .WithName("InterruptAgentRun")
             .WithSummary("Explicitly interrupt active runtime work");
 
@@ -101,12 +101,12 @@ internal static class StreamingEndpoints
         IAgentStreamingService streaming,
         CancellationToken ct = default)
     {
-        var leaseResult = await streaming.GetThreadJournalAsync(agentId, sid, bid, ct);
+        var leaseResult = await streaming.ObserveThreadEventsAsync(agentId, sid, bid, ct);
         if (leaseResult.Status == AgentServiceStatus.NotFound)
             return TypedResults.NotFound();
 
-        var journal = leaseResult.Value!;
-        await SseEventHandler.StreamEventsAsync(context, journal.Store, journal.Thread, ct);
+        await using var observation = leaseResult.Value!;
+        await SseEventHandler.StreamEventsAsync(context, observation, ct);
         return TypedResults.Empty;
     }
 

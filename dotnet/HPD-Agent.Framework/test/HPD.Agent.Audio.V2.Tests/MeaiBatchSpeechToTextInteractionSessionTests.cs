@@ -200,7 +200,7 @@ public sealed class MeaiBatchSpeechToTextInteractionSessionTests
             SessionId = new AudioSessionId("meai-runtime-session"),
             Inputs = [],
             InputContentRefs = [content],
-            ThreadRef = new ThreadRef("meai-runtime-session", "main"),
+            ThreadRef = new ThreadRef("audio-test-agent", "meai-runtime-session", "main"),
             InteractionSessionFactory = new MeaiBatchSpeechToTextInteractionSessionFactory(
                 client,
                 resolver)

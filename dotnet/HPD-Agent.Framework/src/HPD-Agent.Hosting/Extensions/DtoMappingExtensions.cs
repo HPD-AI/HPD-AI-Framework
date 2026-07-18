@@ -33,7 +33,7 @@ public static class DtoMappingExtensions
         return new ThreadDto(
             thread.Id,
             sessionId,
-            thread.OwnerAgentId,
+            thread.DefaultAgentId,
             thread.GetDisplayName(),
             thread.Description,
             thread.ForkedFrom,
@@ -66,7 +66,7 @@ public static class DtoMappingExtensions
         return new ThreadDto(
             descriptor.Key.ThreadId,
             descriptor.Key.SessionId,
-            descriptor.Owner.AgentId,
+            descriptor.DefaultAgent.AgentId,
             descriptor.Name ?? descriptor.Key.ThreadId,
             descriptor.Description,
             descriptor.Fork?.SourceThreadId,

@@ -50,9 +50,26 @@ public sealed class ExecuteCommandTuiLifecycleTests
         registry.TranscriptRenderers.TryFindRenderer<CodingCommandCell>(
             CodingHarnessTuiTranscriptRendererKeys.Command,
             out _).Should().BeTrue();
-        registry.TryFindInteractionHandler(CreatePermissionRequest(), out var interaction)
+        registry.TryFindInteractionHandler(
+                CreatePermissionRequest(),
+                new AgentTuiRuntimeScope("agent", "session", "main"),
+                out var interaction)
             .Should().BeTrue();
         interaction.Key.Should().Be("hpd.coding.command.permission");
+    }
+
+    [Fact]
+    public void AddCodingHarnessTui_AppliesConfiguredPermissionScopeOnlyToInteractions()
+    {
+        var registry = new HpdAgentTuiBuilder()
+            .AddCodingHarnessTui(
+                permissionScope: AgentTuiEventScope.CurrentThreadAndDescendants)
+            .Build();
+
+        registry.InteractionHandlers.Should().OnlyContain(
+            item => item.Scope == AgentTuiEventScope.CurrentThreadAndDescendants);
+        registry.EventHandlers.Should().OnlyContain(
+            item => item.Scope == AgentTuiEventScope.CurrentThread);
     }
 
     [Fact]

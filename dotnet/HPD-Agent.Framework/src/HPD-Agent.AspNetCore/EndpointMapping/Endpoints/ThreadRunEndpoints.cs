@@ -15,13 +15,13 @@ internal static class ThreadRunEndpoints
     {
         endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/runs",
                 (string agentId, string sid, string bid, CancellationToken ct) =>
-                    ListRuns(agentId, sid, bid, threadRuns, ct))
+                    ListRuns(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), threadRuns, ct))
             .WithName("ListThreadRuns")
             .WithSummary("List runtime-owned runs projected from a thread event log");
 
         endpoints.MapGet("/agents/{agentId}/sessions/{sid}/threads/{bid}/runs/{runtimeRunId}",
                 (string agentId, string sid, string bid, string runtimeRunId, CancellationToken ct) =>
-                    GetRun(agentId, sid, bid, runtimeRunId, threadRuns, ct))
+                    GetRun(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), RouteValue.Decode(runtimeRunId), threadRuns, ct))
             .WithName("GetThreadRun")
             .WithSummary("Get a runtime-owned thread run by ID");
     }

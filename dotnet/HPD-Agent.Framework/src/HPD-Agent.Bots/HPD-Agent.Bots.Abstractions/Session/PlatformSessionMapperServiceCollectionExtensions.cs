@@ -10,7 +10,7 @@ namespace HPD.Agent.Bots.Session;
 public static class PlatformSessionMapperServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers one mapper whose thread owner is resolved from the adapter configuration.
+    /// Registers one mapper whose default thread agent is resolved from the adapter configuration.
     /// </summary>
     public static IServiceCollection TryAddPlatformSessionMapper<TConfig>(
         this IServiceCollection services,

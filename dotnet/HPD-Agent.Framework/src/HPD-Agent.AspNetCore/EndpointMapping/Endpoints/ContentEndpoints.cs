@@ -20,26 +20,26 @@ internal static class ContentEndpoints
     {
         // POST /sessions/{sid}/threads/{bid}/content - Upload content (multipart/form-data)
         endpoints.MapPost("/sessions/{sid}/threads/{bid}/content", (string sid, string bid, HttpRequest request, CancellationToken ct) =>
-                UploadContent(sid, bid, request, content, ct))
+                UploadContent(RouteValue.Decode(sid), RouteValue.Decode(bid), request, content, ct))
             .WithName("UploadContent")
             .WithSummary("Upload content (multipart/form-data)")
             .DisableAntiforgery(); // Allow multipart uploads
 
         // GET /sessions/{sid}/threads/{bid}/content - List content for thread
         endpoints.MapGet("/sessions/{sid}/threads/{bid}/content", (string sid, string bid, CancellationToken ct) =>
-                ListContent(sid, bid, content, ct))
+                ListContent(RouteValue.Decode(sid), RouteValue.Decode(bid), content, ct))
             .WithName("ListContent")
             .WithSummary("List all content in a thread");
 
         // GET /sessions/{sid}/threads/{bid}/content/{contentId} - Download content (returns binary)
         endpoints.MapGet("/sessions/{sid}/threads/{bid}/content/{contentId}", (string sid, string bid, string contentId, CancellationToken ct) =>
-                DownloadContent(sid, bid, contentId, content, ct))
+                DownloadContent(RouteValue.Decode(sid), RouteValue.Decode(bid), RouteValue.Decode(contentId), content, ct))
             .WithName("DownloadContent")
             .WithSummary("Download content (returns binary content)");
 
         // DELETE /sessions/{sid}/threads/{bid}/content/{contentId} - Delete content
         endpoints.MapDelete("/sessions/{sid}/threads/{bid}/content/{contentId}", (string sid, string bid, string contentId, CancellationToken ct) =>
-                DeleteContent(sid, bid, contentId, content, ct))
+                DeleteContent(RouteValue.Decode(sid), RouteValue.Decode(bid), RouteValue.Decode(contentId), content, ct))
             .WithName("DeleteContent")
             .WithSummary("Delete content");
     }

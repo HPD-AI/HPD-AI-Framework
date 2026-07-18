@@ -715,7 +715,7 @@ public sealed class AudioRuntimeAttachmentThreadProjectionTests
             BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new MissingMethodException(nameof(Session), "CreateThread");
 
-        return (Thread)factory.Invoke(session, [threadId])!;
+        return (Thread)factory.Invoke(session, ["audio-test-agent", threadId])!;
     }
 
     private static int IndexOfMiddleware<TMiddleware>(IReadOnlyList<IAgentMiddleware> middlewares)

@@ -227,7 +227,7 @@ using var subscription = agent.Subscribe<McpServerChangedEvent>(evt =>
 });
 ```
 
-MCP live update events live in `HPD.Agent.MCP` and are registered for agent-event serialization by the MCP package. Events are emitted into the owning agent's event coordinator, so existing parent/sub-agent/workflow bubbling applies automatically.
+MCP live update events live in `HPD.Agent.MCP` and are registered for agent-event serialization by the MCP package. Events are emitted into the executing agent's event coordinator, so existing parent/sub-agent/workflow bubbling applies automatically.
 
 ## Builder
 

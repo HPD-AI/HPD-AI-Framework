@@ -46,14 +46,14 @@ internal static class ThreadEventValidation
                 $"Thread event thread scope '{evt.ThreadId ?? "<null>"}' does not match target thread '{threadId}'.");
         }
 
-        var ownerAgentId = evt switch
+        var defaultAgentId = evt switch
         {
-            ThreadCreatedEvent created => created.OwnerAgentId,
-            ThreadUpdatedEvent updated => updated.OwnerAgentId,
+            ThreadCreatedEvent created => created.DefaultAgentId,
+            ThreadUpdatedEvent updated => updated.DefaultAgentId,
             _ => null
         };
-        if (ownerAgentId is not null && string.IsNullOrWhiteSpace(ownerAgentId))
-            throw new InvalidOperationException("Thread create/update events require a stable owner AgentId.");
+        if (defaultAgentId is not null && string.IsNullOrWhiteSpace(defaultAgentId))
+            throw new InvalidOperationException("Thread create/update events require a stable default AgentId.");
     }
 
 }

@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using HPD.Agent;
+using HPD.Events;
+using HPD.Events.Core;
 
 namespace HPD.Agent.Hosting.Lifecycle;
 
@@ -11,11 +13,11 @@ namespace HPD.Agent.Hosting.Lifecycle;
 /// Responsibilities:
 /// <list type="bullet">
 ///   <item>Agent definition CRUD (delegated to <see cref="IAgentStore"/>)</item>
-///   <item><see cref="Agent"/> instance build, cache, and idle eviction (keyed by runtime owner)</item>
+///   <item><see cref="Agent"/> instance build, cache, and idle eviction (keyed by runtime scope)</item>
 /// </list>
 ///
 /// Unscoped agent instances are cached by <c>agentId</c>. Hosted runtime instances are cached
-/// by <c>agentId/sessionId/threadId</c>, giving every thread its own runtime queue.
+/// by <c>agentId/sessionId/threadId</c>, giving every selected agent/thread pair its own runtime queue.
 /// Eviction is purely last-access based; <c>IsStreaming</c> is no longer tracked here.
 /// </remarks>
 public abstract class AgentManager : IDisposable
@@ -23,6 +25,7 @@ public abstract class AgentManager : IDisposable
     private readonly IAgentStore _store;
     private readonly ConcurrentDictionary<string, AgentEntry> _agents = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _buildLocks = new();
+    private readonly ConcurrentDictionary<string, EventCoordinator> _runtimeEventHubs = new();
     private readonly Timer _evictionTimer;
     private bool _disposed;
 
@@ -131,7 +134,7 @@ public abstract class AgentManager : IDisposable
         => await GetOrBuildAgentCoreAsync(agentId, agentId, ct).ConfigureAwait(false);
 
     /// <summary>
-    /// Get or build a thread-owned runtime instance for the given agent definition.
+    /// Get or build a runtime instance for the selected agent and thread scope.
     /// </summary>
     public virtual async Task<Agent> GetOrBuildAgentRuntimeAsync(
         string agentId,
@@ -176,7 +179,20 @@ public abstract class AgentManager : IDisposable
             }
 
             var agent = await BuildAgentAsync(agentId, ct);
-            _agents[cacheKey] = new AgentEntry(agent);
+            IDisposable? liveEventBridge = null;
+            if (!string.Equals(cacheKey, agentId, StringComparison.Ordinal))
+            {
+                var liveEventHub = _runtimeEventHubs.GetOrAdd(cacheKey, static _ => new EventCoordinator());
+                liveEventBridge = agent.EventCoordinator.Subscribe<AgentEvent>(
+                    evt => liveEventHub.EmitAsync(evt),
+                    new EventSubscriptionOptions
+                    {
+                        Capacity = 4096,
+                        FullMode = System.Threading.Channels.BoundedChannelFullMode.Wait,
+                        IncludeDerivedTypes = true
+                    });
+            }
+            _agents[cacheKey] = new AgentEntry(agent, liveEventBridge);
             return agent;
         }
         finally
@@ -199,7 +215,7 @@ public abstract class AgentManager : IDisposable
     }
 
     /// <summary>
-    /// Return the cached thread-owned runtime <see cref="Agent"/> instance without building.
+    /// Return the cached runtime <see cref="Agent"/> instance for an agent/thread scope without building.
     /// Hosted interactive responses must target this runtime cache because request waiters
     /// live on the thread runtime that emitted the request.
     /// </summary>
@@ -211,6 +227,26 @@ public abstract class AgentManager : IDisposable
 
         var cacheKey = RuntimeCacheKey(agentId, sessionId, threadId);
         return _agents.TryGetValue(cacheKey, out var entry) ? entry.Agent : null;
+    }
+
+    /// <summary>
+    /// Creates a live event inbox for an agent/thread runtime scope without constructing the
+    /// runtime. Once that runtime exists, all of its agent events are forwarded into this hub;
+    /// descendant events arrive through normal coordinator bubbling.
+    /// </summary>
+    public EventInbox<AgentEvent> CreateRuntimeEventInbox(
+        string agentId,
+        string sessionId,
+        string threadId,
+        EventInboxOptions? options = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
+
+        var cacheKey = RuntimeCacheKey(agentId, sessionId, threadId);
+        var hub = _runtimeEventHubs.GetOrAdd(cacheKey, static _ => new EventCoordinator());
+        return hub.CreateInbox<AgentEvent>(options);
     }
 
     /// <summary>
@@ -271,19 +307,30 @@ public abstract class AgentManager : IDisposable
         if (_disposed) return;
         _disposed = true;
         _evictionTimer.Dispose();
+        foreach (var entry in _agents.Values)
+            entry.Dispose();
+        foreach (var hub in _runtimeEventHubs.Values)
+            hub.Dispose();
         foreach (var kvp in _buildLocks)
             kvp.Value.Dispose();
     }
 
-    private sealed class AgentEntry
+    private sealed class AgentEntry : IDisposable
     {
         public Agent Agent { get; }
         public DateTime LastAccessed { get; set; }
+        private readonly IDisposable? _liveEventBridge;
 
-        public AgentEntry(Agent agent)
+        public AgentEntry(Agent agent, IDisposable? liveEventBridge = null)
         {
             Agent = agent ?? throw new ArgumentNullException(nameof(agent));
+            _liveEventBridge = liveEventBridge;
             LastAccessed = DateTime.UtcNow;
+        }
+
+        public void Dispose()
+        {
+            _liveEventBridge?.Dispose();
         }
     }
 }

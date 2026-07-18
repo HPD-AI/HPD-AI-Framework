@@ -18,16 +18,21 @@ namespace HPD.Agent.ToolHarness.Coding.TUI;
 
 public static class CodingHarnessTuiExtensions
 {
+    /// <summary>
+    /// Adds coding-harness presentation for the selected thread and configures how far
+    /// permission interactions may route through its runtime tree.
+    /// </summary>
     public static HpdAgentTuiBuilder AddCodingHarnessTui(
         this HpdAgentTuiBuilder tui,
-        CodingHarnessTuiTheme? theme = null)
+        CodingHarnessTuiTheme? theme = null,
+        AgentTuiEventScope permissionScope = AgentTuiEventScope.CurrentThread)
     {
         ArgumentNullException.ThrowIfNull(tui);
         theme ??= CodingHarnessTuiTheme.Default;
         return tui
             .AddCodingHarnessExpansionTui(theme)
             .AddCodingExplorationTui(theme)
-            .AddCodingCommandTui(theme)
+            .AddCodingCommandTui(theme, permissionScope)
             .AddCodingFileMutationTui(theme);
     }
 
@@ -73,7 +78,8 @@ public static class CodingHarnessTuiExtensions
 
     public static HpdAgentTuiBuilder AddCodingCommandTui(
         this HpdAgentTuiBuilder tui,
-        CodingHarnessTuiTheme? theme = null)
+        CodingHarnessTuiTheme? theme = null,
+        AgentTuiEventScope permissionScope = AgentTuiEventScope.CurrentThread)
     {
         ArgumentNullException.ThrowIfNull(tui);
         theme ??= CodingHarnessTuiTheme.Default;
@@ -93,10 +99,12 @@ public static class CodingHarnessTuiExtensions
                 "hpd.coding.command.result")
             .TryAddInteractionHandler<ExecuteCommandPermissionRequestEvent>(
                 "hpd.coding.command.permission",
-                new ExecuteCommandPermissionRequestTuiHandler(theme))
+                new ExecuteCommandPermissionRequestTuiHandler(theme),
+                permissionScope)
             .TryAddInteractionHandler<ExecuteCommandSandboxCapabilityRequestEvent>(
                 "hpd.coding.command.sandbox-capability",
-                new ExecuteCommandSandboxCapabilityRequestTuiHandler(theme))
+                new ExecuteCommandSandboxCapabilityRequestTuiHandler(theme),
+                permissionScope)
             .TryAddTranscriptRenderer<CodingCommandCell>(
                 CodingHarnessTuiTranscriptRendererKeys.Command,
                 new CodingCommandCellRenderer(theme))

@@ -21,7 +21,7 @@ public sealed class FakeProviderOutputTruthTests
         var clock = new RuntimeClock();
         var sessionId = new AudioSessionId("session-interruption-smoke");
         var turnId = new AudioTurnId("turn-interruption-smoke");
-        var threadRef = new ThreadRef("session-interruption-smoke", "main");
+        var threadRef = new ThreadRef("audio-test-agent", "session-interruption-smoke", "main");
         var ledger = new InMemoryRealtimeConversationLedger();
         var trace = new InMemoryRealtimeAudioTraceStore();
         var thread = new InMemoryThreadProjectionSink();
@@ -224,7 +224,7 @@ public sealed class FakeProviderOutputTruthTests
         var clock = new RuntimeClock();
         var sessionId = new AudioSessionId("session-output-truth");
         var turnId = new AudioTurnId("turn-output-truth");
-        var threadRef = new ThreadRef("session-output-truth", "main");
+        var threadRef = new ThreadRef("audio-test-agent", "session-output-truth", "main");
         var ledger = new InMemoryRealtimeConversationLedger();
         var trace = new InMemoryRealtimeAudioTraceStore();
         var thread = new InMemoryThreadProjectionSink();

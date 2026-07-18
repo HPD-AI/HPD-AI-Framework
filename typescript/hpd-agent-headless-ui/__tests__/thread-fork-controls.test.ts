@@ -116,6 +116,8 @@ function navigation(activePathChoices: ActivePathChoice[]): ThreadBranchNavigati
       forkGroups,
       runtimeChildren: [{
         threadId: 'subagent-1',
+        sessionId: 's1',
+        defaultAgentId: 'reviewer-agent',
         parentSessionId: 's1',
         parentThreadId: 'main',
         name: 'Reviewer',

@@ -21,10 +21,10 @@ internal sealed class FFIConversationThread
     public Session Session { get; }
     public Thread Thread { get; }
 
-    public FFIConversationThread(string ownerAgentId)
+    public FFIConversationThread(string defaultAgentId)
     {
         Session = new Session();
-        Thread = Session.CreateThread(ownerAgentId);
+        Thread = Session.CreateThread(defaultAgentId);
     }
 }
 

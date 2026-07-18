@@ -110,7 +110,8 @@ public class RecursiveThreadDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
         var messageId = await TryGetFirstUserMessageIdAsync(
             sessionId,
             threadId,
-            TimeSpan.FromSeconds(15));
+            TimeSpan.FromSeconds(15),
+            waitForRunCompletion: true);
         if (!string.IsNullOrWhiteSpace(messageId))
             return messageId!;
 
@@ -120,14 +121,16 @@ public class RecursiveThreadDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
     private async Task<string?> TryGetFirstUserMessageIdAsync(
         string sessionId,
         string threadId,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        bool waitForRunCompletion = false)
     {
         var events = await SseTestEventReader.ReadUntilAsync(
             _client,
             sessionId,
             threadId,
-            static observed => observed.OfType<TextMessageStartEvent>()
-                .Any(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase)),
+            observed => observed.OfType<TextMessageStartEvent>()
+                            .Any(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase)) &&
+                        (!waitForRunCompletion || observed.OfType<ThreadRunCompletedEvent>().Any()),
             timeout ?? TimeSpan.FromMilliseconds(150));
         return events.OfType<TextMessageStartEvent>()
             .FirstOrDefault(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase))

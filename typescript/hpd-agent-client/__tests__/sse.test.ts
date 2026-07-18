@@ -252,6 +252,47 @@ describe('SseTransport runtime', () => {
     ]);
   });
 
+  it('delivers live events without advancing the reconnect cursor', async () => {
+    const transport = new SseTransport('http://localhost:5135');
+    const events: string[] = [];
+    transport.onEvent((event) => {
+      events.push((event as { text: string }).text);
+      if (events.length === 2) transport.disconnect();
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(
+              'event: live-agent-event\n' +
+              `data: ${JSON.stringify({ type: EventTypes.TEXT_DELTA, text: 'live' })}\n\n`,
+            ));
+            controller.close();
+          },
+        }),
+        text: async () => '',
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        body: committedStream(5, { type: EventTypes.TEXT_DELTA, text: 'committed' }),
+        text: async () => '',
+      } as Response);
+
+    await transport.connect({
+      sessionId: 's1',
+      agentId: 'a1',
+      threadId: 'main',
+      after: { generation: 1, sequenceNumber: 4 },
+    });
+    await vi.waitFor(() => expect(events).toEqual(['live', 'committed']), { timeout: 2_000 });
+
+    expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:4',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/events?after=1:4',
+    ]);
+  });
+
   it('does not dispatch the next event until the previous event is acknowledged', async () => {
     const transport = new SseTransport('http://localhost:5135');
     const events: string[] = [];

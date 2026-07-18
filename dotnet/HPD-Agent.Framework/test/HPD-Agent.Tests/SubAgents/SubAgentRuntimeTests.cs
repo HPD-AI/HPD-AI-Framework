@@ -197,6 +197,30 @@ public class SubAgentRuntimeTests
         childThread.Metadata.Should().NotContainKey("kind");
     }
 
+    [Fact]
+    public async Task ExistingThread_AllowsSelectedSubAgentDifferentFromDefaultAgent()
+    {
+        var store = new InMemorySessionStore();
+        var parentAgent = await BuildAgentAsync(store);
+        await parentAgent.CreateSessionAsync("parent-session");
+        var context = await CreateFunctionContextAsync(store, "parent-session", "main");
+        var subAgent = SubAgent.FromConfig(
+            "test/critic",
+            "Critic",
+            "Runs against an existing conversation.",
+            MinimalConfig(),
+            SubAgentExecutionPolicies.ExistingThread("main"));
+
+        var route = await SubAgentRuntime.ResolveInvocationRouteAsync(
+            parentAgent, subAgent, context, "second-opinion", CancellationToken.None);
+
+        route.SessionId.Should().Be("parent-session");
+        route.ThreadId.Should().Be("main");
+        var descriptor = await store.GetThreadAsync(new ThreadKey(route.SessionId, route.ThreadId));
+        descriptor!.DefaultAgent.AgentId.Should().Be(parentAgent.AgentId);
+        descriptor.DefaultAgent.AgentId.Should().NotBe(subAgent.AgentId);
+    }
+
     private static async Task<Agent> BuildAgentAsync(
         InMemorySessionStore store,
         params IAgentMiddleware[] middlewares)

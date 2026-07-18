@@ -140,6 +140,7 @@ function thread(id: string, overrides: Partial<Thread> = {}): Thread {
   return {
     id,
     sessionId: 's1',
+    defaultAgentId: 'agent-1',
     name: id,
     createdAt: '2026-01-01T00:00:00.000Z',
     lastActivity: '2026-01-01T00:00:00.000Z',
@@ -513,7 +514,7 @@ describe('thread selectors', () => {
       parentSessionId: 's1',
       parentThreadId: 'main',
       subAgentName: 'Reviewer',
-      subAgentRunId: 'run-1',
+      invocationId: 'run-1',
     });
 
     expect(isMainAgentThread(main)).toBe(true);
@@ -530,6 +531,8 @@ describe('thread selectors', () => {
   it('splits runtime children by subagent and visibility metadata', () => {
     const visibleChild = {
       threadId: 'child-visible',
+      sessionId: 's1',
+      defaultAgentId: 'main-agent',
       parentSessionId: 's1',
       parentThreadId: 'main',
       name: 'child-visible',
@@ -541,6 +544,8 @@ describe('thread selectors', () => {
     };
     const subAgentChild = {
       threadId: 'subagent/reviewer/run-1',
+      sessionId: 's1',
+      defaultAgentId: 'reviewer-agent',
       parentSessionId: 's1',
       parentThreadId: 'main',
       name: 'Reviewer',

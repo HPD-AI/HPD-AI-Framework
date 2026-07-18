@@ -18,8 +18,8 @@ public sealed class HpdAgentTuiBuilder
     private readonly Dictionary<(TuiSlot Slot, string Key), IAgentTuiWidget> _widgets = [];
     private readonly Dictionary<string, IAgentTuiAutocompleteProvider> _autocompleteProviders = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HpdAgentTuiShortcutDescriptor> _shortcuts = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, IAgentTuiEventHandler> _eventHandlers = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, IAgentTuiInteractionHandler> _interactionHandlers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AgentTuiEventHandlerRegistration> _eventHandlers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AgentTuiInteractionHandlerRegistration> _interactionHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IAgentTuiTranscriptRendererAdapter> _transcriptRenderers = new(StringComparer.Ordinal);
     private readonly HashSet<KeyGesture> _shortcutGestures = [];
     private IAgentTuiShellComponent? _header;
@@ -527,11 +527,16 @@ public sealed class HpdAgentTuiBuilder
         Func<AgentTuiPromptContext, Action<ReadOnlyMemory<char>>, AutocompleteController, PromptView> create)
         => ReplacePrompt(new DelegateAgentTuiPromptFactory(create));
 
-    public HpdAgentTuiBuilder AddEventHandler(string key, IAgentTuiEventHandler handler)
+    /// <summary>Adds an event projection handler with explicit runtime-tree visibility.</summary>
+    public HpdAgentTuiBuilder AddEventHandler(
+        string key,
+        IAgentTuiEventHandler handler,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(handler);
-        if (!_eventHandlers.TryAdd(key, handler))
+        AgentTuiEventScopeRouting.Validate(scope, nameof(scope));
+        if (!_eventHandlers.TryAdd(key, new AgentTuiEventHandlerRegistration(handler, scope)))
         {
             throw new InvalidOperationException($"An event handler is already registered for '{key}'.");
         }
@@ -541,57 +546,76 @@ public sealed class HpdAgentTuiBuilder
 
     public HpdAgentTuiBuilder AddEventHandler<TEvent>(
         string key,
-        AgentTuiEventHandler<TEvent> handler)
+        AgentTuiEventHandler<TEvent> handler,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
         where TEvent : AgentEvent
-        => AddEventHandler(key, (IAgentTuiEventHandler)handler);
+        => AddEventHandler(key, (IAgentTuiEventHandler)handler, scope);
 
-    public HpdAgentTuiBuilder AddEventHandler<TEvent, THandler>(string key)
+    public HpdAgentTuiBuilder AddEventHandler<TEvent, THandler>(
+        string key,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
         where TEvent : AgentEvent
         where THandler : AgentTuiEventHandler<TEvent>, new()
-        => AddEventHandler<TEvent>(key, new THandler());
+        => AddEventHandler<TEvent>(key, new THandler(), scope);
 
-    public HpdAgentTuiBuilder TryAddEventHandler(string key, IAgentTuiEventHandler handler)
+    /// <summary>Adds an event projection handler when its key is not already registered.</summary>
+    public HpdAgentTuiBuilder TryAddEventHandler(
+        string key,
+        IAgentTuiEventHandler handler,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(handler);
-        _eventHandlers.TryAdd(key, handler);
+        AgentTuiEventScopeRouting.Validate(scope, nameof(scope));
+        _eventHandlers.TryAdd(key, new AgentTuiEventHandlerRegistration(handler, scope));
         return this;
     }
 
     public HpdAgentTuiBuilder TryAddEventHandler<TEvent>(
         string key,
-        AgentTuiEventHandler<TEvent> handler)
+        AgentTuiEventHandler<TEvent> handler,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
         where TEvent : AgentEvent
-        => TryAddEventHandler(key, (IAgentTuiEventHandler)handler);
+        => TryAddEventHandler(key, (IAgentTuiEventHandler)handler, scope);
 
-    public HpdAgentTuiBuilder TryAddEventHandler<TEvent, THandler>(string key)
+    public HpdAgentTuiBuilder TryAddEventHandler<TEvent, THandler>(
+        string key,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
         where TEvent : AgentEvent
         where THandler : AgentTuiEventHandler<TEvent>, new()
-        => TryAddEventHandler<TEvent>(key, new THandler());
+        => TryAddEventHandler<TEvent>(key, new THandler(), scope);
 
-    public HpdAgentTuiBuilder ReplaceEventHandler(string key, IAgentTuiEventHandler handler)
+    /// <summary>Replaces an event projection handler and its runtime-tree visibility.</summary>
+    public HpdAgentTuiBuilder ReplaceEventHandler(
+        string key,
+        IAgentTuiEventHandler handler,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(handler);
+        AgentTuiEventScopeRouting.Validate(scope, nameof(scope));
         if (!_eventHandlers.ContainsKey(key))
         {
             throw new InvalidOperationException($"Cannot replace event handler '{key}' because none is registered.");
         }
 
-        _eventHandlers[key] = handler;
+        _eventHandlers[key] = new AgentTuiEventHandlerRegistration(handler, scope);
         return this;
     }
 
     public HpdAgentTuiBuilder ReplaceEventHandler<TEvent>(
         string key,
-        AgentTuiEventHandler<TEvent> handler)
+        AgentTuiEventHandler<TEvent> handler,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
         where TEvent : AgentEvent
-        => ReplaceEventHandler(key, (IAgentTuiEventHandler)handler);
+        => ReplaceEventHandler(key, (IAgentTuiEventHandler)handler, scope);
 
-    public HpdAgentTuiBuilder ReplaceEventHandler<TEvent, THandler>(string key)
+    public HpdAgentTuiBuilder ReplaceEventHandler<TEvent, THandler>(
+        string key,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
         where TEvent : AgentEvent
         where THandler : AgentTuiEventHandler<TEvent>, new()
-        => ReplaceEventHandler<TEvent>(key, new THandler());
+        => ReplaceEventHandler<TEvent>(key, new THandler(), scope);
 
     public HpdAgentTuiBuilder AddSlashCommand(
         HpdAgentTuiCommandDescriptor command)
@@ -785,11 +809,16 @@ public sealed class HpdAgentTuiBuilder
         return this;
     }
 
-    public HpdAgentTuiBuilder AddInteractionHandler(string key, IAgentTuiInteractionHandler handler)
+    /// <summary>Adds a bidirectional request handler with explicit runtime-tree visibility.</summary>
+    public HpdAgentTuiBuilder AddInteractionHandler(
+        string key,
+        IAgentTuiInteractionHandler handler,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(handler);
-        if (!_interactionHandlers.TryAdd(key, handler))
+        AgentTuiEventScopeRouting.Validate(scope, nameof(scope));
+        if (!_interactionHandlers.TryAdd(key, new AgentTuiInteractionHandlerRegistration(handler, scope)))
         {
             throw new InvalidOperationException($"An interaction handler is already registered for '{key}'.");
         }
@@ -799,57 +828,76 @@ public sealed class HpdAgentTuiBuilder
 
     public HpdAgentTuiBuilder AddInteractionHandler<TRequest>(
         string key,
-        AgentTuiInteractionHandler<TRequest> handler)
+        AgentTuiInteractionHandler<TRequest> handler,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
         where TRequest : AgentEvent
-        => AddInteractionHandler(key, (IAgentTuiInteractionHandler)handler);
+        => AddInteractionHandler(key, (IAgentTuiInteractionHandler)handler, scope);
 
-    public HpdAgentTuiBuilder AddInteractionHandler<TRequest, THandler>(string key)
+    public HpdAgentTuiBuilder AddInteractionHandler<TRequest, THandler>(
+        string key,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
         where TRequest : AgentEvent
         where THandler : AgentTuiInteractionHandler<TRequest>, new()
-        => AddInteractionHandler<TRequest>(key, new THandler());
+        => AddInteractionHandler<TRequest>(key, new THandler(), scope);
 
-    public HpdAgentTuiBuilder TryAddInteractionHandler(string key, IAgentTuiInteractionHandler handler)
+    /// <summary>Adds a bidirectional request handler when its key is not already registered.</summary>
+    public HpdAgentTuiBuilder TryAddInteractionHandler(
+        string key,
+        IAgentTuiInteractionHandler handler,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(handler);
-        _interactionHandlers.TryAdd(key, handler);
+        AgentTuiEventScopeRouting.Validate(scope, nameof(scope));
+        _interactionHandlers.TryAdd(key, new AgentTuiInteractionHandlerRegistration(handler, scope));
         return this;
     }
 
     public HpdAgentTuiBuilder TryAddInteractionHandler<TRequest>(
         string key,
-        AgentTuiInteractionHandler<TRequest> handler)
+        AgentTuiInteractionHandler<TRequest> handler,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
         where TRequest : AgentEvent
-        => TryAddInteractionHandler(key, (IAgentTuiInteractionHandler)handler);
+        => TryAddInteractionHandler(key, (IAgentTuiInteractionHandler)handler, scope);
 
-    public HpdAgentTuiBuilder TryAddInteractionHandler<TRequest, THandler>(string key)
+    public HpdAgentTuiBuilder TryAddInteractionHandler<TRequest, THandler>(
+        string key,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
         where TRequest : AgentEvent
         where THandler : AgentTuiInteractionHandler<TRequest>, new()
-        => TryAddInteractionHandler<TRequest>(key, new THandler());
+        => TryAddInteractionHandler<TRequest>(key, new THandler(), scope);
 
-    public HpdAgentTuiBuilder ReplaceInteractionHandler(string key, IAgentTuiInteractionHandler handler)
+    /// <summary>Replaces a bidirectional request handler and its runtime-tree visibility.</summary>
+    public HpdAgentTuiBuilder ReplaceInteractionHandler(
+        string key,
+        IAgentTuiInteractionHandler handler,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(handler);
+        AgentTuiEventScopeRouting.Validate(scope, nameof(scope));
         if (!_interactionHandlers.ContainsKey(key))
         {
             throw new InvalidOperationException($"Cannot replace interaction handler '{key}' because none is registered.");
         }
 
-        _interactionHandlers[key] = handler;
+        _interactionHandlers[key] = new AgentTuiInteractionHandlerRegistration(handler, scope);
         return this;
     }
 
     public HpdAgentTuiBuilder ReplaceInteractionHandler<TRequest>(
         string key,
-        AgentTuiInteractionHandler<TRequest> handler)
+        AgentTuiInteractionHandler<TRequest> handler,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
         where TRequest : AgentEvent
-        => ReplaceInteractionHandler(key, (IAgentTuiInteractionHandler)handler);
+        => ReplaceInteractionHandler(key, (IAgentTuiInteractionHandler)handler, scope);
 
-    public HpdAgentTuiBuilder ReplaceInteractionHandler<TRequest, THandler>(string key)
+    public HpdAgentTuiBuilder ReplaceInteractionHandler<TRequest, THandler>(
+        string key,
+        AgentTuiEventScope scope = AgentTuiEventScope.CurrentThread)
         where TRequest : AgentEvent
         where THandler : AgentTuiInteractionHandler<TRequest>, new()
-        => ReplaceInteractionHandler<TRequest>(key, new THandler());
+        => ReplaceInteractionHandler<TRequest>(key, new THandler(), scope);
 
     private bool TryFindTranscriptRendererKeyForCellType(Type cellType, out string key)
     {
@@ -885,4 +933,5 @@ public sealed class HpdAgentTuiBuilder
             _theme,
             _includeSlashCommandAutocomplete,
             _runConfigComposer);
+
 }

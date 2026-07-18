@@ -589,9 +589,42 @@ public sealed class CompositionSurfaceTests
             .AddEventHandler("sample.second", second)
             .Build();
 
-        var handlers = registry.FindEventHandlers(new TextDeltaEvent("hello", "m1")).ToArray();
+        var handlers = registry.FindEventHandlers(
+            new TextDeltaEvent("hello", "m1"),
+            new AgentTuiRuntimeScope("agent", "session", "main")).ToArray();
 
         handlers.Select(handler => handler.Key).Should().Equal("sample.first", "sample.second");
+    }
+
+    [Fact]
+    public void EventHandlers_DefaultToCurrentThreadAndCanOptIntoDescendants()
+    {
+        var current = new CountingEventHandler();
+        var descendants = new CountingEventHandler();
+        var all = new CountingEventHandler();
+        var registry = new HpdAgentTuiBuilder()
+            .AddEventHandler("current", current)
+            .AddEventHandler("descendants", descendants, AgentTuiEventScope.Descendants)
+            .AddEventHandler("all", all, AgentTuiEventScope.CurrentThreadAndDescendants)
+            .Build();
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+        var currentEvent = new TextDeltaEvent("main", "m1")
+        {
+            SessionId = "session",
+            ThreadId = "main"
+        };
+        var descendantEvent = new TextDeltaEvent("child", "m2")
+        {
+            SessionId = "session",
+            ThreadId = "subagent/explore/invocation-1"
+        };
+
+        registry.FindEventHandlers(currentEvent, scope).Select(item => item.Key)
+            .Should().Equal("current", "all");
+        registry.FindEventHandlers(descendantEvent, scope).Select(item => item.Key)
+            .Should().Equal("descendants", "all");
+        registry.EventHandlers.Single(item => item.Key == "current").Scope
+            .Should().Be(AgentTuiEventScope.CurrentThread);
     }
 
     private sealed class TextStatusItem : IAgentTuiStatusItem

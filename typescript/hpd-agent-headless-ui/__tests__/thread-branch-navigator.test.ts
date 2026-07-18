@@ -8,6 +8,7 @@ function thread(id: string, overrides: Partial<Thread> = {}): Thread {
   return {
     id,
     sessionId: 's1',
+    defaultAgentId: 'main-agent',
     name: id,
     createdAt: stamp,
     lastActivity: stamp,
@@ -59,6 +60,8 @@ function graph(): ThreadGraph {
     runtimeChildren: [
       {
         threadId: 'runtime-child',
+        sessionId: 's1',
+        defaultAgentId: 'reviewer-agent',
         parentSessionId: 's1',
         parentThreadId: 'main',
         name: 'Reviewer',
@@ -96,6 +99,12 @@ describe('createThreadBranchNavigator', () => {
     expect(snapshot.activePathChoices.map((item) => item.group.id)).toEqual(['main@m1']);
     expect(snapshot.activePathChoices[0].next?.threadId).toBe('alt');
     expect(snapshot.hasRuntimeChildren).toBe(true);
+    expect(navigator.getRuntimeChildScope('runtime-child')).toEqual({
+      agentId: 'reviewer-agent',
+      sessionId: 's1',
+      threadId: 'runtime-child',
+    });
+    expect(navigator.getRuntimeChildScope('missing')).toBeNull();
   });
 
   it('moves within a specific fork group', async () => {

@@ -6,7 +6,7 @@ using HPD.Agent.Tests.Infrastructure;
 namespace HPD.Agent.Tests.Session;
 
 /// <summary>
-/// Tests for session metadata, thread ownership, and cleanup across built-in stores.
+/// Tests for session metadata, thread persistence, and cleanup across built-in stores.
 /// Covers V3 Session/Thread CRUD operations and cleanup.
 /// </summary>
 public class SessionStoreTests : AgentTestBase

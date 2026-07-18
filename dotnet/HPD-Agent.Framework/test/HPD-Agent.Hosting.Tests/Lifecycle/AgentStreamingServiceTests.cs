@@ -249,7 +249,40 @@ public sealed class AgentStreamingServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task SubmitInputAsync_CommitsStartBeforeExposure_AndCompletionBeforeRelease()
+    public async Task ObserveThreadEventsAsync_SubscribesBeforeRuntimeConstruction_AndReceivesLiveEvents()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync(
+            "agent-1",
+            "session-live-observation");
+        var stored = await _agentManager.CreateDefinitionAsync(new AgentConfig
+        {
+            Name = "agent-1",
+            Clients = new AgentClientConfig
+            {
+                Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+            }
+        }, "agent-1");
+
+        var result = await _service.ObserveThreadEventsAsync(stored.Id, sessionId, threadId);
+
+        result.Status.Should().Be(AgentServiceStatus.Success);
+        _agentManager.GetRuntimeAgent(stored.Id, sessionId, threadId).Should().BeNull();
+        await using var observation = result.Value!;
+        var runtime = await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, threadId);
+        var live = new TextDeltaEvent("live", "message-live")
+        {
+            SessionId = sessionId,
+            ThreadId = threadId
+        };
+        await runtime.EventCoordinator.EmitAsync(live);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var received = await observation.LiveEvents.Reader.ReadAsync(timeout.Token);
+        received.Should().BeSameAs(live);
+    }
+
+    [Fact]
+    public async Task SubmitInputAsync_AllowsSelectedAgentDifferentFromThreadDefault_AndRecordsExecutingAgent()
     {
         var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-hosted-run");
         var stored = await _agentManager.CreateDefinitionAsync(
@@ -280,6 +313,9 @@ public sealed class AgentStreamingServiceTests : IDisposable
 
         submitted.Status.Should().Be(AgentServiceStatus.Success);
         var runtimeRunId = submitted.Value!.RuntimeRunId;
+        var descriptor = await _sessionStore.GetThreadAsync(new ThreadKey(sessionId, threadId));
+        descriptor!.DefaultAgent.AgentId.Should().Be("agent-1");
+        descriptor.DefaultAgent.AgentId.Should().NotBe(stored.Id);
 
         var observed = new List<AgentEvent>();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -298,6 +334,9 @@ public sealed class AgentStreamingServiceTests : IDisposable
         var completedIndex = observed.FindIndex(evt => evt is ThreadRunCompletedEvent completed && completed.RuntimeRunId == runtimeRunId);
         startedIndex.Should().BeGreaterThanOrEqualTo(0);
         completedIndex.Should().BeGreaterThan(startedIndex);
+        observed.OfType<ThreadRunStartedEvent>()
+            .Single(evt => evt.RuntimeRunId == runtimeRunId)
+            .AgentId.Should().Be(stored.Id);
 
         await WaitUntilAsync(
             () => _sessionManager.GetActiveThreadRun(sessionId, threadId) is null,

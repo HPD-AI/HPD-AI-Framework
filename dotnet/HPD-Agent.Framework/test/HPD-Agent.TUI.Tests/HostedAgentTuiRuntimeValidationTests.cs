@@ -186,6 +186,53 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         handler.Requests.Should().Equal("?after=1:0", "?after=1:1");
     }
 
+    [Fact]
+    public async Task ObserveAsync_DeliversLiveEventWithoutAdvancingReconnectCursor()
+    {
+        var live = new TextDeltaEvent("live", "message-live")
+        {
+            SessionId = "session",
+            ThreadId = "subagent/explore/invocation-1",
+            ThreadSequenceNumber = 8
+        };
+        var committed = new ThreadRunCompletedEvent("run-1", "agent", Cancelled: false)
+        {
+            SessionId = "session",
+            ThreadId = "main",
+            ThreadSequenceNumber = 5
+        };
+        var handler = new RawSequentialSseHandler(
+            $"event: live-agent-event\ndata: {AgentEventSerializer.ToJson(live)}\n\n",
+            $"id: 1:5\nevent: agent-event\ndata: {AgentEventSerializer.ToJson(committed)}\n\n");
+        using var http = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
+        };
+        await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
+        {
+            BaseAddress = http.BaseAddress
+        });
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var batches = new List<AgentTuiEventBatch>();
+
+        await foreach (var batch in runtime.ObserveAsync(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            after: new ThreadJournalCursor(1, 4),
+            initialObservedCursor: new ThreadJournalCursor(1, 4),
+            cancellationToken: timeout.Token))
+        {
+            batches.Add(batch);
+            if (batches.Count == 2)
+                break;
+        }
+
+        batches[0].Events.Should().ContainSingle().Which.Should().BeEquivalentTo(live);
+        batches[0].LastCursor.Should().Be(new ThreadJournalCursor(1, 4));
+        batches[1].Events.Should().ContainSingle().Which.Should().BeEquivalentTo(committed);
+        batches[1].LastCursor.Should().Be(new ThreadJournalCursor(1, 5));
+        handler.Requests.Should().Equal("?after=1:4", "?after=1:4");
+    }
+
     private sealed class JsonHandler(string json) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
@@ -223,6 +270,24 @@ public sealed class HostedAgentTuiRuntimeValidationTests
                     $"id: 1:{evt.ThreadSequenceNumber}\ndata: {AgentEventSerializer.ToJson(evt)}\n\n",
                     Encoding.UTF8,
                     "text/event-stream")
+            });
+        }
+    }
+
+    private sealed class RawSequentialSseHandler(params string[] payloads) : HttpMessageHandler
+    {
+        private int _index;
+
+        public List<string> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add(request.RequestUri?.Query ?? string.Empty);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(payloads[_index++], Encoding.UTF8, "text/event-stream")
             });
         }
     }

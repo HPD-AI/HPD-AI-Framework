@@ -17,37 +17,37 @@ internal static class ThreadEndpoints
         IAgentThreadService threads)
     {
         endpoints.MapGet("/sessions/{sid}/threads", (string sid, CancellationToken ct) =>
-                ListThreads(sid, threads, ct))
+                ListThreads(RouteValue.Decode(sid), threads, ct))
             .WithName("ListThreads")
             .WithSummary("List all threads in a session");
 
         endpoints.MapGet("/sessions/{sid}/thread-graph", (string sid, CancellationToken ct) =>
-                GetThreadGraph(sid, threads, ct))
+                GetThreadGraph(RouteValue.Decode(sid), threads, ct))
             .WithName("GetThreadGraph")
             .WithSummary("Get threads and fork groups for a session");
 
         endpoints.MapGet("/sessions/{sid}/threads/{bid}", (string sid, string bid, CancellationToken ct) =>
-                GetThread(sid, bid, threads, ct))
+                GetThread(RouteValue.Decode(sid), RouteValue.Decode(bid), threads, ct))
             .WithName("GetThread")
             .WithSummary("Get thread metadata by ID");
 
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads", (string agentId, string sid, CreateThreadRequest request, CancellationToken ct) =>
-                CreateThread(agentId, sid, request, threads, ct))
+                CreateThread(RouteValue.Decode(agentId), RouteValue.Decode(sid), request, threads, ct))
             .WithName("CreateThread")
             .WithSummary("Create a new thread in a session");
 
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/fork", (string agentId, string sid, string bid, ForkThreadRequest request, CancellationToken ct) =>
-                ForkThread(agentId, sid, bid, request, threads, ct))
+                ForkThread(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, threads, ct))
             .WithName("ForkThread")
             .WithSummary("Fork an existing thread at a specific message id");
 
         endpoints.MapPatch("/sessions/{sid}/threads/{bid}", (string sid, string bid, UpdateThreadRequest request, CancellationToken ct) =>
-                UpdateThread(sid, bid, request, threads, ct))
+                UpdateThread(RouteValue.Decode(sid), RouteValue.Decode(bid), request, threads, ct))
             .WithName("UpdateThread")
             .WithSummary("Update thread name, description, or tags");
 
         endpoints.MapDelete("/sessions/{sid}/threads/{bid}", (string sid, string bid, bool recursive = false, CancellationToken ct = default) =>
-                DeleteThread(sid, bid, recursive, threads, ct))
+                DeleteThread(RouteValue.Decode(sid), RouteValue.Decode(bid), recursive, threads, ct))
             .WithName("DeleteThread")
             .WithSummary("Delete a thread");
 

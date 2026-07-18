@@ -22,7 +22,7 @@ internal static class MiddlewareResponseEndpoints
         IAgentMiddlewareResponseService responses)
     {
         endpoints.MapPost("/agents/{agentId}/sessions/{sid}/threads/{bid}/responses", (string agentId, string sid, string bid, HttpRequest request, CancellationToken ct) =>
-                Respond(agentId, sid, bid, request, responses, ct))
+                Respond(RouteValue.Decode(agentId), RouteValue.Decode(sid), RouteValue.Decode(bid), request, responses, ct))
             .WithName("RespondToAgentRequest")
             .WithSummary("Respond to a request from the agent");
     }

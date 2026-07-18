@@ -454,7 +454,7 @@ public sealed class AgentThreadService : IAgentThreadService
             .Select(thread => new ThreadRuntimeChildDto(
                 thread.Key.ThreadId,
                 thread.Key.SessionId,
-                thread.Owner.AgentId,
+                thread.DefaultAgent.AgentId,
                 thread.RuntimeChild?.ParentSessionId ?? thread.Key.SessionId,
                 thread.RuntimeChild?.ParentThreadId ?? thread.Fork?.SourceThreadId ?? string.Empty,
                 thread.Name ?? thread.Key.ThreadId,

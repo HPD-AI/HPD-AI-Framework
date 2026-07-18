@@ -31,11 +31,11 @@ public sealed class GeneratedAgentCapabilityInvocationTests
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(parentClient))
             .BuildAsync(CancellationToken.None);
-        var events = new List<AgentEvent>();
+        var events = new System.Collections.Concurrent.ConcurrentQueue<AgentEvent>();
 
         using var subscription = agent.SubscribeAny(evt =>
         {
-            events.Add(evt);
+            events.Enqueue(evt);
             return ValueTask.CompletedTask;
         });
 

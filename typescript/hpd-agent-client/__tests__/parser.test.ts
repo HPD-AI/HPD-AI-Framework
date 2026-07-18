@@ -123,7 +123,7 @@ describe('SseParser', () => {
   it('should parse durable thread update events with threadMetadata payloads', () => {
     const parser = new SseParser();
     const chunk = new TextEncoder().encode(
-      'data: {"version":"1.0","type":"THREAD_UPDATED","name":"Reviewer","threadKind":"SubAgent","visibility":"Hidden","parentSessionId":"session-1","parentThreadId":"main","subAgentName":"Reviewer","subAgentRunId":"run-1","subAgentSourceKind":"InlineConfig","parentToolCallId":"call-1","sessionPolicy":"ParentSession","threadPolicy":"ForkFromParentThread","forkedFrom":"main","forkedAtMessageId":"message-1","forkedAtMessageIndex":0,"childThreads":["child-1"],"ancestors":{"main":"message-1"},"threadMetadata":{"purpose":"review"}}\n\n'
+      'data: {"version":"1.0","type":"THREAD_UPDATED","defaultAgentId":"reviewer-agent","name":"Reviewer","threadKind":"SubAgent","visibility":"Hidden","parentSessionId":"session-1","parentThreadId":"main","subAgentName":"Reviewer","invocationId":"run-1","subAgentSourceKind":"SuppliedAgentConfiguration","parentToolCallId":"call-1","sessionPolicy":"ParentSession","threadPolicy":"NewChildThread","forkedFrom":"main","forkedAtMessageId":"message-1","forkedAtMessageIndex":0,"childThreads":["child-1"],"ancestors":{"main":"message-1"},"threadMetadata":{"purpose":"review"}}\n\n'
     );
 
     const events = parser.processChunk(chunk);
@@ -141,11 +141,12 @@ describe('SseParser', () => {
         parentSessionId: 'session-1',
         parentThreadId: 'main',
         subAgentName: 'Reviewer',
-        subAgentRunId: 'run-1',
-        subAgentSourceKind: 'InlineConfig',
+        defaultAgentId: 'reviewer-agent',
+        invocationId: 'run-1',
+        subAgentSourceKind: 'SuppliedAgentConfiguration',
         parentToolCallId: 'call-1',
         sessionPolicy: 'ParentSession',
-        threadPolicy: 'ForkFromParentThread',
+        threadPolicy: 'NewChildThread',
         forkedFrom: 'main',
         forkedAtMessageId: 'message-1',
         forkedAtMessageIndex: 0,
@@ -158,6 +159,24 @@ describe('SseParser', () => {
         },
       },
     });
+  });
+
+  it('should distinguish live events that do not carry a journal cursor', () => {
+    const parser = new SseParser();
+    const chunk = new TextEncoder().encode(
+      'event: live-agent-event\n' +
+      'data: {"type":"TEXT_DELTA","text":"Live","messageId":"msg-live"}\n\n'
+    );
+
+    expect(parser.processChunk(chunk)).toEqual([{
+      kind: 'live-agent-event',
+      id: null,
+      event: {
+        type: 'TEXT_DELTA',
+        text: 'Live',
+        messageId: 'msg-live',
+      },
+    }]);
   });
 
   it('should retain the committed SSE id and ignore unrelated fields', () => {

@@ -3,6 +3,44 @@ import { EventTypes, type AgentEvent } from '@hpd-research/hpd-agent-client';
 import { createThreadProjection, eventBelongsToScope } from '../src/index.js';
 
 describe('createThreadProjection', () => {
+  it('projects durable subagent invocation lifecycle and child routing identity', () => {
+    const projection = createThreadProjection();
+
+    projection.project({
+      type: EventTypes.SUBAGENT_INVOCATION_STARTED,
+      invocationId: 'inv-1',
+      parentToolCallId: 'call-1',
+      childAgentId: 'reviewer-agent',
+      childSessionId: 'session-1',
+      childThreadId: 'child-1',
+      roleName: 'Reviewer',
+      taskName: 'Review architecture',
+      mode: 'Synchronous',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    });
+    projection.project({
+      type: EventTypes.SUBAGENT_INVOCATION_COMPLETED,
+      invocationId: 'inv-1',
+      summary: 'Looks good',
+      timestamp: '2026-01-01T00:00:01.000Z',
+    });
+
+    expect(projection.getSnapshot().subAgentInvocations).toEqual([{
+      invocationId: 'inv-1',
+      parentToolCallId: 'call-1',
+      childAgentId: 'reviewer-agent',
+      childSessionId: 'session-1',
+      childThreadId: 'child-1',
+      roleName: 'Reviewer',
+      taskName: 'Review architecture',
+      mode: 'Synchronous',
+      status: 'completed',
+      summary: 'Looks good',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      completedAt: '2026-01-01T00:00:01.000Z',
+    }]);
+  });
+
   it('projects message turn usage into context usage and the completed work group', () => {
     const projection = createThreadProjection();
 

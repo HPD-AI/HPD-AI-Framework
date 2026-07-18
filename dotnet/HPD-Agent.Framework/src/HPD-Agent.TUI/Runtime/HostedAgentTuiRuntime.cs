@@ -656,6 +656,25 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                     continue;
                 }
 
+                if (string.Equals(eventName, "live-agent-event", StringComparison.Ordinal))
+                {
+                    if (pendingCatchUp.Count > 0)
+                    {
+                        var catchUp = pendingCatchUp.ToArray();
+                        yield return CreateDeliveryBatch(catchUp, catchUpMode, initialObservedCursor, eventCursor.Generation);
+                        cursor = new ThreadJournalCursor(eventCursor.Generation, catchUp[^1].ThreadSequenceNumber);
+                        pendingCatchUp.Clear();
+                    }
+
+                    yield return new AgentTuiEventBatch(
+                        [evt],
+                        AgentTuiEventDeliveryMode.Live,
+                        initialObservedCursor,
+                        cursor,
+                        cursor);
+                    continue;
+                }
+
                 if (eventCursor.Generation != cursor.Generation ||
                     evt.ThreadSequenceNumber > 0 && evt.ThreadSequenceNumber <= cursor.SequenceNumber)
                 {
@@ -1171,7 +1190,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         => new(
             GetRequiredString(element, "id"),
             GetRequiredString(element, "sessionId"),
-            GetRequiredString(element, "ownerAgentId"),
+            GetRequiredString(element, "defaultAgentId"),
             GetRequiredString(element, "name"),
             GetOptionalString(element, "description"),
             GetRequiredDateTimeOffset(element, "createdAt"),
@@ -1227,7 +1246,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         new(
             GetRequiredString(element, "threadId"),
             GetRequiredString(element, "sessionId"),
-            GetRequiredString(element, "ownerAgentId"),
+            GetRequiredString(element, "defaultAgentId"),
             GetRequiredString(element, "parentSessionId"),
             GetRequiredString(element, "parentThreadId"),
             GetRequiredString(element, "name"),

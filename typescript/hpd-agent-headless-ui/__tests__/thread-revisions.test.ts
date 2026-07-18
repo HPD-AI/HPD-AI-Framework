@@ -17,6 +17,7 @@ function thread(id: string): Thread {
   return {
     id,
     sessionId: 's1',
+    defaultAgentId: 'agent-1',
     name: id,
     createdAt: '2026-01-01T00:00:00.000Z',
     lastActivity: '2026-01-01T00:00:00.000Z',

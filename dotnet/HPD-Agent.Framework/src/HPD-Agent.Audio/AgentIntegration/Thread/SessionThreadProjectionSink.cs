@@ -26,6 +26,8 @@ public sealed class SessionThreadProjectionSink : IThreadProjectionSink
         ArgumentNullException.ThrowIfNull(thread);
         ArgumentNullException.ThrowIfNull(record);
 
+        await EnsureThreadExistsAsync(thread, cancellationToken).ConfigureAwait(false);
+
         var messageId = CreateMessageId(record);
         var existing = await ResolveExistingProjectionAsync(
             thread,
@@ -65,7 +67,12 @@ public sealed class SessionThreadProjectionSink : IThreadProjectionSink
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
-        var completed = ThreadEventFactory.TextMessageCompleted(thread.SessionId, thread.ThreadId, null, messageId, 0);
+        var completed = ThreadEventFactory.TextMessageCompleted(
+            thread.SessionId,
+            thread.ThreadId,
+            null,
+            messageId,
+            0);
         var committed = await _sessionStore.AppendThreadEventAsync(
             thread.SessionId,
             thread.ThreadId,
@@ -75,6 +82,32 @@ public sealed class SessionThreadProjectionSink : IThreadProjectionSink
         return new ThreadProjectedEventRef(
             committed.EventId,
             committed.ThreadSequenceNumber);
+    }
+
+    private async ValueTask EnsureThreadExistsAsync(
+        ThreadRef thread,
+        CancellationToken cancellationToken)
+    {
+        var key = new ThreadKey(thread.SessionId, thread.ThreadId);
+        if (await _sessionStore.GetThreadAsync(key, cancellationToken).ConfigureAwait(false) is not null)
+            return;
+
+        var created = new ThreadCreatedEvent(
+            thread.AgentId,
+            Name: null,
+            Description: null,
+            Tags: null,
+            ThreadMetadata: null,
+            CreatedAt: DateTime.UtcNow)
+        {
+            SessionId = thread.SessionId,
+            ThreadId = thread.ThreadId
+        };
+        await _sessionStore.AppendThreadEventAsync(
+            thread.SessionId,
+            thread.ThreadId,
+            created,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask<ThreadProjectedEventRef?> ResolveExistingProjectionAsync(

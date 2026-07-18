@@ -9,7 +9,7 @@ public sealed class AgentSessionService : IAgentSessionService
     private readonly SessionManager _sessionManager;
     private readonly string _defaultAgentId;
 
-    /// <summary>Creates session lifecycle services for a stable default agent owner.</summary>
+    /// <summary>Creates session lifecycle services with a stable default agent.</summary>
     public AgentSessionService(SessionManager sessionManager, string defaultAgentId = "default")
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));

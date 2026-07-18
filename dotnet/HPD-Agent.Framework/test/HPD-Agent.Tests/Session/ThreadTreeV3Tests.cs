@@ -107,7 +107,7 @@ public class ThreadTreeV3Tests : AgentTestBase
             middlewareState: [],
             metadata: new Dictionary<string, object> { ["surface"] = "test" },
             childThreads: ["fork-1a"],
-            ownerAgentId: "test-agent");
+            defaultAgentId: "test-agent");
 
         var json = System.Text.Json.JsonSerializer.Serialize(thread);
         var deserialized = System.Text.Json.JsonSerializer.Deserialize<Thread>(json);
@@ -154,7 +154,7 @@ public class ThreadTreeV3Tests : AgentTestBase
             middlewareState: [],
             metadata: null,
             childThreads: [],
-            ownerAgentId: "test-agent");
+            defaultAgentId: "test-agent");
 
         var act = () => thread.ValidateTreeInvariants();
 
@@ -570,7 +570,7 @@ public class ThreadTreeV3Tests : AgentTestBase
             middlewareState: [],
             metadata: metadata,
             childThreads: [],
-            ownerAgentId: "test-agent");
+            defaultAgentId: "test-agent");
 
     private static ChatMessage UserMessage(string text, string messageId)
         => new(ChatRole.User, text) { MessageId = messageId };

@@ -11,7 +11,7 @@ public static class SubAgentTuiExtensions
 {
     /// <summary>
     /// Registers the <c>/subagents</c> command. Selecting a child switches the complete
-    /// runtime scope to its owning agent, session, and durable thread.
+    /// runtime scope to its default agent, session, and durable thread.
     /// </summary>
     /// <param name="builder">The TUI builder to extend.</param>
     /// <returns>The same builder.</returns>
@@ -59,7 +59,7 @@ public static class SubAgentTuiExtensions
 
             var child = selected.Value;
             await context.SwitchScopeAsync(
-                new AgentTuiRuntimeScope(child.OwnerAgentId, child.SessionId, child.ThreadId),
+                new AgentTuiRuntimeScope(child.DefaultAgentId, child.SessionId, child.ThreadId),
                 cancellationToken).ConfigureAwait(false);
             return null;
         }, CancellationToken.None).ConfigureAwait(false);

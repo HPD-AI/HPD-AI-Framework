@@ -18,6 +18,7 @@ function thread(id: string, overrides: Partial<Thread> = {}): Thread {
   return {
     id,
     sessionId: 's1',
+    defaultAgentId: 'agent-1',
     name: id,
     createdAt: '2026-01-01T00:00:00.000Z',
     lastActivity: '2026-01-01T00:00:00.000Z',
@@ -74,6 +75,8 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
     }],
     runtimeChildren: [{
       threadId: 'runtime-child',
+      sessionId: 's1',
+      defaultAgentId: 'reviewer-agent',
       parentSessionId: 's1',
       parentThreadId: 'main',
       name: 'Reviewer',

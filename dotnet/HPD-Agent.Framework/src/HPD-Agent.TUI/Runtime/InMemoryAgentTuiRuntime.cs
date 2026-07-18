@@ -473,7 +473,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         => new(
             thread.Id,
             sessionId,
-            thread.OwnerAgentId,
+            thread.DefaultAgentId,
             thread.GetDisplayName(),
             thread.Description,
             thread.CreatedAt,
@@ -535,7 +535,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         => new(
             thread.Id,
             thread.SessionId,
-            thread.OwnerAgentId,
+            thread.DefaultAgentId,
             thread.ParentSessionId ?? thread.SessionId,
             thread.ParentThreadId ?? thread.ForkedFrom ?? string.Empty,
             thread.GetDisplayName(),

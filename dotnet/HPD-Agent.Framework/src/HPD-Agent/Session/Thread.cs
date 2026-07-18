@@ -115,8 +115,8 @@ public class Thread
     /// </summary>
     public Dictionary<string, object> Metadata { get; init; }
 
-    /// <summary>Stable agent definition that owns and reconstructs this thread.</summary>
-    public string OwnerAgentId { get; set; } = string.Empty;
+    /// <summary>Agent definition selected when the caller resumes this thread without choosing another agent.</summary>
+    public string DefaultAgentId { get; set; } = string.Empty;
 
     /// <summary>
     /// Runtime classification for this thread. Infrastructure uses this instead of magic metadata keys.
@@ -135,7 +135,7 @@ public class Thread
     /// <summary>Parent thread for runtime child threads such as subagents.</summary>
     public string? ParentThreadId { get; set; }
 
-    /// <summary>Name of the subagent that owns this thread, when Kind is SubAgent.</summary>
+    /// <summary>Name of the subagent associated with this thread, when Kind is SubAgent.</summary>
     public string? SubAgentName { get; set; }
 
     public string? SubAgentTaskName { get; set; }
@@ -228,13 +228,13 @@ public class Thread
     /// Creates a new thread with a generated ID.
     /// Internal - only the framework creates threads via Session.CreateThread() or Agent methods.
     /// </summary>
-    internal Thread(string sessionId, string ownerAgentId)
+    internal Thread(string sessionId, string defaultAgentId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(ownerAgentId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(defaultAgentId);
         Id = Guid.NewGuid().ToString();
         SessionId = sessionId;
-        OwnerAgentId = ownerAgentId;
+        DefaultAgentId = defaultAgentId;
         Messages = [];
         MiddlewareState = [];
         Metadata = [];
@@ -248,14 +248,14 @@ public class Thread
     /// Creates a new thread with a specific ID.
     /// Internal - only the framework creates threads via Session.CreateThread() or Agent methods.
     /// </summary>
-    internal Thread(string sessionId, string threadId, string ownerAgentId)
+    internal Thread(string sessionId, string threadId, string defaultAgentId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(ownerAgentId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(defaultAgentId);
         Id = threadId;
         SessionId = sessionId;
-        OwnerAgentId = ownerAgentId;
+        DefaultAgentId = defaultAgentId;
         Messages = [];
         MiddlewareState = [];
         Metadata = [];
@@ -285,7 +285,7 @@ public class Thread
         Dictionary<string, string> middlewareState,
         Dictionary<string, object>? metadata,
         List<string>? childThreads,
-        string ownerAgentId,
+        string defaultAgentId,
         ThreadKind kind = ThreadKind.MainAgent,
         ThreadVisibility visibility = ThreadVisibility.Visible,
         string? parentSessionId = null,
@@ -311,7 +311,7 @@ public class Thread
         Description = description;
         Tags = tags;
         Metadata = metadata ?? [];
-        OwnerAgentId = ownerAgentId;
+        DefaultAgentId = defaultAgentId;
         Kind = kind;
         Visibility = visibility;
         ParentSessionId = parentSessionId;
@@ -391,8 +391,8 @@ public class Thread
             SubAgentTaskName = subAgentTaskName;
         if (TryRemoveString(metadata, "invocationId", out var invocationId))
             InvocationId = invocationId;
-        if (TryRemoveString(metadata, "ownerAgentId", out var ownerAgentId))
-            OwnerAgentId = ownerAgentId ?? string.Empty;
+        if (TryRemoveString(metadata, "defaultAgentId", out var defaultAgentId))
+            DefaultAgentId = defaultAgentId ?? string.Empty;
         if (TryRemoveString(metadata, "subAgentSourceKind", out var subAgentSourceKind))
             SubAgentSourceKind = subAgentSourceKind;
         if (TryRemoveString(metadata, "parentToolCallId", out var parentToolCallId))

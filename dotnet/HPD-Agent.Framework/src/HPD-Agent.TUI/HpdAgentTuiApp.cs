@@ -852,7 +852,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
 
         await _state.ApplyEventAsync(evt, cancellationToken, deliveryMode).ConfigureAwait(false);
-        TrackRuntimeRun(evt);
+        if (AgentTuiEventScope.CurrentThread.Includes(evt, _scope))
+            TrackRuntimeRun(evt);
 
         await HandleInteractionAsync(evt, cancellationToken).ConfigureAwait(false);
     }
@@ -869,7 +870,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         if (_dialogs is not null &&
             evt is IRequestEvent request &&
             !string.IsNullOrWhiteSpace(request.RequestId) &&
-            _registry.TryFindInteractionHandler(evt, out var handler) &&
+            _registry.TryFindInteractionHandler(evt, _scope, out var handler) &&
             _handledInteractionIds.Add(request.RequestId))
         {
             try

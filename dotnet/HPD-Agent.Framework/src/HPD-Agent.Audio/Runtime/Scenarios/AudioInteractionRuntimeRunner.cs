@@ -660,7 +660,7 @@ public sealed record AudioInteractionRuntimeRequest
 
     public IReadOnlyList<TransportBinding> InputBindings { get; init; } = [];
 
-    public ThreadRef ThreadRef { get; init; } = new("session", "main");
+    public ThreadRef ThreadRef { get; init; } = new("agent", "session", "main");
 
     public string? RequestId { get; init; }
 

@@ -13,7 +13,7 @@ public static class ThreadEventTypes
 }
 
 public sealed record ThreadCreatedEvent(
-    string OwnerAgentId,
+    string DefaultAgentId,
     string? Name,
     string? Description,
     List<string>? Tags,
@@ -37,7 +37,7 @@ public sealed record ThreadCreatedEvent(
     Dictionary<string, string>? Ancestors = null) : AgentEvent;
 
 public sealed record ThreadUpdatedEvent(
-    string OwnerAgentId,
+    string DefaultAgentId,
     string? Name,
     string? Description,
     List<string>? Tags,
@@ -135,7 +135,7 @@ public static class ThreadEventFactory
 {
     public static AgentEvent ThreadCreated(Thread thread) =>
         Scope(thread.SessionId, thread.Id, new ThreadCreatedEvent(
-            thread.OwnerAgentId,
+            thread.DefaultAgentId,
             thread.Name,
             thread.Description,
             thread.Tags,
@@ -160,7 +160,7 @@ public static class ThreadEventFactory
 
     public static AgentEvent ThreadUpdated(Thread thread) =>
         Scope(thread.SessionId, thread.Id, new ThreadUpdatedEvent(
-            thread.OwnerAgentId,
+            thread.DefaultAgentId,
             thread.Name,
             thread.Description,
             thread.Tags,

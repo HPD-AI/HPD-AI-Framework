@@ -29,6 +29,7 @@ import type {
   ThreadProjectionListener,
   ThreadProjectionSnapshot,
   ThreadRunView,
+  SubAgentInvocation,
   ThreadSnapshot,
   ThreadTimelineItem,
   ThreadWorkGroup,
@@ -276,6 +277,42 @@ class ThreadProjectionImpl implements ThreadProjection {
         this.emit();
         break;
       }
+      case EventTypes.SUBAGENT_INVOCATION_STARTED:
+        this.updateSubAgentInvocation({
+          invocationId: known.invocationId,
+          parentToolCallId: known.parentToolCallId,
+          childAgentId: known.childAgentId,
+          childSessionId: known.childSessionId,
+          childThreadId: known.childThreadId,
+          roleName: known.roleName,
+          taskName: known.taskName,
+          mode: known.mode,
+          status: 'active',
+          startedAt: known.timestamp,
+        });
+        break;
+      case EventTypes.SUBAGENT_INVOCATION_COMPLETED:
+        this.completeSubAgentInvocation(known.invocationId, {
+          status: 'completed',
+          summary: known.summary,
+          completedAt: known.timestamp,
+        });
+        break;
+      case EventTypes.SUBAGENT_INVOCATION_FAILED:
+        this.completeSubAgentInvocation(known.invocationId, {
+          status: 'failed',
+          errorType: known.errorType,
+          errorMessage: known.message,
+          completedAt: known.timestamp,
+        });
+        break;
+      case EventTypes.SUBAGENT_INVOCATION_CANCELLED:
+        this.completeSubAgentInvocation(known.invocationId, {
+          status: 'cancelled',
+          errorMessage: known.reason,
+          completedAt: known.timestamp,
+        });
+        break;
       default:
         if (isErrorEvent(event)) {
           this.snapshot = refreshSnapshot({
@@ -842,6 +879,33 @@ class ThreadProjectionImpl implements ThreadProjection {
     });
   }
 
+  private updateSubAgentInvocation(invocation: SubAgentInvocation): void {
+    const existingIndex = this.snapshot.subAgentInvocations.findIndex(
+      (candidate) => candidate.invocationId === invocation.invocationId,
+    );
+    const subAgentInvocations = [...this.snapshot.subAgentInvocations];
+    if (existingIndex >= 0) {
+      subAgentInvocations[existingIndex] = { ...subAgentInvocations[existingIndex], ...invocation };
+    } else {
+      subAgentInvocations.push(invocation);
+    }
+    this.snapshot = refreshSnapshot({ ...this.snapshot, subAgentInvocations });
+    this.emit();
+  }
+
+  private completeSubAgentInvocation(
+    invocationId: string,
+    completion: Pick<SubAgentInvocation, 'status' | 'completedAt' | 'summary' | 'errorType' | 'errorMessage'>,
+  ): void {
+    const existing = this.snapshot.subAgentInvocations.find(
+      (candidate) => candidate.invocationId === invocationId,
+    );
+    this.updateSubAgentInvocation({
+      ...(existing ?? { invocationId }),
+      ...completion,
+    });
+  }
+
   private emit(): void {
     if (this.muted) return;
     const snapshot = this.getSnapshot();
@@ -861,6 +925,7 @@ function createInitialSnapshot(): ThreadProjectionSnapshot {
     pendingRuntimeRequests: [],
     contextUsage: null,
     threadRun: null,
+    subAgentInvocations: [],
     activity: createActivity({
       workGroups: [],
       activeTools: [],
@@ -922,6 +987,7 @@ function cloneSnapshot(snapshot: ThreadProjectionSnapshot): ThreadProjectionSnap
     transcriptMessages: snapshot.transcriptMessages.map(cloneMessage),
     activeTools: snapshot.activeTools.map(cloneToolCall),
     pendingRuntimeRequests: snapshot.pendingRuntimeRequests.map(cloneRuntimeRequest),
+    subAgentInvocations: snapshot.subAgentInvocations.map((invocation) => ({ ...invocation })),
     contextUsage: cloneContextUsage(snapshot.contextUsage),
     activity: { ...snapshot.activity },
   };

@@ -259,6 +259,11 @@ export class SseTransport implements AgentTransport {
       return;
     }
 
+    if (message.kind === 'live-agent-event') {
+      await this.eventHandler!(message.event);
+      return;
+    }
+
     await this.dispatchCommitted(message.id, message.event);
   }
 

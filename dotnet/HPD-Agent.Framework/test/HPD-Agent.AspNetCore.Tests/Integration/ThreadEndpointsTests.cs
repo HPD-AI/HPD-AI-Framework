@@ -28,6 +28,34 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
         return session!.Id;
     }
 
+    [Fact]
+    public async Task EncodedAgentAndThreadIds_RoundTripThroughThreadRoutes()
+    {
+        var sessionId = await CreateTestSession();
+        const string agentId = "coding/explorer";
+        const string threadId = "subagent/explore/workspace/invocation-1";
+        var encodedAgentId = Uri.EscapeDataString(agentId);
+        var encodedThreadId = Uri.EscapeDataString(threadId);
+
+        var create = await _client.PostAsJsonAsync(
+            $"/agents/{encodedAgentId}/sessions/{sessionId}/threads",
+            new CreateThreadRequest(threadId, threadId, null, null, null));
+        create.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var threadResponse = await _client.GetAsync(
+            $"/sessions/{sessionId}/threads/{encodedThreadId}");
+        threadResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var thread = await threadResponse.Content.ReadFromJsonAsync<ThreadDto>();
+        thread!.Id.Should().Be(threadId);
+        thread.DefaultAgentId.Should().Be(agentId);
+
+        var stateResponse = await _client.GetAsync(
+            $"/agents/{encodedAgentId}/sessions/{sessionId}/threads/{encodedThreadId}/state");
+        stateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var state = await stateResponse.Content.ReadFromJsonAsync<ThreadRuntimeStateDto>();
+        state!.ObservedCursor.Generation.Should().BePositive();
+    }
+
     private async Task<string> EnsureForkMessageAsync(string sessionId, string threadId = "main")
     {
         var existing = await TryGetFirstUserMessageIdAsync(sessionId, threadId);

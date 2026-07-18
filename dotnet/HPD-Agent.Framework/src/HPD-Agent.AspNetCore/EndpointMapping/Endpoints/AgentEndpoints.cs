@@ -32,19 +32,19 @@ internal static class AgentEndpoints
 
         // GET /agents/{agentId} — get definition
         endpoints.MapGet("/agents/{agentId}", (string agentId, CancellationToken ct) =>
-                GetAgent(agentId, agents, ct))
+                GetAgent(RouteValue.Decode(agentId), agents, ct))
             .WithName("GetAgent")
             .WithSummary("Get an agent definition by ID");
 
         // PUT /agents/{agentId} — update definition (evicts cached instance)
         endpoints.MapPut("/agents/{agentId}", (string agentId, UpdateAgentRequest request, CancellationToken ct) =>
-                UpdateAgent(agentId, request, agents, ct))
+                UpdateAgent(RouteValue.Decode(agentId), request, agents, ct))
             .WithName("UpdateAgent")
             .WithSummary("Update an agent definition and evict the cached instance");
 
         // DELETE /agents/{agentId} — delete definition + evict cached instance
         endpoints.MapDelete("/agents/{agentId}", (string agentId, CancellationToken ct) =>
-                DeleteAgent(agentId, agents, ct))
+                DeleteAgent(RouteValue.Decode(agentId), agents, ct))
             .WithName("DeleteAgent")
             .WithSummary("Delete an agent definition and evict the cached instance");
     }

@@ -250,6 +250,34 @@ public class ThreadOperationTests : AgentTestBase
     }
 
     [Fact]
+    public async Task FileStore_ListThreads_DiscoversNestedThreadIds()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"hpd-test-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new FileSessionStore(tempDir);
+            var session = new HPD.Agent.Session("test-session");
+            await store.SaveSessionAsync(session);
+
+            const string childThreadId = "subagent/explore/explore-workspace/invocation-1";
+            await store.SaveInitialThreadAsync(
+                session.Id,
+                session.CreateThread("coding/explorer", childThreadId));
+
+            var descriptors = await store.CollectThreadDescriptorsAsync(session.Id);
+
+            var descriptor = Assert.Single(descriptors);
+            Assert.Equal(childThreadId, descriptor.Key.ThreadId);
+            Assert.Equal("coding/explorer", descriptor.DefaultAgent.AgentId);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task FileStore_DeleteThread_RemovesThread()
     {
         // Arrange

@@ -129,6 +129,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             ?? $"audio-session-{Guid.NewGuid():N}");
 
         var threadRef = new ThreadRef(
+            context.Thread?.DefaultAgentId ?? context.AgentName,
             context.SessionId ?? context.ConversationId ?? "session",
             context.ThreadId ?? "main");
 
@@ -227,6 +228,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             ?? context.TraceId
             ?? $"audio-session-{Guid.NewGuid():N}");
         var threadRef = new ThreadRef(
+            context.Thread?.DefaultAgentId ?? context.AgentName,
             context.SessionId ?? context.ConversationId ?? "session",
             context.ThreadId ?? "main");
         var responseId = new ResponseId(
@@ -279,7 +281,7 @@ public sealed class AudioRuntimeAttachment : IAgentMiddleware
             ?? request.State.ConversationId
             ?? request.State.RunId
             ?? $"audio-session-{Guid.NewGuid():N}");
-        var threadRef = new ThreadRef(sessionId.Value, "main");
+        var threadRef = new ThreadRef(request.State.AgentName, sessionId.Value, "main");
         var responseId = new ResponseId($"response-{Guid.NewGuid():N}");
         var outputFlowId = new OutputFlowId($"output-{Guid.NewGuid():N}");
         var outputOptions = ResolveAssistantOutputOptions(options, null, request.ClientSet, request.ContentStore);

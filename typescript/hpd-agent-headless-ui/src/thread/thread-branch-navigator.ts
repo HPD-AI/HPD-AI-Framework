@@ -56,6 +56,15 @@ class ThreadBranchNavigatorImpl implements ThreadBranchNavigator {
     return this.load(threadId);
   }
 
+  getRuntimeChildScope(threadId: string) {
+    const child = this.snapshot.graph.runtimeChildren.find((candidate) => candidate.threadId === threadId);
+    return child ? {
+      agentId: child.defaultAgentId,
+      sessionId: child.sessionId,
+      threadId: child.threadId,
+    } : null;
+  }
+
   selectForkGroupMember(groupId: string, threadId: string): Promise<ThreadBranchNavigationSnapshot> {
     const group = this.snapshot.forkGroups.find((candidate) => candidate.id === groupId);
     const isMember = group?.members.some((member) => member.threadId === threadId) ?? false;

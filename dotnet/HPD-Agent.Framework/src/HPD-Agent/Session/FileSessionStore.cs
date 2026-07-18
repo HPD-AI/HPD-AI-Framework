@@ -160,12 +160,21 @@ public sealed class FileSessionStore : ISessionStore
         if (!Directory.Exists(root))
             yield break;
 
+        var descriptorPaths = Directory
+            .EnumerateFiles(root, "thread.descriptor.json", SearchOption.AllDirectories)
+            .OrderBy(path => path, StringComparer.Ordinal);
         var count = 0;
-        foreach (var directory in Directory.EnumerateDirectories(root))
+        foreach (var descriptorPath in descriptorPaths)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var threadId = Path.GetFileName(directory);
-            var descriptor = await GetRuntime(new ThreadKey(sessionId, threadId)).GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
+            var directory = Path.GetDirectoryName(descriptorPath)!;
+            var threadId = Path.GetRelativePath(root, directory)
+                .Replace(Path.DirectorySeparatorChar, '/')
+                .Replace(Path.AltDirectorySeparatorChar, '/');
+            var key = new ThreadKey(sessionId, threadId);
+            var descriptor = await GetRuntime(key).GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
+            if (descriptor is not null && descriptor.Key != key)
+                continue;
             if (descriptor is null || (!request.IncludeHidden && descriptor.Visibility == ThreadVisibility.Hidden))
                 continue;
             yield return descriptor;

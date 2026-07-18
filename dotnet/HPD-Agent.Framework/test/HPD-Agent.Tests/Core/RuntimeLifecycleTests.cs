@@ -2845,8 +2845,16 @@ public class RuntimeLifecycleTests : AgentTestBase
             config: config,
             client: fakeClient,
             middlewares: [middleware]);
+        var queued = new TaskCompletionSource<BackgroundTaskNotificationQueuedEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var subscription = agent.Subscribe<BackgroundTaskNotificationQueuedEvent>(evt =>
+        {
+            queued.TrySetResult(evt);
+            return ValueTask.CompletedTask;
+        });
 
         await agent.StartAsync(cancellationToken: TestCancellationToken);
+        await queued.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
         await agent.StopAsync(TestCancellationToken);
 
         var notificationText = GetSingleNotificationSystemMessage(fakeClient);

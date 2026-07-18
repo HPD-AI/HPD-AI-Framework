@@ -3,6 +3,8 @@ using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.AspNetCore.Streaming;
 using HPD.Agent.AspNetCore.Tests.TestInfrastructure;
+using HPD.Agent.Hosting.Lifecycle;
+using HPD.Events.Core;
 using Microsoft.AspNetCore.Http;
 
 namespace HPD.Agent.AspNetCore.Tests.Unit;
@@ -32,14 +34,15 @@ public sealed class SseEventHandlerReplayTests
             .ThreadSequenceNumber;
         var context = new DefaultHttpContext();
         context.Request.QueryString = new QueryString($"?after=1:{firstSequence}");
-        context.Response.Body = new MemoryStream();
+        context.Response.Body = new CapturingStream();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 
-        var streamTask = SseEventHandler.StreamEventsAsync(
-            context,
+        var coordinator = new EventCoordinator();
+        await using var observation = new ThreadEventObservationLease(
             store,
             new ThreadKey("session-1", "main"),
-            timeout.Token);
+            coordinator.CreateInbox<AgentEvent>());
+        var streamTask = SseEventHandler.StreamEventsAsync(context, observation, timeout.Token);
         while (context.Response.Body.Length < 20)
         {
             await Task.Delay(TimeSpan.FromMilliseconds(10), timeout.Token);
@@ -54,5 +57,166 @@ public sealed class SseEventHandlerReplayTests
         body.Should().Contain("second");
         body.Should().NotContain($"id: 1:{firstSequence}\n");
         body.Should().NotContain("first");
+    }
+
+    [Fact]
+    public async Task StreamEventsAsync_DeliversStatelessRuntimeEventsWithoutAJournalCursor()
+    {
+        var store = await CreateStoreWithThreadAsync();
+        var coordinator = new EventCoordinator();
+        await using var observation = new ThreadEventObservationLease(
+            store,
+            new ThreadKey("session-1", "main"),
+            coordinator.CreateInbox<AgentEvent>());
+        var context = CreateContext(after: "1:1");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var streamTask = SseEventHandler.StreamEventsAsync(context, observation, timeout.Token);
+        var live = new TextDeltaEvent("runtime-only", "message-live")
+        {
+            SessionId = "session-1",
+            ThreadId = "main"
+        };
+
+        await coordinator.EmitAsync(live, timeout.Token);
+        await WaitForBodyAsync(context, live.EventId, timeout.Token);
+        await timeout.CancelAsync();
+        await streamTask;
+
+        var body = await ReadBodyAsync(context);
+        body.Should().Contain("event: live-agent-event\n");
+        body.Should().Contain(live.EventId);
+        body.Should().NotContain("id: 1:0");
+    }
+
+    [Fact]
+    public async Task StreamEventsAsync_DeliversBubbledDescendantEventsAsLiveEvents()
+    {
+        var store = await CreateStoreWithThreadAsync();
+        var parent = new EventCoordinator();
+        var child = new EventCoordinator();
+        child.SetParent(parent);
+        await using var observation = new ThreadEventObservationLease(
+            store,
+            new ThreadKey("session-1", "main"),
+            parent.CreateInbox<AgentEvent>());
+        var context = CreateContext(after: "1:1");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var streamTask = SseEventHandler.StreamEventsAsync(context, observation, timeout.Token);
+        var childEvent = new TextDeltaEvent("child", "message-child")
+        {
+            SessionId = "session-1",
+            ThreadId = "subagent/explore/invocation-1",
+            ThreadSequenceNumber = 7
+        };
+
+        await child.EmitAsync(childEvent, timeout.Token);
+        await WaitForBodyAsync(context, childEvent.EventId, timeout.Token);
+        await timeout.CancelAsync();
+        await streamTask;
+
+        var body = await ReadBodyAsync(context);
+        body.Should().Contain("event: live-agent-event\n");
+        body.Should().Contain(childEvent.EventId);
+        body.Should().NotContain("id: 1:7");
+    }
+
+    [Fact]
+    public async Task StreamEventsAsync_DoesNotDuplicateSelectedThreadCommittedEventsFromCoordinator()
+    {
+        var store = await CreateStoreWithThreadAsync();
+        var coordinator = new EventCoordinator();
+        await using var observation = new ThreadEventObservationLease(
+            store,
+            new ThreadKey("session-1", "main"),
+            coordinator.CreateInbox<AgentEvent>());
+        var context = CreateContext(after: "1:1");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var streamTask = SseEventHandler.StreamEventsAsync(context, observation, timeout.Token);
+        var publisher = new ThreadEventPublisher(store, coordinator);
+
+        var committed = await publisher.CommitAndPublishAsync(
+            new ThreadKey("session-1", "main"),
+            new TextDeltaEvent("committed-once", "message-committed"),
+            timeout.Token);
+        await WaitForBodyAsync(context, committed.EventId, timeout.Token);
+        await timeout.CancelAsync();
+        await streamTask;
+
+        var body = await ReadBodyAsync(context);
+        body.Split(committed.EventId, StringSplitOptions.None).Should().HaveCount(2);
+        body.Should().Contain($"id: 1:{committed.ThreadSequenceNumber}\n");
+        body.Should().NotContain("event: live-agent-event\n");
+    }
+
+    private static async Task<InMemorySessionStore> CreateStoreWithThreadAsync()
+    {
+        var store = new InMemorySessionStore();
+        await store.AppendThreadEventAsync(
+            "session-1",
+            "main",
+            new TextDeltaEvent("seed", "message-seed"));
+        return store;
+    }
+
+    private static DefaultHttpContext CreateContext(string after)
+    {
+        var context = new DefaultHttpContext();
+        context.Request.QueryString = new QueryString($"?after={after}");
+        context.Response.Body = new CapturingStream();
+        return context;
+    }
+
+    private static async Task WaitForBodyAsync(
+        DefaultHttpContext context,
+        string value,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var body = await ReadBodyAsync(context);
+            if (body.Contains(value, StringComparison.Ordinal))
+                return;
+            await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
+        }
+    }
+
+    private static Task<string> ReadBodyAsync(DefaultHttpContext context)
+    {
+        var stream = Assert.IsType<CapturingStream>(context.Response.Body);
+        return Task.FromResult(Encoding.UTF8.GetString(stream.Snapshot()));
+    }
+
+    private sealed class CapturingStream : MemoryStream
+    {
+        private readonly object _gate = new();
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            lock (_gate)
+                base.Write(buffer, offset, count);
+        }
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            lock (_gate)
+                base.Write(buffer);
+        }
+
+        public override ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            lock (_gate)
+            {
+                base.Write(buffer.Span);
+                return ValueTask.CompletedTask;
+            }
+        }
+
+        public byte[] Snapshot()
+        {
+            lock (_gate)
+                return ToArray();
+        }
     }
 }

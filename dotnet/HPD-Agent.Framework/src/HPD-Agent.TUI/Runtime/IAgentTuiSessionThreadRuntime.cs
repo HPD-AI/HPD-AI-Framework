@@ -124,7 +124,7 @@ public sealed record AgentTuiThreadUpdate(
 public sealed record AgentTuiThreadInfo(
     string Id,
     string SessionId,
-    string OwnerAgentId,
+    string DefaultAgentId,
     string Name,
     string? Description,
     DateTimeOffset CreatedAt,
@@ -176,7 +176,7 @@ public sealed record AgentTuiThreadForkGroupMember(
 public sealed record AgentTuiThreadRuntimeChild(
     string ThreadId,
     string SessionId,
-    string OwnerAgentId,
+    string DefaultAgentId,
     string ParentSessionId,
     string ParentThreadId,
     string Name,

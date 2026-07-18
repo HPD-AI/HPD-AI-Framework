@@ -6,7 +6,7 @@ namespace HPD.Agent.Hosting.Data;
 /// </summary>
 /// <param name="Id">Unique identifier for this thread</param>
 /// <param name="SessionId">Parent session ID</param>
-/// <param name="OwnerAgentId">Stable agent identity that owns this thread.</param>
+/// <param name="DefaultAgentId">Agent identity selected when continuation does not choose another agent.</param>
 /// <param name="Name">Display name for this thread</param>
 /// <param name="Description">Optional user-friendly description</param>
 /// <param name="ForkedFrom">Source thread ID if this was forked (null for original threads)</param>
@@ -32,7 +32,7 @@ namespace HPD.Agent.Hosting.Data;
 public record ThreadDto(
     string Id,
     string SessionId,
-    string OwnerAgentId,
+    string DefaultAgentId,
     string Name,
     string? Description,
     string? ForkedFrom,
@@ -113,7 +113,7 @@ public record ThreadForkGroupMemberDto(
 /// </summary>
 /// <param name="ThreadId">Runtime child thread id.</param>
 /// <param name="SessionId">Session containing the runtime child.</param>
-/// <param name="OwnerAgentId">Stable child agent identity used for continuation.</param>
+/// <param name="DefaultAgentId">Child agent identity selected by default for continuation.</param>
 /// <param name="ParentSessionId">Parent session id.</param>
 /// <param name="ParentThreadId">Parent thread id.</param>
 /// <param name="Name">Display name for this runtime child.</param>
@@ -131,7 +131,7 @@ public record ThreadForkGroupMemberDto(
 public record ThreadRuntimeChildDto(
     string ThreadId,
     string SessionId,
-    string OwnerAgentId,
+    string DefaultAgentId,
     string ParentSessionId,
     string ParentThreadId,
     string Name,

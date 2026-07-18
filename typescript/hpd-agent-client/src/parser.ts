@@ -1,7 +1,7 @@
 import type { AgentEvent } from './types/events.js';
 
 export interface AgentEventSseMessage {
-  kind: 'agent-event';
+  kind: 'agent-event' | 'live-agent-event';
   id: string | null;
   event: AgentEvent;
 }
@@ -105,7 +105,13 @@ export class SseParser {
       // Join multi-line data and parse as JSON
       const json = dataLines.join('\n');
       const parsed = JSON.parse(json);
-      if (isAgentEventLike(parsed)) return { kind: 'agent-event', id, event: parsed };
+      if (isAgentEventLike(parsed)) {
+        return {
+          kind: eventName === 'live-agent-event' ? 'live-agent-event' : 'agent-event',
+          id,
+          event: parsed,
+        };
+      }
       return eventName !== 'message'
         ? { kind: 'control', id, eventName, data: parsed }
         : null;

@@ -79,6 +79,10 @@ export const EventTypes = {
   STATE_SNAPSHOT: 'STATE_SNAPSHOT',
   THREAD_RUN_STARTED: 'THREAD_RUN_STARTED',
   THREAD_RUN_COMPLETED: 'THREAD_RUN_COMPLETED',
+  SUBAGENT_INVOCATION_STARTED: 'SUBAGENT_INVOCATION_STARTED',
+  SUBAGENT_INVOCATION_COMPLETED: 'SUBAGENT_INVOCATION_COMPLETED',
+  SUBAGENT_INVOCATION_FAILED: 'SUBAGENT_INVOCATION_FAILED',
+  SUBAGENT_INVOCATION_CANCELLED: 'SUBAGENT_INVOCATION_CANCELLED',
 
   // Content Streaming
   TEXT_MESSAGE_START: 'TEXT_MESSAGE_START',
@@ -296,6 +300,7 @@ export interface BackgroundTaskNotificationInputEvent extends AgentInputEvent {
 
 export interface ThreadCreatedEvent extends BaseEvent {
   type: typeof EventTypes.THREAD_CREATED;
+  defaultAgentId: string;
   name?: string | null;
   description?: string | null;
   tags?: string[] | null;
@@ -307,7 +312,7 @@ export interface ThreadCreatedEvent extends BaseEvent {
   parentThreadId?: string | null;
   subAgentName?: string | null;
   subAgentTaskName?: string | null;
-  subAgentRunId?: string | null;
+  invocationId?: string | null;
   subAgentSourceKind?: string | null;
   parentToolCallId?: string | null;
   sessionPolicy?: string | null;
@@ -321,6 +326,7 @@ export interface ThreadCreatedEvent extends BaseEvent {
 
 export interface ThreadUpdatedEvent extends BaseEvent {
   type: typeof EventTypes.THREAD_UPDATED;
+  defaultAgentId: string;
   name?: string | null;
   description?: string | null;
   tags?: string[] | null;
@@ -331,7 +337,7 @@ export interface ThreadUpdatedEvent extends BaseEvent {
   parentThreadId?: string | null;
   subAgentName?: string | null;
   subAgentTaskName?: string | null;
-  subAgentRunId?: string | null;
+  invocationId?: string | null;
   subAgentSourceKind?: string | null;
   parentToolCallId?: string | null;
   sessionPolicy?: string | null;
@@ -450,6 +456,43 @@ export interface ThreadRunCompletedEvent extends BaseEvent {
   cancelled: boolean;
   errorType?: string | null;
   errorMessage?: string | null;
+}
+
+export type AgentInvocationMode = 'Synchronous' | 'Background';
+
+/** Durable parent-side record that a delegation to a child agent began. */
+export interface SubAgentInvocationStartedEvent extends BaseEvent {
+  type: typeof EventTypes.SUBAGENT_INVOCATION_STARTED;
+  invocationId: string;
+  parentToolCallId: string;
+  childAgentId: string;
+  childSessionId: string;
+  childThreadId: string;
+  roleName: string;
+  taskName: string;
+  mode: AgentInvocationMode;
+}
+
+/** Durable parent-side record that a child delegation completed successfully. */
+export interface SubAgentInvocationCompletedEvent extends BaseEvent {
+  type: typeof EventTypes.SUBAGENT_INVOCATION_COMPLETED;
+  invocationId: string;
+  summary?: string | null;
+}
+
+/** Durable parent-side record that a child delegation failed. */
+export interface SubAgentInvocationFailedEvent extends BaseEvent {
+  type: typeof EventTypes.SUBAGENT_INVOCATION_FAILED;
+  invocationId: string;
+  errorType: string;
+  message: string;
+}
+
+/** Durable parent-side record that a child delegation was cancelled. */
+export interface SubAgentInvocationCancelledEvent extends BaseEvent {
+  type: typeof EventTypes.SUBAGENT_INVOCATION_CANCELLED;
+  invocationId: string;
+  reason?: string | null;
 }
 
 export interface ModelBackgroundOperationStartedEvent extends BaseEvent {
@@ -968,6 +1011,10 @@ export type KnownAgentEvent =
   | StateSnapshotEvent
   | ThreadRunStartedEvent
   | ThreadRunCompletedEvent
+  | SubAgentInvocationStartedEvent
+  | SubAgentInvocationCompletedEvent
+  | SubAgentInvocationFailedEvent
+  | SubAgentInvocationCancelledEvent
   | ModelBackgroundOperationStartedEvent
   | ModelBackgroundOperationStatusEvent
   | BackgroundTaskStartedEvent

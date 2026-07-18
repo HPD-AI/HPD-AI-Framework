@@ -276,7 +276,7 @@ public sealed class InputMediaSliceTests
         return runner.RunAsync(new AudioInteractionRuntimeRequest
         {
             SessionId = TestSessionId,
-            ThreadRef = new ThreadRef("session-1", "main"),
+            ThreadRef = new ThreadRef("audio-test-agent", "session-1", "main"),
             Inputs = inputs ?? [],
             InputContentRefs = additionalContents is null
                 ? [content]

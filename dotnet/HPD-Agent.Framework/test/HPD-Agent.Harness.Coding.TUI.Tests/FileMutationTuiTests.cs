@@ -472,11 +472,11 @@ public sealed class FileMutationTuiTests
     private static AgentEvent RoundTripThreadEvent(AgentEvent evt)
     {
         var projected = ThreadEventFactory.FromAgentEvent(
-            "session-1",
-            "thread-1",
+            "session",
+            "main",
             evt,
             messageTurnId: "turn-1",
-            conversationId: "session-1",
+            conversationId: "session",
             iteration: 1,
             inputMessageCount: 1,
             isResume: false,
