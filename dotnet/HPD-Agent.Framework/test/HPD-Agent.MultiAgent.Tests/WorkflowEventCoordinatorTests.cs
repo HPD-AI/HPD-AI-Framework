@@ -146,10 +146,13 @@ public class WorkflowEventCoordinatorTests
         // The throwing observer must not kill the dispatch
         var act = async () => await coordinator.PublishAsync(evt);
         await act.Should().NotThrowAsync();
-        await Task.Delay(50);
 
-        // The healthy observer must still receive the original event. It may
-        // also observe the fault diagnostic emitted when the bad subscriber is removed.
+        // Wait for the healthy observer to receive at least one event.
+        // The original event may arrive alongside the fault diagnostic emitted
+        // when the bad subscriber is removed.
+        await healthyObserver.WaitForCountAsync(1);
+
+        // The healthy observer must still receive the original event.
         healthyObserver.Received.Should().Contain(evt);
     }
 
