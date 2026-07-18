@@ -18,6 +18,54 @@ namespace HPD.Agent.Tests.Phase0_Characterization;
 /// </summary>
 public class ContainerExpansionTests : AgentTestBase
 {
+    [Fact]
+    public async Task ContainerExpansion_RealConsecutiveRuns_StartSecondRunCollapsed()
+    {
+        var fakeLLM = new FakeChatClient();
+        fakeLLM.EnqueueToolCall("CodingTools", "expand-coding");
+        fakeLLM.EnqueueToolCall("ReadFile", "read-file");
+        fakeLLM.EnqueueTextResponse("first turn complete");
+        fakeLLM.EnqueueTextResponse("second turn complete");
+
+        var (container, members) = CollapsedToolHarnessTestHelper.CreateCollapsedToolHarness(
+            "CodingTools",
+            "Coding operations",
+            CollapsedToolHarnessTestHelper.MemberFunc("ReadFile", "Reads a file", () => "contents"),
+            CollapsedToolHarnessTestHelper.MemberFunc("WriteFile", "Writes a file", () => "written"));
+        var config = DefaultConfig();
+        config.Collapsing = new CollapsingConfig { Enabled = true };
+        config.EnsureChatClientConfig().ProviderKey = "test";
+        config.EnsureChatClientConfig().ModelName = "test-model";
+        var agent = CreateAgent(config, fakeLLM, tools: [container, .. members]);
+
+        await foreach (var _ in agent.RunAgenticLoopAsync(
+            CreateSimpleConversation("Inspect the workspace"),
+            cancellationToken: TestCancellationToken))
+        {
+        }
+
+        await foreach (var _ in agent.RunAgenticLoopAsync(
+            CreateSimpleConversation("What tools are available now?"),
+            cancellationToken: TestCancellationToken))
+        {
+        }
+
+        var snapshots = fakeLLM.CapturedRequestSnapshots;
+        snapshots.Should().HaveCount(4,
+            "the first run makes three model calls and the second run makes one");
+        snapshots[0].ToolNames.Should().BeEquivalentTo(["CodingTools"],
+            "the first run must begin collapsed");
+        snapshots[1].ToolNames.Should().Contain(["ReadFile", "WriteFile"])
+            .And.NotContain("CodingTools", "members replace their expanded container within the turn");
+        snapshots[3].ToolNames.Should().BeEquivalentTo(["CodingTools"],
+            $"a new run must collapse again; observed request tool sets: {FormatToolSnapshots(snapshots)}");
+    }
+
+    private static string FormatToolSnapshots(
+        IReadOnlyList<FakeChatClient.ChatRequestSnapshot> snapshots) =>
+        string.Join(" | ", snapshots.Select((snapshot, index) =>
+            $"#{index}: [{string.Join(", ", snapshot.ToolNames)}]"));
+
     /// <summary>
     /// Test 1: Basic container expansion flow.
     /// Verifies that container is called, then member functions become available.

@@ -48,14 +48,15 @@ internal static class ReflectionToolFactory
             ToolHarnessType: toolharnessType,
             CreateInstance: () => Activator.CreateInstance(toolharnessType)
                 ?? throw new InvalidOperationException($"Could not create toolharness '{toolharnessType.Name}'."),
-            CreateFunctions: (instance, context, serialization) => CreateFunctions(methods, instance, context, serialization),
+            CreateFunctions: (instance, context, serialization) => CreateFunctions(methods, collapseAttribute, instance, context, serialization),
             GetReferencedToolHarnesses: () => Array.Empty<string>(),
             GetReferencedFunctions: () => new Dictionary<string, string[]>(),
             HasDescription: collapseAttribute is not null,
             Description: GetStringProperty(collapseAttribute, "Description"),
             FunctionResult: GetStringProperty(collapseAttribute, "FunctionResult"),
             SystemPrompt: GetStringProperty(collapseAttribute, "SystemPrompt"),
-            FunctionNames: methods.Select(GetCapabilityName).ToArray());
+            FunctionNames: methods.Select(GetCapabilityName).ToArray(),
+            CollapseMiddlewareFactories: CreateCollapseMiddlewareFactories(collapseAttribute));
 
         return true;
     }
@@ -64,6 +65,7 @@ internal static class ReflectionToolFactory
     [RequiresDynamicCode("Reflection tool registration uses runtime method invocation and System.Text.Json runtime type metadata.")]
     private static List<AIFunction> CreateFunctions(
         MethodInfo[] methods,
+        object? collapseAttribute,
         object instance,
         IToolMetadata? context,
         HPDToolSerializationOptions? serialization)
@@ -77,7 +79,80 @@ internal static class ReflectionToolFactory
             functions.Add(CreateCapability(method, method.IsStatic ? null : instance, context, serializerOptions));
         }
 
+        if (collapseAttribute is not null)
+        {
+            functions.Add(CreateToolHarnessContainer(methods, collapseAttribute, serializerOptions));
+        }
+
         return functions;
+    }
+
+    private static IReadOnlyList<Func<IAgentMiddleware>>? CreateCollapseMiddlewareFactories(object? collapseAttribute)
+    {
+        if (collapseAttribute?.GetType().GetProperty("Middlewares")?.GetValue(collapseAttribute) is not Type[] middlewareTypes ||
+            middlewareTypes.Length == 0)
+        {
+            return null;
+        }
+
+        var factories = new List<Func<IAgentMiddleware>>(middlewareTypes.Length);
+        foreach (var middlewareType in middlewareTypes)
+        {
+            if (!typeof(IAgentMiddleware).IsAssignableFrom(middlewareType))
+            {
+                throw new InvalidOperationException(
+                    $"Collapse middleware '{middlewareType.FullName}' must implement {nameof(IAgentMiddleware)}.");
+            }
+
+            if (middlewareType.GetConstructor(Type.EmptyTypes) is null)
+            {
+                throw new InvalidOperationException(
+                    $"Reflection-registered collapse middleware '{middlewareType.FullName}' must have a public parameterless constructor. " +
+                    "Use builder middleware configuration or the source generator for configured constructors.");
+            }
+
+            factories.Add(() => (IAgentMiddleware)(Activator.CreateInstance(middlewareType)
+                ?? throw new InvalidOperationException($"Could not create collapse middleware '{middlewareType.FullName}'.")));
+        }
+
+        return factories;
+    }
+
+    private static AIFunction CreateToolHarnessContainer(
+        MethodInfo[] methods,
+        object collapseAttribute,
+        JsonSerializerOptions serializerOptions)
+    {
+        var toolharnessName = methods[0].DeclaringType!.Name;
+        var childFunctions = methods.Select(GetCapabilityName).ToArray();
+        var description = GetStringProperty(collapseAttribute, "Description") ?? $"Tools in {toolharnessName}.";
+        var functionResult = GetStringProperty(collapseAttribute, "FunctionResult");
+        var systemPrompt = GetStringProperty(collapseAttribute, "SystemPrompt");
+        var functionList = string.Join(", ", childFunctions);
+        var result = string.IsNullOrWhiteSpace(functionResult)
+            ? $"{toolharnessName} expanded. Available functions: {functionList}"
+            : $"{toolharnessName} expanded. Available functions: {functionList}\n\n{functionResult}";
+
+        return HPDAIFunctionFactory.Create(
+            (_, _, _) => Task.FromResult<object?>(result),
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = toolharnessName,
+                Description = $"{description} Contains {childFunctions.Length} functions: {functionList}",
+                SerializerOptions = serializerOptions,
+                ResultType = typeof(string),
+                SchemaProvider = CreateEmptySchema,
+                AdditionalProperties = new Dictionary<string, object?>
+                {
+                    ["IsContainer"] = true,
+                    ["IsToolHarnessContainer"] = true,
+                    ["ToolHarnessName"] = toolharnessName,
+                    ["ChildFunctions"] = childFunctions,
+                    ["FunctionResult"] = functionResult,
+                    ["SystemPrompt"] = systemPrompt,
+                    ["CapabilityType"] = "ToolHarnessContainer"
+                }
+            });
     }
 
     [RequiresUnreferencedCode(ReflectionRequiresUnreferencedCodeMessage)]

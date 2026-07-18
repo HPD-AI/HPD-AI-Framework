@@ -11,6 +11,7 @@ public sealed class FakeChatClient : IChatClient
 {
     private readonly Queue<QueuedResponse> _queuedResponses = new();
     private readonly List<IList<ChatMessage>> _capturedRequests = new();
+    private readonly List<ChatRequestSnapshot> _capturedRequestSnapshots = new();
     private ChatClientMetadata? _metadata;
 
     public ChatClientMetadata Metadata => _metadata ?? new ChatClientMetadata(
@@ -23,6 +24,13 @@ public sealed class FakeChatClient : IChatClient
     /// Useful for verifying what was sent to the LLM.
     /// </summary>
     public IReadOnlyList<IList<ChatMessage>> CapturedRequests => _capturedRequests.AsReadOnly();
+
+    /// <summary>
+    /// Immutable snapshots of the messages, tools, and instructions supplied to each model call.
+    /// Unlike <see cref="CapturedRequests"/>, these snapshots retain the option values from the
+    /// instant of invocation even when the caller later reuses and mutates its <see cref="ChatOptions"/>.
+    /// </summary>
+    public IReadOnlyList<ChatRequestSnapshot> CapturedRequestSnapshots => _capturedRequestSnapshots.AsReadOnly();
 
     /// <summary>
     /// Enqueues a simple text response.
@@ -133,6 +141,7 @@ public sealed class FakeChatClient : IChatClient
     {
         _queuedResponses.Clear();
         _capturedRequests.Clear();
+        _capturedRequestSnapshots.Clear();
     }
 
     public async Task<ChatResponse> GetResponseAsync(
@@ -142,6 +151,7 @@ public sealed class FakeChatClient : IChatClient
     {
         // Capture the request
         _capturedRequests.Add(chatMessages.ToList());
+        CaptureRequest(chatMessages, options);
 
         // Get next queued response
         if (!_queuedResponses.TryDequeue(out var response))
@@ -172,6 +182,7 @@ public sealed class FakeChatClient : IChatClient
     {
         // Capture the request
         _capturedRequests.Add(chatMessages.ToList());
+        CaptureRequest(chatMessages, options);
 
         // Get next queued response
         if (!_queuedResponses.TryDequeue(out var response))
@@ -271,6 +282,19 @@ public sealed class FakeChatClient : IChatClient
                 };
                 break;
         }
+    }
+
+    private void CaptureRequest(IEnumerable<ChatMessage> messages, ChatOptions? options)
+    {
+        _capturedRequestSnapshots.Add(new ChatRequestSnapshot(
+            messages.Select(message => message.Role.ToString()).ToArray(),
+            options?.Tools?
+                .OfType<AIFunction>()
+                .Select(function => function.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Cast<string>()
+                .ToArray() ?? Array.Empty<string>(),
+            options?.Instructions));
     }
 
     private static ChatResponse CreateTextCompletion(QueuedResponse response)
@@ -376,4 +400,9 @@ public sealed class FakeChatClient : IChatClient
         public List<QueuedToolCall>? ToolCalls { get; init; }
         public string? FinishReason { get; init; }
     }
+
+    public sealed record ChatRequestSnapshot(
+        IReadOnlyList<string> MessageRoles,
+        IReadOnlyList<string> ToolNames,
+        string? Instructions);
 }

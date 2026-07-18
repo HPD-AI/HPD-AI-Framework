@@ -1,5 +1,6 @@
 using HPD.Agent.Tests.Infrastructure;
 using HPD.Agent.Tests.TestToolHarnesses;
+using HPD.Agent.Middleware;
 using HPD.MultiAgent;
 using Microsoft.Extensions.AI;
 using Xunit;
@@ -117,6 +118,14 @@ public class AgentBuilderWithToolTests
         Assert.Equal("Support tools are active.", factory.FunctionResult);
         Assert.Equal("Use support tool results when available.", factory.SystemPrompt);
         Assert.Equal(new[] { "lookup_order" }, factory.FunctionNames);
+
+        var functions = factory.CreateFunctions(new ReflectionSupportToolHarness(), null, null);
+        var container = Assert.Single(functions, function => function.Name == nameof(ReflectionSupportToolHarness));
+        Assert.True((bool)container.AdditionalProperties!["IsContainer"]!);
+        Assert.True((bool)container.AdditionalProperties["IsToolHarnessContainer"]!);
+        Assert.Equal(new[] { "lookup_order" }, (string[])container.AdditionalProperties["ChildFunctions"]!);
+        var middlewareFactory = Assert.Single(factory.CollapseMiddlewareFactories!);
+        Assert.IsType<ReflectionScopedMiddleware>(middlewareFactory());
     }
 
     [Fact]
@@ -311,7 +320,8 @@ public class ReflectionWeatherToolHarness
 [Collapse(
     "Support tools for orders and returns.",
     FunctionResult = "Support tools are active.",
-    SystemPrompt = "Use support tool results when available."
+    SystemPrompt = "Use support tool results when available.",
+    Middlewares = [typeof(ReflectionScopedMiddleware)]
 )]
 public class ReflectionSupportToolHarness
 {
@@ -321,6 +331,10 @@ public class ReflectionSupportToolHarness
     {
         return $"Order {orderNumber} shipped.";
     }
+}
+
+public sealed class ReflectionScopedMiddleware : IToolHarnessMiddleware
+{
 }
 
 public class ReflectionAdvancedToolHarness
