@@ -39,7 +39,7 @@ public static class MiddlewareTestHelpers
         eventCoordinator ??= new HPD.Events.Core.EventCoordinator();
         var sessionId = conversationId ?? "test-session";
         session ??= new SessionModel(sessionId);
-        thread ??= new ThreadModel(sessionId);
+        thread ??= new ThreadModel(sessionId, "test-agent");
 
         return new AgentContext(
             agentName,

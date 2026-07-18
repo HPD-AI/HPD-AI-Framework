@@ -33,6 +33,9 @@ public class AgentConfig
     /// </summary>
     public int MaxAgenticIterations { get; set; } = 10;
 
+    /// <summary>Maximum nested subagent depth. Root agents are depth zero.</summary>
+    public int MaxSubAgentDepth { get; set; } = 4;
+
     /// <summary>
     /// How many additional turns to allow when user chooses to continue beyond the limit.
     /// This includes extra iterations for the LLM to complete its task and generate a final response.

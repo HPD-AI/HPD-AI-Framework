@@ -115,6 +115,9 @@ public class Thread
     /// </summary>
     public Dictionary<string, object> Metadata { get; init; }
 
+    /// <summary>Stable agent definition that owns and reconstructs this thread.</summary>
+    public string OwnerAgentId { get; set; } = string.Empty;
+
     /// <summary>
     /// Runtime classification for this thread. Infrastructure uses this instead of magic metadata keys.
     /// </summary>
@@ -139,8 +142,8 @@ public class Thread
 
     public string? SubAgentStatus { get; set; }
 
-    /// <summary>Run id of the subagent invocation that created this thread.</summary>
-    public string? SubAgentRunId { get; set; }
+    /// <summary>Delegation invocation that created this subagent thread.</summary>
+    public string? InvocationId { get; set; }
 
     /// <summary>Source kind for the subagent definition, when Kind is SubAgent.</summary>
     public string? SubAgentSourceKind { get; set; }
@@ -225,11 +228,13 @@ public class Thread
     /// Creates a new thread with a generated ID.
     /// Internal - only the framework creates threads via Session.CreateThread() or Agent methods.
     /// </summary>
-    internal Thread(string sessionId)
+    internal Thread(string sessionId, string ownerAgentId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownerAgentId);
         Id = Guid.NewGuid().ToString();
         SessionId = sessionId;
+        OwnerAgentId = ownerAgentId;
         Messages = [];
         MiddlewareState = [];
         Metadata = [];
@@ -243,12 +248,14 @@ public class Thread
     /// Creates a new thread with a specific ID.
     /// Internal - only the framework creates threads via Session.CreateThread() or Agent methods.
     /// </summary>
-    internal Thread(string sessionId, string threadId)
+    internal Thread(string sessionId, string threadId, string ownerAgentId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownerAgentId);
         Id = threadId;
         SessionId = sessionId;
+        OwnerAgentId = ownerAgentId;
         Messages = [];
         MiddlewareState = [];
         Metadata = [];
@@ -278,6 +285,7 @@ public class Thread
         Dictionary<string, string> middlewareState,
         Dictionary<string, object>? metadata,
         List<string>? childThreads,
+        string ownerAgentId,
         ThreadKind kind = ThreadKind.MainAgent,
         ThreadVisibility visibility = ThreadVisibility.Visible,
         string? parentSessionId = null,
@@ -285,7 +293,7 @@ public class Thread
         string? subAgentName = null,
         string? subAgentTaskName = null,
         string? subAgentStatus = null,
-        string? subAgentRunId = null,
+        string? invocationId = null,
         string? subAgentSourceKind = null,
         string? parentToolCallId = null,
         string? sessionPolicy = null,
@@ -303,6 +311,7 @@ public class Thread
         Description = description;
         Tags = tags;
         Metadata = metadata ?? [];
+        OwnerAgentId = ownerAgentId;
         Kind = kind;
         Visibility = visibility;
         ParentSessionId = parentSessionId;
@@ -310,7 +319,7 @@ public class Thread
         SubAgentName = subAgentName;
         SubAgentTaskName = subAgentTaskName;
         SubAgentStatus = subAgentStatus;
-        SubAgentRunId = subAgentRunId;
+        InvocationId = invocationId;
         SubAgentSourceKind = subAgentSourceKind;
         ParentToolCallId = parentToolCallId;
         SessionPolicy = sessionPolicy;
@@ -380,8 +389,10 @@ public class Thread
             SubAgentName = subAgentName;
         if (TryRemoveString(metadata, "subAgentTaskName", out var subAgentTaskName))
             SubAgentTaskName = subAgentTaskName;
-        if (TryRemoveString(metadata, "subAgentRunId", out var subAgentRunId))
-            SubAgentRunId = subAgentRunId;
+        if (TryRemoveString(metadata, "invocationId", out var invocationId))
+            InvocationId = invocationId;
+        if (TryRemoveString(metadata, "ownerAgentId", out var ownerAgentId))
+            OwnerAgentId = ownerAgentId ?? string.Empty;
         if (TryRemoveString(metadata, "subAgentSourceKind", out var subAgentSourceKind))
             SubAgentSourceKind = subAgentSourceKind;
         if (TryRemoveString(metadata, "parentToolCallId", out var parentToolCallId))

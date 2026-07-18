@@ -216,6 +216,8 @@ internal static class ReflectionToolFactory
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["ParentToolHarness"] = method.DeclaringType?.Name,
+                    ["SubAgentMember"] = method.Name,
+                    ["SubAgentAssembly"] = method.DeclaringType?.Assembly.GetName().Name ?? string.Empty,
                     ["IsContainer"] = false,
                     ["CapabilityType"] = "Function",
                     ["Kind"] = GetToolKind(method).ToString()
@@ -274,7 +276,6 @@ internal static class ReflectionToolFactory
         return HPDAIFunctionFactory.Create(
             async (arguments, functionContext, cancellationToken) =>
             {
-                var subAgent = InvokeCapabilityMethod<SubAgent>(method, instance);
                 var jsonArgs = arguments.GetJson();
                 var input = jsonArgs.TryGetProperty("input", out var inputProperty)
                     ? inputProperty.GetString() ?? string.Empty
@@ -287,7 +288,7 @@ internal static class ReflectionToolFactory
                 var result = await SubAgentRuntime.InvokeAsync(
                     new SubAgentRuntime.SubAgentInvocationRequest
                     {
-                        Definition = subAgent,
+                        Definition = registrationDefinition,
                         Input = input,
                         TaskName = taskName,
                         ParentContext = functionContext,
@@ -313,7 +314,8 @@ internal static class ReflectionToolFactory
                     ["IsSubAgent"] = true,
                     ["ExecutionModel"] = "ThreadNative",
                     ["ParentToolHarness"] = method.DeclaringType?.Name,
-                    ["RequiresPermission"] = true
+                    ["RequiresPermission"] = true,
+                    ["SubAgentDefinition"] = registrationDefinition
                 }
             });
     }

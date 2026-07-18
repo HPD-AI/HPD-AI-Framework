@@ -21,7 +21,7 @@ public class MinimalContentUploadTest
             var contentStore = new LocalFileContentStore(Path.Combine(tempDir, "content"));
             var session = await store.LoadSessionAsync("minimal-session") ?? new HPD.Agent.Session("minimal-session");
             session.Store = store;
-            var thread = await store.ProjectThreadAsync("minimal-session", "main", ThreadProjectionPurpose.ThreadHistory) ?? session.CreateThread("main");
+            var thread = await store.ProjectThreadAsync("minimal-session", "main", ThreadProjectionPurpose.ThreadHistory) ?? session.CreateThread("test-agent", "main");
             thread.Session = session;
 
             // Verify session has store

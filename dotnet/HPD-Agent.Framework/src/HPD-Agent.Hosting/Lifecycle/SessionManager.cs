@@ -43,13 +43,15 @@ public abstract class SessionManager : IDisposable
     /// No agent or provider is required — sessions are provider-agnostic containers.
     /// </summary>
     public async Task<(string sessionId, string threadId)> CreateSessionAsync(
+        string ownerAgentId,
         string? sessionId = null,
         Dictionary<string, object>? metadata = null,
         CancellationToken ct = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownerAgentId);
         var id = string.IsNullOrWhiteSpace(sessionId) ? Guid.NewGuid().ToString() : sessionId;
         var session = new Session(id);
-        var thread = session.CreateThread("main");
+        var thread = session.CreateThread(ownerAgentId, "main");
         thread.Name = "main";
         session.Store = _store;
 

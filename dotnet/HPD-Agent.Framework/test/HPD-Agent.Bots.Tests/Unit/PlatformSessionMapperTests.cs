@@ -20,7 +20,7 @@ public class PlatformSessionMapperTests : IDisposable
     {
         _store   = new InMemorySessionStore();
         _manager = new TestSessionManager(_store);
-        _mapper  = new PlatformSessionMapper(_manager);
+        _mapper  = new PlatformSessionMapper(_manager, "test-agent");
     }
 
     public void Dispose() => _manager.Dispose();
@@ -30,7 +30,7 @@ public class PlatformSessionMapperTests : IDisposable
     [Fact]
     public void Constructor_NullManager_ThrowsArgumentNullException()
     {
-        var act = () => new PlatformSessionMapper(null!);
+        var act = () => new PlatformSessionMapper(null!, "test-agent");
 
         act.Should().Throw<ArgumentNullException>().WithParameterName("manager");
     }
@@ -141,7 +141,7 @@ public class PlatformSessionMapperTests : IDisposable
     public async Task ResolveAsync_SessionWithMissingPlatformKey_NotMatchedCreatesNew()
     {
         // Create a session without any platformKey metadata
-        await _manager.CreateSessionAsync();
+        await _manager.CreateSessionAsync("test-agent");
         var sessionCount = (await _store.ListSessionIdsAsync()).Count;
 
         // Resolve with a key that no session has

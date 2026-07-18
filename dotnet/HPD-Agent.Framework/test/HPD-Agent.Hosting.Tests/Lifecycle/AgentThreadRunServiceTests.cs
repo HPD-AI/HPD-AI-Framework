@@ -96,7 +96,7 @@ public class AgentThreadRunServiceTests : IDisposable
     private async Task CreateThreadAsync(string sessionId, string threadId)
     {
         var session = new HPD.Agent.Session(sessionId);
-        var thread = session.CreateThread(threadId);
+        var thread = session.CreateThread("test-agent", threadId);
 
         await _store.SaveSessionAsync(session);
         await _store.SaveInitialThreadAsync(session.Id, thread);

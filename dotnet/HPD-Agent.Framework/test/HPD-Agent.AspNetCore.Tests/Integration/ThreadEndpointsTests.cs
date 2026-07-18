@@ -624,7 +624,7 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
                     ["parentSessionId"] = sessionId,
                     ["parentThreadId"] = "main",
                     ["subAgentName"] = "research",
-                    ["subAgentRunId"] = "run-1",
+                    ["invocationId"] = "run-1",
                     ["subAgentSourceKind"] = "InlineConfig",
                     ["parentToolCallId"] = "tool-1",
                     ["sessionPolicy"] = "ParentSession",
@@ -651,7 +651,7 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
         child.Kind.Should().Be(ThreadKind.SubAgent);
         child.Visibility.Should().Be(ThreadVisibility.Hidden);
         child.SubAgentName.Should().Be("research");
-        child.SubAgentRunId.Should().Be("run-1");
+        child.InvocationId.Should().Be("run-1");
         child.SubAgentSourceKind.Should().Be("InlineConfig");
         child.ParentToolCallId.Should().Be("tool-1");
         child.SessionPolicy.Should().Be("ParentSession");

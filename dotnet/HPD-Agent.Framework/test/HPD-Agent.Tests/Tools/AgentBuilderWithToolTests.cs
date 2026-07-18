@@ -165,7 +165,7 @@ public class AgentBuilderWithToolTests
     }
 
     [Fact]
-    public async Task GeneratedSubAgent_AttachesHierarchicalAgentMetadata()
+    public async Task GeneratedSubAgent_PublishesTypedInvocationLifecycle()
     {
         var client = new FakeChatClient();
         client.EnqueueToolCall(
@@ -198,30 +198,26 @@ public class AgentBuilderWithToolTests
         };
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
+            .WithAgentStore(new InMemoryAgentStore())
             .WithToolHarness<ReflectionAdvancedToolHarness>()
             .BuildAsync(CancellationToken.None);
-        var events = new List<AgentEvent>();
-
-        using var subscription = agent.SubscribeAny(evt =>
+        await agent.CreateSessionAsync("generated-lifecycle");
+        await agent.RunAsync(new UserMessagesInputEvent
         {
-            events.Add(evt);
-            return ValueTask.CompletedTask;
-        });
+            Messages = [new ChatMessage(ChatRole.User, "Please escalate this.")],
+            SessionId = "generated-lifecycle",
+            ThreadId = "main"
+        }, CancellationToken.None);
 
-        await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "Please escalate this.")] }, CancellationToken.None);
-
-        var childText = Assert.Single(events.OfType<TextDeltaEvent>(),
-            evt => evt.Text == "child handled escalation");
-
-        Assert.NotNull(childText.Metadata);
-        Assert.Equal("support_escalation", childText.Metadata.AgentName);
-        Assert.Equal(agent.AgentId, childText.Metadata.ParentAgentId);
-        Assert.Equal(1, childText.Metadata.Depth);
-        Assert.Equal(["Support Parent", "support_escalation"], childText.Metadata.AgentChain);
+        var parentEvents = await agent.Config.SessionStore!.CollectThreadEventsAsync("generated-lifecycle", "main");
+        var invocation = Assert.Single(parentEvents!.OfType<SubAgentInvocationStartedEvent>());
+        Assert.Equal("test/support-escalation", invocation.ChildAgentId);
+        Assert.Equal("support_escalation", invocation.RoleName);
+        Assert.Equal("order_escalation", invocation.TaskName);
     }
 
     [Fact]
-    public async Task ReflectionFallbackSubAgent_AttachesHierarchicalAgentMetadata()
+    public async Task ReflectionFallbackSubAgent_PublishesTypedInvocationLifecycle()
     {
         Assert.True(ReflectionToolFactory.TryCreateToolHarnessFactory(
             typeof(ReflectionAdvancedToolHarness),
@@ -268,25 +264,21 @@ public class AgentBuilderWithToolTests
         };
 
         var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
+            .WithAgentStore(new InMemoryAgentStore())
             .BuildAsync(CancellationToken.None);
-        var events = new List<AgentEvent>();
-
-        using var subscription = agent.SubscribeAny(evt =>
+        await agent.CreateSessionAsync("reflection-lifecycle");
+        await agent.RunAsync(new UserMessagesInputEvent
         {
-            events.Add(evt);
-            return ValueTask.CompletedTask;
-        });
+            Messages = [new ChatMessage(ChatRole.User, "Please escalate this.")],
+            SessionId = "reflection-lifecycle",
+            ThreadId = "main"
+        }, CancellationToken.None);
 
-        await agent.RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "Please escalate this.")] }, CancellationToken.None);
-
-        var childText = Assert.Single(events.OfType<TextDeltaEvent>(),
-            evt => evt.Text == "child handled escalation");
-
-        Assert.NotNull(childText.Metadata);
-        Assert.Equal("support_escalation", childText.Metadata.AgentName);
-        Assert.Equal(agent.AgentId, childText.Metadata.ParentAgentId);
-        Assert.Equal(1, childText.Metadata.Depth);
-        Assert.Equal(["Support Parent", "support_escalation"], childText.Metadata.AgentChain);
+        var parentEvents = await agent.Config.SessionStore!.CollectThreadEventsAsync("reflection-lifecycle", "main");
+        var invocation = Assert.Single(parentEvents!.OfType<SubAgentInvocationStartedEvent>());
+        Assert.Equal("test/support-escalation", invocation.ChildAgentId);
+        Assert.Equal("support_escalation", invocation.RoleName);
+        Assert.Equal("order_escalation", invocation.TaskName);
     }
 
     [Fact]
@@ -356,6 +348,7 @@ public class ReflectionAdvancedToolHarness
 
     [SubAgent]
     public static SubAgent EscalationAgent() => SubAgent.FromConfig(
+        "test/support-escalation",
         "support_escalation",
         "Escalates support questions to a specialist.",
         new AgentConfig

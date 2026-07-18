@@ -7,10 +7,14 @@ namespace HPD.Agent.Hosting.Lifecycle;
 public sealed class AgentSessionService : IAgentSessionService
 {
     private readonly SessionManager _sessionManager;
+    private readonly string _defaultAgentId;
 
-    public AgentSessionService(SessionManager sessionManager)
+    /// <summary>Creates session lifecycle services for a stable default agent owner.</summary>
+    public AgentSessionService(SessionManager sessionManager, string defaultAgentId = "default")
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
+        ArgumentException.ThrowIfNullOrWhiteSpace(defaultAgentId);
+        _defaultAgentId = defaultAgentId;
     }
 
     public async Task<SessionDto> CreateSessionAsync(
@@ -18,6 +22,7 @@ public sealed class AgentSessionService : IAgentSessionService
         CancellationToken cancellationToken = default)
     {
         var (sessionId, _) = await _sessionManager.CreateSessionAsync(
+            request?.AgentId ?? _defaultAgentId,
             request?.SessionId,
             request?.Metadata,
             cancellationToken);

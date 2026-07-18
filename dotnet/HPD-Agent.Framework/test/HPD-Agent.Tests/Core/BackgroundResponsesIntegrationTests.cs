@@ -25,7 +25,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         var agent = CreateAgent(config, fakeClient);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var thread = new global::HPD.Agent.Thread("test-session-id");
+        var thread = new global::HPD.Agent.Thread("test-session-id", "test-agent");
         thread.AddMessage(UserMessage("Hi"));
 
         // Act
@@ -49,7 +49,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         var agent = CreateAgent(config, fakeClient);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var thread = new global::HPD.Agent.Thread("test-session-id");
+        var thread = new global::HPD.Agent.Thread("test-session-id", "test-agent");
         thread.AddMessage(UserMessage("Test"));
 
         // Act: Override at run level to disable
@@ -123,7 +123,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
         var config = DefaultConfig();
         var agent = CreateAgent(config, fakeClient);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var thread = new global::HPD.Agent.Thread("test-session-id");
+        var thread = new global::HPD.Agent.Thread("test-session-id", "test-agent");
         thread.AddMessage(UserMessage("Test"));
 
         // Act
@@ -229,7 +229,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         var agent = CreateAgent(config, fakeClient);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var thread = new global::HPD.Agent.Thread("test-session-id");
+        var thread = new global::HPD.Agent.Thread("test-session-id", "test-agent");
         thread.AddMessage(UserMessage("Hi"));
 
         // Act
@@ -253,7 +253,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         var agent = CreateAgent(config, fakeClient);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var thread = new global::HPD.Agent.Thread("test-session-id");
+        var thread = new global::HPD.Agent.Thread("test-session-id", "test-agent");
         thread.AddMessage(UserMessage("Complete my task"));
 
         // Act
@@ -280,7 +280,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         var agent = CreateAgent(config, fakeClient);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var thread = new global::HPD.Agent.Thread("test-session-id");
+        var thread = new global::HPD.Agent.Thread("test-session-id", "test-agent");
         thread.AddMessage(UserMessage("Poll for result"));
 
         // Create a mock continuation token
@@ -360,7 +360,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         // Run 1: With background enabled (via config)
         var session1 = new global::HPD.Agent.Session("test-session-1");
-        var thread1 = new global::HPD.Agent.Thread("test-session-1");
+        var thread1 = new global::HPD.Agent.Thread("test-session-1", "test-agent");
         thread1.AddMessage(UserMessage("Request 1"));
         var events1 = new List<AgentEvent>();
         var messages1 = thread1.Messages;
@@ -368,7 +368,7 @@ public class BackgroundResponsesIntegrationTests : AgentTestBase
 
         // Run 2: With background disabled (via options override)
         var session2 = new global::HPD.Agent.Session("test-session-2");
-        var thread2 = new global::HPD.Agent.Thread("test-session-2");
+        var thread2 = new global::HPD.Agent.Thread("test-session-2", "test-agent");
         thread2.AddMessage(UserMessage("Request 2"));
         var options2 = new AgentRunConfig { AllowBackgroundResponses = false };
         var events2 = new List<AgentEvent>();

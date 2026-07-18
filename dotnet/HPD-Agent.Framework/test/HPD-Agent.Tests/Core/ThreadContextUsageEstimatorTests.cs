@@ -9,7 +9,7 @@ public class ThreadContextUsageEstimatorTests
     [Fact]
     public async Task EstimateAsync_FallsBackToRoughMessageEstimate()
     {
-        var thread = new Thread("session-1", "main");
+        var thread = new Thread("session-1", "main", "test-agent");
         thread.AddMessage(new ChatMessage(ChatRole.User, "12345678"));
         thread.AddMessage(new ChatMessage(ChatRole.Assistant, "12345678"));
         var estimator = new ThreadContextUsageEstimator();
@@ -27,7 +27,7 @@ public class ThreadContextUsageEstimatorTests
     [Fact]
     public async Task EstimateAsync_WithoutModelContext_ReturnsUsageWithoutRatio()
     {
-        var thread = new Thread("session-1", "main");
+        var thread = new Thread("session-1", "main", "test-agent");
         thread.AddMessage(new ChatMessage(ChatRole.User, "12345678"));
         var estimator = new ThreadContextUsageEstimator();
 

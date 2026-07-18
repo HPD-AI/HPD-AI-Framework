@@ -30,6 +30,7 @@ public sealed record ThreadJournalReplaceResult(
 /// <summary>Lightweight metadata for a thread journal. Reading it never projects event history.</summary>
 public sealed record ThreadDescriptor(
     ThreadKey Key,
+    ThreadAgentBinding Owner,
     string? Name,
     string? Description,
     IReadOnlyList<string> Tags,
@@ -49,12 +50,15 @@ public sealed record ThreadForkDescriptor(
     string? MessageId,
     int? MessageIndex);
 
+/// <summary>Durable binding between a thread and the agent definition that reconstructs it.</summary>
+public sealed record ThreadAgentBinding(string AgentId, long? AgentRevision = null);
+
 public sealed record ThreadRuntimeChildDescriptor(
     string? ParentSessionId,
     string? ParentThreadId,
     string? SubAgentName,
     string? SubAgentTaskName,
-    string? SubAgentRunId,
+    string? InvocationId,
     string? SubAgentSourceKind,
     string? ParentToolCallId,
     string? SessionPolicy,

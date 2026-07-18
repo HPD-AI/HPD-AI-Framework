@@ -61,7 +61,7 @@ public static class TeamsBotServiceCollectionExtensions
         services.TryAddSingleton<TeamsModalConverter>();
         services.TryAddSingleton<ITeamsHistoryService, NoopTeamsHistoryService>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBotRegistryProvider, TeamsBotRegistryProvider>());
-        services.TryAddSingleton<PlatformSessionMapper>();
+        services.TryAddPlatformSessionMapper<TeamsBotConfig>(config => config.AgentId ?? "teams");
         services.Configure<BotStreamingOptions>("teams", options =>
         {
             options.Strategy = StreamingStrategy.Native;

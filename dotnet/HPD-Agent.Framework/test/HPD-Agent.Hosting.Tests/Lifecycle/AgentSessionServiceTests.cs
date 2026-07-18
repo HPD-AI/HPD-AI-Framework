@@ -21,7 +21,7 @@ public class AgentSessionServiceTests : IDisposable
     [Fact]
     public async Task CreateSessionAsync_CreatesDefaultMainThread()
     {
-        var session = await _service.CreateSessionAsync();
+        var session = await _service.CreateSessionAsync(new CreateSessionRequest("test-agent"));
 
         session.Id.Should().NotBeNullOrWhiteSpace();
         (await _store.ProjectThreadAsync(session.Id, "main", ThreadProjectionPurpose.ThreadHistory)).Should().NotBeNull();
@@ -31,13 +31,16 @@ public class AgentSessionServiceTests : IDisposable
     public async Task SearchSessionsAsync_FiltersByMetadata_AndOrdersByLastActivity()
     {
         var first = await _service.CreateSessionAsync(new CreateSessionRequest(
+            "test-agent",
             "first",
             new Dictionary<string, object> { ["workspace"] = "a" }));
         await Task.Delay(20);
         var second = await _service.CreateSessionAsync(new CreateSessionRequest(
+            "test-agent",
             "second",
             new Dictionary<string, object> { ["workspace"] = "a" }));
         await _service.CreateSessionAsync(new CreateSessionRequest(
+            "test-agent",
             "third",
             new Dictionary<string, object> { ["workspace"] = "b" }));
 
@@ -53,6 +56,7 @@ public class AgentSessionServiceTests : IDisposable
     public async Task UpdateSessionAsync_MergesMetadata_AndRemovesNullKeys()
     {
         var created = await _service.CreateSessionAsync(new CreateSessionRequest(
+            "test-agent",
             "s1",
             new Dictionary<string, object>
             {
@@ -78,7 +82,7 @@ public class AgentSessionServiceTests : IDisposable
     [Fact]
     public async Task DeleteSessionAsync_DeletesStoreData_AndCleansLocks()
     {
-        var created = await _service.CreateSessionAsync(new CreateSessionRequest("delete-me", null));
+        var created = await _service.CreateSessionAsync(new CreateSessionRequest("test-agent", "delete-me"));
         _manager.TryAcquireThreadOperationLock(created.Id, "main").Should().BeTrue();
         _manager.ReleaseThreadOperationLock(created.Id, "main");
 

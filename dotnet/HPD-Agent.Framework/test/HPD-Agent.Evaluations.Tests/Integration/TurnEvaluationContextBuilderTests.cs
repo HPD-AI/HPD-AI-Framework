@@ -157,7 +157,7 @@ public sealed class TurnEvaluationContextBuilderTests
     public void FromThread_IncompleteTurn_Skipped()
     {
         // User message with no assistant reply — use internal Thread constructor
-        var b = new Thread("s1", "b1");
+        var b = new Thread("s1", "b1", "test-agent");
         b.Messages.Add(new ChatMessage(ChatRole.User, "Unanswered"));
 
         FromThread(b).Should().BeEmpty("incomplete turns must be skipped");
@@ -168,7 +168,7 @@ public sealed class TurnEvaluationContextBuilderTests
     [Fact]
     public void FromThread_EmptyThread_ReturnsEmpty()
     {
-        var thread = new Thread("s1", "b1"); // Messages is empty by default
+        var thread = new Thread("s1", "b1", "test-agent"); // Messages is empty by default
 
         FromThread(thread).Should().BeEmpty();
     }

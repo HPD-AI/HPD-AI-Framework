@@ -357,6 +357,7 @@ public class PipelineTests
             public class SlackBotConfig
             {
                 public string SigningSecret { get; set; } = "";
+                public string? AgentId { get; set; }
             }
             """;
 
@@ -392,6 +393,7 @@ public class PipelineTests
             public class SlackBotConfig
             {
                 public string SigningSecret { get; set; } = "";
+                public string? AgentId { get; set; }
             }
 
             public static class WorkerDispatch

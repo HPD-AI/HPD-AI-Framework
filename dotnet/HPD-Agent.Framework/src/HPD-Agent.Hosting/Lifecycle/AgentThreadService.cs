@@ -92,7 +92,7 @@ public sealed class AgentThreadService : IAgentThreadService
             ?? throw new InvalidOperationException($"Session '{sessionId}' not found after existence check.");
         session.Store = _sessionManager.Store;
 
-        var thread = session.CreateThread(threadId);
+        var thread = session.CreateThread(agentId, threadId);
         thread.Name = request.Name ?? threadId;
         thread.Description = request.Description;
         thread.Tags = request.Tags;
@@ -453,6 +453,8 @@ public sealed class AgentThreadService : IAgentThreadService
             .ThenBy(thread => thread.Key.ThreadId, StringComparer.Ordinal)
             .Select(thread => new ThreadRuntimeChildDto(
                 thread.Key.ThreadId,
+                thread.Key.SessionId,
+                thread.Owner.AgentId,
                 thread.RuntimeChild?.ParentSessionId ?? thread.Key.SessionId,
                 thread.RuntimeChild?.ParentThreadId ?? thread.Fork?.SourceThreadId ?? string.Empty,
                 thread.Name ?? thread.Key.ThreadId,
@@ -460,7 +462,7 @@ public sealed class AgentThreadService : IAgentThreadService
                 thread.Visibility,
                 thread.RuntimeChild?.SubAgentName,
                 thread.RuntimeChild?.SubAgentTaskName,
-                thread.RuntimeChild?.SubAgentRunId,
+                thread.RuntimeChild?.InvocationId,
                 thread.RuntimeChild?.SubAgentSourceKind,
                 thread.RuntimeChild?.ParentToolCallId,
                 thread.RuntimeChild?.SessionPolicy,

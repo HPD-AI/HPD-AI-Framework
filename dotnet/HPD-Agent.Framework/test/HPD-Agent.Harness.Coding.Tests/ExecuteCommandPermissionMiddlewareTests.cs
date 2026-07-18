@@ -1527,7 +1527,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
             state ?? CreateState(),
             coordinator,
             new Session("test-session"),
-            new Thread("test-session") { Id = "test-thread" },
+            new Thread("test-session", "test-agent") { Id = "test-thread" },
             CancellationToken.None,
             interruptionHandler: interruptionHandler);
     }

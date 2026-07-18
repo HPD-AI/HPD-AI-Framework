@@ -16,7 +16,7 @@ public class ThreadEventStoreTests : AgentTestBase
     {
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread("main");
+        var thread = session.CreateThread("test-agent", "main");
 
         await store.SaveSessionAsync(session);
         await store.SaveInitialThreadAsync(session.Id, thread);
@@ -40,7 +40,7 @@ public class ThreadEventStoreTests : AgentTestBase
     {
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread("main");
+        var thread = session.CreateThread("test-agent", "main");
         thread.Name = "main";
 
         await store.SaveInitialThreadAsync(session.Id, thread);
@@ -61,7 +61,7 @@ public class ThreadEventStoreTests : AgentTestBase
     [Fact]
     public void ThreadProjector_ProjectsTranscriptEvents_AndIgnoresTurnRuntimeEvents()
     {
-        var thread = new Thread("session-1", "main");
+        var thread = new Thread("session-1", "main", "test-agent");
         var message = new ChatMessage(ChatRole.User, "durable");
         message.MessageId = "msg-1";
 
@@ -84,7 +84,7 @@ public class ThreadEventStoreTests : AgentTestBase
     [Fact]
     public void ThreadProjector_CoalescesStreamingDeltasIntoDurableMessageContents()
     {
-        var thread = new Thread("session-1", "main");
+        var thread = new Thread("session-1", "main", "test-agent");
         var message = new ChatMessage(ChatRole.Assistant, []) { MessageId = "assistant-1" };
         message.AdditionalProperties ??= [];
         message.AdditionalProperties["quote"] = new Dictionary<string, object?>
@@ -131,7 +131,7 @@ public class ThreadEventStoreTests : AgentTestBase
     [Fact]
     public void ThreadProjector_ProjectsSelfContainedToolCallEndIntoMeaiHistory()
     {
-        var thread = new Thread("session-1", "main");
+        var thread = new Thread("session-1", "main", "test-agent");
         var assistant = new ChatMessage(ChatRole.Assistant, []) { MessageId = "assistant-1" };
         var tool = new ChatMessage(ChatRole.Tool, []) { MessageId = "tool-1" };
 
@@ -226,7 +226,7 @@ public class ThreadEventStoreTests : AgentTestBase
     {
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread("main");
+        var thread = session.CreateThread("test-agent", "main");
 
         await store.SaveInitialThreadAsync(session.Id, thread);
         await store.AppendThreadEventAsync(
@@ -259,7 +259,7 @@ public class ThreadEventStoreTests : AgentTestBase
         {
             var store = new FileSessionStore(tempDir);
             var session = new HPD.Agent.Session("session-1");
-            var thread = session.CreateThread("main");
+            var thread = session.CreateThread("test-agent", "main");
 
             await store.SaveSessionAsync(session);
             await store.SaveInitialThreadAsync(session.Id, thread);
@@ -332,7 +332,7 @@ public class ThreadEventStoreTests : AgentTestBase
         {
             var store = new FileSessionStore(tempDir);
             var session = new HPD.Agent.Session("session-1");
-            var thread = session.CreateThread("main");
+            var thread = session.CreateThread("test-agent", "main");
             var assistant = new ChatMessage(ChatRole.Assistant, []) { MessageId = "assistant-1" };
             var tool = new ChatMessage(ChatRole.Tool, []) { MessageId = "tool-1" };
 
@@ -572,7 +572,7 @@ public class ThreadEventStoreTests : AgentTestBase
         var client = new FakeChatClient();
         var agent = CreateAgent(config, client);
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread("main");
+        var thread = session.CreateThread("test-agent", "main");
 
         await store.SaveSessionAsync(session);
         await store.SaveInitialThreadAsync(session.Id, thread);
@@ -611,7 +611,7 @@ public class ThreadEventStoreTests : AgentTestBase
         client.EnqueueTextResponse("second answer");
         var agent = CreateAgent(config, client);
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread("main");
+        var thread = session.CreateThread("test-agent", "main");
 
         await store.SaveSessionAsync(session);
         await store.SaveInitialThreadAsync(session.Id, thread);
@@ -682,7 +682,7 @@ public class ThreadEventStoreTests : AgentTestBase
             description: "Evaluates simple expressions.");
         var agent = CreateAgent(config, client, tools: [calculator]);
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread("main");
+        var thread = session.CreateThread("test-agent", "main");
 
         await store.SaveSessionAsync(session);
         await store.SaveInitialThreadAsync(session.Id, thread);

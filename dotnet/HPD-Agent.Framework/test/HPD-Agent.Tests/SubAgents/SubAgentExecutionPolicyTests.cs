@@ -16,11 +16,10 @@ public class SubAgentExecutionPolicyTests
     [Fact]
     public void FromConfig_DefaultsToParentSessionForkedThread()
     {
-        var subAgent = SubAgent.FromConfig("Test", "desc", MinimalConfig());
+        var subAgent = SubAgent.FromConfig("test", "Test", "desc", MinimalConfig());
 
-        subAgent.SourceKind.Should().Be(SubAgentSourceKind.InlineConfig);
-        subAgent.AgentConfig.Should().NotBeNull();
-        subAgent.AgentId.Should().BeNull();
+        subAgent.Configuration.Should().BeOfType<SuppliedAgentConfiguration>();
+        subAgent.AgentId.Should().Be("test");
         subAgent.ExecutionPolicy.SessionPolicy.Should().Be(SubAgentSessionPolicy.ParentSession);
         subAgent.ExecutionPolicy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.ForkFromParentThread);
         subAgent.ExecutionPolicy.ThreadCompaction.Should().BeNull();
@@ -29,25 +28,25 @@ public class SubAgentExecutionPolicyTests
     [Fact]
     public void FromAgentId_UsesStoredAgentSource()
     {
-        var subAgent = SubAgent.FromAgentId("Reviewer", "Reviews code.", "code-reviewer");
+        var subAgent = SubAgent.FromAgentId("code-reviewer", "Reviewer", "Reviews code.");
 
-        subAgent.SourceKind.Should().Be(SubAgentSourceKind.StoredAgent);
+        subAgent.Configuration.Should().BeOfType<StoredAgentConfiguration>();
         subAgent.AgentId.Should().Be("code-reviewer");
-        subAgent.AgentConfig.Should().BeNull();
         subAgent.ExecutionPolicy.Should().Be(SubAgentExecutionPolicy.Default);
     }
 
     [Fact]
-    public void ParentThreadPolicy_IsExplicitOldWriteTarget()
+    public void FromParent_UsesParentConfigurationSource()
     {
-        var subAgent = SubAgent.FromConfig(
+        var subAgent = SubAgent.FromParent(
+            "co-author",
             "CoAuthor",
             "Writes directly in the caller thread.",
-            MinimalConfig(),
-            SubAgentExecutionPolicies.ParentThread());
+            SubAgentExecutionPolicies.ParentSessionFreshThread());
 
         subAgent.ExecutionPolicy.SessionPolicy.Should().Be(SubAgentSessionPolicy.ParentSession);
-        subAgent.ExecutionPolicy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.ParentThread);
+        subAgent.Configuration.Should().BeOfType<ParentAgentConfiguration>();
+        subAgent.ExecutionPolicy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.FreshThread);
         subAgent.ExecutionPolicy.SharedSessionId.Should().BeNull();
         subAgent.ExecutionPolicy.ExistingThreadId.Should().BeNull();
         subAgent.ExecutionPolicy.ThreadCompaction.Should().BeNull();
@@ -76,6 +75,7 @@ public class SubAgentExecutionPolicyTests
     public void SharedSessionFreshThread_UsesFreshThreadPerCall()
     {
         var subAgent = SubAgent.FromConfig(
+            "architect",
             "Architect",
             "Shared specialist.",
             MinimalConfig(),
@@ -91,6 +91,7 @@ public class SubAgentExecutionPolicyTests
     public void SharedSessionExistingThread_UsesExistingThread()
     {
         var subAgent = SubAgent.FromConfig(
+            "architect",
             "Architect",
             "Shared specialist.",
             MinimalConfig(),
@@ -109,7 +110,7 @@ public class SubAgentExecutionPolicyTests
             SubAgentSessionPolicy.SharedSession,
             SubAgentThreadPolicy.FreshThread);
 
-        var act = () => SubAgent.FromConfig("Bad", "desc", MinimalConfig(), policy);
+        var act = () => SubAgent.FromConfig("bad", "Bad", "desc", MinimalConfig(), policy);
 
         act.Should().Throw<ArgumentException>()
             .WithMessage("*SharedSessionId*");
@@ -122,7 +123,7 @@ public class SubAgentExecutionPolicyTests
             SubAgentSessionPolicy.ParentSession,
             SubAgentThreadPolicy.ExistingThread);
 
-        var act = () => SubAgent.FromConfig("Bad", "desc", MinimalConfig(), policy);
+        var act = () => SubAgent.FromConfig("bad", "Bad", "desc", MinimalConfig(), policy);
 
         act.Should().Throw<ArgumentException>()
             .WithMessage("*ExistingThreadId*");
@@ -135,30 +136,15 @@ public class SubAgentExecutionPolicyTests
             SubAgentSessionPolicy.NewSession,
             SubAgentThreadPolicy.ForkFromParentThread);
 
-        var act = () => SubAgent.FromConfig("Bad", "desc", MinimalConfig(), policy);
+        var act = () => SubAgent.FromConfig("bad", "Bad", "desc", MinimalConfig(), policy);
 
         act.Should().Throw<ArgumentException>()
             .WithMessage("*ForkFromParentThread*ParentSession*");
     }
 
-    [Fact]
-    public void ParentThread_RequiresParentSession()
-    {
-        var policy = new SubAgentExecutionPolicy(
-            SubAgentSessionPolicy.SharedSession,
-            SubAgentThreadPolicy.ParentThread,
-            SharedSessionId: "shared");
-
-        var act = () => SubAgent.FromConfig("Bad", "desc", MinimalConfig(), policy);
-
-        act.Should().Throw<ArgumentException>()
-            .WithMessage("*ParentThread*ParentSession*");
-    }
-
     [Theory]
     [InlineData(SubAgentThreadPolicy.FreshThread)]
     [InlineData(SubAgentThreadPolicy.ExistingThread)]
-    [InlineData(SubAgentThreadPolicy.ParentThread)]
     public void ThreadCompaction_RequiresForkFromParentThread(SubAgentThreadPolicy threadPolicy)
     {
         var policy = new SubAgentExecutionPolicy(
@@ -172,7 +158,7 @@ public class SubAgentExecutionPolicyTests
                 CommitMode = CompactionCommitMode.Hard
             }));
 
-        var act = () => SubAgent.FromConfig("Bad", "desc", MinimalConfig(), policy);
+        var act = () => SubAgent.FromConfig("bad", "Bad", "desc", MinimalConfig(), policy);
 
         act.Should().Throw<ArgumentException>()
             .WithMessage("*ThreadCompaction*ForkFromParentThread*");

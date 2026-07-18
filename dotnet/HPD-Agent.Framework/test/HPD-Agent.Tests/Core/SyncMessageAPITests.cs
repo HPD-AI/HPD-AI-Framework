@@ -14,7 +14,7 @@ public class SyncMessageAPITests
     {
         // Arrange
         var session = new HPD.Agent.Session("test-session");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
         var msg = new ChatMessage(ChatRole.User, "Test");
         thread.AddMessage(msg);
 
@@ -31,7 +31,7 @@ public class SyncMessageAPITests
     {
         // Arrange
         var session = new HPD.Agent.Session("test-session");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
         thread.AddMessage(new ChatMessage(ChatRole.User, "Message 1"));
 
         // Act - capture reference
@@ -51,7 +51,7 @@ public class SyncMessageAPITests
     {
         // Arrange
         var session = new HPD.Agent.Session("test-session");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
 
         // Act & Assert
         Assert.Equal(0, thread.MessageCount);
@@ -68,7 +68,7 @@ public class SyncMessageAPITests
     {
         // Arrange
         var session = new HPD.Agent.Session("test-session");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
         var msg = new ChatMessage(ChatRole.User, "Test");
 
         // Act
@@ -84,7 +84,7 @@ public class SyncMessageAPITests
     {
         // Arrange
         var session = new HPD.Agent.Session("test-session");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
         var messages = new[]
         {
             new ChatMessage(ChatRole.User, "Test 1"),
@@ -106,7 +106,7 @@ public class SyncMessageAPITests
     {
         // Arrange
         var session = new HPD.Agent.Session("test-session");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
         var initialActivity = thread.LastActivity;
 
         // Small delay to ensure timestamp difference
@@ -124,7 +124,7 @@ public class SyncMessageAPITests
     {
         // Arrange
         var session = new HPD.Agent.Session("test-session");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
         var initialActivity = thread.LastActivity;
 
         // Small delay to ensure timestamp difference
@@ -146,7 +146,7 @@ public class SyncMessageAPITests
     {
         // Arrange
         var session = new HPD.Agent.Session("test-session");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
 
         // Act & Assert - should not throw
         thread.AddMessages(Array.Empty<ChatMessage>());
@@ -159,7 +159,7 @@ public class SyncMessageAPITests
     {
         // Arrange
         var session = new HPD.Agent.Session("test-session");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
 
         // Act
         var view1 = thread.Messages;

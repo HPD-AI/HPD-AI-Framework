@@ -51,6 +51,7 @@ public partial class CombinedCapabilitiesTools
     public SubAgent DataExpertAgent()
     {
         return SubAgent.FromConfig(
+            "test/data-expert",
             "DataExpert",
             "Expert sub-agent specialized in data analysis tasks",
             new AgentConfig
@@ -69,6 +70,7 @@ public partial class CombinedCapabilitiesTools
     public SubAgent DataProcessorAgent()
     {
         return SubAgent.FromConfig(
+            "test/data-processor",
             "DataProcessor",
             "Sub-agent for batch data processing tasks",
             new AgentConfig
@@ -101,6 +103,7 @@ public partial class FunctionsAndSubAgentsToolHarness
     public SubAgent SearchExpertAgent()
     {
         return SubAgent.FromConfig(
+            "test/search-expert",
             "SearchExpert",
             "Expert in search and discovery",
             new AgentConfig
@@ -137,6 +140,7 @@ public partial class SkillsAndSubAgentsToolHarness
     public SubAgent FileAssistantAgent()
     {
         return SubAgent.FromConfig(
+            "test/file-assistant",
             "FileAssistant",
             "Assistant for file management tasks",
             new AgentConfig

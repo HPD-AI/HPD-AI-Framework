@@ -751,7 +751,7 @@ public class ClientToolMiddlewareTests
         var agentState = state ?? CreateEmptyState();
 
         var session = new global::HPD.Agent.Session("test-session");
-        var thread = new global::HPD.Agent.Thread("test-session");
+        var thread = new global::HPD.Agent.Thread("test-session", "test-agent");
 
         var agentContext = new AgentContext(
             "TestAgent",
@@ -774,7 +774,7 @@ public class ClientToolMiddlewareTests
         var agentState = state ?? CreateEmptyState();
 
         var session = new global::HPD.Agent.Session("test-session");
-        var thread = new global::HPD.Agent.Thread("test-session");
+        var thread = new global::HPD.Agent.Thread("test-session", "test-agent");
 
         var agentContext = new AgentContext(
             "TestAgent",
@@ -833,7 +833,7 @@ public class ClientToolMiddlewareTests
             agentName: "TestAgent");
 
         var session = new global::HPD.Agent.Session("test-session");
-        var thread = new global::HPD.Agent.Thread("test-session");
+        var thread = new global::HPD.Agent.Thread("test-session", "test-agent");
 
         return new AgentContext(
             "TestAgent",

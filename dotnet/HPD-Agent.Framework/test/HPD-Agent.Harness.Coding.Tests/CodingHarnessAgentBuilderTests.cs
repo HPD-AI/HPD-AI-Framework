@@ -42,9 +42,11 @@ public class CodingToolHarnessAgentBuilderTests
             "ListDirectory",
             "GlobSearch",
             "Grep",
-            "ExecuteCommand"
+            "ExecuteCommand",
+            "explore",
+            "worker",
+            "reviewer"
         ]);
-        toolNames.Should().NotContain(["explore", "worker", "reviewer"]);
     }
 
     [Fact]
@@ -85,7 +87,8 @@ public class CodingToolHarnessAgentBuilderTests
     {
         using var chatClient = new TestChatClient();
         var subAgent = new CodingToolHarness().Explore();
-        subAgent.AgentConfig!.Clients = new AgentClientConfig
+        var config = GetConfig(subAgent);
+        config.Clients = new AgentClientConfig
         {
             Chat = new ClientProviderConfig
             {
@@ -94,7 +97,7 @@ public class CodingToolHarnessAgentBuilderTests
             }
         };
 
-        var agent = await new AgentBuilder(subAgent.AgentConfig, new TestProviderRegistry(chatClient))
+        var agent = await new AgentBuilder(config, new TestProviderRegistry(chatClient))
             .BuildAsync();
 
         var toolNames = agent.DefaultOptions?.Tools?
@@ -220,16 +223,19 @@ public class CodingToolHarnessAgentBuilderTests
 
     private static IReadOnlyList<string> GetCodingFunctions(SubAgent subAgent)
     {
-        var reference = subAgent.AgentConfig!.ToolHarnesses.Should().ContainSingle().Subject;
+        var reference = GetConfig(subAgent).ToolHarnesses.Should().ContainSingle().Subject;
         reference.Name.Should().Be(nameof(CodingToolHarness));
         return reference.Functions!;
     }
+
+    private static AgentConfig GetConfig(SubAgent subAgent) =>
+        subAgent.Configuration.Should().BeOfType<SuppliedAgentConfiguration>().Subject.Config;
 
     private static FunctionExecutionContext CreateFunctionContext(AIFunction function)
     {
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
         var session = new Session("session-1");
-        var thread = new Thread("session-1") { Id = "thread-1" };
+        var thread = new Thread("session-1", "test-agent") { Id = "thread-1" };
         var eventCoordinator = new EventCoordinator();
         var agentContext = new AgentContext(
             "AgentA",

@@ -460,7 +460,7 @@ public sealed class ListDirectoryTests : IDisposable
             state,
             new EventCoordinator(),
             new Session("session-1"),
-            new Thread("session-1"),
+            new Thread("session-1", "test-agent"),
             CancellationToken.None);
         var beforeContext = agentContext.AsBeforeFunction(
             function,

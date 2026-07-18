@@ -69,7 +69,7 @@ public class DtoMappingExtensionsTests
     {
         // Arrange
         var session = new HPD.Agent.Session("session-123");
-        var mainThread = session.CreateThread("main");
+        var mainThread = session.CreateThread("test-agent", "main");
         mainThread.Description = "Main Thread - Primary conversation";
 
         // Add some messages to test message count
@@ -93,7 +93,7 @@ public class DtoMappingExtensionsTests
     {
         // Arrange
         var session = new HPD.Agent.Session("session-123");
-        var thread = session.CreateThread("thread-1");
+        var thread = session.CreateThread("test-agent", "thread-1");
 
         // Act
         var dto = thread.ToDto("session-123");
@@ -109,7 +109,7 @@ public class DtoMappingExtensionsTests
     {
         // Arrange
         var session = new HPD.Agent.Session("my-session");
-        var thread = session.CreateThread("thread-1");
+        var thread = session.CreateThread("test-agent", "thread-1");
 
         // Act
         var dto = thread.ToDto("my-session");
@@ -141,7 +141,8 @@ public class DtoMappingExtensionsTests
             ancestors: new Dictionary<string, string> { ["0"] = "root", ["1"] = "main" },
             middlewareState: new Dictionary<string, string>(),
             metadata: new Dictionary<string, object> { ["surface"] = "hpdos" },
-            childThreads: []);
+            childThreads: [],
+            ownerAgentId: "agent-1");
 
         // Act
         var dto = forkedThread.ToDto("session-123");

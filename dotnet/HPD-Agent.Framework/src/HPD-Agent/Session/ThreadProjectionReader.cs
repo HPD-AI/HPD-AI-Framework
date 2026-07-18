@@ -25,7 +25,7 @@ public static class ThreadProjectionReader
         if (descriptor is null)
             return null;
 
-        var thread = new Thread(sessionId, threadId);
+        var thread = new Thread(sessionId, threadId, descriptor.Owner.AgentId);
         await foreach (var batch in store.ReadThreadEventsAsync(
             key,
             new ThreadEventReadRequest(ThreadJournalCursor.Start(descriptor.Generation)),

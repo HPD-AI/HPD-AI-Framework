@@ -21,6 +21,7 @@ public class SubAgentRuntimeTests
     public async Task InvokeAsync_BackgroundOnly_WithoutRuntime_ReturnsUnavailableReceipt()
     {
         var subAgent = SubAgent.FromConfig(
+            "test/reviewer",
             "Reviewer",
             "Reviews in the background.",
             MinimalConfig(),
@@ -50,6 +51,7 @@ public class SubAgentRuntimeTests
     public async Task InvokeAsync_AllowsAgentAsTaskName()
     {
         var subAgent = SubAgent.FromConfig(
+            "test/reviewer",
             "Reviewer",
             "Reviews in the background.",
             MinimalConfig(),
@@ -75,6 +77,7 @@ public class SubAgentRuntimeTests
     public async Task InvokeAsync_RejectsTaskNameWithoutLettersOrNumbers()
     {
         var subAgent = SubAgent.FromConfig(
+            "test/reviewer",
             "Reviewer",
             "Reviews in the background.",
             MinimalConfig(),
@@ -111,6 +114,7 @@ public class SubAgentRuntimeTests
 
         var context = await CreateFunctionContextAsync(store, "parent-session", "main");
         var subAgent = SubAgent.FromConfig(
+            "test/reviewer",
             "Reviewer",
             "Reviews the current thread.",
             MinimalConfig(),
@@ -173,6 +177,7 @@ public class SubAgentRuntimeTests
 
         var context = await CreateFunctionContextAsync(store, "parent-session", "main");
         var subAgent = SubAgent.FromConfig(
+            "test/researcher",
             "Researcher",
             "Starts without parent conversation history.",
             MinimalConfig(),

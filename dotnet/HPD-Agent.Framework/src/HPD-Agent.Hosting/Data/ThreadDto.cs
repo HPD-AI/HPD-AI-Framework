@@ -6,6 +6,7 @@ namespace HPD.Agent.Hosting.Data;
 /// </summary>
 /// <param name="Id">Unique identifier for this thread</param>
 /// <param name="SessionId">Parent session ID</param>
+/// <param name="OwnerAgentId">Stable agent identity that owns this thread.</param>
 /// <param name="Name">Display name for this thread</param>
 /// <param name="Description">Optional user-friendly description</param>
 /// <param name="ForkedFrom">Source thread ID if this was forked (null for original threads)</param>
@@ -21,7 +22,7 @@ namespace HPD.Agent.Hosting.Data;
 /// <param name="ParentSessionId">Parent session for runtime child threads</param>
 /// <param name="ParentThreadId">Parent thread for runtime child threads</param>
 /// <param name="SubAgentName">Subagent name when this is a subagent thread</param>
-/// <param name="SubAgentRunId">Subagent run id when this is a subagent thread</param>
+/// <param name="InvocationId">Delegation invocation that created this subagent thread.</param>
 /// <param name="SubAgentSourceKind">Subagent definition source kind when this is a subagent thread</param>
 /// <param name="ParentToolCallId">Parent tool call id that created this runtime child thread</param>
 /// <param name="SessionPolicy">Subagent session policy captured for inspection and routing</param>
@@ -31,6 +32,7 @@ namespace HPD.Agent.Hosting.Data;
 public record ThreadDto(
     string Id,
     string SessionId,
+    string OwnerAgentId,
     string Name,
     string? Description,
     string? ForkedFrom,
@@ -49,7 +51,7 @@ public record ThreadDto(
     string? ParentThreadId = null,
     string? SubAgentName = null,
     string? SubAgentTaskName = null,
-    string? SubAgentRunId = null,
+    string? InvocationId = null,
     string? SubAgentSourceKind = null,
     string? ParentToolCallId = null,
     string? SessionPolicy = null,
@@ -110,13 +112,15 @@ public record ThreadForkGroupMemberDto(
 /// Runtime child thread metadata, such as hidden subagent threads attached to a parent thread.
 /// </summary>
 /// <param name="ThreadId">Runtime child thread id.</param>
+/// <param name="SessionId">Session containing the runtime child.</param>
+/// <param name="OwnerAgentId">Stable child agent identity used for continuation.</param>
 /// <param name="ParentSessionId">Parent session id.</param>
 /// <param name="ParentThreadId">Parent thread id.</param>
 /// <param name="Name">Display name for this runtime child.</param>
 /// <param name="Kind">Runtime classification.</param>
 /// <param name="Visibility">Default list visibility.</param>
 /// <param name="SubAgentName">Subagent name when applicable.</param>
-/// <param name="SubAgentRunId">Subagent run id when applicable.</param>
+/// <param name="InvocationId">Delegation invocation when applicable.</param>
 /// <param name="SubAgentSourceKind">Subagent definition source kind when applicable.</param>
 /// <param name="ParentToolCallId">Parent tool call id when applicable.</param>
 /// <param name="SessionPolicy">Subagent session policy when applicable.</param>
@@ -126,6 +130,8 @@ public record ThreadForkGroupMemberDto(
 /// <param name="LastActivity">Last time this thread was updated.</param>
 public record ThreadRuntimeChildDto(
     string ThreadId,
+    string SessionId,
+    string OwnerAgentId,
     string ParentSessionId,
     string ParentThreadId,
     string Name,
@@ -133,7 +139,7 @@ public record ThreadRuntimeChildDto(
     ThreadVisibility Visibility,
     string? SubAgentName,
     string? SubAgentTaskName,
-    string? SubAgentRunId,
+    string? InvocationId,
     string? SubAgentSourceKind,
     string? ParentToolCallId,
     string? SessionPolicy,

@@ -232,7 +232,7 @@ public class ContentUploadMiddlewareTests
             state,
             coordinator,
             session,
-            new Thread(session.Id, "main"),
+            new Thread(session.Id, "main", "test-agent"),
             CancellationToken.None,
             clientSet: clientSet);
     }
@@ -457,7 +457,7 @@ public class ContentReferenceResolverMiddlewareTests
             state,
             coordinator,
             session,
-            new Thread(session.Id, threadId),
+            new Thread(session.Id, threadId, "test-agent"),
             CancellationToken.None);
 
         return context.AsBeforeIteration(
@@ -486,7 +486,7 @@ public class ContentReferenceResolverMiddlewareTests
             state,
             coordinator,
             session,
-            new Thread(session.Id, threadId),
+            new Thread(session.Id, threadId, "test-agent"),
             CancellationToken.None);
 
         return context.AsBeforeMessageTurn(userMessage, new List<ChatMessage>(), runConfig ?? new AgentRunConfig());

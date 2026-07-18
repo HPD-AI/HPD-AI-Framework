@@ -23,7 +23,7 @@ public class ThreadOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var thread = session.CreateThread("main");
+        var thread = session.CreateThread("test-agent", "main");
         thread.AddMessage(UserMessage("Hello"));
         thread.AddMessage(AssistantMessage("Hi there!"));
 
@@ -59,7 +59,7 @@ public class ThreadOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var thread = session.CreateThread("to-delete");
+        var thread = session.CreateThread("test-agent", "to-delete");
         thread.AddMessage(UserMessage("Hello"));
         await store.SaveInitialThreadAsync("test-session", thread);
 
@@ -79,9 +79,9 @@ public class ThreadOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("main"));
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("formal"));
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("casual"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "main"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "formal"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "casual"));
 
         // Act
         var descriptors = await store.CollectThreadDescriptorsAsync("test-session");
@@ -101,8 +101,8 @@ public class ThreadOperationTests : AgentTestBase
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("main"));
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("formal"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "main"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "formal"));
 
         // Act
         await store.DeleteSessionAsync("test-session");
@@ -124,10 +124,10 @@ public class ThreadOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var thread1 = session.CreateThread("thread-1");
+        var thread1 = session.CreateThread("test-agent", "thread-1");
         thread1.AddMessage(UserMessage("Thread 1 message"));
 
-        var thread2 = session.CreateThread("thread-2");
+        var thread2 = session.CreateThread("test-agent", "thread-2");
         thread2.AddMessage(UserMessage("Thread 2 message"));
         thread2.AddMessage(AssistantMessage("Thread 2 response"));
 
@@ -151,8 +151,8 @@ public class ThreadOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("keep"));
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("remove"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "keep"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "remove"));
 
         // Act
         await store.DeleteThreadAsync("test-session", "remove");
@@ -172,7 +172,7 @@ public class ThreadOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         session.AddMetadata("project", "test");
         await store.SaveSessionAsync(session);
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("main"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "main"));
 
         // Act
         await store.DeleteThreadAsync("test-session", "main");
@@ -198,7 +198,7 @@ public class ThreadOperationTests : AgentTestBase
             var session = new HPD.Agent.Session("test-session");
             await store.SaveSessionAsync(session);
 
-            var thread = session.CreateThread("main");
+            var thread = session.CreateThread("test-agent", "main");
             thread.AddMessage(UserMessage("Hello"));
             thread.AddMessage(AssistantMessage("Hi there!"));
 
@@ -230,8 +230,8 @@ public class ThreadOperationTests : AgentTestBase
             var session = new HPD.Agent.Session("test-session");
             await store.SaveSessionAsync(session);
 
-            await store.SaveInitialThreadAsync("test-session", session.CreateThread("main"));
-            await store.SaveInitialThreadAsync("test-session", session.CreateThread("formal"));
+            await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "main"));
+            await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "formal"));
 
             // Act
             var descriptors = await store.CollectThreadDescriptorsAsync("test-session");
@@ -260,7 +260,7 @@ public class ThreadOperationTests : AgentTestBase
             var session = new HPD.Agent.Session("test-session");
             await store.SaveSessionAsync(session);
 
-            await store.SaveInitialThreadAsync("test-session", session.CreateThread("to-delete"));
+            await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "to-delete"));
 
             // Act
             await store.DeleteThreadAsync("test-session", "to-delete");
@@ -288,7 +288,7 @@ public class ThreadOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var thread = session.CreateThread("formal");
+        var thread = session.CreateThread("test-agent", "formal");
         thread.Description = "Formal tone approach";
 
         // Act
@@ -307,7 +307,7 @@ public class ThreadOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var thread = session.CreateThread("experiment");
+        var thread = session.CreateThread("test-agent", "experiment");
         thread.Tags = ["v1", "draft", "formal-tone"];
 
         // Act
@@ -325,7 +325,7 @@ public class ThreadOperationTests : AgentTestBase
     {
         // Arrange & Act
         // Using new Thread() with init properties since CreateThread doesn't support setting fork metadata
-        var thread = new Thread("test-session", "formal")
+        var thread = new Thread("test-session", "formal", "test-agent")
         {
             ForkedFrom = "main",
             ForkedAtMessageIndex = 3
@@ -341,7 +341,7 @@ public class ThreadOperationTests : AgentTestBase
     {
         // Arrange & Act
         // Using new Thread() with init properties since CreateThread doesn't support setting ancestors
-        var thread = new Thread("test-session", "formal")
+        var thread = new Thread("test-session", "formal", "test-agent")
         {
             Ancestors = new Dictionary<string, string>
             {
@@ -370,7 +370,7 @@ public class ThreadOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var source = session.CreateThread("main");
+        var source = session.CreateThread("test-agent", "main");
         source.AddMessage(UserMessage("Message 1"));
         source.AddMessage(AssistantMessage("Response 1"));
         source.AddMessage(UserMessage("Message 2"));
@@ -402,7 +402,7 @@ public class ThreadOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var source = session.CreateThread("main");
+        var source = session.CreateThread("test-agent", "main");
         source.AddMessage(UserMessage("First"));
         source.AddMessage(AssistantMessage("Second"));
         source.AddMessage(UserMessage("Third"));
@@ -426,7 +426,7 @@ public class ThreadOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var source = session.CreateThread("main");
+        var source = session.CreateThread("test-agent", "main");
         source.MiddlewareState["PlanModePersistentState"] = "{\"step\":3}";
         source.MiddlewareState["CompactionState"] = "{\"cached\":true}";
         source.AddMessage(UserMessage("Hello"));
@@ -451,7 +451,7 @@ public class ThreadOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var source = session.CreateThread("main");
+        var source = session.CreateThread("test-agent", "main");
         source.MiddlewareState["PlanModePersistentState"] = "{\"step\":1}";
         source.AddMessage(UserMessage("Hello"));
         await store.SaveInitialThreadAsync("test-session", source);
@@ -492,8 +492,8 @@ public class ThreadOperationTests : AgentTestBase
         session.MiddlewareState["PermissionPersistentState"] = "{\"Bash\":\"AlwaysAllow\"}";
         await store.SaveSessionAsync(session);
 
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("thread-1"));
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("thread-2"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "thread-1"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "thread-2"));
 
         // Act - load session (session state is shared, not per-thread)
         var loadedSession = await store.LoadSessionAsync("test-session");
@@ -510,10 +510,10 @@ public class ThreadOperationTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var thread1 = session.CreateThread("thread-1");
+        var thread1 = session.CreateThread("test-agent", "thread-1");
         thread1.MiddlewareState["PlanModePersistentState"] = "{\"plan\":\"A\"}";
 
-        var thread2 = session.CreateThread("thread-2");
+        var thread2 = session.CreateThread("test-agent", "thread-2");
         thread2.MiddlewareState["PlanModePersistentState"] = "{\"plan\":\"B\"}";
 
         await store.SaveInitialThreadAsync("test-session", thread1);
@@ -536,7 +536,7 @@ public class ThreadOperationTests : AgentTestBase
     public void Thread_Constructor_SetsDefaults()
     {
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread("main");
+        var thread = session.CreateThread("test-agent", "main");
 
         Assert.Equal("main", thread.Id);
         Assert.Equal("session-1", thread.SessionId);
@@ -553,7 +553,7 @@ public class ThreadOperationTests : AgentTestBase
     public void Thread_AddMessage_UpdatesLastActivity()
     {
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread("main");
+        var thread = session.CreateThread("test-agent", "main");
         var before = thread.LastActivity;
 
         // Small delay to ensure time difference
@@ -567,7 +567,7 @@ public class ThreadOperationTests : AgentTestBase
     public void Thread_MessageCount_ReflectsMessages()
     {
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread("main");
+        var thread = session.CreateThread("test-agent", "main");
         Assert.Equal(0, thread.MessageCount);
 
         thread.AddMessage(UserMessage("One"));
@@ -602,7 +602,7 @@ public class ThreadOperationTests : AgentTestBase
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("main"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "main"));
 
         var agent = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
             .WithSessionStore(store)
@@ -621,8 +621,8 @@ public class ThreadOperationTests : AgentTestBase
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("main"));
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("formal"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "main"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "formal"));
 
         var agent = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
             .WithSessionStore(store)
@@ -644,8 +644,8 @@ public class ThreadOperationTests : AgentTestBase
         var store = new InMemorySessionStore();
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("main"));
-        await store.SaveInitialThreadAsync("test-session", session.CreateThread("formal"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "main"));
+        await store.SaveInitialThreadAsync("test-session", session.CreateThread("test-agent", "formal"));
 
         var agent = new AgentBuilder(DefaultConfig(), new TestProviderRegistry(new FakeChatClient()))
             .WithSessionStore(store)

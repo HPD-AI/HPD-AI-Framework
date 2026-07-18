@@ -133,7 +133,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
     [Fact]
     public async Task EstimateContextUsageAsync_ReturnsThreadUsageForScopedThread()
     {
-        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("session-usage");
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-usage");
         await _sessionStore.AppendThreadEventAsync(
             sessionId,
             threadId,
@@ -160,7 +160,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
     [Fact]
     public async Task GetThreadStateAsync_DoesNotReviveAnUnownedHistoricalRun()
     {
-        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("session-orphaned-run");
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-orphaned-run");
         await _sessionStore.AppendThreadEventAsync(
             sessionId,
             threadId,
@@ -180,7 +180,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
     [Fact]
     public async Task GetThreadStateAsync_ReturnsPendingThreadRequestsWithoutReplayingHistory()
     {
-        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("session-pending-request");
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-pending-request");
         var stored = await _agentManager.CreateDefinitionAsync(
             new AgentConfig
             {
@@ -219,9 +219,39 @@ public sealed class AgentStreamingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetThreadStateAsync_ReturnsDescendantRequestWithOriginScope()
+    {
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-tree-request");
+        var stored = await _agentManager.CreateDefinitionAsync(new AgentConfig
+        {
+            Name = "agent-1",
+            Clients = new AgentClientConfig
+            {
+                Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" }
+            }
+        }, "agent-1");
+        var runtime = await _agentManager.GetOrBuildAgentRuntimeAsync(stored.Id, sessionId, threadId);
+        var childCoordinator = new HPD.Events.Core.EventCoordinator();
+        childCoordinator.SetParent(runtime.EventCoordinator);
+        var request = new PermissionRequestEvent("permission-child", "test", "function", null, "call-child", null)
+        {
+            SessionId = sessionId,
+            ThreadId = "child-thread"
+        };
+        var handle = childCoordinator.RegisterRequest<PermissionRequestEvent, PermissionResponseEvent>(request);
+
+        var result = await _service.GetThreadStateAsync(stored.Id, sessionId, threadId);
+
+        var pending = result.Value!.PendingRequests.Should().ContainSingle().Subject;
+        pending.Request.SessionId.Should().Be(sessionId);
+        pending.Request.ThreadId.Should().Be("child-thread");
+        handle.Cancel("test complete");
+    }
+
+    [Fact]
     public async Task SubmitInputAsync_CommitsStartBeforeExposure_AndCompletionBeforeRelease()
     {
-        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("session-hosted-run");
+        var (sessionId, threadId) = await _sessionManager.CreateSessionAsync("agent-1", "session-hosted-run");
         var stored = await _agentManager.CreateDefinitionAsync(
             new AgentConfig
             {

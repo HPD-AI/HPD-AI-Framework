@@ -33,6 +33,7 @@ public static class DtoMappingExtensions
         return new ThreadDto(
             thread.Id,
             sessionId,
+            thread.OwnerAgentId,
             thread.GetDisplayName(),
             thread.Description,
             thread.ForkedFrom,
@@ -51,7 +52,7 @@ public static class DtoMappingExtensions
             thread.ParentThreadId,
             thread.SubAgentName,
             thread.SubAgentTaskName,
-            thread.SubAgentRunId,
+            thread.InvocationId,
             thread.SubAgentSourceKind,
             thread.ParentToolCallId,
             thread.SessionPolicy,
@@ -65,6 +66,7 @@ public static class DtoMappingExtensions
         return new ThreadDto(
             descriptor.Key.ThreadId,
             descriptor.Key.SessionId,
+            descriptor.Owner.AgentId,
             descriptor.Name ?? descriptor.Key.ThreadId,
             descriptor.Description,
             descriptor.Fork?.SourceThreadId,
@@ -85,7 +87,7 @@ public static class DtoMappingExtensions
             descriptor.RuntimeChild?.ParentThreadId,
             descriptor.RuntimeChild?.SubAgentName,
             descriptor.RuntimeChild?.SubAgentTaskName,
-            descriptor.RuntimeChild?.SubAgentRunId,
+            descriptor.RuntimeChild?.InvocationId,
             descriptor.RuntimeChild?.SubAgentSourceKind,
             descriptor.RuntimeChild?.ParentToolCallId,
             descriptor.RuntimeChild?.SessionPolicy,

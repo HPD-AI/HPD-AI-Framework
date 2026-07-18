@@ -349,7 +349,7 @@ public class PipelineV2Tests
             state,
             new HPD.Events.Core.EventCoordinator(),
             new global::HPD.Agent.Session("test-session"),
-            new global::HPD.Agent.Thread("test-session"),
+            new global::HPD.Agent.Thread("test-session", "test-agent"),
             CancellationToken.None);
 
         return agentContext.AsBeforeIteration(
@@ -373,7 +373,7 @@ public class PipelineV2Tests
             state,
             new HPD.Events.Core.EventCoordinator(),
             new global::HPD.Agent.Session("test-session"),
-            new global::HPD.Agent.Thread("test-session"),
+            new global::HPD.Agent.Thread("test-session", "test-agent"),
             CancellationToken.None);
 
         return agentContext.AsAfterIteration(0, Array.Empty<FunctionResultContent>(), new AgentRunConfig());
@@ -393,7 +393,7 @@ public class PipelineV2Tests
             state,
             new HPD.Events.Core.EventCoordinator(),
             new global::HPD.Agent.Session("test-session"),
-            new global::HPD.Agent.Thread("test-session"),
+            new global::HPD.Agent.Thread("test-session", "test-agent"),
             CancellationToken.None);
 
         return agentContext.AsError(

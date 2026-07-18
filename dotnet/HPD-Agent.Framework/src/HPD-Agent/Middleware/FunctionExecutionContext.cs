@@ -23,6 +23,7 @@ public sealed class FunctionExecutionContext
     private readonly ISessionStore? _parentSessionStore;
     private readonly IAgentStore? _parentAgentStore;
     private readonly IContentStore? _contentStore;
+    private readonly AgentConfig? _parentConfig;
 
     internal FunctionExecutionContext(
         HookContext hookContext,
@@ -57,6 +58,7 @@ public sealed class FunctionExecutionContext
         _parentAgentMetadata = hookContext.GetParentAgentMetadata();
         _parentSessionStore = hookContext.Session?.Store;
         _parentAgentStore = hookContext.GetParentAgentStore();
+        _parentConfig = hookContext.Config;
     }
 
     public FunctionInvocationSnapshot InvocationSnapshot { get; }
@@ -212,6 +214,10 @@ public sealed class FunctionExecutionContext
     [EditorBrowsable(EditorBrowsableState.Never)]
     public IAgentStore? GetParentAgentStore()
         => _parentAgentStore;
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public AgentConfig? GetParentAgentConfigSnapshot()
+        => _parentConfig is null ? null : AgentConfigSnapshot.Create(_parentConfig);
 
     public BackgroundTaskRegistration RegisterBackgroundTask(
         string name,

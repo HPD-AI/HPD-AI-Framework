@@ -60,7 +60,7 @@ public class OpenApiFunctionFactoryTests
     {
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "OpenApiTestAgent");
         var session = new Session("session-1");
-        var thread = new Thread("session-1") { Id = "main" };
+        var thread = new Thread("session-1", "test-agent") { Id = "main" };
         var agentContext = new AgentContext(
             "OpenApiTestAgent",
             "conversation-1",

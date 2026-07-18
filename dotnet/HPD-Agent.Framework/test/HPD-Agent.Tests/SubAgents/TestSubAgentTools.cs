@@ -11,6 +11,7 @@ public class TestSubAgentTools
     public SubAgent ValidSubAgent()
     {
         return SubAgent.FromConfig(
+            "test/valid",
             "ValidSubAgent",
             "A valid test sub-agent",
             new AgentConfig
@@ -29,6 +30,7 @@ public class TestSubAgentTools
     public SubAgent CategorizedSubAgent()
     {
         return SubAgent.FromConfig(
+            "test/categorized",
             "CategorizedSubAgent",
             "Sub-agent with category",
             new AgentConfig
@@ -43,6 +45,7 @@ public class TestSubAgentTools
     public SubAgent PrioritizedSubAgent()
     {
         return SubAgent.FromConfig(
+            "test/prioritized",
             "PrioritizedSubAgent",
             "Sub-agent with priority",
             new AgentConfig
@@ -57,6 +60,7 @@ public class TestSubAgentTools
     public SubAgent DefaultThreadNativeSubAgent()
     {
         return SubAgent.FromConfig(
+            "test/default-thread-native",
             "DefaultThreadNativeSubAgent",
             "Default thread-native sub-agent",
             new AgentConfig
@@ -71,6 +75,7 @@ public class TestSubAgentTools
     public SubAgent SharedSessionSubAgent()
     {
         return SubAgent.FromConfig(
+            "test/shared-session",
             "SharedSessionSubAgent",
             "Sub-agent with a shared session",
             new AgentConfig
@@ -83,10 +88,11 @@ public class TestSubAgentTools
     }
 
     [SubAgent]
-    public SubAgent ParentThreadSubAgent()
+    public SubAgent FreshThreadSubAgent()
     {
         return SubAgent.FromConfig(
-            "ParentThreadSubAgent",
+            "test/fresh-thread",
+            "FreshThreadSubAgent",
             "Sub-agent that writes directly into the parent thread",
             new AgentConfig
             {
@@ -94,13 +100,14 @@ public class TestSubAgentTools
                 SystemInstructions = "Test",
                 Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
             },
-            SubAgentExecutionPolicies.ParentThread());
+            SubAgentExecutionPolicies.ParentSessionFreshThread());
     }
 
     [SubAgent]
     public SubAgent SubAgentWithProvider()
     {
         return SubAgent.FromConfig(
+            "test/provider",
             "SubAgentWithProvider",
             "Sub-agent with specific provider",
             new AgentConfig
@@ -118,6 +125,7 @@ public class TestSubAgentTools
     public SubAgent SubAgentWithInstructions()
     {
         return SubAgent.FromConfig(
+            "test/instructions",
             "SubAgentWithInstructions",
             "Sub-agent with system instructions",
             new AgentConfig
@@ -132,6 +140,7 @@ public class TestSubAgentTools
     public SubAgent SubAgentWithIterationLimit()
     {
         return SubAgent.FromConfig(
+            "test/iteration-limit",
             "SubAgentWithIterationLimit",
             "Sub-agent with custom iteration limit",
             new AgentConfig
@@ -147,6 +156,7 @@ public class TestSubAgentTools
     public SubAgent ComplexSubAgent()
     {
         return SubAgent.FromConfig(
+            "test/complex",
             "ComplexSubAgent",
             "Sub-agent with full configuration",
             new AgentConfig
@@ -165,6 +175,7 @@ public class TestSubAgentTools
     public SubAgent SharedSessionExistingThreadSubAgent()
     {
         return SubAgent.FromConfig(
+            "test/shared-existing",
             "SharedSessionExistingThreadSubAgent",
             "Sub-agent pinned to a shared session thread",
             new AgentConfig
@@ -180,6 +191,7 @@ public class TestSubAgentTools
     public SubAgent SubAgentWithToolss()
     {
         return SubAgent.FromConfig(
+            "test/tools",
             "SubAgentWithToolss",
             "Sub-agent with ToolHarnesses registered",
             new AgentConfig

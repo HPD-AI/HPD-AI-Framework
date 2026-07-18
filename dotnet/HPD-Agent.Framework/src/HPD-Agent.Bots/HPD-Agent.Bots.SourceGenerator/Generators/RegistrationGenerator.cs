@@ -90,7 +90,7 @@ internal static class RegistrationGenerator
 
         sb.AppendLine($"        services.TryAddSingleton<{className}>();");
         sb.AppendLine("        services.TryAddEnumerable(ServiceDescriptor.Singleton<HPD.Agent.Bots.AspNetCore.IBotRegistryProvider, HPD.Agent.Bots.Generated.GeneratedBotRegistryProvider>());");
-        sb.AppendLine($"        services.TryAddSingleton<HPD.Agent.Bots.Session.PlatformSessionMapper>();");
+        sb.AppendLine($"        services.TryAddPlatformSessionMapper<{configName}>(config => config.AgentId ?? \"{adapterName}\");");
         sb.AppendLine("        return services;");
         sb.AppendLine("    }");
         sb.AppendLine("}");

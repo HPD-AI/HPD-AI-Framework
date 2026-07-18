@@ -535,7 +535,7 @@ public sealed class Agent
     // ─────────────────────────────────────────────────────────────────────────
 
     private AgentEvent EnrichOutputEvent(AgentEvent evt) =>
-        evt.Metadata == null && AgentMetadata != null
+        AgentMetadata != null
             ? evt with { Metadata = AgentMetadata }
             : evt;
 
@@ -3520,7 +3520,7 @@ public sealed class Agent
     internal (Session Session, Thread Thread) CreateSession(string? sessionId = null, string? threadId = null)
     {
         var session = sessionId is null ? new Session() : new Session(sessionId);
-        var thread = session.CreateThread(threadId);
+        var thread = session.CreateThread(AgentId, threadId);
         return (session, thread);
     }
 
@@ -5228,7 +5228,7 @@ public sealed class Agent
                 $"Session '{id}' already exists. Session IDs must be unique — use a different ID or load the existing session.");
 
         var session = new Session(id);
-        var thread = session.CreateThread("main");
+        var thread = session.CreateThread(AgentId, "main");
         session.Store = store;
 
         if (metadata != null)
@@ -5274,7 +5274,7 @@ public sealed class Agent
                 $"Thread '{id}' already exists in session '{sessionId}'.");
         }
 
-        var thread = session.CreateThread(id);
+        var thread = session.CreateThread(AgentId, id);
         if (!string.IsNullOrWhiteSpace(name))
         {
             thread.Name = name;
@@ -5413,7 +5413,7 @@ public sealed class Agent
         // Create the fork thread metadata and projected read model.
         // The durable copied history is written later by cloning the source event prefix.
         var now = DateTime.UtcNow;
-        var newThread = new Thread(sourceThread.SessionId, newThreadId)
+        var newThread = new Thread(sourceThread.SessionId, newThreadId, AgentId)
         {
             ForkedFrom = sourceThread.Id,
             ForkedAtMessageId = string.IsNullOrWhiteSpace(fromMessageId) ? null : fromMessageId,

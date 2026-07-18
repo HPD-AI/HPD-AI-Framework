@@ -217,7 +217,7 @@ internal sealed class ThreadBuilder
     public Thread Build()
     {
         // Use internal Thread(sessionId, threadId) constructor (accessible via InternalsVisibleTo)
-        var thread = new Thread(_sessionId, _threadId);
+        var thread = new Thread(_sessionId, _threadId, "test-agent");
         thread.Messages.AddRange(_messages);
         return thread;
     }

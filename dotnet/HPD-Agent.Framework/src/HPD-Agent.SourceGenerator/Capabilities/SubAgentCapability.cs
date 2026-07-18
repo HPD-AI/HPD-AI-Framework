@@ -56,20 +56,12 @@ internal class SubAgentCapability : BaseCapability
 
         // PHASE 2A FIX: Return just the factory call (NO local function wrapper, NO functions.Add)
         // The caller (HPDToolSourceGenerator) will add the functions.Add() wrapper
-        sb.AppendLine("HPDAIFunctionFactory.Create(");
+        if (IsStatic)
+            sb.AppendLine($"global::HPD.Agent.SubAgentRuntime.CreateFrozenFunction({ToolHarness.ClassName}.{MethodName}(), subAgentDef => HPDAIFunctionFactory.Create(");
+        else
+            sb.AppendLine($"global::HPD.Agent.SubAgentRuntime.CreateFrozenFunction(instance.{MethodName}(), subAgentDef => HPDAIFunctionFactory.Create(");
         sb.AppendLine("    async (arguments, functionContext, cancellationToken) =>");
         sb.AppendLine("    {");
-        sb.AppendLine("        // Get sub-agent definition from method");
-
-        if (IsStatic)
-        {
-            sb.AppendLine($"        var subAgentDef = {ToolHarness.ClassName}.{MethodName}();");
-        }
-        else
-        {
-            sb.AppendLine($"        var subAgentDef = instance.{MethodName}();");
-        }
-        sb.AppendLine();
         sb.AppendLine("        // Extract input from arguments");
         sb.AppendLine("        var jsonArgs = arguments.GetJson();");
         sb.AppendLine("        var input = jsonArgs.TryGetProperty(\"input\", out var inputProp)");
@@ -100,16 +92,8 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("        SchemaProvider = () =>");
         sb.AppendLine("        {");
         sb.AppendLine("            var options = new global::Microsoft.Extensions.AI.AIJsonSchemaCreateOptions { IncludeSchemaKeyword = false };");
-        if (IsStatic)
-        {
-            sb.AppendLine($"            var schemaSubAgentDef = {ToolHarness.ClassName}.{MethodName}();");
-        }
-        else
-        {
-            sb.AppendLine($"            var schemaSubAgentDef = instance.{MethodName}();");
-        }
         sb.AppendLine("            return global::Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(");
-        sb.AppendLine("                schemaSubAgentDef.InvocationModePolicy == global::HPD.Agent.AgentInvocationModePolicy.ModelChoice");
+        sb.AppendLine("                subAgentDef.InvocationModePolicy == global::HPD.Agent.AgentInvocationModePolicy.ModelChoice");
         sb.AppendLine($"                    ? typeof({ToolHarness.ClassName}SubAgentInputWithModeArgs)");
         sb.AppendLine($"                    : typeof({ToolHarness.ClassName}SubAgentInputArgs),");
         sb.AppendLine("                serializerOptions: global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions,");
@@ -120,10 +104,13 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("        {");
         sb.AppendLine("            [\"IsSubAgent\"] = true,");
         sb.AppendLine("            [\"ExecutionModel\"] = \"ThreadNative\",");
-        sb.AppendLine($"            [\"ParentToolHarness\"] = \"{ToolHarness.ClassName}\"");
+        sb.AppendLine($"            [\"ParentToolHarness\"] = \"{ToolHarness.ClassName}\",");
+        sb.AppendLine($"            [\"SubAgentMember\"] = \"{MethodName}\",");
+        sb.AppendLine($"            [\"SubAgentAssembly\"] = typeof({ToolHarness.ClassName}).Assembly.GetName().Name ?? string.Empty,");
+        sb.AppendLine("            [\"SubAgentDefinition\"] = subAgentDef");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
-        sb.AppendLine(")");
+        sb.AppendLine("))");
 
         return sb.ToString();
     }

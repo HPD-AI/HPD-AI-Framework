@@ -11,6 +11,7 @@ public class TestIntegrationSubAgents
     public SubAgent WeatherExpert()
     {
         return SubAgent.FromConfig(
+            "test/weather-expert",
             "WeatherExpert",
             "Specialized agent for weather forecasts and meteorological analysis",
             new AgentConfig
@@ -29,6 +30,7 @@ public class TestIntegrationSubAgents
     public SubAgent MathExpert()
     {
         return SubAgent.FromConfig(
+            "test/math-expert",
             "MathExpert",
             "Specialized agent for mathematical calculations and problem-solving",
             new AgentConfig
@@ -48,6 +50,7 @@ public class TestIntegrationSubAgents
     public SubAgent CodeReviewer()
     {
         return SubAgent.FromConfig(
+            "test/code-reviewer",
             "CodeReviewer",
             "Specialized agent for code review and security analysis",
             new AgentConfig

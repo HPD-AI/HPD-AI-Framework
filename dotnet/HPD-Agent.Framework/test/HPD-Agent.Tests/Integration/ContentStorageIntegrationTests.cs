@@ -42,7 +42,7 @@ public class ContentStorageIntegrationTests
             // Load session and thread (sets session.Store automatically)
             var session = await store.LoadSessionAsync("test-session") ?? new SessionModel("test-session");
             session.Store = store;
-            var thread = await store.ProjectThreadAsync("test-session", "main", ThreadProjectionPurpose.ThreadHistory) ?? session.CreateThread("main");
+            var thread = await store.ProjectThreadAsync("test-session", "main", ThreadProjectionPurpose.ThreadHistory) ?? session.CreateThread("test-agent", "main");
             thread.Session = session;
             Assert.NotNull(session.Store);
             Assert.Same(store, session.Store);
@@ -163,7 +163,7 @@ public class ContentStorageIntegrationTests
 
             var session = await store.LoadSessionAsync("multi-content-session") ?? new SessionModel("multi-content-session");
             session.Store = store;
-            var thread = await store.ProjectThreadAsync("multi-content-session", "main", ThreadProjectionPurpose.ThreadHistory) ?? session.CreateThread("main");
+            var thread = await store.ProjectThreadAsync("multi-content-session", "main", ThreadProjectionPurpose.ThreadHistory) ?? session.CreateThread("test-agent", "main");
             thread.Session = session;
 
             // Create different content types
@@ -251,7 +251,7 @@ public class ContentStorageIntegrationTests
 
         var session = await store.LoadSessionAsync("no-content-store-session") ?? new SessionModel("no-content-store-session");
         session.Store = store;
-        var thread = await store.ProjectThreadAsync("no-content-store-session", "main", ThreadProjectionPurpose.ThreadHistory) ?? session.CreateThread("main");
+        var thread = await store.ProjectThreadAsync("no-content-store-session", "main", ThreadProjectionPurpose.ThreadHistory) ?? session.CreateThread("test-agent", "main");
         thread.Session = session;
 
         var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
@@ -311,7 +311,7 @@ public class ContentStorageIntegrationTests
             // First run: Upload content
             var session1 = await store.LoadSessionAsync("roundtrip-session") ?? new SessionModel("roundtrip-session");
             session1.Store = store;
-            var thread1 = await store.ProjectThreadAsync("roundtrip-session", "main", ThreadProjectionPurpose.ThreadHistory) ?? session1.CreateThread("main");
+            var thread1 = await store.ProjectThreadAsync("roundtrip-session", "main", ThreadProjectionPurpose.ThreadHistory) ?? session1.CreateThread("test-agent", "main");
             thread1.Session = session1;
             var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x01, 0x02, 0x03 };
 
@@ -336,7 +336,7 @@ public class ContentStorageIntegrationTests
             // Second run: Load session and thread, verify content still accessible
             var session2 = await store.LoadSessionAsync("roundtrip-session") ?? new SessionModel("roundtrip-session");
             session2.Store = store;
-            var thread2 = await store.ProjectThreadAsync("roundtrip-session", "main", ThreadProjectionPurpose.ThreadHistory) ?? session2.CreateThread("main");
+            var thread2 = await store.ProjectThreadAsync("roundtrip-session", "main", ThreadProjectionPurpose.ThreadHistory) ?? session2.CreateThread("test-agent", "main");
             thread2.Session = session2;
             Assert.NotNull(session2);
 
@@ -373,7 +373,7 @@ public class ContentStorageIntegrationTests
             var store = new FileSessionStore(tempDir);
             var session = await store.LoadSessionAsync("convenience-session") ?? new SessionModel("convenience-session");
             session.Store = store;
-            var thread = await store.ProjectThreadAsync("convenience-session", "main", ThreadProjectionPurpose.ThreadHistory) ?? session.CreateThread("main");
+            var thread = await store.ProjectThreadAsync("convenience-session", "main", ThreadProjectionPurpose.ThreadHistory) ?? session.CreateThread("test-agent", "main");
             thread.Session = session;
 
             thread.AddMessage(new ChatMessage(ChatRole.User, "Test message"));
@@ -428,7 +428,7 @@ public class ContentStorageIntegrationTests
             .BuildAsync();
 
         var session = new SessionModel("hosted-session");
-        var thread = session.CreateThread("main");
+        var thread = session.CreateThread("test-agent", "main");
         var data = new DataContent(new byte[] { 1, 2, 3, 4 }, "application/pdf") { Name = "report.pdf" };
         var message = new ChatMessage(ChatRole.User, [new TextContent("Read this"), data]);
         var events = new List<AgentEvent>();

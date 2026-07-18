@@ -329,7 +329,7 @@ public class ThreadSafetyTests
     {
         var initialState = CreateTestState();
         var eventCoordinator = new HPD.Events.Core.EventCoordinator();
-        return new AgentContext("TestAgent", null, initialState, eventCoordinator, new global::HPD.Agent.Session("test-session"), new global::HPD.Agent.Thread("test-session"), CancellationToken.None);
+        return new AgentContext("TestAgent", null, initialState, eventCoordinator, new global::HPD.Agent.Session("test-session"), new global::HPD.Agent.Thread("test-session", "test-agent"), CancellationToken.None);
     }
 
     private static AgentLoopState CreateTestState()

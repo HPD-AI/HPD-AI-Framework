@@ -23,7 +23,7 @@ public class ThreadTreeV3DeleteTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var main = session.CreateThread("main");
+        var main = session.CreateThread("test-agent", "main");
         main.AddMessage(UserMessage("Message 1"));
         await store.SaveInitialThreadAsync(session.Id, main);
         main.Session = session;
@@ -48,7 +48,7 @@ public class ThreadTreeV3DeleteTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var main = session.CreateThread("main");
+        var main = session.CreateThread("test-agent", "main");
         main.AddMessage(UserMessage("Message 1"));
         await store.SaveInitialThreadAsync(session.Id, main);
         main.Session = session;
@@ -73,7 +73,7 @@ public class ThreadTreeV3DeleteTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var main = session.CreateThread("main");
+        var main = session.CreateThread("test-agent", "main");
         main.AddMessage(UserMessage("Message 1"));
         await store.SaveInitialThreadAsync(session.Id, main);
         main.Session = session;
@@ -102,7 +102,7 @@ public class ThreadTreeV3DeleteTests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var main = session.CreateThread("main");
+        var main = session.CreateThread("test-agent", "main");
         await store.SaveInitialThreadAsync(session.Id, main);
 
         var act = async () => await agent.DeleteThreadAsync(session.Id, "main");

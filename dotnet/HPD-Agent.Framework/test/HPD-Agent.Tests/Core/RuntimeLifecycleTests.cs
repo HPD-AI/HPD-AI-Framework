@@ -292,7 +292,7 @@ public class RuntimeLifecycleTests : AgentTestBase
     {
         var store = new InMemorySessionStore();
         var session = new global::HPD.Agent.Session("session-1");
-        var thread = new global::HPD.Agent.Thread("session-1", "thread-1") { Session = session };
+        var thread = new global::HPD.Agent.Thread("session-1", "thread-1", "test-agent") { Session = session };
         await store.SaveSessionAsync(session, TestCancellationToken);
         await store.AppendThreadEventAsync(
             session.Id,
@@ -2300,7 +2300,7 @@ public class RuntimeLifecycleTests : AgentTestBase
     {
         var store = new InMemorySessionStore();
         var session = new global::HPD.Agent.Session("session-bridge");
-        var thread = new global::HPD.Agent.Thread(session.Id, "thread-bridge") { Session = session };
+        var thread = new global::HPD.Agent.Thread(session.Id, "thread-bridge", "test-agent") { Session = session };
         await store.SaveSessionAsync(session, TestCancellationToken);
         await store.AppendThreadEventAsync(
             session.Id,
@@ -2349,7 +2349,7 @@ public class RuntimeLifecycleTests : AgentTestBase
     {
         var store = new InMemorySessionStore();
         var session = new global::HPD.Agent.Session("session-live-only");
-        var thread = new global::HPD.Agent.Thread(session.Id, "thread-live-only") { Session = session };
+        var thread = new global::HPD.Agent.Thread(session.Id, "thread-live-only", "test-agent") { Session = session };
         await store.SaveSessionAsync(session, TestCancellationToken);
         await store.AppendThreadEventAsync(
             session.Id,
@@ -2395,7 +2395,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         fakeClient.EnqueueTextResponse("runtime input response");
         var store = new InMemorySessionStore();
         var session = new global::HPD.Agent.Session("session-runtime-input");
-        var thread = new global::HPD.Agent.Thread(session.Id, "thread-runtime-input") { Session = session };
+        var thread = new global::HPD.Agent.Thread(session.Id, "thread-runtime-input", "test-agent") { Session = session };
         await store.SaveSessionAsync(session, TestCancellationToken);
         await store.AppendThreadEventAsync(
             session.Id,
@@ -2468,7 +2468,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         fakeClient.EnqueueTextResponse("notification response");
         var store = new InMemorySessionStore();
         var session = new global::HPD.Agent.Session("session-1");
-        var thread = new global::HPD.Agent.Thread("session-1", "thread-1") { Session = session };
+        var thread = new global::HPD.Agent.Thread("session-1", "thread-1", "test-agent") { Session = session };
         await store.SaveSessionAsync(session, TestCancellationToken);
         await store.AppendThreadEventAsync(
             session.Id,
@@ -2544,7 +2544,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         fakeClient.EnqueueTextResponse("batched notification response");
         var store = new InMemorySessionStore();
         var session = new global::HPD.Agent.Session("session-1");
-        var thread = new global::HPD.Agent.Thread("session-1", "thread-1") { Session = session };
+        var thread = new global::HPD.Agent.Thread("session-1", "thread-1", "test-agent") { Session = session };
         await store.SaveSessionAsync(session, TestCancellationToken);
         await store.AppendThreadEventAsync(
             session.Id,
@@ -3238,7 +3238,7 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         var agent = CreateAgent(client: fakeClient);
         var session = new global::HPD.Agent.Session("session-1");
-        var thread = new Thread("session-1");
+        var thread = new Thread("session-1", "test-agent");
 
         await agent.StartAsync(cancellationToken: TestCancellationToken);
 

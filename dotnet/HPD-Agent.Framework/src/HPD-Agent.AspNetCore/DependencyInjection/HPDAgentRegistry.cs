@@ -53,7 +53,7 @@ internal sealed class HPDAgentRegistry
             agentFactory);
 
         var hostingServices = new HPDAgentHostingServices(
-            new AgentSessionService(sessionManager),
+            new AgentSessionService(sessionManager, string.IsNullOrWhiteSpace(name) ? "default" : name),
             new AgentThreadService(sessionManager, agentManager),
             new AgentThreadRunService(sessionManager),
             new AgentContentService(sessionManager, contentStore),

@@ -631,7 +631,7 @@ public sealed class ReadFileTests : IDisposable
             state,
             new EventCoordinator(),
             new Session("test-session"),
-            new Thread("test-session"),
+            new Thread("test-session", "test-agent"),
             CancellationToken.None);
     }
 

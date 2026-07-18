@@ -177,7 +177,7 @@ public sealed class MCPResourceFunctionTests : IDisposable
     {
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
         var session = new global::HPD.Agent.Session("session-1");
-        var thread = new global::HPD.Agent.Thread("session-1") { Id = "thread-1" };
+        var thread = new global::HPD.Agent.Thread("session-1", "test-agent") { Id = "thread-1" };
         var agentContext = new AgentContext(
             "AgentA",
             "conversation-1",

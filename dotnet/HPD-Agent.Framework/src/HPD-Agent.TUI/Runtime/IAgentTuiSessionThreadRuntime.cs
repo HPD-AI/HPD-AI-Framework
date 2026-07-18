@@ -124,6 +124,7 @@ public sealed record AgentTuiThreadUpdate(
 public sealed record AgentTuiThreadInfo(
     string Id,
     string SessionId,
+    string OwnerAgentId,
     string Name,
     string? Description,
     DateTimeOffset CreatedAt,
@@ -141,7 +142,7 @@ public sealed record AgentTuiThreadInfo(
     string? ParentThreadId = null,
     string? SubAgentName = null,
     string? SubAgentTaskName = null,
-    string? SubAgentRunId = null,
+    string? InvocationId = null,
     string? SubAgentSourceKind = null,
     string? ParentToolCallId = null,
     string? SessionPolicy = null,
@@ -174,6 +175,8 @@ public sealed record AgentTuiThreadForkGroupMember(
 
 public sealed record AgentTuiThreadRuntimeChild(
     string ThreadId,
+    string SessionId,
+    string OwnerAgentId,
     string ParentSessionId,
     string ParentThreadId,
     string Name,
@@ -181,7 +184,7 @@ public sealed record AgentTuiThreadRuntimeChild(
     ThreadVisibility Visibility,
     string? SubAgentName,
     string? SubAgentTaskName,
-    string? SubAgentRunId,
+    string? InvocationId,
     string? SubAgentSourceKind,
     string? ParentToolCallId,
     string? SessionPolicy,

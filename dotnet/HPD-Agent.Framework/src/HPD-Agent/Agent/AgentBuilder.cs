@@ -1819,6 +1819,7 @@ public class AgentBuilder
         _serviceProvider = new CompositeServiceProvider(_serviceProvider, _secretResolver);
 
         var buildData = await BuildDependenciesAsync(cancellationToken).ConfigureAwait(false);
+        await MaterializeSubAgentDefinitionsAsync(buildData, cancellationToken).ConfigureAwait(false);
 
         // Default session store: InMemorySessionStore for zero-config out-of-the-box experience (V3)
         // Users can override with WithSessionStore() for persistent storage (FileSessionStore, etc.)
@@ -1848,6 +1849,49 @@ public class AgentBuilder
         ActivateRegisteredFeatures();
         RegisterAutoMiddleware(buildData);
         return CreateAgent(buildData);
+    }
+
+    private async Task MaterializeSubAgentDefinitionsAsync(
+        AgentBuildDependencies buildData,
+        CancellationToken cancellationToken)
+    {
+        var declarations = buildData.MergedOptions?.Tools?
+            .OfType<AIFunction>()
+            .Select(function => new
+            {
+                Definition = function.AdditionalProperties is not null &&
+                    function.AdditionalProperties.TryGetValue("SubAgentDefinition", out var value)
+                        ? value as SubAgent
+                        : null,
+                Owner = function.AdditionalProperties is not null &&
+                    function.AdditionalProperties.TryGetValue("ParentToolHarness", out var owner)
+                        ? owner?.ToString()
+                        : null,
+                Member = function.AdditionalProperties is not null &&
+                    function.AdditionalProperties.TryGetValue("SubAgentMember", out var member)
+                        ? member?.ToString()
+                        : null,
+                Assembly = function.AdditionalProperties is not null &&
+                    function.AdditionalProperties.TryGetValue("SubAgentAssembly", out var assembly)
+                        ? assembly?.ToString()
+                        : null
+            })
+            .Where(item => item.Definition is not null)
+            .ToArray() ?? [];
+
+        if (declarations.Length == 0)
+            return;
+
+        var store = _config.AgentStore ??= AgentBuilderDefaults.AgentStore;
+        var materializer = new AgentDefinitionMaterializer(store);
+        foreach (var declaration in declarations)
+        {
+            await materializer.MaterializeAsync(
+                declaration.Definition!,
+                _config,
+                $"{declaration.Assembly ?? "unknown-assembly"}:{declaration.Owner ?? "unknown-toolharness"}.{declaration.Member ?? declaration.Definition!.Name}",
+                cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task ResolveStoredAgentDefinitionAsync(CancellationToken cancellationToken)
@@ -1884,7 +1928,7 @@ public class AgentBuilder
         if (!shouldPersist)
             return;
 
-        var storedConfig = CloneSerializableConfig(_config);
+        var storedConfig = AgentConfigSnapshot.Create(_config);
         await store.SaveAsync(new StoredAgent
         {
             Id = agentId,
@@ -1919,13 +1963,6 @@ public class AgentBuilder
             if (storedValue != null)
                 property.SetValue(_config, storedValue);
         }
-    }
-
-    private static AgentConfig CloneSerializableConfig(AgentConfig config)
-    {
-        var json = JsonSerializer.Serialize(config, HPDJsonContext.Default.AgentConfig);
-        return JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentConfig)
-            ?? throw new InvalidOperationException("Failed to clone AgentConfig for agent store persistence.");
     }
 
     private static JsonObject SerializeConfigToObject(AgentConfig config)

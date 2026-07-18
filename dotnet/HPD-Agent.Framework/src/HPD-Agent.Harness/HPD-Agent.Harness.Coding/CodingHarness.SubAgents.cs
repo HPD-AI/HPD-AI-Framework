@@ -18,10 +18,11 @@ public partial class CodingToolHarness
         nameof(ExecuteCommand)
     ];
 
-    // [SubAgent]
+    [SubAgent]
     public SubAgent Explore()
     {
         return SubAgent.FromConfig(
+            "coding/explorer",
             "explore",
             "Investigates a focused codebase question using read-only coding tools and returns evidence with exact file and symbol references.",
             CreateCodingSubAgentConfig(
@@ -39,10 +40,11 @@ public partial class CodingToolHarness
             backgroundNotification: null);
     }
 
-    // [SubAgent]
+    [SubAgent]
     public SubAgent Worker()
     {
         return SubAgent.FromConfig(
+            "coding/worker",
             "worker",
             "Implements a clearly scoped coding task in the shared workspace, verifies the result, and preserves unrelated work.",
             CreateCodingSubAgentConfig(
@@ -60,10 +62,11 @@ public partial class CodingToolHarness
             backgroundNotification: null);
     }
 
-    // [SubAgent]
+    [SubAgent]
     public SubAgent Reviewer()
     {
         return SubAgent.FromConfig(
+            "coding/reviewer",
             "reviewer",
             "Performs an independent read-only code review and reports concrete findings ordered by severity.",
             CreateCodingSubAgentConfig(

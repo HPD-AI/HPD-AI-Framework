@@ -197,7 +197,7 @@ public class ErrorTrackingMiddlewareTests
             state,
             new HPD.Events.Core.EventCoordinator(),
             new HPD.Agent.Session("test-session"),
-            new HPD.Agent.Session("test-session").CreateThread(),
+            new HPD.Agent.Session("test-session").CreateThread("test-agent"),
             CancellationToken.None);
 
         return agentContext.AsError(
@@ -220,7 +220,7 @@ public class ErrorTrackingMiddlewareTests
             state,
             new HPD.Events.Core.EventCoordinator(),
             new HPD.Agent.Session("test-session"),
-            new HPD.Agent.Session("test-session").CreateThread(),
+            new HPD.Agent.Session("test-session").CreateThread("test-agent"),
             CancellationToken.None);
 
         if (allSucceeded)

@@ -37,7 +37,7 @@ public class ThreadTreeV3Tests : AgentTestBase
         });
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
-        var source = session.CreateThread("main");
+        var source = session.CreateThread("test-agent", "main");
         source.AddMessage(UserMessage("old request"));
         source.AddMessage(new ChatMessage(ChatRole.Assistant, "old response") { MessageId = "assistant-1" });
         await store.SaveInitialThreadAsync(session.Id, source);
@@ -70,7 +70,7 @@ public class ThreadTreeV3Tests : AgentTestBase
         });
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
-        var source = session.CreateThread("main");
+        var source = session.CreateThread("test-agent", "main");
         source.AddMessage(UserMessage("keep me"));
         await store.SaveInitialThreadAsync(session.Id, source);
         source.Session = session;
@@ -106,7 +106,8 @@ public class ThreadTreeV3Tests : AgentTestBase
             ancestors: new Dictionary<string, string> { ["0"] = "main" },
             middlewareState: [],
             metadata: new Dictionary<string, object> { ["surface"] = "test" },
-            childThreads: ["fork-1a"]);
+            childThreads: ["fork-1a"],
+            ownerAgentId: "test-agent");
 
         var json = System.Text.Json.JsonSerializer.Serialize(thread);
         var deserialized = System.Text.Json.JsonSerializer.Deserialize<Thread>(json);
@@ -123,7 +124,7 @@ public class ThreadTreeV3Tests : AgentTestBase
     [Fact]
     public void RootThread_DefaultsToLineageOnlyState()
     {
-        var thread = new Thread("session-1", "main");
+        var thread = new Thread("session-1", "main", "test-agent");
 
         thread.ValidateTreeInvariants();
 
@@ -152,7 +153,8 @@ public class ThreadTreeV3Tests : AgentTestBase
             ancestors: null,
             middlewareState: [],
             metadata: null,
-            childThreads: []);
+            childThreads: [],
+            ownerAgentId: "test-agent");
 
         var act = () => thread.ValidateTreeInvariants();
 
@@ -168,7 +170,7 @@ public class ThreadTreeV3Tests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var main = session.CreateThread("main");
+        var main = session.CreateThread("test-agent", "main");
         main.AddMessage(UserMessage("Message 1"));
         await store.SaveInitialThreadAsync(session.Id, main);
         main.Session = session;
@@ -195,7 +197,7 @@ public class ThreadTreeV3Tests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var main = session.CreateThread("main");
+        var main = session.CreateThread("test-agent", "main");
         main.AddMessage(UserMessage("Message 1"));
         await store.SaveInitialThreadAsync(session.Id, main);
         main.Session = session;
@@ -225,7 +227,7 @@ public class ThreadTreeV3Tests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var main = session.CreateThread("main");
+        var main = session.CreateThread("test-agent", "main");
         main.AddMessage(UserMessage("Message 1"));
         main.AddMessage(new ChatMessage(ChatRole.Assistant, "Response 1") { MessageId = "assistant-1" });
         await store.SaveInitialThreadAsync(session.Id, main);
@@ -252,7 +254,7 @@ public class ThreadTreeV3Tests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var main = session.CreateThread("main");
+        var main = session.CreateThread("test-agent", "main");
         await store.SaveInitialThreadAsync(session.Id, main);
         main.Session = session;
 
@@ -347,7 +349,7 @@ public class ThreadTreeV3Tests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var main = session.CreateThread("main");
+        var main = session.CreateThread("test-agent", "main");
         main.AddMessage(UserMessage("Message 1"));
         main.AddMessage(new ChatMessage(ChatRole.Assistant, "Response 1") { MessageId = "assistant-1" });
         await store.SaveInitialThreadAsync(session.Id, main);
@@ -375,7 +377,7 @@ public class ThreadTreeV3Tests : AgentTestBase
         await store.SaveSessionAsync(session);
 
         var turnId = "turn-with-tool";
-        var main = session.CreateThread("main");
+        var main = session.CreateThread("test-agent", "main");
         main.AddMessage(new ChatMessage(ChatRole.User, "Use a tool") { MessageId = "user-1" });
         main.AddMessage(MessageWithTurn(
             new ChatMessage(
@@ -425,7 +427,7 @@ public class ThreadTreeV3Tests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var main = session.CreateThread("main");
+        var main = session.CreateThread("test-agent", "main");
         await store.SaveInitialThreadAsync(session.Id, main);
 
         var turnId = "turn-with-rich-tool-events";
@@ -473,7 +475,7 @@ public class ThreadTreeV3Tests : AgentTestBase
         var session = new HPD.Agent.Session("test-session");
         await store.SaveSessionAsync(session);
 
-        var main = session.CreateThread("main");
+        var main = session.CreateThread("test-agent", "main");
         await store.SaveInitialThreadAsync(session.Id, main);
 
         const string turnId = "turn-1";
@@ -567,7 +569,8 @@ public class ThreadTreeV3Tests : AgentTestBase
             ancestors: ancestors,
             middlewareState: [],
             metadata: metadata,
-            childThreads: []);
+            childThreads: [],
+            ownerAgentId: "test-agent");
 
     private static ChatMessage UserMessage(string text, string messageId)
         => new(ChatRole.User, text) { MessageId = messageId };

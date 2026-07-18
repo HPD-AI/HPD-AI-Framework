@@ -160,7 +160,7 @@ public class PermissionMiddlewareRunConfigTests
             state,
             coordinator,
             new HPD.Agent.Session("test-session"),
-            new HPD.Agent.Thread("test-session") { Id = "test-thread" },
+            new HPD.Agent.Thread("test-session", "test-agent") { Id = "test-thread" },
             CancellationToken.None,
             interruptionHandler: (interruption, _) =>
             {

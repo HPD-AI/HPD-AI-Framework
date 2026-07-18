@@ -473,6 +473,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         => new(
             thread.Id,
             sessionId,
+            thread.OwnerAgentId,
             thread.GetDisplayName(),
             thread.Description,
             thread.CreatedAt,
@@ -493,7 +494,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             thread.ParentThreadId,
             thread.SubAgentName,
             thread.SubAgentTaskName,
-            thread.SubAgentRunId,
+            thread.InvocationId,
             thread.SubAgentSourceKind,
             thread.ParentToolCallId,
             thread.SessionPolicy,
@@ -533,6 +534,8 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     private static AgentTuiThreadRuntimeChild ToRuntimeChild(Thread thread)
         => new(
             thread.Id,
+            thread.SessionId,
+            thread.OwnerAgentId,
             thread.ParentSessionId ?? thread.SessionId,
             thread.ParentThreadId ?? thread.ForkedFrom ?? string.Empty,
             thread.GetDisplayName(),
@@ -540,7 +543,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             thread.Visibility,
             thread.SubAgentName,
             thread.SubAgentTaskName,
-            thread.SubAgentRunId,
+            thread.InvocationId,
             thread.SubAgentSourceKind,
             thread.ParentToolCallId,
             thread.SessionPolicy,
@@ -926,8 +929,6 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         => _agent.EventCoordinator.GetPendingRequests()
             .Select(item => item.Request)
             .OfType<AgentEvent>()
-            .Where(evt => string.Equals(evt.SessionId, scope.SessionId, StringComparison.Ordinal) &&
-                string.Equals(evt.ThreadId, scope.ThreadId, StringComparison.Ordinal))
             .ToArray();
 
     public ValueTask DisposeAsync()

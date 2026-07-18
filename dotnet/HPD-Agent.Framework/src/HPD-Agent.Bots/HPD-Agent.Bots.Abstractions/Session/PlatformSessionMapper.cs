@@ -29,13 +29,18 @@ public sealed class PlatformSessionMapper
     private const string PlatformKeyAliasesMetadataField = "platformKeyAliases";
 
     private readonly SessionManager _manager;
+    private readonly string _ownerAgentId;
 
     /// <summary>
     /// Initialises the mapper with the session manager for the target agent.
     /// </summary>
-    public PlatformSessionMapper(SessionManager manager)
+    /// <param name="manager">The session manager used to resolve and create conversations.</param>
+    /// <param name="ownerAgentId">Stable agent identity that owns newly created platform threads.</param>
+    public PlatformSessionMapper(SessionManager manager, string ownerAgentId)
     {
         _manager = manager ?? throw new ArgumentNullException(nameof(manager));
+        ArgumentException.ThrowIfNullOrWhiteSpace(ownerAgentId);
+        _ownerAgentId = ownerAgentId;
     }
 
     /// <summary>
@@ -77,7 +82,7 @@ public sealed class PlatformSessionMapper
             [PlatformKeyMetadataField] = platformKey,
         };
 
-        return await _manager.CreateSessionAsync(metadata: metadata, ct: ct);
+        return await _manager.CreateSessionAsync(_ownerAgentId, metadata: metadata, ct: ct);
     }
 
     /// <summary>
@@ -143,7 +148,7 @@ public sealed class PlatformSessionMapper
             [PlatformKeyMetadataField] = platformKey,
         };
 
-        return await _manager.CreateSessionAsync(metadata: metadata, ct: ct);
+        return await _manager.CreateSessionAsync(_ownerAgentId, metadata: metadata, ct: ct);
     }
 
     private static bool MetadataContainsPlatformKey(

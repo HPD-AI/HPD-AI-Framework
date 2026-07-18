@@ -437,7 +437,7 @@ public sealed class ExecuteCommandTests : IDisposable
         var function = CreateExecuteCommandFunction();
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
         var session = new Session("session-1");
-        var thread = new Thread("session-1") { Id = "thread-1" };
+        var thread = new Thread("session-1", "test-agent") { Id = "thread-1" };
         var agentContext = new AgentContext(
             "AgentA",
             "conversation-1",
@@ -1147,7 +1147,7 @@ public sealed class ExecuteCommandTests : IDisposable
             state,
             coordinator,
             new Session("session-1"),
-            new Thread("session-1") { Id = "thread-1" },
+            new Thread("session-1", "test-agent") { Id = "thread-1" },
             CancellationToken.None);
         agentContext.RuntimeCapabilities.Set<IProcessProvider>(runner);
         var arguments = new Dictionary<string, object?> { ["action"] = action };
@@ -1460,7 +1460,7 @@ public sealed class ExecuteCommandTests : IDisposable
 
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
         var session = new Session(sessionId) { Store = sessionStore };
-        var thread = new Thread(sessionId) { Id = "thread-1" };
+        var thread = new Thread(sessionId, "test-agent") { Id = "thread-1" };
         eventCoordinator ??= new EventCoordinator();
         var agentContext = new AgentContext(
             "AgentA",
@@ -1511,7 +1511,7 @@ public sealed class ExecuteCommandTests : IDisposable
         var function = CreateExecuteCommandFunction();
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
         var session = new Session("session-1");
-        var thread = new Thread("session-1") { Id = "thread-1" };
+        var thread = new Thread("session-1", "test-agent") { Id = "thread-1" };
         var agentContext = new AgentContext(
             "AgentA",
             "conversation-1",

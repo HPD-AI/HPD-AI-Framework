@@ -171,7 +171,7 @@ public class TeamsBotMessageTests
         SessionManager sessionManager,
         AgentManager agentManager)
     {
-        var mapper = new PlatformSessionMapper(sessionManager);
+        var mapper = new PlatformSessionMapper(sessionManager, "teams-test-agent");
         var options = Options.Create(new TeamsBotConfig
         {
             AppId = "app-id",

@@ -39,7 +39,7 @@ public class SubAgentSourceGeneratorTests
         // Assert
         Assert.NotNull(subAgent);
         Assert.Equal("CategorizedSubAgent", subAgent.Name);
-        Assert.NotNull(subAgent.AgentConfig);
+        Assert.NotNull(ConfigOf(subAgent));
     }
 
     // ===== P0: SubAgent.FromConfig() Patterns =====
@@ -56,7 +56,7 @@ public class SubAgentSourceGeneratorTests
         // Assert
         Assert.NotNull(subAgent);
         Assert.Equal("DefaultThreadNativeSubAgent", subAgent.Name);
-        Assert.Equal(SubAgentSourceKind.InlineConfig, subAgent.SourceKind);
+        Assert.IsType<SuppliedAgentConfiguration>(subAgent.Configuration);
         Assert.Equal(SubAgentSessionPolicy.ParentSession, subAgent.ExecutionPolicy.SessionPolicy);
         Assert.Equal(SubAgentThreadPolicy.ForkFromParentThread, subAgent.ExecutionPolicy.ThreadPolicy);
         Assert.Null(subAgent.ExecutionPolicy.SharedSessionId);
@@ -80,19 +80,19 @@ public class SubAgentSourceGeneratorTests
     }
 
     [Fact]
-    public void SubAgent_ParentThreadPolicy_GeneratesParentThreadSubAgent()
+    public void SubAgent_FreshThreadPolicy_GeneratesChildOwnedSubAgent()
     {
         // Arrange
         var ToolHarness = new TestSubAgentTools();
 
         // Act
-        var subAgent = ToolHarness.ParentThreadSubAgent();
+        var subAgent = ToolHarness.FreshThreadSubAgent();
 
         // Assert
         Assert.NotNull(subAgent);
-        Assert.Equal("ParentThreadSubAgent", subAgent.Name);
+        Assert.Equal("FreshThreadSubAgent", subAgent.Name);
         Assert.Equal(SubAgentSessionPolicy.ParentSession, subAgent.ExecutionPolicy.SessionPolicy);
-        Assert.Equal(SubAgentThreadPolicy.ParentThread, subAgent.ExecutionPolicy.ThreadPolicy);
+        Assert.Equal(SubAgentThreadPolicy.FreshThread, subAgent.ExecutionPolicy.ThreadPolicy);
     }
 
     // ===== P0: AgentConfig Extraction =====
@@ -108,10 +108,10 @@ public class SubAgentSourceGeneratorTests
 
         // Assert
         Assert.NotNull(subAgent);
-        Assert.NotNull(subAgent.AgentConfig);
-        Assert.NotNull(subAgent.AgentConfig.EnsureChatClientConfig());
-        Assert.Equal("openrouter", subAgent.AgentConfig.EnsureChatClientConfig().ProviderKey);
-        Assert.Equal("google/gemini-2.0-flash-exp:free", subAgent.AgentConfig.EnsureChatClientConfig().ModelName);
+        var config = ConfigOf(subAgent);
+        Assert.NotNull(config.EnsureChatClientConfig());
+        Assert.Equal("openrouter", config.EnsureChatClientConfig().ProviderKey);
+        Assert.Equal("google/gemini-2.0-flash-exp:free", config.EnsureChatClientConfig().ModelName);
     }
 
     [Fact]
@@ -125,9 +125,9 @@ public class SubAgentSourceGeneratorTests
 
         // Assert
         Assert.NotNull(subAgent);
-        Assert.NotNull(subAgent.AgentConfig);
-        Assert.NotNull(subAgent.AgentConfig.SystemInstructions);
-        Assert.Contains("You are a test agent", subAgent.AgentConfig.SystemInstructions);
+        var config = ConfigOf(subAgent);
+        Assert.NotNull(config.SystemInstructions);
+        Assert.Contains("You are a test agent", config.SystemInstructions);
     }
 
     [Fact]
@@ -141,8 +141,7 @@ public class SubAgentSourceGeneratorTests
 
         // Assert
         Assert.NotNull(subAgent);
-        Assert.NotNull(subAgent.AgentConfig);
-        Assert.Equal(15, subAgent.AgentConfig.MaxAgenticIterations);
+        Assert.Equal(15, ConfigOf(subAgent).MaxAgenticIterations);
     }
 
     // ===== P0: SubAgent Metadata =====
@@ -217,11 +216,13 @@ public class SubAgentSourceGeneratorTests
         // Assert
         Assert.NotNull(subAgent);
         Assert.Equal("ComplexSubAgent", subAgent.Name);
-        Assert.NotNull(subAgent.AgentConfig);
-        Assert.NotNull(subAgent.AgentConfig.EnsureChatClientConfig());
-        Assert.NotNull(subAgent.AgentConfig.SystemInstructions);
-        Assert.Equal(20, subAgent.AgentConfig.MaxAgenticIterations);
+        var config = ConfigOf(subAgent);
+        Assert.NotNull(config.EnsureChatClientConfig());
+        Assert.NotNull(config.SystemInstructions);
+        Assert.Equal(20, config.MaxAgenticIterations);
     }
+    private static AgentConfig ConfigOf(SubAgent subAgent) =>
+        Assert.IsType<SuppliedAgentConfiguration>(subAgent.Configuration).Config;
 }
 
 // Note: The TestSubAgentTools class is defined in TestSubAgentTools.cs

@@ -293,6 +293,42 @@ public sealed record ThreadRunCompletedEvent(
     public override EventChannel Channel { get; init; } = EventChannel.Control;
 }
 
+/// <summary>Records a parent delegation to a durable child thread.</summary>
+public sealed record SubAgentInvocationStartedEvent(
+    string InvocationId,
+    string ParentToolCallId,
+    string ChildAgentId,
+    string ChildSessionId,
+    string ChildThreadId,
+    string RoleName,
+    string TaskName,
+    AgentInvocationMode Mode) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override EventChannel Channel { get; init; } = EventChannel.Control;
+}
+
+/// <summary>Records successful completion of one parent-to-child delegation.</summary>
+public sealed record SubAgentInvocationCompletedEvent(string InvocationId, string? Summary) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override EventChannel Channel { get; init; } = EventChannel.Control;
+}
+
+/// <summary>Records failure of one parent-to-child delegation.</summary>
+public sealed record SubAgentInvocationFailedEvent(string InvocationId, string ErrorType, string Message) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override EventChannel Channel { get; init; } = EventChannel.Control;
+}
+
+/// <summary>Records cancellation of one parent-to-child delegation.</summary>
+public sealed record SubAgentInvocationCancelledEvent(string InvocationId, string? Reason) : AgentEvent
+{
+    public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
+    public override EventChannel Channel { get; init; } = EventChannel.Control;
+}
+
 /// <summary>
 /// User message input sent into an agent turn. When <see cref="Messages"/> is empty,
 /// the agent resumes the scoped thread using existing history and the supplied run config.

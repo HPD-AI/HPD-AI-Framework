@@ -1215,7 +1215,7 @@ public sealed class LanguageServerMiddlewareTests
             state,
             eventCoordinator ?? new EventCoordinator(),
             new Session("test-session"),
-            new Thread("test-session"),
+            new Thread("test-session", "test-agent"),
             CancellationToken.None);
     }
 

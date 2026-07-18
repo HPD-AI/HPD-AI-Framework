@@ -56,7 +56,7 @@ public sealed class NativeAgentExecutionFFITests
             .BuildAsync(CancellationToken.None);
 
         var agentHandle = NativeExports.RegisterManagedAgentForTesting(agent);
-        var threadHandle = NativeExports.CreateConversationThreadForTesting();
+        var threadHandle = NativeExports.CreateConversationThreadForTesting(agentHandle);
         var streamEvents = new List<string>();
         var sawEndOfStream = false;
         var approvedPermissionId = string.Empty;

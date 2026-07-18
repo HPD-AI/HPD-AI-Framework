@@ -103,7 +103,7 @@ public sealed class RetroactiveScorerTests
     public async Task ScoreThread_EmptyThread_ReturnsEmptyReport()
     {
         var store = new FakeSessionStore();
-        var thread = new Thread("sess-1", "b1"); // empty messages by default
+        var thread = new Thread("sess-1", "b1", "test-agent"); // empty messages by default
         store.AddThread("sess-1", thread);
 
         var report = await RetroactiveScorer.ScoreThreadAsync(

@@ -73,7 +73,7 @@ public class SessionEndpointsTests : IClassFixture<TestWebApplicationFactory>
     public async Task CreateSession_AcceptsCustomSessionId()
     {
         // Arrange
-        var request = new CreateSessionRequest("custom-session-123", null);
+        var request = new CreateSessionRequest("test-agent", "custom-session-123");
 
         // Act
         var response = await _client.PostAsJsonAsync("/sessions", request);
@@ -94,7 +94,7 @@ public class SessionEndpointsTests : IClassFixture<TestWebApplicationFactory>
             ["user"] = "alice",
             ["priority"] = 5
         };
-        var request = new CreateSessionRequest(null, metadata);
+        var request = new CreateSessionRequest("test-agent", Metadata: metadata);
 
         // Act
         var response = await _client.PostAsJsonAsync("/sessions", request);
@@ -150,8 +150,8 @@ public class SessionEndpointsTests : IClassFixture<TestWebApplicationFactory>
         var metadata1 = new Dictionary<string, object> { ["project"] = "projectA" };
         var metadata2 = new Dictionary<string, object> { ["project"] = "projectB" };
 
-        await _client.PostAsJsonAsync("/sessions", new CreateSessionRequest(null, metadata1));
-        await _client.PostAsJsonAsync("/sessions", new CreateSessionRequest(null, metadata2));
+        await _client.PostAsJsonAsync("/sessions", new CreateSessionRequest("test-agent", Metadata: metadata1));
+        await _client.PostAsJsonAsync("/sessions", new CreateSessionRequest("test-agent", Metadata: metadata2));
 
         var searchRequest = new SearchSessionsRequest(
             new Dictionary<string, object> { ["project"] = "projectA" },
@@ -271,7 +271,7 @@ public class SessionEndpointsTests : IClassFixture<TestWebApplicationFactory>
             ["key2"] = "value2"
         };
         var createResponse = await _client.PostAsJsonAsync("/sessions",
-            new CreateSessionRequest(null, initialMetadata));
+            new CreateSessionRequest("test-agent", Metadata: initialMetadata));
         var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
 
         // Act - Update with new metadata
@@ -299,7 +299,7 @@ public class SessionEndpointsTests : IClassFixture<TestWebApplicationFactory>
         // Arrange
         var initialMetadata = new Dictionary<string, object> { ["removeMe"] = "value" };
         var createResponse = await _client.PostAsJsonAsync("/sessions",
-            new CreateSessionRequest(null, initialMetadata));
+            new CreateSessionRequest("test-agent", Metadata: initialMetadata));
         var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
 
         // Act
@@ -320,7 +320,7 @@ public class SessionEndpointsTests : IClassFixture<TestWebApplicationFactory>
         // Arrange
         var initialMetadata = new Dictionary<string, object> { ["keepMe"] = "value" };
         var createResponse = await _client.PostAsJsonAsync("/sessions",
-            new CreateSessionRequest(null, initialMetadata));
+            new CreateSessionRequest("test-agent", Metadata: initialMetadata));
         var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
 
         // Act
@@ -346,7 +346,7 @@ public class SessionEndpointsTests : IClassFixture<TestWebApplicationFactory>
             ["keep2"] = "value2"
         };
         var createResponse = await _client.PostAsJsonAsync("/sessions",
-            new CreateSessionRequest(null, initialMetadata));
+            new CreateSessionRequest("test-agent", Metadata: initialMetadata));
         var session = await createResponse.Content.ReadFromJsonAsync<SessionDto>();
 
         // Act - Update without mentioning existing keys

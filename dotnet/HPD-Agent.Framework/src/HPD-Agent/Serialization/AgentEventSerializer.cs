@@ -59,6 +59,10 @@ public static partial class AgentEventSerializer
         [typeof(StateSnapshotEvent)] = EventTypes.AgentTurn.STATE_SNAPSHOT,
         [typeof(ThreadRunStartedEvent)] = EventTypes.AgentTurn.THREAD_RUN_STARTED,
         [typeof(ThreadRunCompletedEvent)] = EventTypes.AgentTurn.THREAD_RUN_COMPLETED,
+        [typeof(SubAgentInvocationStartedEvent)] = EventTypes.AgentTurn.SUBAGENT_INVOCATION_STARTED,
+        [typeof(SubAgentInvocationCompletedEvent)] = EventTypes.AgentTurn.SUBAGENT_INVOCATION_COMPLETED,
+        [typeof(SubAgentInvocationFailedEvent)] = EventTypes.AgentTurn.SUBAGENT_INVOCATION_FAILED,
+        [typeof(SubAgentInvocationCancelledEvent)] = EventTypes.AgentTurn.SUBAGENT_INVOCATION_CANCELLED,
 
         // Content Events
         [typeof(TextMessageStartEvent)] = EventTypes.Content.TEXT_MESSAGE_START,

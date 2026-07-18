@@ -11,6 +11,7 @@ internal static class ThreadDescriptorProjection
         long head)
     {
         var createdAt = current?.CreatedAt ?? evt.Timestamp;
+        var owner = current?.Owner ?? new ThreadAgentBinding(string.Empty);
         var name = current?.Name;
         var description = current?.Description;
         IReadOnlyList<string> tags = current?.Tags ?? [];
@@ -24,6 +25,7 @@ internal static class ThreadDescriptorProjection
         switch (evt)
         {
             case ThreadCreatedEvent created:
+                owner = new ThreadAgentBinding(created.OwnerAgentId);
                 createdAt = new DateTimeOffset(created.CreatedAt, TimeSpan.Zero);
                 name = created.Name;
                 description = created.Description;
@@ -33,11 +35,12 @@ internal static class ThreadDescriptorProjection
                 metadata = CopyMetadata(created.ThreadMetadata);
                 fork = CreateFork(created.ForkedFrom, created.ForkedAtMessageId, created.ForkedAtMessageIndex);
                 runtimeChild = CreateRuntimeChild(created.ParentSessionId, created.ParentThreadId, created.SubAgentName,
-                    created.SubAgentTaskName, created.SubAgentRunId, created.SubAgentSourceKind, created.ParentToolCallId,
+                    created.SubAgentTaskName, created.InvocationId, created.SubAgentSourceKind, created.ParentToolCallId,
                     created.SessionPolicy, created.ThreadPolicy);
                 break;
 
             case ThreadUpdatedEvent updated:
+                owner = new ThreadAgentBinding(updated.OwnerAgentId);
                 name = updated.Name;
                 description = updated.Description;
                 tags = updated.Tags?.ToArray() ?? [];
@@ -46,7 +49,7 @@ internal static class ThreadDescriptorProjection
                 metadata = CopyMetadata(updated.ThreadMetadata);
                 fork = CreateFork(updated.ForkedFrom, updated.ForkedAtMessageId, updated.ForkedAtMessageIndex);
                 runtimeChild = CreateRuntimeChild(updated.ParentSessionId, updated.ParentThreadId, updated.SubAgentName,
-                    updated.SubAgentTaskName, updated.SubAgentRunId, updated.SubAgentSourceKind, updated.ParentToolCallId,
+                    updated.SubAgentTaskName, updated.InvocationId, updated.SubAgentSourceKind, updated.ParentToolCallId,
                     updated.SessionPolicy, updated.ThreadPolicy);
                 break;
 
@@ -69,6 +72,7 @@ internal static class ThreadDescriptorProjection
         TrackMessage(messageIds, evt);
         return new ThreadDescriptor(
             key,
+            owner,
             name,
             description,
             tags,
@@ -121,13 +125,13 @@ internal static class ThreadDescriptorProjection
         string? parentThreadId,
         string? subAgentName,
         string? subAgentTaskName,
-        string? subAgentRunId,
+        string? invocationId,
         string? subAgentSourceKind,
         string? parentToolCallId,
         string? sessionPolicy,
         string? threadPolicy)
         => parentSessionId is null && parentThreadId is null && subAgentName is null
             ? null
-            : new ThreadRuntimeChildDescriptor(parentSessionId, parentThreadId, subAgentName, subAgentTaskName, subAgentRunId,
+            : new ThreadRuntimeChildDescriptor(parentSessionId, parentThreadId, subAgentName, subAgentTaskName, invocationId,
                 subAgentSourceKind, parentToolCallId, sessionPolicy, threadPolicy, Status: null);
 }

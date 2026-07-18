@@ -14,8 +14,11 @@ public static class ThreadProjector
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        var thread = new Thread(sessionId, threadId);
-        Apply(thread, events, purpose);
+        var orderedEvents = events.OrderBy(evt => evt.ThreadSequenceNumber).ToArray();
+        var ownerAgentId = orderedEvents.OfType<ThreadCreatedEvent>().FirstOrDefault()?.OwnerAgentId
+            ?? throw new InvalidOperationException($"Thread '{threadId}' has no creation event with an owner.");
+        var thread = new Thread(sessionId, threadId, ownerAgentId);
+        Apply(thread, orderedEvents, purpose);
         return thread;
     }
 
@@ -256,6 +259,7 @@ public static class ThreadProjector
     {
         ApplyHeader(
             thread,
+            data.OwnerAgentId,
             data.Name,
             data.Description,
             data.Tags,
@@ -266,7 +270,7 @@ public static class ThreadProjector
             data.ParentThreadId,
             data.SubAgentName,
             data.SubAgentTaskName,
-            data.SubAgentRunId,
+            data.InvocationId,
             data.SubAgentSourceKind,
             data.ParentToolCallId,
             data.SessionPolicy,
@@ -282,6 +286,7 @@ public static class ThreadProjector
     {
         ApplyHeader(
             thread,
+            data.OwnerAgentId,
             data.Name,
             data.Description,
             data.Tags,
@@ -292,7 +297,7 @@ public static class ThreadProjector
             data.ParentThreadId,
             data.SubAgentName,
             data.SubAgentTaskName,
-            data.SubAgentRunId,
+            data.InvocationId,
             data.SubAgentSourceKind,
             data.ParentToolCallId,
             data.SessionPolicy,
@@ -306,6 +311,7 @@ public static class ThreadProjector
 
     private static void ApplyHeader(
         Thread thread,
+        string ownerAgentId,
         string? name,
         string? description,
         List<string>? tags,
@@ -316,7 +322,7 @@ public static class ThreadProjector
         string? parentThreadId,
         string? subAgentName,
         string? subAgentTaskName,
-        string? subAgentRunId,
+        string? invocationId,
         string? subAgentSourceKind,
         string? parentToolCallId,
         string? sessionPolicy,
@@ -327,6 +333,7 @@ public static class ThreadProjector
         List<string> childThreads,
         Dictionary<string, string>? ancestors)
     {
+        thread.OwnerAgentId = ownerAgentId;
         thread.Name = name;
         thread.Description = description;
         thread.Tags = tags;
@@ -337,7 +344,7 @@ public static class ThreadProjector
         thread.ParentThreadId = parentThreadId;
         thread.SubAgentName = subAgentName;
         thread.SubAgentTaskName = subAgentTaskName;
-        thread.SubAgentRunId = subAgentRunId;
+        thread.InvocationId = invocationId;
         thread.SubAgentSourceKind = subAgentSourceKind;
         thread.ParentToolCallId = parentToolCallId;
         thread.SessionPolicy = sessionPolicy;

@@ -34,20 +34,10 @@ public sealed class AgentMiddlewareResponseService : IAgentMiddlewareResponseSer
         if (response is not AgentEvent agentResponse)
             throw new ArgumentException("Hosted request responses must be AgentEvents.", nameof(response));
 
-        if ((!string.IsNullOrWhiteSpace(agentResponse.SessionId) &&
-             !StringComparer.Ordinal.Equals(agentResponse.SessionId, sessionId)) ||
-            (!string.IsNullOrWhiteSpace(agentResponse.ThreadId) &&
-             !StringComparer.Ordinal.Equals(agentResponse.ThreadId, threadId)))
-        {
-            return AgentServiceResult<RespondResult>.ConflictWith(
-                "ResponseScopeMismatch",
-                "Response scope does not match the requested session and thread.");
-        }
-
         var scopedResponse = (IResponseEvent)(agentResponse with
         {
-            SessionId = sessionId,
-            ThreadId = threadId
+            SessionId = string.IsNullOrWhiteSpace(agentResponse.SessionId) ? sessionId : agentResponse.SessionId,
+            ThreadId = string.IsNullOrWhiteSpace(agentResponse.ThreadId) ? threadId : agentResponse.ThreadId
         });
         var result = await agent.TryAnswerRequestAsync(scopedResponse, cancellationToken)
             .ConfigureAwait(false);

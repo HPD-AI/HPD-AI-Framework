@@ -21,10 +21,10 @@ internal sealed class FFIConversationThread
     public Session Session { get; }
     public Thread Thread { get; }
 
-    public FFIConversationThread()
+    public FFIConversationThread(string ownerAgentId)
     {
         Session = new Session();
-        Thread = Session.CreateThread();
+        Thread = Session.CreateThread(ownerAgentId);
     }
 }
 
@@ -76,8 +76,8 @@ public static partial class NativeExports
     internal static void DestroyHandleForTesting(IntPtr handle) =>
         ObjectManager.Remove(handle);
 
-    internal static IntPtr CreateConversationThreadForTesting() =>
-        CreateConversationThreadCore();
+    internal static IntPtr CreateConversationThreadForTesting(IntPtr agentHandle) =>
+        CreateConversationThreadCore(agentHandle);
 
     internal static int GetMessageCountForTesting(IntPtr threadHandle) =>
         GetMessageCountCore(threadHandle);
@@ -344,18 +344,21 @@ public static partial class NativeExports
     /// <summary>
     /// Creates a new conversation thread for managing conversation state.
     /// </summary>
+    /// <param name="agentHandle">Handle of the agent that owns the thread.</param>
     /// <returns>Handle to the created conversation thread, or IntPtr.Zero on failure</returns>
     [UnmanagedCallersOnly(EntryPoint = "create_conversation_thread")]
-    public static IntPtr CreateAgentSession()
+    public static IntPtr CreateAgentSession(IntPtr agentHandle)
     {
-        return CreateConversationThreadCore();
+        return CreateConversationThreadCore(agentHandle);
     }
 
-    private static IntPtr CreateConversationThreadCore()
+    private static IntPtr CreateConversationThreadCore(IntPtr agentHandle)
     {
         try
         {
-            var thread = new FFIConversationThread();
+            var agent = ObjectManager.Get<HPD.Agent.Agent>(agentHandle)
+                ?? throw new InvalidOperationException("Agent handle is invalid.");
+            var thread = new FFIConversationThread(agent.AgentId);
             return ObjectManager.Add(thread);
         }
         catch (Exception ex)

@@ -253,7 +253,7 @@ public sealed class ThreadCompactionEngineTests
     [Fact]
     public async Task SummarizingCompaction_UsesAnIsolatedTextOnlyModelRequest()
     {
-        var thread = new Thread("session", "thread");
+        var thread = new Thread("session", "thread", "test-agent");
         thread.Messages.Add(new ChatMessage(ChatRole.System, "You are the coding agent."));
         thread.Messages.Add(new ChatMessage(ChatRole.User, "Inspect the workspace."));
         thread.Messages.Add(new ChatMessage(
@@ -297,7 +297,7 @@ public sealed class ThreadCompactionEngineTests
     [Fact]
     public async Task SummarizingCompaction_IncorporatesAPreviousHandoff()
     {
-        var thread = new Thread("session", "thread");
+        var thread = new Thread("session", "thread", "test-agent");
         thread.Messages.Add(new ChatMessage(ChatRole.Assistant, "Earlier continuation handoff")
         {
             MessageId = "summary-1"
@@ -369,7 +369,7 @@ public sealed class ThreadCompactionEngineTests
 
     private static Thread CreateThread(int messageCount)
     {
-        var thread = new Thread("session", "thread");
+        var thread = new Thread("session", "thread", "test-agent");
         for (var i = 0; i < messageCount; i++)
         {
             thread.Messages.Add(new ChatMessage(i % 2 == 0 ? ChatRole.User : ChatRole.Assistant, $"message {i}")

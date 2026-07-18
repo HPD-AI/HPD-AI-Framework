@@ -452,7 +452,7 @@ internal static class CapabilityAnalyzer
 
     /// <summary>
     /// Extracts sub-agent name and description from method body.
-    /// Looks for SubAgent.FromConfig() or FromAgentId() calls.
+    /// Looks for SubAgent.FromConfig(), FromParent(), or FromAgentId() calls.
     /// </summary>
     private static (string? name, string? description) ExtractSubAgentMetadata(
         MethodDeclarationSyntax method,
@@ -474,21 +474,25 @@ internal static class CapabilityAnalyzer
                 if (methodSymbol?.ContainingType?.Name == "SubAgent")
                 {
                     var methodNameStr = methodSymbol.Name;
-                    if (methodNameStr != "FromConfig" && methodNameStr != "FromAgentId")
+                    if (methodNameStr != "FromConfig" &&
+                        methodNameStr != "FromParent" &&
+                        methodNameStr != "FromAgentId")
                         continue;
 
-                    // Extract arguments (name and description)
-                    if (invocation.ArgumentList?.Arguments.Count >= 2)
+                    // Every durable factory starts with agentId, followed by the model-facing
+                    // name and description. Resolve named arguments as well as positional calls.
+                    if (invocation.ArgumentList?.Arguments.Count >= 3)
                     {
-                        // First argument is name
-                        var nameArg = invocation.ArgumentList.Arguments[0];
+                        var arguments = invocation.ArgumentList.Arguments;
+                        var nameArg = arguments.FirstOrDefault(argument =>
+                            argument.NameColon?.Name.Identifier.ValueText == "name") ?? arguments[1];
                         if (nameArg.Expression is LiteralExpressionSyntax nameLiteral)
                         {
                             name = nameLiteral.Token.ValueText;
                         }
 
-                        // Second argument is description
-                        var descArg = invocation.ArgumentList.Arguments[1];
+                        var descArg = arguments.FirstOrDefault(argument =>
+                            argument.NameColon?.Name.Identifier.ValueText == "description") ?? arguments[2];
                         if (descArg.Expression is LiteralExpressionSyntax descLiteral)
                         {
                             description = descLiteral.Token.ValueText;

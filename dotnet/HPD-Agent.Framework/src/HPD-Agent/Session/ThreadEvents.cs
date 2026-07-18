@@ -13,6 +13,7 @@ public static class ThreadEventTypes
 }
 
 public sealed record ThreadCreatedEvent(
+    string OwnerAgentId,
     string? Name,
     string? Description,
     List<string>? Tags,
@@ -24,7 +25,7 @@ public sealed record ThreadCreatedEvent(
     string? ParentThreadId = null,
     string? SubAgentName = null,
     string? SubAgentTaskName = null,
-    string? SubAgentRunId = null,
+    string? InvocationId = null,
     string? SubAgentSourceKind = null,
     string? ParentToolCallId = null,
     string? SessionPolicy = null,
@@ -36,6 +37,7 @@ public sealed record ThreadCreatedEvent(
     Dictionary<string, string>? Ancestors = null) : AgentEvent;
 
 public sealed record ThreadUpdatedEvent(
+    string OwnerAgentId,
     string? Name,
     string? Description,
     List<string>? Tags,
@@ -46,7 +48,7 @@ public sealed record ThreadUpdatedEvent(
     string? ParentThreadId = null,
     string? SubAgentName = null,
     string? SubAgentTaskName = null,
-    string? SubAgentRunId = null,
+    string? InvocationId = null,
     string? SubAgentSourceKind = null,
     string? ParentToolCallId = null,
     string? SessionPolicy = null,
@@ -133,6 +135,7 @@ public static class ThreadEventFactory
 {
     public static AgentEvent ThreadCreated(Thread thread) =>
         Scope(thread.SessionId, thread.Id, new ThreadCreatedEvent(
+            thread.OwnerAgentId,
             thread.Name,
             thread.Description,
             thread.Tags,
@@ -144,7 +147,7 @@ public static class ThreadEventFactory
             thread.ParentThreadId,
             thread.SubAgentName,
             thread.SubAgentTaskName,
-            thread.SubAgentRunId,
+            thread.InvocationId,
             thread.SubAgentSourceKind,
             thread.ParentToolCallId,
             thread.SessionPolicy,
@@ -157,6 +160,7 @@ public static class ThreadEventFactory
 
     public static AgentEvent ThreadUpdated(Thread thread) =>
         Scope(thread.SessionId, thread.Id, new ThreadUpdatedEvent(
+            thread.OwnerAgentId,
             thread.Name,
             thread.Description,
             thread.Tags,
@@ -167,7 +171,7 @@ public static class ThreadEventFactory
             thread.ParentThreadId,
             thread.SubAgentName,
             thread.SubAgentTaskName,
-            thread.SubAgentRunId,
+            thread.InvocationId,
             thread.SubAgentSourceKind,
             thread.ParentToolCallId,
             thread.SessionPolicy,

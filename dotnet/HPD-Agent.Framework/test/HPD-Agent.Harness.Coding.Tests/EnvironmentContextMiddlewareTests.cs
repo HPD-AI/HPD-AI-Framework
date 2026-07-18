@@ -362,7 +362,7 @@ public sealed class EnvironmentContextMiddlewareTests
             "test-agent");
 
         var session = new Session("test-session");
-        var thread = new Thread("test-session");
+        var thread = new Thread("test-session", "test-agent");
 
         var agentContext = new AgentContext(
             "test-agent",

@@ -1171,6 +1171,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         => new(
             GetRequiredString(element, "id"),
             GetRequiredString(element, "sessionId"),
+            GetRequiredString(element, "ownerAgentId"),
             GetRequiredString(element, "name"),
             GetOptionalString(element, "description"),
             GetRequiredDateTimeOffset(element, "createdAt"),
@@ -1188,7 +1189,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             GetOptionalString(element, "parentThreadId"),
             GetOptionalString(element, "subAgentName"),
             GetOptionalString(element, "subAgentTaskName"),
-            GetOptionalString(element, "subAgentRunId"),
+            GetOptionalString(element, "invocationId"),
             GetOptionalString(element, "subAgentSourceKind"),
             GetOptionalString(element, "parentToolCallId"),
             GetOptionalString(element, "sessionPolicy"),
@@ -1225,6 +1226,8 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
     private static AgentTuiThreadRuntimeChild ParseRuntimeChild(JsonElement element) =>
         new(
             GetRequiredString(element, "threadId"),
+            GetRequiredString(element, "sessionId"),
+            GetRequiredString(element, "ownerAgentId"),
             GetRequiredString(element, "parentSessionId"),
             GetRequiredString(element, "parentThreadId"),
             GetRequiredString(element, "name"),
@@ -1232,7 +1235,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             GetOptionalEnum(element, "visibility", ThreadVisibility.Visible),
             GetOptionalString(element, "subAgentName"),
             GetOptionalString(element, "subAgentTaskName"),
-            GetOptionalString(element, "subAgentRunId"),
+            GetOptionalString(element, "invocationId"),
             GetOptionalString(element, "subAgentSourceKind"),
             GetOptionalString(element, "parentToolCallId"),
             GetOptionalString(element, "sessionPolicy"),

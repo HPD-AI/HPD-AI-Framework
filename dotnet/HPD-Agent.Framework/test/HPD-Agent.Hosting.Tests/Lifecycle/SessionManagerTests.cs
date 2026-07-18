@@ -28,7 +28,7 @@ public class SessionManagerTests : IDisposable
     [Fact]
     public async Task CreateSessionAsync_CreatesSession_WithGeneratedId()
     {
-        var (sessionId, threadId) = await _manager.CreateSessionAsync();
+        var (sessionId, threadId) = await _manager.CreateSessionAsync("test-agent");
 
         sessionId.Should().NotBeNullOrWhiteSpace();
         threadId.Should().Be("main");
@@ -37,7 +37,7 @@ public class SessionManagerTests : IDisposable
     [Fact]
     public async Task CreateSessionAsync_CreatesSession_WithExplicitId()
     {
-        var (sessionId, _) = await _manager.CreateSessionAsync("my-explicit-id");
+        var (sessionId, _) = await _manager.CreateSessionAsync("test-agent", "my-explicit-id");
 
         sessionId.Should().Be("my-explicit-id");
     }
@@ -45,7 +45,7 @@ public class SessionManagerTests : IDisposable
     [Fact]
     public async Task CreateSessionAsync_CreatesMainThread()
     {
-        var (sessionId, _) = await _manager.CreateSessionAsync();
+        var (sessionId, _) = await _manager.CreateSessionAsync("test-agent");
 
         var thread = await _store.ProjectThreadAsync(sessionId, "main", ThreadProjectionPurpose.ThreadHistory);
         thread.Should().NotBeNull();
@@ -55,7 +55,7 @@ public class SessionManagerTests : IDisposable
     public async Task CreateSessionAsync_PersistsMetadata()
     {
         var meta = new Dictionary<string, object> { ["source"] = "test" };
-        var (sessionId, _) = await _manager.CreateSessionAsync(metadata: meta);
+        var (sessionId, _) = await _manager.CreateSessionAsync("test-agent", metadata: meta);
 
         var session = await _store.LoadSessionAsync(sessionId);
         session.Should().NotBeNull();
@@ -69,7 +69,7 @@ public class SessionManagerTests : IDisposable
     [Fact]
     public async Task RemoveSession_CleansThreadOperationLocks_ForSession()
     {
-        var (sid, _) = await _manager.CreateSessionAsync();
+        var (sid, _) = await _manager.CreateSessionAsync("test-agent");
 
         _manager.TryAcquireThreadOperationLock(sid, "thread-a");
         _manager.TryAcquireThreadOperationLock(sid, "thread-b");
@@ -86,8 +86,8 @@ public class SessionManagerTests : IDisposable
     [Fact]
     public async Task RemoveSession_DoesNotCleanLocks_ForOtherSessions()
     {
-        var (sidA, _) = await _manager.CreateSessionAsync();
-        var (sidB, _) = await _manager.CreateSessionAsync();
+        var (sidA, _) = await _manager.CreateSessionAsync("test-agent");
+        var (sidB, _) = await _manager.CreateSessionAsync("test-agent");
 
         // Hold a lock on session B
         _manager.TryAcquireThreadOperationLock(sidB, "thread-z");
@@ -102,7 +102,7 @@ public class SessionManagerTests : IDisposable
     [Fact]
     public async Task RemoveSession_DoesNotDeleteStoreData()
     {
-        var (sessionId, _) = await _manager.CreateSessionAsync();
+        var (sessionId, _) = await _manager.CreateSessionAsync("test-agent");
 
         _manager.RemoveSession(sessionId);
 
@@ -113,8 +113,8 @@ public class SessionManagerTests : IDisposable
     [Fact]
     public async Task RemoveSession_ClearsActiveThreadRuns_ForSession()
     {
-        var (sidA, _) = await _manager.CreateSessionAsync();
-        var (sidB, _) = await _manager.CreateSessionAsync();
+        var (sidA, _) = await _manager.CreateSessionAsync("test-agent");
+        var (sidB, _) = await _manager.CreateSessionAsync("test-agent");
 
         _manager.TryReserveThreadRun("agent", sidA, "main", out _).Should().BeTrue();
         _manager.TryReserveThreadRun("agent", sidB, "main", out var runB).Should().BeTrue();

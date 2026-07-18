@@ -132,7 +132,7 @@ public class TeamsBotInteractionTests
     private static HPD.Agent.Bots.Teams.TeamsBot CreateBot(AgentManager agentManager)
     {
         var sessionManager = new TestSessionManager(new InMemorySessionStore());
-        var mapper = new PlatformSessionMapper(sessionManager);
+        var mapper = new PlatformSessionMapper(sessionManager, "teams-test-agent");
         var options = Options.Create(new TeamsBotConfig
         {
             AppId = "app-id",

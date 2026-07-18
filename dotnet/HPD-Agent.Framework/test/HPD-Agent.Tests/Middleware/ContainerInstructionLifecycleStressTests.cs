@@ -394,7 +394,7 @@ public class ContainerInstructionLifecycleStressTests
             initialState: loopState,
             eventCoordinator: new EventCoordinator(),
             session: new global::HPD.Agent.Session("test-session"),
-            thread: new global::HPD.Agent.Thread("test-session"),
+            thread: new global::HPD.Agent.Thread("test-session", "test-agent"),
             cancellationToken: CancellationToken.None);
 
         return agentContext.AsBeforeIteration(iteration, messages, options, runConfig);
@@ -421,7 +421,7 @@ public class ContainerInstructionLifecycleStressTests
             initialState: loopState,
             eventCoordinator: new EventCoordinator(),
             session: new global::HPD.Agent.Session("test-session"),
-            thread: new global::HPD.Agent.Thread("test-session"),
+            thread: new global::HPD.Agent.Thread("test-session", "test-agent"),
             cancellationToken: CancellationToken.None);
 
         var response = new ChatResponse(new ChatMessage(ChatRole.Assistant, "Response"));

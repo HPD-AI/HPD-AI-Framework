@@ -175,9 +175,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
             .GetRuntimeAgent(agentId, sessionId, threadId)?
             .EventCoordinator
             .GetPendingRequests()
-            .Where(item => item.Request is AgentEvent agentEvent &&
-                string.Equals(agentEvent.SessionId, sessionId, StringComparison.Ordinal) &&
-                string.Equals(agentEvent.ThreadId, threadId, StringComparison.Ordinal))
+            .Where(item => item.Request is AgentEvent)
             .Select(item => new PendingAgentRequestDto(
                 (AgentEvent)item.Request,
                 item.Session.CreatedAt))

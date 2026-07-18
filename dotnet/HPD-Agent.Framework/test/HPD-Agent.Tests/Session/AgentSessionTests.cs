@@ -67,7 +67,7 @@ public class AgentSessionTests : AgentTestBase
     public void Thread_Constructor_GeneratesId()
     {
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
         Assert.NotNull(thread.Id);
         Assert.NotEmpty(thread.Id);
         Assert.Equal("session-1", thread.SessionId);
@@ -77,7 +77,7 @@ public class AgentSessionTests : AgentTestBase
     public void Thread_WithId_UsesProvidedId()
     {
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread("thread-1");
+        var thread = session.CreateThread("test-agent", "thread-1");
         Assert.Equal("thread-1", thread.Id);
         Assert.Equal("session-1", thread.SessionId);
     }
@@ -91,7 +91,7 @@ public class AgentSessionTests : AgentTestBase
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
 
         // Act
         thread.AddMessage(UserMessage("Hello"));
@@ -108,7 +108,7 @@ public class AgentSessionTests : AgentTestBase
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
         var messages = new List<ChatMessage>
         {
             UserMessage("One"),
@@ -128,7 +128,7 @@ public class AgentSessionTests : AgentTestBase
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
         thread.AddMessage(UserMessage("Hello"));
 
         // Act
@@ -143,7 +143,7 @@ public class AgentSessionTests : AgentTestBase
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
         var initialActivity = thread.LastActivity;
         System.Threading.Thread.Sleep(10);
 
@@ -180,7 +180,7 @@ public class AgentSessionTests : AgentTestBase
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
         thread.AddMessage(UserMessage("Hello, how are you today?"));
 
         // Act
@@ -195,7 +195,7 @@ public class AgentSessionTests : AgentTestBase
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
 
         // Act
         var displayName = thread.GetDisplayName();
@@ -209,7 +209,7 @@ public class AgentSessionTests : AgentTestBase
     {
         // Arrange
         var session = new HPD.Agent.Session("session-1");
-        var thread = session.CreateThread();
+        var thread = session.CreateThread("test-agent");
         thread.AddMessage(UserMessage("Some user message"));
         thread.Description = "Custom Name";
 

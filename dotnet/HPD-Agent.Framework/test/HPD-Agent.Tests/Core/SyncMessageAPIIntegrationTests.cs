@@ -21,7 +21,7 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
         var config = DefaultConfig();
         var agent = CreateAgent(config, client);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var thread = new global::HPD.Agent.Thread("test-session-id");
+        var thread = new global::HPD.Agent.Thread("test-session-id", "test-agent");
 
         // Act - use sync API to build conversation
         thread.AddMessage(new ChatMessage(ChatRole.User, "Hello"));
@@ -60,7 +60,7 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
         var config = DefaultConfig();
         var agent = CreateAgent(config, client);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var thread = new global::HPD.Agent.Thread("test-session-id");
+        var thread = new global::HPD.Agent.Thread("test-session-id", "test-agent");
 
         // Act - load conversation history using sync batch API
         var history = new[]
@@ -91,7 +91,7 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
     {
         // Arrange
         var session = new global::HPD.Agent.Session("test-session-id");
-        var thread = new global::HPD.Agent.Thread("test-session-id")
+        var thread = new global::HPD.Agent.Thread("test-session-id", "test-agent")
         {
             Description = "Test Conversation"
         };
@@ -116,7 +116,7 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
         var config = DefaultConfig();
         var agent = CreateAgent(config, client);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var thread = new global::HPD.Agent.Thread("test-session-id");
+        var thread = new global::HPD.Agent.Thread("test-session-id", "test-agent");
 
         // Act - add message and run agent
         thread.AddMessage(new ChatMessage(ChatRole.User, "Question 1"));
@@ -151,7 +151,7 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
         var config = DefaultConfig();
         var agent = CreateAgent(config, client);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var thread = new global::HPD.Agent.Thread("test-session-id");
+        var thread = new global::HPD.Agent.Thread("test-session-id", "test-agent");
 
         // Act
         var initialCount = thread.MessageCount;
@@ -182,7 +182,7 @@ public class SyncMessageAPIIntegrationTests : AgentTestBase
         var config = DefaultConfig();
         var agent = CreateAgent(config, client);
         var session = new global::HPD.Agent.Session("test-session-id");
-        var thread = new global::HPD.Agent.Thread("test-session-id");
+        var thread = new global::HPD.Agent.Thread("test-session-id", "test-agent");
 
         // Act - add messages using sync API
         thread.AddMessage(new ChatMessage(ChatRole.User, "Message 1"));

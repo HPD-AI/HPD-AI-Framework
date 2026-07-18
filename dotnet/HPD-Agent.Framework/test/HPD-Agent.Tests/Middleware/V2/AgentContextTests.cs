@@ -151,7 +151,7 @@ public class AgentContextTests
             state,
             eventCoordinator,
             new HPD.Agent.Session("test-session"),
-            new HPD.Agent.Session("test-session").CreateThread(),
+            new HPD.Agent.Session("test-session").CreateThread("test-agent"),
             CancellationToken.None);
     }
 
