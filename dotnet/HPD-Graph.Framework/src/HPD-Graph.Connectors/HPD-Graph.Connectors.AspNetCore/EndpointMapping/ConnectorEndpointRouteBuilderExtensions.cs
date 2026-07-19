@@ -467,7 +467,6 @@ public static class ConnectorEndpointRouteBuilderExtensions
             writer.WriteString("type", evt.GetType().Name);
             writer.WriteString("kind", evt.Kind.ToString());
             writer.WriteString("channel", evt.Channel.ToString());
-            writer.WriteNumber("sequenceNumber", evt.SequenceNumber);
             writer.WriteString("eventFlowId", evt.EventFlowId);
             writer.WriteString("timestamp", evt.Timestamp);
             writer.WriteNumber("exchangeTimestampNs", evt.ExchangeTimestampNs);
