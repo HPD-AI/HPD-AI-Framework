@@ -148,15 +148,20 @@ public class SubAgentRuntimeTests
 
         await store.AppendThreadEventsAsync(
             new ThreadKey(route.SessionId, route.ThreadId),
-            [Scope(route, new ThreadRunStartedEvent("child-run", "Reviewer", DateTimeOffset.UtcNow))]);
+            [Scope(route, new ThreadExecutionStartedEvent("child-run", "Reviewer", DateTimeOffset.UtcNow))]);
         descriptor = await store.GetThreadAsync(new ThreadKey(route.SessionId, route.ThreadId));
-        descriptor!.RuntimeChild!.Status.Should().Be(ThreadRunStatus.Active);
+        descriptor!.RuntimeChild!.Status.Should().Be(ThreadExecutionStatus.Active);
 
         await store.AppendThreadEventsAsync(
             new ThreadKey(route.SessionId, route.ThreadId),
-            [Scope(route, new ThreadRunCompletedEvent("child-run", "Reviewer", false, "TestFailure"))]);
+            [Scope(route, new ThreadExecutionFinishedEvent(
+                "child-run",
+                "Reviewer",
+                ThreadExecutionOutcome.Failed,
+                DateTimeOffset.UtcNow,
+                new ThreadExecutionError("TestFailure", null)))]);
         descriptor = await store.GetThreadAsync(new ThreadKey(route.SessionId, route.ThreadId));
-        descriptor!.RuntimeChild!.Status.Should().Be(ThreadRunStatus.Failed);
+        descriptor!.RuntimeChild!.Status.Should().Be(ThreadExecutionStatus.Failed);
 
         context.ResultMetadata.TryGet<string>("subAgentStatus", out var status).Should().BeTrue();
         status.Should().Be("started");

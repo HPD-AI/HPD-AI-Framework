@@ -5,7 +5,7 @@ import type {
   TextSubmissionBlockedReason,
   TextSubmissionState,
   ThreadActivity,
-  ThreadRunView,
+  ThreadExecutionView,
   ToolCall,
 } from '@hpd-research/hpd-agent-headless-ui';
 import type {
@@ -39,7 +39,7 @@ export interface ThreadStatusModel {
   snapshot: ThreadStateSnapshot;
   state: ThreadStatusState;
   textSubmissionState: TextSubmissionState;
-  threadRun: ThreadRunView | null;
+  threadExecution: ThreadExecutionView | null;
 }
 
 export interface ThreadStatusElementProps extends DivProps {

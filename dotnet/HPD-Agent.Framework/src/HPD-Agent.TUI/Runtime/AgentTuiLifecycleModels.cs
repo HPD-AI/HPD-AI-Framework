@@ -4,10 +4,10 @@ namespace HPD.Agent.TUI.Runtime;
 
 public sealed record AgentTuiThreadState(
     ThreadJournalCursor ObservedCursor,
-    AgentTuiThreadRun? ActiveRun,
+    AgentTuiThreadExecution? ActiveExecution,
     IReadOnlyList<AgentEvent> PendingRequests);
 
-public sealed record AgentTuiSubmitResult(AgentTuiThreadRun Run);
+public sealed record AgentTuiSubmitResult(AgentTuiThreadExecution Execution);
 
 public sealed record AgentTuiEventBatch(
     IReadOnlyList<AgentEvent> Events,
@@ -27,10 +27,10 @@ public enum AgentTuiInterruptStatus
 {
     Accepted,
     AlreadyTerminal,
-    NoActiveRun,
-    ActiveRunMismatch
+    NoActiveExecution,
+    ActiveExecutionMismatch
 }
 
 public sealed record AgentTuiInterruptResult(
     AgentTuiInterruptStatus Status,
-    AgentTuiThreadRun? ActiveRun = null);
+    AgentTuiThreadExecution? ActiveExecution = null);

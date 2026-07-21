@@ -243,7 +243,7 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
                     AgentId = scope.AgentId,
                     SessionId = scope.SessionId,
                     ThreadId = scope.ThreadId,
-                    RuntimeRunId = scope.RuntimeRunId,
+                    ThreadExecutionId = scope.ThreadExecutionId,
                     BoundAt = now,
                     ExpiresAt = scope.LeaseDuration is null ? null : now.Add(scope.LeaseDuration.Value),
                     HeartbeatInterval = DefaultHeartbeatInterval,
@@ -553,7 +553,7 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
             string.Equals(lease.AgentId, scope.AgentId, StringComparison.Ordinal) &&
             string.Equals(lease.SessionId, scope.SessionId, StringComparison.Ordinal) &&
             string.Equals(lease.ThreadId, scope.ThreadId, StringComparison.Ordinal) &&
-            string.Equals(lease.RuntimeRunId, scope.RuntimeRunId, StringComparison.Ordinal);
+            string.Equals(lease.ThreadExecutionId, scope.ThreadExecutionId, StringComparison.Ordinal);
 
     private static bool MatchesSelector(ClientToolProviderSnapshot snapshot, ClientProviderSelector? selector)
     {

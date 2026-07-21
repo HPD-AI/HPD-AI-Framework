@@ -186,39 +186,39 @@ public class ThreadEventStoreTests : AgentTestBase
     }
 
     [Fact]
-    public void ThreadRunProjector_ProjectsPersistedOpenRunAsInterrupted_WhenRuntimeIsNotLive()
+    public void ThreadExecutionProjector_ProjectsPersistedOpenRunAsInterrupted_WhenRuntimeIsNotLive()
     {
         var startedAt = DateTimeOffset.UtcNow;
-        var runs = ThreadRunProjector.Project(
+        var runs = ThreadExecutionProjector.Project(
             "agent-1",
             "session-1",
             "main",
             [
-                new ThreadRunStartedEvent("run-1", "agent-1", startedAt)
+                new ThreadExecutionStartedEvent("run-1", "agent-1", startedAt)
             ]);
 
         var run = Assert.Single(runs);
-        Assert.Equal("run-1", run.RuntimeRunId);
-        Assert.Equal(ThreadRunStatus.Interrupted, run.Status);
-        Assert.Null(run.CompletedAt);
+        Assert.Equal("run-1", run.ThreadExecutionId);
+        Assert.Equal(ThreadExecutionStatus.Interrupted, run.Status);
+        Assert.Null(run.FinishedAt);
     }
 
     [Fact]
-    public void ThreadRunProjector_ProjectsPersistedOpenRunAsActive_WhenRuntimeIsLive()
+    public void ThreadExecutionProjector_ProjectsPersistedOpenRunAsActive_WhenRuntimeIsLive()
     {
         var startedAt = DateTimeOffset.UtcNow;
-        var runs = ThreadRunProjector.Project(
+        var runs = ThreadExecutionProjector.Project(
             "agent-1",
             "session-1",
             "main",
             [
-                new ThreadRunStartedEvent("run-1", "agent-1", startedAt)
+                new ThreadExecutionStartedEvent("run-1", "agent-1", startedAt)
             ],
-            activeRuntimeRunId: "run-1");
+            activeThreadExecutionId: "run-1");
 
         var run = Assert.Single(runs);
-        Assert.Equal("run-1", run.RuntimeRunId);
-        Assert.Equal(ThreadRunStatus.Active, run.Status);
+        Assert.Equal("run-1", run.ThreadExecutionId);
+        Assert.Equal(ThreadExecutionStatus.Active, run.Status);
     }
 
     [Fact]

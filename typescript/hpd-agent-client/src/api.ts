@@ -38,7 +38,7 @@ import type {
   UpdateSessionRequest,
   UpdateThreadRequest,
 } from './types/session.js';
-import type { ThreadRun, ThreadRuntimeState } from './types/thread-run.js';
+import type { ThreadExecution, ThreadRuntimeState } from './types/thread-execution.js';
 import type { TransportRequestOptions } from './transports/options.js';
 
 export class AgentHttpApi {
@@ -236,15 +236,15 @@ export class AgentHttpApi {
     }
   }
 
-  async getThreadRuns(agentId: string, sessionId: string, threadId: string): Promise<ThreadRun[]> {
+  async getThreadExecutions(agentId: string, sessionId: string, threadId: string): Promise<ThreadExecution[]> {
     const response = await this.fetch(
-      this.url(`/agents/${agentId}/sessions/${sessionId}/threads/${threadId}/runs`),
+      this.url(`/agents/${agentId}/sessions/${sessionId}/threads/${threadId}/executions`),
       {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       },
     );
-    return this.readJson(response, 'Failed to get thread runs');
+    return this.readJson(response, 'Failed to get thread executions');
   }
 
   async listClientToolProviders(query?: ClientToolProviderQuery): Promise<ClientToolProviderSnapshot[]> {
@@ -297,21 +297,21 @@ export class AgentHttpApi {
     return this.readJson(response, 'Failed to estimate thread context usage');
   }
 
-  async getThreadRun(
+  async getThreadExecution(
     agentId: string,
     sessionId: string,
     threadId: string,
-    runtimeRunId: string,
-  ): Promise<ThreadRun | null> {
+    threadExecutionId: string,
+  ): Promise<ThreadExecution | null> {
     const response = await this.fetch(
-      this.url(`/agents/${agentId}/sessions/${sessionId}/threads/${threadId}/runs/${runtimeRunId}`),
+      this.url(`/agents/${agentId}/sessions/${sessionId}/threads/${threadId}/executions/${threadExecutionId}`),
       {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       },
     );
     if (response.status === 404) return null;
-    return this.readNullableJson(response, 'Failed to get thread run');
+    return this.readNullableJson(response, 'Failed to get thread execution');
   }
 
   async getThreadGraph(sessionId: string): Promise<ThreadGraph> {

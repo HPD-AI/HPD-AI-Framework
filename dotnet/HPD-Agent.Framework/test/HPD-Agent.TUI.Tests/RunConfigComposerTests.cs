@@ -80,7 +80,7 @@ public sealed class RunConfigComposerTests
         await InvokePrivateAsync(
             app,
             "OnAgentEventAsync",
-            new ThreadRunStartedEvent("run-1", scope.AgentId, DateTimeOffset.UtcNow)
+            new ThreadExecutionStartedEvent("run-1", scope.AgentId, DateTimeOffset.UtcNow)
             {
                 SessionId = scope.SessionId,
                 ThreadId = scope.ThreadId
@@ -172,12 +172,12 @@ public sealed class RunConfigComposerTests
             SubmitCount++;
             LastInput = input;
             return Task.FromResult(new AgentTuiSubmitResult(
-                new AgentTuiThreadRun("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
+                new AgentTuiThreadExecution("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
         }
 
         public Task<AgentTuiInterruptResult> InterruptAsync(
             AgentTuiRuntimeScope scope,
-            string? expectedRuntimeRunId,
+            string? expectedThreadExecutionId,
             string reason,
             CancellationToken cancellationToken = default)
             => Task.FromResult(new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted));

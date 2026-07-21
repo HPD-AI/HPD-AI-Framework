@@ -86,7 +86,7 @@ export interface ThreadTimelineViewportProps extends DivProps {
   scrollBehavior?: ScrollBehavior;
   scrollContainer?: 'all' | 'nearest';
   scrollToBottomOnInitialize?: boolean;
-  scrollToBottomOnRunStart?: boolean;
+  scrollToBottomOnExecutionStart?: boolean;
   thread?: ThreadState;
   timeline?: ThreadTimelineItem[];
   topAnchorMessageClamp?: {
@@ -106,7 +106,7 @@ autoScroll = true
 scrollBehavior = 'auto'
 scrollContainer = 'nearest'
 scrollToBottomOnInitialize = true
-scrollToBottomOnRunStart = true
+scrollToBottomOnExecutionStart = true
 topAnchorMessageClamp = { tallerThan: '10em', visibleHeight: '6em' }
 turnAnchor = 'top'
 ```

@@ -1,34 +1,34 @@
 namespace HPD.Agent.Hosting.Data;
 
-public sealed record ThreadRunDto(
-    string RuntimeRunId,
+public sealed record ThreadExecutionDto(
+    string ThreadExecutionId,
     string AgentId,
     string SessionId,
     string ThreadId,
     string Status,
     DateTimeOffset StartedAt,
-    DateTimeOffset? CompletedAt,
-    ThreadRunErrorDto? Error,
-    ThreadRunModelBackgroundOperationDto? ModelBackgroundOperation,
-    IReadOnlyList<ThreadRunBackgroundTaskDto> BackgroundTasks,
-    IReadOnlyList<ThreadRunBackgroundHandleDto> BackgroundHandles);
+    DateTimeOffset? FinishedAt,
+    ThreadExecutionErrorDto? Error,
+    ThreadExecutionModelBackgroundOperationDto? ModelBackgroundOperation,
+    IReadOnlyList<ThreadExecutionBackgroundTaskDto> BackgroundTasks,
+    IReadOnlyList<ThreadExecutionBackgroundHandleDto> BackgroundHandles);
 
-public sealed record ThreadRunErrorDto(
+public sealed record ThreadExecutionErrorDto(
     string? Type,
     string? Message);
 
-public sealed record ThreadRunModelBackgroundOperationDto(
+public sealed record ThreadExecutionModelBackgroundOperationDto(
     string Status,
     string? OperationId,
     string? StatusMessage,
     string? ContinuationToken);
 
-public sealed record ThreadRunBackgroundTaskDto(
+public sealed record ThreadExecutionBackgroundTaskDto(
     string TaskId,
     string Name,
     string SourceKind,
     string? SourceId,
-    ThreadRunBackgroundTaskNotificationDto Notification,
+    ThreadExecutionBackgroundTaskNotificationDto Notification,
     string Status,
     DateTimeOffset? StartedAt,
     DateTimeOffset? CompletedAt,
@@ -42,11 +42,11 @@ public sealed record ThreadRunBackgroundTaskDto(
 /// </summary>
 /// <param name="Kind">Rule kind, such as none, on_final_state, or strategy.</param>
 /// <param name="StrategyName">Strategy name when <paramref name="Kind"/> is strategy.</param>
-public sealed record ThreadRunBackgroundTaskNotificationDto(
+public sealed record ThreadExecutionBackgroundTaskNotificationDto(
     string Kind,
     string? StrategyName = null);
 
-public sealed record ThreadRunBackgroundHandleDto(
+public sealed record ThreadExecutionBackgroundHandleDto(
     string HandleId,
     string Name,
     string HandleKind,

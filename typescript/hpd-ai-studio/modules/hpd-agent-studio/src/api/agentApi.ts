@@ -33,16 +33,16 @@ export function createAgentApi(config: AgentStudioApiConfig) {
         `/sessions/${encodeURIComponent(sessionId)}` +
         `/threads/${encodeURIComponent(threadId)}`;
       const state = await api.get(`${threadPath}/state`) as {
-        activeRun?: { runtimeRunId?: string } | null;
+        activeExecution?: { threadExecutionId?: string } | null;
       };
-      const expectedRuntimeRunId = state.activeRun?.runtimeRunId;
-      if (!expectedRuntimeRunId) {
-        return { status: 'no_active_run', activeRun: null };
+      const expectedThreadExecutionId = state.activeExecution?.threadExecutionId;
+      if (!expectedThreadExecutionId) {
+        return { status: 'no_active_execution', activeExecution: null };
       }
 
       return api.post(`${threadPath}/interrupt`, {
         reason,
-        expectedRuntimeRunId
+        expectedThreadExecutionId
       });
     },
     listMultiAgentWorkflows: () => api.get('/multi-agent/workflows'),

@@ -208,8 +208,8 @@ class ThreadControllerImpl implements ThreadController {
       this.scope.sessionId,
       this.scope.threadId,
     );
-    if (!state?.activeRun) {
-      return { status: 'no_active_run', activeRun: null };
+    if (!state?.activeExecution) {
+      return { status: 'no_active_execution', activeExecution: null };
     }
 
     const result = await this.client.submitInput({
@@ -217,7 +217,7 @@ class ThreadControllerImpl implements ThreadController {
       agentId: this.scope.agentId,
       sessionId: this.scope.sessionId,
       threadId: this.scope.threadId,
-      expectedRuntimeRunId: state.activeRun.runtimeRunId,
+      expectedThreadExecutionId: state.activeExecution.threadExecutionId,
       reason: options.reason ?? 'Interrupted by client.',
       source: 'User',
       eventFlowId: options.eventFlowId ?? undefined,
@@ -228,7 +228,7 @@ class ThreadControllerImpl implements ThreadController {
 
     return {
       status: result.status,
-      activeRun: 'activeRun' in result ? result.activeRun : null,
+      activeExecution: 'activeExecution' in result ? result.activeExecution : null,
     };
   }
 
@@ -387,8 +387,8 @@ class ThreadControllerImpl implements ThreadController {
 function isInterruptionStatus(value: unknown): value is InterruptionResult['status'] {
   return value === 'accepted' ||
     value === 'already_terminal' ||
-    value === 'no_active_run' ||
-    value === 'active_run_mismatch';
+    value === 'no_active_execution' ||
+    value === 'active_execution_mismatch';
 }
 
 function missingRequest(requestId: string): SubmitInputResult {

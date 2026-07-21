@@ -104,7 +104,7 @@ export interface ClientToolProviderBindingScope {
   agentId?: string;
   sessionId?: string;
   threadId?: string;
-  runtimeRunId?: string;
+  threadExecutionId?: string;
   leaseDuration?: string;
 }
 
@@ -116,7 +116,7 @@ export interface ClientToolProviderBindingLease {
   agentId?: string;
   sessionId?: string;
   threadId?: string;
-  runtimeRunId?: string;
+  threadExecutionId?: string;
   boundAt?: string;
   expiresAt?: string;
   heartbeatInterval?: string;

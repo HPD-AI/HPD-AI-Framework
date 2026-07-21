@@ -1105,7 +1105,7 @@ public sealed class ModelSelectionCommandTests
 
         public Task<AgentTuiInterruptResult> InterruptAsync(
             AgentTuiRuntimeScope scope,
-            string? expectedRuntimeRunId,
+            string? expectedThreadExecutionId,
             string reason,
             CancellationToken cancellationToken = default)
             => Task.FromResult(new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted));
@@ -1122,6 +1122,6 @@ public sealed class ModelSelectionCommandTests
             => Task.FromResult(new AgentTuiThreadState(ThreadJournalCursor.Start(1), null, []));
 
         private static AgentTuiSubmitResult Submitted(AgentTuiRuntimeScope scope) => new(
-            new AgentTuiThreadRun("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow));
+            new AgentTuiThreadExecution("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow));
     }
 }

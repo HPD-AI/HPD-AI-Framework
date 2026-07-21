@@ -188,7 +188,7 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
                 ThreadId = threadId,
                 AgentId = _agentId,
                 RunConfig = GetCurrentRunConfig(),
-                RuntimeRunId = Guid.NewGuid().ToString("N")
+                ThreadExecutionId = Guid.NewGuid().ToString("N")
             };
 
             if (!_runtimeWriter.TryWrite(input))
@@ -256,7 +256,7 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
             ThreadId = input.ThreadId,
             AgentId = input.AgentId,
             RunConfig = input.RunConfig,
-            RuntimeRunId = input.RuntimeRunId
+            ThreadExecutionId = input.ThreadExecutionId
         };
 
     private async ValueTask<(BackgroundTaskNotificationDecision Decision, string Reason)> DecideAsync(
@@ -435,8 +435,8 @@ internal sealed class BackgroundTaskNotificationDispatcher : IDisposable
 
         if (!string.IsNullOrWhiteSpace(evt.SourceId))
             metadata["sourceId"] = evt.SourceId!;
-        if (!string.IsNullOrWhiteSpace(evt.ParentRuntimeRunId))
-            metadata["parentRuntimeRunId"] = evt.ParentRuntimeRunId!;
+        if (!string.IsNullOrWhiteSpace(evt.OriginatingThreadExecutionId))
+            metadata["originatingThreadExecutionId"] = evt.OriginatingThreadExecutionId!;
 
         if (evt.Metadata is { Count: > 0 })
         {

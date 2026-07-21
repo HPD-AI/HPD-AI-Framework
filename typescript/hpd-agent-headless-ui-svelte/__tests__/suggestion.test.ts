@@ -31,8 +31,8 @@ function snapshot(options: {
     transcriptMessages: [],
     activeTools: [],
     pendingRuntimeRequests: [],
-    threadRun: canSubmitText ? null : {
-      runtimeRunId: 'run-1',
+    threadExecution: canSubmitText ? null : {
+      threadExecutionId: 'run-1',
       agentId: 'agent',
       status: 'active',
     },
@@ -45,7 +45,7 @@ function snapshot(options: {
     },
     currentTurnId: null,
     currentConversationId: null,
-    currentRunId: canSubmitText ? null : 'run-1',
+    currentExecutionId: canSubmitText ? null : 'run-1',
     error: null,
     canSend: canSubmitText,
   };

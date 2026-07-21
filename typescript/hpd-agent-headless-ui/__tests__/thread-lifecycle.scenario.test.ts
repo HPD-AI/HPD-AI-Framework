@@ -147,10 +147,10 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
       threads.get(threadId) ?? null),
     getThreadMessages: vi.fn(async () => messages),
     getThreadEvents: vi.fn(async () => events),
-    getThreadRuns: vi.fn(async () => []),
+    getThreadExecutions: vi.fn(async () => []),
     getThreadState: vi.fn(async () => ({
       observedCursor: { generation: 1, sequenceNumber: events.length },
-      activeRun: null,
+      activeExecution: null,
       pendingRequests: [],
     })),
     getThreadGraph: vi.fn(async () => threadGraph),
@@ -180,7 +180,7 @@ describe('thread lifecycle scenario', () => {
     const observed = vi.fn();
     const unsubscribe = controller.projection.subscribe(observed);
 
-    await controller.start({ includeRuns: true });
+    await controller.start({ includeExecutions: true });
     expect(controller.projection.getSnapshot().transcriptMessages.map((message) => message.id)).toEqual(['u1']);
     expect(client.start).toHaveBeenCalledWith({
       agentId: 'agent',
@@ -191,8 +191,8 @@ describe('thread lifecycle scenario', () => {
     });
 
     await client.emit({
-      type: EventTypes.THREAD_RUN_STARTED,
-      runtimeRunId: 'run1',
+      type: EventTypes.THREAD_EXECUTION_STARTED,
+      threadExecutionId: 'run1',
       agentId: 'agent',
       startedAt: '2026-01-01T00:00:01.000Z',
       sessionId: 's1',
@@ -225,7 +225,7 @@ describe('thread lifecycle scenario', () => {
     });
 
     let snapshot = controller.projection.getSnapshot();
-    expect(snapshot.threadRun?.status).toBe('active');
+    expect(snapshot.threadExecution?.status).toBe('active');
     expect(snapshot.activity.streaming).toBe(true);
     expect(snapshot.transcriptMessages.at(-1)?.content).toBe('hi');
     expect(snapshot.pendingRuntimeRequests.map((request) => request.id)).toEqual(['p1']);
@@ -260,17 +260,18 @@ describe('thread lifecycle scenario', () => {
       threadId: 'main',
     });
     await client.emit({
-      type: EventTypes.THREAD_RUN_COMPLETED,
-      runtimeRunId: 'run1',
+      type: EventTypes.THREAD_EXECUTION_FINISHED,
+      threadExecutionId: 'run1',
       agentId: 'agent',
-      cancelled: false,
+      outcome: 'Succeeded',
+      finishedAt: '2026-01-01T00:00:02.000Z',
       sessionId: 's1',
       threadId: 'main',
     });
 
     snapshot = controller.projection.getSnapshot();
     expect(snapshot.pendingRuntimeRequests).toEqual([]);
-    expect(snapshot.threadRun?.status).toBe('completed');
+    expect(snapshot.threadExecution?.status).toBe('succeeded');
     expect(snapshot.activity.streaming).toBe(false);
     expect(snapshot.canSend).toBe(true);
 

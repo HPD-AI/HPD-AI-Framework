@@ -57,7 +57,7 @@ const nextThread = await createThreadStateFromRevision({
   sessionId,
   revision: result,
   hydrate: 'start',
-  hydrateOptions: { includeRuns: true },
+  hydrateOptions: { includeExecutions: true },
 });
 
 selectThread(result.threadId, nextThread);

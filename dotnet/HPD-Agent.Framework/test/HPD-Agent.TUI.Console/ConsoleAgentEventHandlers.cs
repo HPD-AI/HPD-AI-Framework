@@ -242,10 +242,10 @@ public sealed class ToolLifecycleHandler : IAgentTuiEventHandler
         string State);
 }
 
-public sealed class ThreadRunStatusHandler : IAgentTuiEventHandler
+public sealed class ThreadExecutionStatusHandler : IAgentTuiEventHandler
 {
     public bool CanHandle(AgentEvent evt)
-        => evt is ThreadRunStartedEvent or ThreadRunCompletedEvent;
+        => evt is ThreadExecutionStartedEvent or ThreadExecutionFinishedEvent;
 
     public ValueTask HandleAsync(
         AgentEvent evt,
@@ -254,48 +254,57 @@ public sealed class ThreadRunStatusHandler : IAgentTuiEventHandler
     {
         switch (evt)
         {
-            case ThreadRunStartedEvent started:
-                ApplyThreadRunStarted(context, started);
+            case ThreadExecutionStartedEvent started:
+                ApplyThreadExecutionStarted(context, started);
                 break;
 
-            case ThreadRunCompletedEvent completed:
-                ApplyThreadRunCompleted(context, completed);
+            case ThreadExecutionFinishedEvent completed:
+                ApplyThreadExecutionFinished(context, completed);
                 break;
         }
 
         return ValueTask.CompletedTask;
     }
 
-    private static void ApplyThreadRunStarted(
+    private static void ApplyThreadExecutionStarted(
         AgentTuiEventContext context,
-        ThreadRunStartedEvent started)
+        ThreadExecutionStartedEvent started)
     {
-        context.Shell.Activities.Add(new ActivityModel($"run {ShortId(started.RuntimeRunId)}")
+        context.Shell.Activities.Add(new ActivityModel($"run {ShortId(started.ThreadExecutionId)}")
         {
             State = ActivityState.Running,
             Severity = ActivitySeverity.Info
         });
 
-        context.Shell.FooterText = $"state: running | run: {ShortId(started.RuntimeRunId)}";
+        context.Shell.FooterText = $"state: running | run: {ShortId(started.ThreadExecutionId)}";
     }
 
-    private static void ApplyThreadRunCompleted(
+    private static void ApplyThreadExecutionFinished(
         AgentTuiEventContext context,
-        ThreadRunCompletedEvent completed)
+        ThreadExecutionFinishedEvent completed)
     {
         foreach (var activity in context.Shell.Activities.Activities.Where(activity => activity.State == ActivityState.Running))
         {
-            activity.State = completed.ErrorMessage is not null
-                ? ActivityState.Failed
-                : completed.Cancelled ? ActivityState.Cancelled : ActivityState.Completed;
-            activity.Severity = completed.ErrorMessage is not null
-                ? ActivitySeverity.Error
-                : completed.Cancelled ? ActivitySeverity.Warning : ActivitySeverity.Success;
+            activity.State = completed.Outcome switch
+            {
+                ThreadExecutionOutcome.Failed => ActivityState.Failed,
+                ThreadExecutionOutcome.Cancelled => ActivityState.Cancelled,
+                _ => ActivityState.Completed
+            };
+            activity.Severity = completed.Outcome switch
+            {
+                ThreadExecutionOutcome.Failed => ActivitySeverity.Error,
+                ThreadExecutionOutcome.Cancelled => ActivitySeverity.Warning,
+                _ => ActivitySeverity.Success
+            };
         }
 
-        context.Shell.FooterText = completed.ErrorMessage is null
-            ? completed.Cancelled ? "state: idle | cancelled" : "state: idle | last run completed"
-            : $"state: failed | {completed.ErrorMessage}";
+        context.Shell.FooterText = completed.Outcome switch
+        {
+            ThreadExecutionOutcome.Failed => $"state: failed | {completed.Error?.Message}",
+            ThreadExecutionOutcome.Cancelled => "state: idle | cancelled",
+            _ => "state: idle | last execution succeeded"
+        };
     }
 
     private static string ShortId(string value)

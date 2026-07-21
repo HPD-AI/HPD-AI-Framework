@@ -27,7 +27,7 @@ public sealed record NoticeCell(
     TranscriptSeverity Severity = TranscriptSeverity.Info) : TranscriptCell;
 
 public sealed record RunStatusCell(
-    string RuntimeRunId,
+    string ThreadExecutionId,
     TranscriptRunState State,
     string? Detail = null,
     TimeSpan? Duration = null,

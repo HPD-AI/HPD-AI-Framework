@@ -23,7 +23,7 @@ function message(id: string, index: number): Message {
     toolCalls: [],
     turnId: null,
     conversationId: null,
-    runId: null,
+    executionId: null,
     placement: 'transcript',
   };
 }
@@ -36,7 +36,7 @@ function timelineMessage(id: string, index: number): ThreadTimelineItem {
     message: itemMessage,
     turnId: itemMessage.turnId,
     conversationId: itemMessage.conversationId,
-    runId: itemMessage.runId,
+    executionId: itemMessage.executionId,
   };
 }
 
@@ -45,7 +45,7 @@ function timelineWork(id: string): ThreadTimelineItem {
     id,
     turnId: 'turn-1',
     conversationId: 'conversation-1',
-    runId: 'run-1',
+    executionId: 'run-1',
     status: 'worked',
     label: 'Worked',
     openByDefault: false,
@@ -57,7 +57,7 @@ function timelineWork(id: string): ThreadTimelineItem {
     work,
     turnId: work.turnId,
     conversationId: work.conversationId,
-    runId: work.runId,
+    executionId: work.executionId,
   };
 }
 

@@ -316,8 +316,8 @@ describe('createThreadProjection', () => {
     const projection = createThreadProjection();
 
     projection.project({
-      type: EventTypes.THREAD_RUN_STARTED,
-      runtimeRunId: 'run1',
+      type: EventTypes.THREAD_EXECUTION_STARTED,
+      threadExecutionId: 'run1',
       agentId: 'agent',
       startedAt: '2026-01-01T00:00:00.000Z',
     });
@@ -436,8 +436,8 @@ describe('createThreadProjection', () => {
     const projection = createThreadProjection();
 
     const events = [{
-      type: EventTypes.THREAD_RUN_STARTED,
-      runtimeRunId: 'run1',
+      type: EventTypes.THREAD_EXECUTION_STARTED,
+      threadExecutionId: 'run1',
       agentId: 'agent',
       startedAt: '2026-01-01T00:00:00.000Z',
     }, {
@@ -497,7 +497,7 @@ describe('createThreadProjection', () => {
     expect(snapshot.workGroups[0]).toMatchObject({
       turnId: 'turn1',
       conversationId: 'conv1',
-      runId: 'run1',
+      executionId: 'run1',
       status: 'working',
     });
     expect(snapshot.workGroups[0].parts.map((part) => part.type))
@@ -508,7 +508,7 @@ describe('createThreadProjection', () => {
         status: 'complete',
         resultText: 'contents',
         turnId: 'turn1',
-        runId: 'run1',
+        executionId: 'run1',
       },
     });
     expect(snapshot.activeTools).toHaveLength(0);
@@ -541,15 +541,15 @@ describe('createThreadProjection', () => {
       placement: 'final',
       turnId: 'turn1',
       conversationId: 'conv1',
-      runId: 'run1',
+      executionId: 'run1',
     }]);
     expect(snapshot.timeline.map((item) => item.type)).toEqual(['work', 'message']);
 
     const rehydrated = createThreadProjection();
     rehydrated.rehydrate({
       events: [...events, ...completionEvents],
-      runs: [],
-      activeRun: null,
+      executions: [],
+      activeExecution: null,
     });
 
     expect(rehydrated.getSnapshot().timeline).toEqual(snapshot.timeline);
@@ -559,8 +559,8 @@ describe('createThreadProjection', () => {
 
   it('keeps reasoning in work when reasoning and answer share a message id', () => {
     const events = [{
-      type: EventTypes.THREAD_RUN_STARTED,
-      runtimeRunId: 'run1',
+      type: EventTypes.THREAD_EXECUTION_STARTED,
+      threadExecutionId: 'run1',
       agentId: 'agent',
       startedAt: '2026-01-01T00:00:00.000Z',
       timestamp: '2026-01-01T00:00:00.000Z',
@@ -619,7 +619,7 @@ describe('createThreadProjection', () => {
     for (const event of events) live.project(event);
 
     const hydrated = createThreadProjection();
-    hydrated.rehydrate({ events, runs: [], activeRun: null });
+    hydrated.rehydrate({ events, executions: [], activeExecution: null });
 
     for (const snapshot of [live.getSnapshot(), hydrated.getSnapshot()]) {
       expect(snapshot.timeline.map((item) => item.type)).toEqual(['work', 'message']);
@@ -646,8 +646,8 @@ describe('createThreadProjection', () => {
     const projection = createThreadProjection();
 
     projection.project({
-      type: EventTypes.THREAD_RUN_STARTED,
-      runtimeRunId: 'run1',
+      type: EventTypes.THREAD_EXECUTION_STARTED,
+      threadExecutionId: 'run1',
       agentId: 'agent',
       startedAt: '2026-01-01T00:00:00.000Z',
     });
@@ -803,29 +803,30 @@ describe('createThreadProjection', () => {
     });
   });
 
-  it('tracks thread run lifecycle', () => {
+  it('tracks thread execution lifecycle', () => {
     const projection = createThreadProjection();
 
     projection.project({
-      type: EventTypes.THREAD_RUN_STARTED,
-      runtimeRunId: 'run1',
+      type: EventTypes.THREAD_EXECUTION_STARTED,
+      threadExecutionId: 'run1',
       agentId: 'agent',
       startedAt: '2026-01-01T00:00:00.000Z',
       sessionId: 's1',
       threadId: 'main',
     });
-    expect(projection.getSnapshot().threadRun?.status).toBe('active');
+    expect(projection.getSnapshot().threadExecution?.status).toBe('active');
     expect(projection.getSnapshot().activity.streaming).toBe(true);
 
     projection.project({
-      type: EventTypes.THREAD_RUN_COMPLETED,
-      runtimeRunId: 'run1',
+      type: EventTypes.THREAD_EXECUTION_FINISHED,
+      threadExecutionId: 'run1',
       agentId: 'agent',
-      cancelled: false,
+      outcome: 'Succeeded',
+      finishedAt: '2026-01-01T00:00:02.000Z',
       sessionId: 's1',
       threadId: 'main',
     });
-    expect(projection.getSnapshot().threadRun?.status).toBe('completed');
+    expect(projection.getSnapshot().threadExecution?.status).toBe('succeeded');
     expect(projection.getSnapshot().activity.streaming).toBe(false);
   });
 
@@ -844,19 +845,19 @@ describe('createThreadProjection', () => {
     expect(projection.getSnapshot().canSend).toBe(false);
   });
 
-  it('rehydrates interrupted thread runs without marking the thread as streaming', () => {
+  it('rehydrates interrupted thread executions without marking the thread as streaming', () => {
     const projection = createThreadProjection();
 
     projection.rehydrate({
       events: [],
-      runs: [{
-        runtimeRunId: 'run1',
+      executions: [{
+        threadExecutionId: 'run1',
         agentId: 'agent',
         sessionId: 's1',
         threadId: 'main',
         status: 'interrupted',
         startedAt: '2026-01-01T00:00:00.000Z',
-        completedAt: null,
+        finishedAt: null,
         error: null,
         modelBackgroundOperation: null,
         backgroundTasks: [],
@@ -865,24 +866,24 @@ describe('createThreadProjection', () => {
     });
 
     const snapshot = projection.getSnapshot();
-    expect(snapshot.threadRun?.status).toBe('interrupted');
+    expect(snapshot.threadExecution?.status).toBe('interrupted');
     expect(snapshot.activity.streaming).toBe(false);
     expect(snapshot.canSend).toBe(true);
   });
 
-  it('rehydrates background operation details from thread runs', () => {
+  it('rehydrates background operation details from thread executions', () => {
     const projection = createThreadProjection();
 
     projection.rehydrate({
       events: [],
-      activeRun: {
-        runtimeRunId: 'run1',
+      activeExecution: {
+        threadExecutionId: 'run1',
         agentId: 'agent',
         sessionId: 's1',
         threadId: 'main',
         status: 'active',
         startedAt: '2026-01-01T00:00:00.000Z',
-        completedAt: null,
+        finishedAt: null,
         error: null,
         modelBackgroundOperation: {
           status: 'InProgress',
@@ -909,10 +910,10 @@ describe('createThreadProjection', () => {
     });
 
     const snapshot = projection.getSnapshot();
-    expect(snapshot.threadRun?.status).toBe('active');
-    expect(snapshot.threadRun?.modelBackgroundOperation?.continuationToken).toBe('token');
-    expect(snapshot.threadRun?.backgroundTasks).toHaveLength(1);
-    expect(snapshot.threadRun?.backgroundHandles?.[0]?.handleId).toBe('handle1');
+    expect(snapshot.threadExecution?.status).toBe('active');
+    expect(snapshot.threadExecution?.modelBackgroundOperation?.continuationToken).toBe('token');
+    expect(snapshot.threadExecution?.backgroundTasks).toHaveLength(1);
+    expect(snapshot.threadExecution?.backgroundHandles?.[0]?.handleId).toBe('handle1');
     expect(snapshot.activity.streaming).toBe(true);
   });
 });
@@ -946,7 +947,7 @@ describe('eventBelongsToScope', () => {
 
   it('rejects events scoped to another agent', () => {
     expect(eventBelongsToScope(
-      { type: EventTypes.THREAD_RUN_STARTED, runtimeRunId: 'r1', agentId: 'a2', startedAt: 'now' },
+      { type: EventTypes.THREAD_EXECUTION_STARTED, threadExecutionId: 'r1', agentId: 'a2', startedAt: 'now' },
       { agentId: 'a1', sessionId: 's1', threadId: 'main' },
     )).toBe(false);
   });

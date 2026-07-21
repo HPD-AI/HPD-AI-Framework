@@ -47,14 +47,14 @@ public sealed class HpdAgentTuiAppCancelTests
     public async Task Hydration_InvokesThreadStateReconcilerWithAuthoritativeSnapshot()
     {
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
-        var activeRun = new AgentTuiThreadRun(
+        var activeExecution = new AgentTuiThreadExecution(
             "run-authoritative",
             scope.AgentId,
             scope.SessionId,
             scope.ThreadId,
             "active",
             DateTimeOffset.UtcNow);
-        var runtime = new CancelRuntime(scope) { ActiveRun = activeRun };
+        var runtime = new CancelRuntime(scope) { ActiveExecution = activeExecution };
         var reconciler = new RecordingThreadStateReconciler();
         await using var app = HpdAgentTuiApp.Create(
             runtime,
@@ -72,7 +72,7 @@ public sealed class HpdAgentTuiAppCancelTests
             CancellationToken.None);
 
         hydrated.Should().BeTrue();
-        reconciler.Snapshots.Should().ContainSingle().Which.ActiveRun.Should().BeSameAs(activeRun);
+        reconciler.Snapshots.Should().ContainSingle().Which.ActiveExecution.Should().BeSameAs(activeExecution);
         GetPrivateField<AgentTuiSessionState>(app, "_state").Shell.FooterText
             .Should().Be("snapshot: active");
     }
@@ -81,14 +81,14 @@ public sealed class HpdAgentTuiAppCancelTests
     public async Task HistoricalBatch_ReappliesHydratedSnapshotAfterEventHandlers()
     {
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
-        var activeRun = new AgentTuiThreadRun(
+        var activeExecution = new AgentTuiThreadExecution(
             "authoritative-run",
             scope.AgentId,
             scope.SessionId,
             scope.ThreadId,
             "active",
             DateTimeOffset.UtcNow);
-        var runtime = new CancelRuntime(scope) { ActiveRun = activeRun };
+        var runtime = new CancelRuntime(scope) { ActiveExecution = activeExecution };
         var reconciler = new RecordingThreadStateReconciler();
         await using var app = HpdAgentTuiApp.Create(
             runtime,
@@ -110,8 +110,8 @@ public sealed class HpdAgentTuiAppCancelTests
             "OnAgentEventBatchAsync",
             new AgentTuiEventBatch(
                 [
-                    new ThreadRunStartedEvent("historical-run", scope.AgentId, DateTimeOffset.UtcNow),
-                    new ThreadRunCompletedEvent("historical-run", scope.AgentId, Cancelled: false)
+                    new ThreadExecutionStartedEvent("historical-run", scope.AgentId, DateTimeOffset.UtcNow),
+                    new ThreadExecutionFinishedEvent("historical-run", scope.AgentId, ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow)
                 ],
                 AgentTuiEventDeliveryMode.Historical,
                 ThreadJournalCursor.Start(1),
@@ -122,7 +122,7 @@ public sealed class HpdAgentTuiAppCancelTests
         reconciler.Snapshots.Should().HaveCount(2);
         GetPrivateField<AgentTuiSessionState>(app, "_state").Shell.FooterText
             .Should().Be("snapshot: active");
-        GetPrivateField<string>(app, "_activeRuntimeRunId").Should().Be("authoritative-run");
+        GetPrivateField<string>(app, "_activeThreadExecutionId").Should().Be("authoritative-run");
     }
 
     [Fact]
@@ -152,8 +152,8 @@ public sealed class HpdAgentTuiAppCancelTests
             "OnAgentEventBatchAsync",
             new AgentTuiEventBatch(
                 [
-                    new ThreadRunStartedEvent("fast-run", scope.AgentId, DateTimeOffset.UtcNow),
-                    new ThreadRunCompletedEvent("fast-run", scope.AgentId, Cancelled: false)
+                    new ThreadExecutionStartedEvent("fast-run", scope.AgentId, DateTimeOffset.UtcNow),
+                    new ThreadExecutionFinishedEvent("fast-run", scope.AgentId, ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow)
                 ],
                 AgentTuiEventDeliveryMode.Live,
                 new ThreadJournalCursor(1, 1),
@@ -163,7 +163,7 @@ public sealed class HpdAgentTuiAppCancelTests
         runtime.CompleteSubmission("fast-run");
         await submission;
 
-        GetPrivateFieldValue<string?>(app, "_activeRuntimeRunId").Should().BeNull();
+        GetPrivateFieldValue<string?>(app, "_activeThreadExecutionId").Should().BeNull();
         InvokePrivate<bool>(app, "HasKnownActiveRuntimeWork").Should().BeFalse();
     }
 
@@ -183,34 +183,34 @@ public sealed class HpdAgentTuiAppCancelTests
             app,
             "OnAgentEventBatchAsync",
             new AgentTuiEventBatch(
-                [new ThreadRunStartedEvent("catch-up-run", scope.AgentId, DateTimeOffset.UtcNow)],
+                [new ThreadExecutionStartedEvent("catch-up-run", scope.AgentId, DateTimeOffset.UtcNow)],
                 AgentTuiEventDeliveryMode.CatchUp,
                 new ThreadJournalCursor(1, 1),
                 new ThreadJournalCursor(1, 1),
                 new ThreadJournalCursor(1, 1)),
             CancellationToken.None);
-        GetPrivateField<string>(app, "_activeRuntimeRunId").Should().Be("catch-up-run");
+        GetPrivateField<string>(app, "_activeThreadExecutionId").Should().Be("catch-up-run");
 
         await InvokePrivate<Task>(
             app,
             "OnAgentEventBatchAsync",
             new AgentTuiEventBatch(
-                [new ThreadRunCompletedEvent("catch-up-run", scope.AgentId, Cancelled: false)],
+                [new ThreadExecutionFinishedEvent("catch-up-run", scope.AgentId, ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow)],
                 AgentTuiEventDeliveryMode.CatchUp,
                 new ThreadJournalCursor(1, 2),
                 new ThreadJournalCursor(1, 2),
                 new ThreadJournalCursor(1, 2)),
             CancellationToken.None);
-        GetPrivateFieldValue<string?>(app, "_activeRuntimeRunId").Should().BeNull();
+        GetPrivateFieldValue<string?>(app, "_activeThreadExecutionId").Should().BeNull();
     }
 
     [Fact]
-    public async Task DoubleEscape_WithActiveRun_RequestsInterruptAndMarksActivityCancelling()
+    public async Task DoubleEscape_WithActiveExecution_RequestsInterruptAndMarksActivityCancelling()
     {
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
         var runtime = new CancelRuntime(scope)
         {
-            ActiveRun = new AgentTuiThreadRun(
+            ActiveExecution = new AgentTuiThreadExecution(
                 "run-123456789",
                 scope.AgentId,
                 scope.SessionId,
@@ -232,7 +232,7 @@ public sealed class HpdAgentTuiAppCancelTests
             new KeyEvent(KeyCode.Escape));
 
         handled.Should().BeTrue();
-        await runtime.ActiveRunRequested.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await runtime.ActiveExecutionRequested.Task.WaitAsync(TimeSpan.FromSeconds(2));
         runtime.Interrupted.Task.IsCompleted.Should().BeFalse();
 
         var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
@@ -261,7 +261,7 @@ public sealed class HpdAgentTuiAppCancelTests
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
         var runtime = new CancelRuntime(scope)
         {
-            ActiveRun = new AgentTuiThreadRun(
+            ActiveExecution = new AgentTuiThreadExecution(
                 "run-123456789",
                 scope.AgentId,
                 scope.SessionId,
@@ -277,7 +277,7 @@ public sealed class HpdAgentTuiAppCancelTests
         InvokePrivate(app, "RebuildShell", scope, "Connected.");
 
         InvokePrivate<bool>(app, "TryExecuteShortcut", new KeyEvent(KeyCode.Escape)).Should().BeTrue();
-        await runtime.ActiveRunRequested.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await runtime.ActiveExecutionRequested.Task.WaitAsync(TimeSpan.FromSeconds(2));
         SetPrivateField(app, "_cancelConfirmationExpiresAt", DateTimeOffset.UtcNow.AddSeconds(-1));
 
         InvokePrivate<bool>(app, "TryExecuteShortcut", new KeyEvent(KeyCode.Escape)).Should().BeTrue();
@@ -289,7 +289,7 @@ public sealed class HpdAgentTuiAppCancelTests
     }
 
     [Fact]
-    public async Task Escape_WithoutActiveRun_DoesNotRequestInterrupt()
+    public async Task Escape_WithoutActiveExecution_DoesNotRequestInterrupt()
     {
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
         var runtime = new CancelRuntime(scope);
@@ -307,7 +307,7 @@ public sealed class HpdAgentTuiAppCancelTests
             new KeyEvent(KeyCode.Escape));
 
         handled.Should().BeTrue();
-        await runtime.ActiveRunRequested.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await runtime.ActiveExecutionRequested.Task.WaitAsync(TimeSpan.FromSeconds(2));
         runtime.Interrupted.Task.IsCompleted.Should().BeFalse();
 
         var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
@@ -337,7 +337,7 @@ public sealed class HpdAgentTuiAppCancelTests
 
         handled.Should().BeTrue();
         state.Shell.Navigation.IsTranscriptActive.Should().BeTrue();
-        runtime.ActiveRunRequested.Task.IsCompleted.Should().BeFalse();
+        runtime.ActiveExecutionRequested.Task.IsCompleted.Should().BeFalse();
         runtime.Interrupted.Task.IsCompleted.Should().BeFalse();
     }
 
@@ -367,7 +367,7 @@ public sealed class HpdAgentTuiAppCancelTests
         var result = await pending.WaitAsync(TimeSpan.FromSeconds(2));
         result.IsDismissed.Should().BeTrue();
         dialogs.HasOpenDialog.Should().BeFalse();
-        runtime.ActiveRunRequested.Task.IsCompleted.Should().BeFalse();
+        runtime.ActiveExecutionRequested.Task.IsCompleted.Should().BeFalse();
         runtime.Interrupted.Task.IsCompleted.Should().BeFalse();
     }
 
@@ -377,7 +377,7 @@ public sealed class HpdAgentTuiAppCancelTests
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
         var runtime = new CancelRuntime(scope)
         {
-            ActiveRun = new AgentTuiThreadRun(
+            ActiveExecution = new AgentTuiThreadExecution(
                 "run-123456789",
                 scope.AgentId,
                 scope.SessionId,
@@ -403,7 +403,7 @@ public sealed class HpdAgentTuiAppCancelTests
             new KeyEvent(KeyCode.Escape));
 
         handled.Should().BeFalse();
-        runtime.ActiveRunRequested.Task.IsCompleted.Should().BeFalse();
+        runtime.ActiveExecutionRequested.Task.IsCompleted.Should().BeFalse();
         runtime.Interrupted.Task.IsCompleted.Should().BeFalse();
 
         prompt.Controller.HandleInput(new KeyEvent(KeyCode.Escape)).Should().BeTrue();
@@ -466,7 +466,7 @@ public sealed class HpdAgentTuiAppCancelTests
             _scope = scope;
         }
 
-        public AgentTuiThreadRun? ActiveRun { get; init; }
+        public AgentTuiThreadExecution? ActiveExecution { get; init; }
 
         public bool InitialIsDurable { get; init; } = true;
 
@@ -485,7 +485,7 @@ public sealed class HpdAgentTuiAppCancelTests
 
         public string? InterruptReason { get; private set; }
 
-        public TaskCompletionSource ActiveRunRequested { get; } =
+        public TaskCompletionSource ActiveExecutionRequested { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public TaskCompletionSource Interrupted { get; } =
@@ -534,13 +534,13 @@ public sealed class HpdAgentTuiAppCancelTests
                 return DelayedSubmission.Task;
             }
             return Task.FromResult(new AgentTuiSubmitResult(
-                ActiveRun ?? new AgentTuiThreadRun("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
+                ActiveExecution ?? new AgentTuiThreadExecution("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
         }
 
-        public void CompleteSubmission(string runtimeRunId)
+        public void CompleteSubmission(string threadExecutionId)
             => DelayedSubmission.SetResult(new AgentTuiSubmitResult(
-                new AgentTuiThreadRun(
-                    runtimeRunId,
+                new AgentTuiThreadExecution(
+                    threadExecutionId,
                     _scope.AgentId,
                     _scope.SessionId,
                     _scope.ThreadId,
@@ -549,13 +549,13 @@ public sealed class HpdAgentTuiAppCancelTests
 
         public Task<AgentTuiInterruptResult> InterruptAsync(
             AgentTuiRuntimeScope scope,
-            string? expectedRuntimeRunId,
+            string? expectedThreadExecutionId,
             string reason,
             CancellationToken cancellationToken = default)
         {
             InterruptReason = reason;
             Interrupted.SetResult();
-            return Task.FromResult(new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted, ActiveRun));
+            return Task.FromResult(new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted, ActiveExecution));
         }
 
         public Task AnswerRequestAsync(
@@ -569,8 +569,8 @@ public sealed class HpdAgentTuiAppCancelTests
             CancellationToken cancellationToken = default)
         {
             Calls.Add("state");
-            ActiveRunRequested.TrySetResult();
-            return Task.FromResult(new AgentTuiThreadState(ThreadJournalCursor.Start(1), ActiveRun, []));
+            ActiveExecutionRequested.TrySetResult();
+            return Task.FromResult(new AgentTuiThreadState(ThreadJournalCursor.Start(1), ActiveExecution, []));
         }
     }
 
@@ -584,17 +584,17 @@ public sealed class HpdAgentTuiAppCancelTests
             CancellationToken cancellationToken)
         {
             Snapshots.Add(threadState);
-            context.Shell.FooterText = threadState.ActiveRun is null
+            context.Shell.FooterText = threadState.ActiveExecution is null
                 ? "snapshot: idle"
                 : "snapshot: active";
             return ValueTask.CompletedTask;
         }
     }
 
-    private sealed class StaleHistoricalFooterHandler : AgentTuiEventHandler<ThreadRunStartedEvent>
+    private sealed class StaleHistoricalFooterHandler : AgentTuiEventHandler<ThreadExecutionStartedEvent>
     {
         public override ValueTask HandleAsync(
-            ThreadRunStartedEvent evt,
+            ThreadExecutionStartedEvent evt,
             AgentTuiEventContext context,
             CancellationToken cancellationToken)
         {

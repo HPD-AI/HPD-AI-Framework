@@ -92,11 +92,11 @@
       transcriptMessages: [],
       activeTools: [],
       pendingRuntimeRequests: [],
-      threadRun: null,
+      threadExecution: null,
       activity,
       currentTurnId: null,
       currentConversationId: null,
-      currentRunId: null,
+      currentExecutionId: null,
       error: null,
       canSend: true,
     };

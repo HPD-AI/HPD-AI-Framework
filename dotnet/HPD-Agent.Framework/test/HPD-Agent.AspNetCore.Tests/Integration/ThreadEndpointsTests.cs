@@ -56,6 +56,23 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
         state!.ObservedCursor.Generation.Should().BePositive();
     }
 
+    [Fact]
+    public async Task ListThreadExecutions_UsesBreakingExecutionsRoute()
+    {
+        var sessionId = await CreateTestSession();
+
+        var response = await _client.GetAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/executions");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var executions = await response.Content.ReadFromJsonAsync<List<ThreadExecutionDto>>();
+        executions.Should().NotBeNull();
+
+        var removedRoute = await _client.GetAsync(
+            $"/agents/test-agent/sessions/{sessionId}/threads/main/runs");
+        removedRoute.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
     private async Task<string> EnsureForkMessageAsync(string sessionId, string threadId = "main")
     {
         var existing = await TryGetFirstUserMessageIdAsync(sessionId, threadId);

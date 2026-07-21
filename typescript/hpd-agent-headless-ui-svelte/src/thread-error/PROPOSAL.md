@@ -4,7 +4,7 @@
 
 The error truth stays below the adapter:
 
-- C# emits run, turn, middleware, and tool failure events.
+- C# emits thread-execution, turn, middleware, and tool failure events.
 - `@hpd-research/hpd-agent-client` transports those events.
 - `@hpd-research/hpd-agent-headless-ui` projects the events into thread state and exposes `getThreadErrors`.
 - `ThreadError` subscribes to `ThreadState` and renders the normalized error model.
@@ -17,7 +17,7 @@ This component keeps that concern out of app code without introducing a new erro
 
 This is intentionally not a message-local error primitive. Some UI libraries
 render errors from the current message context, but HPD errors can come from the
-controller, a run, a work group, a tool call, or another backend event that
+controller, a thread execution, a work group, a tool call, or another backend event that
 implements the error contract. `ThreadError` therefore reads the normalized
 thread projection instead of asking an individual message whether it failed.
 

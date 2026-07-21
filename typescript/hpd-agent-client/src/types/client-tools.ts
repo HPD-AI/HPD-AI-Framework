@@ -143,7 +143,7 @@ export interface AgentExecutionContext {
   sessionId?: string;
   threadId?: string;
   agentId?: string;
-  runId?: string;
+  threadExecutionId?: string;
   messageId?: string;
   metadata?: Record<string, unknown>;
   state?: unknown;

@@ -145,13 +145,13 @@ public sealed class HostedAgentTuiRuntimeValidationTests
     [Fact]
     public async Task ObserveAsync_ReconnectsAfterEofUsingLastCommittedSequence()
     {
-        var first = new ThreadRunStartedEvent("run-1", "agent", DateTimeOffset.UtcNow)
+        var first = new ThreadExecutionStartedEvent("run-1", "agent", DateTimeOffset.UtcNow)
         {
             SessionId = "session",
             ThreadId = "main",
             ThreadSequenceNumber = 1
         };
-        var second = new ThreadRunCompletedEvent("run-1", "agent", Cancelled: false)
+        var second = new ThreadExecutionFinishedEvent("run-1", "agent", ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow)
         {
             SessionId = "session",
             ThreadId = "main",
@@ -195,7 +195,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             ThreadId = "subagent/explore/invocation-1",
             ThreadSequenceNumber = 8
         };
-        var committed = new ThreadRunCompletedEvent("run-1", "agent", Cancelled: false)
+        var committed = new ThreadExecutionFinishedEvent("run-1", "agent", ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow)
         {
             SessionId = "session",
             ThreadId = "main",
@@ -242,7 +242,7 @@ public sealed class HostedAgentTuiRuntimeValidationTests
             ThreadId = "main",
             ThreadSequenceNumber = 6
         };
-        var next = new ThreadRunCompletedEvent("run-1", "agent", Cancelled: false)
+        var next = new ThreadExecutionFinishedEvent("run-1", "agent", ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow)
         {
             SessionId = "session",
             ThreadId = "main",

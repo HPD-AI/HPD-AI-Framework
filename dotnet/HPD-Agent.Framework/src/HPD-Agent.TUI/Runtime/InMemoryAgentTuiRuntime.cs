@@ -9,8 +9,8 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     private readonly Agent _agent;
     private readonly AgentTuiRuntimeScope _defaultScope;
     private readonly object _gate = new();
-    private AgentTuiThreadRun? _activeRun;
-    private string? _reservedRunId;
+    private AgentTuiThreadExecution? _activeExecution;
+    private string? _reservedExecutionId;
 
     public InMemoryAgentTuiRuntime(
         Agent agent,
@@ -768,64 +768,68 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(input);
 
-        var runId = input.RuntimeRunId ?? Guid.NewGuid().ToString("N");
+        var executionId = input.ThreadExecutionId ?? Guid.NewGuid().ToString("N");
         var startedAt = DateTimeOffset.UtcNow;
         var scopedInput = input with
         {
             AgentId = scope.AgentId,
             SessionId = scope.SessionId,
             ThreadId = scope.ThreadId,
-            RuntimeRunId = runId
+            ThreadExecutionId = executionId
         };
 
-        if (!TryReserveRun(runId))
+        if (!TryReserveExecution(executionId))
         {
             throw new InvalidOperationException(
-                $"Thread '{scope.ThreadId}' in session '{scope.SessionId}' already has an active run.");
+                $"Thread '{scope.ThreadId}' in session '{scope.SessionId}' already has an active execution.");
         }
 
         var startCommitted = false;
         try
         {
             await _agent.StartAsync(input.RunConfig, CancellationToken.None).ConfigureAwait(false);
-            await PublishRuntimeEventAsync(new ThreadRunStartedEvent(runId, scope.AgentId, startedAt)
+            await PublishRuntimeEventAsync(new ThreadExecutionStartedEvent(executionId, scope.AgentId, startedAt)
             {
                 SessionId = scope.SessionId,
                 ThreadId = scope.ThreadId
             }, cancellationToken).ConfigureAwait(false);
             startCommitted = true;
 
-            var activeRun = new AgentTuiThreadRun(
-                runId,
+            var activeExecution = new AgentTuiThreadExecution(
+                executionId,
                 scope.AgentId,
                 scope.SessionId,
                 scope.ThreadId,
                 "active",
                 startedAt);
-            if (!ActivateReservedRun(activeRun))
-                throw new InvalidOperationException($"Thread run '{runId}' lost its reserved ownership before activation.");
+            if (!ActivateReservedExecution(activeExecution))
+                throw new InvalidOperationException($"Thread execution '{executionId}' lost its reserved ownership before activation.");
 
             var submission = await _agent.EnqueueAsync(scopedInput, CancellationToken.None).ConfigureAwait(false);
-            _ = CompleteSubmittedInputAsync(scope, submission, runId);
-            return new AgentTuiSubmitResult(activeRun);
+            _ = CompleteSubmittedInputAsync(scope, submission, executionId);
+            return new AgentTuiSubmitResult(activeExecution);
         }
         catch (Exception ex)
         {
             if (startCommitted)
             {
-                await PublishRuntimeEventAsync(new ThreadRunCompletedEvent(
-                    runId,
+                await PublishRuntimeEventAsync(new ThreadExecutionFinishedEvent(
+                    executionId,
                     scope.AgentId,
-                    ex is OperationCanceledException,
-                    ex.GetType().Name,
-                    ex.Message)
+                    ex is OperationCanceledException
+                        ? ThreadExecutionOutcome.Cancelled
+                        : ThreadExecutionOutcome.Failed,
+                    DateTimeOffset.UtcNow,
+                    ex is OperationCanceledException
+                        ? null
+                        : new ThreadExecutionError(ex.GetType().Name, ex.Message))
                 {
                     SessionId = scope.SessionId,
                     ThreadId = scope.ThreadId
                 }, CancellationToken.None).ConfigureAwait(false);
             }
 
-            ReleaseRun(runId);
+            ReleaseExecution(executionId);
             throw;
         }
     }
@@ -833,24 +837,30 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
     private async Task CompleteSubmittedInputAsync(
         AgentTuiRuntimeScope scope,
         AgentRuntimeInputSubmission submission,
-        string runId)
+        string executionId)
     {
         try
         {
             var outcome = await submission.Completion.ConfigureAwait(false);
 
-            await PublishRuntimeEventAsync(new ThreadRunCompletedEvent(
-                runId,
+            await PublishRuntimeEventAsync(new ThreadExecutionFinishedEvent(
+                executionId,
                 scope.AgentId,
-                outcome.Cancelled,
-                outcome.Error?.GetType().Name,
-                outcome.Error?.Message)
+                outcome.Error is not null
+                    ? ThreadExecutionOutcome.Failed
+                    : outcome.Cancelled
+                        ? ThreadExecutionOutcome.Cancelled
+                        : ThreadExecutionOutcome.Succeeded,
+                DateTimeOffset.UtcNow,
+                outcome.Error is null
+                    ? null
+                    : new ThreadExecutionError(outcome.Error.GetType().Name, outcome.Error.Message))
             {
                 SessionId = scope.SessionId,
                 ThreadId = scope.ThreadId
             }, CancellationToken.None).ConfigureAwait(false);
 
-            ReleaseRun(runId);
+            ReleaseExecution(executionId);
         }
         catch
         {
@@ -892,27 +902,27 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
     public async Task<AgentTuiInterruptResult> InterruptAsync(
         AgentTuiRuntimeScope scope,
-        string? expectedRuntimeRunId,
+        string? expectedThreadExecutionId,
         string reason,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(scope);
 
-        AgentTuiThreadRun? activeRun;
+        AgentTuiThreadExecution? activeExecution;
         lock (_gate)
         {
-            activeRun = _activeRun;
+            activeExecution = _activeExecution;
         }
 
-        if (activeRun is null)
+        if (activeExecution is null)
         {
-            return new AgentTuiInterruptResult(AgentTuiInterruptStatus.NoActiveRun);
+            return new AgentTuiInterruptResult(AgentTuiInterruptStatus.NoActiveExecution);
         }
 
-        if (!string.IsNullOrWhiteSpace(expectedRuntimeRunId) &&
-            !string.Equals(expectedRuntimeRunId, activeRun.RuntimeRunId, StringComparison.Ordinal))
+        if (!string.IsNullOrWhiteSpace(expectedThreadExecutionId) &&
+            !string.Equals(expectedThreadExecutionId, activeExecution.ThreadExecutionId, StringComparison.Ordinal))
         {
-            return new AgentTuiInterruptResult(AgentTuiInterruptStatus.ActiveRunMismatch, activeRun);
+            return new AgentTuiInterruptResult(AgentTuiInterruptStatus.ActiveExecutionMismatch, activeExecution);
         }
 
         var interruption = new InterruptionRequestEvent(
@@ -927,7 +937,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
         await _agent.RunAsync(interruption, cancellationToken)
             .ConfigureAwait(false);
-        return new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted, activeRun);
+        return new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted, activeExecution);
     }
 
     public async Task AnswerRequestAsync(
@@ -955,7 +965,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var store = _agent.Config?.SessionStore;
         if (store is null)
         {
-            return new AgentTuiThreadState(default, GetActiveRun(), GetPendingRequests(scope));
+            return new AgentTuiThreadState(default, GetActiveExecution(), GetPendingRequests(scope));
         }
 
         var head = await store.GetThreadEventHeadAsync(
@@ -968,7 +978,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
         return new AgentTuiThreadState(
             head.Cursor,
-            GetActiveRun(),
+            GetActiveExecution(),
             GetPendingRequests(scope));
     }
 
@@ -983,49 +993,49 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         return ValueTask.CompletedTask;
     }
 
-    private AgentTuiThreadRun? GetActiveRun()
+    private AgentTuiThreadExecution? GetActiveExecution()
     {
         lock (_gate)
         {
-            return _activeRun;
+            return _activeExecution;
         }
     }
 
-    private bool TryReserveRun(string runId)
+    private bool TryReserveExecution(string executionId)
     {
         lock (_gate)
         {
-            if (_activeRun is not null || _reservedRunId is not null)
+            if (_activeExecution is not null || _reservedExecutionId is not null)
             {
                 return false;
             }
 
-            _reservedRunId = runId;
+            _reservedExecutionId = executionId;
             return true;
         }
     }
 
-    private bool ActivateReservedRun(AgentTuiThreadRun activeRun)
+    private bool ActivateReservedExecution(AgentTuiThreadExecution activeExecution)
     {
         lock (_gate)
         {
-            if (!string.Equals(_reservedRunId, activeRun.RuntimeRunId, StringComparison.Ordinal) || _activeRun is not null)
+            if (!string.Equals(_reservedExecutionId, activeExecution.ThreadExecutionId, StringComparison.Ordinal) || _activeExecution is not null)
                 return false;
 
-            _reservedRunId = null;
-            _activeRun = activeRun;
+            _reservedExecutionId = null;
+            _activeExecution = activeExecution;
             return true;
         }
     }
 
-    private void ReleaseRun(string runId)
+    private void ReleaseExecution(string executionId)
     {
         lock (_gate)
         {
-            if (string.Equals(_reservedRunId, runId, StringComparison.Ordinal))
-                _reservedRunId = null;
-            if (string.Equals(_activeRun?.RuntimeRunId, runId, StringComparison.Ordinal))
-                _activeRun = null;
+            if (string.Equals(_reservedExecutionId, executionId, StringComparison.Ordinal))
+                _reservedExecutionId = null;
+            if (string.Equals(_activeExecution?.ThreadExecutionId, executionId, StringComparison.Ordinal))
+                _activeExecution = null;
         }
     }
 

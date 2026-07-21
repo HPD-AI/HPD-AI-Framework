@@ -74,7 +74,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
         var submission = await response.Content.ReadFromJsonAsync<InputSubmissionDto>();
 
         submission.Should().NotBeNull();
-        submission!.RuntimeRunId.Should().NotBeNullOrWhiteSpace();
+        submission!.ThreadExecutionId.Should().NotBeNullOrWhiteSpace();
 
         var threadEvents = await ObserveUntilAsync(
             sessionId,
@@ -132,7 +132,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Interrupt_ReturnsStructuredNoActiveRun()
+    public async Task Interrupt_ReturnsStructuredNoActiveExecution()
     {
         var sessionId = await CreateTestSession();
 
@@ -142,7 +142,7 @@ public class SseStreamingTests : IClassFixture<TestWebApplicationFactory>
 
         response.StatusCode.Should().Be(HttpStatusCode.Accepted);
         var result = await response.Content.ReadFromJsonAsync<InterruptionSubmissionDto>();
-        result.Should().BeEquivalentTo(new InterruptionSubmissionDto("no_active_run"));
+        result.Should().BeEquivalentTo(new InterruptionSubmissionDto("no_active_execution"));
     }
 
     [Fact]

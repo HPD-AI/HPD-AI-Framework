@@ -1192,7 +1192,7 @@ public sealed class Agent
             {
                 NotificationId = notification.NotificationId,
                 DeliveredAt = DateTimeOffset.UtcNow,
-                RuntimeRunId = input.RuntimeRunId,
+                ThreadExecutionId = input.ThreadExecutionId,
                 SessionId = input.SessionId,
                 ThreadId = input.ThreadId
             }, runtimeCoordinator, cancellationToken).ConfigureAwait(false);
@@ -1635,7 +1635,7 @@ public sealed class Agent
 
     /// <summary>
     /// Enqueues input into an already-running runtime and returns a receipt whose completion
-    /// reports execution outcome. This method does not create hosted thread-run lifecycle facts.
+    /// reports execution outcome. This method does not create hosted thread-execution lifecycle facts.
     /// </summary>
     public async ValueTask<AgentRuntimeInputSubmission> EnqueueAsync(
         AgentInputEvent input,
@@ -5999,7 +5999,7 @@ public sealed class Agent
         CancellationToken cancellationToken)
     {
         long? copyThroughSequence = null;
-        var activeRuntimeRunIds = new HashSet<string>(StringComparer.Ordinal);
+        var activeThreadExecutionIds = new HashSet<string>(StringComparer.Ordinal);
         var activeAtBoundary = new HashSet<string>(StringComparer.Ordinal);
         var completionPositions = new Dictionary<string, long>(StringComparer.Ordinal);
         var descriptor = await store.GetThreadAsync(sourceThread, cancellationToken).ConfigureAwait(false)
@@ -6012,18 +6012,18 @@ public sealed class Agent
         {
             foreach (var evt in batch.Events)
             {
-                if (evt is ThreadRunStartedEvent started)
-                    activeRuntimeRunIds.Add(started.RuntimeRunId);
-                else if (evt is ThreadRunCompletedEvent completed)
+                if (evt is ThreadExecutionStartedEvent started)
+                    activeThreadExecutionIds.Add(started.ThreadExecutionId);
+                else if (evt is ThreadExecutionFinishedEvent completed)
                 {
-                    activeRuntimeRunIds.Remove(completed.RuntimeRunId);
-                    completionPositions[completed.RuntimeRunId] = evt.ThreadSequenceNumber;
+                    activeThreadExecutionIds.Remove(completed.ThreadExecutionId);
+                    completionPositions[completed.ThreadExecutionId] = evt.ThreadSequenceNumber;
                 }
 
                 if (EventDefinesForkCopyBoundary(evt, copiedMessageIds, copiedTurnIds))
                 {
                     copyThroughSequence = evt.ThreadSequenceNumber;
-                    activeAtBoundary = new HashSet<string>(activeRuntimeRunIds, StringComparer.Ordinal);
+                    activeAtBoundary = new HashSet<string>(activeThreadExecutionIds, StringComparer.Ordinal);
                 }
             }
         }
@@ -6031,9 +6031,9 @@ public sealed class Agent
         if (copyThroughSequence is not long sequenceNumber)
             return null;
 
-        foreach (var runtimeRunId in activeAtBoundary)
+        foreach (var threadExecutionId in activeAtBoundary)
         {
-            if (completionPositions.TryGetValue(runtimeRunId, out var completionPosition) &&
+            if (completionPositions.TryGetValue(threadExecutionId, out var completionPosition) &&
                 completionPosition > sequenceNumber)
             {
                 sequenceNumber = completionPosition;

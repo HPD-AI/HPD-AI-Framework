@@ -86,9 +86,9 @@
         transcriptMessages: [],
         activeTools: [],
         pendingRuntimeRequests,
-        threadRun: options.busy
+        threadExecution: options.busy
           ? {
-              runtimeRunId: 'storybook-run',
+              threadExecutionId: 'storybook-run',
               agentId: 'agent',
               status: 'active',
             }
@@ -96,7 +96,7 @@
         activity,
         currentTurnId: null,
         currentConversationId: null,
-        currentRunId: options.busy ? 'storybook-run' : null,
+        currentExecutionId: options.busy ? 'storybook-run' : null,
         error: null,
         canSend: true,
       },

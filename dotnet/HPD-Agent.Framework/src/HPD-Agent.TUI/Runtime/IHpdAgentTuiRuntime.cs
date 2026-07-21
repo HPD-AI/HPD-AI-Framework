@@ -36,7 +36,7 @@ public interface IHpdAgentTuiRuntime
 
     Task<AgentTuiInterruptResult> InterruptAsync(
         AgentTuiRuntimeScope scope,
-        string? expectedRuntimeRunId,
+        string? expectedThreadExecutionId,
         string reason,
         CancellationToken cancellationToken = default);
 

@@ -16,7 +16,7 @@ import type {
   ThreadForkGroupMember,
   ThreadGraph,
   ThreadRuntimeChild,
-  ThreadRun,
+  ThreadExecution,
   ThreadJournalCursor,
   PermissionChoice,
   RequestVisibility,
@@ -42,8 +42,8 @@ export interface ThreadSnapshot {
   thread?: Thread | null;
   events: AgentEvent[];
   observedCursor: ThreadJournalCursor;
-  runs?: ThreadRun[];
-  activeRun?: ThreadRun | null;
+  executions?: ThreadExecution[];
+  activeExecution?: ThreadExecution | null;
 }
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool' | string;
@@ -67,7 +67,7 @@ export interface Message {
   clientInputId?: string | null;
   turnId: string | null;
   conversationId: string | null;
-  runId: string | null;
+  executionId: string | null;
   eventFlowId?: string;
   sequenceNumber?: number;
   placement: MessagePlacement;
@@ -90,7 +90,7 @@ export interface ToolCall {
   callType?: ToolCallType;
   turnId: string | null;
   conversationId: string | null;
-  runId: string | null;
+  executionId: string | null;
   eventFlowId?: string;
   sequenceNumber?: number;
   groupKey?: string;
@@ -169,7 +169,7 @@ export interface ThreadWorkGroup {
   id: string;
   turnId: string | null;
   conversationId: string | null;
-  runId: string | null;
+  executionId: string | null;
   status: ThreadWorkStatus;
   label: string;
   openByDefault: boolean;
@@ -185,7 +185,7 @@ export interface ThreadContextUsage {
   usage: UsageDetails;
   turnId: string | null;
   conversationId: string | null;
-  runId: string | null;
+  executionId: string | null;
   updatedAt?: string;
 }
 
@@ -202,7 +202,7 @@ export interface ThreadTimelineMessageItem {
   message: Message;
   turnId: string | null;
   conversationId: string | null;
-  runId: string | null;
+  executionId: string | null;
   eventFlowId?: string;
   sequenceNumber?: number;
 }
@@ -213,7 +213,7 @@ export interface ThreadTimelineWorkItem {
   work: ThreadWorkGroup;
   turnId: string | null;
   conversationId: string | null;
-  runId: string | null;
+  executionId: string | null;
 }
 
 export interface ThreadTimelineRuntimeRequestItem {
@@ -222,7 +222,7 @@ export interface ThreadTimelineRuntimeRequestItem {
   request: RuntimeRequest;
   turnId: string | null;
   conversationId: string | null;
-  runId: string | null;
+  executionId: string | null;
 }
 
 export interface ThreadTimelineProgressItem {
@@ -320,19 +320,19 @@ export type RuntimeRequest =
   | ClientToolRuntimeRequest
   | CustomRuntimeRequest;
 
-export type ThreadRunViewStatus = 'idle' | 'active' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
+export type ThreadExecutionViewStatus = 'idle' | 'active' | 'succeeded' | 'cancelled' | 'failed' | 'interrupted';
 
-export interface ThreadRunView {
-  runtimeRunId: string;
+export interface ThreadExecutionView {
+  threadExecutionId: string;
   agentId: string;
-  status: ThreadRunViewStatus;
+  status: ThreadExecutionViewStatus;
   startedAt?: string;
-  completedAt?: string | null;
+  finishedAt?: string | null;
   errorType?: string | null;
   errorMessage?: string | null;
-  modelBackgroundOperation?: ThreadRun['modelBackgroundOperation'];
-  backgroundTasks?: ThreadRun['backgroundTasks'];
-  backgroundHandles?: ThreadRun['backgroundHandles'];
+  modelBackgroundOperation?: ThreadExecution['modelBackgroundOperation'];
+  backgroundTasks?: ThreadExecution['backgroundTasks'];
+  backgroundHandles?: ThreadExecution['backgroundHandles'];
 }
 
 export interface ThreadActivity {
@@ -363,7 +363,7 @@ export interface SubAgentInvocation {
   completedAt?: string;
 }
 
-export type ThreadErrorKind = 'controller' | 'run' | 'work' | 'tool' | 'thread';
+export type ThreadErrorKind = 'controller' | 'execution' | 'work' | 'tool' | 'thread';
 
 export interface ThreadErrorInfo {
   id: string;
@@ -371,7 +371,7 @@ export interface ThreadErrorInfo {
   message: string;
   type?: string | null;
   source?: string | null;
-  runId?: string | null;
+  executionId?: string | null;
   turnId?: string | null;
   conversationId?: string | null;
   toolCallId?: string | null;
@@ -386,12 +386,12 @@ export interface ThreadProjectionSnapshot {
   activeTools: ToolCall[];
   pendingRuntimeRequests: RuntimeRequest[];
   contextUsage: ThreadContextUsage | null;
-  threadRun: ThreadRunView | null;
+  threadExecution: ThreadExecutionView | null;
   subAgentInvocations: SubAgentInvocation[];
   activity: ThreadActivity;
   currentTurnId: string | null;
   currentConversationId: string | null;
-  currentRunId: string | null;
+  currentExecutionId: string | null;
   error: string | null;
   canSend: boolean;
 }
@@ -409,7 +409,7 @@ export interface ThreadProjection {
 }
 
 export interface RehydrateOptions {
-  includeRuns?: boolean;
+  includeExecutions?: boolean;
 }
 
 export interface ConnectOptions {

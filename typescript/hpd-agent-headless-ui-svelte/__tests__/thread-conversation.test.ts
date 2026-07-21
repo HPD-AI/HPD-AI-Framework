@@ -25,7 +25,7 @@ function message(id: string, role: Message['role'], content: string): Message {
     toolCalls: [],
     turnId: null,
     conversationId: null,
-    runId: null,
+    executionId: null,
     placement: 'transcript',
   };
 }
@@ -69,7 +69,7 @@ function snapshot(
         message: item,
         turnId: item.turnId,
         conversationId: item.conversationId,
-        runId: item.runId,
+        executionId: item.executionId,
       })),
       ...requests.map((request) => ({
         type: 'runtime-request' as const,
@@ -77,16 +77,16 @@ function snapshot(
         request,
         turnId: null,
         conversationId: null,
-        runId: blocked ? 'test-run' : null,
+        executionId: blocked ? 'test-run' : null,
       })),
     ],
     workGroups: [],
     transcriptMessages: messages,
     activeTools: [],
     pendingRuntimeRequests: requests,
-    threadRun: blocked
+    threadExecution: blocked
       ? {
-          runtimeRunId: 'test-run',
+          threadExecutionId: 'test-run',
           agentId: 'agent',
           status: 'active',
         }
@@ -94,7 +94,7 @@ function snapshot(
     activity,
     currentTurnId: null,
     currentConversationId: null,
-    currentRunId: blocked ? 'test-run' : null,
+    currentExecutionId: blocked ? 'test-run' : null,
     error: null,
     canSend: !blocked,
   };

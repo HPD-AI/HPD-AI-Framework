@@ -94,7 +94,7 @@ second-mover lesson: the transcript is a structured timeline.
 - Preserve simple message leaf renderers without preserving a flat transcript
   contract.
 - Keep controllers scoped to one thread.
-- Do not recreate Workspace or a global active thread runtime.
+- Do not recreate Workspace or a global active thread executiontime.
 
 ## Non-Goals
 
@@ -117,11 +117,11 @@ export interface ThreadProjectionSnapshot {
   transcriptMessages: Message[];
   activeTools: ToolCall[];
   pendingRuntimeRequests: RuntimeRequest[];
-  threadRun: ThreadRunView | null;
+  threadExecution: ThreadExecutionView | null;
   activity: ThreadActivity;
   currentTurnId: string | null;
   currentConversationId: string | null;
-  currentRunId: string | null;
+  currentExecutionId: string | null;
   error: string | null;
   canSend: boolean;
 }
@@ -149,7 +149,7 @@ export interface ThreadTimelineMessageItem {
   message: Message;
   turnId: string | null;
   conversationId: string | null;
-  runId: string | null;
+  executionId: string | null;
   eventFlowId?: string;
   sequenceNumber?: number;
 }
@@ -160,7 +160,7 @@ export interface ThreadTimelineWorkItem {
   work: ThreadWorkGroup;
   turnId: string | null;
   conversationId: string | null;
-  runId: string | null;
+  executionId: string | null;
 }
 
 export interface ThreadTimelineRuntimeRequestItem {
@@ -169,7 +169,7 @@ export interface ThreadTimelineRuntimeRequestItem {
   request: RuntimeRequest;
   turnId: string | null;
   conversationId: string | null;
-  runId: string | null;
+  executionId: string | null;
 }
 
 export interface ThreadTimelineProgressItem {
@@ -200,7 +200,7 @@ export interface ThreadWorkGroup {
   id: string;
   turnId: string | null;
   conversationId: string | null;
-  runId: string | null;
+  executionId: string | null;
   status: ThreadWorkStatus;
   label: string;
   openByDefault: boolean;
@@ -307,7 +307,7 @@ export interface Message {
 
   turnId: string | null;
   conversationId: string | null;
-  runId: string | null;
+  executionId: string | null;
   eventFlowId?: string;
   sequenceNumber?: number;
   placement: MessagePlacement;
@@ -329,7 +329,7 @@ export interface ToolCall {
 
   turnId: string | null;
   conversationId: string | null;
-  runId: string | null;
+  executionId: string | null;
   eventFlowId?: string;
   sequenceNumber?: number;
   groupKey?: string;
@@ -344,19 +344,19 @@ On `MESSAGE_TURN_STARTED`:
 
 - set `currentTurnId`
 - set `currentConversationId`
-- keep `currentRunId` if one is active
+- keep `currentExecutionId` if one is active
 - create or activate a current `ThreadWorkGroup`
 - mark it `working`
 - set `openByDefault = true`
 - add a work item to `timeline`
 
-### Run Start
+### Execution Start
 
-On `THREAD_RUN_STARTED`:
+On `THREAD_EXECUTION_STARTED`:
 
-- set `threadRun.status = active`
-- store current `runId`
-- attach `runId` to subsequent messages/tools/work groups when available
+- set `threadExecution.status = active`
+- store current `executionId`
+- attach `executionId` to subsequent messages/tools/work groups when available
 
 ### Reasoning
 
@@ -405,13 +405,13 @@ On `MESSAGE_TURN_FINISHED`:
 - clear current turn state
 - promote final assistant message into `transcriptMessages` when known
 
-### Run Completion/Error/Cancel
+### Execution Completion/Error/Cancel
 
-On `THREAD_RUN_COMPLETED`:
+On `THREAD_EXECUTION_FINISHED`:
 
-- if cancelled, mark current work group `cancelled`
-- if error, mark current work group `failed`
-- otherwise mark current work group `worked`
+- if `outcome = Cancelled`, mark the current work group `cancelled`
+- if `outcome = Failed`, mark the current work group `failed` and surface `error`
+- if `outcome = Succeeded`, mark the current work group `worked`
 - preserve work parts for inspection
 
 ## User Control Model
@@ -541,7 +541,7 @@ The smallest useful code slice should be core-only:
 - extend `Message` and `ToolCall` with lifecycle metadata
 - add `ThreadWorkGroup` and `ThreadTimelineItem` types
 - replace `messages` with `transcriptMessages`
-- add `timeline`, `workGroups`, `activity`, and `currentRunId` to
+- add `timeline`, `workGroups`, `activity`, and `currentExecutionId` to
   `ThreadProjectionSnapshot`
 - update projection to create/finalize one work group around
   `MESSAGE_TURN_STARTED` / `MESSAGE_TURN_FINISHED`

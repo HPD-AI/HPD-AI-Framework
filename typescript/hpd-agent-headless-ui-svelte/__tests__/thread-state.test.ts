@@ -80,10 +80,10 @@ function fakeClient(): AgentClient & { emit(event: AgentEvent): Promise<void> } 
     onError: vi.fn(() => subscription()),
     getThread: vi.fn(async () => thread('main')),
     getThreadEvents: vi.fn(async () => events),
-    getThreadRuns: vi.fn(async () => []),
+    getThreadExecutions: vi.fn(async () => []),
     getThreadState: vi.fn(async () => ({
       observedCursor: { generation: 1, sequenceNumber: events.length },
-      activeRun: null,
+      activeExecution: null,
       pendingRequests: [],
     })),
     emit: async (event: AgentEvent) => {
@@ -106,7 +106,7 @@ describe('createThreadState', () => {
     const observed: ThreadStateSnapshot[] = [];
     const unsubscribe = state.subscribe((snapshot) => observed.push(snapshot));
 
-    await state.start({ includeRuns: true });
+    await state.start({ includeExecutions: true });
     expect(state.getSnapshot().transcriptMessages.map((message) => message.id)).toEqual(['u1']);
     expect(state.getSnapshot().connected).toBe(true);
 

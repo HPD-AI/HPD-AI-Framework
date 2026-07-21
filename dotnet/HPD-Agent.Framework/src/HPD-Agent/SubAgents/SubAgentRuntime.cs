@@ -247,7 +247,7 @@ public static class SubAgentRuntime
             agent,
             definition,
             request.ParentContext?.GetParentAgentMetadata());
-        var runtimeRunId = Guid.NewGuid().ToString("N");
+        var threadExecutionId = Guid.NewGuid().ToString("N");
         var publisher = new ThreadEventPublisher(
             agent.Config.SessionStore ?? throw new InvalidOperationException("No session store configured."),
             agent.EventCoordinator);
@@ -269,7 +269,7 @@ public static class SubAgentRuntime
             }
             await publisher.CommitAndPublishAsync(
                 new ThreadKey(route.SessionId, route.ThreadId),
-                new ThreadRunStartedEvent(runtimeRunId, definition.AgentId, DateTimeOffset.UtcNow),
+                new ThreadExecutionStartedEvent(threadExecutionId, definition.AgentId, DateTimeOffset.UtcNow),
                 cancellationToken).ConfigureAwait(false);
             childRunStarted = true;
 
@@ -295,7 +295,11 @@ public static class SubAgentRuntime
                 : await ResolveLastAssistantTextAsync(agent, route, cancellationToken).ConfigureAwait(false);
             await publisher.CommitAndPublishAsync(
                 new ThreadKey(route.SessionId, route.ThreadId),
-                new ThreadRunCompletedEvent(runtimeRunId, definition.AgentId, Cancelled: false),
+                new ThreadExecutionFinishedEvent(
+                    threadExecutionId,
+                    definition.AgentId,
+                    ThreadExecutionOutcome.Succeeded,
+                    DateTimeOffset.UtcNow),
                 CancellationToken.None).ConfigureAwait(false);
             childRunStarted = false;
             if (request.ParentContext is not null)
@@ -321,12 +325,16 @@ public static class SubAgentRuntime
             {
                 await publisher.CommitAndPublishAsync(
                     new ThreadKey(route.SessionId, route.ThreadId),
-                    new ThreadRunCompletedEvent(
-                        runtimeRunId,
+                    new ThreadExecutionFinishedEvent(
+                        threadExecutionId,
                         definition.AgentId,
-                        Cancelled: ex is OperationCanceledException,
-                        ErrorType: ex is OperationCanceledException ? null : ex.GetType().Name,
-                        ErrorMessage: ex is OperationCanceledException ? null : ex.Message),
+                        ex is OperationCanceledException
+                            ? ThreadExecutionOutcome.Cancelled
+                            : ThreadExecutionOutcome.Failed,
+                        DateTimeOffset.UtcNow,
+                        ex is OperationCanceledException
+                            ? null
+                            : new ThreadExecutionError(ex.GetType().Name, ex.Message)),
                     CancellationToken.None).ConfigureAwait(false);
             }
             if (request.ParentContext is not null)

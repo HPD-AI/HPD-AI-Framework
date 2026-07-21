@@ -46,7 +46,7 @@ describe('ChatSession', () => {
       ok: true,
       body: null,
       text: async () => JSON.stringify({
-        runtimeRunId: 'run-1',
+        threadExecutionId: 'run-1',
         startedAt: '2026-07-15T00:00:00Z',
       }),
     } as Response);
@@ -58,7 +58,7 @@ describe('ChatSession', () => {
       'http://localhost:5135/agents/a1/sessions/s1/threads/main/inputs',
       expect.objectContaining({ method: 'POST' }),
     );
-    expect(submission.runtimeRunId).toBe('run-1');
+    expect(submission.threadExecutionId).toBe('run-1');
     expect(events).toEqual([]);
     chat.dispose();
   });
@@ -67,8 +67,8 @@ describe('ChatSession', () => {
     const client = new AgentClient('http://localhost:5135');
     const state = {
       observedCursor: { generation: 1, sequenceNumber: 8 },
-      activeRun: {
-        runtimeRunId: 'run-1',
+      activeExecution: {
+        threadExecutionId: 'run-1',
         agentId: 'a1',
         sessionId: 's1',
         threadId: 'main',
@@ -95,15 +95,15 @@ describe('ChatSession', () => {
     chat.dispose();
   });
 
-  it('cancels by comparing the authoritative active run ID', async () => {
+  it('cancels by comparing the authoritative active execution ID', async () => {
     const client = new AgentClient('http://localhost:5135');
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           observedCursor: { generation: 1, sequenceNumber: 8 },
-          activeRun: {
-            runtimeRunId: 'run-1',
+          activeExecution: {
+            threadExecutionId: 'run-1',
             agentId: 'a1',
             sessionId: 's1',
             threadId: 'main',
@@ -116,7 +116,7 @@ describe('ChatSession', () => {
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        text: async () => JSON.stringify({ status: 'accepted', activeRun: null }),
+        text: async () => JSON.stringify({ status: 'accepted', activeExecution: null }),
       } as Response);
 
     const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
@@ -126,7 +126,7 @@ describe('ChatSession', () => {
     expect(fetchSpy).toHaveBeenLastCalledWith(
       'http://localhost:5135/agents/a1/sessions/s1/threads/main/interrupt',
       expect.objectContaining({
-        body: expect.stringContaining('"expectedRuntimeRunId":"run-1"'),
+        body: expect.stringContaining('"expectedThreadExecutionId":"run-1"'),
       }),
     );
     chat.dispose();
@@ -134,7 +134,7 @@ describe('ChatSession', () => {
 
   it('hydrates control state then replays from the applied cursor', async () => {
     const client = new AgentClient('http://localhost:5135');
-    const state = { observedCursor: { generation: 3, sequenceNumber: 9 }, activeRun: null };
+    const state = { observedCursor: { generation: 3, sequenceNumber: 9 }, activeExecution: null };
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({ ok: true, json: async () => state } as Response)
       .mockResolvedValueOnce({

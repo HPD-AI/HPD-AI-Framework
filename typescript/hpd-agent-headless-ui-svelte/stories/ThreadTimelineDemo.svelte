@@ -50,7 +50,7 @@
       message,
       turnId: message.turnId,
       conversationId: message.conversationId,
-      runId: message.runId,
+      executionId: message.executionId,
     };
   }
 
@@ -61,7 +61,7 @@
       work,
       turnId: work.turnId,
       conversationId: work.conversationId,
-      runId: work.runId,
+      executionId: work.executionId,
     };
   }
 
@@ -72,7 +72,7 @@
       request,
       turnId: 'turn-1',
       conversationId: 'conversation-1',
-      runId: 'run-1',
+      executionId: 'run-1',
     };
   }
 
@@ -87,7 +87,7 @@
       toolCalls: [],
       turnId: role === 'assistant' ? 'turn-1' : null,
       conversationId: role === 'assistant' ? 'conversation-1' : null,
-      runId: role === 'assistant' ? 'run-1' : null,
+      executionId: role === 'assistant' ? 'run-1' : null,
       placement: 'transcript',
     };
   }
@@ -97,7 +97,7 @@
       id: 'work-1',
       turnId: 'turn-1',
       conversationId: 'conversation-1',
-      runId: 'run-1',
+      executionId: 'run-1',
       status: collapsed ? 'worked' : 'working',
       label: collapsed ? 'Inspected package' : 'Inspecting package',
       openByDefault: !collapsed,
@@ -135,7 +135,7 @@
       resultText: status === 'complete' ? 'No stale imports found.' : undefined,
       turnId: 'turn-1',
       conversationId: 'conversation-1',
-      runId: 'run-1',
+      executionId: 'run-1',
     };
   }
 

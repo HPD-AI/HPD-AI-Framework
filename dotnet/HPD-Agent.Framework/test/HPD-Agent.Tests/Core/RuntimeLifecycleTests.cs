@@ -2395,7 +2395,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         fakeClient.EnqueueTextResponse("runtime input response");
         var store = new InMemorySessionStore();
         var session = new global::HPD.Agent.Session("session-runtime-input");
-        var thread = new global::HPD.Agent.Thread(session.Id, "thread-runtime-input", "test-agent") { Session = session };
+        var thread = new global::HPD.Agent.Thread(session.Id, "thread-executiontime-input", "test-agent") { Session = session };
         await store.SaveSessionAsync(session, TestCancellationToken);
         await store.AppendThreadEventAsync(
             session.Id,
@@ -2406,7 +2406,7 @@ public class RuntimeLifecycleTests : AgentTestBase
         var config = DefaultConfig();
         config.SessionStore = store;
         var agent = CreateAgentWithMiddlewares(config: config, client: fakeClient);
-        const string runtimeRunId = "runtime-run-bridge";
+        const string threadExecutionId = "runtime-run-bridge";
 
         await agent.StartAsync(cancellationToken: TestCancellationToken);
         var submission = await agent.EnqueueAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "hello runtime")],
@@ -2414,7 +2414,7 @@ public class RuntimeLifecycleTests : AgentTestBase
             Thread = thread,
             SessionId = session.Id,
             ThreadId = thread.Id,
-            RuntimeRunId = runtimeRunId
+            ThreadExecutionId = threadExecutionId
         }, TestCancellationToken);
         var outcome = await submission.Completion.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
 
@@ -2424,7 +2424,7 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         Assert.False(outcome.Cancelled);
         Assert.Null(outcome.Error);
-        Assert.DoesNotContain(events, evt => evt is ThreadRunStartedEvent or ThreadRunCompletedEvent);
+        Assert.DoesNotContain(events, evt => evt is ThreadExecutionStartedEvent or ThreadExecutionFinishedEvent);
     }
 
     [Fact]
@@ -2530,7 +2530,7 @@ public class RuntimeLifecycleTests : AgentTestBase
 
         Assert.Contains(snapshot, evt => evt is BackgroundTaskNotificationQueuedEvent queued &&
             queued.NotificationId == deliveredEvent.NotificationId);
-        Assert.DoesNotContain(snapshot, evt => evt is ThreadRunStartedEvent or ThreadRunCompletedEvent);
+        Assert.DoesNotContain(snapshot, evt => evt is ThreadExecutionStartedEvent or ThreadExecutionFinishedEvent);
         Assert.Contains(fakeClient.CapturedRequests, request =>
             request.Any(message =>
                 message.Role == ChatRole.System &&
@@ -2956,7 +2956,7 @@ public class RuntimeLifecycleTests : AgentTestBase
                 AgentId = "TestAgent",
                 SessionId = "session-1",
                 ThreadId = "thread-1",
-                RuntimeRunId = "user-run",
+                ThreadExecutionId = "user-run",
                 RunConfig = new AgentRunConfig { OverrideChatClient = fakeClient }
             },
             TestCancellationToken);

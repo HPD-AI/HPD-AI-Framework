@@ -71,7 +71,7 @@ changes.
 
 This is why `ThreadError` is thread-scoped instead of message-scoped. Message
 errors are only one possible failure source in HPD; the thread projection is the
-place where controller, run, work, tool, and custom event failures meet.
+place where controller, thread-execution, work, tool, and custom event failures meet.
 
 ## Showing All Errors
 

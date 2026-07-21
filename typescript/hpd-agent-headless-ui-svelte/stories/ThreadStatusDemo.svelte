@@ -72,9 +72,9 @@
       activeToolCount: activeTools.length,
       pendingRequestCount: pendingRuntimeRequests.length,
     } as const;
-    const threadRun = mode === 'working'
+    const threadExecution = mode === 'working'
       ? {
-          runtimeRunId: 'storybook-run',
+          threadExecutionId: 'storybook-run',
           agentId: 'agent',
           status: 'active',
         } as const
@@ -86,11 +86,11 @@
       transcriptMessages: [],
       activeTools,
       pendingRuntimeRequests,
-      threadRun,
+      threadExecution,
       activity,
       currentTurnId: null,
       currentConversationId: null,
-      currentRunId: threadRun?.runtimeRunId ?? null,
+      currentExecutionId: threadExecution?.threadExecutionId ?? null,
       error,
       canSend: mode === 'ready',
     };

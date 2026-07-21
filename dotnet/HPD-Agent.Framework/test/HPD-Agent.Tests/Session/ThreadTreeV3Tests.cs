@@ -479,8 +479,8 @@ public class ThreadTreeV3Tests : AgentTestBase
         await store.SaveInitialThreadAsync(session.Id, main);
 
         const string turnId = "turn-1";
-        const string runtimeRunId = "run-1";
-        await AppendCompletedTextRunAsync(store, session.Id, main.Id, runtimeRunId, turnId);
+        const string threadExecutionId = "run-1";
+        await AppendCompletedTextRunAsync(store, session.Id, main.Id, threadExecutionId, turnId);
 
         main = (await store.ProjectThreadAsync(session.Id, main.Id, ThreadProjectionPurpose.ThreadHistory))!;
         main.Session = session;
@@ -499,13 +499,13 @@ public class ThreadTreeV3Tests : AgentTestBase
             .Should().ContainSingle(evt => evt.MessageTurnId == turnId);
         forkDocument.OfType<MessageTurnFinishedEvent>()
             .Should().ContainSingle(evt => evt.MessageTurnId == turnId);
-        forkDocument.OfType<ThreadRunStartedEvent>()
-            .Should().ContainSingle(evt => evt.RuntimeRunId == runtimeRunId);
-        forkDocument.OfType<ThreadRunCompletedEvent>()
-            .Should().ContainSingle(evt => evt.RuntimeRunId == runtimeRunId);
+        forkDocument.OfType<ThreadExecutionStartedEvent>()
+            .Should().ContainSingle(evt => evt.ThreadExecutionId == threadExecutionId);
+        forkDocument.OfType<ThreadExecutionFinishedEvent>()
+            .Should().ContainSingle(evt => evt.ThreadExecutionId == threadExecutionId);
 
-        var copiedRunStart = forkDocument.OfType<ThreadRunStartedEvent>().Single();
-        var copiedRunEnd = forkDocument.OfType<ThreadRunCompletedEvent>().Single();
+        var copiedRunStart = forkDocument.OfType<ThreadExecutionStartedEvent>().Single();
+        var copiedRunEnd = forkDocument.OfType<ThreadExecutionFinishedEvent>().Single();
         copiedRunStart.ThreadId.Should().Be("fork-1");
         copiedRunEnd.ThreadId.Should().Be("fork-1");
         copiedRunStart.ThreadSequenceNumber.Should().BeLessThan(copiedRunEnd.ThreadSequenceNumber);
@@ -650,11 +650,11 @@ public class ThreadTreeV3Tests : AgentTestBase
         InMemorySessionStore store,
         string sessionId,
         string threadId,
-        string runtimeRunId,
+        string threadExecutionId,
         string turnId)
     {
         await store.AppendThreadEventAsync(sessionId, threadId,
-            new ThreadRunStartedEvent(runtimeRunId, "agent-1", DateTimeOffset.UtcNow));
+            new ThreadExecutionStartedEvent(threadExecutionId, "agent-1", DateTimeOffset.UtcNow));
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TextMessageStarted(sessionId, threadId, null, "user-1", ChatRole.User.Value, 0));
         await store.AppendThreadEventAsync(sessionId, threadId,
@@ -678,6 +678,10 @@ public class ThreadTreeV3Tests : AgentTestBase
         await store.AppendThreadEventAsync(sessionId, threadId,
             ThreadEventFactory.TurnCompleted(sessionId, threadId, turnId, sessionId, "agent-1", "Agent", 1, "done", TimeSpan.FromMilliseconds(10), 2));
         await store.AppendThreadEventAsync(sessionId, threadId,
-            new ThreadRunCompletedEvent(runtimeRunId, "agent-1", Cancelled: false));
+            new ThreadExecutionFinishedEvent(
+                threadExecutionId,
+                "agent-1",
+                ThreadExecutionOutcome.Succeeded,
+                DateTimeOffset.UtcNow));
     }
 }

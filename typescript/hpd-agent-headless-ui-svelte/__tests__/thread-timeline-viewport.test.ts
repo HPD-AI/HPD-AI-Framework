@@ -27,7 +27,7 @@ function projection(overrides: Partial<ThreadProjectionSnapshot> = {}): ThreadPr
     transcriptMessages: [],
     activeTools: [],
     pendingRuntimeRequests: [],
-    threadRun: null,
+    threadExecution: null,
     activity: {
       status: 'idle',
       streaming: false,
@@ -37,7 +37,7 @@ function projection(overrides: Partial<ThreadProjectionSnapshot> = {}): ThreadPr
     },
     currentTurnId: null,
     currentConversationId: null,
-    currentRunId: null,
+    currentExecutionId: null,
     error: null,
     canSend: true,
     ...overrides,
@@ -144,7 +144,7 @@ function createTimeline(messages: Partial<Message>[]): ThreadTimelineItem[] {
       message: resolved,
       turnId: resolved.turnId,
       conversationId: resolved.conversationId,
-      runId: resolved.runId,
+      executionId: resolved.executionId,
     };
   });
 }
@@ -160,7 +160,7 @@ function createMessage(overrides: Partial<Message> = {}): Message {
     toolCalls: [],
     turnId: null,
     conversationId: null,
-    runId: null,
+    executionId: null,
     placement: 'transcript',
     ...overrides,
   };

@@ -15,7 +15,7 @@ namespace HPD.Agent;
 /// <list type="bullet">
 /// <item>Session methods now work with Session (metadata only, no messages)</item>
 /// <item>New thread methods for managing conversation threads</item>
-/// <item>Thread runs and recovery are projected from thread events</item>
+/// <item>Thread executions and recovery are projected from thread events</item>
 /// </list>
 /// </remarks>
 public interface ISessionStore

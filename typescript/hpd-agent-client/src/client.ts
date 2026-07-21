@@ -20,7 +20,7 @@ import type {
   ForkThreadRequest,
   UpdateThreadRequest,
 } from './types/session.js';
-import type { ThreadRun, ThreadRuntimeState } from './types/thread-run.js';
+import type { ThreadExecution, ThreadRuntimeState } from './types/thread-execution.js';
 import type {
   ContextUsageRequest,
   ThreadContextUsage,
@@ -327,8 +327,8 @@ export class AgentClient {
     return this.api.deleteThread(sessionId, threadId, options);
   }
 
-  getThreadRuns(agentId: string, sessionId: string, threadId: string): Promise<ThreadRun[]> {
-    return this.api.getThreadRuns(agentId, sessionId, threadId);
+  getThreadExecutions(agentId: string, sessionId: string, threadId: string): Promise<ThreadExecution[]> {
+    return this.api.getThreadExecutions(agentId, sessionId, threadId);
   }
 
   getThreadState(agentId: string, sessionId: string, threadId: string): Promise<ThreadRuntimeState | null> {
@@ -344,8 +344,8 @@ export class AgentClient {
     return this.api.estimateContextUsage(agentId, sessionId, threadId, request);
   }
 
-  getThreadRun(agentId: string, sessionId: string, threadId: string, runtimeRunId: string): Promise<ThreadRun | null> {
-    return this.api.getThreadRun(agentId, sessionId, threadId, runtimeRunId);
+  getThreadExecution(agentId: string, sessionId: string, threadId: string, threadExecutionId: string): Promise<ThreadExecution | null> {
+    return this.api.getThreadExecution(agentId, sessionId, threadId, threadExecutionId);
   }
 
   getThreadGraph(sessionId: string): Promise<ThreadGraph> {

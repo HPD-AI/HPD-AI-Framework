@@ -28,7 +28,7 @@ export function createThreadStatusModel(snapshot: ThreadStateSnapshot): ThreadSt
     snapshot,
     state,
     textSubmissionState: snapshot.textSubmissionState,
-    threadRun: snapshot.projection.threadRun,
+    threadExecution: snapshot.projection.threadExecution,
   };
 }
 
@@ -99,7 +99,7 @@ function getThreadStatusLabel(
     if (tool) return `${tool.name} running`;
     if (snapshot.activity.reasoning) return 'Reasoning';
     if (snapshot.activity.streaming) return 'Working';
-    if (snapshot.projection.threadRun?.status === 'active') return 'Run active';
+    if (snapshot.projection.threadExecution?.status === 'active') return 'Execution active';
     return 'Working';
   }
 

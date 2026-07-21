@@ -42,7 +42,7 @@ const submission = await chat.submitMessage({ contents: [{ $type: 'text', text: 
   },
 });
 
-console.log(`started run ${submission.runtimeRunId} at ${submission.startedAt}`);
+console.log(`started execution ${submission.threadExecutionId} at ${submission.startedAt}`);
 ```
 
 ## Client Tools

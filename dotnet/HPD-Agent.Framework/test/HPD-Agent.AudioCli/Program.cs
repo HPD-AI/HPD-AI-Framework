@@ -685,7 +685,7 @@ for (var turnIndex = 0; turnIndex < audioPaths.Count; turnIndex++)
                     : null
             }
         };
-        await RunCliTurnAsync(agent, input, waitForRuntimeRun: false);
+        await RunCliTurnAsync(agent, input, waitForThreadExecution: false);
     }
     catch (Exception ex)
     {
@@ -761,7 +761,7 @@ for (var textTurnIndex = 0; textTurnIndex < textOnlyTurns.Count; textTurnIndex++
                     : null
             }
         };
-        await RunCliTurnAsync(agent, input, waitForRuntimeRun: false);
+        await RunCliTurnAsync(agent, input, waitForThreadExecution: false);
     }
     catch (Exception ex)
     {
@@ -805,24 +805,24 @@ static async Task EnsureSessionAsync(Agent agent, string sessionId)
 static async Task RunCliTurnAsync(
     Agent agent,
     UserMessagesInputEvent input,
-    bool waitForRuntimeRun)
+    bool waitForThreadExecution)
 {
-    if (!waitForRuntimeRun)
+    if (!waitForThreadExecution)
     {
         await agent.RunAsync(input);
         return;
     }
 
-    if (string.IsNullOrWhiteSpace(input.RuntimeRunId))
+    if (string.IsNullOrWhiteSpace(input.ThreadExecutionId))
     {
-        throw new InvalidOperationException("RuntimeRunId is required when waiting for a started runtime run.");
+        throw new InvalidOperationException("ThreadExecutionId is required when waiting for a started thread execution.");
     }
 
-    var completion = new TaskCompletionSource<ThreadRunCompletedEvent>(
+    var completion = new TaskCompletionSource<ThreadExecutionFinishedEvent>(
         TaskCreationOptions.RunContinuationsAsynchronously);
-    using var completionSubscription = agent.Subscribe<ThreadRunCompletedEvent>(evt =>
+    using var completionSubscription = agent.Subscribe<ThreadExecutionFinishedEvent>(evt =>
     {
-        if (string.Equals(evt.RuntimeRunId, input.RuntimeRunId, StringComparison.Ordinal))
+        if (string.Equals(evt.ThreadExecutionId, input.ThreadExecutionId, StringComparison.Ordinal))
         {
             completion.TrySetResult(evt);
         }
@@ -832,10 +832,10 @@ static async Task RunCliTurnAsync(
 
     await agent.RunAsync(input);
     var completed = await completion.Task.WaitAsync(TimeSpan.FromMinutes(3));
-    if (!string.IsNullOrWhiteSpace(completed.ErrorMessage))
+    if (completed.Outcome == ThreadExecutionOutcome.Failed)
     {
         throw new InvalidOperationException(
-            $"Runtime run {completed.RuntimeRunId} failed: {completed.ErrorType}: {completed.ErrorMessage}");
+            $"Thread execution {completed.ThreadExecutionId} failed: {completed.Error?.Type}: {completed.Error?.Message}");
     }
 }
 

@@ -52,7 +52,7 @@ function snapshot(overrides: Partial<ThreadProjectionSnapshot> = {}): ThreadProj
     transcriptMessages: [],
     activeTools: [],
     pendingRuntimeRequests: [],
-    threadRun: null,
+    threadExecution: null,
     activity: {
       status: 'idle' as const,
       streaming: false,
@@ -62,7 +62,7 @@ function snapshot(overrides: Partial<ThreadProjectionSnapshot> = {}): ThreadProj
     },
     currentTurnId: null,
     currentConversationId: null,
-    currentRunId: null,
+    currentExecutionId: null,
     error: null,
     canSend: true,
     ...overrides,
@@ -74,11 +74,11 @@ function snapshot(overrides: Partial<ThreadProjectionSnapshot> = {}): ThreadProj
         ? 'failed'
         : state.pendingRuntimeRequests.length > 0
           ? 'requesting'
-          : state.threadRun?.status === 'active' || state.activeTools.length > 0 ||
+          : state.threadExecution?.status === 'active' || state.activeTools.length > 0 ||
               state.workGroups.some((work) => work.status === 'working')
             ? 'working'
             : 'idle',
-      streaming: state.threadRun?.status === 'active' ||
+      streaming: state.threadExecution?.status === 'active' ||
         state.activeTools.length > 0 ||
         state.workGroups.some((work) => work.status === 'working'),
       reasoning: state.workGroups.some((work) =>
@@ -100,7 +100,7 @@ function message(overrides: Partial<Message> = {}): Message {
     toolCalls: [],
     turnId: null,
     conversationId: null,
-    runId: null,
+    executionId: null,
     placement: 'transcript',
     ...overrides,
   };
@@ -115,7 +115,7 @@ function toolCall(overrides: Partial<ToolCall> = {}): ToolCall {
     startTime: new Date('2026-01-01T00:00:00.000Z'),
     turnId: null,
     conversationId: null,
-    runId: null,
+    executionId: null,
     ...overrides,
   };
 }
@@ -280,7 +280,7 @@ describe('thread selectors', () => {
       id: 'turn:t1',
       turnId: 't1',
       conversationId: 'c1',
-      runId: 'r1',
+      executionId: 'r1',
       status: 'worked' as const,
       label: 'Worked',
       openByDefault: false,
@@ -294,7 +294,7 @@ describe('thread selectors', () => {
         work,
         turnId: 't1',
         conversationId: 'c1',
-        runId: 'r1',
+        executionId: 'r1',
       }],
     });
 
@@ -306,14 +306,14 @@ describe('thread selectors', () => {
     expect(getThreadTimeline(state, { completedWork: 'hidden' })).toEqual([]);
   });
 
-  it('treats active work active runs tools and runtime requests as busy', () => {
+  it('treats active work active executions tools and runtime requests as busy', () => {
     expect(isThreadBusy(snapshot())).toBe(false);
     expect(isThreadBusy(snapshot({
       workGroups: [{
         id: 'turn:t1',
         turnId: 't1',
         conversationId: 'c1',
-        runId: null,
+        executionId: null,
         status: 'working',
         label: 'Working',
         openByDefault: true,
@@ -321,8 +321,8 @@ describe('thread selectors', () => {
       }],
     }))).toBe(true);
     expect(isThreadBusy(snapshot({
-      threadRun: {
-        runtimeRunId: 'run1',
+      threadExecution: {
+        threadExecutionId: 'run1',
         agentId: 'agent',
         status: 'active',
       },
@@ -348,7 +348,7 @@ describe('thread selectors', () => {
         id: 'turn:t1',
         turnId: 't1',
         conversationId: 'c1',
-        runId: null,
+        executionId: null,
         status: 'working',
         label: 'Working',
         openByDefault: true,
@@ -356,8 +356,8 @@ describe('thread selectors', () => {
       }],
     }))).toBe(false);
     expect(canSubmitText(snapshot({
-      threadRun: {
-        runtimeRunId: 'run1',
+      threadExecution: {
+        threadExecutionId: 'run1',
         agentId: 'agent',
         status: 'active',
       },
@@ -375,7 +375,7 @@ describe('thread selectors', () => {
         id: 'turn:t1',
         turnId: 't1',
         conversationId: 'c1',
-        runId: null,
+        executionId: null,
         status: 'working',
         label: 'Working',
         openByDefault: true,
@@ -405,8 +405,8 @@ describe('thread selectors', () => {
   it('normalizes thread errors for framework adapters', () => {
     const errors = getThreadErrors(snapshot({
       error: 'turn failed',
-      threadRun: {
-        runtimeRunId: 'run1',
+      threadExecution: {
+        threadExecutionId: 'run1',
         agentId: 'agent',
         status: 'failed',
         errorType: 'InvalidOperationException',
@@ -416,7 +416,7 @@ describe('thread selectors', () => {
         id: 'turn:t1',
         turnId: 't1',
         conversationId: 'c1',
-        runId: 'run1',
+        executionId: 'run1',
         status: 'failed',
         label: 'Work failed',
         openByDefault: true,
@@ -429,14 +429,14 @@ describe('thread selectors', () => {
             error: 'tool failed',
             turnId: 't1',
             conversationId: 'c1',
-            runId: 'run1',
+            executionId: 'run1',
           }),
         }],
       }],
     }));
 
     expect(errors.map((error) => [error.kind, error.message])).toEqual([
-      ['run', 'model failed'],
+      ['execution', 'model failed'],
       ['work', 'work failed'],
       ['tool', 'tool failed'],
       ['thread', 'turn failed'],

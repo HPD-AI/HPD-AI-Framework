@@ -248,7 +248,7 @@ public sealed record ClientToolProviderBindingScope
     public string? ThreadId { get; init; }
 
     /// <summary>Gets the runtime run id when the binding is run-scoped.</summary>
-    public string? RuntimeRunId { get; init; }
+    public string? ThreadExecutionId { get; init; }
 
     /// <summary>Gets the requested lease duration.</summary>
     public TimeSpan? LeaseDuration { get; init; }
@@ -281,7 +281,7 @@ public sealed record ClientToolProviderBindingLease
     public string? ThreadId { get; init; }
 
     /// <summary>Gets the runtime run id that owns the lease, when known.</summary>
-    public string? RuntimeRunId { get; init; }
+    public string? ThreadExecutionId { get; init; }
 
     /// <summary>Gets when the lease was created.</summary>
     public DateTimeOffset BoundAt { get; init; } = DateTimeOffset.UtcNow;

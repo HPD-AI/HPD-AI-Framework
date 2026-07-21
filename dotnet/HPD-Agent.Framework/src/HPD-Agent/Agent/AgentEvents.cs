@@ -263,15 +263,15 @@ public abstract record AgentInputEvent
     /// <summary>Per-run configuration carried with the input event.</summary>
     public AgentRunConfig? RunConfig { get; init; }
 
-    /// <summary>Runtime-owned run identifier assigned by hosting layers that track active work.</summary>
-    public string? RuntimeRunId { get; init; }
+    /// <summary>Identifier of the accepted input execution assigned by the coordinating runtime.</summary>
+    public string? ThreadExecutionId { get; init; }
 }
 
 /// <summary>
-/// Emitted when hosting accepts input into a runtime-owned thread run.
+/// Emitted after a coordinating runtime durably accepts an input execution for a thread.
 /// </summary>
-public sealed record ThreadRunStartedEvent(
-    string RuntimeRunId,
+public sealed record ThreadExecutionStartedEvent(
+    string ThreadExecutionId,
     string AgentId,
     DateTimeOffset StartedAt) : AgentEvent
 {
@@ -280,15 +280,83 @@ public sealed record ThreadRunStartedEvent(
 }
 
 /// <summary>
-/// Emitted by the runtime when a submitted input has left the active execution slot.
+/// Describes the terminal outcome of a thread input execution.
 /// </summary>
-public sealed record ThreadRunCompletedEvent(
-    string RuntimeRunId,
-    string AgentId,
-    bool Cancelled,
-    string? ErrorType = null,
-    string? ErrorMessage = null) : AgentEvent
+[JsonConverter(typeof(JsonStringEnumConverter<ThreadExecutionOutcome>))]
+public enum ThreadExecutionOutcome
 {
+    Succeeded,
+    Failed,
+    Cancelled
+}
+
+/// <summary>Serializable failure information for a failed thread execution.</summary>
+/// <param name="Type">The stable exception or error type name.</param>
+/// <param name="Message">The human-readable failure message.</param>
+public sealed record ThreadExecutionError
+{
+    /// <summary>Creates validated failure information for a thread execution.</summary>
+    public ThreadExecutionError(string type, string message)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        ArgumentException.ThrowIfNullOrWhiteSpace(message);
+        Type = type;
+        Message = message;
+    }
+
+    /// <summary>Gets the stable exception or error type name.</summary>
+    public string Type { get; init; }
+
+    /// <summary>Gets the human-readable failure message.</summary>
+    public string Message { get; init; }
+}
+
+/// <summary>
+/// Emitted after a submitted input has reached a terminal outcome and leaves its execution slot.
+/// </summary>
+public sealed record ThreadExecutionFinishedEvent : AgentEvent
+{
+    /// <summary>Creates a validated terminal execution fact.</summary>
+    public ThreadExecutionFinishedEvent(
+        string threadExecutionId,
+        string agentId,
+        ThreadExecutionOutcome outcome,
+        DateTimeOffset finishedAt,
+        ThreadExecutionError? error = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadExecutionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
+        if (!Enum.IsDefined(outcome))
+            throw new ArgumentOutOfRangeException(nameof(outcome));
+        if ((outcome == ThreadExecutionOutcome.Failed) != (error is not null))
+        {
+            throw new ArgumentException(
+                "Failed executions require error details, and non-failed executions cannot carry them.",
+                nameof(error));
+        }
+
+        ThreadExecutionId = threadExecutionId;
+        AgentId = agentId;
+        Outcome = outcome;
+        FinishedAt = finishedAt;
+        Error = error;
+    }
+
+    /// <summary>Gets the execution identifier correlated with the corresponding start fact.</summary>
+    public string ThreadExecutionId { get; init; }
+
+    /// <summary>Gets the agent that executed the accepted input.</summary>
+    public string AgentId { get; init; }
+
+    /// <summary>Gets the terminal outcome reported by the execution owner.</summary>
+    public ThreadExecutionOutcome Outcome { get; init; }
+
+    /// <summary>Gets when the input left active execution.</summary>
+    public DateTimeOffset FinishedAt { get; init; }
+
+    /// <summary>Gets failure details when <see cref="Outcome"/> is <see cref="ThreadExecutionOutcome.Failed"/>.</summary>
+    public ThreadExecutionError? Error { get; init; }
+
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
     public override EventChannel Channel { get; init; } = EventChannel.Control;
 }
@@ -884,7 +952,7 @@ public abstract record BackgroundTaskEvent : AgentEvent
 
     public string? SourceId { get; init; }
 
-    public string? ParentRuntimeRunId { get; init; }
+    public string? OriginatingThreadExecutionId { get; init; }
 
     public FunctionInvocationSnapshot? Invocation { get; init; }
 
@@ -1009,7 +1077,7 @@ public sealed record BackgroundTaskNotificationDeliveredEvent : AgentEvent
 
     public required DateTimeOffset DeliveredAt { get; init; }
 
-    public string? RuntimeRunId { get; init; }
+    public string? ThreadExecutionId { get; init; }
 }
 
 /// <summary>

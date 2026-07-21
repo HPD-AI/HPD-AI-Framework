@@ -73,7 +73,7 @@ The snippet receives:
 - `pendingRuntimeRequests`
 - `textSubmissionState`
 - `error`
-- `threadRun`
+- `threadExecution`
 - `snapshot`
 
 `state` is one of:
@@ -86,7 +86,7 @@ The snippet receives:
 - `ready`
 
 State priority follows that order. For example, if a thread is disconnected and
-also has an old active run in the projection, the display state is
+also has an old active execution in the projection, the display state is
 `disconnected`.
 
 ## Composition

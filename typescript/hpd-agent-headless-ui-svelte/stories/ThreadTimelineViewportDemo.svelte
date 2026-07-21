@@ -84,7 +84,7 @@
       message,
       turnId: message.turnId,
       conversationId: message.conversationId,
-      runId: message.runId,
+      executionId: message.executionId,
     };
   }
 
@@ -95,7 +95,7 @@
       work,
       turnId: work.turnId,
       conversationId: work.conversationId,
-      runId: work.runId,
+      executionId: work.executionId,
     };
   }
 
@@ -110,7 +110,7 @@
       toolCalls: [],
       turnId: role === 'assistant' ? `turn-${id}` : null,
       conversationId: role === 'assistant' ? 'conversation-1' : null,
-      runId: role === 'assistant' ? 'run-1' : null,
+      executionId: role === 'assistant' ? 'run-1' : null,
       placement: 'transcript',
     };
   }
@@ -127,7 +127,7 @@
       id: 'work-streaming',
       turnId: 'turn-streaming',
       conversationId: 'conversation-1',
-      runId: 'run-1',
+      executionId: 'run-1',
       status: 'working',
       label: 'Viewport working',
       openByDefault: true,
@@ -163,7 +163,7 @@
       args: { target: 'ThreadTimelineViewport' },
       turnId: 'turn-streaming',
       conversationId: 'conversation-1',
-      runId: 'run-1',
+      executionId: 'run-1',
     };
   }
 </script>

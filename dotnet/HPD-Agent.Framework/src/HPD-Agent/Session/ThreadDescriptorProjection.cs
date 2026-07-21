@@ -53,18 +53,19 @@ internal static class ThreadDescriptorProjection
                     updated.SessionPolicy, updated.ThreadPolicy);
                 break;
 
-            case ThreadRunStartedEvent when runtimeChild is not null:
-                runtimeChild = runtimeChild with { Status = ThreadRunStatus.Active };
+            case ThreadExecutionStartedEvent when runtimeChild is not null:
+                runtimeChild = runtimeChild with { Status = ThreadExecutionStatus.Active };
                 break;
 
-            case ThreadRunCompletedEvent completed when runtimeChild is not null:
+            case ThreadExecutionFinishedEvent completed when runtimeChild is not null:
                 runtimeChild = runtimeChild with
                 {
-                    Status = completed.ErrorType is not null
-                        ? ThreadRunStatus.Failed
-                        : completed.Cancelled
-                            ? ThreadRunStatus.Cancelled
-                            : ThreadRunStatus.Completed
+                    Status = completed.Outcome switch
+                    {
+                        ThreadExecutionOutcome.Failed => ThreadExecutionStatus.Failed,
+                        ThreadExecutionOutcome.Cancelled => ThreadExecutionStatus.Cancelled,
+                        _ => ThreadExecutionStatus.Succeeded
+                    }
                 };
                 break;
         }

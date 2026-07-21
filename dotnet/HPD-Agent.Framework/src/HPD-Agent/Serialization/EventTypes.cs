@@ -48,8 +48,8 @@ public static partial class EventTypes
         public const string AGENT_TURN_STARTED = "AGENT_TURN_STARTED";
         public const string AGENT_TURN_FINISHED = "AGENT_TURN_FINISHED";
         public const string STATE_SNAPSHOT = "STATE_SNAPSHOT";
-        public const string THREAD_RUN_STARTED = "THREAD_RUN_STARTED";
-        public const string THREAD_RUN_COMPLETED = "THREAD_RUN_COMPLETED";
+        public const string THREAD_EXECUTION_STARTED = "THREAD_EXECUTION_STARTED";
+        public const string THREAD_EXECUTION_FINISHED = "THREAD_EXECUTION_FINISHED";
         public const string SUBAGENT_INVOCATION_STARTED = "SUBAGENT_INVOCATION_STARTED";
         public const string SUBAGENT_INVOCATION_COMPLETED = "SUBAGENT_INVOCATION_COMPLETED";
         public const string SUBAGENT_INVOCATION_FAILED = "SUBAGENT_INVOCATION_FAILED";

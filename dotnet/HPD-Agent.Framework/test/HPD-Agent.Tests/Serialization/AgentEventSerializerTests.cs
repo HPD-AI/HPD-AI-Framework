@@ -88,6 +88,44 @@ public class AgentEventSerializerTests
     }
 
     [Fact]
+    public void ThreadExecutionFinishedEvent_RoundTripsExplicitFailureOutcome()
+    {
+        var finishedAt = DateTimeOffset.Parse("2026-07-21T13:00:00Z");
+        var original = new ThreadExecutionFinishedEvent(
+            "execution-1",
+            "agent-1",
+            ThreadExecutionOutcome.Failed,
+            finishedAt,
+            new ThreadExecutionError("InvalidOperationException", "provider failed"));
+
+        var json = AgentEventSerializer.ToJson(original);
+        var rehydrated = Assert.IsType<ThreadExecutionFinishedEvent>(AgentEventSerializer.FromJson(json));
+
+        Assert.Contains("\"type\":\"THREAD_EXECUTION_FINISHED\"", json);
+        Assert.Contains("\"outcome\":\"Failed\"", json);
+        Assert.Equal(ThreadExecutionOutcome.Failed, rehydrated.Outcome);
+        Assert.Equal(finishedAt, rehydrated.FinishedAt);
+        Assert.Equal(new ThreadExecutionError("InvalidOperationException", "provider failed"), rehydrated.Error);
+    }
+
+    [Fact]
+    public void ThreadExecutionFinishedEvent_RejectsContradictoryTerminalState()
+    {
+        Assert.Throws<ArgumentException>(() => new ThreadExecutionFinishedEvent(
+            "execution-1",
+            "agent-1",
+            ThreadExecutionOutcome.Failed,
+            DateTimeOffset.UtcNow));
+
+        Assert.Throws<ArgumentException>(() => new ThreadExecutionFinishedEvent(
+            "execution-1",
+            "agent-1",
+            ThreadExecutionOutcome.Succeeded,
+            DateTimeOffset.UtcNow,
+            new ThreadExecutionError("Unexpected", "must not be present")));
+    }
+
+    [Fact]
     public void FromJson_UserMessagesInputEvent_RoundTrips()
     {
         var json = AgentEventSerializer.ToJson(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "hello")],

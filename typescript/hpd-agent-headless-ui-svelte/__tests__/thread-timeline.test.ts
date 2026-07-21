@@ -196,7 +196,7 @@ function createTimeline(): ThreadTimelineItem[] {
       message: createMessage(),
       turnId: null,
       conversationId: null,
-      runId: null,
+      executionId: null,
     },
     {
       type: 'work',
@@ -204,7 +204,7 @@ function createTimeline(): ThreadTimelineItem[] {
       work,
       turnId: work.turnId,
       conversationId: work.conversationId,
-      runId: work.runId,
+      executionId: work.executionId,
     },
     {
       type: 'runtime-request',
@@ -212,7 +212,7 @@ function createTimeline(): ThreadTimelineItem[] {
       request,
       turnId: 'turn-1',
       conversationId: 'conversation-1',
-      runId: 'run-1',
+      executionId: 'run-1',
     },
   ];
 }
@@ -228,7 +228,7 @@ function createMessage(overrides: Partial<Message> = {}): Message {
     toolCalls: [],
     turnId: null,
     conversationId: null,
-    runId: null,
+    executionId: null,
     placement: 'transcript',
     ...overrides,
   };
@@ -240,7 +240,7 @@ function createWorkGroup(overrides: Partial<ThreadWorkGroup> = {}): ThreadWorkGr
     id: 'work-1',
     turnId: 'turn-1',
     conversationId: 'conversation-1',
-    runId: 'run-1',
+    executionId: 'run-1',
     status: 'working',
     label: 'Working',
     openByDefault: true,
@@ -272,7 +272,7 @@ function createToolCall(): ToolCall {
     args: { path: 'README.md' },
     turnId: 'turn-1',
     conversationId: 'conversation-1',
-    runId: 'run-1',
+    executionId: 'run-1',
   };
 }
 

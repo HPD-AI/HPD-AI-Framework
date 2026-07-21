@@ -78,7 +78,7 @@ export interface ThreadTimelineViewportProps extends DivProps {
   scrollBehavior?: ScrollBehavior;
   scrollContainer?: ThreadTimelineViewportScrollContainer;
   scrollToBottomOnInitialize?: boolean;
-  scrollToBottomOnRunStart?: boolean;
+  scrollToBottomOnExecutionStart?: boolean;
   thread?: ThreadState;
   timeline?: ThreadTimelineItem[];
   topAnchorMessageClamp?: ThreadTimelineViewportTopAnchorClamp;

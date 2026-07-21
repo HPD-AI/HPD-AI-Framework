@@ -25,7 +25,7 @@ function snapshot(overrides: Partial<ThreadStateSnapshot> = {}): ThreadStateSnap
     transcriptMessages: [],
     activeTools: [],
     pendingRuntimeRequests: [],
-    threadRun: null,
+    threadExecution: null,
     activity: {
       status: 'idle' as const,
       streaming: false,
@@ -35,7 +35,7 @@ function snapshot(overrides: Partial<ThreadStateSnapshot> = {}): ThreadStateSnap
     },
     currentTurnId: null,
     currentConversationId: null,
-    currentRunId: null,
+    currentExecutionId: null,
     error: null,
     canSend: true,
   } satisfies ThreadProjectionSnapshot;

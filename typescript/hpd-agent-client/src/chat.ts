@@ -9,7 +9,7 @@ import type {
   SearchSessionsRequest,
   Session,
 } from './types/session.js';
-import type { ThreadJournalCursor, ThreadRun, ThreadRuntimeState } from './types/thread-run.js';
+import type { ThreadJournalCursor, ThreadExecution, ThreadRuntimeState } from './types/thread-execution.js';
 
 export interface OpenChatOptions {
   agentId: string;
@@ -97,16 +97,16 @@ export class ChatSession {
   dispose(): void {
   }
 
-  async getRuns(): Promise<ThreadRun[]> {
-    return this.client.getThreadRuns(this.agentId, this.sessionId, this.threadId);
+  async getExecutions(): Promise<ThreadExecution[]> {
+    return this.client.getThreadExecutions(this.agentId, this.sessionId, this.threadId);
   }
 
   async getState(): Promise<ThreadRuntimeState | null> {
     return this.client.getThreadState(this.agentId, this.sessionId, this.threadId);
   }
 
-  async getRun(runtimeRunId: string): Promise<ThreadRun | null> {
-    return this.client.getThreadRun(this.agentId, this.sessionId, this.threadId, runtimeRunId);
+  async getExecution(threadExecutionId: string): Promise<ThreadExecution | null> {
+    return this.client.getThreadExecution(this.agentId, this.sessionId, this.threadId, threadExecutionId);
   }
 
   async subscribeLive(options: { after?: ThreadJournalCursor; signal?: AbortSignal } = {}): Promise<ThreadRuntimeState> {
@@ -153,7 +153,7 @@ export class ChatSession {
       }],
       runConfig: options.runConfig,
     }, { signal: options.signal });
-    if (!('runtimeRunId' in result) || !('startedAt' in result)) {
+    if (!('threadExecutionId' in result) || !('startedAt' in result)) {
       throw new Error('Backend returned a non-submission result for a user message.');
     }
 
@@ -172,7 +172,7 @@ export class ChatSession {
       request,
       runConfig: options.runConfig,
     }, { signal: options.signal });
-    if (!('runtimeRunId' in result) || !('startedAt' in result)) {
+    if (!('threadExecutionId' in result) || !('startedAt' in result)) {
       throw new Error('Backend returned a non-submission result for compaction.');
     }
     return result;
@@ -180,9 +180,9 @@ export class ChatSession {
 
   async cancelActiveTurn(options: CancelActiveTurnOptions = {}): Promise<InterruptionResult> {
     const state = await this.getState();
-    const activeRun = state?.activeRun;
-    if (!activeRun) {
-      return { status: 'no_active_run', activeRun: null };
+    const activeExecution = state?.activeExecution;
+    if (!activeExecution) {
+      return { status: 'no_active_execution', activeExecution: null };
     }
 
     const result = await this.client.submitInput({
@@ -190,7 +190,7 @@ export class ChatSession {
       agentId: this.agentId,
       sessionId: this.sessionId,
       threadId: this.threadId,
-      expectedRuntimeRunId: activeRun.runtimeRunId,
+      expectedThreadExecutionId: activeExecution.threadExecutionId,
       eventFlowId: options.eventFlowId ?? undefined,
       reason: options.reason ?? 'Interrupted by client.',
       source: 'User',
@@ -201,7 +201,7 @@ export class ChatSession {
 
     return {
       status: result.status,
-      activeRun: 'activeRun' in result ? result.activeRun : null,
+      activeExecution: 'activeExecution' in result ? result.activeExecution : null,
     };
   }
 
@@ -218,8 +218,8 @@ export class ChatSession {
 function isInterruptionStatus(value: unknown): value is InterruptionResult['status'] {
   return value === 'accepted' ||
     value === 'already_terminal' ||
-    value === 'no_active_run' ||
-    value === 'active_run_mismatch';
+    value === 'no_active_execution' ||
+    value === 'active_execution_mismatch';
 }
 
 export function createTextContent(text: string): AIContent {

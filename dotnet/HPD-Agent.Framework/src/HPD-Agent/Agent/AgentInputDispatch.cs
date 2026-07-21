@@ -253,7 +253,7 @@ internal sealed class BackgroundTaskNotificationInputHandler : IAgentInputHandle
             AgentId = input.AgentId,
             SessionId = input.SessionId,
             ThreadId = input.ThreadId,
-            RuntimeRunId = input.RuntimeRunId,
+            ThreadExecutionId = input.ThreadExecutionId,
             RunConfig = input.RunConfig
         };
 

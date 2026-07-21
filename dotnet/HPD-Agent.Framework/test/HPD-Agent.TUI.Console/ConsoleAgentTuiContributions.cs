@@ -13,7 +13,7 @@ internal static class ConsoleAgentTuiContributions
     {
         tui
             .AddConsoleCommandSurface()
-            .TryAddEventHandler("console.thread-run-status", new ThreadRunStatusHandler())
+            .TryAddEventHandler("console.thread-execution-status", new ThreadExecutionStatusHandler())
             .TryAddEventHandler("console.text-stream", new TextMessageStreamHandler());
 
         if (includeReasoning)

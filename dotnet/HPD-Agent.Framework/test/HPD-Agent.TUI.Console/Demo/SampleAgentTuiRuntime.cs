@@ -11,7 +11,7 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
     private readonly Channel<AgentEvent> _events = Channel.CreateUnbounded<AgentEvent>();
     private readonly List<AgentEvent> _history = [];
     private readonly object _gate = new();
-    private AgentTuiThreadRun? _activeRun;
+    private AgentTuiThreadExecution? _activeExecution;
 
     public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
         AgentTuiRuntimeScope? requested,
@@ -47,22 +47,22 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
-        var runId = Guid.NewGuid().ToString("N");
+        var executionId = Guid.NewGuid().ToString("N");
         var startedAt = DateTimeOffset.UtcNow;
-        _activeRun = new AgentTuiThreadRun(runId, scope.AgentId, scope.SessionId, scope.ThreadId, "active", startedAt);
+        _activeExecution = new AgentTuiThreadExecution(executionId, scope.AgentId, scope.SessionId, scope.ThreadId, "active", startedAt);
         _ = Task.Run(
-            () => RunSampleTurnAsync(scope, input, runId, startedAt, cancellationToken),
+            () => RunSampleTurnAsync(scope, input, executionId, startedAt, cancellationToken),
             CancellationToken.None);
-        return Task.FromResult(new AgentTuiSubmitResult(_activeRun));
+        return Task.FromResult(new AgentTuiSubmitResult(_activeExecution));
     }
 
     public Task<AgentTuiInterruptResult> InterruptAsync(
         AgentTuiRuntimeScope scope,
-        string? expectedRuntimeRunId,
+        string? expectedThreadExecutionId,
         string reason,
         CancellationToken cancellationToken = default)
     {
-        _activeRun = null;
+        _activeExecution = null;
         return Task.FromResult(new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted));
     }
 
@@ -82,7 +82,7 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
                 _history.Count == 0
                     ? new ThreadJournalCursor(1, 0)
                     : new ThreadJournalCursor(1, _history.Max(static evt => evt.ThreadSequenceNumber)),
-                _activeRun,
+                _activeExecution,
                 []));
         }
     }
@@ -96,11 +96,11 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
     private async Task RunSampleTurnAsync(
         AgentTuiRuntimeScope scope,
         AgentInputEvent input,
-        string runId,
+        string executionId,
         DateTimeOffset startedAt,
         CancellationToken cancellationToken)
     {
-        await PublishAsync(new ThreadRunStartedEvent(runId, scope.AgentId, startedAt)
+        await PublishAsync(new ThreadExecutionStartedEvent(executionId, scope.AgentId, startedAt)
         {
             SessionId = scope.SessionId,
             ThreadId = scope.ThreadId
@@ -167,13 +167,13 @@ internal sealed class SampleAgentTuiRuntime : IHpdAgentTuiRuntime, IAsyncDisposa
             Metadata = AgentMetadata(scope, "sample-agent")
         }, cancellationToken);
 
-        await PublishAsync(new ThreadRunCompletedEvent(runId, scope.AgentId, Cancelled: false)
+        await PublishAsync(new ThreadExecutionFinishedEvent(executionId, scope.AgentId, ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow)
         {
             SessionId = scope.SessionId,
             ThreadId = scope.ThreadId
         }, cancellationToken);
 
-        _activeRun = null;
+        _activeExecution = null;
     }
 
     private static string FirstText(IEnumerable<ChatMessage> messages)

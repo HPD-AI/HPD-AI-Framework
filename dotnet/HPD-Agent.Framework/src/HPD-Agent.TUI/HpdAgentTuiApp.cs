@@ -34,9 +34,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private CancellationToken _runCancellationToken;
     private readonly HashSet<string> _handledInteractionIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _sessionTitleUpdates = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _completedRuntimeRunIds = new(StringComparer.Ordinal);
-    private string? _activeRuntimeRunId;
-    private string? _cancelConfirmationRunId;
+    private readonly HashSet<string> _completedThreadExecutionIds = new(StringComparer.Ordinal);
+    private string? _activeThreadExecutionId;
+    private string? _cancelConfirmationExecutionId;
     private DateTimeOffset _cancelConfirmationExpiresAt;
     private bool _inputSubmissionPending;
     private long _submissionSequence;
@@ -148,10 +148,10 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _initialObservedCursor = default;
         _pendingRecoveryRequests = [];
         _hydratedThreadState = null;
-        _completedRuntimeRunIds.Clear();
+        _completedThreadExecutionIds.Clear();
         _inputSubmissionPending = false;
         _awaitingRuntimeSubmissionId = 0;
-        _activeRuntimeRunId = null;
+        _activeThreadExecutionId = null;
         _scopeIsDurable = false;
         _scope = scope;
         _state = new AgentTuiSessionState(scope, _registry);
@@ -319,7 +319,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     }
 
     private bool HasKnownActiveRuntimeWork()
-        => _inputSubmissionPending || _activeRuntimeRunId is not null;
+        => _inputSubmissionPending || _activeThreadExecutionId is not null;
 
     private static void AddRuntimeBusyNotice(
         AgentTuiSessionState state,
@@ -385,9 +385,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 return;
 
             _inputSubmissionPending = false;
-            if (!_completedRuntimeRunIds.Remove(submitted.Run.RuntimeRunId))
+            if (!_completedThreadExecutionIds.Remove(submitted.Execution.ThreadExecutionId))
             {
-                _activeRuntimeRunId = submitted.Run.RuntimeRunId;
+                _activeThreadExecutionId = submitted.Execution.ThreadExecutionId;
             }
         }
         catch (Exception ex)
@@ -441,7 +441,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 return false;
             }
 
-            _ = ConfirmCancelActiveRunAsync(_scope, _state);
+            _ = ConfirmCancelActiveExecutionAsync(_scope, _state);
             return true;
         }
 
@@ -464,7 +464,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         return _state.Shell.Navigation.Back();
     }
 
-    private async Task ConfirmCancelActiveRunAsync(
+    private async Task ConfirmCancelActiveExecutionAsync(
         AgentTuiRuntimeScope scope,
         AgentTuiSessionState state)
     {
@@ -473,9 +473,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             var threadState = await _runtime.GetThreadStateAsync(scope, CancellationToken.None)
                 .ConfigureAwait(false);
             ReconcileRuntimeState(threadState);
-            var activeRun = threadState.ActiveRun;
-            if (activeRun is null ||
-                !string.Equals(activeRun.Status, "active", StringComparison.OrdinalIgnoreCase))
+            var activeExecution = threadState.ActiveExecution;
+            if (activeExecution is null ||
+                !string.Equals(activeExecution.Status, "active", StringComparison.OrdinalIgnoreCase))
             {
                 ClearCancelConfirmation();
                 state.Shell.FooterText = "state: ready";
@@ -483,36 +483,36 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 return;
             }
 
-            var shortRunId = ShortId(activeRun.RuntimeRunId);
+            var shortExecutionId = ShortId(activeExecution.ThreadExecutionId);
             var now = DateTimeOffset.UtcNow;
-            if (!string.Equals(_cancelConfirmationRunId, activeRun.RuntimeRunId, StringComparison.Ordinal) ||
+            if (!string.Equals(_cancelConfirmationExecutionId, activeExecution.ThreadExecutionId, StringComparison.Ordinal) ||
                 now > _cancelConfirmationExpiresAt)
             {
-                _cancelConfirmationRunId = activeRun.RuntimeRunId;
+                _cancelConfirmationExecutionId = activeExecution.ThreadExecutionId;
                 _cancelConfirmationExpiresAt = now + CancelConfirmationWindow;
-                state.Shell.FooterText = $"state: running | press Esc again to cancel run {shortRunId}";
+                state.Shell.FooterText = $"state: running | press Esc again to cancel execution {shortExecutionId}";
                 RequestRender();
                 return;
             }
 
             ClearCancelConfirmation();
-            state.Shell.FooterText = $"state: cancelling | run: {shortRunId}";
+            state.Shell.FooterText = $"state: cancelling | execution: {shortExecutionId}";
             UpsertRunActivity(
                 state,
-                activeRun.RuntimeRunId,
-                $"run {shortRunId} cancelling",
+                activeExecution.ThreadExecutionId,
+                $"execution {shortExecutionId} cancelling",
                 ActivityState.Running,
                 ActivitySeverity.Warning);
             RequestRender();
             var result = await _runtime.InterruptAsync(
                     scope,
-                    activeRun.RuntimeRunId,
+                    activeExecution.ThreadExecutionId,
                     "Cancelled from TUI.",
                     CancellationToken.None)
                 .ConfigureAwait(false);
-            if (result.Status is AgentTuiInterruptStatus.NoActiveRun or AgentTuiInterruptStatus.AlreadyTerminal)
+            if (result.Status is AgentTuiInterruptStatus.NoActiveExecution or AgentTuiInterruptStatus.AlreadyTerminal)
             {
-                _activeRuntimeRunId = null;
+                _activeThreadExecutionId = null;
                 state.Shell.FooterText = "state: ready";
                 RequestRender();
             }
@@ -541,18 +541,18 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
     private void ClearCancelConfirmation()
     {
-        _cancelConfirmationRunId = null;
+        _cancelConfirmationExecutionId = null;
         _cancelConfirmationExpiresAt = default;
     }
 
     private static void UpsertRunActivity(
         AgentTuiSessionState state,
-        string runtimeRunId,
+        string threadExecutionId,
         string label,
         ActivityState activityState,
         ActivitySeverity severity)
     {
-        var prefix = $"run {ShortId(runtimeRunId)}";
+        var prefix = $"execution {ShortId(threadExecutionId)}";
         foreach (var activity in state.Shell.Activities.Activities)
         {
             if (activity.Label.StartsWith(prefix, StringComparison.Ordinal))
@@ -887,7 +887,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         await _state.ApplyEventAsync(evt, cancellationToken, deliveryMode).ConfigureAwait(false);
         if (deliveryMode != AgentTuiEventDeliveryMode.Historical &&
             AgentTuiEventScope.CurrentThread.Includes(evt, _scope))
-            TrackRuntimeRun(evt);
+            TrackThreadExecution(evt);
 
         await HandleInteractionAsync(evt, cancellationToken).ConfigureAwait(false);
     }
@@ -929,7 +929,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                     case AgentTuiInteractionResultKind.InterruptTurn:
                         await _runtime.InterruptAsync(
                                 _scope,
-                                expectedRuntimeRunId: null,
+                                expectedThreadExecutionId: null,
                                 reason: result.Reason ?? "Interrupted by TUI interaction.",
                                 cancellationToken: cancellationToken)
                             .ConfigureAwait(false);
@@ -947,21 +947,21 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
     }
 
-    private void TrackRuntimeRun(AgentEvent evt)
+    private void TrackThreadExecution(AgentEvent evt)
     {
         switch (evt)
         {
-            case ThreadRunStartedEvent started:
-                _completedRuntimeRunIds.Remove(started.RuntimeRunId);
+            case ThreadExecutionStartedEvent started:
+                _completedThreadExecutionIds.Remove(started.ThreadExecutionId);
                 _inputSubmissionPending = false;
-                _activeRuntimeRunId = started.RuntimeRunId;
+                _activeThreadExecutionId = started.ThreadExecutionId;
                 break;
-            case ThreadRunCompletedEvent completed:
+            case ThreadExecutionFinishedEvent completed:
                 if (_awaitingRuntimeSubmissionId != 0)
-                    _completedRuntimeRunIds.Add(completed.RuntimeRunId);
-                if (string.Equals(_activeRuntimeRunId, completed.RuntimeRunId, StringComparison.Ordinal))
+                    _completedThreadExecutionIds.Add(completed.ThreadExecutionId);
+                if (string.Equals(_activeThreadExecutionId, completed.ThreadExecutionId, StringComparison.Ordinal))
                 {
-                    _activeRuntimeRunId = null;
+                    _activeThreadExecutionId = null;
                     _inputSubmissionPending = false;
                 }
                 break;
@@ -970,9 +970,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
     private void ReconcileRuntimeState(AgentTuiThreadState threadState)
     {
-        _activeRuntimeRunId = threadState.ActiveRun is { Status: var status } activeRun &&
+        _activeThreadExecutionId = threadState.ActiveExecution is { Status: var status } activeExecution &&
             string.Equals(status, "active", StringComparison.OrdinalIgnoreCase)
-                ? activeRun.RuntimeRunId
+                ? activeExecution.ThreadExecutionId
                 : null;
 
         _inputSubmissionPending = false;

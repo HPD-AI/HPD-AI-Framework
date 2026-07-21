@@ -333,7 +333,7 @@
       message,
       turnId: message.turnId,
       conversationId: message.conversationId,
-      runId: message.runId,
+      executionId: message.executionId,
       eventFlowId: message.eventFlowId,
       sequenceNumber: message.sequenceNumber,
     }));
@@ -345,9 +345,9 @@
         transcriptMessages: messages,
         activeTools: [],
         pendingRuntimeRequests,
-        threadRun: busy
+        threadExecution: busy
           ? {
-              runtimeRunId: 'storybook-run',
+              threadExecutionId: 'storybook-run',
               agentId: 'agent',
               status: 'active',
             }
@@ -355,7 +355,7 @@
         activity,
         currentTurnId: null,
         currentConversationId: null,
-        currentRunId: busy ? 'storybook-run' : null,
+        currentExecutionId: busy ? 'storybook-run' : null,
         error: null,
         canSend: !blocked,
       },
@@ -469,7 +469,7 @@
           'assistant-initial',
           'assistant',
           mode === 'busy'
-            ? 'I am still working through the active run.'
+            ? 'I am still working through the active thread execution.'
             : 'The thread projection is ready for display.',
         ),
         streaming: mode === 'busy',
@@ -493,7 +493,7 @@
       toolCalls: [],
       turnId: null,
       conversationId: null,
-      runId: null,
+      executionId: null,
       placement: 'transcript',
     };
   }

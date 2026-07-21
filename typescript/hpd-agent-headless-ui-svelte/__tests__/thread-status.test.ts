@@ -29,7 +29,7 @@ function toolCall(): ToolCall {
     startTime: new Date('2026-01-01T00:00:00.000Z'),
     turnId: null,
     conversationId: null,
-    runId: null,
+    executionId: null,
   };
 }
 
@@ -85,9 +85,9 @@ function snapshot(options: {
     transcriptMessages: [],
     activeTools,
     pendingRuntimeRequests,
-    threadRun: busy
+    threadExecution: busy
       ? {
-          runtimeRunId: 'run-1',
+          threadExecutionId: 'run-1',
           agentId: 'agent',
           status: 'active',
         }
@@ -95,7 +95,7 @@ function snapshot(options: {
     activity,
     currentTurnId: null,
     currentConversationId: null,
-    currentRunId: busy ? 'run-1' : null,
+    currentExecutionId: busy ? 'run-1' : null,
     error: options.error ?? null,
     canSend: !busy,
   };

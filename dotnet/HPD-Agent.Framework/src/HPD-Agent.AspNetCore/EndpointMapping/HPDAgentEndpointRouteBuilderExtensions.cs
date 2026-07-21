@@ -76,7 +76,7 @@ public static class HPDAgentEndpointRouteBuilderExtensions
         if (options.MapThreads)
         {
             ThreadEndpoints.Map(routeGroup, hostingServices.Threads);
-            ThreadRunEndpoints.Map(routeGroup, hostingServices.ThreadRuns);
+            ThreadExecutionEndpoints.Map(routeGroup, hostingServices.ThreadExecutions);
         }
         if (options.MapContent)
             ContentEndpoints.Map(routeGroup, hostingServices.Content);

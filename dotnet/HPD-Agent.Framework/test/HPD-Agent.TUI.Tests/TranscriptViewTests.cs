@@ -102,7 +102,7 @@ public sealed class TranscriptViewTests
             .AddDefaultTranscriptRenderers()
             .ReplaceTranscriptRenderer<RunStatusCell>(
                 AgentTuiTranscriptRendererKeys.RunStatus,
-                context => new Text($"run {context.Cell.RuntimeRunId}"))
+                context => new Text($"run {context.Cell.ThreadExecutionId}"))
             .Build();
         var model = new TranscriptModel();
         model.UpsertLive(new TranscriptEntry(

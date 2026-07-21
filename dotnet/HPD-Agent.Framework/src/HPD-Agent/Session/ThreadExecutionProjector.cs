@@ -2,44 +2,44 @@ using HPD.Agent.Middleware;
 
 namespace HPD.Agent;
 
-public static class ThreadRunStatus
+public static class ThreadExecutionStatus
 {
     public const string Active = "active";
-    public const string Completed = "completed";
+    public const string Succeeded = "succeeded";
     public const string Cancelled = "cancelled";
     public const string Failed = "failed";
     public const string Interrupted = "interrupted";
 }
 
-public sealed record ThreadRunProjection(
-    string RuntimeRunId,
+public sealed record ThreadExecutionProjection(
+    string ThreadExecutionId,
     string AgentId,
     string SessionId,
     string ThreadId,
     string Status,
     DateTimeOffset StartedAt,
-    DateTimeOffset? CompletedAt,
-    ThreadRunProjectionError? Error,
-    ThreadRunProjectionModelBackgroundOperation? ModelBackgroundOperation,
-    IReadOnlyList<ThreadRunProjectionBackgroundTask> BackgroundTasks,
-    IReadOnlyList<ThreadRunProjectionBackgroundHandle> BackgroundHandles);
+    DateTimeOffset? FinishedAt,
+    ThreadExecutionProjectionError? Error,
+    ThreadExecutionProjectionModelBackgroundOperation? ModelBackgroundOperation,
+    IReadOnlyList<ThreadExecutionProjectionBackgroundTask> BackgroundTasks,
+    IReadOnlyList<ThreadExecutionProjectionBackgroundHandle> BackgroundHandles);
 
-public sealed record ThreadRunProjectionError(
+public sealed record ThreadExecutionProjectionError(
     string? Type,
     string? Message);
 
-public sealed record ThreadRunProjectionModelBackgroundOperation(
+public sealed record ThreadExecutionProjectionModelBackgroundOperation(
     string Status,
     string? OperationId,
     string? StatusMessage,
     string? ContinuationToken);
 
-public sealed record ThreadRunProjectionBackgroundTask(
+public sealed record ThreadExecutionProjectionBackgroundTask(
     string TaskId,
     string Name,
     string SourceKind,
     string? SourceId,
-    ThreadRunProjectionBackgroundTaskNotification Notification,
+    ThreadExecutionProjectionBackgroundTaskNotification Notification,
     string Status,
     DateTimeOffset? StartedAt,
     DateTimeOffset? CompletedAt,
@@ -53,11 +53,11 @@ public sealed record ThreadRunProjectionBackgroundTask(
 /// </summary>
 /// <param name="Kind">Rule kind, such as none, on_final_state, or strategy.</param>
 /// <param name="StrategyName">Strategy name when <paramref name="Kind"/> is strategy.</param>
-public sealed record ThreadRunProjectionBackgroundTaskNotification(
+public sealed record ThreadExecutionProjectionBackgroundTaskNotification(
     string Kind,
     string? StrategyName = null);
 
-public sealed record ThreadRunProjectionBackgroundHandle(
+public sealed record ThreadExecutionProjectionBackgroundHandle(
     string HandleId,
     string Name,
     string HandleKind,
@@ -69,11 +69,11 @@ public sealed record ThreadRunProjectionBackgroundHandle(
     DateTimeOffset? UpdatedAt,
     IReadOnlyDictionary<string, string>? Metadata);
 
-public static class ThreadRunProjector
+public static class ThreadExecutionProjector
 {
     public static bool IsProjectionEvent(AgentEvent evt) => evt is
-        ThreadRunStartedEvent or
-        ThreadRunCompletedEvent or
+        ThreadExecutionStartedEvent or
+        ThreadExecutionFinishedEvent or
         ModelBackgroundOperationStartedEvent or
         ModelBackgroundOperationStatusEvent or
         BackgroundTaskStartedEvent or
@@ -83,28 +83,28 @@ public static class ThreadRunProjector
         BackgroundHandleRegisteredEvent or
         BackgroundHandleStatusChangedEvent;
 
-    public static IReadOnlyList<ThreadRunProjection> Project(
+    public static IReadOnlyList<ThreadExecutionProjection> Project(
         string agentId,
         string sessionId,
         string threadId,
         IEnumerable<AgentEvent> events,
-        string? activeRuntimeRunId = null)
+        string? activeThreadExecutionId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
         ArgumentNullException.ThrowIfNull(events);
 
-        var runs = new List<ThreadRunProjectionBuilder>();
-        ThreadRunProjectionBuilder? current = null;
+        var runs = new List<ThreadExecutionProjectionBuilder>();
+        ThreadExecutionProjectionBuilder? current = null;
 
         foreach (var evt in events.OrderBy(evt => evt.ThreadSequenceNumber))
         {
             switch (evt)
             {
-                case ThreadRunStartedEvent started when started.AgentId == agentId:
-                    current = new ThreadRunProjectionBuilder(
-                        started.RuntimeRunId,
+                case ThreadExecutionStartedEvent started when started.AgentId == agentId:
+                    current = new ThreadExecutionProjectionBuilder(
+                        started.ThreadExecutionId,
                         started.AgentId,
                         sessionId,
                         threadId,
@@ -112,55 +112,55 @@ public static class ThreadRunProjector
                     runs.Add(current);
                     break;
 
-                case ThreadRunCompletedEvent completed when completed.AgentId == agentId:
-                    current = runs.LastOrDefault(run => run.RuntimeRunId == completed.RuntimeRunId);
+                case ThreadExecutionFinishedEvent completed when completed.AgentId == agentId:
+                    current = runs.LastOrDefault(run => run.ThreadExecutionId == completed.ThreadExecutionId);
                     current?.Complete(completed);
                     break;
 
                 case ModelBackgroundOperationStartedEvent started:
-                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadRunStatus.Active);
+                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadExecutionStatus.Active);
                     current?.SetModelBackgroundOperation(started);
                     break;
 
                 case ModelBackgroundOperationStatusEvent status:
-                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadRunStatus.Active);
+                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadExecutionStatus.Active);
                     current?.SetModelBackgroundOperationStatus(status);
                     break;
 
                 case BackgroundTaskStartedEvent started:
-                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadRunStatus.Active);
+                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadExecutionStatus.Active);
                     current?.SetTask(started.TaskId, started.Name, started.SourceKind, started.SourceId, started.Notification, "started", started.StartedAt);
                     break;
 
                 case BackgroundTaskCompletedEvent completed:
-                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadRunStatus.Active);
+                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadExecutionStatus.Active);
                     current?.SetTask(completed.TaskId, completed.Name, completed.SourceKind, completed.SourceId, completed.Notification, "completed", completed.CompletedAt);
                     break;
 
                 case BackgroundTaskCancelledEvent cancelled:
-                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadRunStatus.Active);
+                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadExecutionStatus.Active);
                     current?.SetTask(cancelled.TaskId, cancelled.Name, cancelled.SourceKind, cancelled.SourceId, cancelled.Notification, "cancelled", cancelled.CancelledAt);
                     break;
 
                 case BackgroundTaskFaultedEvent faulted:
-                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadRunStatus.Active);
+                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadExecutionStatus.Active);
                     current?.SetTask(faulted.TaskId, faulted.Name, faulted.SourceKind, faulted.SourceId, faulted.Notification, "faulted", faulted.FaultedAt, faulted.ExceptionType, faulted.ErrorMessage);
                     break;
 
                 case BackgroundHandleRegisteredEvent registered:
-                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadRunStatus.Active);
+                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadExecutionStatus.Active);
                     current?.SetHandle(registered);
                     break;
 
                 case BackgroundHandleStatusChangedEvent changed:
-                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadRunStatus.Active);
+                    current ??= runs.LastOrDefault(run => run.AgentId == agentId && run.Status == ThreadExecutionStatus.Active);
                     current?.SetHandleStatus(changed);
                     break;
             }
         }
 
         foreach (var run in runs)
-            run.MarkInterruptedIfNotLive(activeRuntimeRunId);
+            run.MarkInterruptedIfNotLive(activeThreadExecutionId);
 
         return runs.Where(run => run.AgentId == agentId).Select(run => run.ToProjection()).ToList();
     }
@@ -170,55 +170,58 @@ public static class ThreadRunProjector
         token == null ? null : Convert.ToBase64String(token.ToBytes().Span);
 #pragma warning restore MEAI001
 
-    private sealed class ThreadRunProjectionBuilder
+    private sealed class ThreadExecutionProjectionBuilder
     {
-        private readonly Dictionary<string, ThreadRunProjectionBackgroundTaskBuilder> _tasks = new();
-        private readonly Dictionary<string, ThreadRunProjectionBackgroundHandleBuilder> _handles = new();
+        private readonly Dictionary<string, ThreadExecutionProjectionBackgroundTaskBuilder> _tasks = new();
+        private readonly Dictionary<string, ThreadExecutionProjectionBackgroundHandleBuilder> _handles = new();
 
-        public ThreadRunProjectionBuilder(
-            string runtimeRunId,
+        public ThreadExecutionProjectionBuilder(
+            string threadExecutionId,
             string agentId,
             string sessionId,
             string threadId,
             DateTimeOffset startedAt)
         {
-            RuntimeRunId = runtimeRunId;
+            ThreadExecutionId = threadExecutionId;
             AgentId = agentId;
             SessionId = sessionId;
             ThreadId = threadId;
             StartedAt = startedAt;
         }
 
-        public string RuntimeRunId { get; }
+        public string ThreadExecutionId { get; }
         public string AgentId { get; }
         public string SessionId { get; }
         public string ThreadId { get; }
         public DateTimeOffset StartedAt { get; }
-        public DateTimeOffset? CompletedAt { get; private set; }
-        public string Status { get; private set; } = ThreadRunStatus.Active;
-        public ThreadRunProjectionError? Error { get; private set; }
-        public ThreadRunProjectionModelBackgroundOperation? ModelBackgroundOperation { get; private set; }
+        public DateTimeOffset? FinishedAt { get; private set; }
+        public string Status { get; private set; } = ThreadExecutionStatus.Active;
+        public ThreadExecutionProjectionError? Error { get; private set; }
+        public ThreadExecutionProjectionModelBackgroundOperation? ModelBackgroundOperation { get; private set; }
 
-        public void Complete(ThreadRunCompletedEvent completed)
+        public void Complete(ThreadExecutionFinishedEvent completed)
         {
-            CompletedAt = completed.Timestamp;
-            Status = completed.ErrorType != null
-                ? ThreadRunStatus.Failed
-                : completed.Cancelled ? ThreadRunStatus.Cancelled : ThreadRunStatus.Completed;
-            Error = completed.ErrorType == null && completed.ErrorMessage == null
+            FinishedAt = completed.FinishedAt;
+            Status = completed.Outcome switch
+            {
+                ThreadExecutionOutcome.Failed => ThreadExecutionStatus.Failed,
+                ThreadExecutionOutcome.Cancelled => ThreadExecutionStatus.Cancelled,
+                _ => ThreadExecutionStatus.Succeeded
+            };
+            Error = completed.Error is null
                 ? null
-                : new ThreadRunProjectionError(completed.ErrorType, completed.ErrorMessage);
+                : new ThreadExecutionProjectionError(completed.Error.Type, completed.Error.Message);
         }
 
-        public void MarkInterruptedIfNotLive(string? activeRuntimeRunId)
+        public void MarkInterruptedIfNotLive(string? activeThreadExecutionId)
         {
-            if (Status == ThreadRunStatus.Active && RuntimeRunId != activeRuntimeRunId)
-                Status = ThreadRunStatus.Interrupted;
+            if (Status == ThreadExecutionStatus.Active && ThreadExecutionId != activeThreadExecutionId)
+                Status = ThreadExecutionStatus.Interrupted;
         }
 
         public void SetModelBackgroundOperation(ModelBackgroundOperationStartedEvent evt)
         {
-            ModelBackgroundOperation = new ThreadRunProjectionModelBackgroundOperation(
+            ModelBackgroundOperation = new ThreadExecutionProjectionModelBackgroundOperation(
                 evt.Status.Value,
                 evt.OperationId,
                 null,
@@ -227,7 +230,7 @@ public static class ThreadRunProjector
 
         public void SetModelBackgroundOperationStatus(ModelBackgroundOperationStatusEvent evt)
         {
-            ModelBackgroundOperation = new ThreadRunProjectionModelBackgroundOperation(
+            ModelBackgroundOperation = new ThreadExecutionProjectionModelBackgroundOperation(
                 evt.Status.Value,
                 ModelBackgroundOperation?.OperationId,
                 evt.StatusMessage,
@@ -247,7 +250,7 @@ public static class ThreadRunProjector
         {
             if (!_tasks.TryGetValue(taskId, out var task))
             {
-                task = new ThreadRunProjectionBackgroundTaskBuilder(taskId, name, sourceKind, sourceId, notification);
+                task = new ThreadExecutionProjectionBackgroundTaskBuilder(taskId, name, sourceKind, sourceId, notification);
                 _tasks[taskId] = task;
             }
 
@@ -262,7 +265,7 @@ public static class ThreadRunProjector
 
         public void SetHandle(BackgroundHandleRegisteredEvent evt)
         {
-            var handle = new ThreadRunProjectionBackgroundHandleBuilder(
+            var handle = new ThreadExecutionProjectionBackgroundHandleBuilder(
                 evt.HandleId,
                 evt.Name,
                 evt.HandleKind,
@@ -278,7 +281,7 @@ public static class ThreadRunProjector
         {
             if (!_handles.TryGetValue(evt.HandleId, out var handle))
             {
-                handle = new ThreadRunProjectionBackgroundHandleBuilder(
+                handle = new ThreadExecutionProjectionBackgroundHandleBuilder(
                     evt.HandleId,
                     evt.HandleId,
                     BackgroundHandleKind.Other,
@@ -295,29 +298,29 @@ public static class ThreadRunProjector
             handle.Metadata = evt.Metadata ?? handle.Metadata;
         }
 
-        public ThreadRunProjection ToProjection() =>
+        public ThreadExecutionProjection ToProjection() =>
             new(
-                RuntimeRunId,
+                ThreadExecutionId,
                 AgentId,
                 SessionId,
                 ThreadId,
                 Status,
                 StartedAt,
-                CompletedAt,
+                FinishedAt,
                 Error,
                 ModelBackgroundOperation,
                 _tasks.Values.Select(task => task.ToProjection()).ToList(),
                 _handles.Values.Select(handle => handle.ToProjection()).ToList());
     }
 
-    private sealed class ThreadRunProjectionBackgroundTaskBuilder
+    private sealed class ThreadExecutionProjectionBackgroundTaskBuilder
     {
-        public ThreadRunProjectionBackgroundTaskBuilder(string taskId, string name)
+        public ThreadExecutionProjectionBackgroundTaskBuilder(string taskId, string name)
             : this(taskId, name, BackgroundTaskSourceKind.Other, null, BackgroundTaskNotificationRule.None)
         {
         }
 
-        public ThreadRunProjectionBackgroundTaskBuilder(
+        public ThreadExecutionProjectionBackgroundTaskBuilder(
             string taskId,
             string name,
             BackgroundTaskSourceKind sourceKind,
@@ -356,7 +359,7 @@ public static class ThreadRunProjector
                 FaultedAt = timestamp;
         }
 
-        public ThreadRunProjectionBackgroundTask ToProjection() =>
+        public ThreadExecutionProjectionBackgroundTask ToProjection() =>
             new(
                 TaskId,
                 Name,
@@ -371,24 +374,24 @@ public static class ThreadRunProjector
                 ErrorType,
                 ErrorMessage);
 
-        private static ThreadRunProjectionBackgroundTaskNotification CreateNotificationProjection(
+        private static ThreadExecutionProjectionBackgroundTaskNotification CreateNotificationProjection(
             BackgroundTaskNotificationRule notification) =>
             notification switch
             {
                 BackgroundTaskNotificationRule.NoneRule =>
-                    new ThreadRunProjectionBackgroundTaskNotification("none"),
+                    new ThreadExecutionProjectionBackgroundTaskNotification("none"),
                 BackgroundTaskNotificationRule.OnFinalStateRule =>
-                    new ThreadRunProjectionBackgroundTaskNotification("on_final_state"),
+                    new ThreadExecutionProjectionBackgroundTaskNotification("on_final_state"),
                 BackgroundTaskNotificationRule.StrategyRule strategy =>
-                    new ThreadRunProjectionBackgroundTaskNotification("strategy", strategy.Name),
+                    new ThreadExecutionProjectionBackgroundTaskNotification("strategy", strategy.Name),
                 _ =>
-                    new ThreadRunProjectionBackgroundTaskNotification("unknown")
+                    new ThreadExecutionProjectionBackgroundTaskNotification("unknown")
             };
     }
 
-    private sealed class ThreadRunProjectionBackgroundHandleBuilder
+    private sealed class ThreadExecutionProjectionBackgroundHandleBuilder
     {
-        public ThreadRunProjectionBackgroundHandleBuilder(
+        public ThreadExecutionProjectionBackgroundHandleBuilder(
             string handleId,
             string name,
             BackgroundHandleKind handleKind,
@@ -420,7 +423,7 @@ public static class ThreadRunProjector
         public DateTimeOffset? UpdatedAt { get; set; }
         public IReadOnlyDictionary<string, string>? Metadata { get; set; }
 
-        public ThreadRunProjectionBackgroundHandle ToProjection() =>
+        public ThreadExecutionProjectionBackgroundHandle ToProjection() =>
             new(
                 HandleId,
                 Name,

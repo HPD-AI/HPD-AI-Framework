@@ -187,7 +187,7 @@
       toolCalls: [],
       turnId: null,
       conversationId: null,
-      runId: null,
+      executionId: null,
       placement: 'transcript',
     };
 
@@ -197,7 +197,7 @@
       message: itemMessage,
       turnId: null,
       conversationId: null,
-      runId: null,
+      executionId: null,
     };
   }
 
@@ -209,7 +209,7 @@
         id,
         turnId: 'turn-1',
         conversationId: 'conversation-1',
-        runId: 'run-1',
+        executionId: 'run-1',
         status: 'worked',
         label: 'Branch work completed',
         openByDefault: false,
@@ -221,7 +221,7 @@
       },
       turnId: 'turn-1',
       conversationId: 'conversation-1',
-      runId: 'run-1',
+      executionId: 'run-1',
     };
   }
 

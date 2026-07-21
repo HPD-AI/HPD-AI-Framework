@@ -26,7 +26,7 @@ function okSubmission(): Response {
     ok: true,
     body: null,
     text: async () => JSON.stringify({
-      runtimeRunId: 'run-1',
+      threadExecutionId: 'run-1',
       startedAt: '2026-07-15T00:00:00Z',
     }),
   } as Response;
@@ -138,6 +138,35 @@ describe('AgentClient', () => {
       name: 'Calculator',
       argsJson: '{"x":1}',
     }]);
+  });
+
+  it('dispatches typed thread execution terminal outcomes', async () => {
+    const finished = vi.fn();
+    const client = new AgentClient('http://localhost:5135');
+
+    client.on(EventTypes.THREAD_EXECUTION_FINISHED, (event) => {
+      finished(event.threadExecutionId, event.outcome, event.finishedAt, event.error?.message);
+    });
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okStream({
+      version: '1.0',
+      type: EventTypes.THREAD_EXECUTION_FINISHED,
+      threadExecutionId: 'execution-1',
+      agentId: 'agent-1',
+      outcome: 'Failed',
+      finishedAt: '2026-07-15T00:00:01Z',
+      error: { type: 'ProviderError', message: 'Provider failed.' },
+    }));
+
+    await client.start({ sessionId: 'session-123', agentId: 'agent-1', threadId: 'main' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(finished).toHaveBeenCalledWith(
+      'execution-1',
+      'Failed',
+      '2026-07-15T00:00:01Z',
+      'Provider failed.',
+    );
   });
 
   it('disposes typed and onAny subscriptions', async () => {

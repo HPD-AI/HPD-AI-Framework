@@ -768,14 +768,14 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                 await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false),
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        var runtimeRunId = document.RootElement.GetProperty("runtimeRunId").GetString()
-            ?? throw new InvalidOperationException("The hosted runtime did not return a run ID.");
+        var threadExecutionId = document.RootElement.GetProperty("threadExecutionId").GetString()
+            ?? throw new InvalidOperationException("The hosted runtime did not return a thread execution ID.");
         var startedAt = document.RootElement.TryGetProperty("startedAt", out var startedAtElement) &&
             startedAtElement.TryGetDateTimeOffset(out var parsedStartedAt)
                 ? parsedStartedAt
                 : DateTimeOffset.UtcNow;
         return new AgentTuiSubmitResult(
-            new AgentTuiThreadRun(runtimeRunId, scope.AgentId, scope.SessionId, scope.ThreadId, "active", startedAt));
+            new AgentTuiThreadExecution(threadExecutionId, scope.AgentId, scope.SessionId, scope.ThreadId, "active", startedAt));
     }
 
     public async Task<ThreadContextUsage> EstimateContextUsageAsync(
@@ -815,14 +815,14 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
     public async Task<AgentTuiInterruptResult> InterruptAsync(
         AgentTuiRuntimeScope scope,
-        string? expectedRuntimeRunId,
+        string? expectedThreadExecutionId,
         string reason,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(scope);
 
         var json = SerializeJson(JsonObject(
-            ("expectedRuntimeRunId", JsonValue.Create(expectedRuntimeRunId)),
+            ("expectedThreadExecutionId", JsonValue.Create(expectedThreadExecutionId)),
             ("reason", JsonValue.Create(string.IsNullOrWhiteSpace(reason)
                 ? "Interrupted by TUI."
                 : reason))));
@@ -850,14 +850,14 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         {
             "accepted" => AgentTuiInterruptStatus.Accepted,
             "already_terminal" => AgentTuiInterruptStatus.AlreadyTerminal,
-            "no_active_run" => AgentTuiInterruptStatus.NoActiveRun,
-            "active_run_mismatch" => AgentTuiInterruptStatus.ActiveRunMismatch,
+            "no_active_execution" => AgentTuiInterruptStatus.NoActiveExecution,
+            "active_execution_mismatch" => AgentTuiInterruptStatus.ActiveExecutionMismatch,
             var value => throw new InvalidOperationException($"Unknown interrupt status '{value}'.")
         };
-        var activeRun = root.TryGetProperty("activeRun", out var activeRunElement)
-            ? ParseThreadRun(activeRunElement)
+        var activeExecution = root.TryGetProperty("activeExecution", out var activeExecutionElement)
+            ? ParseThreadExecution(activeExecutionElement)
             : null;
-        return new AgentTuiInterruptResult(status, activeRun);
+        return new AgentTuiInterruptResult(status, activeExecution);
     }
 
     public async Task AnswerRequestAsync(
@@ -920,8 +920,8 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         }
 
         var root = document.RootElement;
-        var activeRun = root.TryGetProperty("activeRun", out var activeRunElement)
-            ? ParseThreadRun(activeRunElement)
+        var activeExecution = root.TryGetProperty("activeExecution", out var activeExecutionElement)
+            ? ParseThreadExecution(activeExecutionElement)
             : null;
         var observedCursor = root.TryGetProperty("observedCursor", out var cursorElement)
             ? new ThreadJournalCursor(
@@ -948,24 +948,24 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
 
         return new AgentTuiThreadState(
             observedCursor,
-            activeRun,
+            activeExecution,
             pendingRequests);
     }
 
-    private static AgentTuiThreadRun? ParseThreadRun(JsonElement root)
+    private static AgentTuiThreadExecution? ParseThreadExecution(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object)
         {
             return null;
         }
 
-        var runtimeRunId = GetRequiredString(root, "runtimeRunId");
+        var threadExecutionId = GetRequiredString(root, "threadExecutionId");
         var agentId = GetRequiredString(root, "agentId");
         var sessionId = GetRequiredString(root, "sessionId");
         var threadId = GetRequiredString(root, "threadId");
         var status = GetRequiredString(root, "status");
         var startedAt = GetRequiredDateTimeOffset(root, "startedAt");
-        var completedAt = GetOptionalDateTimeOffset(root, "completedAt");
+        var finishedAt = GetOptionalDateTimeOffset(root, "finishedAt");
         var errorType = default(string?);
         var errorMessage = default(string?);
         if (root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object)
@@ -974,16 +974,16 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             errorMessage = GetOptionalString(error, "message");
         }
 
-        return string.IsNullOrWhiteSpace(runtimeRunId)
+        return string.IsNullOrWhiteSpace(threadExecutionId)
             ? null
-            : new AgentTuiThreadRun(
-                runtimeRunId,
+            : new AgentTuiThreadExecution(
+                threadExecutionId,
                 agentId,
                 sessionId,
                 threadId,
                 status,
                 startedAt,
-                completedAt,
+                finishedAt,
                 errorType,
                 errorMessage);
     }

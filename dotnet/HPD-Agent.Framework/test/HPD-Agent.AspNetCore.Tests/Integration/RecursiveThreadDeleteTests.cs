@@ -130,7 +130,7 @@ public class RecursiveThreadDeleteTests : IClassFixture<RecursiveDeleteEnabledFa
             threadId,
             observed => observed.OfType<TextMessageStartEvent>()
                             .Any(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase)) &&
-                        (!waitForRunCompletion || observed.OfType<ThreadRunCompletedEvent>().Any()),
+                        (!waitForRunCompletion || observed.OfType<ThreadExecutionFinishedEvent>().Any()),
             timeout ?? TimeSpan.FromMilliseconds(150));
         return events.OfType<TextMessageStartEvent>()
             .FirstOrDefault(evt => string.Equals(evt.Role, "user", StringComparison.OrdinalIgnoreCase))

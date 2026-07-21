@@ -19,7 +19,7 @@ public sealed record BackgroundTaskDescriptor
 
     public string? SourceId { get; init; }
 
-    public string? ParentRuntimeRunId { get; init; }
+    public string? OriginatingThreadExecutionId { get; init; }
 
     public string? SessionId { get; init; }
 
@@ -85,7 +85,7 @@ public sealed record BackgroundTaskContext
 
     public string? SourceId => Descriptor.SourceId;
 
-    public string? ParentRuntimeRunId => Descriptor.ParentRuntimeRunId;
+    public string? OriginatingThreadExecutionId => Descriptor.OriginatingThreadExecutionId;
 
     public string? SessionId => Descriptor.SessionId;
 

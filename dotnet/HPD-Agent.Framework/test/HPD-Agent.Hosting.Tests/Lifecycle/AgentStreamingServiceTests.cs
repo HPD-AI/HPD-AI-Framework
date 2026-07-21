@@ -27,19 +27,19 @@ public sealed class AgentStreamingServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task RebaseSeedProvider_ReencodesAuthoritativeActiveRun()
+    public async Task RebaseSeedProvider_ReencodesAuthoritativeActiveExecution()
     {
-        _sessionManager.TryReserveThreadRun("agent", "session", "thread", out var reserved)
+        _sessionManager.TryReserveThreadExecution("agent", "session", "thread", out var reserved)
             .Should().BeTrue();
-        _sessionManager.ActivateThreadRun("session", "thread", reserved.RuntimeRunId)
+        _sessionManager.ActivateThreadExecution("session", "thread", reserved.ThreadExecutionId)
             .Should().BeTrue();
         var provider = new HostedThreadJournalRebaseSeedProvider(_sessionManager, _agentManager);
 
         var seeds = await provider.CreateSeedEventsAsync(new ThreadKey("session", "thread"));
 
         var started = seeds.Should().ContainSingle().Which
-            .Should().BeOfType<ThreadRunStartedEvent>().Subject;
-        started.RuntimeRunId.Should().Be(reserved.RuntimeRunId);
+            .Should().BeOfType<ThreadExecutionStartedEvent>().Subject;
+        started.ThreadExecutionId.Should().Be(reserved.ThreadExecutionId);
         started.AgentId.Should().Be("agent");
         started.ThreadSequenceNumber.Should().Be(0);
         started.SessionId.Should().Be("session");
@@ -68,7 +68,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
             AgentId = "client-agent",
             SessionId = "client-session",
             ThreadId = "client-thread",
-            RuntimeRunId = "client-run",
+            ThreadExecutionId = "client-run",
             RunConfig = runConfig
         };
 
@@ -83,7 +83,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
         messages.AgentId.Should().Be("route-agent");
         messages.SessionId.Should().Be("route-session");
         messages.ThreadId.Should().Be("route-thread");
-        messages.RuntimeRunId.Should().Be("route-run");
+        messages.ThreadExecutionId.Should().Be("route-run");
         messages.ClientInputId.Should().Be("client-input-1");
         messages.RunConfig.Should().BeSameAs(runConfig);
         messages.RunConfig!.ContextOverrides.Should().ContainKey("workspace");
@@ -110,7 +110,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
             AgentId = "client-agent",
             SessionId = "client-session",
             ThreadId = "client-thread",
-            RuntimeRunId = "client-run",
+            ThreadExecutionId = "client-run",
             RunConfig = runConfig
         };
 
@@ -125,7 +125,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
         notification.AgentId.Should().Be("route-agent");
         notification.SessionId.Should().Be("route-session");
         notification.ThreadId.Should().Be("route-thread");
-        notification.RuntimeRunId.Should().Be("route-run");
+        notification.ThreadExecutionId.Should().Be("route-run");
         notification.ClientInputId.Should().Be("client-input-1");
         notification.RunConfig.Should().BeSameAs(runConfig);
     }
@@ -164,7 +164,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
         await _sessionStore.AppendThreadEventAsync(
             sessionId,
             threadId,
-            new ThreadRunStartedEvent("orphaned-run", "agent-1", DateTimeOffset.UtcNow)
+            new ThreadExecutionStartedEvent("orphaned-run", "agent-1", DateTimeOffset.UtcNow)
             {
                 SessionId = sessionId,
                 ThreadId = threadId
@@ -173,7 +173,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
         var result = await _service.GetThreadStateAsync("agent-1", sessionId, threadId);
 
         result.Status.Should().Be(AgentServiceStatus.Success);
-        result.Value!.ActiveRun.Should().BeNull();
+        result.Value!.ActiveExecution.Should().BeNull();
         result.Value.ObservedCursor.Should().Be(new ThreadJournalCursor(1, 2));
     }
 
@@ -312,7 +312,7 @@ public sealed class AgentStreamingServiceTests : IDisposable
             });
 
         submitted.Status.Should().Be(AgentServiceStatus.Success);
-        var runtimeRunId = submitted.Value!.RuntimeRunId;
+        var threadExecutionId = submitted.Value!.ThreadExecutionId;
         var descriptor = await _sessionStore.GetThreadAsync(new ThreadKey(sessionId, threadId));
         descriptor!.DefaultAgent.AgentId.Should().Be("agent-1");
         descriptor.DefaultAgent.AgentId.Should().NotBe(stored.Id);
@@ -326,20 +326,20 @@ public sealed class AgentStreamingServiceTests : IDisposable
             timeout.Token))
         {
             observed.AddRange(batch.Events);
-            if (observed.OfType<ThreadRunCompletedEvent>().Any(evt => evt.RuntimeRunId == runtimeRunId))
+            if (observed.OfType<ThreadExecutionFinishedEvent>().Any(evt => evt.ThreadExecutionId == threadExecutionId))
                 break;
         }
 
-        var startedIndex = observed.FindIndex(evt => evt is ThreadRunStartedEvent started && started.RuntimeRunId == runtimeRunId);
-        var completedIndex = observed.FindIndex(evt => evt is ThreadRunCompletedEvent completed && completed.RuntimeRunId == runtimeRunId);
+        var startedIndex = observed.FindIndex(evt => evt is ThreadExecutionStartedEvent started && started.ThreadExecutionId == threadExecutionId);
+        var completedIndex = observed.FindIndex(evt => evt is ThreadExecutionFinishedEvent completed && completed.ThreadExecutionId == threadExecutionId);
         startedIndex.Should().BeGreaterThanOrEqualTo(0);
         completedIndex.Should().BeGreaterThan(startedIndex);
-        observed.OfType<ThreadRunStartedEvent>()
-            .Single(evt => evt.RuntimeRunId == runtimeRunId)
+        observed.OfType<ThreadExecutionStartedEvent>()
+            .Single(evt => evt.ThreadExecutionId == threadExecutionId)
             .AgentId.Should().Be(stored.Id);
 
         await WaitUntilAsync(
-            () => _sessionManager.GetActiveThreadRun(sessionId, threadId) is null,
+            () => _sessionManager.GetActiveThreadExecution(sessionId, threadId) is null,
             TimeSpan.FromSeconds(5));
     }
 

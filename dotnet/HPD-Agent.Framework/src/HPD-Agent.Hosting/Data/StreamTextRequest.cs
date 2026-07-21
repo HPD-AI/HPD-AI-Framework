@@ -12,16 +12,16 @@ public sealed record StreamTextRequest(
     string? ClientInputId = null);
 
 public sealed record InputSubmissionDto(
-    string RuntimeRunId,
+    string ThreadExecutionId,
     DateTimeOffset StartedAt);
 
 public sealed record InterruptionSubmissionDto(
     string Status,
-    ThreadRunDto? ActiveRun = null);
+    ThreadExecutionDto? ActiveExecution = null);
 
 public sealed record ThreadRuntimeStateDto(
     ThreadJournalCursor ObservedCursor,
-    ThreadRunDto? ActiveRun,
+    ThreadExecutionDto? ActiveExecution,
     IReadOnlyList<PendingAgentRequestDto> PendingRequests);
 
 public sealed record PendingAgentRequestDto(

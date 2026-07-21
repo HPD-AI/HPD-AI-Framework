@@ -142,7 +142,7 @@ public sealed record ProviderComponentLifetimeContext(
     string? AgentId = null,
     string? SessionId = null,
     string? ThreadId = null,
-    string? RuntimeRunId = null,
+    string? ThreadExecutionId = null,
     string? AudioSessionId = null,
     ProviderFamilyLifetime Lifetime = ProviderFamilyLifetime.ReusableClient);
 

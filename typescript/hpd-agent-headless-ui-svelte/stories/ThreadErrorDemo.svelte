@@ -12,7 +12,7 @@
   } from '@hpd-research/hpd-agent-headless-ui';
 
   type RenderMode = 'default' | 'children' | 'child';
-  type Scenario = 'thread' | 'run' | 'work' | 'tool' | 'multiple' | 'none';
+  type Scenario = 'thread' | 'execution' | 'work' | 'tool' | 'multiple' | 'none';
 
   let {
     renderMode = 'default',
@@ -59,9 +59,9 @@
   function createSnapshot(mode: Scenario): ThreadStateSnapshot {
     const activeTools = mode === 'tool' || mode === 'multiple' ? [toolCall()] : [];
     const workGroups = mode === 'work' || mode === 'multiple' ? [workGroup()] : [];
-    const threadRun = mode === 'run' || mode === 'multiple'
+    const threadExecution = mode === 'execution' || mode === 'multiple'
       ? {
-          runtimeRunId: 'run-failed',
+          threadExecutionId: 'run-failed',
           agentId: 'agent',
           status: 'failed',
           errorType: 'provider',
@@ -72,7 +72,7 @@
       ? 'The stream disconnected before the turn completed.'
       : null;
     const activity: ThreadActivity = {
-      status: error || threadRun || workGroups.length > 0 || activeTools.length > 0 ? 'failed' : 'idle',
+      status: error || threadExecution || workGroups.length > 0 || activeTools.length > 0 ? 'failed' : 'idle',
       streaming: false,
       reasoning: false,
       activeToolCount: activeTools.length,
@@ -85,11 +85,11 @@
       transcriptMessages: [],
       activeTools,
       pendingRuntimeRequests: [],
-      threadRun,
+      threadExecution,
       activity,
       currentTurnId: 'turn-1',
       currentConversationId: 'conversation-1',
-      currentRunId: threadRun?.runtimeRunId ?? 'run-1',
+      currentExecutionId: threadExecution?.threadExecutionId ?? 'run-1',
       error,
       canSend: mode === 'none',
     };
@@ -117,7 +117,7 @@
       id: 'work-1',
       turnId: 'turn-1',
       conversationId: 'conversation-1',
-      runId: 'run-1',
+      executionId: 'run-1',
       status: 'failed',
       label: 'Tool planning',
       openByDefault: true,
@@ -136,7 +136,7 @@
       error: 'The requested file is outside the workspace.',
       turnId: 'turn-1',
       conversationId: 'conversation-1',
-      runId: 'run-1',
+      executionId: 'run-1',
     };
   }
 </script>
@@ -154,7 +154,7 @@
     <aside class="guide">
       <h2>What to inspect</h2>
       <ol>
-        <li>Switch scenarios to compare controller, run, work, and tool errors.</li>
+        <li>Switch scenarios to compare controller, execution, work, and tool errors.</li>
         <li>Enable `showAll` to see the default multi-error list.</li>
         <li>Compare snippet modes for wrapper-level and full DOM control.</li>
       </ol>

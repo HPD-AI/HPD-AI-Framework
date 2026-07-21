@@ -35,7 +35,7 @@ public interface IAgentStreamingService
         string agentId,
         string sessionId,
         string threadId,
-        string? expectedRuntimeRunId,
+        string? expectedThreadExecutionId,
         InterruptionRequestEvent interruption,
         CancellationToken cancellationToken = default);
 
@@ -44,7 +44,7 @@ public interface IAgentStreamingService
         string agentId,
         string sessionId,
         string threadId,
-        string? runtimeRunId = null);
+        string? threadExecutionId = null);
 }
 
 /// <summary>

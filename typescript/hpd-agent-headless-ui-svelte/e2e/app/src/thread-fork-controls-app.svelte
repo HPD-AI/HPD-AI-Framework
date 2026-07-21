@@ -77,7 +77,7 @@
       toolCalls: [],
       turnId: null,
       conversationId: null,
-      runId: null,
+      executionId: null,
       placement: 'transcript',
     };
   }

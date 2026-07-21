@@ -267,10 +267,11 @@
       "timestamp": "2026-06-06T00:14:20.999041+00:00"
     },
     {
-      "type": "THREAD_RUN_COMPLETED",
-      "runtimeRunId": "17fa6a01847d4641875b5e60a6328b20",
+      "type": "THREAD_EXECUTION_FINISHED",
+      "threadExecutionId": "17fa6a01847d4641875b5e60a6328b20",
       "agentId": "tui-console-agent",
-      "cancelled": false,
+      "outcome": 0,
+      "finishedAt": "2026-06-06T00:14:20.999312+00:00",
       "eventId": "86bfb2a5ecd243028277c7035c97f60b",
       "sequenceNumber": 34,
       "timestamp": "2026-06-06T00:14:20.999312+00:00"

@@ -1,20 +1,20 @@
 import type { AgentEvent, AgentRunInputEvent, RespondResult } from './events.js';
-import type { ThreadJournalCursor, ThreadRun } from './thread-run.js';
+import type { ThreadJournalCursor, ThreadExecution } from './thread-execution.js';
 
 export interface InputSubmissionResult {
-  runtimeRunId: string;
+  threadExecutionId: string;
   startedAt: string;
 }
 
 export type InterruptionStatus =
   | 'accepted'
   | 'already_terminal'
-  | 'no_active_run'
-  | 'active_run_mismatch';
+  | 'no_active_execution'
+  | 'active_execution_mismatch';
 
 export interface InterruptionResult {
   status: InterruptionStatus;
-  activeRun?: ThreadRun | null;
+  activeExecution?: ThreadExecution | null;
 }
 
 export type SubmitInputResult = RespondResult | InputSubmissionResult | InterruptionResult;

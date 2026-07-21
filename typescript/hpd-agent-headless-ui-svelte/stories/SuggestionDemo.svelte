@@ -86,17 +86,17 @@
       transcriptMessages: [],
       activeTools: [],
       pendingRuntimeRequests: [],
-      threadRun: canSubmitText
+      threadExecution: canSubmitText
         ? null
         : {
-            runtimeRunId: 'storybook-run',
+            threadExecutionId: 'storybook-run',
             agentId: 'agent',
             status: 'active',
           },
       activity,
       currentTurnId: null,
       currentConversationId: null,
-      currentRunId: canSubmitText ? null : 'storybook-run',
+      currentExecutionId: canSubmitText ? null : 'storybook-run',
       error: null,
       canSend: canSubmitText,
     };

@@ -54,7 +54,7 @@ function uiMessage(role: Message['role'], overrides: Partial<Message> = {}): Mes
     toolCalls: [],
     turnId: null,
     conversationId: null,
-    runId: null,
+    executionId: null,
     placement: 'transcript',
     ...overrides,
   };
@@ -73,10 +73,10 @@ function fakeClient(messages: ThreadMessage[] = transcript()): AgentClient {
     onError: vi.fn(() => ({ dispose: vi.fn() })),
     getThread: vi.fn(async () => thread('fork-1')),
     getThreadEvents: vi.fn(async () => []),
-    getThreadRuns: vi.fn(async () => []),
+    getThreadExecutions: vi.fn(async () => []),
     getThreadState: vi.fn(async () => ({
       observedCursor: { generation: 1, sequenceNumber: 0 },
-      activeRun: null,
+      activeExecution: null,
       pendingRequests: [],
     })),
     getThreadMessages: vi.fn(async () => messages),
@@ -273,7 +273,7 @@ describe('createThreadRevisionState', () => {
         startTime: new Date('2026-01-01T00:00:00.000Z'),
         turnId: null,
         conversationId: null,
-        runId: null,
+        executionId: null,
       }],
     }))).toBe(false);
   });
@@ -286,12 +286,12 @@ describe('createThreadRevisionState', () => {
       agentId: 'agent',
       sessionId: 's1',
       revision: 'fork-1',
-      hydrateOptions: { includeRuns: true },
+      hydrateOptions: { includeExecutions: true },
     });
 
     expect(threadState.controller.scope.threadId).toBe('fork-1');
     expect(client.getThread).toHaveBeenCalledWith('s1', 'fork-1');
-    expect(client.getThreadRuns).toHaveBeenCalledWith('agent', 's1', 'fork-1');
+    expect(client.getThreadExecutions).toHaveBeenCalledWith('agent', 's1', 'fork-1');
     expect(client.start).toHaveBeenCalledWith({
       agentId: 'agent',
       sessionId: 's1',

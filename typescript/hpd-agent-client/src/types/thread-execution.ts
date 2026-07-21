@@ -1,4 +1,4 @@
-export type ThreadRunStatus = "active" | "completed" | "cancelled" | "failed" | "interrupted";
+export type ThreadExecutionStatus = "active" | "succeeded" | "cancelled" | "failed" | "interrupted";
 
 export type ModelBackgroundOperationStatus =
   | "Queued"
@@ -8,29 +8,29 @@ export type ModelBackgroundOperationStatus =
   | "Cancelled"
   | string;
 
-export interface ThreadRunError {
-  type?: string | null;
-  message?: string | null;
+export interface ThreadExecutionError {
+  type: string;
+  message: string;
 }
 
-export interface ThreadRunModelBackgroundOperation {
+export interface ThreadExecutionModelBackgroundOperation {
   status: ModelBackgroundOperationStatus;
   operationId?: string | null;
   statusMessage?: string | null;
   continuationToken?: string | null;
 }
 
-export interface ThreadRunBackgroundTaskNotification {
+export interface ThreadExecutionBackgroundTaskNotification {
   kind: string;
   strategyName?: string | null;
 }
 
-export interface ThreadRunBackgroundTask {
+export interface ThreadExecutionBackgroundTask {
   taskId: string;
   name: string;
   sourceKind: string;
   sourceId?: string | null;
-  notification: ThreadRunBackgroundTaskNotification;
+  notification: ThreadExecutionBackgroundTaskNotification;
   status: "started" | "completed" | "cancelled" | "faulted" | string;
   startedAt?: string | null;
   completedAt?: string | null;
@@ -40,7 +40,7 @@ export interface ThreadRunBackgroundTask {
   errorMessage?: string | null;
 }
 
-export interface ThreadRunBackgroundHandle {
+export interface ThreadExecutionBackgroundHandle {
   handleId: string;
   name: string;
   handleKind: string;
@@ -53,23 +53,23 @@ export interface ThreadRunBackgroundHandle {
   metadata?: Record<string, string> | null;
 }
 
-export interface ThreadRun {
-  runtimeRunId: string;
+export interface ThreadExecution {
+  threadExecutionId: string;
   agentId: string;
   sessionId: string;
   threadId: string;
-  status: ThreadRunStatus;
+  status: ThreadExecutionStatus;
   startedAt: string;
-  completedAt?: string | null;
-  error?: ThreadRunError | null;
-  modelBackgroundOperation?: ThreadRunModelBackgroundOperation | null;
-  backgroundTasks: ThreadRunBackgroundTask[];
-  backgroundHandles: ThreadRunBackgroundHandle[];
+  finishedAt?: string | null;
+  error?: ThreadExecutionError | null;
+  modelBackgroundOperation?: ThreadExecutionModelBackgroundOperation | null;
+  backgroundTasks: ThreadExecutionBackgroundTask[];
+  backgroundHandles: ThreadExecutionBackgroundHandle[];
 }
 
 export interface ThreadRuntimeState {
   observedCursor: ThreadJournalCursor;
-  activeRun: ThreadRun | null;
+  activeExecution: ThreadExecution | null;
 }
 
 export interface ThreadJournalCursor {

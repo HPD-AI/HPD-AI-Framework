@@ -23,7 +23,7 @@ function message(overrides: Partial<ThreadMessage> = {}): ThreadMessage {
     toolCalls: [],
     turnId: null,
     conversationId: null,
-    runId: null,
+    executionId: null,
     placement: 'transcript',
     ...overrides,
   };

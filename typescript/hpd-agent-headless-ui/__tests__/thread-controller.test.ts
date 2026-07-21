@@ -33,10 +33,10 @@ function fakeClient(): TestAgentClient {
     getThread: vi.fn(async () => null),
     getThreadState: vi.fn(async () => ({
       observedCursor: { generation: 1, sequenceNumber: 0 },
-      activeRun: null,
+      activeExecution: null,
       pendingRequests: [],
     })),
-    getThreadRuns: vi.fn(async () => []),
+    getThreadExecutions: vi.fn(async () => []),
     __emit: async (event: never) => {
       for (const handler of handlers) await handler(event);
     },
@@ -256,8 +256,8 @@ describe('createThreadController', () => {
     });
 
     controller.projection.project({
-      type: EventTypes.THREAD_RUN_STARTED,
-      runtimeRunId: 'run-1',
+      type: EventTypes.THREAD_EXECUTION_STARTED,
+      threadExecutionId: 'run-1',
       agentId: 'agent',
       startedAt: '2026-01-01T00:00:00.000Z',
     });
@@ -320,8 +320,8 @@ describe('createThreadController', () => {
     });
 
     controller.projection.project({
-      type: EventTypes.THREAD_RUN_STARTED,
-      runtimeRunId: 'run-1',
+      type: EventTypes.THREAD_EXECUTION_STARTED,
+      threadExecutionId: 'run-1',
       agentId: 'agent',
       startedAt: '2026-01-01T00:00:00.000Z',
     });

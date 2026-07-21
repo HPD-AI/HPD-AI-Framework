@@ -1,12 +1,12 @@
 namespace HPD.Agent.TUI.Runtime;
 
-public sealed record AgentTuiThreadRun(
-    string RuntimeRunId,
+public sealed record AgentTuiThreadExecution(
+    string ThreadExecutionId,
     string AgentId,
     string SessionId,
     string ThreadId,
     string Status,
     DateTimeOffset StartedAt,
-    DateTimeOffset? CompletedAt = null,
+    DateTimeOffset? FinishedAt = null,
     string? ErrorType = null,
     string? ErrorMessage = null);

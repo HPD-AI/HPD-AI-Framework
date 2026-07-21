@@ -31,7 +31,7 @@
     scrollBehavior = 'auto',
     scrollContainer = 'nearest',
     scrollToBottomOnInitialize = true,
-    scrollToBottomOnRunStart = true,
+    scrollToBottomOnExecutionStart = true,
     thread,
     timeline: providedTimeline,
     topAnchorMessageClamp = {
@@ -47,7 +47,7 @@
   let isAtBottom = $state(true);
   let previousSignature = '';
   let previousLatestUserMessageId: string | null = null;
-  let previousRunId: string | null = null;
+  let previousExecutionId: string | null = null;
   let topAnchorReserveHeight = $state(0);
   const itemElements = new Map<string, HTMLElement>();
   const contentInsets = new Map<string, number>();
@@ -67,7 +67,7 @@
 
   const timeline = $derived(providedTimeline ?? current?.timeline ?? []);
   const latestUserMessageId = $derived(getLatestUserMessageId(timeline));
-  const currentRunId = $derived(getCurrentRunId(current));
+  const currentExecutionId = $derived(getCurrentExecutionId(current));
   const autoScrollSuppressed = $derived(autoScroll && !isAtBottom);
   const elementProps = $derived(createThreadTimelineViewportElementProps({
     ariaLabel,
@@ -229,27 +229,27 @@
     const node = viewportNode;
     const nextSignature = getTimelineScrollSignature(timeline);
     const nextLatestUserMessageId = latestUserMessageId;
-    const nextRunId = currentRunId;
+    const nextExecutionId = currentExecutionId;
     const previousUserMessageId = previousLatestUserMessageId;
-    const previousObservedRunId = previousRunId;
+    const previousObservedExecutionId = previousExecutionId;
     const signatureChanged = nextSignature !== previousSignature;
     const latestUserMessageChanged =
       nextLatestUserMessageId !== null &&
       nextLatestUserMessageId !== previousUserMessageId;
-    const runStarted =
-      nextRunId !== null &&
-      nextRunId !== previousObservedRunId;
+    const executionStarted =
+      nextExecutionId !== null &&
+      nextExecutionId !== previousObservedExecutionId;
 
     previousSignature = nextSignature;
     previousLatestUserMessageId = nextLatestUserMessageId;
-    previousRunId = nextRunId;
+    previousExecutionId = nextExecutionId;
 
     if (!node || !autoScroll || !signatureChanged) return;
 
     const shouldScroll =
       isAtBottom ||
       latestUserMessageChanged ||
-      (scrollToBottomOnRunStart && runStarted);
+      (scrollToBottomOnExecutionStart && executionStarted);
 
     if (!shouldScroll) return;
 
@@ -317,9 +317,9 @@
     return null;
   }
 
-  function getCurrentRunId(snapshot: ThreadStateSnapshot | null): string | null {
-    return snapshot?.projection.currentRunId
-      ?? snapshot?.projection.threadRun?.runtimeRunId
+  function getCurrentExecutionId(snapshot: ThreadStateSnapshot | null): string | null {
+    return snapshot?.projection.currentExecutionId
+      ?? snapshot?.projection.threadExecution?.threadExecutionId
       ?? null;
   }
 

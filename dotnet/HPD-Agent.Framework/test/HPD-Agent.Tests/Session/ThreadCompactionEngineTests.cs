@@ -202,7 +202,7 @@ public sealed class ThreadCompactionEngineTests
         var store = new InMemorySessionStore();
         var key = new ThreadKey(thread.SessionId, thread.Id);
         await store.AppendThreadEventsAsync(key, ThreadJournalEncoder.Encode(thread, thread.Messages));
-        var seed = new ThreadRunStartedEvent("active-run", "agent", DateTimeOffset.UtcNow);
+        var seed = new ThreadExecutionStartedEvent("active-run", "agent", DateTimeOffset.UtcNow);
         var context = new ThreadCompactionContext(
             thread,
             thread.Messages,
@@ -224,8 +224,8 @@ public sealed class ThreadCompactionEngineTests
             key,
             new ThreadEventReadRequest(ThreadJournalCursor.Start(2))))
             replay.AddRange(batch.Events);
-        var committedSeed = replay.OfType<ThreadRunStartedEvent>().Should().ContainSingle().Subject;
-        committedSeed.RuntimeRunId.Should().Be("active-run");
+        var committedSeed = replay.OfType<ThreadExecutionStartedEvent>().Should().ContainSingle().Subject;
+        committedSeed.ThreadExecutionId.Should().Be("active-run");
         committedSeed.ThreadSequenceNumber.Should().BePositive();
     }
 

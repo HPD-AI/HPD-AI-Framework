@@ -36,7 +36,7 @@ scope.
 ```
 
 Route events into the controller they belong to. Do not use a controller as a
-global active-thread runtime. Subagent threads are ordinary child thread scopes;
+global active-thread executiontime. Subagent threads are ordinary child thread scopes;
 inspect them by creating or selecting a controller for that child thread.
 
 ## Happy Path
@@ -79,7 +79,7 @@ const unsubscribe = thread.projection.subscribe((snapshot) => {
   });
 });
 
-await thread.start({ includeRuns: true });
+await thread.start({ includeExecutions: true });
 await thread.sendMessage({ contents: [{ $type: 'text', text: 'Hello' }] });
 
 unsubscribe();
@@ -126,11 +126,11 @@ interface ThreadProjectionSnapshot {
   transcriptMessages: Message[];
   activeTools: ToolCall[];
   pendingRuntimeRequests: RuntimeRequest[];
-  threadRun?: ThreadRun;
+  threadExecution?: ThreadExecutionView;
   activity: ThreadActivity;
   currentTurnId?: string;
   currentConversationId?: string;
-  currentRunId?: string;
+  currentExecutionId?: string;
   error?: Error;
   canSend: boolean;
 }
@@ -533,8 +533,8 @@ framework adapters do not accidentally mutate snapshot internals.
 await thread.interrupt({ reason: 'User cancelled' });
 ```
 
-The UI should wait for thread-run events or a later rehydration to confirm final
-status. The interrupt call expresses intent; thread-run state reports the
+The UI should wait for thread-execution events or a later rehydration to confirm final
+status. The interrupt call expresses intent; thread-execution state reports the
 durable outcome.
 
 ## Connection Ownership

@@ -59,7 +59,7 @@ describe('SseTransport runtime', () => {
       ok: true,
       body: null,
       text: async () => JSON.stringify({
-        runtimeRunId: 'run-1',
+        threadExecutionId: 'run-1',
         startedAt: '2026-07-15T00:00:00Z',
       }),
     } as Response);
@@ -94,7 +94,7 @@ describe('SseTransport runtime', () => {
       }),
     );
     expect(result).toEqual({
-      runtimeRunId: 'run-1',
+      threadExecutionId: 'run-1',
       startedAt: '2026-07-15T00:00:00Z',
     });
   });

@@ -5,22 +5,22 @@ using Microsoft.Extensions.AI;
 
 namespace HPD.Agent.Hosting.Tests.Lifecycle;
 
-public class AgentThreadRunServiceTests : IDisposable
+public class AgentThreadExecutionServiceTests : IDisposable
 {
     private readonly InMemorySessionStore _store = new();
     private readonly TestSessionManager _manager;
-    private readonly AgentThreadRunService _service;
+    private readonly AgentThreadExecutionService _service;
 
-    public AgentThreadRunServiceTests()
+    public AgentThreadExecutionServiceTests()
     {
         _manager = new TestSessionManager(_store);
-        _service = new AgentThreadRunService(_manager);
+        _service = new AgentThreadExecutionService(_manager);
     }
 
     public void Dispose() => _manager.Dispose();
 
     [Fact]
-    public async Task ListRunsAsync_ProjectsRunLifecycleAndBackgroundState()
+    public async Task ListExecutionsAsync_ProjectsExecutionLifecycleAndBackgroundState()
     {
         await CreateThreadAsync("session-1", "main");
 
@@ -28,12 +28,12 @@ public class AgentThreadRunServiceTests : IDisposable
         var token = ResponseContinuationToken.FromBytes(new byte[] { 1, 2, 3 });
 #pragma warning restore MEAI001
 
-        await _store.AppendThreadEventAsync("session-1", "main", new ThreadRunStartedEvent(
-            "run-1",
+        await _store.AppendThreadEventAsync("session-1", "main", new ThreadExecutionStartedEvent(
+            "execution-1",
             "agent-1",
             DateTimeOffset.Parse("2026-05-28T10:00:00Z"))
         {
-            EventId = "evt-run-started",
+            EventId = "evt-execution-started",
             SessionId = "session-1",
             ThreadId = "main"
         });
@@ -71,25 +71,26 @@ public class AgentThreadRunServiceTests : IDisposable
             CompletedAt = DateTimeOffset.Parse("2026-05-28T10:00:02Z"),
             DurationMilliseconds = 1000
         });
-        await _store.AppendThreadEventAsync("session-1", "main", new ThreadRunCompletedEvent(
-            "run-1",
+        await _store.AppendThreadEventAsync("session-1", "main", new ThreadExecutionFinishedEvent(
+            "execution-1",
             "agent-1",
-            false)
+            ThreadExecutionOutcome.Succeeded,
+            DateTimeOffset.Parse("2026-05-28T10:00:03Z"))
         {
-            EventId = "evt-run-completed",
+            EventId = "evt-execution-completed",
             SessionId = "session-1",
             ThreadId = "main"
         });
 
-        var result = await _service.ListRunsAsync("agent-1", "session-1", "main");
+        var result = await _service.ListExecutionsAsync("agent-1", "session-1", "main");
 
         result.Status.Should().Be(AgentServiceStatus.Success);
-        var run = result.Value.Should().ContainSingle().Subject;
-        run.RuntimeRunId.Should().Be("run-1");
-        run.Status.Should().Be("completed");
-        run.ModelBackgroundOperation.Should().NotBeNull();
-        run.ModelBackgroundOperation!.OperationId.Should().Be("op-1");
-        run.BackgroundTasks.Should().ContainSingle(task =>
+        var execution = result.Value.Should().ContainSingle().Subject;
+        execution.ThreadExecutionId.Should().Be("execution-1");
+        execution.Status.Should().Be("succeeded");
+        execution.ModelBackgroundOperation.Should().NotBeNull();
+        execution.ModelBackgroundOperation!.OperationId.Should().Be("op-1");
+        execution.BackgroundTasks.Should().ContainSingle(task =>
             task.TaskId == "task-1" && task.Status == "completed");
     }
 

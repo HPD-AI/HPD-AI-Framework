@@ -57,7 +57,7 @@ const unsubscribe = thread.projection.subscribe((snapshot) => {
   });
 });
 
-await thread.start({ includeRuns: true });
+await thread.start({ includeExecutions: true });
 await thread.sendMessage({ contents: [{ $type: 'text', text: 'Hello' }] });
 
 unsubscribe();

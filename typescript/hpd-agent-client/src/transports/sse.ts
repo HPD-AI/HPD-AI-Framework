@@ -7,7 +7,7 @@ import type {
   InterruptionStatus,
   SubmitInputResult,
 } from '../types/transport.js';
-import type { ThreadJournalCursor } from '../types/thread-run.js';
+import type { ThreadJournalCursor } from '../types/thread-execution.js';
 import type { SseMessage } from '../parser.js';
 import { EventTypes } from '../types/events.js';
 import type {
@@ -415,21 +415,21 @@ async function readLifecycleResult(
     const status = parseInterruptionStatus(record.status);
     return {
       status,
-      activeRun: record.activeRun && typeof record.activeRun === 'object'
-        ? record.activeRun as InterruptionResult['activeRun']
+      activeExecution: record.activeExecution && typeof record.activeExecution === 'object'
+        ? record.activeExecution as InterruptionResult['activeExecution']
         : null,
     };
   }
 
-  if (typeof record.runtimeRunId !== 'string' || !record.runtimeRunId.trim()) {
-    throw new Error('Input submission did not return runtimeRunId');
+  if (typeof record.threadExecutionId !== 'string' || !record.threadExecutionId.trim()) {
+    throw new Error('Input submission did not return threadExecutionId');
   }
   if (typeof record.startedAt !== 'string' || !record.startedAt.trim()) {
     throw new Error('Input submission did not return startedAt');
   }
 
   return {
-    runtimeRunId: record.runtimeRunId,
+    threadExecutionId: record.threadExecutionId,
     startedAt: record.startedAt,
   };
 }
@@ -438,8 +438,8 @@ function parseInterruptionStatus(value: unknown): InterruptionStatus {
   switch (value) {
     case 'accepted':
     case 'already_terminal':
-    case 'no_active_run':
-    case 'active_run_mismatch':
+    case 'no_active_execution':
+    case 'active_execution_mismatch':
       return value;
     default:
       throw new Error(`Unknown interruption status: ${String(value)}`);

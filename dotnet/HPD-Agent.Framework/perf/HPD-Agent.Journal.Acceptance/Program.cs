@@ -137,9 +137,13 @@ static IEnumerable<AgentEvent> CreateFixtureEvents(ThreadKey key)
 
     for (var index = 0; index < 277; index++)
     {
-        var runId = $"run-{index:D4}";
-        yield return new ThreadRunStartedEvent(runId, "acceptance-agent", DateTimeOffset.UnixEpoch);
-        yield return new ThreadRunCompletedEvent(runId, "acceptance-agent", Cancelled: false);
+        var executionId = $"execution-{index:D4}";
+        yield return new ThreadExecutionStartedEvent(executionId, "acceptance-agent", DateTimeOffset.UnixEpoch);
+        yield return new ThreadExecutionFinishedEvent(
+            executionId,
+            "acceptance-agent",
+            ThreadExecutionOutcome.Succeeded,
+            DateTimeOffset.UnixEpoch);
     }
 
     yield return new ThreadUpdatedEvent(

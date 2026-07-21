@@ -50,7 +50,7 @@ index 3a1c0dd..90f4a31 100644
         status: 'complete',
         startTime: new Date('2026-01-01T00:00:00.000Z'),
         endTime: new Date('2026-01-01T00:00:02.100Z'),
-        args: { path: 'src/agent.ts', instruction: 'Tighten active run copy.' },
+        args: { path: 'src/agent.ts', instruction: 'Tighten active execution copy.' },
         result: {
           resultType: 'patch',
           text: editPatch,
@@ -60,7 +60,7 @@ index 3a1c0dd..90f4a31 100644
         callType: 'Function',
         turnId: 'turn-1',
         conversationId: 'conversation-1',
-        runId: 'run-1',
+        executionId: 'run-1',
       };
     }
 
@@ -79,7 +79,7 @@ index 3a1c0dd..90f4a31 100644
       callType: 'Function',
       turnId: 'turn-1',
       conversationId: 'conversation-1',
-      runId: 'run-1',
+      executionId: 'run-1',
     };
 
     if (currentScenario === 'executing') {

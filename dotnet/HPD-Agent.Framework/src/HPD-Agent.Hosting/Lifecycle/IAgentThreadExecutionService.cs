@@ -2,18 +2,18 @@ using HPD.Agent.Hosting.Data;
 
 namespace HPD.Agent.Hosting.Lifecycle;
 
-public interface IAgentThreadRunService
+public interface IAgentThreadExecutionService
 {
-    Task<AgentServiceResult<IReadOnlyList<ThreadRunDto>>> ListRunsAsync(
+    Task<AgentServiceResult<IReadOnlyList<ThreadExecutionDto>>> ListExecutionsAsync(
         string agentId,
         string sessionId,
         string threadId,
         CancellationToken cancellationToken = default);
 
-    Task<AgentServiceResult<ThreadRunDto>> GetRunAsync(
+    Task<AgentServiceResult<ThreadExecutionDto>> GetExecutionAsync(
         string agentId,
         string sessionId,
         string threadId,
-        string runtimeRunId,
+        string threadExecutionId,
         CancellationToken cancellationToken = default);
 }

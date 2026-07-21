@@ -13,7 +13,7 @@ const meta = {
     },
     scenario: {
       control: { type: 'inline-radio' },
-      options: ['thread', 'run', 'work', 'tool', 'multiple', 'none'],
+      options: ['thread', 'execution', 'work', 'tool', 'multiple', 'none'],
       description: 'Changes the normalized error source in the thread snapshot.',
     },
     showAll: {
@@ -64,4 +64,3 @@ export const Empty: Story = {
     scenario: 'none',
   },
 };
-

@@ -23,9 +23,9 @@ public abstract class SessionManager : IDisposable
 {
     private readonly ISessionStore _store;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _threadOperationLocks = new();
-    private readonly ConcurrentDictionary<string, ThreadRunState> _threadRuns = new();
+    private readonly ConcurrentDictionary<string, ThreadExecutionState> _threadExecutions = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new();
-    private readonly ConcurrentDictionary<string, ThreadRunProjectionCache> _threadRunProjections = new();
+    private readonly ConcurrentDictionary<string, ThreadExecutionProjectionCache> _threadExecutionProjections = new();
     private bool _disposed;
 
     protected SessionManager(ISessionStore store)
@@ -83,98 +83,98 @@ public abstract class SessionManager : IDisposable
             if (_threadOperationLocks.TryRemove(key, out var sem))
                 sem.Dispose();
 
-        foreach (var key in _threadRuns.Keys.Where(k => k.StartsWith(prefix)).ToList())
-            _threadRuns.TryRemove(key, out _);
-        foreach (var key in _threadRunProjections.Keys.Where(k => k.StartsWith(prefix)).ToList())
-            _threadRunProjections.TryRemove(key, out _);
+        foreach (var key in _threadExecutions.Keys.Where(k => k.StartsWith(prefix)).ToList())
+            _threadExecutions.TryRemove(key, out _);
+        foreach (var key in _threadExecutionProjections.Keys.Where(k => k.StartsWith(prefix)).ToList())
+            _threadExecutionProjections.TryRemove(key, out _);
     }
 
-    // ─── Thread run ownership ───────────────────────────────────────────
+    // ─── Thread execution ownership ───────────────────────────────────────────
 
-    public bool TryReserveThreadRun(
+    public bool TryReserveThreadExecution(
         string agentId,
         string sessionId,
         string threadId,
-        out ThreadRunState run)
+        out ThreadExecutionState execution)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        var candidate = new ThreadRunState(
+        var candidate = new ThreadExecutionState(
             Guid.NewGuid().ToString("N"),
             agentId,
             sessionId,
             threadId,
             DateTimeOffset.UtcNow,
-            ThreadRunOwnership.Reserved);
+            ThreadExecutionOwnership.Reserved);
 
-        var key = ThreadRunKey(sessionId, threadId);
-        if (_threadRuns.TryAdd(key, candidate))
+        var key = ThreadExecutionKey(sessionId, threadId);
+        if (_threadExecutions.TryAdd(key, candidate))
         {
-            run = candidate;
+            execution = candidate;
             return true;
         }
 
-        run = _threadRuns.TryGetValue(key, out var active)
+        execution = _threadExecutions.TryGetValue(key, out var active)
             ? active
             : candidate;
         return false;
     }
 
-    public ThreadRunState? GetActiveThreadRun(string sessionId, string threadId)
+    public ThreadExecutionState? GetActiveThreadExecution(string sessionId, string threadId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        return _threadRuns.TryGetValue(ThreadRunKey(sessionId, threadId), out var run) &&
-            run.Ownership == ThreadRunOwnership.Active
-            ? run
+        return _threadExecutions.TryGetValue(ThreadExecutionKey(sessionId, threadId), out var execution) &&
+            execution.Ownership == ThreadExecutionOwnership.Active
+            ? execution
             : null;
     }
 
-    public bool ActivateThreadRun(string sessionId, string threadId, string runtimeRunId)
+    public bool ActivateThreadExecution(string sessionId, string threadId, string threadExecutionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(runtimeRunId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadExecutionId);
 
-        var key = ThreadRunKey(sessionId, threadId);
-        while (_threadRuns.TryGetValue(key, out var current))
+        var key = ThreadExecutionKey(sessionId, threadId);
+        while (_threadExecutions.TryGetValue(key, out var current))
         {
-            if (current.RuntimeRunId != runtimeRunId || current.Ownership != ThreadRunOwnership.Reserved)
+            if (current.ThreadExecutionId != threadExecutionId || current.Ownership != ThreadExecutionOwnership.Reserved)
                 return false;
 
-            if (_threadRuns.TryUpdate(key, current with { Ownership = ThreadRunOwnership.Active }, current))
+            if (_threadExecutions.TryUpdate(key, current with { Ownership = ThreadExecutionOwnership.Active }, current))
                 return true;
         }
 
         return false;
     }
 
-    public bool CompleteThreadRun(string sessionId, string threadId, string runtimeRunId)
+    public bool ReleaseThreadExecution(string sessionId, string threadId, string threadExecutionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(runtimeRunId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(threadExecutionId);
 
-        var key = ThreadRunKey(sessionId, threadId);
-        return _threadRuns.TryGetValue(key, out var current) &&
-            current.RuntimeRunId == runtimeRunId &&
-            _threadRuns.TryRemove(new KeyValuePair<string, ThreadRunState>(key, current));
+        var key = ThreadExecutionKey(sessionId, threadId);
+        return _threadExecutions.TryGetValue(key, out var current) &&
+            current.ThreadExecutionId == threadExecutionId &&
+            _threadExecutions.TryRemove(new KeyValuePair<string, ThreadExecutionState>(key, current));
     }
 
-    public bool CompleteActiveThreadRun(string sessionId, string threadId)
+    public bool ReleaseActiveThreadExecution(string sessionId, string threadId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
-        return _threadRuns.TryRemove(ThreadRunKey(sessionId, threadId), out _);
+        return _threadExecutions.TryRemove(ThreadExecutionKey(sessionId, threadId), out _);
     }
 
-    private static string ThreadRunKey(string sessionId, string threadId) => $"{sessionId}:{threadId}";
+    private static string ThreadExecutionKey(string sessionId, string threadId) => $"{sessionId}:{threadId}";
 
-    public async ValueTask<IReadOnlyList<AgentEvent>?> GetThreadRunProjectionEventsAsync(
+    public async ValueTask<IReadOnlyList<AgentEvent>?> GetThreadExecutionProjectionEventsAsync(
         string sessionId,
         string threadId,
         CancellationToken cancellationToken = default)
@@ -183,8 +183,8 @@ public abstract class SessionManager : IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
 
         var key = new ThreadKey(sessionId, threadId);
-        var cacheKey = ThreadRunKey(sessionId, threadId);
-        var cache = _threadRunProjections.GetOrAdd(cacheKey, static _ => new ThreadRunProjectionCache());
+        var cacheKey = ThreadExecutionKey(sessionId, threadId);
+        var cache = _threadExecutionProjections.GetOrAdd(cacheKey, static _ => new ThreadExecutionProjectionCache());
         await cache.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -209,7 +209,7 @@ public abstract class SessionManager : IDisposable
                     new ThreadEventReadRequest(cache.AppliedCursor, head.ThreadSequenceNumber),
                     cancellationToken).ConfigureAwait(false))
                 {
-                    cache.Events.AddRange(batch.Events.Where(ThreadRunProjector.IsProjectionEvent));
+                    cache.Events.AddRange(batch.Events.Where(ThreadExecutionProjector.IsProjectionEvent));
                     cache.AppliedCursor = new ThreadJournalCursor(batch.Generation, batch.LastThreadSequenceNumber);
                 }
             }
@@ -325,14 +325,14 @@ public abstract class SessionManager : IDisposable
             kvp.Value.Dispose();
         foreach (var kvp in _sessionLocks)
             kvp.Value.Dispose();
-        foreach (var kvp in _threadRunProjections)
+        foreach (var kvp in _threadExecutionProjections)
             kvp.Value.Dispose();
-        _threadRuns.Clear();
-        _threadRunProjections.Clear();
+        _threadExecutions.Clear();
+        _threadExecutionProjections.Clear();
     }
 }
 
-internal sealed class ThreadRunProjectionCache : IDisposable
+internal sealed class ThreadExecutionProjectionCache : IDisposable
 {
     public SemaphoreSlim Gate { get; } = new(1, 1);
     public List<AgentEvent> Events { get; } = [];
@@ -341,15 +341,15 @@ internal sealed class ThreadRunProjectionCache : IDisposable
     public void Dispose() => Gate.Dispose();
 }
 
-public sealed record ThreadRunState(
-    string RuntimeRunId,
+public sealed record ThreadExecutionState(
+    string ThreadExecutionId,
     string AgentId,
     string SessionId,
     string ThreadId,
     DateTimeOffset StartedAt,
-    ThreadRunOwnership Ownership);
+    ThreadExecutionOwnership Ownership);
 
-public enum ThreadRunOwnership
+public enum ThreadExecutionOwnership
 {
     Reserved,
     Active

@@ -11,7 +11,7 @@ namespace HPD.Agent.Hosting.Lifecycle;
 public sealed record HPDAgentHostingServices(
     IAgentSessionService Sessions,
     IAgentThreadService Threads,
-    IAgentThreadRunService ThreadRuns,
+    IAgentThreadExecutionService ThreadExecutions,
     IAgentContentService Content,
     IAgentDefinitionService Agents,
     IAgentMiddlewareResponseService MiddlewareResponses,

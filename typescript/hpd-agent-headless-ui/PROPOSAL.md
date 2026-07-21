@@ -43,7 +43,7 @@ were too small for real agent lifecycle UI. The official contract is
 
 - Do not build a new event bus.
 - Do not build a new transport abstraction.
-- Do not duplicate thread run ownership or conflict logic.
+- Do not duplicate thread execution ownership or conflict logic.
 - Do not own durable persistence.
 - Do not globally cache every thread as a hidden workspace runtime.
 - Do not route live events into "whatever thread is active right now."
@@ -60,7 +60,7 @@ The lower layers already provide most of what the UI needs.
 
 - durable thread event documents;
 - thread-scoped live runtime instances;
-- thread run lifecycle events;
+- thread execution lifecycle events;
 - request session waiters and lifecycle events;
 - session-scoped and thread-scoped state separation.
 
@@ -71,7 +71,7 @@ The lower layers already provide most of what the UI needs.
 - acknowledged, resumable SSE observation;
 - input submission;
 - permission, clarification, continuation, and client-tool response envelopes;
-- REST APIs for sessions, threads, thread events, thread messages, thread runs,
+- REST APIs for sessions, threads, thread events, thread messages, thread executions,
   and agents;
 - protocol/read-model helpers for reconstructing durable transcript messages and
   formatting tool results.
@@ -88,11 +88,11 @@ interface ThreadProjectionSnapshot {
   transcriptMessages: Message[];
   activeTools: ToolCall[];
   pendingRuntimeRequests: RuntimeRequest[];
-  threadRun?: ThreadRun;
+  threadExecution?: ThreadExecutionView;
   activity: ThreadActivity;
   currentTurnId?: string;
   currentConversationId?: string;
-  currentRunId?: string;
+  currentExecutionId?: string;
   error?: Error;
   canSend: boolean;
 }
@@ -205,12 +205,12 @@ Selectors provide pure read models over snapshots and branch navigation metadata
 ## Rehydration
 
 Rehydration loads durable state that already happened. The current baseline is
-the durable thread event stream plus optional runs and metadata.
+the durable thread event stream plus optional executions and metadata.
 
 ```ts
 const snapshot = await loadThreadSnapshot(
   { client, agentId, sessionId, threadId },
-  { includeRuns: true },
+  { includeExecutions: true },
 );
 
 projection.rehydrate(snapshot);

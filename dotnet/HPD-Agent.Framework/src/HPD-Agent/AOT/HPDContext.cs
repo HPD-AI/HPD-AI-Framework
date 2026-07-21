@@ -227,8 +227,9 @@ using Microsoft.Extensions.AI;
 // --- Background Responses types ---
 [JsonSerializable(typeof(BackgroundResponsesConfig))]
 [JsonSerializable(typeof(OperationStatus))]
-[JsonSerializable(typeof(ThreadRunStartedEvent))]
-[JsonSerializable(typeof(ThreadRunCompletedEvent))]
+[JsonSerializable(typeof(ThreadExecutionStartedEvent))]
+[JsonSerializable(typeof(ThreadExecutionFinishedEvent))]
+[JsonSerializable(typeof(ThreadExecutionError))]
 [JsonSerializable(typeof(SubAgentInvocationStartedEvent))]
 [JsonSerializable(typeof(SubAgentInvocationCompletedEvent))]
 [JsonSerializable(typeof(SubAgentInvocationFailedEvent))]

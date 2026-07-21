@@ -25,7 +25,7 @@
       id: 'work-parts-1',
       turnId: 'turn-1',
       conversationId: 'conversation-1',
-      runId: 'run-1',
+      executionId: 'run-1',
       status: 'working',
       label: 'Inspecting workspace',
       openByDefault: true,
@@ -72,7 +72,7 @@
       resultText,
       turnId: 'turn-1',
       conversationId: 'conversation-1',
-      runId: 'run-1',
+      executionId: 'run-1',
     };
   }
 </script>

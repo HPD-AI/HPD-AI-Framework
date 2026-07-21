@@ -79,22 +79,23 @@ public static class ThreadProjector
                 break;
             }
 
-            case ThreadRunStartedEvent:
+            case ThreadExecutionStartedEvent:
             {
                 if (thread.Kind == ThreadKind.SubAgent)
-                    thread.SubAgentStatus = ThreadRunStatus.Active;
+                    thread.SubAgentStatus = ThreadExecutionStatus.Active;
                 break;
             }
 
-            case ThreadRunCompletedEvent completed:
+            case ThreadExecutionFinishedEvent completed:
             {
                 if (thread.Kind == ThreadKind.SubAgent)
                 {
-                    thread.SubAgentStatus = completed.ErrorType is not null
-                        ? ThreadRunStatus.Failed
-                        : completed.Cancelled
-                            ? ThreadRunStatus.Cancelled
-                            : ThreadRunStatus.Completed;
+                    thread.SubAgentStatus = completed.Outcome switch
+                    {
+                        ThreadExecutionOutcome.Failed => ThreadExecutionStatus.Failed,
+                        ThreadExecutionOutcome.Cancelled => ThreadExecutionStatus.Cancelled,
+                        _ => ThreadExecutionStatus.Succeeded
+                    };
                 }
                 break;
             }

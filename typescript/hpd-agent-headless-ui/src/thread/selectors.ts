@@ -118,14 +118,14 @@ export function getThreadErrors(snapshot: ThreadProjectionSnapshot): ThreadError
     errors.push(error);
   };
 
-  const threadRun = snapshot.threadRun;
-  if (threadRun?.status === 'failed' && threadRun.errorMessage) {
+  const threadExecution = snapshot.threadExecution;
+  if (threadExecution?.status === 'failed' && threadExecution.errorMessage) {
     add({
-      id: `run:${threadRun.runtimeRunId}`,
-      kind: 'run',
-      message: threadRun.errorMessage,
-      type: threadRun.errorType,
-      runId: threadRun.runtimeRunId,
+      id: `execution:${threadExecution.threadExecutionId}`,
+      kind: 'execution',
+      message: threadExecution.errorMessage,
+      type: threadExecution.errorType,
+      executionId: threadExecution.threadExecutionId,
       recoverable: true,
     });
   }
@@ -136,7 +136,7 @@ export function getThreadErrors(snapshot: ThreadProjectionSnapshot): ThreadError
         id: `work:${work.id}`,
         kind: 'work',
         message: work.error,
-        runId: work.runId,
+        executionId: work.executionId,
         turnId: work.turnId,
         conversationId: work.conversationId,
         recoverable: true,
@@ -163,7 +163,7 @@ export function getThreadErrors(snapshot: ThreadProjectionSnapshot): ThreadError
       id: 'thread:error',
       kind: 'thread',
       message: snapshot.error,
-      runId: snapshot.currentRunId,
+      executionId: snapshot.currentExecutionId,
       turnId: snapshot.currentTurnId,
       conversationId: snapshot.currentConversationId,
       recoverable: true,
@@ -437,7 +437,7 @@ function addToolError(
     kind: 'tool',
     message: tool.error,
     source: tool.toolharnessName ?? tool.name,
-    runId: tool.runId,
+    executionId: tool.executionId,
     turnId: tool.turnId,
     conversationId: tool.conversationId,
     toolCallId: tool.callId,

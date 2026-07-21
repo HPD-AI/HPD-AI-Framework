@@ -119,8 +119,8 @@ internal static class StreamingEndpoints
         CancellationToken ct = default)
     {
         var interruption = ParseInterruptionRequest(request);
-        var expectedRuntimeRunId = request is { ValueKind: JsonValueKind.Object } body &&
-            body.TryGetProperty("expectedRuntimeRunId", out var expectedRunIdElement) &&
+        var expectedThreadExecutionId = request is { ValueKind: JsonValueKind.Object } body &&
+            body.TryGetProperty("expectedThreadExecutionId", out var expectedRunIdElement) &&
             expectedRunIdElement.ValueKind == JsonValueKind.String
                 ? expectedRunIdElement.GetString()
                 : null;
@@ -128,7 +128,7 @@ internal static class StreamingEndpoints
             agentId,
             sid,
             bid,
-            expectedRuntimeRunId,
+            expectedThreadExecutionId,
             interruption,
             ct);
         return result.Status switch

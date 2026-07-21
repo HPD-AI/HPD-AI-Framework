@@ -19,13 +19,13 @@ public sealed class HostedThreadJournalRebaseSeedProvider : IThreadJournalRebase
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var active = _sessions.GetActiveThreadRun(thread.SessionId, thread.ThreadId);
+        var active = _sessions.GetActiveThreadExecution(thread.SessionId, thread.ThreadId);
         if (active is null)
             return ValueTask.FromResult<IReadOnlyList<AgentEvent>>([]);
 
         var events = new List<AgentEvent>
         {
-            new ThreadRunStartedEvent(active.RuntimeRunId, active.AgentId, active.StartedAt)
+            new ThreadExecutionStartedEvent(active.ThreadExecutionId, active.AgentId, active.StartedAt)
             {
                 SessionId = thread.SessionId,
                 ThreadId = thread.ThreadId

@@ -372,10 +372,10 @@ describe('AgentClient — session/thread passthroughs', () => {
     });
   });
 
-  describe('thread runs', () => {
-    it('calls GET /agents/{agentId}/sessions/{sid}/threads/{bid}/runs and returns runs', async () => {
-      const runs = [{
-        runtimeRunId: 'run-1',
+  describe('thread executions', () => {
+    it('calls GET /agents/{agentId}/sessions/{sid}/threads/{bid}/executions and returns executions', async () => {
+      const executions = [{
+        threadExecutionId: 'run-1',
         agentId: 'agent-1',
         sessionId: 'sess-1',
         threadId: 'thread-1',
@@ -384,19 +384,19 @@ describe('AgentClient — session/thread passthroughs', () => {
         backgroundTasks: [],
         backgroundHandles: [],
       }];
-      mockFetchJson(runs);
+      mockFetchJson(executions);
 
-      const result = await client.getThreadRuns('agent-1', 'sess-1', 'thread-1');
+      const result = await client.getThreadExecutions('agent-1', 'sess-1', 'thread-1');
 
       const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0];
-      expect(String(url)).toBe(`${BASE}/agents/agent-1/sessions/sess-1/threads/thread-1/runs`);
-      expect(result).toEqual(runs);
+      expect(String(url)).toBe(`${BASE}/agents/agent-1/sessions/sess-1/threads/thread-1/executions`);
+      expect(result).toEqual(executions);
     });
 
-    it('calls GET /state and returns the observation boundary and active run', async () => {
+    it('calls GET /state and returns the observation boundary and active execution', async () => {
       const state = {
         observedCursor: { generation: 1, sequenceNumber: 4 },
-        activeRun: null,
+        activeExecution: null,
       };
       mockFetchJson(state);
 
@@ -407,25 +407,25 @@ describe('AgentClient — session/thread passthroughs', () => {
       expect(result).toEqual(state);
     });
 
-    it('calls GET /runs/{runtimeRunId} and returns the run', async () => {
-      const run = {
-        runtimeRunId: 'run-1',
+    it('calls GET /executions/{threadExecutionId} and returns the execution', async () => {
+      const execution = {
+        threadExecutionId: 'run-1',
         agentId: 'agent-1',
         sessionId: 'sess-1',
         threadId: 'thread-1',
-        status: 'completed',
+        status: 'succeeded',
         startedAt: '2026-05-28T00:00:00Z',
-        completedAt: '2026-05-28T00:00:02Z',
+        finishedAt: '2026-05-28T00:00:02Z',
         backgroundTasks: [],
         backgroundHandles: [],
       };
-      mockFetchJson(run);
+      mockFetchJson(execution);
 
-      const result = await client.getThreadRun('agent-1', 'sess-1', 'thread-1', 'run-1');
+      const result = await client.getThreadExecution('agent-1', 'sess-1', 'thread-1', 'run-1');
 
       const [url] = ((fetch as unknown as { mock: { calls: any[] } }).mock).calls[0];
-      expect(String(url)).toBe(`${BASE}/agents/agent-1/sessions/sess-1/threads/thread-1/runs/run-1`);
-      expect(result).toEqual(run);
+      expect(String(url)).toBe(`${BASE}/agents/agent-1/sessions/sess-1/threads/thread-1/executions/run-1`);
+      expect(result).toEqual(execution);
     });
 
     it('calls POST /context-usage and returns the usage estimate', async () => {

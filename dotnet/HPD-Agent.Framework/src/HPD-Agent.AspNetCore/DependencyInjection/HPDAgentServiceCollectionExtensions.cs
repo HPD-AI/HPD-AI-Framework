@@ -119,8 +119,8 @@ public static class HPDAgentServiceCollectionExtensions
             sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Sessions);
         services.TryAddSingleton<IAgentThreadService>(sp =>
             sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Threads);
-        services.TryAddSingleton<IAgentThreadRunService>(sp =>
-            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.ThreadRuns);
+        services.TryAddSingleton<IAgentThreadExecutionService>(sp =>
+            sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.ThreadExecutions);
         services.TryAddSingleton<IAgentContentService>(sp =>
             sp.GetRequiredService<DependencyInjection.HPDAgentRegistry>().Get(name).HostingServices.Content);
         services.TryAddSingleton<IAgentDefinitionService>(sp =>

@@ -42,7 +42,7 @@ function message(overrides: Partial<ThreadMessage> = {}): ThreadMessage {
     toolCalls: [],
     turnId: null,
     conversationId: null,
-    runId: null,
+    executionId: null,
     placement: 'transcript',
     ...overrides,
   };
@@ -68,7 +68,7 @@ function toolCall(overrides: Partial<ToolCallModel> = {}): ToolCallModel {
     callType: 'Function',
     turnId: 'turn-1',
     conversationId: 'conversation-1',
-    runId: 'run-1',
+    executionId: 'run-1',
     ...overrides,
   };
 }
@@ -376,7 +376,7 @@ describe('Message', () => {
         startTime: new Date('2026-01-01T00:00:00.000Z'),
         turnId: null,
         conversationId: null,
-        runId: null,
+        executionId: null,
       }],
     }));
 
@@ -411,7 +411,7 @@ describe('Message', () => {
         startTime: new Date('2026-01-01T00:00:00.000Z'),
         turnId: null,
         conversationId: null,
-        runId: null,
+        executionId: null,
       }],
     }));
     const complete = createMessageElementProps(message({
@@ -424,7 +424,7 @@ describe('Message', () => {
         endTime: new Date('2026-01-01T00:00:01.000Z'),
         turnId: null,
         conversationId: null,
-        runId: null,
+        executionId: null,
       }],
     }));
 
@@ -479,7 +479,7 @@ describe('Message', () => {
         startTime: new Date('2026-01-01T00:00:00.000Z'),
         turnId: null,
         conversationId: null,
-        runId: null,
+        executionId: null,
       }],
     }));
 

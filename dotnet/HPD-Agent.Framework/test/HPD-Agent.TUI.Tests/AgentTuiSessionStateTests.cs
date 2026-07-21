@@ -43,10 +43,10 @@ public sealed class AgentTuiSessionStateTests
     {
         var state = CreateState();
 
-        await state.ApplyEventAsync(new ThreadRunStartedEvent("run-12345678", "agent", DateTimeOffset.UtcNow));
+        await state.ApplyEventAsync(new ThreadExecutionStartedEvent("run-12345678", "agent", DateTimeOffset.UtcNow));
         state.Shell.FooterText.Should().Contain("running");
 
-        await state.ApplyEventAsync(new ThreadRunCompletedEvent("run-12345678", "agent", Cancelled: false));
+        await state.ApplyEventAsync(new ThreadExecutionFinishedEvent("run-12345678", "agent", ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow));
 
         state.Shell.FooterText.Should().Contain("idle");
         state.Shell.Activities.Activities.Should().Contain(activity => activity.State == HPD.TUI.Models.ActivityState.Completed);
@@ -269,7 +269,7 @@ public sealed class AgentTuiSessionStateTests
     private sealed class TestRunStatusHandler : IAgentTuiEventHandler
     {
         public bool CanHandle(AgentEvent evt)
-            => evt is ThreadRunStartedEvent or ThreadRunCompletedEvent;
+            => evt is ThreadExecutionStartedEvent or ThreadExecutionFinishedEvent;
 
         public ValueTask HandleAsync(
             AgentEvent evt,
@@ -278,7 +278,7 @@ public sealed class AgentTuiSessionStateTests
         {
             switch (evt)
             {
-                case ThreadRunStartedEvent:
+                case ThreadExecutionStartedEvent:
                     context.Shell.Activities.Add(new ActivityModel("run")
                     {
                         State = ActivityState.Running,
@@ -287,7 +287,7 @@ public sealed class AgentTuiSessionStateTests
                     context.Shell.FooterText = "state: running";
                     break;
 
-                case ThreadRunCompletedEvent:
+                case ThreadExecutionFinishedEvent:
                     foreach (var activity in context.Shell.Activities.Activities.Where(activity => activity.State == ActivityState.Running))
                     {
                         activity.State = ActivityState.Completed;

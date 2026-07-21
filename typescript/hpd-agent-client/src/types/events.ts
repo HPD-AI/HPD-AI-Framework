@@ -7,7 +7,7 @@ import type {
 } from './client-tools.js';
 import type { AIContent } from './session.js';
 import type { ThreadKind, ThreadVisibility } from './session.js';
-import type { ModelBackgroundOperationStatus } from './thread-run.js';
+import type { ModelBackgroundOperationStatus, ThreadExecutionError } from './thread-execution.js';
 import type { CompactionContinuation, ThreadCompactionRequest } from './run-config.js';
 
 export interface UsageDetails {
@@ -77,8 +77,8 @@ export const EventTypes = {
   AGENT_TURN_STARTED: 'AGENT_TURN_STARTED',
   AGENT_TURN_FINISHED: 'AGENT_TURN_FINISHED',
   STATE_SNAPSHOT: 'STATE_SNAPSHOT',
-  THREAD_RUN_STARTED: 'THREAD_RUN_STARTED',
-  THREAD_RUN_COMPLETED: 'THREAD_RUN_COMPLETED',
+  THREAD_EXECUTION_STARTED: 'THREAD_EXECUTION_STARTED',
+  THREAD_EXECUTION_FINISHED: 'THREAD_EXECUTION_FINISHED',
   SUBAGENT_INVOCATION_STARTED: 'SUBAGENT_INVOCATION_STARTED',
   SUBAGENT_INVOCATION_COMPLETED: 'SUBAGENT_INVOCATION_COMPLETED',
   SUBAGENT_INVOCATION_FAILED: 'SUBAGENT_INVOCATION_FAILED',
@@ -263,7 +263,7 @@ export interface AgentInputEvent extends BaseEvent {
   threadId?: string;
   agentId?: string;
   runConfig?: import('./run-config.js').RunConfig;
-  runtimeRunId?: string | null;
+  threadExecutionId?: string | null;
 }
 
 export interface UserMessageInput {
@@ -442,21 +442,23 @@ export interface StateSnapshotEvent extends BaseEvent {
   timestamp: string;
 }
 
-export interface ThreadRunStartedEvent extends BaseEvent {
-  type: typeof EventTypes.THREAD_RUN_STARTED;
-  runtimeRunId: string;
+export interface ThreadExecutionStartedEvent extends BaseEvent {
+  type: typeof EventTypes.THREAD_EXECUTION_STARTED;
+  threadExecutionId: string;
   agentId: string;
   startedAt: string;
 }
 
-export interface ThreadRunCompletedEvent extends BaseEvent {
-  type: typeof EventTypes.THREAD_RUN_COMPLETED;
-  runtimeRunId: string;
+export interface ThreadExecutionFinishedEvent extends BaseEvent {
+  type: typeof EventTypes.THREAD_EXECUTION_FINISHED;
+  threadExecutionId: string;
   agentId: string;
-  cancelled: boolean;
-  errorType?: string | null;
-  errorMessage?: string | null;
+  outcome: ThreadExecutionOutcome;
+  finishedAt: string;
+  error?: ThreadExecutionError | null;
 }
+
+export type ThreadExecutionOutcome = 'Succeeded' | 'Failed' | 'Cancelled';
 
 export type AgentInvocationMode = 'Synchronous' | 'Background';
 
@@ -559,7 +561,7 @@ export interface BackgroundTaskEvent extends Omit<BaseEvent, 'metadata'> {
   name: string;
   sourceKind: BackgroundTaskSourceKind;
   sourceId?: string | null;
-  parentRuntimeRunId?: string | null;
+  originatingThreadExecutionId?: string | null;
   notification: BackgroundTaskNotificationRule;
   invocation?: FunctionInvocationSnapshot | null;
   metadata?: Record<string, string> | null;
@@ -623,7 +625,7 @@ export interface BackgroundTaskNotificationDeliveredEvent extends BaseEvent {
   type: typeof EventTypes.BACKGROUND_TASK_NOTIFICATION_DELIVERED;
   notificationId: string;
   deliveredAt: string;
-  runtimeRunId?: string | null;
+  threadExecutionId?: string | null;
 }
 
 export interface BackgroundTaskNotificationSuppressedEvent extends BaseEvent {
@@ -979,7 +981,7 @@ export interface InterruptionRequestEvent extends AgentInputEvent {
   type: typeof EventTypes.INTERRUPTION_REQUEST;
   reason: string;
   source: InterruptionSource;
-  expectedRuntimeRunId?: string;
+  expectedThreadExecutionId?: string;
 }
 
 // ============================================
@@ -1009,8 +1011,8 @@ export type KnownAgentEvent =
   | AgentTurnStartedEvent
   | AgentTurnFinishedEvent
   | StateSnapshotEvent
-  | ThreadRunStartedEvent
-  | ThreadRunCompletedEvent
+  | ThreadExecutionStartedEvent
+  | ThreadExecutionFinishedEvent
   | SubAgentInvocationStartedEvent
   | SubAgentInvocationCompletedEvent
   | SubAgentInvocationFailedEvent

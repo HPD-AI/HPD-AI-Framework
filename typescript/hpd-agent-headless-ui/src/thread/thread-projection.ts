@@ -12,7 +12,7 @@ import {
   type AgentEvent,
   type AgentRequestEvent,
   type KnownAgentEvent,
-  type ThreadRun,
+  type ThreadExecution,
 } from '@hpd-research/hpd-agent-client';
 import type {
   ClientToolRequest,
@@ -28,7 +28,7 @@ import type {
   ThreadProjection,
   ThreadProjectionListener,
   ThreadProjectionSnapshot,
-  ThreadRunView,
+  ThreadExecutionView,
   SubAgentInvocation,
   ThreadSnapshot,
   ThreadTimelineItem,
@@ -41,7 +41,7 @@ import type {
 interface ProjectionContext {
   turnId: string | null;
   conversationId: string | null;
-  runId: string | null;
+  executionId: string | null;
   eventFlowId?: string;
   sequenceNumber?: number;
   timestamp?: string;
@@ -83,13 +83,13 @@ class ThreadProjectionImpl implements ThreadProjection {
   }
 
   rehydrate(snapshot: ThreadSnapshot): void {
-    const threadRun = selectThreadRun(snapshot.activeRun, snapshot.runs);
+    const threadExecution = selectThreadExecution(snapshot.activeExecution, snapshot.executions);
     this.snapshot = {
       ...createInitialSnapshot(),
       thread: snapshot.thread ?? this.snapshot.thread,
-      threadRun,
-      currentRunId: threadRun?.status === 'active' ? threadRun.runtimeRunId : null,
-      error: threadRun?.status === 'failed' ? threadRun.errorMessage ?? 'Thread run failed' : null,
+      threadExecution,
+      currentExecutionId: threadExecution?.status === 'active' ? threadExecution.threadExecutionId : null,
+      error: threadExecution?.status === 'failed' ? threadExecution.errorMessage ?? 'Thread execution failed' : null,
     };
     this.snapshot = refreshSnapshot(this.snapshot);
 
@@ -102,17 +102,17 @@ class ThreadProjectionImpl implements ThreadProjection {
       this.muted = false;
     }
 
-    const replayedThreadRun = selectThreadRun(snapshot.activeRun, snapshot.runs);
-    if (replayedThreadRun) {
-      const replayedRunIsActive = replayedThreadRun.status === 'active';
+    const replayedThreadExecution = selectThreadExecution(snapshot.activeExecution, snapshot.executions);
+    if (replayedThreadExecution) {
+      const replayedExecutionIsActive = replayedThreadExecution.status === 'active';
       this.snapshot = refreshSnapshot({
         ...this.snapshot,
-        threadRun: replayedThreadRun,
-        currentRunId: replayedRunIsActive
-          ? this.snapshot.currentRunId ?? replayedThreadRun.runtimeRunId
-          : this.snapshot.currentRunId,
-        error: replayedThreadRun.status === 'failed'
-          ? replayedThreadRun.errorMessage ?? 'Thread run failed'
+        threadExecution: replayedThreadExecution,
+        currentExecutionId: replayedExecutionIsActive
+          ? this.snapshot.currentExecutionId ?? replayedThreadExecution.threadExecutionId
+          : this.snapshot.currentExecutionId,
+        error: replayedThreadExecution.status === 'failed'
+          ? replayedThreadExecution.errorMessage ?? 'Thread execution failed'
           : this.snapshot.error,
       });
     }
@@ -208,7 +208,7 @@ class ThreadProjectionImpl implements ThreadProjection {
         this.startWorkGroup({
           turnId: known.messageTurnId,
           conversationId: known.conversationId,
-          runId: this.snapshot.currentRunId,
+          executionId: this.snapshot.currentExecutionId,
           eventFlowId: known.eventFlowId,
           sequenceNumber: known.threadSequenceNumber,
         }, known.agentName, known.timestamp);
@@ -235,44 +235,45 @@ class ThreadProjectionImpl implements ThreadProjection {
         });
         this.emit();
         break;
-      case EventTypes.THREAD_RUN_STARTED:
+      case EventTypes.THREAD_EXECUTION_STARTED:
         this.snapshot = refreshSnapshot({
           ...this.snapshot,
-          threadRun: {
-            runtimeRunId: known.runtimeRunId,
+          threadExecution: {
+            threadExecutionId: known.threadExecutionId,
             agentId: known.agentId,
             status: 'active',
             startedAt: known.startedAt,
           },
-          currentRunId: known.runtimeRunId,
+          currentExecutionId: known.threadExecutionId,
           error: null,
         });
         this.emit();
         break;
-      case EventTypes.THREAD_RUN_COMPLETED: {
-        const status = known.errorType
+      case EventTypes.THREAD_EXECUTION_FINISHED: {
+        const status = known.outcome === 'Failed'
           ? 'failed'
-          : known.cancelled
+          : known.outcome === 'Cancelled'
             ? 'cancelled'
-            : 'completed';
-        const currentRun = this.snapshot.threadRun;
+            : 'succeeded';
+        const currentExecution = this.snapshot.threadExecution;
         if (status === 'failed' || status === 'cancelled') {
-          this.finishWorkGroup(this.snapshot.currentTurnId, status, event.timestamp, known.errorMessage ?? null);
+          this.finishWorkGroup(this.snapshot.currentTurnId, status, known.finishedAt, known.error?.message ?? null);
         }
         this.snapshot = refreshSnapshot({
           ...this.snapshot,
-          threadRun: {
-            runtimeRunId: known.runtimeRunId,
+          threadExecution: {
+            threadExecutionId: known.threadExecutionId,
             agentId: known.agentId,
             status,
-            startedAt: currentRun && currentRun.runtimeRunId === known.runtimeRunId
-              ? currentRun.startedAt
+            startedAt: currentExecution && currentExecution.threadExecutionId === known.threadExecutionId
+              ? currentExecution.startedAt
               : undefined,
-            errorType: known.errorType,
-            errorMessage: known.errorMessage,
+            finishedAt: known.finishedAt,
+            errorType: known.error?.type,
+            errorMessage: known.error?.message,
           },
-          currentRunId: null,
-          error: known.errorMessage ?? this.snapshot.error,
+          currentExecutionId: null,
+          error: known.error?.message ?? this.snapshot.error,
         });
         this.emit();
         break;
@@ -352,7 +353,7 @@ class ThreadProjectionImpl implements ThreadProjection {
       timeline,
       currentTurnId: context.turnId,
       currentConversationId: context.conversationId,
-      currentRunId: context.runId,
+      currentExecutionId: context.executionId,
       error: null,
     });
     this.emit();
@@ -403,7 +404,7 @@ class ThreadProjectionImpl implements ThreadProjection {
             usage,
             turnId: work.turnId,
             conversationId: work.conversationId,
-            runId: work.runId,
+            executionId: work.executionId,
             updatedAt: completedAt,
           }
         : this.snapshot.contextUsage,
@@ -616,7 +617,7 @@ class ThreadProjectionImpl implements ThreadProjection {
       callType: input.callType,
       turnId: context.turnId,
       conversationId: context.conversationId,
-      runId: context.runId,
+      executionId: context.executionId,
       eventFlowId: context.eventFlowId,
       sequenceNumber: context.sequenceNumber,
       groupKey: input.toolharnessName ?? input.callType ?? input.name,
@@ -786,7 +787,7 @@ class ThreadProjectionImpl implements ThreadProjection {
         request,
         turnId: context.turnId,
         conversationId: context.conversationId,
-        runId: context.runId,
+        executionId: context.executionId,
       }),
     });
     this.emit();
@@ -847,7 +848,7 @@ class ThreadProjectionImpl implements ThreadProjection {
     return {
       turnId: event?.eventFlowId ?? this.snapshot.currentTurnId ?? null,
       conversationId: this.snapshot.currentConversationId,
-      runId: this.snapshot.currentRunId ?? this.snapshot.threadRun?.runtimeRunId ?? null,
+      executionId: this.snapshot.currentExecutionId ?? this.snapshot.threadExecution?.threadExecutionId ?? null,
       eventFlowId: event?.eventFlowId,
       sequenceNumber: event?.sequenceNumber,
       timestamp: event?.timestamp,
@@ -875,7 +876,7 @@ class ThreadProjectionImpl implements ThreadProjection {
       timeline: upsertTimelineItem(this.snapshot.timeline, createWorkTimelineItem(updatedWork)),
       currentTurnId: context.turnId ?? this.snapshot.currentTurnId,
       currentConversationId: context.conversationId ?? this.snapshot.currentConversationId,
-      currentRunId: context.runId ?? this.snapshot.currentRunId,
+      currentExecutionId: context.executionId ?? this.snapshot.currentExecutionId,
     });
   }
 
@@ -924,18 +925,18 @@ function createInitialSnapshot(): ThreadProjectionSnapshot {
     activeTools: [],
     pendingRuntimeRequests: [],
     contextUsage: null,
-    threadRun: null,
+    threadExecution: null,
     subAgentInvocations: [],
     activity: createActivity({
       workGroups: [],
       activeTools: [],
       pendingRuntimeRequests: [],
-      threadRun: null,
+      threadExecution: null,
       error: null,
     }),
     currentTurnId: null,
     currentConversationId: null,
-    currentRunId: null,
+    currentExecutionId: null,
     error: null,
     canSend: true,
   });
@@ -952,15 +953,15 @@ function refreshSnapshot(snapshot: ThreadProjectionSnapshot): ThreadProjectionSn
 
 function createActivity(snapshot: Pick<
   ThreadProjectionSnapshot,
-  'workGroups' | 'activeTools' | 'pendingRuntimeRequests' | 'threadRun' | 'error'
+  'workGroups' | 'activeTools' | 'pendingRuntimeRequests' | 'threadExecution' | 'error'
 >): ThreadActivity {
   const working = snapshot.workGroups.some((work) => work.status === 'working') ||
-    snapshot.threadRun?.status === 'active' ||
+    snapshot.threadExecution?.status === 'active' ||
     snapshot.activeTools.length > 0;
   const reasoning = snapshot.workGroups.some((work) =>
     work.parts.some((part) => part.type === 'reasoning' && part.status === 'streaming'));
-  const failed = snapshot.error !== null || snapshot.threadRun?.status === 'failed';
-  const cancelled = snapshot.threadRun?.status === 'cancelled';
+  const failed = snapshot.error !== null || snapshot.threadExecution?.status === 'failed';
+  const cancelled = snapshot.threadExecution?.status === 'cancelled';
 
   return {
     status: failed
@@ -1074,12 +1075,12 @@ function cloneAIContent(content: AIContent): AIContent {
 }
 
 function createWorkGroup(context: ProjectionContext, agentName?: string, startedAt?: string): ThreadWorkGroup {
-  const id = workGroupId(context.turnId, context.runId);
+  const id = workGroupId(context.turnId, context.executionId);
   return {
     id,
     turnId: context.turnId,
     conversationId: context.conversationId,
-    runId: context.runId,
+    executionId: context.executionId,
     status: 'working',
     label: agentName ?? 'Work',
     openByDefault: true,
@@ -1089,9 +1090,9 @@ function createWorkGroup(context: ProjectionContext, agentName?: string, started
   };
 }
 
-function workGroupId(turnId: string | null, runId: string | null): string {
+function workGroupId(turnId: string | null, executionId: string | null): string {
   if (turnId) return `turn:${turnId}`;
-  if (runId) return `run:${runId}`;
+  if (executionId) return `execution:${executionId}`;
   return 'work:current';
 }
 
@@ -1161,7 +1162,7 @@ function createWorkTimelineItem(work: ThreadWorkGroup): ThreadTimelineItem {
     work,
     turnId: work.turnId,
     conversationId: work.conversationId,
-    runId: work.runId,
+    executionId: work.executionId,
   };
 }
 
@@ -1172,7 +1173,7 @@ function createMessageTimelineItem(message: Message): ThreadTimelineItem {
     message,
     turnId: message.turnId,
     conversationId: message.conversationId,
-    runId: message.runId,
+    executionId: message.executionId,
     eventFlowId: message.eventFlowId,
     sequenceNumber: message.sequenceNumber,
   };
@@ -1206,7 +1207,7 @@ function createMessage(
     toolCalls: [],
     turnId: context.turnId,
     conversationId: context.conversationId,
-    runId: context.runId,
+    executionId: context.executionId,
     eventFlowId: context.eventFlowId,
     sequenceNumber: context.sequenceNumber,
     placement,
@@ -1430,23 +1431,23 @@ function cloneRuntimeRequest(request: RuntimeRequest): RuntimeRequest {
   return { ...request };
 }
 
-function selectThreadRun(activeRun?: ThreadRun | null, runs?: ThreadRun[]): ThreadRunView | null {
-  if (activeRun) return mapThreadRun(activeRun);
-  if (!runs || runs.length === 0) return null;
-  return mapThreadRun(runs[runs.length - 1]);
+function selectThreadExecution(activeExecution?: ThreadExecution | null, executions?: ThreadExecution[]): ThreadExecutionView | null {
+  if (activeExecution) return mapThreadExecution(activeExecution);
+  if (!executions || executions.length === 0) return null;
+  return mapThreadExecution(executions[executions.length - 1]);
 }
 
-function mapThreadRun(run: ThreadRun): ThreadRunView {
+function mapThreadExecution(execution: ThreadExecution): ThreadExecutionView {
   return {
-    runtimeRunId: run.runtimeRunId,
-    agentId: run.agentId,
-    status: run.status,
-    startedAt: run.startedAt,
-    completedAt: run.completedAt,
-    errorType: run.error?.type,
-    errorMessage: run.error?.message,
-    modelBackgroundOperation: run.modelBackgroundOperation,
-    backgroundTasks: run.backgroundTasks,
-    backgroundHandles: run.backgroundHandles,
+    threadExecutionId: execution.threadExecutionId,
+    agentId: execution.agentId,
+    status: execution.status,
+    startedAt: execution.startedAt,
+    finishedAt: execution.finishedAt,
+    errorType: execution.error?.type,
+    errorMessage: execution.error?.message,
+    modelBackgroundOperation: execution.modelBackgroundOperation,
+    backgroundTasks: execution.backgroundTasks,
+    backgroundHandles: execution.backgroundHandles,
   };
 }
