@@ -229,6 +229,23 @@ public abstract class AgentManager : IDisposable
         return _agents.TryGetValue(cacheKey, out var entry) ? entry.Agent : null;
     }
 
+    /// <summary>Pins a cached thread runtime against idle eviction for one hosted execution.</summary>
+    public IDisposable PinRuntime(string agentId, string sessionId, string threadId)
+    {
+        var cacheKey = RuntimeCacheKey(agentId, sessionId, threadId);
+        if (!_agents.TryGetValue(cacheKey, out var entry))
+            throw new InvalidOperationException($"Runtime '{agentId}/{sessionId}/{threadId}' is not cached.");
+
+        lock (entry.SyncRoot)
+        {
+            if (!_agents.TryGetValue(cacheKey, out var current) || !ReferenceEquals(current, entry))
+                throw new InvalidOperationException($"Runtime '{agentId}/{sessionId}/{threadId}' was evicted before it could be pinned.");
+            entry.PinCount++;
+        }
+
+        return new RuntimePin(entry);
+    }
+
     /// <summary>
     /// Creates a live event inbox for an agent/thread runtime scope without constructing the
     /// runtime. Once that runtime exists, all of its agent events are forwarded into this hub;
@@ -297,8 +314,16 @@ public abstract class AgentManager : IDisposable
 
         foreach (var kvp in _agents)
         {
-            if (kvp.Value.LastAccessed < cutoff)
-                EvictAgent(kvp.Key);
+            var entry = kvp.Value;
+            lock (entry.SyncRoot)
+            {
+                if (entry.PinCount == 0 && entry.LastAccessed < cutoff &&
+                    ((ICollection<KeyValuePair<string, AgentEntry>>)_agents)
+                        .Remove(new KeyValuePair<string, AgentEntry>(kvp.Key, entry)))
+                {
+                    entry.Dispose();
+                }
+            }
         }
     }
 
@@ -317,8 +342,10 @@ public abstract class AgentManager : IDisposable
 
     private sealed class AgentEntry : IDisposable
     {
+        public object SyncRoot { get; } = new();
         public Agent Agent { get; }
         public DateTime LastAccessed { get; set; }
+        public int PinCount { get; set; }
         private readonly IDisposable? _liveEventBridge;
 
         public AgentEntry(Agent agent, IDisposable? liveEventBridge = null)
@@ -331,6 +358,26 @@ public abstract class AgentManager : IDisposable
         public void Dispose()
         {
             _liveEventBridge?.Dispose();
+        }
+    }
+
+    private sealed class RuntimePin : IDisposable
+    {
+        private AgentEntry? _entry;
+
+        public RuntimePin(AgentEntry entry) => _entry = entry;
+
+        public void Dispose()
+        {
+            var entry = Interlocked.Exchange(ref _entry, null);
+            if (entry is null)
+                return;
+            lock (entry.SyncRoot)
+            {
+                if (entry.PinCount <= 0)
+                    throw new InvalidOperationException("Runtime pin count became unbalanced.");
+                entry.PinCount--;
+            }
         }
     }
 }

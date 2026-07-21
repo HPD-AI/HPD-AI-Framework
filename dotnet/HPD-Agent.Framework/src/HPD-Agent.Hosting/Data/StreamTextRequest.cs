@@ -11,12 +11,11 @@ public sealed record StreamTextRequest(
     AgentRunConfig? RunConfig = null,
     string? ClientInputId = null);
 
+/// <summary>Describes hosted admission of a semantic agent input.</summary>
 public sealed record InputSubmissionDto(
-    string ThreadExecutionId,
-    DateTimeOffset StartedAt);
-
-public sealed record InterruptionSubmissionDto(
-    string Status,
+    string Disposition,
+    string? ThreadExecutionId = null,
+    DateTimeOffset? StartedAt = null,
     ThreadExecutionDto? ActiveExecution = null);
 
 public sealed record ThreadRuntimeStateDto(

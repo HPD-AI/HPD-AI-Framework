@@ -768,15 +768,40 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                 await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false),
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        var threadExecutionId = document.RootElement.GetProperty("threadExecutionId").GetString()
-            ?? throw new InvalidOperationException("The hosted runtime did not return a thread execution ID.");
+        var disposition = ParseInputDisposition(GetRequiredString(document.RootElement, "disposition"));
+        var threadExecutionId = document.RootElement.TryGetProperty("threadExecutionId", out var executionIdElement)
+            ? executionIdElement.GetString()
+            : null;
         var startedAt = document.RootElement.TryGetProperty("startedAt", out var startedAtElement) &&
             startedAtElement.TryGetDateTimeOffset(out var parsedStartedAt)
                 ? parsedStartedAt
                 : DateTimeOffset.UtcNow;
-        return new AgentTuiSubmitResult(
-            new AgentTuiThreadExecution(threadExecutionId, scope.AgentId, scope.SessionId, scope.ThreadId, "active", startedAt));
+        AgentTuiThreadExecution? activeExecution = null;
+        if (document.RootElement.TryGetProperty("activeExecution", out var activeElement) &&
+            activeElement.ValueKind == JsonValueKind.Object)
+        {
+            activeExecution = ParseThreadExecution(activeElement);
+        }
+        else if (disposition == AgentInputDisposition.Queued && threadExecutionId is not null)
+        {
+            activeExecution = new AgentTuiThreadExecution(
+                threadExecutionId, scope.AgentId, scope.SessionId, scope.ThreadId, "active", startedAt);
+        }
+
+        return new AgentTuiSubmitResult(disposition, threadExecutionId, activeExecution);
     }
+
+    private static AgentInputDisposition ParseInputDisposition(string value) => value switch
+    {
+        "completed" => AgentInputDisposition.Completed,
+        "queued" => AgentInputDisposition.Queued,
+        "accepted" => AgentInputDisposition.Accepted,
+        "no_active_execution" => AgentInputDisposition.NoActiveExecution,
+        "active_execution_mismatch" => AgentInputDisposition.ActiveExecutionMismatch,
+        "active_input_not_steerable" => AgentInputDisposition.ActiveInputNotSteerable,
+        "execution_finishing" => AgentInputDisposition.ExecutionFinishing,
+        _ => throw new InvalidOperationException($"Unknown input disposition '{value}'.")
+    };
 
     public async Task<ThreadContextUsage> EstimateContextUsageAsync(
         AgentTuiRuntimeScope scope,
@@ -811,53 +836,6 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                 ThreadId = scope.ThreadId,
                 Source = "empty-hosted-response"
             };
-    }
-
-    public async Task<AgentTuiInterruptResult> InterruptAsync(
-        AgentTuiRuntimeScope scope,
-        string? expectedThreadExecutionId,
-        string reason,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(scope);
-
-        var json = SerializeJson(JsonObject(
-            ("expectedThreadExecutionId", JsonValue.Create(expectedThreadExecutionId)),
-            ("reason", JsonValue.Create(string.IsNullOrWhiteSpace(reason)
-                ? "Interrupted by TUI."
-                : reason))));
-        using var response = await PostJsonEnvelopeAsync(
-                $"agents/{Escape(scope.AgentId)}/sessions/{Escape(scope.SessionId)}/threads/{Escape(scope.ThreadId)}/interrupt",
-                json,
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        if (response.StatusCode is not HttpStatusCode.Accepted and not HttpStatusCode.OK and not HttpStatusCode.NoContent)
-        {
-            await ThrowForUnexpectedResponseAsync(response, "interrupt run", cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        var responseJson = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(responseJson))
-        {
-            return new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted);
-        }
-
-        using var responseDocument = JsonDocument.Parse(responseJson);
-        var root = responseDocument.RootElement;
-        var status = GetRequiredString(root, "status") switch
-        {
-            "accepted" => AgentTuiInterruptStatus.Accepted,
-            "already_terminal" => AgentTuiInterruptStatus.AlreadyTerminal,
-            "no_active_execution" => AgentTuiInterruptStatus.NoActiveExecution,
-            "active_execution_mismatch" => AgentTuiInterruptStatus.ActiveExecutionMismatch,
-            var value => throw new InvalidOperationException($"Unknown interrupt status '{value}'.")
-        };
-        var activeExecution = root.TryGetProperty("activeExecution", out var activeExecutionElement)
-            ? ParseThreadExecution(activeExecutionElement)
-            : null;
-        return new AgentTuiInterruptResult(status, activeExecution);
     }
 
     public async Task AnswerRequestAsync(

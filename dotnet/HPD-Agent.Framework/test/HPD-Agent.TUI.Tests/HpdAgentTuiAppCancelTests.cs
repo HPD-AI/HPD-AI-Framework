@@ -164,7 +164,7 @@ public sealed class HpdAgentTuiAppCancelTests
         await submission;
 
         GetPrivateFieldValue<string?>(app, "_activeThreadExecutionId").Should().BeNull();
-        InvokePrivate<bool>(app, "HasKnownActiveRuntimeWork").Should().BeFalse();
+        GetPrivateFieldValue<bool>(app, "_inputSubmissionPending").Should().BeFalse();
     }
 
     [Fact]
@@ -236,7 +236,7 @@ public sealed class HpdAgentTuiAppCancelTests
         runtime.Interrupted.Task.IsCompleted.Should().BeFalse();
 
         var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
-        state.Shell.FooterText.Should().Be("state: running | press Esc again to cancel run run-1234");
+        state.Shell.FooterText.Should().Be("state: running | press Esc again to cancel execution run-1234");
 
         InvokePrivate<bool>(
             app,
@@ -249,10 +249,10 @@ public sealed class HpdAgentTuiAppCancelTests
         var entries = state.Shell.Transcript.Snapshot().Entries;
         entries.Select(static entry => entry.Cell).OfType<RunStatusCell>().Should().BeEmpty();
         state.Shell.Activities.Activities.Should().ContainSingle(activity =>
-            activity.Label == "run run-1234 cancelling" &&
+            activity.Label == "execution run-1234 cancelling" &&
             activity.State == ActivityState.Running &&
             activity.Severity == ActivitySeverity.Warning);
-        state.Shell.FooterText.Should().Be("state: cancelling | run: run-1234");
+        state.Shell.FooterText.Should().Be("state: cancelling | execution: run-1234");
     }
 
     [Fact]
@@ -285,7 +285,7 @@ public sealed class HpdAgentTuiAppCancelTests
 
         runtime.Interrupted.Task.IsCompleted.Should().BeFalse();
         GetPrivateField<AgentTuiSessionState>(app, "_state").Shell.FooterText
-            .Should().Be("state: running | press Esc again to cancel run run-1234");
+            .Should().Be("state: running | press Esc again to cancel execution run-1234");
     }
 
     [Fact]
@@ -528,17 +528,30 @@ public sealed class HpdAgentTuiAppCancelTests
             CancellationToken cancellationToken = default)
         {
             Calls.Add("submit");
+            if (input is InterruptionRequestEvent interruption)
+            {
+                InterruptReason = interruption.Reason;
+                Interrupted.SetResult();
+                return Task.FromResult(new AgentTuiSubmitResult(
+                    AgentInputDisposition.Accepted,
+                    input.ThreadExecutionId,
+                    ActiveExecution));
+            }
             SubmissionStarted.TrySetResult();
             if (DelaySubmission)
             {
                 return DelayedSubmission.Task;
             }
             return Task.FromResult(new AgentTuiSubmitResult(
+                AgentInputDisposition.Queued,
+                (ActiveExecution?.ThreadExecutionId ?? "run"),
                 ActiveExecution ?? new AgentTuiThreadExecution("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
         }
 
         public void CompleteSubmission(string threadExecutionId)
             => DelayedSubmission.SetResult(new AgentTuiSubmitResult(
+                AgentInputDisposition.Queued,
+                threadExecutionId,
                 new AgentTuiThreadExecution(
                     threadExecutionId,
                     _scope.AgentId,
@@ -546,17 +559,6 @@ public sealed class HpdAgentTuiAppCancelTests
                     _scope.ThreadId,
                     "active",
                     DateTimeOffset.UtcNow)));
-
-        public Task<AgentTuiInterruptResult> InterruptAsync(
-            AgentTuiRuntimeScope scope,
-            string? expectedThreadExecutionId,
-            string reason,
-            CancellationToken cancellationToken = default)
-        {
-            InterruptReason = reason;
-            Interrupted.SetResult();
-            return Task.FromResult(new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted, ActiveExecution));
-        }
 
         public Task AnswerRequestAsync(
             AgentTuiRuntimeScope scope,

@@ -10,6 +10,21 @@ namespace HPD.Agent.Tests.Core;
 public class AgentInputDispatchTests
 {
     [Fact]
+    public void BuiltInRegistrations_DeclareRequiredDelivery()
+    {
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(UserMessagesInputEvent)).Delivery
+            .Should().Be(AgentInputDelivery.QueuedWork);
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(CompactThreadInputEvent)).Delivery
+            .Should().Be(AgentInputDelivery.QueuedWork);
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(ClientToolBackgroundOperationOutcomeEvent)).Delivery
+            .Should().Be(AgentInputDelivery.ActiveControl);
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(InterruptionRequestEvent)).Delivery
+            .Should().Be(AgentInputDelivery.ActiveControl);
+        AgentInputDispatcher.GetBuiltInRegistration(typeof(SteeringInputEvent)).Delivery
+            .Should().Be(AgentInputDelivery.ActiveControl);
+    }
+
+    [Fact]
     public async Task HandlerAdapter_CanDispatchMatchingInput()
     {
         var handler = new RecordingInputHandler();
@@ -47,6 +62,7 @@ public class AgentInputDispatchTests
 
         await dispatcher.DispatchAsync(
             new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "original")] },
+            AgentInputDispatcher.GetBuiltInRegistration(typeof(UserMessagesInputEvent)),
             context,
             CancellationToken.None);
 
@@ -69,11 +85,37 @@ public class AgentInputDispatchTests
 
         await dispatcher.DispatchAsync(
             new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, "skip")] },
+            AgentInputDispatcher.GetBuiltInRegistration(typeof(UserMessagesInputEvent)),
             context,
             CancellationToken.None);
 
         runMessagesCalled.Should().BeFalse();
         middleware.AfterCancelled.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task DispatchAsync_BeforeInput_CannotChangeDelivery()
+    {
+        var middleware = new ReplacingInputMiddleware(
+            new SteeringInputEvent
+            {
+                ThreadExecutionId = "execution",
+                Messages = [new ChatMessage(ChatRole.User, "steer")]
+            });
+        var dispatcher = new AgentInputDispatcher(new AgentMiddlewarePipeline([middleware]));
+        var input = new UserMessagesInputEvent
+        {
+            Messages = [new ChatMessage(ChatRole.User, "queued")]
+        };
+
+        var act = () => dispatcher.DispatchAsync(
+            input,
+            AgentInputDispatcher.GetBuiltInRegistration(input.GetType()),
+            CreateContext(),
+            CancellationToken.None).AsTask();
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*QueuedWork*ActiveControl*");
     }
 
     [Fact]
@@ -87,7 +129,11 @@ public class AgentInputDispatchTests
             State = ClientToolBackgroundOperationOutcomeState.Completed
         };
 
-        var act = () => dispatcher.DispatchAsync(input, CreateContext(), CancellationToken.None).AsTask();
+        var act = () => dispatcher.DispatchAsync(
+            input,
+            AgentInputDispatcher.GetBuiltInRegistration(input.GetType()),
+            CreateContext(),
+            CancellationToken.None).AsTask();
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*missing-operation*");
@@ -96,18 +142,16 @@ public class AgentInputDispatchTests
     }
 
     [Fact]
-    public async Task DispatchAsync_UnknownInput_ThrowsNotSupportedAndRunsAfterInput()
+    public void Registration_UnknownInput_ThrowsBeforeDelivery()
     {
         var middleware = new RecordingAfterInputMiddleware();
         var dispatcher = new AgentInputDispatcher(new AgentMiddlewarePipeline([middleware]));
         var input = new UnknownInputEvent();
 
-        var act = () => dispatcher.DispatchAsync(input, CreateContext(), CancellationToken.None).AsTask();
+        var act = () => AgentInputDispatcher.GetBuiltInRegistration(input.GetType());
 
-        await act.Should().ThrowAsync<NotSupportedException>()
+        act.Should().Throw<NotSupportedException>()
             .WithMessage("*UnknownInputEvent*cannot be used as agent input*");
-        middleware.Error.Should().BeOfType<NotSupportedException>();
-        middleware.AfterSeen.Should().BeSameAs(input);
     }
 
     private static AgentInputHandlingContext CreateContext(
@@ -117,9 +161,18 @@ public class AgentInputDispatchTests
             AgentName = "InputDispatchAgent",
             Config = new AgentConfig { Name = "InputDispatchAgent" },
             EventCoordinator = new EventCoordinator(),
-            RunMessagesAsync = (input, _, _) => runMessages?.Invoke(input)
+            RunMessagesAsync = (input, _, _, _) => runMessages?.Invoke(input)
                 ?? Task.FromResult(AgentTurnResult.Empty),
-            InterruptAsync = (_, _) => Task.CompletedTask,
+            InterruptAsync = (input, _) => Task.FromResult(new AgentInputResult
+            {
+                Disposition = AgentInputDisposition.Accepted,
+                ThreadExecutionId = input.ThreadExecutionId
+            }),
+            SteerAsync = (input, _) => Task.FromResult(new AgentInputResult
+            {
+                Disposition = AgentInputDisposition.Accepted,
+                ThreadExecutionId = input.ThreadExecutionId
+            }),
             TryResolveClientToolBackgroundOperation = _ => false
         };
 
@@ -131,13 +184,16 @@ public class AgentInputDispatchTests
     {
         public List<string> Seen { get; } = [];
 
-        public ValueTask<AgentTurnResult> HandleAsync(
+        public ValueTask<AgentInputResult> HandleAsync(
             TestInputEvent input,
             AgentInputHandlingContext context,
             CancellationToken cancellationToken)
         {
             Seen.Add(input.Value);
-            return ValueTask.FromResult(AgentTurnResult.Empty);
+            return ValueTask.FromResult(new AgentInputResult
+            {
+                Disposition = AgentInputDisposition.Completed
+            });
         }
     }
 

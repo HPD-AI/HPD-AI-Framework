@@ -267,6 +267,13 @@ public abstract record AgentInputEvent
     public string? ThreadExecutionId { get; init; }
 }
 
+/// <summary>Adds user guidance to the matching active message execution.</summary>
+public sealed record SteeringInputEvent : AgentInputEvent
+{
+    /// <summary>Gets the messages to expose before the active execution's next model request.</summary>
+    public IReadOnlyList<ChatMessage> Messages { get; init; } = Array.Empty<ChatMessage>();
+}
+
 /// <summary>
 /// Emitted after a coordinating runtime durably accepts an input execution for a thread.
 /// </summary>

@@ -31,14 +31,6 @@ public interface IAgentStreamingService
         AgentRunConfig? runConfig,
         CancellationToken cancellationToken = default);
 
-    Task<AgentServiceResult<InterruptionSubmissionDto>> InterruptAsync(
-        string agentId,
-        string sessionId,
-        string threadId,
-        string? expectedThreadExecutionId,
-        InterruptionRequestEvent interruption,
-        CancellationToken cancellationToken = default);
-
     AgentInputEvent ApplyRouteScope(
         AgentInputEvent input,
         string agentId,

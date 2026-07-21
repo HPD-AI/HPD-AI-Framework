@@ -203,6 +203,7 @@ namespace HPD.Agent.FFI;
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolInvokeOutcomeEvent))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolBackgroundOperationOutcomeState))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.ClientToolBackgroundOperationOutcomeEvent))]
+[JsonSerializable(typeof(HPD.Agent.SteeringInputEvent))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.TextContent))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.BinaryContent))]
 [JsonSerializable(typeof(HPD.Agent.ClientTools.JsonContent))]

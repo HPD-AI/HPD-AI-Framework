@@ -49,6 +49,38 @@ public sealed record AgentTurnResult
     public TimeSpan? Duration => Finished?.Duration;
 }
 
+/// <summary>Describes how a semantic agent input was admitted or completed.</summary>
+public enum AgentInputDisposition
+{
+    /// <summary>The input completed synchronously.</summary>
+    Completed,
+    /// <summary>The input was admitted to the runtime work queue.</summary>
+    Queued,
+    /// <summary>The active execution accepted the control input.</summary>
+    Accepted,
+    /// <summary>No runtime input is currently active.</summary>
+    NoActiveExecution,
+    /// <summary>The requested execution does not match the active execution.</summary>
+    ActiveExecutionMismatch,
+    /// <summary>The active input cannot accept the requested control.</summary>
+    ActiveInputNotSteerable,
+    /// <summary>The active execution has closed control-input acceptance.</summary>
+    ExecutionFinishing
+}
+
+/// <summary>Represents the result of submitting a semantic <see cref="AgentInputEvent"/>.</summary>
+public sealed record AgentInputResult
+{
+    /// <summary>Gets how the input was admitted or completed.</summary>
+    public required AgentInputDisposition Disposition { get; init; }
+
+    /// <summary>Gets the completed turn result when the input ran synchronously.</summary>
+    public AgentTurnResult TurnResult { get; init; } = AgentTurnResult.Empty;
+
+    /// <summary>Gets the execution assigned to or targeted by the input.</summary>
+    public string? ThreadExecutionId { get; init; }
+}
+
 /// <summary>
 /// Receipt returned when input is accepted by a running agent runtime.
 /// </summary>

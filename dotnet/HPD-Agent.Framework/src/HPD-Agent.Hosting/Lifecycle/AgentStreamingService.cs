@@ -49,19 +49,26 @@ public sealed class AgentStreamingService : IAgentStreamingService
         AgentInputEvent input,
         CancellationToken cancellationToken = default)
     {
+        var registration = AgentInputDispatcher.GetBuiltInRegistration(input.GetType());
+        if (registration.Delivery == AgentInputDelivery.ActiveControl)
+            return await SubmitActiveControlAsync(agentId, sessionId, threadId, input, cancellationToken)
+                .ConfigureAwait(false);
+
         var lease = await GetAgentForExecutionAsync(agentId, sessionId, threadId, cancellationToken)
             .ConfigureAwait(false);
         if (lease.Status != AgentServiceStatus.Success)
             return new AgentServiceResult<InputSubmissionDto>(lease.Status, default, lease.ErrorCode, lease.ErrorMessage, lease.ErrorMessages);
 
+        var agent = lease.Value!;
+        var runtimePin = _agentManager.PinRuntime(agentId, sessionId, threadId);
         if (!_sessionManager.TryReserveThreadExecution(agentId, sessionId, threadId, out var execution))
         {
+            runtimePin.Dispose();
             return AgentServiceResult<InputSubmissionDto>.ConflictWith(
                 "ThreadExecutionActive",
                 $"Thread '{threadId}' in session '{sessionId}' already has an active execution.");
         }
 
-        var agent = lease.Value!;
         input = ApplyRouteScope(input, agentId, sessionId, threadId, execution.ThreadExecutionId);
         var publisher = new ThreadEventPublisher(_sessionManager.Store, agent.EventCoordinator);
         var startCommitted = false;
@@ -83,7 +90,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
                 throw new InvalidOperationException($"Thread execution '{execution.ThreadExecutionId}' lost its reserved ownership before activation.");
 
             var submission = await agent.EnqueueAsync(input, CancellationToken.None).ConfigureAwait(false);
-            _ = FinishExecutionAsync(execution, submission, publisher);
+            _ = FinishExecutionAsync(execution, submission, publisher, runtimePin);
         }
         catch (Exception ex)
         {
@@ -100,19 +107,78 @@ public sealed class AgentStreamingService : IAgentStreamingService
             {
                 _sessionManager.ReleaseThreadExecution(sessionId, threadId, execution.ThreadExecutionId);
             }
+            runtimePin.Dispose();
             throw;
         }
 
         return AgentServiceResult<InputSubmissionDto>.Success(
             new InputSubmissionDto(
+                "queued",
                 execution.ThreadExecutionId,
                 execution.StartedAt));
+    }
+
+    private async Task<AgentServiceResult<InputSubmissionDto>> SubmitActiveControlAsync(
+        string routeAgentId,
+        string sessionId,
+        string threadId,
+        AgentInputEvent input,
+        CancellationToken cancellationToken)
+    {
+        var activeExecution = _sessionManager.GetActiveThreadExecution(sessionId, threadId);
+        if (activeExecution is null)
+        {
+            return AgentServiceResult<InputSubmissionDto>.Success(new InputSubmissionDto(
+                "no_active_execution",
+                input.ThreadExecutionId));
+        }
+
+        if (!string.Equals(routeAgentId, activeExecution.AgentId, StringComparison.Ordinal))
+        {
+            return AgentServiceResult<InputSubmissionDto>.ConflictWith(
+                "ActiveExecutionAgentMismatch",
+                $"Active execution '{activeExecution.ThreadExecutionId}' belongs to agent '{activeExecution.AgentId}'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(input.ThreadExecutionId))
+        {
+            return AgentServiceResult<InputSubmissionDto>.Validation(
+                "ThreadExecutionIdRequired",
+                "Active-control input requires ThreadExecutionId.");
+        }
+
+        if (!string.Equals(input.ThreadExecutionId, activeExecution.ThreadExecutionId, StringComparison.Ordinal))
+        {
+            return AgentServiceResult<InputSubmissionDto>.Success(new InputSubmissionDto(
+                "active_execution_mismatch",
+                input.ThreadExecutionId,
+                ActiveExecution: ToExecutionDto(activeExecution)));
+        }
+
+        var agent = _agentManager.GetRuntimeAgent(
+            activeExecution.AgentId,
+            activeExecution.SessionId,
+            activeExecution.ThreadId);
+        if (agent is null)
+        {
+            return AgentServiceResult<InputSubmissionDto>.ConflictWith(
+                "ActiveRuntimeUnavailable",
+                $"Active execution '{activeExecution.ThreadExecutionId}' has no cached runtime.");
+        }
+
+        var scoped = ApplyRouteScope(input, routeAgentId, sessionId, threadId);
+        var result = await agent.RunAsync(scoped, cancellationToken).ConfigureAwait(false);
+        return AgentServiceResult<InputSubmissionDto>.Success(new InputSubmissionDto(
+            ToWireDisposition(result.Disposition),
+            result.ThreadExecutionId ?? activeExecution.ThreadExecutionId,
+            ActiveExecution: ToExecutionDto(activeExecution)));
     }
 
     private async Task FinishExecutionAsync(
         ThreadExecutionState execution,
         AgentRuntimeInputSubmission submission,
-        IThreadEventPublisher publisher)
+        IThreadEventPublisher publisher,
+        IDisposable runtimePin)
     {
         try
         {
@@ -123,6 +189,7 @@ public sealed class AgentStreamingService : IAgentStreamingService
                 outcome.Cancelled,
                 outcome.Error,
                 CancellationToken.None).ConfigureAwait(false);
+            runtimePin.Dispose();
         }
         catch (Exception ex)
         {
@@ -132,6 +199,18 @@ public sealed class AgentStreamingService : IAgentStreamingService
                 execution.ThreadExecutionId);
         }
     }
+
+    private static string ToWireDisposition(AgentInputDisposition disposition) => disposition switch
+    {
+        AgentInputDisposition.Completed => "completed",
+        AgentInputDisposition.Queued => "queued",
+        AgentInputDisposition.Accepted => "accepted",
+        AgentInputDisposition.NoActiveExecution => "no_active_execution",
+        AgentInputDisposition.ActiveExecutionMismatch => "active_execution_mismatch",
+        AgentInputDisposition.ActiveInputNotSteerable => "active_input_not_steerable",
+        AgentInputDisposition.ExecutionFinishing => "execution_finishing",
+        _ => throw new ArgumentOutOfRangeException(nameof(disposition), disposition, null)
+    };
 
     private async Task CommitTerminalAsync(
         ThreadExecutionState execution,
@@ -218,59 +297,6 @@ public sealed class AgentStreamingService : IAgentStreamingService
         return AgentServiceResult<ThreadContextUsage>.Success(usage);
     }
 
-    public async Task<AgentServiceResult<InterruptionSubmissionDto>> InterruptAsync(
-        string agentId,
-        string sessionId,
-        string threadId,
-        string? expectedThreadExecutionId,
-        InterruptionRequestEvent interruption,
-        CancellationToken cancellationToken = default)
-    {
-        var lease = await GetAgentForExecutionAsync(agentId, sessionId, threadId, cancellationToken)
-            .ConfigureAwait(false);
-        if (lease.Status != AgentServiceStatus.Success)
-            return new AgentServiceResult<InterruptionSubmissionDto>(
-                lease.Status,
-                default,
-                lease.ErrorCode,
-                lease.ErrorMessage,
-                lease.ErrorMessages);
-
-        var activeExecution = _sessionManager.GetActiveThreadExecution(sessionId, threadId);
-        if (activeExecution == null)
-        {
-            var events = await _sessionManager.GetThreadExecutionProjectionEventsAsync(sessionId, threadId, cancellationToken)
-                .ConfigureAwait(false);
-            var expectedRun = string.IsNullOrWhiteSpace(expectedThreadExecutionId)
-                ? null
-                : ThreadExecutionProjector.Project(agentId, sessionId, threadId, events ?? [])
-                    .LastOrDefault(execution => execution.ThreadExecutionId == expectedThreadExecutionId);
-            return AgentServiceResult<InterruptionSubmissionDto>.Success(new InterruptionSubmissionDto(
-                expectedRun is null ? "no_active_execution" : "already_terminal"));
-        }
-
-        if (!string.IsNullOrWhiteSpace(expectedThreadExecutionId) &&
-            !string.Equals(expectedThreadExecutionId, activeExecution.ThreadExecutionId, StringComparison.Ordinal))
-        {
-            return AgentServiceResult<InterruptionSubmissionDto>.Success(new InterruptionSubmissionDto(
-                "active_execution_mismatch",
-                ToExecutionDto(activeExecution)));
-        }
-
-        var scoped = interruption with
-        {
-            AgentId = agentId,
-            SessionId = sessionId,
-            ThreadId = threadId,
-            ThreadExecutionId = activeExecution.ThreadExecutionId
-        };
-
-        await lease.Value!.RunAsync(scoped, cancellationToken).ConfigureAwait(false);
-        return AgentServiceResult<InterruptionSubmissionDto>.Success(new InterruptionSubmissionDto(
-            "accepted",
-            ToExecutionDto(activeExecution)));
-    }
-
     public AgentInputEvent ApplyRouteScope(
         AgentInputEvent input,
         string agentId,
@@ -278,44 +304,12 @@ public sealed class AgentStreamingService : IAgentStreamingService
         string threadId,
         string? threadExecutionId = null)
     {
-        return input switch
+        return input with
         {
-            UserMessagesInputEvent messages => messages with
-            {
-                ClientInputId = messages.ClientInputId,
-                AgentId = agentId,
-                SessionId = sessionId,
-                ThreadId = threadId,
-                ThreadExecutionId = threadExecutionId ?? messages.ThreadExecutionId,
-                RunConfig = messages.RunConfig
-            },
-            CompactThreadInputEvent compact => compact with
-            {
-                ClientInputId = compact.ClientInputId,
-                AgentId = agentId,
-                SessionId = sessionId,
-                ThreadId = threadId,
-                ThreadExecutionId = threadExecutionId ?? compact.ThreadExecutionId,
-                RunConfig = compact.RunConfig
-            },
-            InterruptionRequestEvent interruption => interruption with
-            {
-                AgentId = agentId,
-                SessionId = sessionId,
-                ThreadId = threadId,
-                ThreadExecutionId = threadExecutionId ?? interruption.ThreadExecutionId,
-                RunConfig = interruption.RunConfig
-            },
-            BackgroundTaskNotificationInputEvent notification => notification with
-            {
-                ClientInputId = notification.ClientInputId,
-                AgentId = agentId,
-                SessionId = sessionId,
-                ThreadId = threadId,
-                ThreadExecutionId = threadExecutionId ?? notification.ThreadExecutionId,
-                RunConfig = notification.RunConfig
-            },
-            _ => input
+            AgentId = agentId,
+            SessionId = sessionId,
+            ThreadId = threadId,
+            ThreadExecutionId = threadExecutionId ?? input.ThreadExecutionId
         };
     }
 

@@ -46,6 +46,7 @@ describe('ChatSession', () => {
       ok: true,
       body: null,
       text: async () => JSON.stringify({
+        disposition: 'queued',
         threadExecutionId: 'run-1',
         startedAt: '2026-07-15T00:00:00Z',
       }),
@@ -116,17 +117,17 @@ describe('ChatSession', () => {
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        text: async () => JSON.stringify({ status: 'accepted', activeExecution: null }),
+        text: async () => JSON.stringify({ disposition: 'accepted', activeExecution: null }),
       } as Response);
 
     const chat = client.chat.session({ agentId: 'a1', sessionId: 's1', threadId: 'main' });
     const result = await chat.cancelActiveTurn({ reason: 'stop' });
 
-    expect(result.status).toBe('accepted');
+    expect(result.disposition).toBe('accepted');
     expect(fetchSpy).toHaveBeenLastCalledWith(
-      'http://localhost:5135/agents/a1/sessions/s1/threads/main/interrupt',
+      'http://localhost:5135/agents/a1/sessions/s1/threads/main/inputs',
       expect.objectContaining({
-        body: expect.stringContaining('"expectedThreadExecutionId":"run-1"'),
+        body: expect.stringContaining('"threadExecutionId":"run-1"'),
       }),
     );
     chat.dispose();

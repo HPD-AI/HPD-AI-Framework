@@ -1242,13 +1242,6 @@ public sealed class ExecuteCommandTuiLifecycleTests
             => Task.FromResult(new AgentTuiSubmitResult(
                 new AgentTuiThreadExecution("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
 
-        public Task<AgentTuiInterruptResult> InterruptAsync(
-            AgentTuiRuntimeScope scope,
-            string? expectedThreadExecutionId,
-            string reason,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult(new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted));
-
         public Task AnswerRequestAsync(
             AgentTuiRuntimeScope scope,
             AgentEvent response,

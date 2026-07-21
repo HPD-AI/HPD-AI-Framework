@@ -66,7 +66,7 @@ public sealed class RunConfigComposerTests
     }
 
     [Fact]
-    public async Task SubmittedPrompt_WhenRunIsActive_ShowsBusyNoticeWithoutSubmitting()
+    public async Task SubmittedPrompt_WhenRunIsActive_SubmitsSteeringInput()
     {
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
         var runtime = new CapturingRuntime(scope);
@@ -89,13 +89,10 @@ public sealed class RunConfigComposerTests
             CancellationToken.None);
         InvokePrivate(app, "SubmitPrompt", "hello".AsMemory());
 
-        runtime.SubmitCount.Should().Be(0);
-        var state = GetPrivateField<HPD.Agent.TUI.Application.AgentTuiSessionState>(app, "_state");
-        state.Shell.Transcript.Snapshot().Entries
-            .Select(static entry => entry.Cell)
-            .OfType<HPD.Agent.TUI.Models.NoticeCell>()
-            .Should()
-            .ContainSingle(cell => cell.Title == "Thread is busy");
+        await runtime.Submitted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        runtime.SubmitCount.Should().Be(1);
+        runtime.LastInput.Should().BeOfType<SteeringInputEvent>()
+            .Which.ThreadExecutionId.Should().Be("run-1");
     }
 
     private static void InvokePrivate(
@@ -143,6 +140,8 @@ public sealed class RunConfigComposerTests
 
         public AgentInputEvent? LastInput { get; private set; }
         public int SubmitCount { get; private set; }
+        public TaskCompletionSource Submitted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<AgentTuiScopeResolution> ResolveInitialScopeAsync(
             AgentTuiRuntimeScope? requested,
@@ -171,16 +170,12 @@ public sealed class RunConfigComposerTests
         {
             SubmitCount++;
             LastInput = input;
+            Submitted.TrySetResult();
             return Task.FromResult(new AgentTuiSubmitResult(
+                input is SteeringInputEvent ? AgentInputDisposition.Accepted : AgentInputDisposition.Queued,
+                input.ThreadExecutionId ?? "run",
                 new AgentTuiThreadExecution("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
         }
-
-        public Task<AgentTuiInterruptResult> InterruptAsync(
-            AgentTuiRuntimeScope scope,
-            string? expectedThreadExecutionId,
-            string reason,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult(new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted));
 
         public Task AnswerRequestAsync(
             AgentTuiRuntimeScope scope,

@@ -68,7 +68,7 @@ public sealed class Agent
     private BackgroundTaskNotificationDispatcher? _runtimeNotificationDispatcher;
     private bool _runtimeStarting;
     private bool _runtimeStopping;
-    private readonly List<CancellationTokenSource> _activeRuntimeInputCts = new();
+    private ActiveRuntimeInput? _activeRuntimeInput;
     private readonly Dictionary<AgentInputEvent, TaskCompletionSource<AgentRuntimeInputOutcome>> _runtimeInputCompletions =
         new(ReferenceEqualityComparer.Instance);
     private readonly ILogger? _agentLogger;
@@ -89,6 +89,69 @@ public sealed class Agent
     // HttpClients created by AgentBuilder for OpenAPI sources that did not provide their own.
     // Disposed when the Agent is disposed.
     private readonly IReadOnlyList<HttpClient>? _ownedHttpClients;
+
+    private async Task<bool> DrainAcceptedSteeringAsync(
+        ActiveRuntimeInput? activeInput,
+        List<ChatMessage> sharedMessages,
+        List<ChatMessage> turnHistory,
+        Session? session,
+        Thread? thread,
+        HPD.Events.IEventCoordinator eventCoordinator,
+        CancellationToken cancellationToken)
+    {
+        if (activeInput is null)
+            return false;
+
+        var drained = false;
+        while (activeInput.Steering.Reader.TryRead(out var accepted))
+        {
+            var messages = accepted.Messages.ToArray();
+            foreach (var message in messages)
+            {
+                EnsureMessageIdentity(message);
+                message.WithPolicy(
+                    AgentMessageSource.Steering,
+                    AgentMessageVisibility.Transcript,
+                    AgentMessagePersistence.ThreadHistory);
+            }
+
+            await CommitThreadMessagesAsync(
+                    session,
+                    thread,
+                    messages,
+                    accepted.ClientInputId,
+                    eventCoordinator,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            sharedMessages.AddRange(messages);
+            turnHistory.AddRange(messages);
+            drained = true;
+        }
+
+        return drained;
+    }
+
+    private bool TryFinishActiveInput(ActiveRuntimeInput? activeInput)
+    {
+        if (activeInput is null)
+            return true;
+
+        lock (_runtimeLock)
+        {
+            if (!ReferenceEquals(_activeRuntimeInput, activeInput))
+                return true;
+
+            activeInput.State = ActiveRuntimeInputState.Finishing;
+            if (activeInput.Steering.Reader.TryPeek(out _))
+            {
+                activeInput.State = ActiveRuntimeInputState.Accepting;
+                return false;
+            }
+
+            activeInput.State = ActiveRuntimeInputState.Finished;
+            return true;
+        }
+    }
 
     /// <summary>
     /// Agent configuration object containing all settings
@@ -909,8 +972,22 @@ public sealed class Agent
         }
     }
 
-    private async Task HandleInterruptionAsync(InterruptionRequestEvent interruption, CancellationToken cancellationToken)
+    private async Task<AgentInputResult> HandleInterruptionAsync(
+        InterruptionRequestEvent interruption,
+        CancellationToken cancellationToken)
     {
+        ActiveRuntimeInput? activeInput;
+        lock (_runtimeLock)
+        {
+            activeInput = _activeRuntimeInput;
+            if (activeInput is null)
+                return ControlResult(AgentInputDisposition.NoActiveExecution, interruption.ThreadExecutionId);
+            if (!string.Equals(activeInput.ThreadExecutionId, interruption.ThreadExecutionId, StringComparison.Ordinal))
+                return ControlResult(AgentInputDisposition.ActiveExecutionMismatch, activeInput.ThreadExecutionId);
+            if (activeInput.State != ActiveRuntimeInputState.Accepting)
+                return ControlResult(AgentInputDisposition.ExecutionFinishing, activeInput.ThreadExecutionId);
+        }
+
         var eventCoordinator = GetActiveEventCoordinator();
 
         if (!string.IsNullOrWhiteSpace(interruption.EventFlowId))
@@ -922,7 +999,7 @@ public sealed class Agent
             eventCoordinator.EventFlows.InterruptAll();
         }
 
-        CancelActiveRuntimeInputs();
+        activeInput.Cancellation.Cancel();
 
         await PublishScopedRuntimeEventAsync(new InterruptionHandledEvent(
             interruption.EventFlowId,
@@ -932,10 +1009,57 @@ public sealed class Agent
             SessionId = interruption.SessionId,
             ThreadId = interruption.ThreadId
         }, eventCoordinator, cancellationToken).ConfigureAwait(false);
+
+        return ControlResult(AgentInputDisposition.Accepted, activeInput.ThreadExecutionId);
+    }
+
+    private Task<AgentInputResult> HandleSteeringAsync(
+        SteeringInputEvent steering,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(steering.ThreadExecutionId))
+            throw new ArgumentException("Steering requires ThreadExecutionId.", nameof(steering));
+        if (steering.Messages.Count == 0 || steering.Messages.Any(static message => message is null))
+            throw new ArgumentException("Steering requires at least one non-null message.", nameof(steering));
+        if (steering.Messages.Any(static message => message.Role != ChatRole.User))
+            throw new ArgumentException("Steering currently accepts only user-role messages.", nameof(steering));
+
+        AgentInputResult result;
+        lock (_runtimeLock)
+        {
+            var activeInput = _activeRuntimeInput;
+            if (activeInput is null)
+                result = ControlResult(AgentInputDisposition.NoActiveExecution, steering.ThreadExecutionId);
+            else if (!string.Equals(activeInput.ThreadExecutionId, steering.ThreadExecutionId, StringComparison.Ordinal))
+                result = ControlResult(AgentInputDisposition.ActiveExecutionMismatch, activeInput.ThreadExecutionId);
+            else if (activeInput.Input is not UserMessagesInputEvent)
+                result = ControlResult(AgentInputDisposition.ActiveInputNotSteerable, activeInput.ThreadExecutionId);
+            else if (activeInput.State != ActiveRuntimeInputState.Accepting)
+                result = ControlResult(AgentInputDisposition.ExecutionFinishing, activeInput.ThreadExecutionId);
+            else if (!activeInput.Steering.Writer.TryWrite(new AcceptedSteeringInput(steering.Messages, steering.ClientInputId)))
+                result = ControlResult(AgentInputDisposition.ExecutionFinishing, activeInput.ThreadExecutionId);
+            else
+                result = ControlResult(AgentInputDisposition.Accepted, activeInput.ThreadExecutionId);
+        }
+
+        return Task.FromResult(result);
+    }
+
+    private static AgentInputResult ControlResult(AgentInputDisposition disposition, string? executionId)
+        => new() { Disposition = disposition, ThreadExecutionId = executionId };
+
+    private AgentInputEvent TargetActiveExecution(AgentInputEvent input)
+    {
+        if (!string.IsNullOrWhiteSpace(input.ThreadExecutionId))
+            return input;
+        lock (_runtimeLock)
+            return input with { ThreadExecutionId = _activeRuntimeInput?.ThreadExecutionId };
     }
 
     private async Task<AgentTurnResult> RunMessagesInputAsync(
         UserMessagesInputEvent input,
+        ActiveRuntimeInput? activeInput,
         HPD.Events.IEventCoordinator eventCoordinator,
         CancellationToken cancellationToken)
     {
@@ -952,6 +1076,7 @@ public sealed class Agent
                 input.RunConfig,
                 eventCoordinator,
                 input.ClientInputId,
+                activeInput,
                 cancellationToken,
                 input.InheritedChatClient).ConfigureAwait(false))
             {
@@ -976,6 +1101,7 @@ public sealed class Agent
                 input.RunConfig,
                 eventCoordinator,
                 input.ClientInputId,
+                activeInput,
                 cancellationToken,
                 input.InheritedChatClient).ConfigureAwait(false))
             {
@@ -998,6 +1124,7 @@ public sealed class Agent
             input.RunConfig,
             eventCoordinator,
             input.ClientInputId,
+            activeInput,
             cancellationToken,
             input.InheritedChatClient).ConfigureAwait(false))
         {
@@ -1006,8 +1133,6 @@ public sealed class Agent
 
         return unsessionedResult.Build();
     }
-
-    private static bool ShouldEnqueueToRuntime(AgentInputEvent input) => true;
 
     private HPD.Events.IEventCoordinator GetActiveEventCoordinator()
     {
@@ -1057,21 +1182,28 @@ public sealed class Agent
         }
     }
 
-    private async Task<AgentTurnResult> RunInputDirectAsync(AgentInputEvent input, CancellationToken cancellationToken)
-        => await RunInputDirectAsync(input, GetActiveEventCoordinator(), cancellationToken).ConfigureAwait(false);
-
-    private async Task<AgentTurnResult> RunInputDirectAsync(
+    private async Task<AgentInputResult> RunInputDirectAsync(
         AgentInputEvent input,
+        AgentInputHandlerRegistration registration,
+        CancellationToken cancellationToken)
+        => await RunInputDirectAsync(input, registration, GetActiveEventCoordinator(), null, cancellationToken).ConfigureAwait(false);
+
+    private async Task<AgentInputResult> RunInputDirectAsync(
+        AgentInputEvent input,
+        AgentInputHandlerRegistration registration,
         HPD.Events.IEventCoordinator eventCoordinator,
+        ActiveRuntimeInput? activeInput,
         CancellationToken cancellationToken)
         => await _inputDispatcher.DispatchAsync(
                 input,
-                CreateInputHandlingContext(eventCoordinator),
+                registration,
+                CreateInputHandlingContext(eventCoordinator, activeInput),
                 cancellationToken)
             .ConfigureAwait(false);
 
     private AgentInputHandlingContext CreateInputHandlingContext(
-        HPD.Events.IEventCoordinator eventCoordinator)
+        HPD.Events.IEventCoordinator eventCoordinator,
+        ActiveRuntimeInput? activeInput)
         => new()
         {
             AgentName = _name,
@@ -1085,8 +1217,10 @@ public sealed class Agent
             RuntimeRunConfig = _runtimeContext?.RunConfig,
             ChatClientResolver = _chatClientResolver,
             DefaultChatClient = _defaultChatClientHandle,
+            ActiveInput = activeInput,
             RunMessagesAsync = RunMessagesInputAsync,
             InterruptAsync = HandleInterruptionAsync,
+            SteerAsync = HandleSteeringAsync,
             TryResolveClientToolBackgroundOperation = ResolveClientToolBackgroundOperation,
             PublishBackgroundTaskNotificationDelivered = PublishBackgroundTaskNotificationDeliveredAsync
         };
@@ -1107,17 +1241,28 @@ public sealed class Agent
             await foreach (var input in reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
                 using var activeInputCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var activeInput = new ActiveRuntimeInput(input, activeInputCts);
                 var result = AgentTurnResult.Empty;
                 Exception? runError = null;
                 var runCancelled = false;
                 lock (_runtimeLock)
                 {
-                    _activeRuntimeInputCts.Add(activeInputCts);
+                    if (_activeRuntimeInput is not null)
+                        throw new InvalidOperationException("The single-reader runtime already has an active input.");
+                    _activeRuntimeInput = activeInput;
                 }
 
                 try
                 {
-                    result = await RunInputDirectAsync(input, eventCoordinator, activeInputCts.Token).ConfigureAwait(false);
+                    var registration = _inputDispatcher.GetRegistration(input.GetType());
+                    var inputResult = await RunInputDirectAsync(
+                            input,
+                            registration,
+                            eventCoordinator,
+                            activeInput,
+                            activeInputCts.Token)
+                        .ConfigureAwait(false);
+                    result = inputResult.TurnResult;
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -1139,7 +1284,10 @@ public sealed class Agent
                 {
                     lock (_runtimeLock)
                     {
-                        _activeRuntimeInputCts.Remove(activeInputCts);
+                        activeInput.State = ActiveRuntimeInputState.Finished;
+                        activeInput.Steering.Writer.TryComplete(runError);
+                        if (ReferenceEquals(_activeRuntimeInput, activeInput))
+                            _activeRuntimeInput = null;
                         if (_runtimeInputCompletions.Remove(input, out var completion))
                         {
                             completion.TrySetResult(new AgentRuntimeInputOutcome(result, runCancelled, runError));
@@ -1272,7 +1420,10 @@ public sealed class Agent
                 runtimeCoordinator,
                 runtimeStructEvents,
                 runtimeInbox.Writer,
-                async (interruption, ct) => await HandleInterruptionAsync(interruption, ct).ConfigureAwait(false),
+                async (runtimeInput, ct) =>
+                {
+                    await RunAsync(TargetActiveExecution(runtimeInput), ct).ConfigureAwait(false);
+                },
                 HasActiveRuntimeInputs,
                 runtimeCts.Token,
                 runtimeThreadEvents,
@@ -1554,17 +1705,17 @@ public sealed class Agent
 
     private void CancelActiveRuntimeInputs()
     {
-        List<CancellationTokenSource> activeInputCts;
+        CancellationTokenSource? activeInputCts;
         lock (_runtimeLock)
         {
-            activeInputCts = _activeRuntimeInputCts.ToList();
+            activeInputCts = _activeRuntimeInput?.Cancellation;
         }
 
-        foreach (var inputCts in activeInputCts)
+        if (activeInputCts is not null)
         {
             try
             {
-                inputCts.Cancel();
+                activeInputCts.Cancel();
             }
             catch (ObjectDisposedException)
             {
@@ -1577,25 +1728,20 @@ public sealed class Agent
     {
         lock (_runtimeLock)
         {
-            return _activeRuntimeInputCts.Count > 0;
+            return _activeRuntimeInput is not null;
         }
     }
 
     /// <summary>
     /// Sends a semantic input event to the agent.
     /// </summary>
-    /// <returns>The completed turn result for direct runs, or an empty result when the input is queued to a running agent runtime.</returns>
-    public async Task<AgentTurnResult> RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default)
+    /// <returns>The semantic admission or completion result.</returns>
+    public async Task<AgentInputResult> RunAsync(AgentInputEvent input, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
+        var registration = _inputDispatcher.GetRegistration(input.GetType());
 
-        if (input is InterruptionRequestEvent interruption)
-        {
-            await HandleInterruptionAsync(interruption, cancellationToken).ConfigureAwait(false);
-            return AgentTurnResult.Empty;
-        }
-
-        if (ShouldEnqueueToRuntime(input))
+        if (registration.Delivery == AgentInputDelivery.QueuedWork)
         {
             ChannelWriter<AgentInputEvent>? runtimeWriter;
             bool runtimeTransitioning;
@@ -1616,7 +1762,11 @@ public sealed class Agent
                 try
                 {
                     await runtimeWriter.WriteAsync(input, cancellationToken).ConfigureAwait(false);
-                    return AgentTurnResult.Empty;
+                    return new AgentInputResult
+                    {
+                        Disposition = AgentInputDisposition.Queued,
+                        ThreadExecutionId = input.ThreadExecutionId
+                    };
                 }
                 catch (ChannelClosedException ex)
                 {
@@ -1630,7 +1780,7 @@ public sealed class Agent
                 throw new InvalidOperationException("Agent runtime is starting or stopping and cannot accept user input.");
         }
 
-        return await RunInputDirectAsync(input, cancellationToken).ConfigureAwait(false);
+        return await RunInputDirectAsync(input, registration, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1642,8 +1792,9 @@ public sealed class Agent
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
-        if (input is InterruptionRequestEvent)
-            throw new ArgumentException("Interruptions are control commands and cannot be enqueued as runtime work.", nameof(input));
+        var registration = _inputDispatcher.GetRegistration(input.GetType());
+        if (registration.Delivery != AgentInputDelivery.QueuedWork)
+            throw new ArgumentException("Active-control inputs cannot be enqueued as runtime work.", nameof(input));
 
         ChannelWriter<AgentInputEvent>? runtimeWriter;
         var completion = new TaskCompletionSource<AgentRuntimeInputOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1762,7 +1913,7 @@ public sealed class Agent
     /// Sends user text input to the agent.
     /// </summary>
     /// <returns>The completed turn result, including final text, emitted events, and completion metadata.</returns>
-    public Task<AgentTurnResult> RunAsync(
+    public async Task<AgentTurnResult> RunAsync(
         string userMessage,
         string? sessionId = null,
         string? threadId = "main",
@@ -1771,11 +1922,12 @@ public sealed class Agent
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userMessage);
 
-        return RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, userMessage)],
+        var result = await RunAsync(new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, userMessage)],
             SessionId = sessionId,
             ThreadId = threadId,
             RunConfig = runConfig
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
+        return result.TurnResult;
     }
 
     /// <summary>
@@ -1794,6 +1946,7 @@ public sealed class Agent
         AgentRunConfig? runConfig = null,
         HPD.Events.IEventCoordinator? eventCoordinator = null,
         string? clientInputId = null,
+        ActiveRuntimeInput? activeInput = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default,
         AgentChatClientHandle? inheritedChatClient = null)
     {
@@ -1987,8 +2140,8 @@ public sealed class Agent
                 clientSet: _clientSet,
                 contentStore: _contentStore,
                 structEvents: GetActiveStructEvents(),
-                interruptionHandler: async (interruption, ct) =>
-                    await HandleInterruptionAsync(interruption, ct).ConfigureAwait(false));
+                inputHandler: async (input, ct) =>
+                    _ = await RunAsync(TargetActiveExecution(input), ct).ConfigureAwait(false));
 
             // IMPORTANT: Create runConfig instance ONCE and reuse it throughout the entire turn
             // Middleware may modify runConfig (e.g., AgentPlanAgentMiddleware sets AdditionalSystemInstructions)
@@ -2076,6 +2229,18 @@ public sealed class Agent
 
             while (!state.IsTerminated)
             {
+                if (await DrainAcceptedSteeringAsync(
+                        activeInput,
+                        sharedMessages,
+                        turnHistory,
+                        session,
+                        thread,
+                        eventCoordinator,
+                        effectiveCancellationToken).ConfigureAwait(false))
+                {
+                    lastResponse = null;
+                }
+
                 // Generate message ID for this iteration
                 var assistantMessageId = Guid.NewGuid().ToString();
                 var iterSpanId         = GenerateSpanId();
@@ -3202,14 +3367,16 @@ public sealed class Agent
                             state = state.EnableHistoryTracking(messageCountToSend, lastRespConvId);
                         }
 
-                        state = state.Terminate("Completed successfully");
+                        if (TryFinishActiveInput(activeInput))
+                            state = state.Terminate("Completed successfully");
                     }
                 }
                 else if (decision is AgentDecision.Complete complete)
                 {
                     // Completion - extract final message if needed
                     lastResponse = complete.FinalResponse;
-                    state = state.Terminate("Completed successfully");
+                    if (TryFinishActiveInput(activeInput))
+                        state = state.Terminate("Completed successfully");
                 }
                 else if (decision is AgentDecision.Terminate terminateDecision)
                 {
@@ -3845,7 +4012,8 @@ public sealed class Agent
             options,
             _eventCoordinator,
             clientInputId: null,
-            cancellationToken).ConfigureAwait(false))
+            activeInput: null,
+            cancellationToken: cancellationToken).ConfigureAwait(false))
         {
             yield return evt;
         }
@@ -3858,6 +4026,7 @@ public sealed class Agent
         AgentRunConfig? options,
         HPD.Events.IEventCoordinator eventCoordinator,
         string? clientInputId,
+        ActiveRuntimeInput? activeInput,
         [EnumeratorCancellation] CancellationToken cancellationToken,
         AgentChatClientHandle? inheritedChatClient = null)
     {
@@ -3905,6 +4074,7 @@ public sealed class Agent
             runConfig: options,
             eventCoordinator: eventCoordinator,
             clientInputId: clientInputId,
+            activeInput: activeInput,
             cancellationToken: cancellationToken,
             inheritedChatClient: inheritedChatClient);
 

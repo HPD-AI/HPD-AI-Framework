@@ -156,6 +156,7 @@ export const EventTypes = {
 
   // Control
   INTERRUPTION_REQUEST: 'INTERRUPTION_REQUEST',
+  STEERING_INPUT: 'STEERING_INPUT',
 } as const;
 
 export type EventType = (typeof EventTypes)[keyof typeof EventTypes];
@@ -981,7 +982,11 @@ export interface InterruptionRequestEvent extends AgentInputEvent {
   type: typeof EventTypes.INTERRUPTION_REQUEST;
   reason: string;
   source: InterruptionSource;
-  expectedThreadExecutionId?: string;
+}
+
+export interface SteeringInputEvent extends AgentInputEvent {
+  type: typeof EventTypes.STEERING_INPUT;
+  messages: UserMessageInput[];
 }
 
 // ============================================
@@ -1061,7 +1066,8 @@ export type KnownAgentEvent =
   | ClientToolInvokeOutcomeEvent
   | ClientToolBackgroundOperationOutcomeEvent
   // Control Events
-  | InterruptionRequestEvent;
+  | InterruptionRequestEvent
+  | SteeringInputEvent;
 
 export type AgentEvent = KnownAgentEvent | UnknownAgentEvent;
 
@@ -1073,7 +1079,8 @@ export type AgentRunInputEvent =
   | ClarificationResponseEvent
   | ClientToolInvokeOutcomeEvent
   | ClientToolBackgroundOperationOutcomeEvent
-  | InterruptionRequestEvent;
+  | InterruptionRequestEvent
+  | SteeringInputEvent;
 
 export type AgentEventOfType<TType extends KnownAgentEvent['type']> =
   Extract<KnownAgentEvent, { type: TType }>;

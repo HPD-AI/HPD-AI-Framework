@@ -7,7 +7,6 @@ import {
   type AgentRunInputEvent,
   type ClientToolInvokeOutcome,
   type EventSubscription,
-  type InterruptionResult,
   type PermissionChoice,
   type SubmitInputResult,
   type ToolResultContent,
@@ -201,7 +200,25 @@ class ThreadControllerImpl implements ThreadController {
     return this.run(input);
   }
 
-  async interrupt(options: InterruptOptions = {}): Promise<InterruptionResult> {
+  async steer(text: string, options: SendMessageOptions = {}): Promise<SubmitInputResult> {
+    this.throwIfDisposed();
+    if (!text.trim()) throw new Error('steer() requires non-empty text.');
+    const state = await this.client.getThreadState(
+      this.scope.agentId,
+      this.scope.sessionId,
+      this.scope.threadId,
+    );
+    if (!state?.activeExecution) {
+      return { disposition: 'no_active_execution', activeExecution: null };
+    }
+    return this.client.submitInput(stampInputScope({
+      type: EventTypes.STEERING_INPUT,
+      threadExecutionId: state.activeExecution.threadExecutionId,
+      messages: [{ role: 'user', contents: [{ $type: 'text', text }] }],
+    }, this.scope), { signal: options.signal });
+  }
+
+  async interrupt(options: InterruptOptions = {}): Promise<SubmitInputResult> {
     this.throwIfDisposed();
     const state = await this.client.getThreadState(
       this.scope.agentId,
@@ -209,7 +226,7 @@ class ThreadControllerImpl implements ThreadController {
       this.scope.threadId,
     );
     if (!state?.activeExecution) {
-      return { status: 'no_active_execution', activeExecution: null };
+      return { disposition: 'no_active_execution', activeExecution: null };
     }
 
     const result = await this.client.submitInput({
@@ -217,19 +234,15 @@ class ThreadControllerImpl implements ThreadController {
       agentId: this.scope.agentId,
       sessionId: this.scope.sessionId,
       threadId: this.scope.threadId,
-      expectedThreadExecutionId: state.activeExecution.threadExecutionId,
+      threadExecutionId: state.activeExecution.threadExecutionId,
       reason: options.reason ?? 'Interrupted by client.',
       source: 'User',
       eventFlowId: options.eventFlowId ?? undefined,
     }, { signal: options.signal });
-    if (!('status' in result) || !isInterruptionStatus(result.status)) {
+    if (!('disposition' in result)) {
       throw new Error('Backend returned a non-interruption result for cancellation.');
     }
-
-    return {
-      status: result.status,
-      activeExecution: 'activeExecution' in result ? result.activeExecution : null,
-    };
+    return result;
   }
 
   async approve(permissionId: string, choice: PermissionChoice = 'ask'): Promise<SubmitInputResult> {
@@ -382,13 +395,6 @@ class ThreadControllerImpl implements ThreadController {
     this.eventSubscription = null;
     this.errorSubscription = null;
   }
-}
-
-function isInterruptionStatus(value: unknown): value is InterruptionResult['status'] {
-  return value === 'accepted' ||
-    value === 'already_terminal' ||
-    value === 'no_active_execution' ||
-    value === 'active_execution_mismatch';
 }
 
 function missingRequest(requestId: string): SubmitInputResult {

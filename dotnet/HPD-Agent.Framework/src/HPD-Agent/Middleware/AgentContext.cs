@@ -47,7 +47,7 @@ public sealed class AgentContext
     private readonly IContentStore? _contentStore;
     private readonly Session? _session;
     private readonly Thread? _thread;
-    private readonly Func<InterruptionRequestEvent, CancellationToken, ValueTask>? _interruptionHandler;
+    private readonly Func<AgentInputEvent, CancellationToken, ValueTask>? _inputHandler;
     private readonly IServiceProvider? _services;
     private readonly IRuntimeCapabilityRegistry _runtimeCapabilities;
 
@@ -455,9 +455,9 @@ public sealed class AgentContext
     {
         ArgumentNullException.ThrowIfNull(input);
 
-        if (input is InterruptionRequestEvent interruption && _interruptionHandler is not null)
+        if (_inputHandler is not null)
         {
-            await _interruptionHandler(interruption, cancellationToken).ConfigureAwait(false);
+            await _inputHandler(input, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -502,7 +502,7 @@ public sealed class AgentContext
         AgentClientSet? clientSet = null,
         IContentStore? contentStore = null,
         IStructEventHub? structEvents = null,
-        Func<InterruptionRequestEvent, CancellationToken, ValueTask>? interruptionHandler = null)
+        Func<AgentInputEvent, CancellationToken, ValueTask>? inputHandler = null)
     {
         AgentName = agentName ?? throw new ArgumentNullException(nameof(agentName));
         ConversationId = conversationId;
@@ -516,7 +516,7 @@ public sealed class AgentContext
         _structEvents = structEvents ?? new StructEventHub();
         _session = session;
         _thread = thread;
-        _interruptionHandler = interruptionHandler;
+        _inputHandler = inputHandler;
         _cancellationToken = cancellationToken;
         _effectiveChatClient = effectiveChatClient;
         _chatClientResolver = chatClientResolver;

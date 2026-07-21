@@ -31,7 +31,7 @@ public sealed class AgentRuntimeContext :
     private readonly Dictionary<string, RegisteredBackgroundHandle> _backgroundHandles = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PendingClientToolBackgroundOperation> _clientToolBackgroundOperations = new(StringComparer.Ordinal);
     private readonly ChannelWriter<AgentInputEvent> _runtimeInputWriter;
-    private readonly Func<InterruptionRequestEvent, CancellationToken, ValueTask> _runtimeInterruptionHandler;
+    private readonly Func<AgentInputEvent, CancellationToken, ValueTask> _runtimeInputHandler;
     private readonly Func<bool> _hasActiveRuntimeInputs;
     private readonly object _lock = new();
     private bool _acceptingInputs = true;
@@ -62,7 +62,7 @@ public sealed class AgentRuntimeContext :
         IEventCoordinator eventCoordinator,
         IStructEventHub structEvents,
         ChannelWriter<AgentInputEvent> runtimeInputWriter,
-        Func<InterruptionRequestEvent, CancellationToken, ValueTask> runtimeInterruptionHandler,
+        Func<AgentInputEvent, CancellationToken, ValueTask> runtimeInputHandler,
         Func<bool> hasActiveRuntimeInputs,
         CancellationToken runtimeCancellationToken,
         IThreadEventPublisher? threadEvents = null,
@@ -77,7 +77,7 @@ public sealed class AgentRuntimeContext :
         ThreadEvents = threadEvents;
         StructEvents = structEvents ?? throw new ArgumentNullException(nameof(structEvents));
         _runtimeInputWriter = runtimeInputWriter ?? throw new ArgumentNullException(nameof(runtimeInputWriter));
-        _runtimeInterruptionHandler = runtimeInterruptionHandler ?? throw new ArgumentNullException(nameof(runtimeInterruptionHandler));
+        _runtimeInputHandler = runtimeInputHandler ?? throw new ArgumentNullException(nameof(runtimeInputHandler));
         _hasActiveRuntimeInputs = hasActiveRuntimeInputs ?? throw new ArgumentNullException(nameof(hasActiveRuntimeInputs));
         ClientSet = clientSet;
         RunConfig = runConfig;
@@ -131,22 +131,7 @@ public sealed class AgentRuntimeContext :
         if (RuntimeCancellationToken.IsCancellationRequested)
             throw new InvalidOperationException("Agent runtime is stopping or stopped and cannot accept user input.");
 
-        if (input is InterruptionRequestEvent interruption)
-        {
-            await _runtimeInterruptionHandler(interruption, cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
-        try
-        {
-            await _runtimeInputWriter.WriteAsync(input, cancellationToken).ConfigureAwait(false);
-        }
-        catch (ChannelClosedException ex)
-        {
-            throw new InvalidOperationException(
-                "Agent runtime is stopping or stopped and cannot accept user input.",
-                ex);
-        }
+        await _runtimeInputHandler(input, cancellationToken).ConfigureAwait(false);
     }
 
     private void RegisterBackgroundTaskCore(Func<CancellationToken, Task> taskFactory)

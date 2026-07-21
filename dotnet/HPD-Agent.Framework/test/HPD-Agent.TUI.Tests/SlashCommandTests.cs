@@ -215,13 +215,6 @@ public sealed class SlashCommandTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(Submitted(scope));
 
-        public Task<AgentTuiInterruptResult> InterruptAsync(
-            AgentTuiRuntimeScope scope,
-            string? expectedThreadExecutionId,
-            string reason,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult(new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted));
-
         public Task AnswerRequestAsync(
             AgentTuiRuntimeScope scope,
             AgentEvent response,
@@ -234,6 +227,8 @@ public sealed class SlashCommandTests
             => Task.FromResult(new AgentTuiThreadState(ThreadJournalCursor.Start(1), null, []));
 
         private static AgentTuiSubmitResult Submitted(AgentTuiRuntimeScope scope) => new(
+            AgentInputDisposition.Queued,
+            "run",
             new AgentTuiThreadExecution("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow));
     }
 

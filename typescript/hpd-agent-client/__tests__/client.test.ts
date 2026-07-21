@@ -26,6 +26,7 @@ function okSubmission(): Response {
     ok: true,
     body: null,
     text: async () => JSON.stringify({
+      disposition: 'queued',
       threadExecutionId: 'run-1',
       startedAt: '2026-07-15T00:00:00Z',
     }),

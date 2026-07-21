@@ -10,7 +10,6 @@ import type {
   ClientToolAugmentation,
   ClientToolInvokeOutcome,
   ForkThreadRequest,
-  InterruptionResult,
   Thread,
   ThreadForkGroup,
   ThreadForkGroupMember,
@@ -455,9 +454,10 @@ export interface ThreadController {
   dispose(): Promise<void>;
 
   sendMessage(input: SendMessageInput, options?: SendMessageOptions): Promise<void>;
+  steer(text: string, options?: SendMessageOptions): Promise<SubmitInputResult>;
   run(input: AgentRunInputEvent): Promise<SubmitInputResult>;
   respond(input: AgentRunInputEvent): Promise<SubmitInputResult>;
-  interrupt(options?: InterruptOptions): Promise<InterruptionResult>;
+  interrupt(options?: InterruptOptions): Promise<SubmitInputResult>;
 
   approve(permissionId: string, choice?: PermissionChoice): Promise<SubmitInputResult>;
   deny(permissionId: string, reason?: string): Promise<SubmitInputResult>;

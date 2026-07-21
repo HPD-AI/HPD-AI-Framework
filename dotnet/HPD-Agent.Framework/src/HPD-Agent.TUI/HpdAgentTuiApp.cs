@@ -254,10 +254,27 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return;
         }
 
-        if (HasKnownActiveRuntimeWork())
+        if (_activeThreadExecutionId is { } activeExecutionId)
         {
-            AddRuntimeBusyNotice(_state, _scope);
+            _inputSubmissionPending = true;
+            _state.Shell.FooterText = "state: steering";
             RequestRender();
+            _ = SubmitInputAsync(
+                _scope,
+                new SteeringInputEvent
+                {
+                    AgentId = _scope.AgentId,
+                    SessionId = _scope.SessionId,
+                    ThreadId = _scope.ThreadId,
+                    ThreadExecutionId = activeExecutionId,
+                    ClientInputId = Guid.NewGuid().ToString("N"),
+                    Messages = [new ChatMessage(ChatRole.User, text)]
+                });
+            return;
+        }
+
+        if (_inputSubmissionPending)
+        {
             return;
         }
 
@@ -318,33 +335,14 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             text);
     }
 
-    private bool HasKnownActiveRuntimeWork()
-        => _inputSubmissionPending || _activeThreadExecutionId is not null;
-
-    private static void AddRuntimeBusyNotice(
-        AgentTuiSessionState state,
-        AgentTuiRuntimeScope scope)
-    {
-        state.Shell.Transcript.AddFinal(new TranscriptEntry(
-            Id: $"runtime-busy-{Guid.NewGuid():N}",
-            EntryKey: null,
-            Cell: new NoticeCell(
-                "Thread is busy",
-                new HPD.TUI.Components.Text("Wait for the current run to finish, or press Esc to cancel it."),
-                TranscriptSeverity.Warning),
-            Metadata: new TranscriptEntryMetadata(
-                AgentId: scope.AgentId,
-                AgentName: "tui",
-                AgentChain: ["tui"],
-                SessionId: scope.SessionId,
-                ThreadId: scope.ThreadId)));
-    }
-
     private async Task SubmitInputAsync(
         AgentTuiRuntimeScope scope,
         AgentInputEvent input,
         string? sessionTitleText = null)
     {
+        var rejectedDraft = input is SteeringInputEvent { Messages.Count: 1 } steering
+            ? steering.Messages[0].Text
+            : null;
         try
         {
             var ensured = await _runtime.EnsureDurableScopeAsync(scope, CancellationToken.None)
@@ -381,13 +379,38 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 if (_awaitingRuntimeSubmissionId == submissionId)
                     _awaitingRuntimeSubmissionId = 0;
             }
-            if (_scope != scope)
+            if (_state is null || _scope != scope)
                 return;
 
             _inputSubmissionPending = false;
-            if (!_completedThreadExecutionIds.Remove(submitted.Execution.ThreadExecutionId))
+            if (submitted.Disposition == AgentInputDisposition.Queued &&
+                submitted.ActiveExecution is { } queuedExecution &&
+                !_completedThreadExecutionIds.Remove(queuedExecution.ThreadExecutionId))
             {
-                _activeThreadExecutionId = submitted.Execution.ThreadExecutionId;
+                _activeThreadExecutionId = queuedExecution.ThreadExecutionId;
+            }
+            else if (submitted.Disposition != AgentInputDisposition.Accepted &&
+                     submitted.Disposition != AgentInputDisposition.Completed)
+            {
+                if (!string.IsNullOrEmpty(rejectedDraft) &&
+                    _prompt is not null &&
+                    _prompt.Model.Text.Length == 0)
+                {
+                    _prompt.Model.SetText(rejectedDraft);
+                }
+                _state.Shell.Transcript.AddFinal(new TranscriptEntry(
+                    Id: $"input-rejected-{Guid.NewGuid():N}",
+                    EntryKey: null,
+                    Cell: new NoticeCell(
+                        "Input not accepted",
+                        new HPD.TUI.Components.Text(submitted.Disposition.ToString()),
+                        TranscriptSeverity.Warning),
+                    Metadata: new TranscriptEntryMetadata(
+                        AgentId: scope.AgentId,
+                        AgentName: "tui",
+                        AgentChain: ["tui"],
+                        SessionId: scope.SessionId,
+                        ThreadId: scope.ThreadId)));
             }
         }
         catch (Exception ex)
@@ -504,13 +527,18 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 ActivityState.Running,
                 ActivitySeverity.Warning);
             RequestRender();
-            var result = await _runtime.InterruptAsync(
+            var result = await _runtime.SubmitInputAsync(
                     scope,
-                    activeExecution.ThreadExecutionId,
-                    "Cancelled from TUI.",
+                    new InterruptionRequestEvent(null, "Cancelled from TUI.", InterruptionSource.User)
+                    {
+                        AgentId = scope.AgentId,
+                        SessionId = scope.SessionId,
+                        ThreadId = scope.ThreadId,
+                        ThreadExecutionId = activeExecution.ThreadExecutionId
+                    },
                     CancellationToken.None)
                 .ConfigureAwait(false);
-            if (result.Status is AgentTuiInterruptStatus.NoActiveExecution or AgentTuiInterruptStatus.AlreadyTerminal)
+            if (result.Disposition is AgentInputDisposition.NoActiveExecution or AgentInputDisposition.ExecutionFinishing)
             {
                 _activeThreadExecutionId = null;
                 state.Shell.FooterText = "state: ready";
@@ -927,12 +955,23 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                         break;
 
                     case AgentTuiInteractionResultKind.InterruptTurn:
-                        await _runtime.InterruptAsync(
-                                _scope,
-                                expectedThreadExecutionId: null,
-                                reason: result.Reason ?? "Interrupted by TUI interaction.",
-                                cancellationToken: cancellationToken)
-                            .ConfigureAwait(false);
+                        if (_activeThreadExecutionId is { } interactionExecutionId)
+                        {
+                            await _runtime.SubmitInputAsync(
+                                    _scope,
+                                    new InterruptionRequestEvent(
+                                        null,
+                                        result.Reason ?? "Interrupted by TUI interaction.",
+                                        InterruptionSource.User)
+                                    {
+                                        AgentId = _scope.AgentId,
+                                        SessionId = _scope.SessionId,
+                                        ThreadId = _scope.ThreadId,
+                                        ThreadExecutionId = interactionExecutionId
+                                    },
+                                    cancellationToken)
+                                .ConfigureAwait(false);
+                        }
                         break;
 
                     case AgentTuiInteractionResultKind.Error:

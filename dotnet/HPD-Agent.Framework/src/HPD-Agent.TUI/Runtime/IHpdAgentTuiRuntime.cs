@@ -34,12 +34,6 @@ public interface IHpdAgentTuiRuntime
             Source = "runtime-not-supported"
         });
 
-    Task<AgentTuiInterruptResult> InterruptAsync(
-        AgentTuiRuntimeScope scope,
-        string? expectedThreadExecutionId,
-        string reason,
-        CancellationToken cancellationToken = default);
-
     Task AnswerRequestAsync(
         AgentTuiRuntimeScope scope,
         AgentEvent response,

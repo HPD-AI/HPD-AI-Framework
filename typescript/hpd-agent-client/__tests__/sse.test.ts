@@ -59,6 +59,7 @@ describe('SseTransport runtime', () => {
       ok: true,
       body: null,
       text: async () => JSON.stringify({
+        disposition: 'queued',
         threadExecutionId: 'run-1',
         startedAt: '2026-07-15T00:00:00Z',
       }),
@@ -94,8 +95,10 @@ describe('SseTransport runtime', () => {
       }),
     );
     expect(result).toEqual({
+      disposition: 'queued',
       threadExecutionId: 'run-1',
       startedAt: '2026-07-15T00:00:00Z',
+      activeExecution: null,
     });
   });
 

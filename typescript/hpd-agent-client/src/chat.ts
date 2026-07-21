@@ -1,7 +1,7 @@
 import type { AgentClient } from './client.js';
 import { EventTypes } from './types/events.js';
 import type { RunConfig, ThreadCompactionRequest } from './types/run-config.js';
-import type { InputSubmissionResult, InterruptionResult } from './types/transport.js';
+import type { InputSubmissionResult } from './types/transport.js';
 import type {
   AIContent,
   ContentReference,
@@ -153,7 +153,7 @@ export class ChatSession {
       }],
       runConfig: options.runConfig,
     }, { signal: options.signal });
-    if (!('threadExecutionId' in result) || !('startedAt' in result)) {
+    if (!('disposition' in result) || result.disposition !== 'queued') {
       throw new Error('Backend returned a non-submission result for a user message.');
     }
 
@@ -172,17 +172,36 @@ export class ChatSession {
       request,
       runConfig: options.runConfig,
     }, { signal: options.signal });
-    if (!('threadExecutionId' in result) || !('startedAt' in result)) {
+    if (!('disposition' in result) || result.disposition !== 'queued') {
       throw new Error('Backend returned a non-submission result for compaction.');
     }
     return result;
   }
 
-  async cancelActiveTurn(options: CancelActiveTurnOptions = {}): Promise<InterruptionResult> {
+  async steer(text: string, options: SendMessageOptions = {}): Promise<InputSubmissionResult> {
+    if (!text.trim()) throw new Error('steer() requires non-empty text.');
     const state = await this.getState();
     const activeExecution = state?.activeExecution;
     if (!activeExecution) {
-      return { status: 'no_active_execution', activeExecution: null };
+      return { disposition: 'no_active_execution', activeExecution: null };
+    }
+    const result = await this.client.submitInput({
+      type: EventTypes.STEERING_INPUT,
+      agentId: this.agentId,
+      sessionId: this.sessionId,
+      threadId: this.threadId,
+      threadExecutionId: activeExecution.threadExecutionId,
+      messages: [{ role: 'user', contents: [createTextContent(text)] }],
+    }, { signal: options.signal });
+    if (!('disposition' in result)) throw new Error('Backend returned a non-input result for steering.');
+    return result;
+  }
+
+  async cancelActiveTurn(options: CancelActiveTurnOptions = {}): Promise<InputSubmissionResult> {
+    const state = await this.getState();
+    const activeExecution = state?.activeExecution;
+    if (!activeExecution) {
+      return { disposition: 'no_active_execution', activeExecution: null };
     }
 
     const result = await this.client.submitInput({
@@ -190,19 +209,15 @@ export class ChatSession {
       agentId: this.agentId,
       sessionId: this.sessionId,
       threadId: this.threadId,
-      expectedThreadExecutionId: activeExecution.threadExecutionId,
+      threadExecutionId: activeExecution.threadExecutionId,
       eventFlowId: options.eventFlowId ?? undefined,
       reason: options.reason ?? 'Interrupted by client.',
       source: 'User',
     }, { signal: options.signal });
-    if (!('status' in result) || !isInterruptionStatus(result.status)) {
+    if (!('disposition' in result)) {
       throw new Error('Backend returned a non-interruption result for cancellation.');
     }
-
-    return {
-      status: result.status,
-      activeExecution: 'activeExecution' in result ? result.activeExecution : null,
-    };
+    return result;
   }
 
   async refreshSession(): Promise<Session | null> {
@@ -213,13 +228,6 @@ export class ChatSession {
     this.sessionId = sessionId;
     this.threadId = threadId;
   }
-}
-
-function isInterruptionStatus(value: unknown): value is InterruptionResult['status'] {
-  return value === 'accepted' ||
-    value === 'already_terminal' ||
-    value === 'no_active_execution' ||
-    value === 'active_execution_mismatch';
 }
 
 export function createTextContent(text: string): AIContent {

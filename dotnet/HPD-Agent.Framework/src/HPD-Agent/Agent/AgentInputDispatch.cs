@@ -3,13 +3,14 @@ using HPD.Agent.Middleware;
 using HPD.Events;
 using Microsoft.Extensions.DependencyInjection;
 using HPD.Events.Struct;
+using static HPD.Agent.AgentInputResults;
 
 namespace HPD.Agent;
 
 internal interface IAgentInputHandler<TInput>
     where TInput : AgentInputEvent
 {
-    ValueTask<AgentTurnResult> HandleAsync(
+    ValueTask<AgentInputResult> HandleAsync(
         TInput input,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken);
@@ -19,7 +20,7 @@ internal interface IAgentInputHandler
 {
     Type InputType { get; }
 
-    ValueTask<AgentTurnResult> HandleAsync(
+    ValueTask<AgentInputResult> HandleAsync(
         AgentInputEvent input,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken);
@@ -37,7 +38,7 @@ internal sealed class AgentInputHandlerAdapter<TInput> : IAgentInputHandler
 
     public Type InputType => typeof(TInput);
 
-    public ValueTask<AgentTurnResult> HandleAsync(
+    public ValueTask<AgentInputResult> HandleAsync(
         AgentInputEvent input,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
@@ -53,6 +54,17 @@ internal sealed class AgentInputHandlerAdapter<TInput> : IAgentInputHandler
     }
 }
 
+internal enum AgentInputDelivery
+{
+    QueuedWork,
+    ActiveControl
+}
+
+internal sealed record AgentInputHandlerRegistration(
+    Type InputType,
+    AgentInputDelivery Delivery,
+    IAgentInputHandler Handler);
+
 internal sealed class AgentInputHandlingContext
 {
     public required string AgentName { get; init; }
@@ -67,36 +79,41 @@ internal sealed class AgentInputHandlingContext
     public AgentChatClientResolver ChatClientResolver { get; init; } = new(null, null);
     public AgentChatClientHandle? DefaultChatClient { get; init; }
 
-    public required Func<UserMessagesInputEvent, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> RunMessagesAsync { get; init; }
-    public required Func<InterruptionRequestEvent, CancellationToken, Task> InterruptAsync { get; init; }
+    public ActiveRuntimeInput? ActiveInput { get; init; }
+    public required Func<UserMessagesInputEvent, ActiveRuntimeInput?, IEventCoordinator, CancellationToken, Task<AgentTurnResult>> RunMessagesAsync { get; init; }
+    public required Func<InterruptionRequestEvent, CancellationToken, Task<AgentInputResult>> InterruptAsync { get; init; }
+    public required Func<SteeringInputEvent, CancellationToken, Task<AgentInputResult>> SteerAsync { get; init; }
     public required Func<ClientToolBackgroundOperationOutcomeEvent, bool> TryResolveClientToolBackgroundOperation { get; init; }
     public Func<BackgroundTaskNotificationInputEvent, IEventCoordinator, CancellationToken, ValueTask>? PublishBackgroundTaskNotificationDelivered { get; init; }
 }
 
 internal sealed class AgentInputDispatcher
 {
-    private readonly IReadOnlyDictionary<Type, IAgentInputHandler> _handlers;
+    private static readonly IReadOnlyDictionary<Type, AgentInputHandlerRegistration> BuiltInRegistrations =
+        CreateBuiltInHandlers().ToDictionary(static registration => registration.InputType);
+    private readonly IReadOnlyDictionary<Type, AgentInputHandlerRegistration> _registrations;
     private readonly AgentMiddlewarePipeline _middleware;
 
     public AgentInputDispatcher(AgentMiddlewarePipeline middleware)
     {
         _middleware = middleware ?? throw new ArgumentNullException(nameof(middleware));
 
-        var map = new Dictionary<Type, IAgentInputHandler>();
-        foreach (var handler in CreateBuiltInHandlers())
-        {
-            if (!map.TryAdd(handler.InputType, handler))
-            {
-                throw new InvalidOperationException(
-                    $"An agent input handler for '{handler.InputType.Name}' is already registered.");
-            }
-        }
-
-        _handlers = map;
+        _registrations = BuiltInRegistrations;
     }
 
-    public async ValueTask<AgentTurnResult> DispatchAsync(
+    internal static AgentInputHandlerRegistration GetBuiltInRegistration(Type inputType)
+        => BuiltInRegistrations.TryGetValue(inputType, out var registration)
+            ? registration
+            : throw new NotSupportedException($"Event type {inputType.Name} cannot be used as agent input.");
+
+    internal AgentInputHandlerRegistration GetRegistration(Type inputType)
+        => _registrations.TryGetValue(inputType, out var registration)
+            ? registration
+            : throw new NotSupportedException($"Event type {inputType.Name} cannot be used as agent input.");
+
+    public async ValueTask<AgentInputResult> DispatchAsync(
         AgentInputEvent input,
+        AgentInputHandlerRegistration admittedRegistration,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
     {
@@ -109,12 +126,16 @@ internal sealed class AgentInputDispatcher
 
         if (before.Cancelled)
         {
-            var cancelledResult = AgentTurnResult.Empty;
+            var cancelledResult = new AgentInputResult
+            {
+                Disposition = AgentInputDisposition.Completed,
+                ThreadExecutionId = input.ThreadExecutionId
+            };
             await _middleware.ExecuteAfterInputAsync(
                     new AfterInputContext(
                         before.Input,
                         context,
-                        cancelledResult,
+                        cancelledResult.TurnResult,
                         null,
                         cancelled: true,
                         DateTimeOffset.UtcNow - startedAt),
@@ -123,18 +144,18 @@ internal sealed class AgentInputDispatcher
             return cancelledResult;
         }
 
-        AgentTurnResult? result = null;
+        AgentInputResult? result = null;
         Exception? error = null;
         var effectiveInput = before.Input;
         try
         {
-            if (!_handlers.TryGetValue(effectiveInput.GetType(), out var handler))
-            {
-                throw new NotSupportedException(
-                    $"Event type {effectiveInput.GetType().Name} cannot be used as agent input.");
-            }
+            var effectiveRegistration = GetRegistration(effectiveInput.GetType());
+            if (effectiveRegistration.Delivery != admittedRegistration.Delivery)
+                throw new InvalidOperationException(
+                    $"Input middleware cannot replace '{input.GetType().Name}' ({admittedRegistration.Delivery}) " +
+                    $"with '{effectiveInput.GetType().Name}' ({effectiveRegistration.Delivery}).");
 
-            result = await handler.HandleAsync(effectiveInput, context, cancellationToken).ConfigureAwait(false);
+            result = await effectiveRegistration.Handler.HandleAsync(effectiveInput, context, cancellationToken).ConfigureAwait(false);
             return result;
         }
         catch (Exception ex)
@@ -148,7 +169,7 @@ internal sealed class AgentInputDispatcher
                     new AfterInputContext(
                         effectiveInput,
                         context,
-                        result ?? AgentTurnResult.Empty,
+                        result?.TurnResult ?? AgentTurnResult.Empty,
                         error,
                         cancelled: error is OperationCanceledException,
                         DateTimeOffset.UtcNow - startedAt),
@@ -157,19 +178,29 @@ internal sealed class AgentInputDispatcher
         }
     }
 
-    private static IEnumerable<IAgentInputHandler> CreateBuiltInHandlers()
+    private static IEnumerable<AgentInputHandlerRegistration> CreateBuiltInHandlers()
     {
-        yield return new AgentInputHandlerAdapter<UserMessagesInputEvent>(new UserMessagesInputHandler());
-        yield return new AgentInputHandlerAdapter<CompactThreadInputEvent>(new CompactThreadInputHandler());
-        yield return new AgentInputHandlerAdapter<BackgroundTaskNotificationInputEvent>(new BackgroundTaskNotificationInputHandler());
-        yield return new AgentInputHandlerAdapter<ClientToolBackgroundOperationOutcomeEvent>(new ClientToolBackgroundOperationOutcomeInputHandler());
-        yield return new AgentInputHandlerAdapter<InterruptionRequestEvent>(new InterruptionInputHandler());
+        yield return Register(AgentInputDelivery.QueuedWork, new UserMessagesInputHandler());
+        yield return Register(AgentInputDelivery.QueuedWork, new CompactThreadInputHandler());
+        yield return Register(AgentInputDelivery.QueuedWork, new BackgroundTaskNotificationInputHandler());
+        yield return Register(AgentInputDelivery.ActiveControl, new ClientToolBackgroundOperationOutcomeInputHandler());
+        yield return Register(AgentInputDelivery.ActiveControl, new InterruptionInputHandler());
+        yield return Register(AgentInputDelivery.ActiveControl, new SteeringInputHandler());
+    }
+
+    private static AgentInputHandlerRegistration Register<TInput>(
+        AgentInputDelivery delivery,
+        IAgentInputHandler<TInput> handler)
+        where TInput : AgentInputEvent
+    {
+        var adapter = new AgentInputHandlerAdapter<TInput>(handler);
+        return new AgentInputHandlerRegistration(typeof(TInput), delivery, adapter);
     }
 }
 
 internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThreadInputEvent>
 {
-    public async ValueTask<AgentTurnResult> HandleAsync(
+    public async ValueTask<AgentInputResult> HandleAsync(
         CompactThreadInputEvent input,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
@@ -228,22 +259,26 @@ internal sealed class CompactThreadInputHandler : IAgentInputHandler<CompactThre
                 input.Request.Continuation,
                 cancellationToken)
             .ConfigureAwait(false);
-        return AgentTurnResult.Empty;
+        return Completed(input);
     }
 }
 
 internal sealed class UserMessagesInputHandler : IAgentInputHandler<UserMessagesInputEvent>
 {
-    public ValueTask<AgentTurnResult> HandleAsync(
+    public async ValueTask<AgentInputResult> HandleAsync(
         UserMessagesInputEvent input,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
-        => new(context.RunMessagesAsync(input, context.EventCoordinator, cancellationToken));
+    {
+        var turn = await context.RunMessagesAsync(input, context.ActiveInput, context.EventCoordinator, cancellationToken)
+            .ConfigureAwait(false);
+        return Completed(input, turn);
+    }
 }
 
 internal sealed class BackgroundTaskNotificationInputHandler : IAgentInputHandler<BackgroundTaskNotificationInputEvent>
 {
-    public async ValueTask<AgentTurnResult> HandleAsync(
+    public async ValueTask<AgentInputResult> HandleAsync(
         BackgroundTaskNotificationInputEvent input,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
@@ -257,20 +292,20 @@ internal sealed class BackgroundTaskNotificationInputHandler : IAgentInputHandle
             RunConfig = input.RunConfig
         };
 
-        var result = await context.RunMessagesAsync(userInput, context.EventCoordinator, cancellationToken)
+        var result = await context.RunMessagesAsync(userInput, context.ActiveInput, context.EventCoordinator, cancellationToken)
             .ConfigureAwait(false);
         if (context.PublishBackgroundTaskNotificationDelivered is { } publishDelivered)
         {
             await publishDelivered(input, context.EventCoordinator, cancellationToken).ConfigureAwait(false);
         }
-        return result;
+        return Completed(input, result);
     }
 }
 
 internal sealed class ClientToolBackgroundOperationOutcomeInputHandler :
     IAgentInputHandler<ClientToolBackgroundOperationOutcomeEvent>
 {
-    public ValueTask<AgentTurnResult> HandleAsync(
+    public ValueTask<AgentInputResult> HandleAsync(
         ClientToolBackgroundOperationOutcomeEvent input,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
@@ -281,18 +316,41 @@ internal sealed class ClientToolBackgroundOperationOutcomeInputHandler :
                 $"No client tool background operation '{input.ClientOperationId}' is active.");
         }
 
-        return ValueTask.FromResult(AgentTurnResult.Empty);
+        return ValueTask.FromResult(new AgentInputResult
+        {
+            Disposition = AgentInputDisposition.Accepted,
+            ThreadExecutionId = input.ThreadExecutionId
+        });
     }
 }
 
 internal sealed class InterruptionInputHandler : IAgentInputHandler<InterruptionRequestEvent>
 {
-    public async ValueTask<AgentTurnResult> HandleAsync(
+    public async ValueTask<AgentInputResult> HandleAsync(
         InterruptionRequestEvent input,
         AgentInputHandlingContext context,
         CancellationToken cancellationToken)
     {
-        await context.InterruptAsync(input, cancellationToken).ConfigureAwait(false);
-        return AgentTurnResult.Empty;
+        return await context.InterruptAsync(input, cancellationToken).ConfigureAwait(false);
     }
+}
+
+internal sealed class SteeringInputHandler : IAgentInputHandler<SteeringInputEvent>
+{
+    public async ValueTask<AgentInputResult> HandleAsync(
+        SteeringInputEvent input,
+        AgentInputHandlingContext context,
+        CancellationToken cancellationToken)
+        => await context.SteerAsync(input, cancellationToken).ConfigureAwait(false);
+}
+
+internal static class AgentInputResults
+{
+    internal static AgentInputResult Completed(AgentInputEvent input, AgentTurnResult? turn = null)
+        => new()
+        {
+            Disposition = AgentInputDisposition.Completed,
+            TurnResult = turn ?? AgentTurnResult.Empty,
+            ThreadExecutionId = input.ThreadExecutionId
+        };
 }

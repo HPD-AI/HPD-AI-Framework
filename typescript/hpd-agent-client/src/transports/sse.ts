@@ -3,8 +3,6 @@ import { SseParser } from '../parser.js';
 import type { AgentEvent, AgentRunInputEvent, RespondResult, RespondStatus } from '../types/events.js';
 import type {
   InputSubmissionResult,
-  InterruptionResult,
-  InterruptionStatus,
   SubmitInputResult,
 } from '../types/transport.js';
 import type { ThreadJournalCursor } from '../types/thread-execution.js';
@@ -105,9 +103,7 @@ export class SseTransport implements AgentTransport {
       throw new Error('Input event must include agentId for SSE submitInput()');
     }
 
-    const endpoint = input.type === EventTypes.INTERRUPTION_REQUEST
-      ? `/agents/${this.agentId}/sessions/${this.sessionId}/threads/${this.threadId}/interrupt`
-      : `/agents/${this.agentId}/sessions/${this.sessionId}/threads/${this.threadId}/inputs`;
+    const endpoint = `/agents/${this.agentId}/sessions/${this.sessionId}/threads/${this.threadId}/inputs`;
 
     const response = await this.fetch(`${this.baseUrl}${endpoint}`, {
       method: 'POST',
@@ -123,7 +119,7 @@ export class SseTransport implements AgentTransport {
       throw new Error(`HTTP ${response.status}: ${text}`);
     }
 
-    return readLifecycleResult(response, input.type === EventTypes.INTERRUPTION_REQUEST);
+    return readLifecycleResult(response);
   }
 
   onEvent(handler: (event: AgentEvent) => void | Promise<void>): void {
@@ -392,8 +388,7 @@ function requestIdForResponse(input: AgentRunInputEvent): string {
 
 async function readLifecycleResult(
   response: Response,
-  interruption: boolean,
-): Promise<InputSubmissionResult | InterruptionResult> {
+): Promise<InputSubmissionResult> {
   const text = await response.text().catch(() => '');
   if (!text.trim()) {
     throw new Error('Lifecycle submission returned an empty response');
@@ -411,38 +406,30 @@ async function readLifecycleResult(
   }
 
   const record = parsed as Record<string, unknown>;
-  if (interruption) {
-    const status = parseInterruptionStatus(record.status);
-    return {
-      status,
-      activeExecution: record.activeExecution && typeof record.activeExecution === 'object'
-        ? record.activeExecution as InterruptionResult['activeExecution']
-        : null,
-    };
-  }
-
-  if (typeof record.threadExecutionId !== 'string' || !record.threadExecutionId.trim()) {
-    throw new Error('Input submission did not return threadExecutionId');
-  }
-  if (typeof record.startedAt !== 'string' || !record.startedAt.trim()) {
-    throw new Error('Input submission did not return startedAt');
-  }
+  const disposition = parseInputDisposition(record.disposition);
 
   return {
-    threadExecutionId: record.threadExecutionId,
-    startedAt: record.startedAt,
+    disposition,
+    threadExecutionId: typeof record.threadExecutionId === 'string' ? record.threadExecutionId : null,
+    startedAt: typeof record.startedAt === 'string' ? record.startedAt : null,
+    activeExecution: record.activeExecution && typeof record.activeExecution === 'object'
+      ? record.activeExecution as InputSubmissionResult['activeExecution']
+      : null,
   };
 }
 
-function parseInterruptionStatus(value: unknown): InterruptionStatus {
+function parseInputDisposition(value: unknown): InputSubmissionResult['disposition'] {
   switch (value) {
+    case 'completed':
+    case 'queued':
     case 'accepted':
-    case 'already_terminal':
     case 'no_active_execution':
     case 'active_execution_mismatch':
+    case 'active_input_not_steerable':
+    case 'execution_finishing':
       return value;
     default:
-      throw new Error(`Unknown interruption status: ${String(value)}`);
+      throw new Error(`Unknown input disposition: ${String(value)}`);
   }
 }
 

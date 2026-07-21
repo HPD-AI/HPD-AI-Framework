@@ -7,7 +7,11 @@ public sealed record AgentTuiThreadState(
     AgentTuiThreadExecution? ActiveExecution,
     IReadOnlyList<AgentEvent> PendingRequests);
 
-public sealed record AgentTuiSubmitResult(AgentTuiThreadExecution Execution);
+/// <summary>Describes admission of a TUI semantic input.</summary>
+public sealed record AgentTuiSubmitResult(
+    AgentInputDisposition Disposition,
+    string? ThreadExecutionId = null,
+    AgentTuiThreadExecution? ActiveExecution = null);
 
 public sealed record AgentTuiEventBatch(
     IReadOnlyList<AgentEvent> Events,
@@ -22,15 +26,3 @@ public enum AgentTuiEventDeliveryMode
     CatchUp,
     Live
 }
-
-public enum AgentTuiInterruptStatus
-{
-    Accepted,
-    AlreadyTerminal,
-    NoActiveExecution,
-    ActiveExecutionMismatch
-}
-
-public sealed record AgentTuiInterruptResult(
-    AgentTuiInterruptStatus Status,
-    AgentTuiThreadExecution? ActiveExecution = null);

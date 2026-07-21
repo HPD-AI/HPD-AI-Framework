@@ -2,22 +2,20 @@ import type { AgentEvent, AgentRunInputEvent, RespondResult } from './events.js'
 import type { ThreadJournalCursor, ThreadExecution } from './thread-execution.js';
 
 export interface InputSubmissionResult {
-  threadExecutionId: string;
-  startedAt: string;
-}
-
-export type InterruptionStatus =
-  | 'accepted'
-  | 'already_terminal'
-  | 'no_active_execution'
-  | 'active_execution_mismatch';
-
-export interface InterruptionResult {
-  status: InterruptionStatus;
+  disposition:
+    | 'completed'
+    | 'queued'
+    | 'accepted'
+    | 'no_active_execution'
+    | 'active_execution_mismatch'
+    | 'active_input_not_steerable'
+    | 'execution_finishing';
+  threadExecutionId?: string | null;
+  startedAt?: string | null;
   activeExecution?: ThreadExecution | null;
 }
 
-export type SubmitInputResult = RespondResult | InputSubmissionResult | InterruptionResult;
+export type SubmitInputResult = RespondResult | InputSubmissionResult;
 
 /**
  * Runtime connection scope for committed SSE observation.

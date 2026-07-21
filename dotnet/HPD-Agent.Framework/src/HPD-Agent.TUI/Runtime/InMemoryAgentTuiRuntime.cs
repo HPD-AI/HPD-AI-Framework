@@ -768,6 +768,22 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(input);
 
+        var registration = AgentInputDispatcher.GetBuiltInRegistration(input.GetType());
+        if (registration.Delivery == AgentInputDelivery.ActiveControl)
+        {
+            var scopedControl = input with
+            {
+                AgentId = scope.AgentId,
+                SessionId = scope.SessionId,
+                ThreadId = scope.ThreadId
+            };
+            var result = await _agent.RunAsync(scopedControl, cancellationToken).ConfigureAwait(false);
+            AgentTuiThreadExecution? current;
+            lock (_gate)
+                current = _activeExecution;
+            return new AgentTuiSubmitResult(result.Disposition, result.ThreadExecutionId, current);
+        }
+
         var executionId = input.ThreadExecutionId ?? Guid.NewGuid().ToString("N");
         var startedAt = DateTimeOffset.UtcNow;
         var scopedInput = input with
@@ -807,7 +823,7 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
 
             var submission = await _agent.EnqueueAsync(scopedInput, CancellationToken.None).ConfigureAwait(false);
             _ = CompleteSubmittedInputAsync(scope, submission, executionId);
-            return new AgentTuiSubmitResult(activeExecution);
+            return new AgentTuiSubmitResult(AgentInputDisposition.Queued, executionId, activeExecution);
         }
         catch (Exception ex)
         {
@@ -898,46 +914,6 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
         var estimator = new ThreadContextUsageEstimator();
         return await estimator.EstimateAsync(thread, runConfig ?? new AgentRunConfig(), cancellationToken)
             .ConfigureAwait(false);
-    }
-
-    public async Task<AgentTuiInterruptResult> InterruptAsync(
-        AgentTuiRuntimeScope scope,
-        string? expectedThreadExecutionId,
-        string reason,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(scope);
-
-        AgentTuiThreadExecution? activeExecution;
-        lock (_gate)
-        {
-            activeExecution = _activeExecution;
-        }
-
-        if (activeExecution is null)
-        {
-            return new AgentTuiInterruptResult(AgentTuiInterruptStatus.NoActiveExecution);
-        }
-
-        if (!string.IsNullOrWhiteSpace(expectedThreadExecutionId) &&
-            !string.Equals(expectedThreadExecutionId, activeExecution.ThreadExecutionId, StringComparison.Ordinal))
-        {
-            return new AgentTuiInterruptResult(AgentTuiInterruptStatus.ActiveExecutionMismatch, activeExecution);
-        }
-
-        var interruption = new InterruptionRequestEvent(
-            eventFlowId: null,
-            Reason: string.IsNullOrWhiteSpace(reason) ? "Interrupted by TUI." : reason,
-            Source: InterruptionSource.User)
-        {
-            AgentId = scope.AgentId,
-            SessionId = scope.SessionId,
-            ThreadId = scope.ThreadId
-        };
-
-        await _agent.RunAsync(interruption, cancellationToken)
-            .ConfigureAwait(false);
-        return new AgentTuiInterruptResult(AgentTuiInterruptStatus.Accepted, activeExecution);
     }
 
     public async Task AnswerRequestAsync(
