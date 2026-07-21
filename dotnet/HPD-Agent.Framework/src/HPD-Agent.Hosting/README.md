@@ -18,13 +18,6 @@ HPD-Agent hosting APIs are still pre-1.0. Until `1.0.0`, releases may refine
 DTOs, route names, service contracts, and persistence projections as the hosting
 surface stabilizes. The current hosting model uses sessions containing threads.
 
-## Thread Executions
-
-Hosting coordinates exclusive thread executions, persists their lifecycle, and
-exposes historical execution records separately from live `activeExecution`
-ownership. See the core
-[thread execution lifecycle](../HPD-Agent/Session/THREAD_EXECUTION_LIFECYCLE.md).
-
 ## Fork Groups
 
 Hosting DTOs expose fork groups, but hosting does not define fork semantics.
