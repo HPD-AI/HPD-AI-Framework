@@ -125,6 +125,46 @@ public class CodingToolHarnessAgentBuilderTests
     }
 
     [Fact]
+    public async Task AutomaticCollapsing_RootRun_AdvertisesCodingHarnessContainerByDefault()
+    {
+        using var chatClient = new RecordingTestChatClient();
+        var agent = await new AgentBuilder(CreateTestConfig(), new TestProviderRegistry(chatClient))
+            .WithName("automatic-collapsing-root")
+            .WithToolHarness<CodingToolHarness>()
+            .BuildAsync();
+
+        await agent.RunAsync("What tools do you see?");
+
+        chatClient.ToolNamesByRequest.Should().ContainSingle();
+        chatClient.ToolNamesByRequest[0].Should().Contain(nameof(CodingToolHarness));
+        chatClient.ToolNamesByRequest[0].Should().NotContain([
+            "ReadFile", "ListDirectory", "GlobSearch", "Grep", "ExecuteCommand"
+        ]);
+    }
+
+    [Fact]
+    public async Task AutomaticCollapsing_DepthOneReviewer_ExpandsOnlyItsReadOnlyAllowlist()
+    {
+        using var chatClient = new RecordingTestChatClient(expandContainerOnFirstRequest: true);
+        var reviewerConfig = GetConfig(new CodingToolHarness().Reviewer());
+        reviewerConfig.Clients = CreateTestConfig().Clients;
+
+        var reviewer = await new AgentBuilder(reviewerConfig, new TestProviderRegistry(chatClient))
+            .BuildAsync();
+
+        await reviewer.RunAsync("Review this workspace.");
+
+        chatClient.ToolNamesByRequest.Should().HaveCount(2);
+        chatClient.ToolNamesByRequest[0].Should().BeEquivalentTo([nameof(CodingToolHarness)]);
+        chatClient.ToolNamesByRequest[1].Should().BeEquivalentTo([
+            "ReadFile", "ListDirectory", "GlobSearch", "Grep"
+        ]);
+        chatClient.ToolNamesByRequest[1].Should().NotContain([
+            "EditFile", "WriteFile", "ExecuteCommand", "explore", "worker", "reviewer"
+        ]);
+    }
+
+    [Fact]
     public void CodingToolHarnessPrompt_IncludesExecuteCommandGuidance()
     {
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Use ExecuteCommand for builds, tests, project scripts");
@@ -234,6 +274,19 @@ public class CodingToolHarnessAgentBuilderTests
 
     private static AgentConfig GetConfig(SubAgent subAgent) =>
         subAgent.Configuration.Should().BeOfType<SuppliedAgentConfiguration>().Subject.Config;
+
+    private static AgentConfig CreateTestConfig() => new()
+    {
+        MaxAgenticIterations = 3,
+        Clients = new AgentClientConfig
+        {
+            Chat = new ClientProviderConfig
+            {
+                ProviderKey = "test",
+                ModelName = "test-model"
+            }
+        }
+    };
 
     private static FunctionExecutionContext CreateFunctionContext(AIFunction function)
     {
@@ -356,6 +409,55 @@ public class CodingToolHarnessAgentBuilderTests
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             await Task.Yield();
+            yield return new ChatResponseUpdate
+            {
+                Contents = [new TextContent("ok")],
+                FinishReason = ChatFinishReason.Stop
+            };
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public TService? GetService<TService>(object? serviceKey = null)
+            where TService : class => null;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class RecordingTestChatClient(bool expandContainerOnFirstRequest = false) : IChatClient
+    {
+        private int _requestCount;
+
+        public ChatClientMetadata Metadata { get; } = new("test", defaultModelId: "test-model");
+
+        public List<string[]> ToolNamesByRequest { get; } = [];
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "ok")));
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> chatMessages,
+            ChatOptions? options = null,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            ToolNamesByRequest.Add(options?.Tools?.OfType<AIFunction>().Select(tool => tool.Name).ToArray() ?? []);
+            await Task.Yield();
+
+            if (expandContainerOnFirstRequest && _requestCount++ == 0)
+            {
+                yield return new ChatResponseUpdate
+                {
+                    Contents = [new FunctionCallContent("expand-coding-harness", nameof(CodingToolHarness))],
+                    FinishReason = ChatFinishReason.ToolCalls
+                };
+                yield break;
+            }
+
             yield return new ChatResponseUpdate
             {
                 Contents = [new TextContent("ok")],

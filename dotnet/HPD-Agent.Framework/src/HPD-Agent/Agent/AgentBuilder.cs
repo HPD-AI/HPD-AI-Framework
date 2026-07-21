@@ -3965,6 +3965,7 @@ public static class AgentBuilderToolHarnessExtensions
 
         // AOT-compatible path: Use catalog
         builder._selectedToolHarnessFactories.Add(factory);
+        builder._builderAddedToolHarnesses.Add(toolharnessName);
 
         // Track as explicitly registered (for ToolVisibilityManager)
         builder._explicitlyRegisteredToolHarnesses.Add(toolharnessName);
@@ -4127,6 +4128,7 @@ public static class AgentBuilderToolHarnessExtensions
 
         // Register as instance registration (will use the generated ToolHarnessFactory delegate for function creation)
         builder._instanceRegistrations.Add(new ToolInstanceRegistration(instance, toolharnessName));
+        builder._builderAddedToolHarnesses.Add(toolharnessName);
         builder.ToolHarnessContexts[toolharnessName] = context;
 
         // Track this as explicitly registered
@@ -4155,6 +4157,7 @@ public static class AgentBuilderToolHarnessExtensions
 
         // AOT-compatible path: Use catalog
         builder._selectedToolHarnessFactories.Add(factory);
+        builder._builderAddedToolHarnesses.Add(toolharnessName);
 
         // Track as explicitly registered (for ToolVisibilityManager)
         builder._explicitlyRegisteredToolHarnesses.Add(toolharnessName);

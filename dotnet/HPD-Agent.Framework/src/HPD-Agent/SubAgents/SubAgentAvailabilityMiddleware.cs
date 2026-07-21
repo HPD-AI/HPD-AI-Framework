@@ -26,7 +26,7 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
         var currentDepth = context.GetParentAgentMetadata()?.Depth ?? 0;
         var maximumDepth = context.Base.Config?.MaxSubAgentDepth ?? 4;
         var projected = ContainerFunctionProjection.Project(
-            tools.OfType<AIFunction>(),
+            _allFunctions,
             function => IsAvailable(function, currentDepth, maximumDepth));
         var projectedByName = projected.ToDictionary(function => function.Name, StringComparer.OrdinalIgnoreCase);
         context.Options.Tools = tools

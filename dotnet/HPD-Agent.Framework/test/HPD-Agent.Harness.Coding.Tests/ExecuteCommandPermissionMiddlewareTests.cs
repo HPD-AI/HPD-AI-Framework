@@ -1513,11 +1513,12 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         AgentLoopState? state = null,
         List<InterruptionRequestEvent>? interruptions = null)
     {
-        Func<InterruptionRequestEvent, CancellationToken, ValueTask>? interruptionHandler = interruptions is null
+        Func<AgentInputEvent, CancellationToken, ValueTask>? inputHandler = interruptions is null
             ? null
-            : (interruption, _) =>
+            : (input, _) =>
             {
-                interruptions.Add(interruption);
+                if (input is InterruptionRequestEvent interruption)
+                    interruptions.Add(interruption);
                 return ValueTask.CompletedTask;
             };
 
@@ -1529,7 +1530,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
             new Session("test-session"),
             new Thread("test-session", "test-agent") { Id = "test-thread" },
             CancellationToken.None,
-            interruptionHandler: interruptionHandler);
+            inputHandler: inputHandler);
     }
 
     private BeforeFunctionContext CreateBeforeFunctionContext(
