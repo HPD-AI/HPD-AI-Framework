@@ -672,8 +672,7 @@ public class ThreadEndpointsTests : IClassFixture<TestWebApplicationFactory>
                     ["invocationId"] = "run-1",
                     ["subAgentSourceKind"] = "InlineConfig",
                     ["parentToolCallId"] = "tool-1",
-                    ["sessionPolicy"] = "ParentSession",
-                    ["threadPolicy"] = "ForkFromParentThread"
+                    ["contextPolicy"] = "Fork"
                 }));
 
         // Act

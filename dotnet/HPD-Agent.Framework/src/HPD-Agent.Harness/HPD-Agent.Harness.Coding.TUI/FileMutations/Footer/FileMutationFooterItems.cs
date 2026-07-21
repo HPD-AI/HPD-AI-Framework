@@ -1,31 +1,31 @@
 using HPD.Agent.TUI.Composition;
 using HPD.TUI.Core;
 
-namespace HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Status;
+namespace HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Footer;
 
-internal sealed class FileMutationStatusItem : IAgentTuiStatusItem
+internal sealed class FileMutationFooterItem : IAgentTuiFooterItem
 {
     private readonly CodingHarnessTuiTheme _theme;
 
-    public FileMutationStatusItem(CodingHarnessTuiTheme theme)
+    public FileMutationFooterItem(CodingHarnessTuiTheme theme)
     {
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public IComponent Create(AgentTuiStatusContext context)
+    public IComponent Create(AgentTuiFooterContext context)
         => new FileMutationStatusComponent(context.State, _theme);
 }
 
-internal sealed class CodingDiagnosticsStatusItem : IAgentTuiStatusItem
+internal sealed class CodingDiagnosticsFooterItem : IAgentTuiFooterItem
 {
     private readonly CodingHarnessTuiTheme _theme;
 
-    public CodingDiagnosticsStatusItem(CodingHarnessTuiTheme theme)
+    public CodingDiagnosticsFooterItem(CodingHarnessTuiTheme theme)
     {
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public IComponent Create(AgentTuiStatusContext context)
+    public IComponent Create(AgentTuiFooterContext context)
         => new CodingDiagnosticsStatusComponent(context.State, _theme);
 }
 

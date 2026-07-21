@@ -41,7 +41,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
             "hpd.coding.commands",
             "hpd.coding.background"
         ]);
-        registry.StatusItems.Select(static item => item.Key).Should().Contain([
+        registry.FooterItems.Select(static item => item.Key).Should().Contain([
             "hpd.coding.commands",
             "hpd.coding.background",
             "hpd.coding.output"
@@ -96,7 +96,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
                 evt.FeedbackText == null);
         dialogs.LastShowKey.Should().Be("execute-command-permission:permission-1");
         dialogs.ShowPromptCount.Should().Be(1);
-        shell.FooterText.Should().Be("state: running | press Esc twice to cancel");
+        shell.PromptStatusText.Should().Be("state: running | press Esc twice to cancel");
     }
 
     [Fact]
@@ -563,7 +563,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
     }
 
     [Fact]
-    public async Task StatusItems_ReadSharedCommandState()
+    public async Task FooterItems_ReadSharedCommandState()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()
@@ -1240,6 +1240,8 @@ public sealed class ExecuteCommandTuiLifecycleTests
             AgentInputEvent input,
             CancellationToken cancellationToken = default)
             => Task.FromResult(new AgentTuiSubmitResult(
+                AgentInputDisposition.Queued,
+                "run",
                 new AgentTuiThreadExecution("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
 
         public Task AnswerRequestAsync(

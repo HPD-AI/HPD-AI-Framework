@@ -60,8 +60,16 @@ public class ToolVisibilityManager
     /// <param name="expandedContainers">Unified set of expanded containers (both ToolHarnesses and skills)</param>
     public List<AIFunction> GetToolsForAgentTurn(
         List<AIFunction> allTools,
-        ImmutableHashSet<string> expandedContainers)
+        ImmutableHashSet<string> expandedContainers,
+        int currentAgentDepth = 0,
+        int maxSubAgentDepth = 4)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(currentAgentDepth);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxSubAgentDepth);
+
+        allTools = allTools
+            .Where(tool => IsSubAgentAvailable(tool, currentAgentDepth, maxSubAgentDepth))
+            .ToList();
         var context = BuildVisibilityContext(allTools, expandedContainers, expandedContainers);
 
         var CollapseContainers = new List<AIFunction>();
@@ -150,6 +158,22 @@ public class ToolVisibilityManager
             .ToList();
 
         return result;
+    }
+
+    private static bool IsSubAgentAvailable(
+        AIFunction function,
+        int currentAgentDepth,
+        int maxSubAgentDepth)
+    {
+        if (function.AdditionalProperties?.TryGetValue("IsSubAgent", out var marker) != true || marker is not true)
+            return true;
+
+        if (currentAgentDepth >= maxSubAgentDepth)
+            return false;
+
+        return function.AdditionalProperties.TryGetValue("SubAgentDefinition", out var value) &&
+               value is SubAgent definition &&
+               definition.Availability.AllowsInvocationFrom(currentAgentDepth);
     }
 
     /// <summary>

@@ -19,6 +19,9 @@ public sealed class PromptView : IFocusable
 
     public PromptController Controller => _controller;
 
+    /// <summary>Gets or sets the maximum number of autocomplete suggestions shown at once.</summary>
+    public int MaximumSuggestionRows { get; set; } = 8;
+
     public bool IsFocused { get; set; }
 
     public Measurement Measure(in RenderContext context, int maxWidth)
@@ -37,7 +40,7 @@ public sealed class PromptView : IFocusable
         var height = GetPaddingTop() + Math.Max(1, CountRenderedLines(maxWidth)) + GetPaddingBottom();
         if (_controller.Autocomplete is { SuggestionCount: > 0 } autocomplete)
         {
-            height += autocomplete.SuggestionCount;
+            height += GetVisibleSuggestionCount(autocomplete);
         }
 
         return new Measurement(Math.Min(width, maxWidth), Math.Min(width, maxWidth), height);
@@ -111,9 +114,15 @@ public sealed class PromptView : IFocusable
 
         if (_controller.Autocomplete is { SuggestionCount: > 0 } autocomplete)
         {
+            var visibleCount = GetVisibleSuggestionCount(autocomplete);
+            var firstVisibleIndex = Math.Clamp(
+                autocomplete.SelectedIndex - visibleCount + 1,
+                0,
+                autocomplete.SuggestionCount - visibleCount);
             output.WriteLineBreak();
-            for (var i = 0; i < autocomplete.SuggestionCount; i++)
+            for (var row = 0; row < visibleCount; row++)
             {
+                var i = firstVisibleIndex + row;
                 var suggestion = autocomplete.GetSuggestion(i);
                 var selected = i == autocomplete.SelectedIndex;
                 var style = selected ? context.Theme.Accent : context.Theme.Text;
@@ -126,13 +135,16 @@ public sealed class PromptView : IFocusable
                     output.Write(suggestion.Description.AsSpan(), context.Theme.Border);
                 }
 
-                if (i < autocomplete.SuggestionCount - 1)
+                if (row < visibleCount - 1)
                 {
                     output.WriteLineBreak();
                 }
             }
         }
     }
+
+    private int GetVisibleSuggestionCount(AutocompleteController autocomplete)
+        => Math.Min(autocomplete.SuggestionCount, Math.Max(1, MaximumSuggestionRows));
 
     private void RenderWrappedText(
         in RenderContext context,

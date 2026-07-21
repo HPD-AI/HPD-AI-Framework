@@ -1193,8 +1193,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             GetOptionalString(element, "invocationId"),
             GetOptionalString(element, "subAgentSourceKind"),
             GetOptionalString(element, "parentToolCallId"),
-            GetOptionalString(element, "sessionPolicy"),
-            GetOptionalString(element, "threadPolicy"),
+            GetOptionalString(element, "contextPolicy"),
             ReadObjectMap(element, "metadata"));
 
     private static AgentTuiThreadGraph ParseThreadGraph(JsonElement element) =>
@@ -1239,8 +1238,7 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
             GetOptionalString(element, "invocationId"),
             GetOptionalString(element, "subAgentSourceKind"),
             GetOptionalString(element, "parentToolCallId"),
-            GetOptionalString(element, "sessionPolicy"),
-            GetOptionalString(element, "threadPolicy"),
+            GetOptionalString(element, "contextPolicy"),
             GetOptionalString(element, "status"),
             GetOptionalInt32(element, "messageCount") ?? 0,
             GetRequiredDateTimeOffset(element, "createdAt"),

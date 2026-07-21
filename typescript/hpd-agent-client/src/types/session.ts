@@ -14,6 +14,9 @@ import type {
 } from './events.js';
 import type { ThreadForkCompaction } from './run-config.js';
 
+/** Resolved context used to create a subagent thread. */
+export type SubAgentContextPolicy = 'Fork' | 'Fresh' | 'Isolated';
+
 // ============================================
 // SESSION
 // ============================================
@@ -190,11 +193,8 @@ export interface Thread {
   /** Parent tool call id that created this runtime child thread */
   parentToolCallId?: string;
 
-  /** Subagent session policy captured for inspection and routing */
-  sessionPolicy?: string;
-
-  /** Subagent thread policy captured for inspection and routing */
-  threadPolicy?: string;
+  /** Resolved context used to create this subagent thread */
+  contextPolicy?: SubAgentContextPolicy;
 
   // ==========================================
   // Thread tree metadata
@@ -267,8 +267,7 @@ export interface ThreadRuntimeChild {
   invocationId?: string;
   subAgentSourceKind?: string;
   parentToolCallId?: string;
-  sessionPolicy?: string;
-  threadPolicy?: string;
+  contextPolicy?: SubAgentContextPolicy;
   status?: string;
   messageCount: number;
   createdAt: string; // ISO 8601

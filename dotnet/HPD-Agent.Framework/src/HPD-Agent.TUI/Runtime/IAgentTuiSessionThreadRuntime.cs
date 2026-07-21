@@ -145,8 +145,7 @@ public sealed record AgentTuiThreadInfo(
     string? InvocationId = null,
     string? SubAgentSourceKind = null,
     string? ParentToolCallId = null,
-    string? SessionPolicy = null,
-    string? ThreadPolicy = null,
+    string? ContextPolicy = null,
     IReadOnlyDictionary<string, object?>? Metadata = null);
 
 public sealed record AgentTuiThreadGraph(
@@ -187,8 +186,7 @@ public sealed record AgentTuiThreadRuntimeChild(
     string? InvocationId,
     string? SubAgentSourceKind,
     string? ParentToolCallId,
-    string? SessionPolicy,
-    string? ThreadPolicy,
+    string? ContextPolicy,
     string? Status,
     int MessageCount,
     DateTimeOffset CreatedAt,

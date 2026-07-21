@@ -5,24 +5,25 @@ using HPD.TUI.Core;
 
 namespace HPD.Agent.TUI.Views;
 
-public sealed class StatusItemsView : IComponent
+/// <summary>Renders the registered application-owned footer items.</summary>
+public sealed class FooterItemsView : IComponent
 {
     private readonly IComponent[] _components;
 
-    public StatusItemsView(
+    public FooterItemsView(
         ChatShellModel shell,
         AgentTuiStateBag state,
-        IReadOnlyList<AgentTuiContribution<IAgentTuiStatusItem>> items)
+        IReadOnlyList<AgentTuiContribution<IAgentTuiFooterItem>> items)
     {
         ArgumentNullException.ThrowIfNull(shell);
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(items);
 
         _components = new IComponent[items.Count];
-        var statusContext = new AgentTuiStatusContext(shell.Scope, shell, state);
+        var footerContext = new AgentTuiFooterContext(shell.Scope, shell, state);
         for (var i = 0; i < items.Count; i++)
         {
-            _components[i] = CreateItem(items[i], statusContext);
+            _components[i] = CreateItem(items[i], footerContext);
         }
     }
 
@@ -89,8 +90,8 @@ public sealed class StatusItemsView : IComponent
     }
 
     private static IComponent CreateItem(
-        AgentTuiContribution<IAgentTuiStatusItem> item,
-        AgentTuiStatusContext context)
+        AgentTuiContribution<IAgentTuiFooterItem> item,
+        AgentTuiFooterContext context)
     {
         try
         {

@@ -52,18 +52,7 @@ internal static class CodingExplorationDisplayFormatter
             return count <= 1 ? "exploring" : $"exploring {count}";
         }
 
-        var latest = store.CaptureRecentGroups().FirstOrDefault();
-        if (latest is null)
-        {
-            return "";
-        }
-
-        var latestOperations = latest.CaptureOperations();
-        return latestOperations.Count == 0
-            ? ""
-            : latestOperations.Count == 1
-                ? "explored 1"
-                : $"explored {latestOperations.Count}";
+        return "";
     }
 
     private static void FlushReads(List<CodingExplorationOperation> reads, List<string> rows)

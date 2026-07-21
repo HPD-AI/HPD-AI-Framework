@@ -1426,7 +1426,8 @@ public class ToolVisibilityManagerTests
                 AdditionalProperties = new Dictionary<string, object>
                 {
                     ["IsSubAgent"] = true,
-                    ["ExecutionModel"] = "ThreadNative"
+                    ["ExecutionModel"] = "ThreadNative",
+                    ["SubAgentDefinition"] = CreateSubAgentDefinition("StandaloneAgent")
                     // No ParentToolHarness!
                 }
             });
@@ -1553,10 +1554,96 @@ public class ToolVisibilityManagerTests
                 {
                     ["IsSubAgent"] = true,
                     ["ExecutionModel"] = "ThreadNative",
-                    ["ParentToolHarness"] = parentToolHarness  //  Correct key (not ToolHarnessName)
+                    ["ParentToolHarness"] = parentToolHarness,
+                    ["SubAgentDefinition"] = CreateSubAgentDefinition(name)
                 }
             });
     }
+
+    [Fact]
+    public void SubAgent_RootOnly_IsHiddenFromDepthOneAfterExpansion()
+    {
+        var tools = new List<AIFunction>
+        {
+            CreateToolHarnessContainerWithNewFlag("ResearchToolHarness", "Research tools"),
+            CreateSubAgentFunction("ResearchAgent", "Research", "ResearchToolHarness")
+        };
+        var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
+
+        var visible = manager.GetToolsForAgentTurn(
+            tools,
+            ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "ResearchToolHarness"),
+            currentAgentDepth: 1,
+            maxSubAgentDepth: 4);
+
+        visible.Should().NotContain(tool => tool.Name == "ResearchAgent");
+    }
+
+    [Fact]
+    public void SubAgent_ThroughDepthTwo_IsVisibleFromDepthOne()
+    {
+        var definition = CreateSubAgentDefinition("ResearchAgent")
+            .WithAvailability(SubAgentAvailability.ThroughDepth(2));
+        var function = AIFunctionFactory.Create(
+            async (AIFunctionArguments args, CancellationToken ct) => "result",
+            new AIFunctionFactoryOptions
+            {
+                Name = "ResearchAgent",
+                Description = "Research",
+                AdditionalProperties = new Dictionary<string, object>
+                {
+                    ["IsSubAgent"] = true,
+                    ["ExecutionModel"] = "ThreadNative",
+                    ["SubAgentDefinition"] = definition
+                }
+            });
+        var tools = new List<AIFunction> { function };
+        var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
+
+        var visible = manager.GetToolsForAgentTurn(
+            tools,
+            ImmutableHashSet<string>.Empty,
+            currentAgentDepth: 1,
+            maxSubAgentDepth: 4);
+
+        visible.Should().ContainSingle(tool => tool.Name == "ResearchAgent");
+    }
+
+    [Fact]
+    public void SubAgent_AnyAllowedDepth_StillRespectsAgentMaximum()
+    {
+        var definition = CreateSubAgentDefinition("Coordinator")
+            .WithAvailability(SubAgentAvailability.AnyAllowedDepth);
+        var function = AIFunctionFactory.Create(
+            async (AIFunctionArguments args, CancellationToken ct) => "result",
+            new AIFunctionFactoryOptions
+            {
+                Name = "Coordinator",
+                Description = "Coordinates agents",
+                AdditionalProperties = new Dictionary<string, object>
+                {
+                    ["IsSubAgent"] = true,
+                    ["ExecutionModel"] = "ThreadNative",
+                    ["SubAgentDefinition"] = definition
+                }
+            });
+        var tools = new List<AIFunction> { function };
+        var manager = new ToolVisibilityManager(tools, ImmutableHashSet<string>.Empty);
+
+        var visible = manager.GetToolsForAgentTurn(
+            tools,
+            ImmutableHashSet<string>.Empty,
+            currentAgentDepth: 2,
+            maxSubAgentDepth: 2);
+
+        visible.Should().BeEmpty();
+    }
+
+    private static SubAgent CreateSubAgentDefinition(string name) => SubAgent.FromConfig(
+        $"test/{name}",
+        name,
+        $"{name} description",
+        new AgentConfig { Name = name, SystemInstructions = "Test." });
 
     #endregion
 }

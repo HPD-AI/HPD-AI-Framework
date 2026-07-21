@@ -58,24 +58,30 @@ public sealed class AgentTuiShellContext
     public ChatShellModel Shell { get; }
 }
 
-public sealed class AgentTuiStatusContext
+/// <summary>Provides session state to an application-owned footer item.</summary>
+public sealed class AgentTuiFooterContext
 {
-    public AgentTuiStatusContext(AgentTuiRuntimeScope scope, ChatShellModel shell)
+    /// <summary>Initializes a footer context with isolated component state.</summary>
+    public AgentTuiFooterContext(AgentTuiRuntimeScope scope, ChatShellModel shell)
         : this(scope, shell, new AgentTuiStateBag())
     {
     }
 
-    public AgentTuiStatusContext(AgentTuiRuntimeScope scope, ChatShellModel shell, AgentTuiStateBag state)
+    /// <summary>Initializes a footer context with shared session state.</summary>
+    public AgentTuiFooterContext(AgentTuiRuntimeScope scope, ChatShellModel shell, AgentTuiStateBag state)
     {
         Scope = scope ?? throw new ArgumentNullException(nameof(scope));
         Shell = shell ?? throw new ArgumentNullException(nameof(shell));
         State = state ?? throw new ArgumentNullException(nameof(state));
     }
 
+    /// <summary>Gets the active runtime scope.</summary>
     public AgentTuiRuntimeScope Scope { get; }
 
+    /// <summary>Gets the mutable shell model.</summary>
     public ChatShellModel Shell { get; }
 
+    /// <summary>Gets shared TUI session state.</summary>
     public AgentTuiStateBag State { get; }
 }
 

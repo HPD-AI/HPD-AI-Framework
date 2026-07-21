@@ -4,13 +4,13 @@ using HPD.Agent.ToolHarness.Coding.TUI.Harness;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands.Handlers;
 using HPD.Agent.ToolHarness.Coding.TUI.Commands.Pages;
-using HPD.Agent.ToolHarness.Coding.TUI.Commands.Status;
+using HPD.Agent.ToolHarness.Coding.TUI.Commands.Footer;
 using HPD.Agent.ToolHarness.Coding.TUI.Exploration;
 using HPD.Agent.ToolHarness.Coding.TUI.Exploration.Handlers;
-using HPD.Agent.ToolHarness.Coding.TUI.Exploration.Status;
+using HPD.Agent.ToolHarness.Coding.TUI.Exploration.Footer;
 using HPD.Agent.ToolHarness.Coding.TUI.FileMutations;
 using HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Handlers;
-using HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Status;
+using HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Footer;
 using HPD.Agent.TUI.Composition;
 using HPDOS.ToolHarnesses.Middleware;
 
@@ -71,9 +71,9 @@ public static class CodingHarnessTuiExtensions
             .TryAddTranscriptRenderer<CodingExplorationCell>(
                 CodingHarnessTuiTranscriptRendererKeys.Exploration,
                 new CodingExplorationCellRenderer(theme))
-            .TryAddStatusItem(
+            .TryAddFooterItem(
                 "hpd.coding.exploration",
-                new CodingExplorationStatusItem(theme));
+                new CodingExplorationFooterItem(theme));
     }
 
     public static HpdAgentTuiBuilder AddCodingCommandTui(
@@ -110,15 +110,15 @@ public static class CodingHarnessTuiExtensions
                 new CodingCommandCellRenderer(theme))
             .TryAddPage(CodingCommandPages.CommandsPage(theme))
             .TryAddPage(CodingCommandPages.BackgroundPage(theme))
-            .TryAddStatusItem(
+            .TryAddFooterItem(
                 "hpd.coding.commands",
-                new CodingCommandStatusItem(theme))
-            .TryAddStatusItem(
+                new CodingCommandFooterItem(theme))
+            .TryAddFooterItem(
                 "hpd.coding.background",
-                new CodingBackgroundTerminalStatusItem(theme))
-            .TryAddStatusItem(
+                new CodingBackgroundTerminalFooterItem(theme))
+            .TryAddFooterItem(
                 "hpd.coding.output",
-                new CodingCommandOutputStatusItem(theme));
+                new CodingCommandOutputFooterItem(theme));
     }
 
     public static HpdAgentTuiBuilder AddCodingFileMutationTui(
@@ -139,11 +139,11 @@ public static class CodingHarnessTuiExtensions
             .TryAddTranscriptRenderer<CodingDiagnosticsCell>(
                 CodingHarnessTuiTranscriptRendererKeys.Diagnostics,
                 new CodingDiagnosticsCellRenderer(theme))
-            .TryAddStatusItem(
+            .TryAddFooterItem(
                 "hpd.coding.files",
-                new FileMutationStatusItem(theme))
-            .TryAddStatusItem(
+                new FileMutationFooterItem(theme))
+            .TryAddFooterItem(
                 "hpd.coding.diagnostics",
-                new CodingDiagnosticsStatusItem(theme));
+                new CodingDiagnosticsFooterItem(theme));
     }
 }

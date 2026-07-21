@@ -62,9 +62,13 @@ public class CodingToolHarnessAgentBuilderTests
         worker.InvocationModePolicy.Should().Be(AgentInvocationModePolicy.ModelChoice);
         reviewer.InvocationModePolicy.Should().Be(AgentInvocationModePolicy.ModelChoice);
 
-        explorer.ExecutionPolicy.Should().Be(SubAgentExecutionPolicy.Default);
-        worker.ExecutionPolicy.Should().Be(SubAgentExecutionPolicy.Default);
-        reviewer.ExecutionPolicy.Should().Be(SubAgentExecutionPolicy.Default);
+        explorer.ContextPolicy.Should().Be(SubAgentContextPolicy.ModelChoice);
+        worker.ContextPolicy.Should().Be(SubAgentContextPolicy.ModelChoice);
+        reviewer.ContextPolicy.Should().Be(SubAgentContextPolicy.ModelChoice);
+
+        explorer.RunConfig.InheritedFields.Should().Be(SubAgentRunConfigFields.Default);
+        worker.RunConfig.InheritedFields.Should().Be(SubAgentRunConfigFields.Default);
+        reviewer.RunConfig.InheritedFields.Should().Be(SubAgentRunConfigFields.Default);
 
         GetCodingFunctions(explorer).Should().BeEquivalentTo([
             "ReadFile", "ListDirectory", "GlobSearch", "Grep"

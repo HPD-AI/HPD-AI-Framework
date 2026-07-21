@@ -274,8 +274,7 @@ public static class ThreadProjector
             data.InvocationId,
             data.SubAgentSourceKind,
             data.ParentToolCallId,
-            data.SessionPolicy,
-            data.ThreadPolicy,
+            data.ContextPolicy,
             data.ForkedFrom,
             data.ForkedAtMessageId,
             data.ForkedAtMessageIndex,
@@ -301,8 +300,7 @@ public static class ThreadProjector
             data.InvocationId,
             data.SubAgentSourceKind,
             data.ParentToolCallId,
-            data.SessionPolicy,
-            data.ThreadPolicy,
+            data.ContextPolicy,
             data.ForkedFrom,
             data.ForkedAtMessageId,
             data.ForkedAtMessageIndex,
@@ -326,8 +324,7 @@ public static class ThreadProjector
         string? invocationId,
         string? subAgentSourceKind,
         string? parentToolCallId,
-        string? sessionPolicy,
-        string? threadPolicy,
+        string? contextPolicy,
         string? forkedFrom,
         string? forkedAtMessageId,
         int? forkedAtMessageIndex,
@@ -348,8 +345,7 @@ public static class ThreadProjector
         thread.InvocationId = invocationId;
         thread.SubAgentSourceKind = subAgentSourceKind;
         thread.ParentToolCallId = parentToolCallId;
-        thread.SessionPolicy = sessionPolicy;
-        thread.ThreadPolicy = threadPolicy;
+        thread.ContextPolicy = contextPolicy;
         thread.SetForkMetadata(forkedFrom, forkedAtMessageId, forkedAtMessageIndex, ancestors);
         thread.SetTreeMetadata(forkedFrom, forkedAtMessageId, forkedAtMessageIndex, childThreads);
     }

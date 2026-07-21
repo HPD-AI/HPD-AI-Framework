@@ -12,9 +12,13 @@ public sealed class AgentTuiShellChrome
 
     public ShellSectionChrome Transcript { get; set; } = ShellSectionChrome.Bare();
 
-    public ShellSectionChrome Status { get; set; } = ShellSectionChrome.Bare();
+    /// <summary>Gets or sets chrome for transient runtime activities.</summary>
+    public ShellSectionChrome Activity { get; set; } = ShellSectionChrome.Bare();
 
     public ShellSectionChrome AboveEditor { get; set; } = ShellSectionChrome.Bare();
+
+    /// <summary>Gets or sets chrome for the status line immediately above the prompt.</summary>
+    public ShellSectionChrome PromptStatus { get; set; } = ShellSectionChrome.Bare();
 
     public ShellSectionChrome Prompt { get; set; } = ShellSectionChrome.Bare();
 
@@ -35,8 +39,9 @@ public sealed class AgentTuiShellChrome
             Gap = Gap,
             Header = Header.Clone(),
             Transcript = Transcript.Clone(),
-            Status = Status.Clone(),
+            Activity = Activity.Clone(),
             AboveEditor = AboveEditor.Clone(),
+            PromptStatus = PromptStatus.Clone(),
             Prompt = Prompt.Clone(),
             BelowEditor = BelowEditor.Clone(),
             Footer = Footer.Clone(),

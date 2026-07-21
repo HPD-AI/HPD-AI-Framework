@@ -31,7 +31,7 @@ public sealed class FileMutationTuiTests
             "hpd.coding.file-mutation.applied",
             "hpd.coding.diagnostics.received"
         ]);
-        registry.StatusItems.Select(static item => item.Key).Should().Contain([
+        registry.FooterItems.Select(static item => item.Key).Should().Contain([
             "hpd.coding.files",
             "hpd.coding.diagnostics"
         ]);
@@ -282,7 +282,7 @@ public sealed class FileMutationTuiTests
     }
 
     [Fact]
-    public async Task StatusItems_ReadFileAndDiagnosticsState()
+    public async Task FooterItems_ReadFileAndDiagnosticsState()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()

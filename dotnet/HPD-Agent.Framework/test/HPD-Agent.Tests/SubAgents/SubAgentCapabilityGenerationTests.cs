@@ -35,6 +35,8 @@ public class SubAgentCapabilityGenerationTests
         code.Should().Contain("TaskName = taskName");
         code.Should().Contain("ParentContext = functionContext");
         code.Should().Contain("RequestedMode = requestedMode");
+        code.Should().Contain("RequestedContext = requestedContext");
+        code.Should().Contain("SubAgentContexts.CreateSchema");
         code.Should().Contain("return result.ToToolResult()");
     }
 

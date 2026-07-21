@@ -30,14 +30,15 @@ public partial class CodingToolHarness
                 instructions: CodingSubAgentPrompts.Explorer,
                 functions: ReadOnlyCodingFunctions,
                 maxIterations: 15),
-            SubAgentExecutionPolicies.ParentSessionForkedThread(),
+            SubAgentContextPolicy.ModelChoice,
             metadata: new Dictionary<string, object>
             {
                 ["codingRole"] = "explore",
                 ["workspaceAccess"] = "read-only"
             },
             invocationModePolicy: AgentInvocationModePolicy.ModelChoice,
-            backgroundNotification: null);
+            backgroundNotification: null)
+            .WithRunConfig(SubAgentRunConfig.Inherit());
     }
 
     [SubAgent]
@@ -52,14 +53,15 @@ public partial class CodingToolHarness
                 instructions: CodingSubAgentPrompts.Worker,
                 functions: WorkerCodingFunctions,
                 maxIterations: 30),
-            SubAgentExecutionPolicies.ParentSessionForkedThread(),
+            SubAgentContextPolicy.ModelChoice,
             metadata: new Dictionary<string, object>
             {
                 ["codingRole"] = "worker",
                 ["workspaceAccess"] = "read-write"
             },
             invocationModePolicy: AgentInvocationModePolicy.ModelChoice,
-            backgroundNotification: null);
+            backgroundNotification: null)
+            .WithRunConfig(SubAgentRunConfig.Inherit());
     }
 
     [SubAgent]
@@ -74,14 +76,15 @@ public partial class CodingToolHarness
                 instructions: CodingSubAgentPrompts.Reviewer,
                 functions: ReadOnlyCodingFunctions,
                 maxIterations: 15),
-            SubAgentExecutionPolicies.ParentSessionForkedThread(),
+            SubAgentContextPolicy.ModelChoice,
             metadata: new Dictionary<string, object>
             {
                 ["codingRole"] = "reviewer",
                 ["workspaceAccess"] = "read-only"
             },
             invocationModePolicy: AgentInvocationModePolicy.ModelChoice,
-            backgroundNotification: null);
+            backgroundNotification: null)
+            .WithRunConfig(SubAgentRunConfig.Inherit());
     }
 
     private static AgentConfig CreateCodingSubAgentConfig(

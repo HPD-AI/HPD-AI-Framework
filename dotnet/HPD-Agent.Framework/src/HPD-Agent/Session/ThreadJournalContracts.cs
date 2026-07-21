@@ -61,8 +61,7 @@ public sealed record ThreadRuntimeChildDescriptor(
     string? InvocationId,
     string? SubAgentSourceKind,
     string? ParentToolCallId,
-    string? SessionPolicy,
-    string? ThreadPolicy,
+    string? ContextPolicy,
     string? Status);
 
 public sealed record ThreadListRequest(

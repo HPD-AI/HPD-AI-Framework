@@ -276,7 +276,7 @@ public sealed class ThreadExecutionStatusHandler : IAgentTuiEventHandler
             Severity = ActivitySeverity.Info
         });
 
-        context.Shell.FooterText = $"state: running | run: {ShortId(started.ThreadExecutionId)}";
+        context.Shell.PromptStatusText = $"state: running | run: {ShortId(started.ThreadExecutionId)}";
     }
 
     private static void ApplyThreadExecutionFinished(
@@ -299,7 +299,7 @@ public sealed class ThreadExecutionStatusHandler : IAgentTuiEventHandler
             };
         }
 
-        context.Shell.FooterText = completed.Outcome switch
+        context.Shell.PromptStatusText = completed.Outcome switch
         {
             ThreadExecutionOutcome.Failed => $"state: failed | {completed.Error?.Message}",
             ThreadExecutionOutcome.Cancelled => "state: idle | cancelled",

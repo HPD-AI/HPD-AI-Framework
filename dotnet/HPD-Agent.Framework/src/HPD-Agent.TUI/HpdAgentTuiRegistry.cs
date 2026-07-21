@@ -9,7 +9,7 @@ public sealed class HpdAgentTuiRegistry
 {
     private readonly IReadOnlyDictionary<string, HpdAgentTuiCommandDescriptor> _commands;
     private readonly HpdAgentTuiCommandDescriptor[] _commandList;
-    private readonly IReadOnlyList<AgentTuiContribution<IAgentTuiStatusItem>> _statusItems;
+    private readonly IReadOnlyList<AgentTuiContribution<IAgentTuiFooterItem>> _footerItems;
     private readonly IReadOnlyList<AgentTuiContribution<IAgentTuiWidget>> _aboveEditorWidgets;
     private readonly IReadOnlyList<AgentTuiContribution<IAgentTuiWidget>> _belowEditorWidgets;
     private readonly IReadOnlyList<AgentTuiContribution<IAgentTuiAutocompleteProvider>> _autocompleteProviders;
@@ -25,7 +25,7 @@ public sealed class HpdAgentTuiRegistry
     internal HpdAgentTuiRegistry(
         IEnumerable<HpdAgentTuiCommandDescriptor> commands,
         IEnumerable<HpdAgentTuiPageDescriptor> pages,
-        IReadOnlyDictionary<string, IAgentTuiStatusItem> statusItems,
+        IReadOnlyDictionary<string, IAgentTuiFooterItem> footerItems,
         IReadOnlyDictionary<(TuiSlot Slot, string Key), IAgentTuiWidget> widgets,
         IReadOnlyDictionary<string, IAgentTuiAutocompleteProvider> autocompleteProviders,
         IEnumerable<HpdAgentTuiShortcutDescriptor> shortcuts,
@@ -33,6 +33,7 @@ public sealed class HpdAgentTuiRegistry
         IReadOnlyDictionary<string, AgentTuiInteractionHandlerRegistration> interactionHandlers,
         IEnumerable<IAgentTuiTranscriptRendererAdapter> transcriptRenderers,
         IAgentTuiShellComponent? header,
+        IAgentTuiShellComponent? promptStatus,
         IAgentTuiShellComponent? footer,
         IAgentTuiPromptFactory? promptFactory,
         IAgentTuiShellLayout? shellLayout,
@@ -49,8 +50,8 @@ public sealed class HpdAgentTuiRegistry
             .ToArray();
         _pages = pages.ToDictionary(page => page.Id, StringComparer.OrdinalIgnoreCase);
         _pageList = _pages.Values.ToArray();
-        _statusItems = statusItems
-            .Select(pair => new AgentTuiContribution<IAgentTuiStatusItem>(pair.Key, pair.Value))
+        _footerItems = footerItems
+            .Select(pair => new AgentTuiContribution<IAgentTuiFooterItem>(pair.Key, pair.Value))
             .ToArray();
         _aboveEditorWidgets = widgets
             .Where(pair => pair.Key.Slot == TuiSlot.AboveEditor)
@@ -88,6 +89,7 @@ public sealed class HpdAgentTuiRegistry
             .ToArray();
         TranscriptRenderers = new AgentTuiTranscriptRendererRegistry(transcriptRenderers);
         Header = header;
+        PromptStatus = promptStatus;
         Footer = footer;
         _promptFactory = promptFactory;
         _shellLayout = shellLayout;
@@ -104,6 +106,9 @@ public sealed class HpdAgentTuiRegistry
     public string? DefaultPageId => _pages.Count > 0 ? _pages.Values.First().Id : null;
 
     public IAgentTuiShellComponent? Header { get; }
+
+    /// <summary>Gets the component rendered immediately above the prompt.</summary>
+    public IAgentTuiShellComponent? PromptStatus { get; }
 
     public IAgentTuiShellComponent? Footer { get; }
 
@@ -124,7 +129,8 @@ public sealed class HpdAgentTuiRegistry
 
     public AgentTuiTranscriptRendererRegistry TranscriptRenderers { get; }
 
-    public IReadOnlyList<AgentTuiContribution<IAgentTuiStatusItem>> StatusItems => _statusItems;
+    /// <summary>Gets application-owned components rendered in the shell footer.</summary>
+    public IReadOnlyList<AgentTuiContribution<IAgentTuiFooterItem>> FooterItems => _footerItems;
 
     public IReadOnlyList<AgentTuiContribution<IAgentTuiWidget>> AboveEditorWidgets => _aboveEditorWidgets;
 

@@ -284,6 +284,7 @@ internal static class ReflectionToolFactory
                     ? taskNameProperty.GetString() ?? string.Empty
                     : string.Empty;
                 var requestedMode = AgentInvocationModes.ReadRequestedMode(jsonArgs);
+                var requestedContext = SubAgentContexts.ReadRequestedContext(jsonArgs);
 
                 var result = await SubAgentRuntime.InvokeAsync(
                     new SubAgentRuntime.SubAgentInvocationRequest
@@ -292,7 +293,8 @@ internal static class ReflectionToolFactory
                         Input = input,
                         TaskName = taskName,
                         ParentContext = functionContext,
-                        RequestedMode = requestedMode
+                        RequestedMode = requestedMode,
+                        RequestedContext = requestedContext
                     },
                     cancellationToken).ConfigureAwait(false);
 
@@ -305,8 +307,10 @@ internal static class ReflectionToolFactory
                 RequiresPermission = true,
                 SerializerOptions = serializerOptions,
                 ResultType = typeof(object),
-                SchemaProvider = () => CreateSubAgentInputSchema(
-                    registrationDefinition.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice),
+                SchemaProvider = () => SubAgentContexts.CreateSchema(
+                    CreateSubAgentInputSchema(
+                        registrationDefinition.InvocationModePolicy == AgentInvocationModePolicy.ModelChoice),
+                    registrationDefinition.ContextPolicy),
                 AdditionalProperties = new Dictionary<string, object?>
                 {
                     ["CapabilityType"] = "SubAgent",
@@ -992,10 +996,10 @@ internal static class ReflectionToolFactory
     {
         var schema = includeInvocationMode
             ? """
-              {"type":"object","properties":{"taskName":{"type":"string","description":"A short name for this delegated task, used to identify its thread in the current session."},"input":{"type":"string","description":"The user's question or task for the sub-agent. Pass the full request here."},"invocationMode":{"type":"string","enum":["synchronous","background"],"description":"Whether to wait for the result now or run in the background. Use synchronous unless the task can continue independently."}},"required":["taskName","input"],"additionalProperties":false}
+              {"type":"object","properties":{"taskName":{"type":"string","description":"A short name used to identify this delegated task and its child thread."},"input":{"type":"string","description":"The user's question or task for the sub-agent. Pass the full request here."},"invocationMode":{"type":"string","enum":["synchronous","background"],"description":"Whether to wait for the result now or run in the background. Use synchronous unless the task can continue independently."}},"required":["taskName","input"],"additionalProperties":false}
               """
             : """
-              {"type":"object","properties":{"taskName":{"type":"string","description":"A short name for this delegated task, used to identify its thread in the current session."},"input":{"type":"string","description":"The user's question or task for the sub-agent. Pass the full request here."}},"required":["taskName","input"],"additionalProperties":false}
+              {"type":"object","properties":{"taskName":{"type":"string","description":"A short name used to identify this delegated task and its child thread."},"input":{"type":"string","description":"The user's question or task for the sub-agent. Pass the full request here."}},"required":["taskName","input"],"additionalProperties":false}
               """;
         using var document = JsonDocument.Parse(schema);
         return document.RootElement.Clone();

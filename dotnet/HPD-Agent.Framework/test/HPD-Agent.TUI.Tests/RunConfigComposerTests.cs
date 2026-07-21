@@ -91,7 +91,7 @@ public sealed class RunConfigComposerTests
 
         runtime.SubmitCount.Should().Be(0);
         GetPrivateField<HPD.Agent.TUI.Application.AgentTuiSessionState>(app, "_state")
-            .Shell.FooterText.Should().Be("state: running | follow-up queued | press Esc to steer now");
+            .Shell.PromptStatusText.Should().Be("state: running | follow-up queued | press Esc to steer now");
 
         InvokePrivate(app, "TryExecuteShortcut", new KeyEvent(KeyCode.Escape));
         await runtime.Submitted.Task.WaitAsync(TimeSpan.FromSeconds(2));

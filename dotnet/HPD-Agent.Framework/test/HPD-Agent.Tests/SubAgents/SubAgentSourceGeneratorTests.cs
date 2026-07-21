@@ -57,26 +57,7 @@ public class SubAgentSourceGeneratorTests
         Assert.NotNull(subAgent);
         Assert.Equal("DefaultThreadNativeSubAgent", subAgent.Name);
         Assert.IsType<SuppliedAgentConfiguration>(subAgent.Configuration);
-        Assert.Equal(SubAgentSessionPolicy.ParentSession, subAgent.ExecutionPolicy.SessionPolicy);
-        Assert.Equal(SubAgentThreadPolicy.ForkFromParentThread, subAgent.ExecutionPolicy.ThreadPolicy);
-        Assert.Null(subAgent.ExecutionPolicy.SharedSessionId);
-    }
-
-    [Fact]
-    public void SubAgent_SharedSessionPolicy_GeneratesSharedSessionSubAgent()
-    {
-        // Arrange
-        var ToolHarness = new TestSubAgentTools();
-
-        // Act
-        var subAgent = ToolHarness.SharedSessionSubAgent();
-
-        // Assert
-        Assert.NotNull(subAgent);
-        Assert.Equal("SharedSessionSubAgent", subAgent.Name);
-        Assert.Equal(SubAgentSessionPolicy.SharedSession, subAgent.ExecutionPolicy.SessionPolicy);
-        Assert.Equal(SubAgentThreadPolicy.FreshThread, subAgent.ExecutionPolicy.ThreadPolicy);
-        Assert.NotNull(subAgent.ExecutionPolicy.SharedSessionId);
+        Assert.Equal(SubAgentContextPolicy.Fork, subAgent.ContextPolicy);
     }
 
     [Fact]
@@ -91,8 +72,7 @@ public class SubAgentSourceGeneratorTests
         // Assert
         Assert.NotNull(subAgent);
         Assert.Equal("FreshThreadSubAgent", subAgent.Name);
-        Assert.Equal(SubAgentSessionPolicy.ParentSession, subAgent.ExecutionPolicy.SessionPolicy);
-        Assert.Equal(SubAgentThreadPolicy.FreshThread, subAgent.ExecutionPolicy.ThreadPolicy);
+        Assert.Equal(SubAgentContextPolicy.Fresh, subAgent.ContextPolicy);
     }
 
     // ===== P0: AgentConfig Extraction =====
@@ -177,7 +157,7 @@ public class SubAgentSourceGeneratorTests
     // ===== P0: Execution policy Validation =====
 
     [Fact]
-    public void SubAgent_DefaultExecutionPolicy_IsParentSessionForkedThread()
+    public void SubAgent_DefaultContextPolicy_IsFork()
     {
         // Arrange
         var ToolHarness = new TestSubAgentTools();
@@ -186,20 +166,7 @@ public class SubAgentSourceGeneratorTests
         var subAgent = ToolHarness.DefaultThreadNativeSubAgent();
 
         // Assert
-        Assert.Equal(SubAgentExecutionPolicy.Default, subAgent.ExecutionPolicy);
-    }
-
-    [Fact]
-    public void SubAgent_SharedSessionId_IsOnExecutionPolicyForSharedSessionFreshThread()
-    {
-        // Arrange
-        var ToolHarness = new TestSubAgentTools();
-
-        // Act
-        var subAgent = ToolHarness.SharedSessionSubAgent();
-
-        // Assert
-        Assert.NotNull(subAgent.ExecutionPolicy.SharedSessionId);
+        Assert.Equal(SubAgentContextPolicy.Fork, subAgent.ContextPolicy);
     }
 
     // ===== P0: Complex Scenarios =====

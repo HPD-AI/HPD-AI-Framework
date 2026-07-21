@@ -42,10 +42,10 @@ internal static class ConsoleBranding
                 subtitle is null
                     ? HeaderDetail(context)
                     : $"{subtitle}  |  {HeaderDetail(context)}"))
-            .ReplaceFooter(context => new Text(
-                string.IsNullOrWhiteSpace(context.Shell.FooterText)
+            .ReplacePromptStatus(context => new Text(
+                string.IsNullOrWhiteSpace(context.Shell.PromptStatusText)
                     ? "state: idle | Ctrl+Escape exits"
-                    : context.Shell.FooterText))
+                    : context.Shell.PromptStatusText))
             .ConfigureShellChrome(chrome =>
             {
                 chrome.Dialog.Y = 15;

@@ -43,7 +43,7 @@ public sealed class ExplorationTuiTests
             "hpd.coding.exploration.tool-result",
             "hpd.coding.exploration.tool-end"
         ]);
-        registry.StatusItems.Select(static item => item.Key).Should().Contain("hpd.coding.exploration");
+        registry.FooterItems.Select(static item => item.Key).Should().Contain("hpd.coding.exploration");
         registry.TranscriptRenderers.TryFindRenderer<CodingExplorationCell>(
             CodingHarnessTuiTranscriptRendererKeys.Exploration,
             out _).Should().BeTrue();
@@ -262,7 +262,7 @@ public sealed class ExplorationTuiTests
     }
 
     [Fact]
-    public async Task StatusItem_ReadsExplorationState()
+    public async Task FooterItem_ReadsExplorationState()
     {
         var registry = new HpdAgentTuiBuilder()
             .AddAgentTuiDefaults()

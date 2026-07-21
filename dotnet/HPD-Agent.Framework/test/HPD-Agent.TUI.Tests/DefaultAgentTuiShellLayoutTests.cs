@@ -16,6 +16,7 @@ public sealed class DefaultAgentTuiShellLayoutTests
         var model = new ChatShellModel(new AgentTuiRuntimeScope("agent", "session", "main"))
         {
             HeaderText = "test header",
+            PromptStatusText = "test prompt status",
             FooterText = "test footer"
         };
         model.Transcript.AddFinal(Row("row-1", "assistant", "hello"));
@@ -31,6 +32,10 @@ public sealed class DefaultAgentTuiShellLayoutTests
         text.Should().Contain("Ask HPD");
         text.Should().Contain("below widget");
         text.Should().Contain("test footer");
+        text.IndexOf("test prompt status", StringComparison.Ordinal)
+            .Should().BeLessThan(text.IndexOf("Ask HPD", StringComparison.Ordinal));
+        text.IndexOf("Ask HPD", StringComparison.Ordinal)
+            .Should().BeLessThan(text.IndexOf("test footer", StringComparison.Ordinal));
         text.Should().NotContain("Transcript");
         text.Should().NotContain("Status");
     }

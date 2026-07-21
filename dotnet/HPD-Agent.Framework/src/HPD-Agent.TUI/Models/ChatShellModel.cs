@@ -14,6 +14,10 @@ public sealed class ChatShellModel
 
     public string HeaderText { get; set; } = "";
 
+    /// <summary>Gets or sets the agent runtime status rendered immediately above the prompt.</summary>
+    public string PromptStatusText { get; set; } = "";
+
+    /// <summary>Gets or sets application-owned content rendered below the prompt.</summary>
     public string FooterText { get; set; } = "";
 
     public IHpdAgentTuiRuntime? Runtime { get; set; }

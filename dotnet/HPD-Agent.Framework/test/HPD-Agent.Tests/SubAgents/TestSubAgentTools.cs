@@ -72,22 +72,6 @@ public class TestSubAgentTools
     }
 
     [SubAgent]
-    public SubAgent SharedSessionSubAgent()
-    {
-        return SubAgent.FromConfig(
-            "test/shared-session",
-            "SharedSessionSubAgent",
-            "Sub-agent with a shared session",
-            new AgentConfig
-            {
-                Name = "SharedSession",
-                SystemInstructions = "Test",
-                Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
-            },
-            SubAgentExecutionPolicies.SharedSessionFreshThread("shared-session-subagent"));
-    }
-
-    [SubAgent]
     public SubAgent FreshThreadSubAgent()
     {
         return SubAgent.FromConfig(
@@ -100,7 +84,7 @@ public class TestSubAgentTools
                 SystemInstructions = "Test",
                 Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
             },
-            SubAgentExecutionPolicies.ParentSessionFreshThread());
+            SubAgentContextPolicy.Fresh);
     }
 
     [SubAgent]
@@ -172,22 +156,6 @@ public class TestSubAgentTools
     }
 
     [SubAgent]
-    public SubAgent SharedSessionExistingThreadSubAgent()
-    {
-        return SubAgent.FromConfig(
-            "test/shared-existing",
-            "SharedSessionExistingThreadSubAgent",
-            "Sub-agent pinned to a shared session thread",
-            new AgentConfig
-            {
-                Name = "SharedSessionExistingThread",
-                SystemInstructions = "Test",
-                Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
-            },
-            SubAgentExecutionPolicies.SharedSessionExistingThread("shared-session-with-thread", "review-thread"));
-    }
-
-    [SubAgent]
     public SubAgent SubAgentWithToolss()
     {
         return SubAgent.FromConfig(
@@ -200,7 +168,7 @@ public class TestSubAgentTools
                 SystemInstructions = "Test agent with ToolHarness access",
                 Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "openrouter", ModelName = "test" } }
             },
-            null,
-            typeof(HPD.Agent.ToolHarness.FileSystem.FileSystemTools));
+            contextPolicy: SubAgentContextPolicy.Fork,
+            toolharnessTypes: [typeof(HPD.Agent.ToolHarness.FileSystem.FileSystemTools)]);
     }
 }

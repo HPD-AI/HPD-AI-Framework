@@ -71,6 +71,7 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("            ? taskNameProp.GetString() ?? string.Empty");
         sb.AppendLine("            : string.Empty;");
         sb.AppendLine("        var requestedMode = global::HPD.Agent.AgentInvocationModes.ReadRequestedMode(jsonArgs);");
+        sb.AppendLine("        var requestedContext = global::HPD.Agent.SubAgentContexts.ReadRequestedContext(jsonArgs);");
         sb.AppendLine();
         sb.AppendLine("        var result = await global::HPD.Agent.SubAgentRuntime.InvokeAsync(");
         sb.AppendLine("            new global::HPD.Agent.SubAgentRuntime.SubAgentInvocationRequest");
@@ -79,7 +80,8 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("                Input = input,");
         sb.AppendLine("                TaskName = taskName,");
         sb.AppendLine("                ParentContext = functionContext,");
-        sb.AppendLine("                RequestedMode = requestedMode");
+        sb.AppendLine("                RequestedMode = requestedMode,");
+        sb.AppendLine("                RequestedContext = requestedContext");
         sb.AppendLine("            },");
         sb.AppendLine("            cancellationToken).ConfigureAwait(false);");
         sb.AppendLine("        return result.ToToolResult();");
@@ -92,13 +94,14 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("        SchemaProvider = () =>");
         sb.AppendLine("        {");
         sb.AppendLine("            var options = new global::Microsoft.Extensions.AI.AIJsonSchemaCreateOptions { IncludeSchemaKeyword = false };");
-        sb.AppendLine("            return global::Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(");
+        sb.AppendLine("            var schema = global::Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(");
         sb.AppendLine("                subAgentDef.InvocationModePolicy == global::HPD.Agent.AgentInvocationModePolicy.ModelChoice");
         sb.AppendLine($"                    ? typeof({ToolHarness.ClassName}SubAgentInputWithModeArgs)");
         sb.AppendLine($"                    : typeof({ToolHarness.ClassName}SubAgentInputArgs),");
         sb.AppendLine("                serializerOptions: global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions,");
         sb.AppendLine("                inferenceOptions: options");
         sb.AppendLine("            );");
+        sb.AppendLine("            return global::HPD.Agent.SubAgentContexts.CreateSchema(schema, subAgentDef.ContextPolicy);");
         sb.AppendLine("        },");
         sb.AppendLine("        AdditionalProperties = new System.Collections.Generic.Dictionary<string, object>");
         sb.AppendLine("        {");

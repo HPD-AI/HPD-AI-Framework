@@ -356,7 +356,7 @@ public class ReflectionAdvancedToolHarness
             Name = "Support Escalation",
             SystemInstructions = "You are a support escalation specialist."
         },
-        SubAgentExecutionPolicies.NewSession());
+        SubAgentContextPolicy.Isolated);
 
     [MultiAgent("Runs a support workflow.", Name = "support_workflow", StreamEvents = false)]
     public static AgentWorkflowInstance SupportWorkflow()

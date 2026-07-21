@@ -1,44 +1,44 @@
 using HPD.Agent.TUI.Composition;
 using HPD.TUI.Core;
 
-namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Status;
+namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Footer;
 
-internal sealed class CodingCommandStatusItem : IAgentTuiStatusItem
+internal sealed class CodingCommandFooterItem : IAgentTuiFooterItem
 {
     private readonly CodingHarnessTuiTheme _theme;
 
-    public CodingCommandStatusItem(CodingHarnessTuiTheme theme)
+    public CodingCommandFooterItem(CodingHarnessTuiTheme theme)
     {
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public IComponent Create(AgentTuiStatusContext context)
+    public IComponent Create(AgentTuiFooterContext context)
         => new CodingCommandStatusComponent(context.State, _theme);
 }
 
-internal sealed class CodingBackgroundTerminalStatusItem : IAgentTuiStatusItem
+internal sealed class CodingBackgroundTerminalFooterItem : IAgentTuiFooterItem
 {
     private readonly CodingHarnessTuiTheme _theme;
 
-    public CodingBackgroundTerminalStatusItem(CodingHarnessTuiTheme theme)
+    public CodingBackgroundTerminalFooterItem(CodingHarnessTuiTheme theme)
     {
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public IComponent Create(AgentTuiStatusContext context)
+    public IComponent Create(AgentTuiFooterContext context)
         => new CodingBackgroundTerminalStatusComponent(context.State, _theme);
 }
 
-internal sealed class CodingCommandOutputStatusItem : IAgentTuiStatusItem
+internal sealed class CodingCommandOutputFooterItem : IAgentTuiFooterItem
 {
     private readonly CodingHarnessTuiTheme _theme;
 
-    public CodingCommandOutputStatusItem(CodingHarnessTuiTheme theme)
+    public CodingCommandOutputFooterItem(CodingHarnessTuiTheme theme)
     {
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public IComponent Create(AgentTuiStatusContext context)
+    public IComponent Create(AgentTuiFooterContext context)
         => new CodingCommandOutputStatusComponent(context.State, _theme);
 }
 

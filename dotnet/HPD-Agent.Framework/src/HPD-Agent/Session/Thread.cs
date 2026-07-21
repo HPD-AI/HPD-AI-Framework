@@ -151,11 +151,8 @@ public class Thread
     /// <summary>Parent tool call id that created this child thread.</summary>
     public string? ParentToolCallId { get; set; }
 
-    /// <summary>Subagent session policy captured for inspection and routing.</summary>
-    public string? SessionPolicy { get; set; }
-
-    /// <summary>Subagent thread policy captured for inspection and routing.</summary>
-    public string? ThreadPolicy { get; set; }
+    /// <summary>Resolved context used to create this subagent thread.</summary>
+    public string? ContextPolicy { get; set; }
 
     /// <summary>
     /// Full ancestry chain for multi-level fork tracking.
@@ -296,8 +293,7 @@ public class Thread
         string? invocationId = null,
         string? subAgentSourceKind = null,
         string? parentToolCallId = null,
-        string? sessionPolicy = null,
-        string? threadPolicy = null)
+        string? contextPolicy = null)
     {
         Id = id;
         SessionId = sessionId;
@@ -322,8 +318,7 @@ public class Thread
         InvocationId = invocationId;
         SubAgentSourceKind = subAgentSourceKind;
         ParentToolCallId = parentToolCallId;
-        SessionPolicy = sessionPolicy;
-        ThreadPolicy = threadPolicy;
+        ContextPolicy = contextPolicy;
         Ancestors = ancestors;
         MiddlewareState = middlewareState;
 
@@ -397,10 +392,8 @@ public class Thread
             SubAgentSourceKind = subAgentSourceKind;
         if (TryRemoveString(metadata, "parentToolCallId", out var parentToolCallId))
             ParentToolCallId = parentToolCallId;
-        if (TryRemoveString(metadata, "sessionPolicy", out var sessionPolicy))
-            SessionPolicy = sessionPolicy;
-        if (TryRemoveString(metadata, "threadPolicy", out var threadPolicy))
-            ThreadPolicy = threadPolicy;
+        if (TryRemoveString(metadata, "contextPolicy", out var contextPolicy))
+            ContextPolicy = contextPolicy;
 
         metadata.Remove("createdBy");
     }

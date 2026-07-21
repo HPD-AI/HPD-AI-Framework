@@ -28,6 +28,13 @@ public sealed class DefaultFooterShellComponent : IAgentTuiShellComponent
         => new ShellText(context, static shell => shell.FooterText);
 }
 
+/// <summary>Renders the shell's agent-owned status immediately above the prompt.</summary>
+public sealed class DefaultPromptStatusShellComponent : IAgentTuiShellComponent
+{
+    public IComponent Create(AgentTuiShellContext context)
+        => new ShellText(context, static shell => shell.PromptStatusText);
+}
+
 internal sealed class ShellText : IComponent
 {
     private readonly AgentTuiShellContext _context;

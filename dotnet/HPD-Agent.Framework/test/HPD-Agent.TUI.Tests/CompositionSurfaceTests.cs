@@ -17,48 +17,48 @@ namespace HPD.Agent.TUI.Tests;
 public sealed class CompositionSurfaceTests
 {
     [Fact]
-    public void AddStatusItem_FailsOnDuplicateKey()
+    public void AddFooterItem_FailsOnDuplicateKey()
     {
         var builder = new HpdAgentTuiBuilder()
-            .AddStatusItem("sample.status", new TextStatusItem("one"));
+            .AddFooterItem("sample.status", new TextFooterItem("one"));
 
-        var act = () => builder.AddStatusItem("sample.status", new TextStatusItem("two"));
+        var act = () => builder.AddFooterItem("sample.status", new TextFooterItem("two"));
 
         act.Should().Throw<InvalidOperationException>();
     }
 
     [Fact]
-    public void TryAddStatusItem_KeepsExistingContribution()
+    public void TryAddFooterItem_KeepsExistingContribution()
     {
         var registry = new HpdAgentTuiBuilder()
-            .AddStatusItem("sample.status", new TextStatusItem("one"))
-            .TryAddStatusItem("sample.status", new TextStatusItem("two"))
+            .AddFooterItem("sample.status", new TextFooterItem("one"))
+            .TryAddFooterItem("sample.status", new TextFooterItem("two"))
             .Build();
 
-        registry.StatusItems.Should().ContainSingle();
-        registry.StatusItems[0].Value.Should().BeOfType<TextStatusItem>()
+        registry.FooterItems.Should().ContainSingle();
+        registry.FooterItems[0].Value.Should().BeOfType<TextFooterItem>()
             .Which.Text.Should().Be("one");
     }
 
     [Fact]
-    public void ReplaceStatusItem_ReplacesExistingContribution()
+    public void ReplaceFooterItem_ReplacesExistingContribution()
     {
         var registry = new HpdAgentTuiBuilder()
-            .AddStatusItem("sample.status", new TextStatusItem("one"))
-            .ReplaceStatusItem("sample.status", new TextStatusItem("two"))
+            .AddFooterItem("sample.status", new TextFooterItem("one"))
+            .ReplaceFooterItem("sample.status", new TextFooterItem("two"))
             .Build();
 
-        registry.StatusItems.Should().ContainSingle();
-        registry.StatusItems[0].Value.Should().BeOfType<TextStatusItem>()
+        registry.FooterItems.Should().ContainSingle();
+        registry.FooterItems[0].Value.Should().BeOfType<TextFooterItem>()
             .Which.Text.Should().Be("two");
     }
 
     [Fact]
-    public void ReplaceStatusItem_FailsWhenMissing()
+    public void ReplaceFooterItem_FailsWhenMissing()
     {
         var builder = new HpdAgentTuiBuilder();
 
-        var act = () => builder.ReplaceStatusItem("missing", new TextStatusItem("value"));
+        var act = () => builder.ReplaceFooterItem("missing", new TextFooterItem("value"));
 
         act.Should().Throw<InvalidOperationException>();
     }
@@ -159,7 +159,7 @@ public sealed class CompositionSurfaceTests
             .AddAgentTuiDefaults()
             .ReplaceHeader(_ => new Text("custom header"))
             .ReplaceFooter(_ => new Text("custom footer"))
-            .AddStatusItem("sample.status", new TextStatusItem("status contribution"))
+            .AddFooterItem("sample.status", new TextFooterItem("status contribution"))
             .AddWidget(TuiSlot.AboveEditor, "sample.above", new TextWidget("above contribution"))
             .AddWidget(TuiSlot.BelowEditor, "sample.below", new TextWidget("below contribution"))
             .Build();
@@ -627,16 +627,16 @@ public sealed class CompositionSurfaceTests
             .Should().Be(AgentTuiEventScope.CurrentThread);
     }
 
-    private sealed class TextStatusItem : IAgentTuiStatusItem
+    private sealed class TextFooterItem : IAgentTuiFooterItem
     {
-        public TextStatusItem(string text)
+        public TextFooterItem(string text)
         {
             Text = text;
         }
 
         public string Text { get; }
 
-        public IComponent Create(AgentTuiStatusContext context) => new Text(Text);
+        public IComponent Create(AgentTuiFooterContext context) => new Text(Text);
     }
 
     private sealed class TextWidget : IAgentTuiWidget

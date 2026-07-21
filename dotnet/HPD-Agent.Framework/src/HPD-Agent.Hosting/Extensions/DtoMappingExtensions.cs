@@ -55,8 +55,7 @@ public static class DtoMappingExtensions
             thread.InvocationId,
             thread.SubAgentSourceKind,
             thread.ParentToolCallId,
-            thread.SessionPolicy,
-            thread.ThreadPolicy);
+            thread.ContextPolicy);
     }
 
     public static ThreadDto ToDto(this ThreadDescriptor descriptor, int totalForks = 0)
@@ -90,8 +89,7 @@ public static class DtoMappingExtensions
             descriptor.RuntimeChild?.InvocationId,
             descriptor.RuntimeChild?.SubAgentSourceKind,
             descriptor.RuntimeChild?.ParentToolCallId,
-            descriptor.RuntimeChild?.SessionPolicy,
-            descriptor.RuntimeChild?.ThreadPolicy);
+            descriptor.RuntimeChild?.ContextPolicy);
     }
 
     /// <summary>

@@ -123,7 +123,7 @@ describe('SseParser', () => {
   it('should parse durable thread update events with threadMetadata payloads', () => {
     const parser = new SseParser();
     const chunk = new TextEncoder().encode(
-      'data: {"version":"1.0","type":"THREAD_UPDATED","defaultAgentId":"reviewer-agent","name":"Reviewer","threadKind":"SubAgent","visibility":"Hidden","parentSessionId":"session-1","parentThreadId":"main","subAgentName":"Reviewer","invocationId":"run-1","subAgentSourceKind":"SuppliedAgentConfiguration","parentToolCallId":"call-1","sessionPolicy":"ParentSession","threadPolicy":"NewChildThread","forkedFrom":"main","forkedAtMessageId":"message-1","forkedAtMessageIndex":0,"childThreads":["child-1"],"ancestors":{"main":"message-1"},"threadMetadata":{"purpose":"review"}}\n\n'
+      'data: {"version":"1.0","type":"THREAD_UPDATED","defaultAgentId":"reviewer-agent","name":"Reviewer","threadKind":"SubAgent","visibility":"Hidden","parentSessionId":"session-1","parentThreadId":"main","subAgentName":"Reviewer","invocationId":"run-1","subAgentSourceKind":"SuppliedAgentConfiguration","parentToolCallId":"call-1","contextPolicy":"Fork","forkedFrom":"main","forkedAtMessageId":"message-1","forkedAtMessageIndex":0,"childThreads":["child-1"],"ancestors":{"main":"message-1"},"threadMetadata":{"purpose":"review"}}\n\n'
     );
 
     const events = parser.processChunk(chunk);
@@ -145,8 +145,7 @@ describe('SseParser', () => {
         invocationId: 'run-1',
         subAgentSourceKind: 'SuppliedAgentConfiguration',
         parentToolCallId: 'call-1',
-        sessionPolicy: 'ParentSession',
-        threadPolicy: 'NewChildThread',
+        contextPolicy: 'Fork',
         forkedFrom: 'main',
         forkedAtMessageId: 'message-1',
         forkedAtMessageIndex: 0,

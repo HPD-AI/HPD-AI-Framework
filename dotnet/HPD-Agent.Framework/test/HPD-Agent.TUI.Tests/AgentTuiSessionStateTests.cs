@@ -44,11 +44,11 @@ public sealed class AgentTuiSessionStateTests
         var state = CreateState();
 
         await state.ApplyEventAsync(new ThreadExecutionStartedEvent("run-12345678", "agent", DateTimeOffset.UtcNow));
-        state.Shell.FooterText.Should().Contain("running");
+        state.Shell.PromptStatusText.Should().Contain("running");
 
         await state.ApplyEventAsync(new ThreadExecutionFinishedEvent("run-12345678", "agent", ThreadExecutionOutcome.Succeeded, DateTimeOffset.UtcNow));
 
-        state.Shell.FooterText.Should().Contain("idle");
+        state.Shell.PromptStatusText.Should().Contain("idle");
         state.Shell.Activities.Activities.Should().Contain(activity => activity.State == HPD.TUI.Models.ActivityState.Completed);
     }
 
@@ -284,7 +284,7 @@ public sealed class AgentTuiSessionStateTests
                         State = ActivityState.Running,
                         Severity = ActivitySeverity.Info
                     });
-                    context.Shell.FooterText = "state: running";
+                    context.Shell.PromptStatusText = "state: running";
                     break;
 
                 case ThreadExecutionFinishedEvent:
@@ -294,7 +294,7 @@ public sealed class AgentTuiSessionStateTests
                         activity.Severity = ActivitySeverity.Success;
                     }
 
-                    context.Shell.FooterText = "state: idle";
+                    context.Shell.PromptStatusText = "state: idle";
                     break;
             }
 

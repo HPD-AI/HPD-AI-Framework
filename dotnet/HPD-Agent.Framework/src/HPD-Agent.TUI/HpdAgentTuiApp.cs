@@ -259,7 +259,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         if (_activeThreadExecutionId is not null)
         {
             _pendingPrompts.Enqueue(text);
-            _state.Shell.FooterText = PendingPromptFooter(_pendingPrompts.Count);
+            _state.Shell.PromptStatusText = PendingPromptFooter(_pendingPrompts.Count);
             RequestRender();
             return;
         }
@@ -313,7 +313,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
 
         _inputSubmissionPending = true;
-        _state.Shell.FooterText = "state: submitting";
+        _state.Shell.PromptStatusText = "state: submitting";
         RequestRender();
         _ = SubmitInputAsync(
             _scope,
@@ -435,7 +435,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                     AgentId: scope.AgentId,
                     AgentName: "tui",
                     AgentChain: ["tui"])));
-            _state.Shell.FooterText = $"state: failed | {ex.Message}";
+            _state.Shell.PromptStatusText = $"state: failed | {ex.Message}";
             RequestRender();
             return null;
         }
@@ -512,7 +512,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 !string.Equals(activeExecution.Status, "active", StringComparison.OrdinalIgnoreCase))
             {
                 ClearCancelConfirmation();
-                state.Shell.FooterText = "state: ready";
+                state.Shell.PromptStatusText = "state: ready";
                 RequestRender();
                 return;
             }
@@ -524,13 +524,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             {
                 _cancelConfirmationExecutionId = activeExecution.ThreadExecutionId;
                 _cancelConfirmationExpiresAt = now + CancelConfirmationWindow;
-                state.Shell.FooterText = $"state: running | press Esc again to cancel execution {shortExecutionId}";
+                state.Shell.PromptStatusText = $"state: running | press Esc again to cancel execution {shortExecutionId}";
                 RequestRender();
                 return;
             }
 
             ClearCancelConfirmation();
-            state.Shell.FooterText = $"state: cancelling | execution: {shortExecutionId}";
+            state.Shell.PromptStatusText = $"state: cancelling | execution: {shortExecutionId}";
             UpsertRunActivity(
                 state,
                 activeExecution.ThreadExecutionId,
@@ -552,7 +552,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             if (result.Disposition is AgentInputDisposition.NoActiveExecution or AgentInputDisposition.ExecutionFinishing)
             {
                 _activeThreadExecutionId = null;
-                state.Shell.FooterText = "state: ready";
+                state.Shell.PromptStatusText = "state: ready";
                 RequestRender();
             }
         }
@@ -859,7 +859,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                     AgentId: scope.AgentId,
                     AgentName: "tui",
                     AgentChain: ["tui"])));
-            _state.Shell.FooterText = "state: projection failed";
+            _state.Shell.PromptStatusText = "state: projection failed";
             RequestRender();
         }
     }
@@ -1045,7 +1045,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
         var text = _pendingPrompts.Peek();
         _inputSubmissionPending = true;
-        state.Shell.FooterText = "state: steering";
+        state.Shell.PromptStatusText = "state: steering";
         RequestRender();
         var submitted = await SubmitInputCoreAsync(
             scope,
@@ -1073,7 +1073,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
         if (_state == state && _pendingPrompts.Count > 0)
         {
-            state.Shell.FooterText = PendingPromptFooter(_pendingPrompts.Count);
+            state.Shell.PromptStatusText = PendingPromptFooter(_pendingPrompts.Count);
             RequestRender();
         }
     }

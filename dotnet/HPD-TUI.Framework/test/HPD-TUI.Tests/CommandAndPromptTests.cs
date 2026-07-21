@@ -401,6 +401,33 @@ public sealed class CommandAndPromptTests
     }
 
     [Fact]
+    public void PromptView_LimitsAutocompleteRowsAndKeepsSelectionVisible()
+    {
+        var suggestions = Enumerable.Range(0, 12)
+            .Select(index => new AutocompleteSuggestion($"item-{index}", $"/item-{index}"))
+            .ToArray();
+        var autocomplete = new AutocompleteController()
+            .Register(new StaticAutocompleteProvider('/', suggestions));
+        var model = new PromptModel();
+        model.SetText("/");
+        autocomplete.Refresh(model);
+        autocomplete.Move(10);
+        var controller = new PromptController(model) { Autocomplete = autocomplete };
+        var view = new PromptView(model, controller) { MaximumSuggestionRows = 4 };
+        var context = new RenderContext(20, 5, Theme.Default);
+        using var grid = new TerminalGrid(20, 5);
+        var writer = new SegmentWriter(grid);
+
+        var measurement = view.Measure(in context, 20);
+        view.Render(in context, 20, ref writer);
+
+        Assert.Equal(5, measurement.Height);
+        Assert.Contains("item-7", ReadLine(grid, 1));
+        Assert.Contains("> item-10", ReadLine(grid, 4));
+        Assert.DoesNotContain("item-6", string.Join('\n', Enumerable.Range(0, 5).Select(row => ReadLine(grid, row))));
+    }
+
+    [Fact]
     public void CommandPaletteView_ComposesSelectionAndExecutesCommand()
     {
         var executed = false;

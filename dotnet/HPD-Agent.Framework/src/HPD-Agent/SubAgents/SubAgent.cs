@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
 namespace HPD.Agent;
 
 /// <summary>
@@ -20,6 +23,52 @@ public sealed record ParentAgentConfiguration : SubAgentConfigurationSource;
 /// Resolves an existing definition from the configured <see cref="IAgentStore"/>.
 /// </summary>
 public sealed record StoredAgentConfiguration : SubAgentConfigurationSource;
+
+/// <summary>
+/// Controls the agent depths from which a particular subagent capability may be invoked.
+/// </summary>
+public sealed class SubAgentAvailability
+{
+    private SubAgentAvailability(int? maximumChildDepth)
+    {
+        MaximumChildDepth = maximumChildDepth;
+    }
+
+    /// <summary>
+    /// Makes the subagent callable only by a root agent. Invoking it creates a depth-one child.
+    /// </summary>
+    public static SubAgentAvailability RootOnly { get; } = new(1);
+
+    /// <summary>
+    /// Makes the subagent callable at every depth permitted by <see cref="AgentConfig.MaxSubAgentDepth"/>.
+    /// </summary>
+    public static SubAgentAvailability AnyAllowedDepth { get; } = new(null);
+
+    /// <summary>
+    /// Gets the deepest child depth this capability may create, or <see langword="null"/>
+    /// when only the agent-wide depth limit applies.
+    /// </summary>
+    public int? MaximumChildDepth { get; }
+
+    /// <summary>
+    /// Creates a policy that permits this capability to create children through the supplied depth.
+    /// </summary>
+    /// <param name="maximumChildDepth">The deepest child depth that may be created. Must be at least one.</param>
+    public static SubAgentAvailability ThroughDepth(int maximumChildDepth)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumChildDepth, 1);
+        return maximumChildDepth == 1 ? RootOnly : new(maximumChildDepth);
+    }
+
+    /// <summary>
+    /// Determines whether the capability may be invoked by an agent at <paramref name="currentAgentDepth"/>.
+    /// </summary>
+    public bool AllowsInvocationFrom(int currentAgentDepth)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(currentAgentDepth);
+        return MaximumChildDepth is null || currentAgentDepth < MaximumChildDepth.Value;
+    }
+}
 
 /// <summary>
 /// Represents a callable sub-agent - another agent that can be invoked as a tool/function.
@@ -47,9 +96,26 @@ public sealed class SubAgent
     public required SubAgentConfigurationSource Configuration { get; init; }
 
     /// <summary>
-    /// Session and thread routing policy for sub-agent execution.
+    /// Context policy for sub-agent execution.
     /// </summary>
-    public SubAgentExecutionPolicy ExecutionPolicy { get; init; } = SubAgentExecutionPolicy.Default;
+    public SubAgentContextPolicy ContextPolicy { get; init; } = SubAgentContextPolicy.Fork;
+
+    /// <summary>
+    /// Controls which values the child run inherits from the invoking parent's
+    /// <see cref="AgentRunConfig"/> and applies any child-only overrides.
+    /// </summary>
+    public SubAgentRunConfig RunConfig { get; init; } = SubAgentRunConfig.Inherit();
+
+    /// <summary>
+    /// Controls the depths at which this subagent appears as an invocable tool.
+    /// Defaults to <see cref="SubAgentAvailability.RootOnly"/>, which prevents accidental recursive delegation.
+    /// </summary>
+    public SubAgentAvailability Availability { get; init; } = SubAgentAvailability.RootOnly;
+
+    /// <summary>
+    /// Optional compaction applied when parent history is forked.
+    /// </summary>
+    public ThreadForkCompaction? ForkCompaction { get; init; }
 
     /// <summary>
     /// Defines whether this subagent runs synchronously, in the background, or lets the model choose per call.
@@ -73,22 +139,72 @@ public sealed class SubAgent
     /// </summary>
     public Dictionary<string, object>? Metadata { get; init; }
 
+    /// <summary>
+    /// Returns an equivalent subagent declaration with the supplied parent run-configuration inheritance.
+    /// </summary>
+    /// <param name="runConfig">The inheritance selection and child-only overrides.</param>
+    /// <returns>A new subagent declaration.</returns>
+    public SubAgent WithRunConfig(SubAgentRunConfig runConfig)
+    {
+        ArgumentNullException.ThrowIfNull(runConfig);
+        return new SubAgent
+        {
+            Name = Name,
+            Description = Description,
+            AgentId = AgentId,
+            Configuration = Configuration,
+            ContextPolicy = ContextPolicy,
+            RunConfig = runConfig,
+            Availability = Availability,
+            ForkCompaction = ForkCompaction,
+            InvocationModePolicy = InvocationModePolicy,
+            BackgroundNotification = BackgroundNotification,
+            ToolHarnessTypes = ToolHarnessTypes,
+            Metadata = Metadata
+        };
+    }
+
+    /// <summary>
+    /// Returns an equivalent declaration with the supplied depth availability.
+    /// </summary>
+    public SubAgent WithAvailability(SubAgentAvailability availability)
+    {
+        ArgumentNullException.ThrowIfNull(availability);
+        return new SubAgent
+        {
+            Name = Name,
+            Description = Description,
+            AgentId = AgentId,
+            Configuration = Configuration,
+            ContextPolicy = ContextPolicy,
+            RunConfig = RunConfig,
+            Availability = availability,
+            ForkCompaction = ForkCompaction,
+            InvocationModePolicy = InvocationModePolicy,
+            BackgroundNotification = BackgroundNotification,
+            ToolHarnessTypes = ToolHarnessTypes,
+            Metadata = Metadata
+        };
+    }
+
     public static SubAgent FromConfig(
         string agentId,
         string name,
         string description,
         AgentConfig agentConfig,
-        SubAgentExecutionPolicy? executionPolicy = null,
+        SubAgentContextPolicy contextPolicy = SubAgentContextPolicy.Fork,
+        ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
         => FromConfig(
             agentId,
             name,
             description,
             agentConfig,
-            executionPolicy,
+            contextPolicy,
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.SynchronousOnly,
             backgroundNotification: null,
+            forkCompaction,
             toolharnessTypes);
 
     public static SubAgent FromConfig(
@@ -96,18 +212,20 @@ public sealed class SubAgent
         string name,
         string description,
         AgentConfig agentConfig,
-        SubAgentExecutionPolicy? executionPolicy,
+        SubAgentContextPolicy contextPolicy,
         Dictionary<string, object>? metadata,
+        ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
         => FromConfig(
             agentId,
             name,
             description,
             agentConfig,
-            executionPolicy,
+            contextPolicy,
             metadata,
             AgentInvocationModePolicy.SynchronousOnly,
             backgroundNotification: null,
+            forkCompaction,
             toolharnessTypes);
 
     /// <summary>
@@ -117,10 +235,11 @@ public sealed class SubAgent
     /// <param name="name">The model-facing subagent tool name.</param>
     /// <param name="description">The model-facing subagent tool description.</param>
     /// <param name="agentConfig">The child agent configuration.</param>
-    /// <param name="executionPolicy">The child session and thread routing policy.</param>
+    /// <param name="contextPolicy">The child context policy.</param>
     /// <param name="metadata">Optional metadata applied to subagent-created threads.</param>
     /// <param name="invocationModePolicy">The allowed synchronous/background invocation policy.</param>
     /// <param name="backgroundNotification">The notification rule used for background invocations.</param>
+    /// <param name="forkCompaction">Optional compaction applied when parent history is forked.</param>
     /// <param name="toolharnessTypes">Tool harness types registered on the child agent.</param>
     /// <returns>The subagent definition.</returns>
     public static SubAgent FromConfig(
@@ -128,18 +247,18 @@ public sealed class SubAgent
         string name,
         string description,
         AgentConfig agentConfig,
-        SubAgentExecutionPolicy? executionPolicy,
+        SubAgentContextPolicy contextPolicy,
         Dictionary<string, object>? metadata,
         AgentInvocationModePolicy invocationModePolicy,
         BackgroundTaskNotificationRule? backgroundNotification,
+        ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ValidateNameAndDescription(name, description);
         ArgumentNullException.ThrowIfNull(agentConfig);
 
-        var policy = executionPolicy ?? SubAgentExecutionPolicy.Default;
-        policy.Validate();
+        SubAgentContexts.Validate(contextPolicy, forkCompaction);
 
         return new SubAgent
         {
@@ -147,7 +266,8 @@ public sealed class SubAgent
             Name = name,
             Description = description,
             Configuration = new SuppliedAgentConfiguration(agentConfig),
-            ExecutionPolicy = policy,
+            ContextPolicy = contextPolicy,
+            ForkCompaction = forkCompaction,
             InvocationModePolicy = invocationModePolicy,
             BackgroundNotification = backgroundNotification
                 ?? new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true),
@@ -160,16 +280,18 @@ public sealed class SubAgent
         string agentId,
         string name,
         string description,
-        SubAgentExecutionPolicy? executionPolicy = null,
+        SubAgentContextPolicy contextPolicy = SubAgentContextPolicy.Fork,
+        ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
         => FromAgentId(
             agentId,
             name,
             description,
-            executionPolicy,
+            contextPolicy,
             metadata: null,
             invocationModePolicy: AgentInvocationModePolicy.SynchronousOnly,
             backgroundNotification: null,
+            forkCompaction,
             toolharnessTypes);
 
     /// <summary>
@@ -178,44 +300,47 @@ public sealed class SubAgent
     /// <param name="agentId">The stored child agent id.</param>
     /// <param name="name">The model-facing subagent tool name.</param>
     /// <param name="description">The model-facing subagent tool description.</param>
-    /// <param name="executionPolicy">The child session and thread routing policy.</param>
+    /// <param name="contextPolicy">The child context policy.</param>
     /// <param name="metadata">Optional metadata applied to subagent-created threads.</param>
     /// <param name="invocationModePolicy">The allowed synchronous/background invocation policy.</param>
     /// <param name="backgroundNotification">The notification rule used for background invocations.</param>
+    /// <param name="forkCompaction">Optional compaction applied when parent history is forked.</param>
     /// <param name="toolharnessTypes">Tool harness types registered on the child agent.</param>
     /// <returns>The subagent definition.</returns>
     public static SubAgent FromAgentId(
         string agentId,
         string name,
         string description,
-        SubAgentExecutionPolicy? executionPolicy,
+        SubAgentContextPolicy contextPolicy,
         Dictionary<string, object>? metadata,
+        ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
         => FromAgentId(
             agentId,
             name,
             description,
-            executionPolicy,
+            contextPolicy,
             metadata,
             AgentInvocationModePolicy.SynchronousOnly,
             backgroundNotification: null,
+            forkCompaction,
             toolharnessTypes);
 
     public static SubAgent FromAgentId(
         string agentId,
         string name,
         string description,
-        SubAgentExecutionPolicy? executionPolicy,
+        SubAgentContextPolicy contextPolicy,
         Dictionary<string, object>? metadata,
         AgentInvocationModePolicy invocationModePolicy,
         BackgroundTaskNotificationRule? backgroundNotification,
+        ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
     {
         ValidateNameAndDescription(name, description);
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
 
-        var policy = executionPolicy ?? SubAgentExecutionPolicy.Default;
-        policy.Validate();
+        SubAgentContexts.Validate(contextPolicy, forkCompaction);
 
         return new SubAgent
         {
@@ -223,7 +348,8 @@ public sealed class SubAgent
             Name = name,
             Description = description,
             Configuration = new StoredAgentConfiguration(),
-            ExecutionPolicy = policy,
+            ContextPolicy = contextPolicy,
+            ForkCompaction = forkCompaction,
             InvocationModePolicy = invocationModePolicy,
             BackgroundNotification = backgroundNotification
                 ?? new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true),
@@ -239,16 +365,16 @@ public sealed class SubAgent
         string agentId,
         string name,
         string description,
-        SubAgentExecutionPolicy? executionPolicy = null,
+        SubAgentContextPolicy contextPolicy = SubAgentContextPolicy.Fork,
         Dictionary<string, object>? metadata = null,
         AgentInvocationModePolicy invocationModePolicy = AgentInvocationModePolicy.SynchronousOnly,
         BackgroundTaskNotificationRule? backgroundNotification = null,
+        ThreadForkCompaction? forkCompaction = null,
         params Type[] toolharnessTypes)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         ValidateNameAndDescription(name, description);
-        var policy = executionPolicy ?? SubAgentExecutionPolicy.Default;
-        policy.Validate();
+        SubAgentContexts.Validate(contextPolicy, forkCompaction);
 
         return new SubAgent
         {
@@ -256,7 +382,8 @@ public sealed class SubAgent
             Name = name,
             Description = description,
             Configuration = new ParentAgentConfiguration(),
-            ExecutionPolicy = policy,
+            ContextPolicy = contextPolicy,
+            ForkCompaction = forkCompaction,
             InvocationModePolicy = invocationModePolicy,
             BackgroundNotification = backgroundNotification
                 ?? new BackgroundTaskNotificationRule.OnFinalStateRule(Completed: true, Faulted: true),
@@ -273,109 +400,116 @@ public sealed class SubAgent
 
 }
 
-public enum SubAgentSessionPolicy
+/// <summary>
+/// Defines how a subagent invocation initializes its durable context.
+/// </summary>
+public enum SubAgentContextPolicy
 {
-    ParentSession,
-    NewSession,
-    SharedSession
+    /// <summary>
+    /// Forks the parent thread and inherits its history.
+    /// </summary>
+    Fork,
+
+    /// <summary>
+    /// Creates an empty child thread in the parent session.
+    /// </summary>
+    Fresh,
+
+    /// <summary>
+    /// Creates an empty child thread in a new isolated session.
+    /// </summary>
+    Isolated,
+
+    /// <summary>
+    /// Lets the model choose <see cref="Fork"/> or <see cref="Fresh"/> for each call.
+    /// </summary>
+    ModelChoice
 }
 
-public enum SubAgentThreadPolicy
+/// <summary>
+/// Defines the model-requested context for one subagent invocation.
+/// </summary>
+public enum SubAgentContext
 {
-    ForkFromParentThread,
-    FreshThread,
-    ExistingThread
+    /// <summary>Forks and inherits the parent thread history.</summary>
+    Fork,
+
+    /// <summary>Starts with only the delegated input.</summary>
+    Fresh
 }
 
-public sealed record SubAgentExecutionPolicy(
-    SubAgentSessionPolicy SessionPolicy,
-    SubAgentThreadPolicy ThreadPolicy,
-    string? SharedSessionId = null,
-    string? ExistingThreadId = null,
-    string? ThreadNamePrefix = null,
-    ThreadForkCompaction? ThreadCompaction = null)
+/// <summary>
+/// Resolves author policy and model-requested subagent context.
+/// </summary>
+public static class SubAgentContexts
 {
-    public static SubAgentExecutionPolicy Default { get; } =
-        new(SubAgentSessionPolicy.ParentSession, SubAgentThreadPolicy.ForkFromParentThread);
-}
-
-public static class SubAgentExecutionPolicies
-{
-    public static SubAgentExecutionPolicy ParentSessionForkedThread(
-        ThreadForkCompaction? compaction = null) =>
-        new(
-            SubAgentSessionPolicy.ParentSession,
-            SubAgentThreadPolicy.ForkFromParentThread,
-            ThreadCompaction: compaction);
-
-    public static SubAgentExecutionPolicy ParentSessionFreshThread() =>
-        new(SubAgentSessionPolicy.ParentSession, SubAgentThreadPolicy.FreshThread);
-
-    public static SubAgentExecutionPolicy NewSession() =>
-        new(SubAgentSessionPolicy.NewSession, SubAgentThreadPolicy.FreshThread);
-
-    public static SubAgentExecutionPolicy SharedSessionFreshThread(string sessionId)
+    /// <summary>
+    /// Reads the optional model-facing <c>context</c> argument.
+    /// </summary>
+    public static SubAgentContext? ReadRequestedContext(JsonElement json)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        return new(
-            SubAgentSessionPolicy.SharedSession,
-            SubAgentThreadPolicy.FreshThread,
-            SharedSessionId: sessionId);
+        if (!json.TryGetProperty("context", out var property))
+            return null;
+        if (property.ValueKind != JsonValueKind.String)
+            throw new InvalidOperationException("context must be either 'fork' or 'fresh'.");
+
+        return property.GetString()?.ToLowerInvariant() switch
+        {
+            "fork" => SubAgentContext.Fork,
+            "fresh" => SubAgentContext.Fresh,
+            _ => throw new InvalidOperationException("context must be either 'fork' or 'fresh'.")
+        };
     }
 
-    public static SubAgentExecutionPolicy SharedSessionExistingThread(string sessionId, string threadId)
+    /// <summary>
+    /// Adds the model-facing <c>context</c> choice when the definition allows it.
+    /// </summary>
+    public static JsonElement CreateSchema(JsonElement originalSchema, SubAgentContextPolicy policy)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
-        return new(
-            SubAgentSessionPolicy.SharedSession,
-            SubAgentThreadPolicy.ExistingThread,
-            SharedSessionId: sessionId,
-            ExistingThreadId: threadId);
+        if (policy != SubAgentContextPolicy.ModelChoice)
+            return originalSchema.Clone();
+
+        var schema = JsonNode.Parse(originalSchema.GetRawText()) as JsonObject ?? new JsonObject();
+        if (schema["properties"] is not JsonObject properties)
+        {
+            properties = new JsonObject();
+            schema["properties"] = properties;
+        }
+
+        properties["context"] = new JsonObject
+        {
+            ["type"] = "string",
+            ["enum"] = new JsonArray("fork", "fresh"),
+            ["description"] = "Whether the child should inherit the current conversation or start fresh. Use fresh unless prior conversation is required."
+        };
+        return JsonSerializer.SerializeToElement(schema);
     }
 
-    public static SubAgentExecutionPolicy ExistingThread(string threadId)
+    /// <summary>
+    /// Resolves the effective context for an invocation.
+    /// </summary>
+    public static SubAgentContextPolicy Resolve(
+        SubAgentContextPolicy policy,
+        SubAgentContext? requestedContext) => policy switch
+        {
+            SubAgentContextPolicy.Fork when requestedContext == SubAgentContext.Fresh =>
+                throw new InvalidOperationException("This subagent always forks parent context."),
+            SubAgentContextPolicy.Fork => SubAgentContextPolicy.Fork,
+            SubAgentContextPolicy.Fresh when requestedContext == SubAgentContext.Fork =>
+                throw new InvalidOperationException("This subagent always starts with fresh context."),
+            SubAgentContextPolicy.Fresh => SubAgentContextPolicy.Fresh,
+            SubAgentContextPolicy.Isolated when requestedContext is not null =>
+                throw new InvalidOperationException("This subagent always uses isolated context."),
+            SubAgentContextPolicy.Isolated => SubAgentContextPolicy.Isolated,
+            SubAgentContextPolicy.ModelChoice => requestedContext == SubAgentContext.Fork
+                ? SubAgentContextPolicy.Fork
+                : SubAgentContextPolicy.Fresh,
+            _ => throw new ArgumentOutOfRangeException(nameof(policy))
+        };
+
+    internal static void Validate(SubAgentContextPolicy policy, ThreadForkCompaction? forkCompaction)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(threadId);
-        return new(SubAgentSessionPolicy.ParentSession, SubAgentThreadPolicy.ExistingThread, ExistingThreadId: threadId);
+        if (forkCompaction is not null && policy is SubAgentContextPolicy.Fresh or SubAgentContextPolicy.Isolated)
+            throw new ArgumentException("Fork compaction requires Fork or ModelChoice context.");
     }
-}
-
-internal static class SubAgentExecutionPolicyExtensions
-{
-    public static void Validate(this SubAgentExecutionPolicy policy)
-    {
-        if (policy.SessionPolicy == SubAgentSessionPolicy.SharedSession)
-        {
-            if (string.IsNullOrWhiteSpace(policy.SharedSessionId))
-                throw new ArgumentException("SharedSessionId is required when SessionPolicy is SharedSession.");
-        }
-        else if (!string.IsNullOrWhiteSpace(policy.SharedSessionId))
-        {
-            throw new ArgumentException("SharedSessionId is only valid when SessionPolicy is SharedSession.");
-        }
-
-        if (policy.ThreadPolicy == SubAgentThreadPolicy.ExistingThread)
-        {
-            if (string.IsNullOrWhiteSpace(policy.ExistingThreadId))
-                throw new ArgumentException("ExistingThreadId is required when ThreadPolicy is ExistingThread.");
-        }
-        else if (!string.IsNullOrWhiteSpace(policy.ExistingThreadId))
-        {
-            throw new ArgumentException("ExistingThreadId is only valid when ThreadPolicy is ExistingThread.");
-        }
-
-        if (policy.ThreadPolicy == SubAgentThreadPolicy.ForkFromParentThread &&
-            policy.SessionPolicy != SubAgentSessionPolicy.ParentSession)
-        {
-            throw new ArgumentException("ForkFromParentThread requires SessionPolicy to be ParentSession.");
-        }
-
-        if (policy.ThreadCompaction != null &&
-            policy.ThreadPolicy != SubAgentThreadPolicy.ForkFromParentThread)
-        {
-            throw new ArgumentException("ThreadCompaction can only be set when ThreadPolicy is ForkFromParentThread.");
-        }
-    }
-
 }

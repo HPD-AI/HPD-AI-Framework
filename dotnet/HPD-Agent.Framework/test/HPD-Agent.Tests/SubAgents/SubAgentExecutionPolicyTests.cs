@@ -1,166 +1,120 @@
 using FluentAssertions;
-using HPD.Agent;
+using System.Text.Json;
 using Xunit;
 
 namespace HPD.Agent.Tests.SubAgents;
 
-public class SubAgentExecutionPolicyTests
+public class SubAgentContextPolicyTests
 {
     private static AgentConfig MinimalConfig() => new()
     {
         Name = "SubAgentUnderTest",
-        SystemInstructions = "Test sub-agent.",
-        Clients = new AgentClientConfig { Chat = new ClientProviderConfig { ProviderKey = "test", ModelName = "test-model" } }
+        SystemInstructions = "Test sub-agent."
     };
 
     [Fact]
-    public void FromConfig_DefaultsToParentSessionForkedThread()
+    public void FromConfig_DefaultsToFork()
     {
         var subAgent = SubAgent.FromConfig("test", "Test", "desc", MinimalConfig());
 
-        subAgent.Configuration.Should().BeOfType<SuppliedAgentConfiguration>();
-        subAgent.AgentId.Should().Be("test");
-        subAgent.ExecutionPolicy.SessionPolicy.Should().Be(SubAgentSessionPolicy.ParentSession);
-        subAgent.ExecutionPolicy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.ForkFromParentThread);
-        subAgent.ExecutionPolicy.ThreadCompaction.Should().BeNull();
+        subAgent.ContextPolicy.Should().Be(SubAgentContextPolicy.Fork);
+        subAgent.ForkCompaction.Should().BeNull();
     }
 
     [Fact]
-    public void FromAgentId_UsesStoredAgentSource()
+    public void Availability_DefaultsToRootOnly()
     {
-        var subAgent = SubAgent.FromAgentId("code-reviewer", "Reviewer", "Reviews code.");
+        var subAgent = SubAgent.FromConfig("test", "Test", "desc", MinimalConfig());
 
-        subAgent.Configuration.Should().BeOfType<StoredAgentConfiguration>();
-        subAgent.AgentId.Should().Be("code-reviewer");
-        subAgent.ExecutionPolicy.Should().Be(SubAgentExecutionPolicy.Default);
+        subAgent.Availability.Should().BeSameAs(SubAgentAvailability.RootOnly);
+        subAgent.Availability.AllowsInvocationFrom(0).Should().BeTrue();
+        subAgent.Availability.AllowsInvocationFrom(1).Should().BeFalse();
     }
 
     [Fact]
-    public void FromParent_UsesParentConfigurationSource()
+    public void Availability_ThroughDepthUsesChildDepthSemantics()
     {
-        var subAgent = SubAgent.FromParent(
-            "co-author",
-            "CoAuthor",
-            "Writes directly in the caller thread.",
-            SubAgentExecutionPolicies.ParentSessionFreshThread());
+        var availability = SubAgentAvailability.ThroughDepth(2);
 
-        subAgent.ExecutionPolicy.SessionPolicy.Should().Be(SubAgentSessionPolicy.ParentSession);
-        subAgent.Configuration.Should().BeOfType<ParentAgentConfiguration>();
-        subAgent.ExecutionPolicy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.FreshThread);
-        subAgent.ExecutionPolicy.SharedSessionId.Should().BeNull();
-        subAgent.ExecutionPolicy.ExistingThreadId.Should().BeNull();
-        subAgent.ExecutionPolicy.ThreadCompaction.Should().BeNull();
+        availability.AllowsInvocationFrom(0).Should().BeTrue();
+        availability.AllowsInvocationFrom(1).Should().BeTrue();
+        availability.AllowsInvocationFrom(2).Should().BeFalse();
     }
 
     [Fact]
-    public void ParentSessionForkedThread_CanSetThreadCompaction()
+    public void WithAvailability_PreservesTheRestOfTheDefinition()
     {
-        var compaction = new CompactionSpecification
-        {
-            Point = new CompactAtCurrentHead(),
-            Preservation = new PreservePreviousTurns(3),
-            Strategy = new RemovalCompaction(),
-            CommitMode = CompactionCommitMode.Hard
-        };
+        var original = SubAgent.FromConfig("test", "Test", "desc", MinimalConfig());
 
-        var forkCompaction = new ApplyThreadForkCompaction(compaction);
-        var policy = SubAgentExecutionPolicies.ParentSessionForkedThread(forkCompaction);
+        var updated = original.WithAvailability(SubAgentAvailability.AnyAllowedDepth);
 
-        policy.SessionPolicy.Should().Be(SubAgentSessionPolicy.ParentSession);
-        policy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.ForkFromParentThread);
-        policy.ThreadCompaction.Should().BeSameAs(forkCompaction);
-    }
-
-    [Fact]
-    public void SharedSessionFreshThread_UsesFreshThreadPerCall()
-    {
-        var subAgent = SubAgent.FromConfig(
-            "architect",
-            "Architect",
-            "Shared specialist.",
-            MinimalConfig(),
-            SubAgentExecutionPolicies.SharedSessionFreshThread("architect-memory"));
-
-        subAgent.ExecutionPolicy.SessionPolicy.Should().Be(SubAgentSessionPolicy.SharedSession);
-        subAgent.ExecutionPolicy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.FreshThread);
-        subAgent.ExecutionPolicy.SharedSessionId.Should().Be("architect-memory");
-        subAgent.ExecutionPolicy.ExistingThreadId.Should().BeNull();
-    }
-
-    [Fact]
-    public void SharedSessionExistingThread_UsesExistingThread()
-    {
-        var subAgent = SubAgent.FromConfig(
-            "architect",
-            "Architect",
-            "Shared specialist.",
-            MinimalConfig(),
-            SubAgentExecutionPolicies.SharedSessionExistingThread("architect-memory", "main"));
-
-        subAgent.ExecutionPolicy.SessionPolicy.Should().Be(SubAgentSessionPolicy.SharedSession);
-        subAgent.ExecutionPolicy.ThreadPolicy.Should().Be(SubAgentThreadPolicy.ExistingThread);
-        subAgent.ExecutionPolicy.SharedSessionId.Should().Be("architect-memory");
-        subAgent.ExecutionPolicy.ExistingThreadId.Should().Be("main");
-    }
-
-    [Fact]
-    public void SharedSessionPolicy_RequiresSharedSessionId()
-    {
-        var policy = new SubAgentExecutionPolicy(
-            SubAgentSessionPolicy.SharedSession,
-            SubAgentThreadPolicy.FreshThread);
-
-        var act = () => SubAgent.FromConfig("bad", "Bad", "desc", MinimalConfig(), policy);
-
-        act.Should().Throw<ArgumentException>()
-            .WithMessage("*SharedSessionId*");
-    }
-
-    [Fact]
-    public void ExistingThreadPolicy_RequiresExistingThreadId()
-    {
-        var policy = new SubAgentExecutionPolicy(
-            SubAgentSessionPolicy.ParentSession,
-            SubAgentThreadPolicy.ExistingThread);
-
-        var act = () => SubAgent.FromConfig("bad", "Bad", "desc", MinimalConfig(), policy);
-
-        act.Should().Throw<ArgumentException>()
-            .WithMessage("*ExistingThreadId*");
-    }
-
-    [Fact]
-    public void ForkFromParentThread_RequiresParentSession()
-    {
-        var policy = new SubAgentExecutionPolicy(
-            SubAgentSessionPolicy.NewSession,
-            SubAgentThreadPolicy.ForkFromParentThread);
-
-        var act = () => SubAgent.FromConfig("bad", "Bad", "desc", MinimalConfig(), policy);
-
-        act.Should().Throw<ArgumentException>()
-            .WithMessage("*ForkFromParentThread*ParentSession*");
+        updated.Availability.Should().BeSameAs(SubAgentAvailability.AnyAllowedDepth);
+        updated.AgentId.Should().Be(original.AgentId);
+        updated.Configuration.Should().BeSameAs(original.Configuration);
+        updated.RunConfig.Should().BeSameAs(original.RunConfig);
     }
 
     [Theory]
-    [InlineData(SubAgentThreadPolicy.FreshThread)]
-    [InlineData(SubAgentThreadPolicy.ExistingThread)]
-    public void ThreadCompaction_RequiresForkFromParentThread(SubAgentThreadPolicy threadPolicy)
+    [InlineData(SubAgentContextPolicy.Fork)]
+    [InlineData(SubAgentContextPolicy.Fresh)]
+    [InlineData(SubAgentContextPolicy.Isolated)]
+    [InlineData(SubAgentContextPolicy.ModelChoice)]
+    public void FromConfig_AcceptsEveryContextPolicy(SubAgentContextPolicy policy)
     {
-        var policy = new SubAgentExecutionPolicy(
-            SubAgentSessionPolicy.ParentSession,
-            threadPolicy,
-            ExistingThreadId: threadPolicy == SubAgentThreadPolicy.ExistingThread ? "existing" : null,
-            ThreadCompaction: new ApplyThreadForkCompaction(new CompactionSpecification
-            {
-                Point = new CompactAtCurrentHead(),
-                Strategy = new RemovalCompaction(),
-                CommitMode = CompactionCommitMode.Hard
-            }));
+        var subAgent = SubAgent.FromConfig("test", "Test", "desc", MinimalConfig(), policy);
+        subAgent.ContextPolicy.Should().Be(policy);
+    }
 
-        var act = () => SubAgent.FromConfig("bad", "Bad", "desc", MinimalConfig(), policy);
+    [Fact]
+    public void ForkCompaction_IsRejectedForContextsThatCannotFork()
+    {
+        var compaction = new ApplyThreadForkCompaction(new CompactionSpecification
+        {
+            Point = new CompactAtCurrentHead(),
+            Strategy = new RemovalCompaction(),
+            CommitMode = CompactionCommitMode.Hard
+        });
 
-        act.Should().Throw<ArgumentException>()
-            .WithMessage("*ThreadCompaction*ForkFromParentThread*");
+        var act = () => SubAgent.FromConfig(
+            "test",
+            "Test",
+            "desc",
+            MinimalConfig(),
+            SubAgentContextPolicy.Fresh,
+            compaction);
+
+        act.Should().Throw<ArgumentException>().WithMessage("*Fork compaction*");
+    }
+
+    [Fact]
+    public void ModelChoice_DefaultsToFresh()
+    {
+        SubAgentContexts.Resolve(SubAgentContextPolicy.ModelChoice, null)
+            .Should().Be(SubAgentContextPolicy.Fresh);
+    }
+
+    [Fact]
+    public void ModelChoice_UsesRequestedFork()
+    {
+        using var document = JsonDocument.Parse("""{"context":"fork"}""");
+
+        var requested = SubAgentContexts.ReadRequestedContext(document.RootElement);
+
+        requested.Should().Be(SubAgentContext.Fork);
+        SubAgentContexts.Resolve(SubAgentContextPolicy.ModelChoice, requested)
+            .Should().Be(SubAgentContextPolicy.Fork);
+    }
+
+    [Fact]
+    public void CreateSchema_OnlyExposesContextForModelChoice()
+    {
+        using var document = JsonDocument.Parse("""{"type":"object","properties":{}}""");
+
+        var fixedSchema = SubAgentContexts.CreateSchema(document.RootElement, SubAgentContextPolicy.Fork);
+        var choiceSchema = SubAgentContexts.CreateSchema(document.RootElement, SubAgentContextPolicy.ModelChoice);
+
+        fixedSchema.GetProperty("properties").TryGetProperty("context", out _).Should().BeFalse();
+        choiceSchema.GetProperty("properties").GetProperty("context")
+            .GetProperty("enum").GetArrayLength().Should().Be(2);
     }
 }

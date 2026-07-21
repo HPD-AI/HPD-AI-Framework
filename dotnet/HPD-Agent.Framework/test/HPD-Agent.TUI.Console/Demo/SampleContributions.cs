@@ -13,7 +13,7 @@ internal static class SampleContributions
     public static HpdAgentTuiBuilder AddSampleContributions(this HpdAgentTuiBuilder tui)
         => tui.ReplaceHeader(context => new Text($"{context.Shell.HeaderText}   demo: composition surface"))
             .ReplaceFooter(context => new Text(context.Shell.FooterText))
-            .AddStatusItem("sample.transcript-count", new TranscriptCountStatusItem())
+            .AddFooterItem("sample.transcript-count", new TranscriptCountFooterItem())
             .AddWidget(TuiSlot.AboveEditor, "sample.hints", new TextWidget("try /sample, /status, or #sample autocomplete"))
             .AddWidget(TuiSlot.BelowEditor, "sample.shortcut", new TextWidget("shortcut: Ctrl+Enter appends a local TUI note"))
             .AddAutocompleteProvider("sample.hash", new SampleHashAutocompleteProvider())
@@ -46,9 +46,9 @@ internal static class SampleContributions
     }
 }
 
-internal sealed class TranscriptCountStatusItem : IAgentTuiStatusItem
+internal sealed class TranscriptCountFooterItem : IAgentTuiFooterItem
 {
-    public IComponent Create(AgentTuiStatusContext context)
+    public IComponent Create(AgentTuiFooterContext context)
         => new Text($"transcript rows {context.Shell.Transcript.Count}");
 }
 

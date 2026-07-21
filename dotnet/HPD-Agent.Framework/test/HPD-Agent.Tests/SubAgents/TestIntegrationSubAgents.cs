@@ -42,8 +42,7 @@ public class TestIntegrationSubAgents
                     ProviderKey = "openrouter",
                     ModelName = "google/gemini-2.0-flash-exp:free"
                 } }
-            },
-            SubAgentExecutionPolicies.SharedSessionFreshThread("math-expert"));
+            });
     }
 
     [SubAgent]

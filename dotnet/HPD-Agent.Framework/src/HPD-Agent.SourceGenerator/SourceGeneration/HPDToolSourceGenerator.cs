@@ -1222,7 +1222,7 @@ $@"    /// <summary>
     public class {ToolHarness.ClassName}SubAgentInputArgs
     {{
         [System.Text.Json.Serialization.JsonPropertyName(""taskName"")]
-        [System.ComponentModel.Description(""A short name for this delegated task, used to identify its thread in the current session."")]
+        [System.ComponentModel.Description(""A short name used to identify this delegated task and its child thread."")]
         public required string TaskName {{ get; set; }}
 
         [System.Text.Json.Serialization.JsonPropertyName(""input"")]
@@ -1237,7 +1237,7 @@ $@"    /// <summary>
     public class {ToolHarness.ClassName}SubAgentInputWithModeArgs
     {{
         [System.Text.Json.Serialization.JsonPropertyName(""taskName"")]
-        [System.ComponentModel.Description(""A short name for this delegated task, used to identify its thread in the current session."")]
+        [System.ComponentModel.Description(""A short name used to identify this delegated task and its child thread."")]
         public required string TaskName {{ get; set; }}
 
         [System.Text.Json.Serialization.JsonPropertyName(""input"")]

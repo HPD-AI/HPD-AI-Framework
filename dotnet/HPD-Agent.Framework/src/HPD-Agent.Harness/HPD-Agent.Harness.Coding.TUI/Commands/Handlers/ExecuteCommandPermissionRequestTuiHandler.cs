@@ -25,12 +25,12 @@ public sealed class ExecuteCommandPermissionRequestTuiHandler :
         CancellationToken cancellationToken)
     {
         var request = context.Request;
-        context.Shell.FooterText = $"state: awaiting permission | ExecuteCommand";
+        context.Shell.PromptStatusText = $"state: awaiting permission | ExecuteCommand";
         var response = await context.Dialogs.ShowAsync<ExecuteCommandPermissionResponseEvent>(
             $"execute-command-permission:{request.PermissionId}",
             dialog => new ExecuteCommandPermissionDialogComponent(request, dialog, _theme),
             cancellationToken).ConfigureAwait(false);
-        context.Shell.FooterText = "state: running | press Esc twice to cancel";
+        context.Shell.PromptStatusText = "state: running | press Esc twice to cancel";
 
         return AgentTuiInteractionResult.AnswerRequest(
             response.IsSubmitted && response.Value is not null

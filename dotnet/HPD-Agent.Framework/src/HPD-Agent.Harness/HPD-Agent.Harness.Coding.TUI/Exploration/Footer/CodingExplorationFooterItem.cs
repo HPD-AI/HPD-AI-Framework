@@ -1,18 +1,18 @@
 using HPD.Agent.TUI.Composition;
 using HPD.TUI.Core;
 
-namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration.Status;
+namespace HPD.Agent.ToolHarness.Coding.TUI.Exploration.Footer;
 
-internal sealed class CodingExplorationStatusItem : IAgentTuiStatusItem
+internal sealed class CodingExplorationFooterItem : IAgentTuiFooterItem
 {
     private readonly CodingHarnessTuiTheme _theme;
 
-    public CodingExplorationStatusItem(CodingHarnessTuiTheme theme)
+    public CodingExplorationFooterItem(CodingHarnessTuiTheme theme)
     {
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
-    public IComponent Create(AgentTuiStatusContext context)
+    public IComponent Create(AgentTuiFooterContext context)
         => new CodingExplorationStatusComponent(context.State, _theme);
 }
 

@@ -25,8 +25,7 @@ namespace HPD.Agent.Hosting.Data;
 /// <param name="InvocationId">Delegation invocation that created this subagent thread.</param>
 /// <param name="SubAgentSourceKind">Subagent definition source kind when this is a subagent thread</param>
 /// <param name="ParentToolCallId">Parent tool call id that created this runtime child thread</param>
-/// <param name="SessionPolicy">Subagent session policy captured for inspection and routing</param>
-/// <param name="ThreadPolicy">Subagent thread policy captured for inspection and routing</param>
+/// <param name="ContextPolicy">Resolved subagent context used to create the thread</param>
 /// <param name="Ancestors">Full ancestry chain for multi-level fork tracking</param>
 /// <param name="TotalForks">Count of direct child threads</param>
 public record ThreadDto(
@@ -54,8 +53,7 @@ public record ThreadDto(
     string? InvocationId = null,
     string? SubAgentSourceKind = null,
     string? ParentToolCallId = null,
-    string? SessionPolicy = null,
-    string? ThreadPolicy = null);
+    string? ContextPolicy = null);
 
 /// <summary>
 /// Session-level thread graph for branch navigation.
@@ -123,8 +121,7 @@ public record ThreadForkGroupMemberDto(
 /// <param name="InvocationId">Delegation invocation when applicable.</param>
 /// <param name="SubAgentSourceKind">Subagent definition source kind when applicable.</param>
 /// <param name="ParentToolCallId">Parent tool call id when applicable.</param>
-/// <param name="SessionPolicy">Subagent session policy when applicable.</param>
-/// <param name="ThreadPolicy">Subagent thread policy when applicable.</param>
+/// <param name="ContextPolicy">Resolved subagent context when applicable.</param>
 /// <param name="MessageCount">Number of messages in the runtime child thread.</param>
 /// <param name="CreatedAt">When this thread was created.</param>
 /// <param name="LastActivity">Last time this thread was updated.</param>
@@ -142,8 +139,7 @@ public record ThreadRuntimeChildDto(
     string? InvocationId,
     string? SubAgentSourceKind,
     string? ParentToolCallId,
-    string? SessionPolicy,
-    string? ThreadPolicy,
+    string? ContextPolicy,
     string? Status,
     int MessageCount,
     DateTime CreatedAt,

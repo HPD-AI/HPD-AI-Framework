@@ -213,7 +213,9 @@ public class ContainerMiddleware : IAgentMiddleware
             // Apply visibility rules (unified container tracking)
             var visibleFunctions = _visibilityManager.GetToolsForAgentTurn(
                 aiFunctions,
-                expandedContainers);
+                expandedContainers,
+                context.GetParentAgentMetadata()?.Depth ?? 0,
+                context.Base.Config?.MaxSubAgentDepth ?? 4);
 
             // Convert back to AITool list
             var visibleTools = new List<AITool>(visibleFunctions.Count);

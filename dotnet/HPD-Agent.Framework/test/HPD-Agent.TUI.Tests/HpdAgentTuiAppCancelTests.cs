@@ -73,7 +73,7 @@ public sealed class HpdAgentTuiAppCancelTests
 
         hydrated.Should().BeTrue();
         reconciler.Snapshots.Should().ContainSingle().Which.ActiveExecution.Should().BeSameAs(activeExecution);
-        GetPrivateField<AgentTuiSessionState>(app, "_state").Shell.FooterText
+        GetPrivateField<AgentTuiSessionState>(app, "_state").Shell.PromptStatusText
             .Should().Be("snapshot: active");
     }
 
@@ -120,7 +120,7 @@ public sealed class HpdAgentTuiAppCancelTests
             CancellationToken.None);
 
         reconciler.Snapshots.Should().HaveCount(2);
-        GetPrivateField<AgentTuiSessionState>(app, "_state").Shell.FooterText
+        GetPrivateField<AgentTuiSessionState>(app, "_state").Shell.PromptStatusText
             .Should().Be("snapshot: active");
         GetPrivateField<string>(app, "_activeThreadExecutionId").Should().Be("authoritative-run");
     }
@@ -236,7 +236,7 @@ public sealed class HpdAgentTuiAppCancelTests
         runtime.Interrupted.Task.IsCompleted.Should().BeFalse();
 
         var state = GetPrivateField<AgentTuiSessionState>(app, "_state");
-        state.Shell.FooterText.Should().Be("state: running | press Esc again to cancel execution run-1234");
+        state.Shell.PromptStatusText.Should().Be("state: running | press Esc again to cancel execution run-1234");
 
         InvokePrivate<bool>(
             app,
@@ -252,7 +252,7 @@ public sealed class HpdAgentTuiAppCancelTests
             activity.Label == "execution run-1234 cancelling" &&
             activity.State == ActivityState.Running &&
             activity.Severity == ActivitySeverity.Warning);
-        state.Shell.FooterText.Should().Be("state: cancelling | execution: run-1234");
+        state.Shell.PromptStatusText.Should().Be("state: cancelling | execution: run-1234");
     }
 
     [Fact]
@@ -284,7 +284,7 @@ public sealed class HpdAgentTuiAppCancelTests
         await Task.Delay(50);
 
         runtime.Interrupted.Task.IsCompleted.Should().BeFalse();
-        GetPrivateField<AgentTuiSessionState>(app, "_state").Shell.FooterText
+        GetPrivateField<AgentTuiSessionState>(app, "_state").Shell.PromptStatusText
             .Should().Be("state: running | press Esc again to cancel execution run-1234");
     }
 
@@ -586,7 +586,7 @@ public sealed class HpdAgentTuiAppCancelTests
             CancellationToken cancellationToken)
         {
             Snapshots.Add(threadState);
-            context.Shell.FooterText = threadState.ActiveExecution is null
+            context.Shell.PromptStatusText = threadState.ActiveExecution is null
                 ? "snapshot: idle"
                 : "snapshot: active";
             return ValueTask.CompletedTask;
@@ -600,7 +600,7 @@ public sealed class HpdAgentTuiAppCancelTests
             AgentTuiEventContext context,
             CancellationToken cancellationToken)
         {
-            context.Shell.FooterText = "event: running";
+            context.Shell.PromptStatusText = "event: running";
             return ValueTask.CompletedTask;
         }
     }

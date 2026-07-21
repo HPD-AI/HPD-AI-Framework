@@ -81,7 +81,7 @@ public sealed class DefaultAgentTuiShellView : IComponent
         }
 
         AddSection(shell, _chrome.Transcript, new MainSectionView(this), isMain: true);
-        AddSection(shell, _chrome.Status, BuildStatusSection(), isMain: false);
+        AddSection(shell, _chrome.Activity, BuildActivitySection(), isMain: false);
 
         AddSection(
             shell,
@@ -92,6 +92,15 @@ public sealed class DefaultAgentTuiShellView : IComponent
                 _registry.AboveEditorWidgets),
             isMain: false,
             () => _model.AboveEditor.Count > 0 || _registry.AboveEditorWidgets.Count > 0);
+
+        if (_registry.PromptStatus is not null)
+        {
+            AddSection(
+                shell,
+                _chrome.PromptStatus,
+                new ShellContributionView(_model, _registry.PromptStatus),
+                isMain: false);
+        }
 
         AddSection(shell, _chrome.Prompt, _prompt, isMain: false);
 
@@ -105,29 +114,31 @@ public sealed class DefaultAgentTuiShellView : IComponent
             isMain: false,
             () => _model.BelowEditor.Count > 0 || _registry.BelowEditorWidgets.Count > 0);
 
-        if (_registry.Footer is not null)
+        if (_registry.Footer is not null || _registry.FooterItems.Count > 0)
         {
-            AddSection(shell, _chrome.Footer, new ShellContributionView(_model, _registry.Footer), isMain: false);
+            AddSection(shell, _chrome.Footer, BuildFooterSection(), isMain: false);
         }
 
         return shell;
     }
 
-    private IComponent BuildStatusSection()
-    {
-        var status = new Stack { Gap = 0 }
-            .Add(new ActivityGroupView(_model.Activities)
-            {
-                Mode = ActivityGroupDisplayMode.Compact,
-                AnimationsEnabled = false
-            });
-
-        if (_registry.StatusItems.Count > 0)
+    private IComponent BuildActivitySection()
+        => new ActivityGroupView(_model.Activities)
         {
-            status.Add(new StatusItemsView(_model, _state, _registry.StatusItems));
-        }
+            Mode = ActivityGroupDisplayMode.Compact,
+            AnimationsEnabled = false
+        };
 
-        return status;
+    private IComponent BuildFooterSection()
+    {
+        var footer = new Stack { Gap = 0 };
+        if (_registry.Footer is not null)
+            footer.Add(new ShellContributionView(_model, _registry.Footer));
+
+        if (_registry.FooterItems.Count > 0)
+            footer.Add(new FooterItemsView(_model, _state, _registry.FooterItems));
+
+        return footer;
     }
 
     private IComponent BuildMainSection(int height)

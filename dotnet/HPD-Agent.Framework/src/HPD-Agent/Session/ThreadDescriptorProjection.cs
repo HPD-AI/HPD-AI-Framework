@@ -36,7 +36,7 @@ internal static class ThreadDescriptorProjection
                 fork = CreateFork(created.ForkedFrom, created.ForkedAtMessageId, created.ForkedAtMessageIndex);
                 runtimeChild = CreateRuntimeChild(created.ParentSessionId, created.ParentThreadId, created.SubAgentName,
                     created.SubAgentTaskName, created.InvocationId, created.SubAgentSourceKind, created.ParentToolCallId,
-                    created.SessionPolicy, created.ThreadPolicy);
+                    created.ContextPolicy);
                 break;
 
             case ThreadUpdatedEvent updated:
@@ -50,7 +50,7 @@ internal static class ThreadDescriptorProjection
                 fork = CreateFork(updated.ForkedFrom, updated.ForkedAtMessageId, updated.ForkedAtMessageIndex);
                 runtimeChild = CreateRuntimeChild(updated.ParentSessionId, updated.ParentThreadId, updated.SubAgentName,
                     updated.SubAgentTaskName, updated.InvocationId, updated.SubAgentSourceKind, updated.ParentToolCallId,
-                    updated.SessionPolicy, updated.ThreadPolicy);
+                    updated.ContextPolicy);
                 break;
 
             case ThreadExecutionStartedEvent when runtimeChild is not null:
@@ -129,10 +129,9 @@ internal static class ThreadDescriptorProjection
         string? invocationId,
         string? subAgentSourceKind,
         string? parentToolCallId,
-        string? sessionPolicy,
-        string? threadPolicy)
+        string? contextPolicy)
         => parentSessionId is null && parentThreadId is null && subAgentName is null
             ? null
             : new ThreadRuntimeChildDescriptor(parentSessionId, parentThreadId, subAgentName, subAgentTaskName, invocationId,
-                subAgentSourceKind, parentToolCallId, sessionPolicy, threadPolicy, Status: null);
+                subAgentSourceKind, parentToolCallId, contextPolicy, Status: null);
 }

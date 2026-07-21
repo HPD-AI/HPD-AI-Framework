@@ -8,9 +8,11 @@ public interface IAgentTuiShellComponent
     IComponent Create(AgentTuiShellContext context);
 }
 
-public interface IAgentTuiStatusItem
+/// <summary>Creates an application-owned component rendered in the shell footer.</summary>
+public interface IAgentTuiFooterItem
 {
-    IComponent Create(AgentTuiStatusContext context);
+    /// <summary>Creates the footer component for the current TUI session.</summary>
+    IComponent Create(AgentTuiFooterContext context);
 }
 
 public interface IAgentTuiWidget

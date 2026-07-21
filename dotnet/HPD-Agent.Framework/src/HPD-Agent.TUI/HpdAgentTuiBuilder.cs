@@ -14,7 +14,7 @@ public sealed class HpdAgentTuiBuilder
 {
     private readonly Dictionary<string, HpdAgentTuiCommandDescriptor> _commands = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, HpdAgentTuiPageDescriptor> _pages = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, IAgentTuiStatusItem> _statusItems = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IAgentTuiFooterItem> _footerItems = new(StringComparer.Ordinal);
     private readonly Dictionary<(TuiSlot Slot, string Key), IAgentTuiWidget> _widgets = [];
     private readonly Dictionary<string, IAgentTuiAutocompleteProvider> _autocompleteProviders = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HpdAgentTuiShortcutDescriptor> _shortcuts = new(StringComparer.Ordinal);
@@ -23,6 +23,7 @@ public sealed class HpdAgentTuiBuilder
     private readonly Dictionary<string, IAgentTuiTranscriptRendererAdapter> _transcriptRenderers = new(StringComparer.Ordinal);
     private readonly HashSet<KeyGesture> _shortcutGestures = [];
     private IAgentTuiShellComponent? _header;
+    private IAgentTuiShellComponent? _promptStatus;
     private IAgentTuiShellComponent? _footer;
     private IAgentTuiPromptFactory? _promptFactory;
     private IAgentTuiShellLayout? _shellLayout;
@@ -41,6 +42,7 @@ public sealed class HpdAgentTuiBuilder
 
     public HpdAgentTuiBuilder AddDefaultShell()
         => AddDefaultHeader()
+            .AddDefaultPromptStatus()
             .AddDefaultFooter()
             .AddDefaultShellLayout();
 
@@ -55,6 +57,51 @@ public sealed class HpdAgentTuiBuilder
         TryAddFooter(new DefaultFooterShellComponent());
         return this;
     }
+
+    /// <summary>Adds the default prompt-status renderer.</summary>
+    public HpdAgentTuiBuilder AddDefaultPromptStatus()
+    {
+        TryAddPromptStatus(new DefaultPromptStatusShellComponent());
+        return this;
+    }
+
+    /// <summary>Adds the component rendered immediately above the prompt.</summary>
+    public HpdAgentTuiBuilder AddPromptStatus(IAgentTuiShellComponent promptStatus)
+    {
+        ArgumentNullException.ThrowIfNull(promptStatus);
+        if (_promptStatus is not null)
+            throw new InvalidOperationException("A prompt-status contribution is already registered.");
+
+        _promptStatus = promptStatus;
+        return this;
+    }
+
+    /// <summary>Adds a delegate component rendered immediately above the prompt.</summary>
+    public HpdAgentTuiBuilder AddPromptStatus(Func<AgentTuiShellContext, IComponent> render)
+        => AddPromptStatus(new DelegateAgentTuiShellComponent(render));
+
+    /// <summary>Adds the prompt-status component when none is registered.</summary>
+    public HpdAgentTuiBuilder TryAddPromptStatus(IAgentTuiShellComponent promptStatus)
+    {
+        ArgumentNullException.ThrowIfNull(promptStatus);
+        _promptStatus ??= promptStatus;
+        return this;
+    }
+
+    /// <summary>Replaces the registered prompt-status component.</summary>
+    public HpdAgentTuiBuilder ReplacePromptStatus(IAgentTuiShellComponent promptStatus)
+    {
+        ArgumentNullException.ThrowIfNull(promptStatus);
+        if (_promptStatus is null)
+            throw new InvalidOperationException("Cannot replace prompt status because none is registered.");
+
+        _promptStatus = promptStatus;
+        return this;
+    }
+
+    /// <summary>Replaces the registered prompt-status component with a delegate component.</summary>
+    public HpdAgentTuiBuilder ReplacePromptStatus(Func<AgentTuiShellContext, IComponent> render)
+        => ReplacePromptStatus(new DelegateAgentTuiShellComponent(render));
 
     public HpdAgentTuiBuilder AddDefaultPrompt()
     {
@@ -655,36 +702,39 @@ public sealed class HpdAgentTuiBuilder
         return this;
     }
 
-    public HpdAgentTuiBuilder AddStatusItem(string key, IAgentTuiStatusItem item)
+    /// <summary>Adds an application-owned footer item under a unique key.</summary>
+    public HpdAgentTuiBuilder AddFooterItem(string key, IAgentTuiFooterItem item)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(item);
-        if (!_statusItems.TryAdd(key, item))
+        if (!_footerItems.TryAdd(key, item))
         {
-            throw new InvalidOperationException($"A status item is already registered for '{key}'.");
+            throw new InvalidOperationException($"A footer item is already registered for '{key}'.");
         }
 
         return this;
     }
 
-    public HpdAgentTuiBuilder TryAddStatusItem(string key, IAgentTuiStatusItem item)
+    /// <summary>Adds an application-owned footer item when its key is not registered.</summary>
+    public HpdAgentTuiBuilder TryAddFooterItem(string key, IAgentTuiFooterItem item)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(item);
-        _statusItems.TryAdd(key, item);
+        _footerItems.TryAdd(key, item);
         return this;
     }
 
-    public HpdAgentTuiBuilder ReplaceStatusItem(string key, IAgentTuiStatusItem item)
+    /// <summary>Replaces an application-owned footer item registered under the supplied key.</summary>
+    public HpdAgentTuiBuilder ReplaceFooterItem(string key, IAgentTuiFooterItem item)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(item);
-        if (!_statusItems.ContainsKey(key))
+        if (!_footerItems.ContainsKey(key))
         {
-            throw new InvalidOperationException($"Cannot replace status item '{key}' because none is registered.");
+            throw new InvalidOperationException($"Cannot replace footer item '{key}' because none is registered.");
         }
 
-        _statusItems[key] = item;
+        _footerItems[key] = item;
         return this;
     }
 
@@ -942,7 +992,7 @@ public sealed class HpdAgentTuiBuilder
         => new(
             _commands.Values,
             _pages.Values,
-            _statusItems,
+            _footerItems,
             _widgets,
             _autocompleteProviders,
             _shortcuts.Values,
@@ -950,6 +1000,7 @@ public sealed class HpdAgentTuiBuilder
             _interactionHandlers,
             _transcriptRenderers.Values,
             _header,
+            _promptStatus,
             _footer,
             _promptFactory,
             _shellLayout,

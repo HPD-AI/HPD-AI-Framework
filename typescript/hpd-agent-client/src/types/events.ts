@@ -6,7 +6,11 @@ import type {
   ToolResultContent,
 } from './client-tools.js';
 import type { AIContent } from './session.js';
-import type { ThreadKind, ThreadVisibility } from './session.js';
+import type {
+  SubAgentContextPolicy,
+  ThreadKind,
+  ThreadVisibility,
+} from './session.js';
 import type { ModelBackgroundOperationStatus, ThreadExecutionError } from './thread-execution.js';
 import type { CompactionContinuation, ThreadCompactionRequest } from './run-config.js';
 
@@ -316,8 +320,7 @@ export interface ThreadCreatedEvent extends BaseEvent {
   invocationId?: string | null;
   subAgentSourceKind?: string | null;
   parentToolCallId?: string | null;
-  sessionPolicy?: string | null;
-  threadPolicy?: string | null;
+  contextPolicy?: SubAgentContextPolicy | null;
   forkedFrom?: string | null;
   forkedAtMessageId?: string | null;
   forkedAtMessageIndex?: number | null;
@@ -341,8 +344,7 @@ export interface ThreadUpdatedEvent extends BaseEvent {
   invocationId?: string | null;
   subAgentSourceKind?: string | null;
   parentToolCallId?: string | null;
-  sessionPolicy?: string | null;
-  threadPolicy?: string | null;
+  contextPolicy?: SubAgentContextPolicy | null;
   forkedFrom?: string | null;
   forkedAtMessageId?: string | null;
   forkedAtMessageIndex?: number | null;
