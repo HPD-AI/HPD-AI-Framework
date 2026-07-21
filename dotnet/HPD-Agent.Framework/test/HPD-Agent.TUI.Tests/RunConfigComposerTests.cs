@@ -66,7 +66,7 @@ public sealed class RunConfigComposerTests
     }
 
     [Fact]
-    public async Task SubmittedPrompt_WhenRunIsActive_SubmitsSteeringInput()
+    public async Task SubmittedPrompt_WhenRunIsActive_QueuesLocallyUntilEscapeSteers()
     {
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
         var runtime = new CapturingRuntime(scope);
@@ -89,10 +89,98 @@ public sealed class RunConfigComposerTests
             CancellationToken.None);
         InvokePrivate(app, "SubmitPrompt", "hello".AsMemory());
 
+        runtime.SubmitCount.Should().Be(0);
+        GetPrivateField<HPD.Agent.TUI.Application.AgentTuiSessionState>(app, "_state")
+            .Shell.FooterText.Should().Be("state: running | follow-up queued | press Esc to steer now");
+
+        InvokePrivate(app, "TryExecuteShortcut", new KeyEvent(KeyCode.Escape));
         await runtime.Submitted.Task.WaitAsync(TimeSpan.FromSeconds(2));
         runtime.SubmitCount.Should().Be(1);
         runtime.LastInput.Should().BeOfType<SteeringInputEvent>()
             .Which.ThreadExecutionId.Should().Be("run-1");
+    }
+
+    [Fact]
+    public async Task QueuedPrompt_WhenActiveExecutionFinishes_SubmitsOrdinaryWork()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CapturingRuntime(scope);
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            static builder => builder.AddAgentTuiDefaults(),
+            new TestTerminal(80, 24));
+
+        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        await InvokePrivateAsync(
+            app,
+            "OnAgentEventAsync",
+            new ThreadExecutionStartedEvent("run-1", scope.AgentId, DateTimeOffset.UtcNow)
+            {
+                SessionId = scope.SessionId,
+                ThreadId = scope.ThreadId
+            },
+            AgentTuiEventDeliveryMode.Live,
+            CancellationToken.None);
+        InvokePrivate(app, "SubmitPrompt", "follow up".AsMemory());
+
+        await InvokePrivateAsync(
+            app,
+            "OnAgentEventAsync",
+            new ThreadExecutionFinishedEvent(
+                "run-1",
+                scope.AgentId,
+                ThreadExecutionOutcome.Succeeded,
+                DateTimeOffset.UtcNow)
+            {
+                SessionId = scope.SessionId,
+                ThreadId = scope.ThreadId
+            },
+            AgentTuiEventDeliveryMode.Live,
+            CancellationToken.None);
+
+        await runtime.Submitted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        runtime.SubmitCount.Should().Be(1);
+        runtime.LastInput.Should().BeOfType<UserMessagesInputEvent>();
+    }
+
+    [Fact]
+    public async Task EscapeSteering_WhenRejected_PreservesPendingFollowUp()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CapturingRuntime(scope)
+        {
+            ActiveControlDisposition = AgentInputDisposition.ActiveExecutionMismatch,
+            ActiveExecution = new AgentTuiThreadExecution(
+                "run-1",
+                scope.AgentId,
+                scope.SessionId,
+                scope.ThreadId,
+                "active",
+                DateTimeOffset.UtcNow)
+        };
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            static builder => builder.AddAgentTuiDefaults(),
+            new TestTerminal(80, 24));
+
+        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        await InvokePrivateAsync(
+            app,
+            "OnAgentEventAsync",
+            new ThreadExecutionStartedEvent("run-1", scope.AgentId, DateTimeOffset.UtcNow)
+            {
+                SessionId = scope.SessionId,
+                ThreadId = scope.ThreadId
+            },
+            AgentTuiEventDeliveryMode.Live,
+            CancellationToken.None);
+        InvokePrivate(app, "SubmitPrompt", "keep this".AsMemory());
+        var state = GetPrivateField<HPD.Agent.TUI.Application.AgentTuiSessionState>(app, "_state");
+        await InvokePrivateAsync(app, "PromotePendingPromptToSteeringAsync", scope, state);
+        GetPrivateField<Queue<string>>(app, "_pendingPrompts")
+            .Should().ContainSingle().Which.Should().Be("keep this");
     }
 
     private static void InvokePrivate(
@@ -140,6 +228,8 @@ public sealed class RunConfigComposerTests
 
         public AgentInputEvent? LastInput { get; private set; }
         public int SubmitCount { get; private set; }
+        public AgentInputDisposition ActiveControlDisposition { get; init; } = AgentInputDisposition.Accepted;
+        public AgentTuiThreadExecution? ActiveExecution { get; init; }
         public TaskCompletionSource Submitted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -172,7 +262,7 @@ public sealed class RunConfigComposerTests
             LastInput = input;
             Submitted.TrySetResult();
             return Task.FromResult(new AgentTuiSubmitResult(
-                input is SteeringInputEvent ? AgentInputDisposition.Accepted : AgentInputDisposition.Queued,
+                input is SteeringInputEvent ? ActiveControlDisposition : AgentInputDisposition.Queued,
                 input.ThreadExecutionId ?? "run",
                 new AgentTuiThreadExecution("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
         }
@@ -186,7 +276,7 @@ public sealed class RunConfigComposerTests
         public Task<AgentTuiThreadState> GetThreadStateAsync(
             AgentTuiRuntimeScope scope,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(new AgentTuiThreadState(ThreadJournalCursor.Start(1), null, []));
+            => Task.FromResult(new AgentTuiThreadState(ThreadJournalCursor.Start(1), ActiveExecution, []));
     }
 
     private sealed class TestTerminal : ITerminal, ITerminalInput
