@@ -39,7 +39,8 @@ public sealed class HpdAgentTuiRegistry
         AgentTuiShellChrome shellChrome,
         Theme? theme,
         bool includeSlashCommandAutocomplete,
-        AgentTuiRunConfigComposer? runConfigComposer)
+        AgentTuiRunConfigComposer? runConfigComposer,
+        IAgentTuiThreadStateReconciler? threadStateReconciler)
     {
         _commands = commands.ToDictionary(command => command.SlashName, StringComparer.OrdinalIgnoreCase);
         _commandList = _commands.Values
@@ -93,6 +94,7 @@ public sealed class HpdAgentTuiRegistry
         ShellChrome = (shellChrome ?? throw new ArgumentNullException(nameof(shellChrome))).Clone();
         Theme = theme;
         RunConfigComposer = runConfigComposer;
+        ThreadStateReconciler = threadStateReconciler;
     }
 
     public IReadOnlyList<HpdAgentTuiCommandDescriptor> Commands => _commandList;
@@ -116,6 +118,9 @@ public sealed class HpdAgentTuiRegistry
     public Theme? Theme { get; }
 
     public AgentTuiRunConfigComposer? RunConfigComposer { get; }
+
+    /// <summary>Gets the component that projects authoritative durable thread state into shell state.</summary>
+    public IAgentTuiThreadStateReconciler? ThreadStateReconciler { get; }
 
     public AgentTuiTranscriptRendererRegistry TranscriptRenderers { get; }
 

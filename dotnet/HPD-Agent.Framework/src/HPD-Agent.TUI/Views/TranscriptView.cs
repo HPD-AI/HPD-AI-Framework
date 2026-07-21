@@ -25,6 +25,7 @@ public sealed class TranscriptView : IComponent
     private ColorSystem _renderColorSystem;
     private bool _cacheInitialized;
     private bool _disposed;
+    private int _scrollOffset;
 
     public TranscriptView(
         TranscriptModel model,
@@ -46,6 +47,11 @@ public sealed class TranscriptView : IComponent
 
     public int Height { get; set; }
 
+    /// <summary>
+    /// Gets the number of rendered transcript rows between the viewport and the newest row.
+    /// </summary>
+    public int ScrollOffset => _scrollOffset;
+
     public TranscriptViewDiagnostics LastDiagnostics { get; private set; } = TranscriptViewDiagnostics.Empty;
 
     public Measurement Measure(in RenderContext context, int maxWidth)
@@ -57,7 +63,21 @@ public sealed class TranscriptView : IComponent
     }
 
     public bool HandleInput(in TuiInputEvent key)
-        => false;
+    {
+        switch (key.Key)
+        {
+            case KeyCode.PageUp:
+                _scrollOffset = _scrollOffset > int.MaxValue - Height
+                    ? int.MaxValue
+                    : _scrollOffset + Height;
+                return true;
+            case KeyCode.PageDown:
+                _scrollOffset = Math.Max(0, _scrollOffset - Height);
+                return true;
+            default:
+                return false;
+        }
+    }
 
     private void RenderRows(
         in RenderContext context,
@@ -195,13 +215,23 @@ public sealed class TranscriptView : IComponent
         ref TranscriptViewDiagnosticsBuilder diagnostics)
     {
         _visibleRows.Clear();
+        var rowsToSkip = _scrollOffset;
+        var totalRows = 0;
 
         for (var index = _entries.Count - 1; index >= 0 && _visibleRows.Count < Height; index--)
         {
             var entry = GetRenderedEntry(index, in context, maxWidth, ref diagnostics);
             for (var line = entry.LineCount - 1; line >= 0 && _visibleRows.Count < Height; line--)
             {
-                _visibleRows.Add(new VisibleTranscriptRow(index, line));
+                totalRows++;
+                if (rowsToSkip > 0)
+                {
+                    rowsToSkip--;
+                }
+                else
+                {
+                    _visibleRows.Add(new VisibleTranscriptRow(index, line));
+                }
             }
 
             if (index > 0)
@@ -210,9 +240,24 @@ public sealed class TranscriptView : IComponent
                      spacing < _entries[index - 1].VerticalSpacing && _visibleRows.Count < Height;
                      spacing++)
                 {
-                    _visibleRows.Add(VisibleTranscriptRow.Blank);
+                    totalRows++;
+                    if (rowsToSkip > 0)
+                    {
+                        rowsToSkip--;
+                    }
+                    else
+                    {
+                        _visibleRows.Add(VisibleTranscriptRow.Blank);
+                    }
                 }
             }
+        }
+
+        if (_visibleRows.Count < Height && _scrollOffset > 0)
+        {
+            _scrollOffset = Math.Max(0, totalRows - Height);
+            BuildVisibleRowsFromBottom(in context, maxWidth, ref diagnostics);
+            return;
         }
 
         _visibleRows.Reverse();
@@ -318,7 +363,6 @@ internal readonly record struct VisibleTranscriptRow(int EntryIndex, int LineInd
 
 internal sealed class RenderedTranscriptEntry : IDisposable
 {
-    private const int MaxEntryRenderHeight = 16_384;
     private readonly TerminalGrid _grid;
 
     private RenderedTranscriptEntry(
@@ -353,15 +397,37 @@ internal sealed class RenderedTranscriptEntry : IDisposable
         in RenderContext context,
         int maxWidth)
     {
-        var grid = TuiCapture.RenderToGrid(
-            renderers.Create(entry),
-            maxWidth,
-            MaxEntryRenderHeight,
-            context.Theme,
-            context.ColorSystem,
-            context.Elapsed);
+        var component = renderers.Create(entry);
+        var measuredHeight = Math.Max(1, component.Measure(in context, maxWidth).Height);
+        var grid = CaptureCompleteEntry(component, measuredHeight, maxWidth, in context);
         var lineCount = Math.Max(1, TuiCapture.GetUsedLineCount(grid));
         return new RenderedTranscriptEntry(entry, maxWidth, context.Theme, context.ColorSystem, grid, lineCount);
+    }
+
+    private static TerminalGrid CaptureCompleteEntry(
+        IComponent component,
+        int initialHeight,
+        int maxWidth,
+        in RenderContext context)
+    {
+        var captureHeight = initialHeight;
+        while (true)
+        {
+            var grid = TuiCapture.RenderToGrid(
+                component,
+                maxWidth,
+                captureHeight,
+                context.Theme,
+                context.ColorSystem,
+                context.Elapsed);
+            if (grid.CursorY < grid.Height)
+            {
+                return grid;
+            }
+
+            grid.Dispose();
+            captureHeight = checked(captureHeight * 2);
+        }
     }
 
     public bool CanReuse(

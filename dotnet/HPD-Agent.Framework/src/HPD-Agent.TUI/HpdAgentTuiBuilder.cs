@@ -30,6 +30,7 @@ public sealed class HpdAgentTuiBuilder
     private Theme? _theme;
     private bool _includeSlashCommandAutocomplete;
     private AgentTuiRunConfigComposer? _runConfigComposer;
+    private IAgentTuiThreadStateReconciler? _threadStateReconciler;
 
     public HpdAgentTuiBuilder AddAgentTuiDefaults()
         => AddDefaultShell()
@@ -914,6 +915,29 @@ public sealed class HpdAgentTuiBuilder
         return false;
     }
 
+    /// <summary>
+    /// Adds the component that reconciles current shell state from durable thread state.
+    /// </summary>
+    public HpdAgentTuiBuilder AddThreadStateReconciler(IAgentTuiThreadStateReconciler reconciler)
+    {
+        ArgumentNullException.ThrowIfNull(reconciler);
+        if (_threadStateReconciler is not null)
+            throw new InvalidOperationException("A thread-state reconciler is already registered.");
+
+        _threadStateReconciler = reconciler;
+        return this;
+    }
+
+    /// <summary>
+    /// Adds the durable thread-state reconciler when none is already registered.
+    /// </summary>
+    public HpdAgentTuiBuilder TryAddThreadStateReconciler(IAgentTuiThreadStateReconciler reconciler)
+    {
+        ArgumentNullException.ThrowIfNull(reconciler);
+        _threadStateReconciler ??= reconciler;
+        return this;
+    }
+
     public HpdAgentTuiRegistry Build()
         => new(
             _commands.Values,
@@ -932,6 +956,7 @@ public sealed class HpdAgentTuiBuilder
             _shellChrome,
             _theme,
             _includeSlashCommandAutocomplete,
-            _runConfigComposer);
+            _runConfigComposer,
+            _threadStateReconciler);
 
 }

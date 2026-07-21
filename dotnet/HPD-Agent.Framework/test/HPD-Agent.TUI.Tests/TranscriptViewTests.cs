@@ -152,6 +152,79 @@ public sealed class TranscriptViewTests
         rendered.Should().Contain(nameof(UnknownTranscriptCell));
     }
 
+    [Fact]
+    public void HandleInput_PageUpAndPageDown_NavigateLoadedHistory()
+    {
+        var model = new TranscriptModel();
+        for (var i = 0; i < 8; i++)
+        {
+            model.AddFinal(Row($"row-{i}", $"row:{i}", $"row {i}"));
+        }
+
+        var view = CreateView(model, height: 3);
+
+        Render(view).Should().Contain("row 7").And.NotContain("row 1");
+
+        view.HandleInput(new KeyEvent(KeyCode.PageUp)).Should().BeTrue();
+        Render(view).Should().Contain("row 6").And.NotContain("row 7");
+
+        view.HandleInput(new KeyEvent(KeyCode.PageDown)).Should().BeTrue();
+        Render(view).Should().Contain("row 7").And.NotContain("row 6");
+    }
+
+    [Fact]
+    public void HandleInput_RepeatedPaging_ClampsToHistoryBoundaries()
+    {
+        var model = new TranscriptModel();
+        for (var i = 0; i < 8; i++)
+        {
+            model.AddFinal(Row($"row-{i}", $"row:{i}", $"row {i}"));
+        }
+
+        var view = CreateView(model, height: 3);
+
+        for (var i = 0; i < 20; i++)
+        {
+            view.HandleInput(new KeyEvent(KeyCode.PageUp)).Should().BeTrue();
+        }
+
+        Render(view).Should().Contain("row 0").And.NotContain("row 7");
+        view.ScrollOffset.Should().BeGreaterThan(0);
+
+        for (var i = 0; i < 20; i++)
+        {
+            view.HandleInput(new KeyEvent(KeyCode.PageDown)).Should().BeTrue();
+        }
+
+        Render(view).Should().Contain("row 7").And.NotContain("row 0");
+        view.ScrollOffset.Should().Be(0);
+    }
+
+    [Fact]
+    public void HandleInput_PlainHome_RemainsAvailableToPrompt()
+    {
+        var view = CreateView(new TranscriptModel(), height: 3);
+
+        view.HandleInput(new KeyEvent(KeyCode.Home)).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Render_SingleEntryLongerThanLegacyCaptureLimit_IsFullyScrollable()
+    {
+        const int lineCount = 16_390;
+        var model = new TranscriptModel();
+        model.AddFinal(Row("long", "long:1", string.Join('\n', Enumerable.Range(0, lineCount).Select(i => $"line {i}"))));
+        var view = CreateView(model, height: 4);
+
+        Render(view).Should().Contain($"line {lineCount - 1}");
+        for (var i = 0; i < lineCount / view.Height + 1; i++)
+        {
+            view.HandleInput(new KeyEvent(KeyCode.PageUp));
+        }
+
+        Render(view).Should().Contain("line 0");
+    }
+
     private static TranscriptView CreateView(TranscriptModel model, int height)
         => new(
             model,
@@ -160,6 +233,13 @@ public sealed class TranscriptViewTests
                 .Build()
                 .TranscriptRenderers,
             height);
+
+    private static string Render(TranscriptView view)
+        => TuiCapture.RenderToString(
+            view,
+            width: 80,
+            height: view.Height,
+            trimTrailingBlankLines: true);
 
     private static TranscriptEntry Row(string id, string? entryKey, string text)
         => new(

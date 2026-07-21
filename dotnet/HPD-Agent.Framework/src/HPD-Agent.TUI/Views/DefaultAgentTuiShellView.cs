@@ -63,6 +63,11 @@ public sealed class DefaultAgentTuiShellView : IComponent
             return _prompt.HandleInput(in key);
         }
 
+        if (_transcript.HandleInput(in key))
+        {
+            return true;
+        }
+
         return _prompt.HandleInput(in key);
     }
 

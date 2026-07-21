@@ -42,6 +42,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private ThreadJournalCursor _appliedCursor;
     private ThreadJournalCursor _initialObservedCursor;
     private IReadOnlyList<AgentEvent> _pendingRecoveryRequests = [];
+    private AgentTuiThreadState? _hydratedThreadState;
 
     private HpdAgentTuiApp(
         IHpdAgentTuiRuntime runtime,
@@ -143,6 +144,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _appliedCursor = default;
         _initialObservedCursor = default;
         _pendingRecoveryRequests = [];
+        _hydratedThreadState = null;
         _inputSubmissionPending = false;
         _activeRuntimeRunId = null;
         _scopeIsDurable = false;
@@ -683,6 +685,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
 
         ReconcileRuntimeState(threadState);
+        _hydratedThreadState = threadState;
+        await ReconcileThreadPresentationAsync(threadState, cancellationToken).ConfigureAwait(false);
         _initialObservedCursor = threadState.ObservedCursor;
         if (_appliedCursor.Generation == 0)
             _appliedCursor = ThreadJournalCursor.Start(threadState.ObservedCursor.Generation);
@@ -820,6 +824,12 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
 
         _appliedCursor = batch.LastCursor;
+        if (batch.DeliveryMode == AgentTuiEventDeliveryMode.Historical &&
+            _hydratedThreadState is { } hydratedThreadState)
+        {
+            await ReconcileThreadPresentationAsync(hydratedThreadState, cancellationToken)
+                .ConfigureAwait(false);
+        }
         performanceSink?.Publish(new AgentTuiEventBatchApplied(
             _scope?.AgentId,
             batch.DeliveryMode,
@@ -939,6 +949,25 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 : null;
 
         _inputSubmissionPending = false;
+    }
+
+    private ValueTask ReconcileThreadPresentationAsync(
+        AgentTuiThreadState threadState,
+        CancellationToken cancellationToken)
+    {
+        if (_scope is null || _state is null || _registry.ThreadStateReconciler is null)
+            return ValueTask.CompletedTask;
+
+        return _registry.ThreadStateReconciler.ReconcileAsync(
+            threadState,
+            new AgentTuiEventContext(
+                _scope,
+                _state.Shell,
+                _state.Shell.Navigation,
+                _registry,
+                _state.State,
+                AgentTuiEventDeliveryMode.Historical),
+            cancellationToken);
     }
 
     private void RequestRender()

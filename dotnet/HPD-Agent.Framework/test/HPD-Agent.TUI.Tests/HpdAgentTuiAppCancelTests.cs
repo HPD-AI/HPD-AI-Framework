@@ -3,6 +3,7 @@ using System.Text;
 using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.TUI.Application;
+using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Models;
 using HPD.Agent.TUI.Runtime;
 using HPD.TUI.Core;
@@ -40,6 +41,77 @@ public sealed class HpdAgentTuiAppCancelTests
         runtime.Calls.Should().ContainInOrder("ensure", "state", "observe", "submit");
         runtime.Calls.IndexOf("state").Should().BeLessThan(runtime.Calls.IndexOf("observe"));
         runtime.Calls.IndexOf("observe").Should().BeLessThan(runtime.Calls.IndexOf("submit"));
+    }
+
+    [Fact]
+    public async Task Hydration_InvokesThreadStateReconcilerWithAuthoritativeSnapshot()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var activeRun = new AgentTuiThreadRun(
+            "run-authoritative",
+            scope.AgentId,
+            scope.SessionId,
+            scope.ThreadId,
+            "active",
+            DateTimeOffset.UtcNow);
+        var runtime = new CancelRuntime(scope) { ActiveRun = activeRun };
+        var reconciler = new RecordingThreadStateReconciler();
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            builder => builder
+                .AddAgentTuiDefaults()
+                .AddThreadStateReconciler(reconciler),
+            new TestTerminal(80, 24));
+        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+
+        var hydrated = await InvokePrivate<Task<bool>>(
+            app,
+            "HydrateThreadAsync",
+            scope,
+            CancellationToken.None);
+
+        hydrated.Should().BeTrue();
+        reconciler.Snapshots.Should().ContainSingle().Which.ActiveRun.Should().BeSameAs(activeRun);
+        GetPrivateField<AgentTuiSessionState>(app, "_state").Shell.FooterText
+            .Should().Be("snapshot: active");
+    }
+
+    [Fact]
+    public async Task HistoricalBatch_ReappliesHydratedSnapshotAfterEventHandlers()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CancelRuntime(scope);
+        var reconciler = new RecordingThreadStateReconciler();
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            builder => builder
+                .AddAgentTuiDefaults()
+                .AddEventHandler("test.stale-footer", new StaleHistoricalFooterHandler())
+                .AddThreadStateReconciler(reconciler),
+            new TestTerminal(80, 24));
+        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        (await InvokePrivate<Task<bool>>(
+            app,
+            "HydrateThreadAsync",
+            scope,
+            CancellationToken.None)).Should().BeTrue();
+
+        await InvokePrivate<Task>(
+            app,
+            "OnAgentEventBatchAsync",
+            new AgentTuiEventBatch(
+                [new ThreadRunStartedEvent("historical-run", scope.AgentId, DateTimeOffset.UtcNow)],
+                AgentTuiEventDeliveryMode.Historical,
+                ThreadJournalCursor.Start(1),
+                new ThreadJournalCursor(1, 1),
+                new ThreadJournalCursor(1, 1)),
+            CancellationToken.None);
+
+        reconciler.Snapshots.Should().HaveCount(2);
+        GetPrivateField<AgentTuiSessionState>(app, "_state").Shell.FooterText
+            .Should().Be("snapshot: idle");
     }
 
     [Fact]
@@ -377,6 +449,35 @@ public sealed class HpdAgentTuiAppCancelTests
             Calls.Add("state");
             ActiveRunRequested.TrySetResult();
             return Task.FromResult(new AgentTuiThreadState(ThreadJournalCursor.Start(1), ActiveRun, []));
+        }
+    }
+
+    private sealed class RecordingThreadStateReconciler : IAgentTuiThreadStateReconciler
+    {
+        public List<AgentTuiThreadState> Snapshots { get; } = [];
+
+        public ValueTask ReconcileAsync(
+            AgentTuiThreadState threadState,
+            AgentTuiEventContext context,
+            CancellationToken cancellationToken)
+        {
+            Snapshots.Add(threadState);
+            context.Shell.FooterText = threadState.ActiveRun is null
+                ? "snapshot: idle"
+                : "snapshot: active";
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class StaleHistoricalFooterHandler : AgentTuiEventHandler<ThreadRunStartedEvent>
+    {
+        public override ValueTask HandleAsync(
+            ThreadRunStartedEvent evt,
+            AgentTuiEventContext context,
+            CancellationToken cancellationToken)
+        {
+            context.Shell.FooterText = "event: running";
+            return ValueTask.CompletedTask;
         }
     }
 
