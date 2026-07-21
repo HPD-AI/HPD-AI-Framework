@@ -10,6 +10,61 @@ namespace HPD.Agent.Tests.Tools;
 public class AgentBuilderWithToolTests
 {
     [Fact]
+    public void ContainerProjection_RetainsContainerAndOnlySelectedQualifiedChildren()
+    {
+        Assert.True(ReflectionToolFactory.TryCreateToolHarnessFactory(
+            typeof(ReflectionSupportToolHarness), out var factory, out _));
+        var functions = factory.CreateFunctions(new ReflectionSupportToolHarness(), null, null);
+
+        var projected = ContainerFunctionProjection.Project(
+            functions,
+            function => function.Name == "lookup_order");
+
+        Assert.Contains(projected, function => function.Name == "lookup_order");
+        var container = Assert.Single(projected, function => function.Name == nameof(ReflectionSupportToolHarness));
+        Assert.Equal(new[] { "lookup_order" }, (string[])container.AdditionalProperties["ChildFunctions"]!);
+        Assert.Contains("Support tools for orders and returns.", container.Description);
+        Assert.Contains("lookup_order", container.Description);
+    }
+
+    [Fact]
+    public void ContainerProjection_RemovesContainerWhenNoChildrenSurvive()
+    {
+        Assert.True(ReflectionToolFactory.TryCreateToolHarnessFactory(
+            typeof(ReflectionSupportToolHarness), out var factory, out _));
+        var functions = factory.CreateFunctions(new ReflectionSupportToolHarness(), null, null);
+
+        var projected = ContainerFunctionProjection.Project(functions, _ => false);
+
+        Assert.Empty(projected);
+    }
+
+    [Fact]
+    public void ConfigFunctionSelection_AppliesWhenHarnessWasAlreadyAddedByBuilder()
+    {
+        var config = new AgentConfig
+        {
+            ToolHarnesses =
+            [
+                new ToolHarnessReference
+                {
+                    Name = nameof(NamedWeatherToolHarness),
+                    Functions = ["get_forecast"]
+                }
+            ]
+        };
+        var builder = new AgentBuilder(config)
+            .WithToolHarness<NamedWeatherToolHarness>();
+
+        typeof(AgentBuilder)
+            .GetMethod("ResolveConfigToolHarnesses", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(builder, null);
+
+        Assert.Equal(new[] { "get_forecast" }, builder._toolFunctionFilters[nameof(NamedWeatherToolHarness)]);
+        Assert.Single(builder._selectedToolHarnessFactories.Where(factory => factory.Name == nameof(NamedWeatherToolHarness)));
+    }
+
+    [Fact]
     public void WithTool_Generic_RegistersSingleGeneratedFunction()
     {
         var builder = new AgentBuilder()

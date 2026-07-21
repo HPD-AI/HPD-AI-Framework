@@ -44,13 +44,11 @@ namespace HPD.Agent;
 /// <example>
 /// <code>
 /// // Register via AgentBuilder
-/// var agent = new AgentBuilder()
-///     .WithHarnessCollapsing()  // Auto-registers ContainerMiddleware
-///     .Build();
+/// var agent = new AgentBuilder().Build(); // ContainerMiddleware is registered automatically.
 ///
 /// // Or with custom configuration
 /// var agent = new AgentBuilder()
-///     .WithHarnessCollapsing(config =>
+///     .ConfigureHarnessCollapsing(config =>
 ///     {
 ///         config.Enabled = true;
 ///         config.PersistSystemPromptInjections = false;

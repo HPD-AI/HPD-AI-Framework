@@ -34,7 +34,6 @@ internal static class CodingMode
             .WithInstructions("You are a coding agent. Be concise, inspect before editing, and explain code changes clearly.")
             .WithProvider("openrouter", model)
             .WithLocalSandbox()
-            .WithHarnessCollapsing()
             .WithToolHarness<CodingToolHarness>()
             .BuildAsync();
 

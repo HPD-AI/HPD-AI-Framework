@@ -19,7 +19,6 @@ if (options.ShowHelp)
 var agentBuilder = CreateAgentBuilder(options.ConfigPath)
     .WithAPIConfiguration(appsettingsPath ?? "appsettings.json", optional: true)
     .WithLocalSandbox()
-    .WithHarnessCollapsing()
     .WithToolHarness<CodingToolHarness>();
 
 ConfigureDefaultCompaction(agentBuilder);

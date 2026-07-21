@@ -15,6 +15,85 @@ namespace HPD.Agent.Tests.Serialization;
 public class ConfigSerializationTests
 {
     [Fact]
+    public void AgentConfig_OmittedCollapsing_DefaultsToEnabled()
+    {
+        var config = JsonSerializer.Deserialize("{}", HPDJsonContext.Default.AgentConfig);
+
+        Assert.NotNull(config);
+        Assert.True(config.Collapsing.Enabled);
+    }
+
+    [Fact]
+    public void AgentConfig_ExplicitlyDisabledCollapsing_RemainsDisabled()
+    {
+        var config = JsonSerializer.Deserialize(
+            """{ "collapsing": { "enabled": false } }""",
+            HPDJsonContext.Default.AgentConfig);
+
+        Assert.NotNull(config);
+        Assert.False(config.Collapsing.Enabled);
+    }
+
+    [Fact]
+    public void AgentConfig_NullCollapsing_IsRejected()
+    {
+        Assert.Throws<ArgumentNullException>(() => JsonSerializer.Deserialize(
+            """{ "collapsing": null }""",
+            HPDJsonContext.Default.AgentConfig));
+    }
+
+    [Fact]
+    public void AgentConfigSnapshot_PreservesCollapsingConfiguration()
+    {
+        var source = new AgentConfig
+        {
+            Collapsing = new CollapsingConfig
+            {
+                Enabled = false,
+                MaxFunctionNamesInDescription = 3,
+                NeverCollapse = ["SmallHarness"]
+            }
+        };
+
+        var snapshot = AgentConfigSnapshot.Create(source);
+
+        Assert.NotSame(source.Collapsing, snapshot.Collapsing);
+        Assert.False(snapshot.Collapsing.Enabled);
+        Assert.Equal(3, snapshot.Collapsing.MaxFunctionNamesInDescription);
+        Assert.Contains("SmallHarness", snapshot.Collapsing.NeverCollapse);
+    }
+
+    [Fact]
+    public void AgentBuilder_DefaultsHarnessCollapsingToEnabled()
+    {
+        var builder = new AgentBuilder();
+
+        Assert.True(builder.Config.Collapsing.Enabled);
+    }
+
+    [Fact]
+    public void ConfigureHarnessCollapsing_CustomizesWithoutEnabling()
+    {
+        var builder = new AgentBuilder(new AgentConfig
+        {
+            Collapsing = new CollapsingConfig { Enabled = false }
+        });
+
+        builder.ConfigureHarnessCollapsing(config => config.NeverCollapse.Add("SmallHarness"));
+
+        Assert.False(builder.Config.Collapsing.Enabled);
+        Assert.Contains("SmallHarness", builder.Config.Collapsing.NeverCollapse);
+    }
+
+    [Fact]
+    public void WithoutHarnessCollapsing_DisablesDefault()
+    {
+        var builder = new AgentBuilder().WithoutHarnessCollapsing();
+
+        Assert.False(builder.Config.Collapsing.Enabled);
+    }
+
+    [Fact]
     public void ToolHarnessReference_SimpleString_RoundTrip()
     {
         // Arrange

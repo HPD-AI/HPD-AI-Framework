@@ -25,15 +25,16 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
 
         var currentDepth = context.GetParentAgentMetadata()?.Depth ?? 0;
         var maximumDepth = context.Base.Config?.MaxSubAgentDepth ?? 4;
-        var hiddenNames = _allFunctions
-            .Where(function => !IsAvailable(function, currentDepth, maximumDepth))
-            .Select(function => function.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var projected = ContainerFunctionProjection.Project(
+            tools.OfType<AIFunction>(),
+            function => IsAvailable(function, currentDepth, maximumDepth));
+        var projectedByName = projected.ToDictionary(function => function.Name, StringComparer.OrdinalIgnoreCase);
         context.Options.Tools = tools
-            .Where(tool => tool is not AIFunction function || IsAvailable(function, currentDepth, maximumDepth))
             .Select(tool => tool is AIFunction function
-                ? SanitizeContainer(function, hiddenNames)
+                ? projectedByName.GetValueOrDefault(function.Name)
                 : tool)
+            .Where(tool => tool is not null)
+            .Cast<AITool>()
             .ToList();
 
         return Task.CompletedTask;
@@ -52,60 +53,4 @@ internal sealed class SubAgentAvailabilityMiddleware : IAgentMiddleware
                definition.Availability.AllowsInvocationFrom(currentDepth);
     }
 
-    private static AIFunction SanitizeContainer(AIFunction function, HashSet<string> hiddenNames)
-    {
-        if (hiddenNames.Count == 0 ||
-            function.AdditionalProperties?.TryGetValue("IsContainer", out var container) != true ||
-            container is not true)
-        {
-            return function;
-        }
-
-        var properties = new Dictionary<string, object?>(function.AdditionalProperties);
-        var changed = FilterNames(properties, "ChildFunctions", hiddenNames) |
-                      FilterNames(properties, "ReferencedFunctions", hiddenNames);
-        if (!changed)
-            return function;
-
-        var activation = function.AdditionalProperties.TryGetValue("IsSkill", out var skill) && skill is true
-            ? $"{function.Name} activated."
-            : $"{function.Name} expanded.";
-        if (properties.TryGetValue("FunctionResult", out var result) && result is string text && !string.IsNullOrWhiteSpace(text))
-            activation = $"{activation}\n\n{text}";
-
-        return HPDAIFunctionFactory.Create(
-            (_, _, _) => Task.FromResult<object?>(activation),
-            new HPDAIFunctionFactoryOptions
-            {
-                Name = function.Name,
-                Description = $"{function.Name} provides tools available at the current agent depth.",
-                SerializerOptions = function.JsonSerializerOptions,
-                ResultType = typeof(string),
-                SchemaProvider = () => function.JsonSchema,
-                AdditionalProperties = properties
-            });
-    }
-
-    private static bool FilterNames(
-        IDictionary<string, object?> properties,
-        string key,
-        HashSet<string> hiddenNames)
-    {
-        if (!properties.TryGetValue(key, out var value) || value is not IEnumerable<string> names)
-            return false;
-
-        var original = names.ToArray();
-        var filtered = original.Where(name => !hiddenNames.Contains(Unqualify(name))).ToArray();
-        if (filtered.Length == original.Length)
-            return false;
-
-        properties[key] = filtered;
-        return true;
-    }
-
-    private static string Unqualify(string name)
-    {
-        var separator = name.LastIndexOf('.');
-        return separator < 0 ? name : name[(separator + 1)..];
-    }
 }

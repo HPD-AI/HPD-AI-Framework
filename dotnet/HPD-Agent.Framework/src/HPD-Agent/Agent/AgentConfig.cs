@@ -109,11 +109,19 @@ public class AgentConfig
     public ToolSelectionConfig? ToolSelection { get; set; }
 
     /// <summary>
-    /// Configuration for Collapsing - hierarchical organization of functions to reduce token usage.
-    /// When enabled, functions are hidden behind container functions, reducing initial tool list by up to 87.5%.
-    /// Default: Collapsing enabled.
+    /// Configuration for harness collapsing, which organizes functions hierarchically to reduce token usage.
+    /// Collapsing is enabled by default when this property is omitted from serialized configuration.
+    /// Set <see cref="CollapsingConfig.Enabled"/> to <see langword="false"/> to expose functions directly.
+    /// This property cannot be <see langword="null"/>.
     /// </summary>
-    public CollapsingConfig Collapsing { get; set; } = new CollapsingConfig { Enabled = true };
+    public CollapsingConfig Collapsing
+    {
+        get => _collapsing;
+        set => _collapsing = value ?? throw new ArgumentNullException(nameof(value),
+            "Agent collapsing configuration cannot be null. Omit the property to use the enabled default, or set enabled to false to opt out.");
+    }
+
+    private CollapsingConfig _collapsing = new();
 
     /// <summary>
     /// ToolHarnesses to include. Supports both simple string names and rich references.
@@ -1258,7 +1266,7 @@ public class CollapsingConfig
     /// Use this to force specific toolharnesses to always show their functions directly.
     /// Example: new HashSet&lt;string&gt; { "MathToolHarness", "CoreTools" }
     /// </summary>
-    public HashSet<string>? NeverCollapse { get; set; }
+    public HashSet<string> NeverCollapse { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
 }
 /// <summary>

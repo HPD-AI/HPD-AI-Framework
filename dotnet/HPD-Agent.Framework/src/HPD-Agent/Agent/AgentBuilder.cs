@@ -676,9 +676,12 @@ public class AgentBuilder
                 // Phase 4.5: Apply function filter if this ToolHarness has selective registration
                 if (_toolFunctionFilters.TryGetValue(factory.Name, out var functionFilter))
                 {
-                    // Only include functions that are in the filter
-                    functions = functions
-                        .Where(f => functionFilter.Contains(f.Name))
+                    var selectedNames = functionFilter
+                        .Select(ContainerFunctionProjection.Unqualify)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    functions = ContainerFunctionProjection.Project(
+                            functions,
+                            function => selectedNames.Contains(ContainerFunctionProjection.Unqualify(function.Name)))
                         .ToList();
                 }
 
@@ -773,7 +776,37 @@ public class AgentBuilder
             // Skip if already added via builder (it will be in _selectedToolHarnessFactories already)
             if (_builderAddedToolHarnesses.Contains(effectiveRef.Name))
             {
-                logger?.LogDebug("ToolHarness '{Name}' already registered via builder, skipping config", effectiveRef.Name);
+                // The builder owns factory registration, but the current AgentConfig still owns
+                // its per-agent function projection and serialized construction data.
+                if (effectiveRef.Functions is { Count: > 0 })
+                    _toolFunctionFilters[effectiveRef.Name] = effectiveRef.Functions.ToArray();
+                if (effectiveRef.Config.HasValue)
+                    _toolharnessConfigs[effectiveRef.Name] = effectiveRef.Config.Value;
+                if (_availableToolHarnesses.TryGetValue(effectiveRef.Name, out var builderFactory))
+                {
+                    if (effectiveRef.Metadata.HasValue && builderFactory.DeserializeMetadata != null)
+                    {
+                        try
+                        {
+                            var metadata = builderFactory.DeserializeMetadata(effectiveRef.Metadata.Value);
+                            if (metadata != null)
+                                _toolharnessContexts[effectiveRef.Name] = metadata;
+                        }
+                        catch (JsonException ex)
+                        {
+                            logger?.LogWarning(ex,
+                                "Failed to deserialize metadata for toolharness '{Name}' to type {MetadataType}",
+                                effectiveRef.Name, builderFactory.MetadataType?.Name ?? "unknown");
+                        }
+                    }
+
+                    if (effectiveRef.MiddlewareConfigs is { Count: > 0 } &&
+                        builderFactory.CollapseMiddlewareConfigFactories != null)
+                    {
+                        _toolharnessMiddlewareConfigs[effectiveRef.Name] = effectiveRef.MiddlewareConfigs;
+                    }
+                }
+                logger?.LogDebug("ToolHarness '{Name}' already registered via builder; applied config projection", effectiveRef.Name);
                 continue;
             }
 
@@ -3712,15 +3745,14 @@ public static class AgentBuilderMiddlewareExtensions
     //
 
     /// <summary>
-    /// Enables tool Collapsing middleware for ToolHarness collapsing and skills architecture.
-    /// When enabled, ToolHarnesses and skills are hidden behind container functions,
-    /// reducing the initial tool list and cognitive load on the LLM.
+    /// Configures harness collapsing, which is enabled by default.
     /// </summary>
     /// <param name="builder">The agent builder</param>
+    /// <param name="configure">Action that customizes collapsing behavior without changing its enabled state.</param>
     /// <returns>The builder for chaining</returns>
     /// <remarks>
     /// <para>
-    /// Tool Collapsing allows you to organize functions hierarchically:
+    /// Harness collapsing organizes functions hierarchically:
     /// - ToolHarness containers: Hide member functions until ToolHarness is expanded
     /// - Skill containers: Hide skill-specific functions until skill is activated
     /// </para>
@@ -3728,43 +3760,15 @@ public static class AgentBuilderMiddlewareExtensions
     /// This can reduce initial tool list size by up to 87.5%, improving LLM performance
     /// and reducing token usage.
     /// </para>
-    /// <para>
-    /// <b>Phase 1 Note:</b> This middleware integrates with the existing Collapsing
-    /// infrastructure in Agent.cs. Future phases will migrate more logic to middleware.
-    /// </para>
+    /// This method preserves an explicit <see cref="CollapsingConfig.Enabled"/> value, including
+    /// <see langword="false"/> from serialized configuration. Use
+    /// <see cref="WithoutHarnessCollapsing(AgentBuilder)"/> to opt out explicitly.
     /// </remarks>
     /// <example>
     /// <code>
     /// var agent = new AgentBuilder()
     ///     .WithTools&lt;FinancialToolHarness&gt;()
-    ///     .WithHarnessCollapsing()  // Enable tool Collapsing
-    ///     .Build();
-    /// </code>
-    /// </example>
-    public static AgentBuilder WithHarnessCollapsing(this AgentBuilder builder)
-    {
-        // Enable Collapsing in config
-        builder.Config.Collapsing ??= new CollapsingConfig();
-        builder.Config.Collapsing.Enabled = true;
-
-        // NOTE: The ToolCollapsingMiddleware will be instantiated and added to the pipeline
-        // during Build() after the Agent is constructed (since it needs the ToolVisibilityManager
-        // which is created in the Agent constructor). See Build() for registration logic.
-
-        return builder;
-    }
-
-    /// <summary>
-    /// Enables tool Collapsing middleware with custom configuration.
-    /// </summary>
-    /// <param name="builder">The agent builder</param>
-    /// <param name="configure">Action to configure Collapsing behavior</param>
-    /// <returns>The builder for chaining</returns>
-    /// <example>
-    /// <code>
-    /// var agent = new AgentBuilder()
-    ///     .WithTools&lt;FinancialToolHarness&gt;()
-    ///     .WithHarnessCollapsing(config =>
+    ///     .ConfigureHarnessCollapsing(config =>
     ///     {
     ///         config.CollapseClientTools = true;
     ///         config.MaxFunctionNamesInDescription = 5;
@@ -3772,15 +3776,11 @@ public static class AgentBuilderMiddlewareExtensions
     ///     .Build();
     /// </code>
     /// </example>
-    public static AgentBuilder WithHarnessCollapsing(this AgentBuilder builder, Action<CollapsingConfig> configure)
+    public static AgentBuilder ConfigureHarnessCollapsing(this AgentBuilder builder, Action<CollapsingConfig> configure)
     {
-        builder.Config.Collapsing ??= new CollapsingConfig();
-        builder.Config.Collapsing.Enabled = true;
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(configure);
         configure(builder.Config.Collapsing);
-
-        // NOTE: The ToolCollapsingMiddleware will be instantiated and added to the pipeline
-        // during Build() after the Agent is constructed. See Build() for registration logic.
-
         return builder;
     }
 
@@ -3798,13 +3798,13 @@ public static class AgentBuilderMiddlewareExtensions
     /// <code>
     /// var agent = new AgentBuilder()
     ///     .WithTools&lt;FinancialToolHarness&gt;()
-    ///     .WithoutToolCollapsing()  // All tools always visible
+    ///     .WithoutHarnessCollapsing()  // All tools always visible
     ///     .Build();
     /// </code>
     /// </example>
-    public static AgentBuilder WithoutToolCollapsing(this AgentBuilder builder)
+    public static AgentBuilder WithoutHarnessCollapsing(this AgentBuilder builder)
     {
-        builder.Config.Collapsing ??= new CollapsingConfig();
+        ArgumentNullException.ThrowIfNull(builder);
         builder.Config.Collapsing.Enabled = false;
         return builder;
     }
