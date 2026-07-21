@@ -729,6 +729,51 @@ public class AgentEventSerializerTests
         Assert.Equal(evt.Invocation.ToolCallIndex, result.Invocation.ToolCallIndex);
     }
 
+    [Fact]
+    public void ModelCallRetryEvent_RehydratedEvent_CanBeSerializedAgain()
+    {
+        var original = new ModelCallRetryEvent(
+            Attempt: 1,
+            MaxRetries: 3,
+            Delay: TimeSpan.FromSeconds(2),
+            ExceptionType: typeof(HttpRequestException).FullName!,
+            ErrorMessage: "Request failed (429)")
+        {
+            Exception = new HttpRequestException("Request failed", null, System.Net.HttpStatusCode.TooManyRequests)
+        };
+
+        var persisted = AgentEventSerializer.ToJson(original);
+        var rehydrated = Assert.IsType<ModelCallRetryEvent>(AgentEventSerializer.FromJson(persisted));
+
+        Assert.Null(rehydrated.Exception);
+        Assert.Equal(ErrorHandling.ErrorCategory.RateLimitRetryable, rehydrated.Category);
+        var replayed = AgentEventSerializer.ToJson(rehydrated);
+        Assert.Contains("\"type\":\"MODEL_CALL_RETRY\"", replayed);
+    }
+
+    [Fact]
+    public void FunctionRetryEvent_RehydratedEvent_CanBeSerializedAgain()
+    {
+        var original = new FunctionRetryEvent(
+            FunctionName: "FlakyFunction",
+            Attempt: 2,
+            MaxRetries: 4,
+            Delay: TimeSpan.FromMilliseconds(500),
+            ExceptionType: typeof(HttpRequestException).FullName!,
+            ErrorMessage: "Provider returned Status: 503")
+        {
+            Exception = new HttpRequestException("Provider returned Status: 503")
+        };
+
+        var persisted = AgentEventSerializer.ToJson(original);
+        var rehydrated = Assert.IsType<FunctionRetryEvent>(AgentEventSerializer.FromJson(persisted));
+
+        Assert.Null(rehydrated.Exception);
+        Assert.Equal(ErrorHandling.ErrorCategory.ServerError, rehydrated.Category);
+        var replayed = AgentEventSerializer.ToJson(rehydrated);
+        Assert.Contains("\"type\":\"FUNCTION_RETRY\"", replayed);
+    }
+
     #endregion
 
     private static FunctionInvocationSnapshot CreateInvocationSnapshot()

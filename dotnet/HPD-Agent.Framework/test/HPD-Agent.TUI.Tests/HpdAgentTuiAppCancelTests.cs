@@ -81,7 +81,14 @@ public sealed class HpdAgentTuiAppCancelTests
     public async Task HistoricalBatch_ReappliesHydratedSnapshotAfterEventHandlers()
     {
         var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
-        var runtime = new CancelRuntime(scope);
+        var activeRun = new AgentTuiThreadRun(
+            "authoritative-run",
+            scope.AgentId,
+            scope.SessionId,
+            scope.ThreadId,
+            "active",
+            DateTimeOffset.UtcNow);
+        var runtime = new CancelRuntime(scope) { ActiveRun = activeRun };
         var reconciler = new RecordingThreadStateReconciler();
         await using var app = HpdAgentTuiApp.Create(
             runtime,
@@ -102,7 +109,10 @@ public sealed class HpdAgentTuiAppCancelTests
             app,
             "OnAgentEventBatchAsync",
             new AgentTuiEventBatch(
-                [new ThreadRunStartedEvent("historical-run", scope.AgentId, DateTimeOffset.UtcNow)],
+                [
+                    new ThreadRunStartedEvent("historical-run", scope.AgentId, DateTimeOffset.UtcNow),
+                    new ThreadRunCompletedEvent("historical-run", scope.AgentId, Cancelled: false)
+                ],
                 AgentTuiEventDeliveryMode.Historical,
                 ThreadJournalCursor.Start(1),
                 new ThreadJournalCursor(1, 1),
@@ -111,7 +121,87 @@ public sealed class HpdAgentTuiAppCancelTests
 
         reconciler.Snapshots.Should().HaveCount(2);
         GetPrivateField<AgentTuiSessionState>(app, "_state").Shell.FooterText
-            .Should().Be("snapshot: idle");
+            .Should().Be("snapshot: active");
+        GetPrivateField<string>(app, "_activeRuntimeRunId").Should().Be("authoritative-run");
+    }
+
+    [Fact]
+    public async Task SubmitReturn_DoesNotResurrectRunCompletedWhileSubmissionWasInFlight()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CancelRuntime(scope) { DelaySubmission = true };
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            static builder => builder.AddAgentTuiDefaults(),
+            new TestTerminal(80, 24));
+        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+        SetPrivateField(app, "_scopeIsDurable", true);
+        var input = new UserMessagesInputEvent
+        {
+            Messages = [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, "hello")],
+            AgentId = scope.AgentId,
+            SessionId = scope.SessionId,
+            ThreadId = scope.ThreadId
+        };
+
+        var submission = InvokePrivate<Task>(app, "SubmitInputAsync", scope, input, null!);
+        await runtime.SubmissionStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await InvokePrivate<Task>(
+            app,
+            "OnAgentEventBatchAsync",
+            new AgentTuiEventBatch(
+                [
+                    new ThreadRunStartedEvent("fast-run", scope.AgentId, DateTimeOffset.UtcNow),
+                    new ThreadRunCompletedEvent("fast-run", scope.AgentId, Cancelled: false)
+                ],
+                AgentTuiEventDeliveryMode.Live,
+                new ThreadJournalCursor(1, 1),
+                new ThreadJournalCursor(1, 2),
+                new ThreadJournalCursor(1, 2)),
+            CancellationToken.None);
+        runtime.CompleteSubmission("fast-run");
+        await submission;
+
+        GetPrivateFieldValue<string?>(app, "_activeRuntimeRunId").Should().BeNull();
+        InvokePrivate<bool>(app, "HasKnownActiveRuntimeWork").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CatchUpLifecycleEvents_UpdateLiveControlState()
+    {
+        var scope = new AgentTuiRuntimeScope("agent-a", "session-a", "main");
+        var runtime = new CancelRuntime(scope);
+        await using var app = HpdAgentTuiApp.Create(
+            runtime,
+            scope,
+            static builder => builder.AddAgentTuiDefaults(),
+            new TestTerminal(80, 24));
+        InvokePrivate(app, "RebuildShell", scope, "Connected.");
+
+        await InvokePrivate<Task>(
+            app,
+            "OnAgentEventBatchAsync",
+            new AgentTuiEventBatch(
+                [new ThreadRunStartedEvent("catch-up-run", scope.AgentId, DateTimeOffset.UtcNow)],
+                AgentTuiEventDeliveryMode.CatchUp,
+                new ThreadJournalCursor(1, 1),
+                new ThreadJournalCursor(1, 1),
+                new ThreadJournalCursor(1, 1)),
+            CancellationToken.None);
+        GetPrivateField<string>(app, "_activeRuntimeRunId").Should().Be("catch-up-run");
+
+        await InvokePrivate<Task>(
+            app,
+            "OnAgentEventBatchAsync",
+            new AgentTuiEventBatch(
+                [new ThreadRunCompletedEvent("catch-up-run", scope.AgentId, Cancelled: false)],
+                AgentTuiEventDeliveryMode.CatchUp,
+                new ThreadJournalCursor(1, 2),
+                new ThreadJournalCursor(1, 2),
+                new ThreadJournalCursor(1, 2)),
+            CancellationToken.None);
+        GetPrivateFieldValue<string?>(app, "_activeRuntimeRunId").Should().BeNull();
     }
 
     [Fact]
@@ -349,6 +439,15 @@ public sealed class HpdAgentTuiAppCancelTests
         return field!.GetValue(app).Should().BeOfType<T>().Subject;
     }
 
+    private static T GetPrivateFieldValue<T>(HpdAgentTuiApp app, string fieldName)
+    {
+        var field = typeof(HpdAgentTuiApp).GetField(
+            fieldName,
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        field.Should().NotBeNull();
+        return (T)field!.GetValue(app)!;
+    }
+
     private static void SetPrivateField<T>(HpdAgentTuiApp app, string fieldName, T value)
     {
         var field = typeof(HpdAgentTuiApp).GetField(
@@ -370,6 +469,14 @@ public sealed class HpdAgentTuiAppCancelTests
         public AgentTuiThreadRun? ActiveRun { get; init; }
 
         public bool InitialIsDurable { get; init; } = true;
+
+        public bool DelaySubmission { get; init; }
+
+        public TaskCompletionSource SubmissionStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private TaskCompletionSource<AgentTuiSubmitResult> DelayedSubmission { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public List<string> Calls { get; } = [];
 
@@ -421,9 +528,24 @@ public sealed class HpdAgentTuiAppCancelTests
             CancellationToken cancellationToken = default)
         {
             Calls.Add("submit");
+            SubmissionStarted.TrySetResult();
+            if (DelaySubmission)
+            {
+                return DelayedSubmission.Task;
+            }
             return Task.FromResult(new AgentTuiSubmitResult(
                 ActiveRun ?? new AgentTuiThreadRun("run", scope.AgentId, scope.SessionId, scope.ThreadId, "active", DateTimeOffset.UtcNow)));
         }
+
+        public void CompleteSubmission(string runtimeRunId)
+            => DelayedSubmission.SetResult(new AgentTuiSubmitResult(
+                new AgentTuiThreadRun(
+                    runtimeRunId,
+                    _scope.AgentId,
+                    _scope.SessionId,
+                    _scope.ThreadId,
+                    "active",
+                    DateTimeOffset.UtcNow)));
 
         public Task<AgentTuiInterruptResult> InterruptAsync(
             AgentTuiRuntimeScope scope,

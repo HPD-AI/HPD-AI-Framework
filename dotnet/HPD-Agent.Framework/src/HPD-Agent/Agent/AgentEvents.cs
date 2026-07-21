@@ -1331,13 +1331,13 @@ public record InternalParallelToolExecutionEvent(
 /// <summary>
 /// Emitted when a function execution is being retried due to an error.
 /// Emitted by FunctionRetryMiddleware for observability.
-/// Error category is lazily computed from the exception.
+/// Error category is lazily computed from the live exception, or from the persisted
+/// error message after the event has been rehydrated.
 /// </summary>
 /// <param name="FunctionName">The name of the function being retried</param>
 /// <param name="Attempt">The current retry attempt number (1-based)</param>
 /// <param name="MaxRetries">Maximum number of retries allowed</param>
 /// <param name="Delay">Time to wait before retrying</param>
-/// <param name="Exception">The exception that caused the retry</param>
 /// <param name="ExceptionType">The type name of the exception</param>
 /// <param name="ErrorMessage">The error message from the exception</param>
 public record FunctionRetryEvent(
@@ -1352,7 +1352,8 @@ public record FunctionRetryEvent(
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Diagnostic;
 
     /// <summary>
-    /// The exception that caused the retry. Not serialized.
+    /// The live exception that caused the retry. This value is not serialized and is
+    /// therefore <see langword="null"/> after the event is rehydrated.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public Exception? Exception { get; init; }
@@ -1370,13 +1371,13 @@ public record FunctionRetryEvent(
         {
             _errorDetailsParsed = true;
             var handler = new ErrorHandling.GenericErrorHandler();
-            _errorDetails = handler.ParseError(Exception);
+            _errorDetails = handler.ParseError(Exception ?? new Exception(ErrorMessage));
         }
         return _errorDetails;
     }
 
     /// <summary>
-    /// Error category lazily computed from the exception.
+    /// Error category lazily computed from the live exception or persisted error message.
     /// </summary>
     public ErrorHandling.ErrorCategory? Category => GetErrorDetails()?.Category;
 
@@ -1398,7 +1399,8 @@ public record FunctionRetryEvent(
 /// Emitted when a model call (LLM streaming) is being retried due to an error.
 /// Signals to consumers (like UI) that partial content should be discarded.
 /// Emitted by RetryMiddleware for observability and progressive streaming support.
-/// Error category is lazily computed from the exception.
+/// Error category is lazily computed from the live exception, or from the persisted
+/// error message after the event has been rehydrated.
 /// </summary>
 /// <remarks>
 /// <para><b>Progressive Streaming Pattern:</b></para>
@@ -1430,7 +1432,6 @@ public record FunctionRetryEvent(
 /// <param name="Attempt">The current retry attempt number (1-based)</param>
 /// <param name="MaxRetries">Maximum number of retries allowed</param>
 /// <param name="Delay">Time to wait before retrying</param>
-/// <param name="Exception">The exception that caused the retry</param>
 /// <param name="ExceptionType">The type name of the exception</param>
 /// <param name="ErrorMessage">The error message from the exception</param>
 public record ModelCallRetryEvent(
@@ -1442,7 +1443,8 @@ public record ModelCallRetryEvent(
 ) : AgentEvent, IObservabilityEvent, IErrorEvent
 {
     /// <summary>
-    /// The exception that caused the retry. Not serialized.
+    /// The live exception that caused the retry. This value is not serialized and is
+    /// therefore <see langword="null"/> after the event is rehydrated.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public Exception? Exception { get; init; }
@@ -1463,13 +1465,13 @@ public record ModelCallRetryEvent(
         {
             _errorDetailsParsed = true;
             var handler = new ErrorHandling.GenericErrorHandler();
-            _errorDetails = handler.ParseError(Exception);
+            _errorDetails = handler.ParseError(Exception ?? new Exception(ErrorMessage));
         }
         return _errorDetails;
     }
 
     /// <summary>
-    /// Error category lazily computed from the exception.
+    /// Error category lazily computed from the live exception or persisted error message.
     /// </summary>
     public ErrorHandling.ErrorCategory? Category => GetErrorDetails()?.Category;
 

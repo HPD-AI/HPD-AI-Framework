@@ -34,10 +34,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private CancellationToken _runCancellationToken;
     private readonly HashSet<string> _handledInteractionIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _sessionTitleUpdates = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _completedRuntimeRunIds = new(StringComparer.Ordinal);
     private string? _activeRuntimeRunId;
     private string? _cancelConfirmationRunId;
     private DateTimeOffset _cancelConfirmationExpiresAt;
     private bool _inputSubmissionPending;
+    private long _submissionSequence;
+    private long _awaitingRuntimeSubmissionId;
     private bool _scopeIsDurable;
     private ThreadJournalCursor _appliedCursor;
     private ThreadJournalCursor _initialObservedCursor;
@@ -145,7 +148,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _initialObservedCursor = default;
         _pendingRecoveryRequests = [];
         _hydratedThreadState = null;
+        _completedRuntimeRunIds.Clear();
         _inputSubmissionPending = false;
+        _awaitingRuntimeSubmissionId = 0;
         _activeRuntimeRunId = null;
         _scopeIsDurable = false;
         _scope = scope;
@@ -363,10 +368,27 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                     .ConfigureAwait(false);
             }
 
-            var submitted = await _runtime.SubmitInputAsync(ensured, input, CancellationToken.None)
-                .ConfigureAwait(false);
+            var submissionId = ++_submissionSequence;
+            _awaitingRuntimeSubmissionId = submissionId;
+            AgentTuiSubmitResult submitted;
+            try
+            {
+                submitted = await _runtime.SubmitInputAsync(ensured, input, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                if (_awaitingRuntimeSubmissionId == submissionId)
+                    _awaitingRuntimeSubmissionId = 0;
+            }
+            if (_scope != scope)
+                return;
+
             _inputSubmissionPending = false;
-            _activeRuntimeRunId = submitted.Run.RuntimeRunId;
+            if (!_completedRuntimeRunIds.Remove(submitted.Run.RuntimeRunId))
+            {
+                _activeRuntimeRunId = submitted.Run.RuntimeRunId;
+            }
         }
         catch (Exception ex)
         {
@@ -827,6 +849,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         if (batch.DeliveryMode == AgentTuiEventDeliveryMode.Historical &&
             _hydratedThreadState is { } hydratedThreadState)
         {
+            ReconcileRuntimeState(hydratedThreadState);
             await ReconcileThreadPresentationAsync(hydratedThreadState, cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -862,7 +885,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         }
 
         await _state.ApplyEventAsync(evt, cancellationToken, deliveryMode).ConfigureAwait(false);
-        if (AgentTuiEventScope.CurrentThread.Includes(evt, _scope))
+        if (deliveryMode != AgentTuiEventDeliveryMode.Historical &&
+            AgentTuiEventScope.CurrentThread.Includes(evt, _scope))
             TrackRuntimeRun(evt);
 
         await HandleInteractionAsync(evt, cancellationToken).ConfigureAwait(false);
@@ -928,10 +952,13 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         switch (evt)
         {
             case ThreadRunStartedEvent started:
+                _completedRuntimeRunIds.Remove(started.RuntimeRunId);
                 _inputSubmissionPending = false;
                 _activeRuntimeRunId = started.RuntimeRunId;
                 break;
             case ThreadRunCompletedEvent completed:
+                if (_awaitingRuntimeSubmissionId != 0)
+                    _completedRuntimeRunIds.Add(completed.RuntimeRunId);
                 if (string.Equals(_activeRuntimeRunId, completed.RuntimeRunId, StringComparison.Ordinal))
                 {
                     _activeRuntimeRunId = null;
