@@ -666,12 +666,14 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                         pendingCatchUp.Clear();
                     }
 
+                    var liveCursor = evt.ThreadSequenceNumber > 0 ? eventCursor : cursor;
                     yield return new AgentTuiEventBatch(
                         [evt],
                         AgentTuiEventDeliveryMode.Live,
                         initialObservedCursor,
-                        cursor,
-                        cursor);
+                        liveCursor,
+                        liveCursor);
+                    cursor = liveCursor;
                     continue;
                 }
 

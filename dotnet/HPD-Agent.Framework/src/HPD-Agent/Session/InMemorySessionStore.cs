@@ -7,12 +7,69 @@ namespace HPD.Agent;
 /// Append-oriented in-memory implementation of the canonical thread journal.
 /// Data is lost on process restart.
 /// </summary>
-public sealed class InMemorySessionStore : ISessionStore
+public sealed class InMemorySessionStore : ISessionStore, IThreadDeltaStore
 {
     private const int SegmentCapacity = 256;
 
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
     private readonly ConcurrentDictionary<ThreadKey, ThreadJournal> _threads = new();
+    private readonly ConcurrentDictionary<(ThreadKey Thread, string MessageId, Type Kind), List<AgentEvent>> _pendingDeltas = new();
+
+    /// <inheritdoc />
+    public ValueTask StageThreadDeltaAsync(
+        ThreadKey thread,
+        AgentEvent delta,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var key = PendingKey(thread, delta);
+        var pending = _pendingDeltas.GetOrAdd(key, static _ => []);
+        lock (pending)
+            pending.Add(delta with { ThreadSequenceNumber = 0 });
+        return ValueTask.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<ThreadEventAppendResult> FinalizeThreadDeltasAsync(
+        ThreadKey thread,
+        AgentEvent messageEnd,
+        CancellationToken cancellationToken = default)
+    {
+        var key = PendingKey(thread, messageEnd);
+        _pendingDeltas.TryRemove(key, out var pending);
+        AgentEvent[] deltas = [];
+        if (pending is not null)
+        {
+            lock (pending)
+                deltas = pending.ToArray();
+        }
+        var events = ThreadDeltaCoalescer.Coalesce(deltas, messageEnd);
+        try
+        {
+            return await AppendThreadEventsAsync(thread, events, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            if (pending is not null)
+                _pendingDeltas.TryAdd(key, pending);
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
+    public ValueTask RecoverThreadDeltasAsync(
+        ThreadKey thread,
+        CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+
+    private static (ThreadKey Thread, string MessageId, Type Kind) PendingKey(ThreadKey thread, AgentEvent evt) => evt switch
+    {
+        TextDeltaEvent delta => (thread, delta.MessageId, typeof(TextDeltaEvent)),
+        TextMessageEndEvent end => (thread, end.MessageId, typeof(TextDeltaEvent)),
+        ReasoningDeltaEvent delta => (thread, delta.MessageId, typeof(ReasoningDeltaEvent)),
+        ReasoningMessageEndEvent end => (thread, end.MessageId, typeof(ReasoningDeltaEvent)),
+        _ => throw new ArgumentException("Event is not a supported delta or message boundary.", nameof(evt))
+    };
 
     public Task<Session?> LoadSessionAsync(
         string sessionId,

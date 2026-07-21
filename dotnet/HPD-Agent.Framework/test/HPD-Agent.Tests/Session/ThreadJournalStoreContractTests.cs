@@ -51,6 +51,94 @@ public sealed class ThreadJournalStoreContractTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task DeltaPublisher_StreamsEveryChunkButCommitsOneCompactDelta(bool fileStore)
+    {
+        await WithStoreAsync(fileStore, async store =>
+        {
+            var deltaStore = Assert.IsAssignableFrom<IThreadDeltaStore>(store);
+            using var coordinator = new EventCoordinator();
+            await using var inbox = coordinator.CreateInbox<AgentEvent>();
+            var publisher = new ThreadEventPublisher(store, coordinator);
+            var key = new ThreadKey("session-1", "main");
+
+            var first = await publisher.StageAndPublishDeltaAsync(
+                key, Scoped(key, new TextDeltaEvent("Hel", "message-1")));
+            var second = await publisher.StageAndPublishDeltaAsync(
+                key, Scoped(key, new TextDeltaEvent("lo", "message-1")));
+
+            Assert.Equal(0, first.ThreadSequenceNumber);
+            Assert.Equal(0, second.ThreadSequenceNumber);
+            Assert.Equal("Hel", Assert.IsType<TextDeltaEvent>(await inbox.Reader.ReadAsync()).Text);
+            Assert.Equal("lo", Assert.IsType<TextDeltaEvent>(await inbox.Reader.ReadAsync()).Text);
+
+            var finalized = await publisher.FinalizeAndPublishDeltasAsync(
+                key, Scoped(key, new TextMessageEndEvent("message-1")));
+            Assert.Equal(2, finalized.CommittedEvents.Count);
+            Assert.Equal("Hello", Assert.IsType<TextDeltaEvent>(finalized.CommittedEvents[0]).Text);
+            Assert.IsType<TextMessageEndEvent>(finalized.CommittedEvents[1]);
+            Assert.IsType<TextMessageEndEvent>(await inbox.Reader.ReadAsync());
+            Assert.False(inbox.Reader.TryRead(out _));
+
+            var replay = await store.CollectThreadEventsAsync(key);
+            Assert.Equal(2, replay!.Count);
+            Assert.Equal("Hello", Assert.IsType<TextDeltaEvent>(replay[0]).Text);
+            _ = deltaStore;
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReasoningFinalization_PreservesProtectedDataBoundaries(bool fileStore)
+    {
+        await WithStoreAsync(fileStore, async store =>
+        {
+            var deltaStore = Assert.IsAssignableFrom<IThreadDeltaStore>(store);
+            var key = new ThreadKey("session-1", "main");
+            await deltaStore.StageThreadDeltaAsync(key, Scoped(key, new ReasoningDeltaEvent("a", "r1", "p1")));
+            await deltaStore.StageThreadDeltaAsync(key, Scoped(key, new ReasoningDeltaEvent("b", "r1", "p1")));
+            await deltaStore.StageThreadDeltaAsync(key, Scoped(key, new ReasoningDeltaEvent("c", "r1", "p2")));
+
+            var result = await deltaStore.FinalizeThreadDeltasAsync(
+                key, Scoped(key, new ReasoningMessageEndEvent("r1")));
+
+            var reasoning = result.CommittedEvents.OfType<ReasoningDeltaEvent>().ToArray();
+            Assert.Equal(2, reasoning.Length);
+            Assert.Equal(("ab", "p1"), (reasoning[0].Text, reasoning[0].ProtectedData));
+            Assert.Equal(("c", "p2"), (reasoning[1].Text, reasoning[1].ProtectedData));
+        });
+    }
+
+    [Fact]
+    public async Task FileStore_ReopenRecoversAnUnfinishedPendingDeltaExactlyOnce()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"hpd-file-journal-{Guid.NewGuid():N}");
+        try
+        {
+            var key = new ThreadKey("session-1", "main");
+            var first = new FileSessionStore(directory);
+            await first.AppendThreadEventsAsync(key, [Scoped(key, new TextMessageStartEvent("message-1", "assistant"))]);
+            await first.StageThreadDeltaAsync(key, Scoped(key, new TextDeltaEvent("partial", "message-1")));
+
+            var reopened = new FileSessionStore(directory);
+            Assert.Equal(3, (await reopened.GetThreadEventHeadAsync(key))!.ThreadSequenceNumber);
+            var replay = await reopened.CollectThreadEventsAsync(key);
+            Assert.Equal("partial", Assert.IsType<TextDeltaEvent>(replay![1]).Text);
+            Assert.IsType<TextMessageEndEvent>(replay[2]);
+
+            var reopenedAgain = new FileSessionStore(directory);
+            Assert.Equal(3, (await reopenedAgain.GetThreadEventHeadAsync(key))!.ThreadSequenceNumber);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Append_ReturnsImmutableCommittedValues_AndRangeReadsAreBounded(bool fileStore)
     {
         await WithStoreAsync(fileStore, async store =>

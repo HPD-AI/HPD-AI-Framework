@@ -665,6 +665,77 @@ public class ThreadEventStoreTests : AgentTestBase
     }
 
     [Fact]
+    public async Task Agent_StreamsGranularAssistantDeltas_ButPersistsOneCompactDelta()
+    {
+        var store = new InMemorySessionStore();
+        var config = DefaultConfig();
+        config.SessionStore = store;
+        var client = new FakeChatClient();
+        client.EnqueueStreamingResponse("Hel", "lo", " world");
+        var agent = CreateAgent(config, client);
+        var session = new HPD.Agent.Session("session-delta-coalescing");
+        var thread = session.CreateThread("test-agent", "main");
+        await store.SaveSessionAsync(session);
+        await store.SaveInitialThreadAsync(session.Id, thread);
+
+        var live = new List<AgentEvent>();
+        await foreach (var evt in agent.RunTurnStreamAsync(
+            [new ChatMessage(ChatRole.User, "say hello")],
+            session,
+            thread,
+            cancellationToken: TestCancellationToken))
+        {
+            live.Add(evt);
+        }
+
+        Assert.Equal(
+            ["Hel", "lo", " world"],
+            live.OfType<TextDeltaEvent>()
+                .Where(delta => delta.ThreadSequenceNumber == 0)
+                .Select(delta => delta.Text));
+
+        var journal = await store.CollectThreadEventsAsync(session.Id, thread.Id, TestCancellationToken);
+        var assistantDeltas = journal!.OfType<TextDeltaEvent>()
+            .Where(delta => delta.Text.Contains("Hello world", StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal("Hello world", Assert.Single(assistantDeltas).Text);
+        Assert.DoesNotContain(journal.OfType<TextDeltaEvent>(), delta => delta.Text is "Hel" or "lo" or " world");
+    }
+
+    [Fact]
+    public async Task Agent_EarlyStreamDisposal_FinalizesTheVisiblePartialDelta()
+    {
+        var store = new InMemorySessionStore();
+        var config = DefaultConfig();
+        config.SessionStore = store;
+        var client = new FakeChatClient();
+        client.EnqueueStreamingResponse("visible", " not-consumed");
+        var agent = CreateAgent(config, client);
+        var session = new HPD.Agent.Session("session-partial-delta");
+        var thread = session.CreateThread("test-agent", "main");
+        await store.SaveSessionAsync(session);
+        await store.SaveInitialThreadAsync(session.Id, thread);
+
+        await using (var stream = agent.RunTurnStreamAsync(
+            [new ChatMessage(ChatRole.User, "start")],
+            session,
+            thread,
+            cancellationToken: TestCancellationToken).GetAsyncEnumerator(TestCancellationToken))
+        {
+            while (await stream.MoveNextAsync())
+            {
+                if (stream.Current is TextDeltaEvent { ThreadSequenceNumber: 0 })
+                    break;
+            }
+        }
+
+        var journal = await store.CollectThreadEventsAsync(session.Id, thread.Id, TestCancellationToken);
+        Assert.Contains(journal!, evt => evt is TextDeltaEvent { Text: "visible" });
+        Assert.Contains(journal!, evt => evt is TextMessageEndEvent);
+        Assert.DoesNotContain(journal!, evt => evt is TextDeltaEvent { Text: " not-consumed" });
+    }
+
+    [Fact]
     public async Task Agent_PersistsToolCallEvents_WhenToolEventsAreStreamed()
     {
         var store = new InMemorySessionStore();

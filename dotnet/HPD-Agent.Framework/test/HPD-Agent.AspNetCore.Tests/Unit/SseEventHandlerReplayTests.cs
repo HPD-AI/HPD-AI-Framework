@@ -121,7 +121,7 @@ public sealed class SseEventHandlerReplayTests
     }
 
     [Fact]
-    public async Task StreamEventsAsync_DoesNotDuplicateSelectedThreadCommittedEventsFromCoordinator()
+    public async Task StreamEventsAsync_DeliversPostBoundaryCommitsOnceFromCoordinator()
     {
         var store = await CreateStoreWithThreadAsync();
         var coordinator = new EventCoordinator();
@@ -145,7 +145,7 @@ public sealed class SseEventHandlerReplayTests
         var body = await ReadBodyAsync(context);
         body.Split(committed.EventId, StringSplitOptions.None).Should().HaveCount(2);
         body.Should().Contain($"id: 1:{committed.ThreadSequenceNumber}\n");
-        body.Should().NotContain("event: live-agent-event\n");
+        body.Should().Contain("event: live-agent-event\n");
     }
 
     private static async Task<InMemorySessionStore> CreateStoreWithThreadAsync()

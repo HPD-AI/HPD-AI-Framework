@@ -24,6 +24,9 @@ internal static class SseEventHandler
         context.Response.Headers.CacheControl = "no-cache";
         context.Response.Headers.Connection = "keep-alive";
 
+        // The live inbox is created before this handler is entered. Capture one finite
+        // journal boundary, replay only through it, and then use the inbox exclusively.
+        // This makes the journal the recovery source and the coordinator the live source.
         var head = await store.GetThreadEventHeadAsync(thread, cancellationToken).ConfigureAwait(false)
             ?? throw new BadHttpRequestException("The requested thread does not exist.");
         var cursor = ParseAppliedCursor(context.Request, head.Generation);
@@ -31,79 +34,67 @@ internal static class SseEventHandler
 
         try
         {
-            await using var observer = store.ObserveThreadEventsAsync(
+            await foreach (var batch in store.ReadThreadEventsAsync(
                 thread,
-                cursor,
-                new ThreadObservationOptions(),
-                cancellationToken).GetAsyncEnumerator(cancellationToken);
+                new ThreadEventReadRequest(cursor, head.ThreadSequenceNumber),
+                cancellationToken).ConfigureAwait(false))
+            {
+                foreach (var evt in batch.Events)
+                {
+                    await WriteJournalEventAsync(context, batch.Generation, evt, cancellationToken)
+                        .ConfigureAwait(false);
+                    cursor = new ThreadJournalCursor(batch.Generation, evt.ThreadSequenceNumber);
+                }
+                await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
 
-            Task<bool>? pendingMove = null;
-            Task<bool>? pendingLive = null;
-            var liveCompleted = false;
             while (!cancellationToken.IsCancellationRequested)
             {
-                pendingMove ??= observer.MoveNextAsync().AsTask();
-                if (!liveCompleted)
-                    pendingLive ??= observation.LiveEvents.Reader.WaitToReadAsync(cancellationToken).AsTask();
+                while (observation.LiveEvents.Reader.TryRead(out var evt))
+                {
+                    var selectedThread = string.Equals(evt.SessionId, thread.SessionId, StringComparison.Ordinal) &&
+                        string.Equals(evt.ThreadId, thread.ThreadId, StringComparison.Ordinal);
+                    var liveGeneration = head.Generation;
+                    if (selectedThread && evt.ThreadSequenceNumber > 0)
+                    {
+                        var liveHead = await store.GetThreadEventHeadAsync(thread, cancellationToken).ConfigureAwait(false)
+                            ?? throw new ThreadDeletedException(thread);
+                        liveGeneration = liveHead.Generation;
+                        if (liveGeneration != head.Generation)
+                        {
+                            await WriteRebasedAsync(
+                                context, head.Generation, liveGeneration, cancellationToken).ConfigureAwait(false);
+                            return;
+                        }
+                    }
+
+                    // The inbox was subscribed before the boundary was captured, so it can
+                    // contain committed events already included in the finite replay.
+                    if (evt.ThreadSequenceNumber > 0 &&
+                        selectedThread &&
+                        evt.ThreadSequenceNumber <= head.ThreadSequenceNumber)
+                        continue;
+
+                    await WriteLiveEventAsync(
+                        context, liveGeneration, evt, selectedThread, cancellationToken).ConfigureAwait(false);
+                    if (evt.ThreadSequenceNumber > 0 && selectedThread)
+                    {
+                        cursor = new ThreadJournalCursor(head.Generation, evt.ThreadSequenceNumber);
+                    }
+                }
+                await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+                var available = observation.LiveEvents.Reader.WaitToReadAsync(cancellationToken).AsTask();
                 var heartbeat = Task.Delay(HeartbeatInterval, cancellationToken);
-                var completed = pendingLive is null
-                    ? await Task.WhenAny(pendingMove, heartbeat).ConfigureAwait(false)
-                    : await Task.WhenAny(pendingMove, pendingLive, heartbeat).ConfigureAwait(false);
-                if (completed == heartbeat)
+                if (await Task.WhenAny(available, heartbeat).ConfigureAwait(false) == heartbeat)
                 {
                     await context.Response.WriteAsync(": heartbeat\n\n", cancellationToken).ConfigureAwait(false);
                     await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
-                if (completed == pendingLive)
-                {
-                    if (!await pendingLive!.ConfigureAwait(false))
-                    {
-                        liveCompleted = true;
-                        pendingLive = null;
-                    }
-                    else
-                    {
-                        pendingLive = null;
-                        while (observation.LiveEvents.Reader.TryRead(out var evt))
-                        {
-                            // Selected-thread committed events are delivered by the canonical journal.
-                            // Stateless selected-thread events and every bubbled descendant event are
-                            // live-only in this observation scope and must cross the hosted boundary.
-                            if (evt.ThreadSequenceNumber > 0 &&
-                                string.Equals(evt.SessionId, thread.SessionId, StringComparison.Ordinal) &&
-                                string.Equals(evt.ThreadId, thread.ThreadId, StringComparison.Ordinal))
-                            {
-                                continue;
-                            }
-
-                            await WriteLiveEventAsync(context, evt, cancellationToken).ConfigureAwait(false);
-                        }
-                        await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
-                    }
-                }
-
-                if (completed == pendingMove)
-                {
-                    if (!await pendingMove.ConfigureAwait(false))
-                        return;
-                    pendingMove = null;
-
-                    foreach (var evt in observer.Current.Events)
-                    {
-                        var json = AgentEventSerializer.ToJson(evt);
-                        await context.Response.WriteAsync(
-                                $"id: {observer.Current.Generation}:{evt.ThreadSequenceNumber}\n",
-                                cancellationToken)
-                            .ConfigureAwait(false);
-                        await context.Response.WriteAsync("event: agent-event\n", cancellationToken)
-                            .ConfigureAwait(false);
-                        await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken)
-                            .ConfigureAwait(false);
-                    }
-                    await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
-                }
+                if (!await available.ConfigureAwait(false))
+                    return;
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -112,13 +103,11 @@ internal static class SseEventHandler
         }
         catch (ThreadJournalReplacedException rebased)
         {
-            await context.Response.WriteAsync("event: thread-journal-rebased\n", cancellationToken)
-                .ConfigureAwait(false);
-            await context.Response.WriteAsync(
-                    $"data: {{\"previousGeneration\":{rebased.PreviousCursor.Generation},\"currentGeneration\":{rebased.CurrentCursor.Generation}}}\n\n",
-                    cancellationToken)
-                .ConfigureAwait(false);
-            await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
+            await WriteRebasedAsync(
+                context,
+                rebased.PreviousCursor.Generation,
+                rebased.CurrentCursor.Generation,
+                cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -131,14 +120,53 @@ internal static class SseEventHandler
 
     private static async Task WriteLiveEventAsync(
         HttpContext context,
+        long generation,
         AgentEvent evt,
+        bool includeJournalCursor,
         CancellationToken cancellationToken)
     {
         var json = AgentEventSerializer.ToJson(evt);
+        if (includeJournalCursor && evt.ThreadSequenceNumber > 0)
+        {
+            await context.Response.WriteAsync(
+                    $"id: {generation}:{evt.ThreadSequenceNumber}\n",
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
         await context.Response.WriteAsync("event: live-agent-event\n", cancellationToken)
             .ConfigureAwait(false);
         await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private static async Task WriteJournalEventAsync(
+        HttpContext context,
+        long generation,
+        AgentEvent evt,
+        CancellationToken cancellationToken)
+    {
+        var json = AgentEventSerializer.ToJson(evt);
+        await context.Response.WriteAsync(
+                $"id: {generation}:{evt.ThreadSequenceNumber}\n",
+                cancellationToken)
+            .ConfigureAwait(false);
+        await context.Response.WriteAsync("event: agent-event\n", cancellationToken).ConfigureAwait(false);
+        await context.Response.WriteAsync($"data: {json}\n\n", cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task WriteRebasedAsync(
+        HttpContext context,
+        long previousGeneration,
+        long currentGeneration,
+        CancellationToken cancellationToken)
+    {
+        await context.Response.WriteAsync("event: thread-journal-rebased\n", cancellationToken)
+            .ConfigureAwait(false);
+        await context.Response.WriteAsync(
+                $"data: {{\"previousGeneration\":{previousGeneration},\"currentGeneration\":{currentGeneration}}}\n\n",
+                cancellationToken)
+            .ConfigureAwait(false);
+        await context.Response.Body.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static ThreadJournalCursor ParseAppliedCursor(HttpRequest request, long currentGeneration)

@@ -687,10 +687,21 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
             yield break;
         }
 
-        await foreach (var batch in store.ObserveThreadEventsAsync(
-            new ThreadKey(scope.SessionId, scope.ThreadId),
-            cursor,
-            new ThreadObservationOptions(),
+        var liveSignals = Channel.CreateUnbounded<AgentEvent>();
+        using var liveSubscription = _agent.SubscribeAny(evt =>
+        {
+            liveSignals.Writer.TryWrite(evt);
+            return ValueTask.CompletedTask;
+        });
+
+        var thread = new ThreadKey(scope.SessionId, scope.ThreadId);
+        var head = await store.GetThreadEventHeadAsync(thread, cancellationToken).ConfigureAwait(false);
+        if (head is null)
+            yield break;
+
+        await foreach (var batch in store.ReadThreadEventsAsync(
+            thread,
+            new ThreadEventReadRequest(cursor, head.ThreadSequenceNumber),
             cancellationToken).ConfigureAwait(false))
         {
             var catchUp = batch.Events
@@ -710,6 +721,42 @@ public sealed class InMemoryAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSess
                 yield return CreateDeliveryBatch(live, AgentTuiEventDeliveryMode.Live, initialObservedCursor, batch.Generation);
                 cursor = new ThreadJournalCursor(batch.Generation, live[^1].ThreadSequenceNumber);
             }
+        }
+
+        await foreach (var evt in liveSignals.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!IsInScope(evt, scope))
+                continue;
+            var selectedThread = StringComparer.Ordinal.Equals(evt.SessionId, scope.SessionId) &&
+                StringComparer.Ordinal.Equals(evt.ThreadId, scope.ThreadId);
+            if (evt.ThreadSequenceNumber > 0 && selectedThread)
+            {
+                var liveHead = await store.GetThreadEventHeadAsync(thread, cancellationToken).ConfigureAwait(false);
+                if (liveHead is null)
+                    yield break;
+                if (liveHead.Generation != head.Generation)
+                {
+                    throw new ThreadJournalReplacedException(
+                        thread,
+                        new ThreadJournalCursor(head.Generation, cursor.SequenceNumber),
+                        ThreadJournalCursor.Start(liveHead.Generation));
+                }
+            }
+            if (evt.ThreadSequenceNumber > 0 && selectedThread &&
+                evt.ThreadSequenceNumber <= head.ThreadSequenceNumber)
+                continue;
+
+            var first = evt.ThreadSequenceNumber > 0 && selectedThread
+                ? new ThreadJournalCursor(head.Generation, evt.ThreadSequenceNumber)
+                : cursor;
+            yield return new AgentTuiEventBatch(
+                [evt],
+                AgentTuiEventDeliveryMode.Live,
+                initialObservedCursor,
+                first,
+                first);
+            if (evt.ThreadSequenceNumber > 0 && selectedThread)
+                cursor = first;
         }
     }
 

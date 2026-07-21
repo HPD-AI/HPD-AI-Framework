@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -19,7 +20,7 @@ public sealed record FileSessionStoreDiagnostics(
 /// Segmented, append-oriented local-file implementation of the canonical thread journal.
 /// This is a new storage format; it does not read the removed JsonSessionStore layout.
 /// </summary>
-public sealed class FileSessionStore : ISessionStore
+public sealed class FileSessionStore : ISessionStore, IThreadDeltaStore
 {
     private const string DescriptorSchema = "hpd.agent.thread-descriptor";
     private const int DescriptorVersion = 2;
@@ -27,11 +28,191 @@ public sealed class FileSessionStore : ISessionStore
     private readonly string _basePath;
     private readonly FileSessionStoreOptions _options;
     private readonly ConcurrentDictionary<ThreadKey, ThreadRuntime> _runtimes = new();
+    private readonly ConcurrentDictionary<ThreadKey, byte> _recoveredPendingDeltas = new();
+    private readonly ConcurrentDictionary<ThreadKey, SemaphoreSlim> _pendingRecoveryGates = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionGates = new(StringComparer.Ordinal);
     private long _segmentReadCount;
     private long _segmentBytesRead;
     private long _eventDecodeCount;
     private long _observationWaitCount;
+
+    /// <inheritdoc />
+    public async ValueTask StageThreadDeltaAsync(
+        ThreadKey thread,
+        AgentEvent delta,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateThreadKey(thread);
+        await EnsurePendingDeltasRecoveredAsync(thread, cancellationToken).ConfigureAwait(false);
+        _ = GetPendingIdentity(delta);
+        var path = GetPendingDeltaPath(thread, delta);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var frame = JsonSerializer.Serialize<AgentEvent>(
+            delta with { ThreadSequenceNumber = 0 }, ThreadEventJson.CompactOptions) + "\n";
+        var bytes = Encoding.UTF8.GetBytes(frame);
+        await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read, 16 * 1024, true);
+        await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        if (_options.FlushToDiskOnCommit)
+            stream.Flush(true);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<ThreadEventAppendResult> FinalizeThreadDeltasAsync(
+        ThreadKey thread,
+        AgentEvent messageEnd,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateThreadKey(thread);
+        var path = GetPendingDeltaPath(thread, messageEnd);
+        var deltas = await ReadPendingDeltasAsync(path, cancellationToken).ConfigureAwait(false);
+        var events = ThreadDeltaCoalescer.Coalesce(deltas, messageEnd);
+        var result = await AppendThreadEventsAsync(thread, events, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        if (File.Exists(path))
+            File.Delete(path);
+        DeletePendingDirectoryIfEmpty(thread);
+        return result;
+    }
+
+    /// <inheritdoc />
+    public async ValueTask RecoverThreadDeltasAsync(
+        ThreadKey thread,
+        CancellationToken cancellationToken = default)
+    {
+        var directory = Path.Combine(GetThreadPath(thread), "pending-deltas");
+        if (!Directory.Exists(directory))
+            return;
+
+        foreach (var path in Directory.EnumerateFiles(directory, "*.events").OrderBy(static path => path, StringComparer.Ordinal))
+        {
+            var deltas = await ReadPendingDeltasAsync(path, cancellationToken).ConfigureAwait(false);
+            if (deltas.Count == 0)
+            {
+                File.Delete(path);
+                continue;
+            }
+
+            var first = deltas[0];
+            if (await JournalContainsEventIdAsync(thread, first.EventId, cancellationToken).ConfigureAwait(false))
+            {
+                File.Delete(path);
+                continue;
+            }
+
+            AgentEvent messageEnd = first switch
+            {
+                TextDeltaEvent text => new TextMessageEndEvent(text.MessageId),
+                ReasoningDeltaEvent reasoning => new ReasoningMessageEndEvent(reasoning.MessageId),
+                _ => throw new InvalidDataException($"Pending delta file '{path}' contains an unsupported event.")
+            };
+            messageEnd = messageEnd with
+            {
+                EventId = $"{first.EventId}-recovered-end",
+                SessionId = first.SessionId,
+                ThreadId = first.ThreadId,
+                Metadata = first.Metadata,
+                TraceId = first.TraceId,
+                SpanId = first.SpanId,
+                ParentSpanId = first.ParentSpanId,
+                EventFlowId = first.EventFlowId
+            };
+            await AppendThreadEventsAsync(
+                thread,
+                ThreadDeltaCoalescer.Coalesce(deltas, messageEnd),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            File.Delete(path);
+        }
+        DeletePendingDirectoryIfEmpty(thread);
+    }
+
+    private async ValueTask<bool> JournalContainsEventIdAsync(
+        ThreadKey thread,
+        string eventId,
+        CancellationToken cancellationToken)
+    {
+        var path = GetIndexPath(thread);
+        if (!File.Exists(path))
+            return false;
+        foreach (var line in await File.ReadAllLinesAsync(path, cancellationToken).ConfigureAwait(false))
+        {
+            var parts = line.Split('\t');
+            if (parts.Length >= 2 && StringComparer.Ordinal.Equals(parts[1], eventId))
+                return true;
+        }
+        return false;
+    }
+
+    private async ValueTask EnsurePendingDeltasRecoveredAsync(
+        ThreadKey thread,
+        CancellationToken cancellationToken)
+    {
+        if (_recoveredPendingDeltas.ContainsKey(thread))
+            return;
+        var gate = _pendingRecoveryGates.GetOrAdd(thread, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_recoveredPendingDeltas.ContainsKey(thread))
+                return;
+            await RecoverThreadDeltasAsync(thread, cancellationToken).ConfigureAwait(false);
+            _recoveredPendingDeltas.TryAdd(thread, 0);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async ValueTask<IReadOnlyList<AgentEvent>> ReadPendingDeltasAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(path))
+            return [];
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+        if (bytes.Length > 0 && bytes[^1] != (byte)'\n')
+        {
+            var lastNewline = Array.LastIndexOf(bytes, (byte)'\n');
+            await using var repair = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.Read);
+            repair.SetLength(lastNewline + 1L);
+            repair.Flush(_options.FlushToDiskOnCommit);
+            bytes = bytes.AsSpan(0, lastNewline + 1).ToArray();
+        }
+
+        var events = new List<AgentEvent>();
+        foreach (var line in Encoding.UTF8.GetString(bytes).Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+            events.Add(JsonSerializer.Deserialize<AgentEvent>(line, ThreadEventJson.Options)
+                ?? throw new InvalidDataException($"Pending delta frame '{path}' is empty."));
+        }
+        return events;
+    }
+
+    private string GetPendingDeltaPath(ThreadKey thread, AgentEvent evt)
+    {
+        var (messageId, kind) = GetPendingIdentity(evt);
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(messageId))).ToLowerInvariant();
+        return Path.Combine(GetThreadPath(thread), "pending-deltas", $"{key}.{kind}.events");
+    }
+
+    private static (string MessageId, string Kind) GetPendingIdentity(AgentEvent evt) => evt switch
+    {
+        TextDeltaEvent delta => (delta.MessageId, "text"),
+        TextMessageEndEvent end => (end.MessageId, "text"),
+        ReasoningDeltaEvent delta => (delta.MessageId, "reasoning"),
+        ReasoningMessageEndEvent end => (end.MessageId, "reasoning"),
+        _ => throw new ArgumentException("Event is not a supported delta or message boundary.", nameof(evt))
+    };
+
+    private void DeletePendingDirectoryIfEmpty(ThreadKey thread)
+    {
+        var directory = Path.Combine(GetThreadPath(thread), "pending-deltas");
+        if (Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
+            Directory.Delete(directory);
+    }
 
     public FileSessionStore(string basePath, FileSessionStoreOptions? options = null)
     {
@@ -139,12 +320,13 @@ public sealed class FileSessionStore : ISessionStore
         return GetRuntime(thread).ReplaceAsync(proposed, expectedCursor, cancellationToken);
     }
 
-    public ValueTask<ThreadDescriptor?> GetThreadAsync(ThreadKey thread, CancellationToken cancellationToken = default)
+    public async ValueTask<ThreadDescriptor?> GetThreadAsync(ThreadKey thread, CancellationToken cancellationToken = default)
     {
         ValidateThreadKey(thread);
-        return ThreadExists(thread)
-            ? GetRuntime(thread).GetDescriptorAsync(cancellationToken)
-            : ValueTask.FromResult<ThreadDescriptor?>(null);
+        if (!ThreadExists(thread))
+            return null;
+        await EnsurePendingDeltasRecoveredAsync(thread, cancellationToken).ConfigureAwait(false);
+        return await GetRuntime(thread).GetDescriptorAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async IAsyncEnumerable<ThreadDescriptor> ListThreadsAsync(
@@ -183,12 +365,13 @@ public sealed class FileSessionStore : ISessionStore
         }
     }
 
-    public ValueTask<ThreadEventHead?> GetThreadEventHeadAsync(ThreadKey thread, CancellationToken cancellationToken = default)
+    public async ValueTask<ThreadEventHead?> GetThreadEventHeadAsync(ThreadKey thread, CancellationToken cancellationToken = default)
     {
         ValidateThreadKey(thread);
-        return ThreadExists(thread)
-            ? GetRuntime(thread).GetHeadAsync(cancellationToken)
-            : ValueTask.FromResult<ThreadEventHead?>(null);
+        if (!ThreadExists(thread))
+            return null;
+        await EnsurePendingDeltasRecoveredAsync(thread, cancellationToken).ConfigureAwait(false);
+        return await GetRuntime(thread).GetHeadAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async IAsyncEnumerable<ThreadEventBatch> ReadThreadEventsAsync(
@@ -200,6 +383,7 @@ public sealed class FileSessionStore : ISessionStore
         ValidateReadRequest(request);
         if (!ThreadExists(thread))
             yield break;
+        await EnsurePendingDeltasRecoveredAsync(thread, cancellationToken).ConfigureAwait(false);
 
         var runtime = GetRuntime(thread);
         var boundary = await runtime.CaptureReadBoundaryAsync(request.After, request.Through, cancellationToken).ConfigureAwait(false);
@@ -244,6 +428,7 @@ public sealed class FileSessionStore : ISessionStore
             throw new ArgumentOutOfRangeException(nameof(options));
         if (!ThreadExists(thread))
             yield break;
+        await EnsurePendingDeltasRecoveredAsync(thread, cancellationToken).ConfigureAwait(false);
 
         var runtime = GetRuntime(thread);
         var cursor = after;

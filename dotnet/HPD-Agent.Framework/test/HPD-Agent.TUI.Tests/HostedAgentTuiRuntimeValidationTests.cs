@@ -233,6 +233,51 @@ public sealed class HostedAgentTuiRuntimeValidationTests
         handler.Requests.Should().Equal("?after=1:4", "?after=1:4");
     }
 
+    [Fact]
+    public async Task ObserveAsync_CommittedSelectedThreadLiveEventAdvancesReconnectCursor()
+    {
+        var live = new TextMessageEndEvent("message-live")
+        {
+            SessionId = "session",
+            ThreadId = "main",
+            ThreadSequenceNumber = 6
+        };
+        var next = new ThreadRunCompletedEvent("run-1", "agent", Cancelled: false)
+        {
+            SessionId = "session",
+            ThreadId = "main",
+            ThreadSequenceNumber = 7
+        };
+        var handler = new RawSequentialSseHandler(
+            $"id: 1:6\nevent: live-agent-event\ndata: {AgentEventSerializer.ToJson(live)}\n\n",
+            $"id: 1:7\nevent: agent-event\ndata: {AgentEventSerializer.ToJson(next)}\n\n");
+        using var http = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
+        };
+        await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
+        {
+            BaseAddress = http.BaseAddress
+        });
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var batches = new List<AgentTuiEventBatch>();
+
+        await foreach (var batch in runtime.ObserveAsync(
+            new AgentTuiRuntimeScope("agent", "session", "main"),
+            after: new ThreadJournalCursor(1, 5),
+            initialObservedCursor: new ThreadJournalCursor(1, 5),
+            cancellationToken: timeout.Token))
+        {
+            batches.Add(batch);
+            if (batches.Count == 2)
+                break;
+        }
+
+        batches[0].LastCursor.Should().Be(new ThreadJournalCursor(1, 6));
+        batches[1].LastCursor.Should().Be(new ThreadJournalCursor(1, 7));
+        handler.Requests.Should().Equal("?after=1:5", "?after=1:6");
+    }
+
     private sealed class JsonHandler(string json) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(

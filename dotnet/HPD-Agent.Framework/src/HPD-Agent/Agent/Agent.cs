@@ -771,6 +771,106 @@ public sealed class Agent
             cancellationToken).ConfigureAwait(false);
     }
 
+    private async Task<AgentEvent> StageAgentThreadDeltaAsync(
+        Thread thread,
+        AgentEvent evt,
+        string? messageTurnId,
+        string? conversationId,
+        int iteration,
+        int inputMessageCount,
+        bool isResume,
+        int turnMessageCount,
+        HPD.Events.IEventCoordinator eventCoordinator,
+        CancellationToken cancellationToken)
+    {
+        var threadEvent = CreateAgentThreadEvent(
+            thread, evt, messageTurnId, conversationId, iteration,
+            inputMessageCount, isResume, turnMessageCount);
+        var publisher = new ThreadEventPublisher(Config!.SessionStore!, eventCoordinator);
+        return await publisher.StageAndPublishDeltaAsync(
+            new ThreadKey(thread.SessionId, thread.Id), threadEvent, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<AgentEvent> FinalizeAgentThreadDeltasAsync(
+        Thread thread,
+        AgentEvent evt,
+        string? messageTurnId,
+        string? conversationId,
+        int iteration,
+        int inputMessageCount,
+        bool isResume,
+        int turnMessageCount,
+        HPD.Events.IEventCoordinator eventCoordinator,
+        CancellationToken cancellationToken)
+    {
+        var threadEvent = CreateAgentThreadEvent(
+            thread, evt, messageTurnId, conversationId, iteration,
+            inputMessageCount, isResume, turnMessageCount);
+        var publisher = new ThreadEventPublisher(Config!.SessionStore!, eventCoordinator);
+        var result = await publisher.FinalizeAndPublishDeltasAsync(
+            new ThreadKey(thread.SessionId, thread.Id), threadEvent, cancellationToken).ConfigureAwait(false);
+        return result.CommittedEvents[^1];
+    }
+
+    private async Task FinalizeOutstandingAgentDeltasAsync(
+        Thread? thread,
+        HashSet<string> stagedTextMessages,
+        HashSet<string> stagedReasoningMessages,
+        string? messageTurnId,
+        string? conversationId,
+        int iteration,
+        int inputMessageCount,
+        bool isResume,
+        int turnMessageCount,
+        HPD.Events.IEventCoordinator eventCoordinator)
+    {
+        if (thread is null || Config?.SessionStore is not IThreadDeltaStore)
+            return;
+
+        foreach (var messageId in stagedTextMessages.ToArray())
+        {
+            await FinalizeAgentThreadDeltasAsync(
+                thread, new TextMessageEndEvent(messageId), messageTurnId, conversationId,
+                iteration, inputMessageCount, isResume, turnMessageCount,
+                eventCoordinator, CancellationToken.None).ConfigureAwait(false);
+            stagedTextMessages.Remove(messageId);
+        }
+        foreach (var messageId in stagedReasoningMessages.ToArray())
+        {
+            await FinalizeAgentThreadDeltasAsync(
+                thread, new ReasoningMessageEndEvent(messageId), messageTurnId, conversationId,
+                iteration, inputMessageCount, isResume, turnMessageCount,
+                eventCoordinator, CancellationToken.None).ConfigureAwait(false);
+            stagedReasoningMessages.Remove(messageId);
+        }
+    }
+
+    private AgentEvent CreateAgentThreadEvent(
+        Thread thread,
+        AgentEvent evt,
+        string? messageTurnId,
+        string? conversationId,
+        int iteration,
+        int inputMessageCount,
+        bool isResume,
+        int turnMessageCount)
+    {
+        evt = EnrichOutputEvent(evt);
+        return ThreadEventFactory.FromAgentEvent(
+            thread.SessionId,
+            thread.Id,
+            evt,
+            messageTurnId,
+            conversationId,
+            iteration,
+            inputMessageCount,
+            isResume,
+            null,
+            turnMessageCount)
+            ?? throw new InvalidOperationException(
+                $"Canonical event '{evt.GetType().Name}' could not be scoped to thread '{thread.Id}'.");
+    }
+
     private async Task PersistAgentEventContentAsync(
         Session? session,
         AgentEvent evt,
@@ -3814,31 +3914,40 @@ public sealed class Agent
         var currentIteration = 0;
         var isResume = inputMessages.Count == 0 && thread?.Messages.Count > 0;
         var turnFinished = false;
+        var stagedTextMessages = new HashSet<string>(StringComparer.Ordinal);
+        var stagedReasoningMessages = new HashSet<string>(StringComparer.Ordinal);
 
-        while (true)
+        try
         {
-            AgentEvent evt;
-            try
+            while (true)
             {
-                if (!await enumerator.MoveNextAsync().ConfigureAwait(false))
-                    break;
-
-                evt = enumerator.Current;
-            }
-            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                if (!turnFinished)
+                AgentEvent evt;
+                try
                 {
-                    await AppendThreadFailureRuntimeEventAsync(
-                        thread,
-                        messageTurnId,
-                        conversationId,
-                        ex,
-                        eventCoordinator).ConfigureAwait(false);
-                }
+                    if (!await enumerator.MoveNextAsync().ConfigureAwait(false))
+                        break;
 
-                throw;
-            }
+                    evt = enumerator.Current;
+                }
+                catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+                {
+                    await FinalizeOutstandingAgentDeltasAsync(
+                        thread, stagedTextMessages, stagedReasoningMessages,
+                        messageTurnId, conversationId, currentIteration,
+                        inputMessages.Count, isResume, turnHistory.Count,
+                        eventCoordinator).ConfigureAwait(false);
+                    if (!turnFinished)
+                    {
+                        await AppendThreadFailureRuntimeEventAsync(
+                            thread,
+                            messageTurnId,
+                            conversationId,
+                            ex,
+                            eventCoordinator).ConfigureAwait(false);
+                    }
+
+                    throw;
+                }
 
             if (evt is MessageTurnStartedEvent started)
             {
@@ -3858,18 +3967,51 @@ public sealed class Agent
                 turnFinished = true;
             }
 
-            var outputEvent = await CommitAgentThreadEventAsync(
-                thread,
-                evt,
-                messageTurnId,
-                conversationId,
-                currentIteration,
-                inputMessages.Count,
-                isResume,
-                null,
-                turnHistory.Count,
-                eventCoordinator,
-                cancellationToken).ConfigureAwait(false);
+            if (evt is TextMessageStartEvent
+                {
+                    Source: AgentMessageSource.AssistantOutput,
+                    Persistence: AgentMessagePersistence.ThreadHistory
+                } textStart)
+            {
+                stagedTextMessages.Add(textStart.MessageId);
+            }
+            else if (evt is ReasoningMessageStartEvent reasoningStart &&
+                     StringComparer.OrdinalIgnoreCase.Equals(reasoningStart.Role, "assistant"))
+            {
+                stagedReasoningMessages.Add(reasoningStart.MessageId);
+            }
+
+            var useStagedDeltaLifecycle = thread is not null && Config?.SessionStore is IThreadDeltaStore;
+            AgentEvent outputEvent;
+            if (useStagedDeltaLifecycle &&
+                (evt is TextDeltaEvent textDelta && stagedTextMessages.Contains(textDelta.MessageId) ||
+                 evt is ReasoningDeltaEvent reasoningDelta && stagedReasoningMessages.Contains(reasoningDelta.MessageId)))
+            {
+                outputEvent = await StageAgentThreadDeltaAsync(
+                    thread!, evt, messageTurnId, conversationId, currentIteration,
+                    inputMessages.Count, isResume, turnHistory.Count, eventCoordinator,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            else if (useStagedDeltaLifecycle &&
+                     (evt is TextMessageEndEvent textEnd && stagedTextMessages.Contains(textEnd.MessageId) ||
+                      evt is ReasoningMessageEndEvent reasoningEnd && stagedReasoningMessages.Contains(reasoningEnd.MessageId)))
+            {
+                outputEvent = await FinalizeAgentThreadDeltasAsync(
+                    thread!, evt, messageTurnId, conversationId, currentIteration,
+                    inputMessages.Count, isResume, turnHistory.Count, eventCoordinator,
+                    cancellationToken).ConfigureAwait(false);
+                if (evt is TextMessageEndEvent completedText)
+                    stagedTextMessages.Remove(completedText.MessageId);
+                else if (evt is ReasoningMessageEndEvent completedReasoning)
+                    stagedReasoningMessages.Remove(completedReasoning.MessageId);
+            }
+            else
+            {
+                outputEvent = await CommitAgentThreadEventAsync(
+                    thread, evt, messageTurnId, conversationId, currentIteration,
+                    inputMessages.Count, isResume, null, turnHistory.Count,
+                    eventCoordinator, cancellationToken).ConfigureAwait(false);
+            }
 
             await PersistAgentEventContentAsync(
                 session,
@@ -3885,6 +4027,11 @@ public sealed class Agent
                 }
                 catch (Exception ex) when (!turnFinished && !cancellationToken.IsCancellationRequested)
                 {
+                    await FinalizeOutstandingAgentDeltasAsync(
+                        thread, stagedTextMessages, stagedReasoningMessages,
+                        messageTurnId, conversationId, currentIteration,
+                        inputMessages.Count, isResume, turnHistory.Count,
+                        eventCoordinator).ConfigureAwait(false);
                     await AppendThreadFailureRuntimeEventAsync(
                         thread,
                         messageTurnId,
@@ -3895,7 +4042,16 @@ public sealed class Agent
                 }
             }
 
-            yield return outputEvent;
+                yield return outputEvent;
+            }
+        }
+        finally
+        {
+            await FinalizeOutstandingAgentDeltasAsync(
+                thread, stagedTextMessages, stagedReasoningMessages,
+                messageTurnId, conversationId, currentIteration,
+                inputMessages.Count, isResume, turnHistory.Count,
+                eventCoordinator).ConfigureAwait(false);
         }
     }
 

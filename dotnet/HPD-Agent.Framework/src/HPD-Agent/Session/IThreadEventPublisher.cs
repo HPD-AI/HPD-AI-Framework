@@ -23,6 +23,18 @@ public interface IThreadEventPublisher
         ThreadAppendCondition condition = default,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Stages a progressive delta durably and publishes its sequence-zero live form.</summary>
+    ValueTask<AgentEvent> StageAndPublishDeltaAsync(
+        ThreadKey thread,
+        AgentEvent delta,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Commits compact staged deltas plus their boundary and publishes only the boundary live.</summary>
+    ValueTask<ThreadEventAppendResult> FinalizeAndPublishDeltasAsync(
+        ThreadKey thread,
+        AgentEvent messageEnd,
+        CancellationToken cancellationToken = default);
+
     ValueTask<ThreadJournalReplaceResult> ReplaceAndPublishAsync(
         ThreadKey thread,
         IReadOnlyList<AgentEvent> replacementEvents,
@@ -92,6 +104,41 @@ public sealed class ThreadEventPublisher : IThreadEventPublisher
         foreach (var committed in result.CommittedEvents)
             await _coordinator.EmitAsync(committed, cancellationToken).ConfigureAwait(false);
 
+        return result;
+    }
+
+    public async ValueTask<AgentEvent> StageAndPublishDeltaAsync(
+        ThreadKey thread,
+        AgentEvent delta,
+        CancellationToken cancellationToken = default)
+    {
+        if (_store is not IThreadDeltaStore deltaStore)
+            return await CommitAndPublishAsync(thread, delta, cancellationToken).ConfigureAwait(false);
+
+        var scoped = ThreadEventValidation.PrepareForAppend(thread.SessionId, thread.ThreadId, delta) with
+        {
+            ThreadSequenceNumber = 0
+        };
+        _ = JsonSerializer.Serialize<AgentEvent>(scoped, ThreadEventJson.CompactOptions);
+        await deltaStore.StageThreadDeltaAsync(thread, scoped, cancellationToken).ConfigureAwait(false);
+        await _coordinator.EmitAsync(scoped, cancellationToken).ConfigureAwait(false);
+        return scoped;
+    }
+
+    public async ValueTask<ThreadEventAppendResult> FinalizeAndPublishDeltasAsync(
+        ThreadKey thread,
+        AgentEvent messageEnd,
+        CancellationToken cancellationToken = default)
+    {
+        if (_store is not IThreadDeltaStore deltaStore)
+            return await CommitAndPublishAsync(thread, [messageEnd], cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+        var scoped = ThreadEventValidation.PrepareForAppend(thread.SessionId, thread.ThreadId, messageEnd);
+        _ = JsonSerializer.Serialize<AgentEvent>(scoped, ThreadEventJson.CompactOptions);
+        var result = await deltaStore.FinalizeThreadDeltasAsync(thread, scoped, cancellationToken)
+            .ConfigureAwait(false);
+        await _coordinator.EmitAsync(result.CommittedEvents[^1], cancellationToken).ConfigureAwait(false);
         return result;
     }
 
