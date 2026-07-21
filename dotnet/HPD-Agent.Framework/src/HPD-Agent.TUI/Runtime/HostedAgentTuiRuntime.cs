@@ -769,10 +769,12 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         var disposition = ParseInputDisposition(GetRequiredString(document.RootElement, "disposition"));
-        var threadExecutionId = document.RootElement.TryGetProperty("threadExecutionId", out var executionIdElement)
+        var threadExecutionId = document.RootElement.TryGetProperty("threadExecutionId", out var executionIdElement) &&
+            executionIdElement.ValueKind == JsonValueKind.String
             ? executionIdElement.GetString()
             : null;
         var startedAt = document.RootElement.TryGetProperty("startedAt", out var startedAtElement) &&
+            startedAtElement.ValueKind == JsonValueKind.String &&
             startedAtElement.TryGetDateTimeOffset(out var parsedStartedAt)
                 ? parsedStartedAt
                 : DateTimeOffset.UtcNow;

@@ -143,6 +143,41 @@ public sealed class HostedAgentTuiRuntimeValidationTests
     }
 
     [Fact]
+    public async Task SubmitInputAsync_AcceptsNullableControlResultFields()
+    {
+        using var http = new HttpClient(new JsonHandler("""
+            {
+              "disposition": "no_active_execution",
+              "threadExecutionId": null,
+              "startedAt": null,
+              "activeExecution": null
+            }
+            """))
+        {
+            BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
+        };
+        await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
+        {
+            BaseAddress = http.BaseAddress
+        });
+        var scope = new AgentTuiRuntimeScope("agent", "session", "main");
+
+        var result = await runtime.SubmitInputAsync(
+            scope,
+            new SteeringInputEvent
+            {
+                AgentId = scope.AgentId,
+                SessionId = scope.SessionId,
+                ThreadId = scope.ThreadId,
+                ThreadExecutionId = "stale-execution"
+            });
+
+        result.Disposition.Should().Be(AgentInputDisposition.NoActiveExecution);
+        result.ThreadExecutionId.Should().BeNull();
+        result.ActiveExecution.Should().BeNull();
+    }
+
+    [Fact]
     public async Task ObserveAsync_ReconnectsAfterEofUsingLastCommittedSequence()
     {
         var first = new ThreadExecutionStartedEvent("run-1", "agent", DateTimeOffset.UtcNow)
