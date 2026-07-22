@@ -354,7 +354,7 @@ public class ErrorHandlingConfig
     public bool NormalizeErrors { get; set; } = true;
     public bool IncludeProviderDetails { get; set; } = false;
     public int MaxRetries { get; set; } = 3;
-    public TimeSpan? SingleFunctionTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    public TimeSpan? SingleFunctionTimeout { get; set; } // null by default; opt in explicitly
     public TimeSpan RetryDelay { get; set; } = TimeSpan.FromSeconds(1);
 
     // NEW: Provider-aware settings
@@ -521,7 +521,7 @@ var agent = await new AgentBuilder()
 // - Auto-detects OpenAI provider
 // - Respects Retry-After headers
 // - Intelligent retry decisions
-// - Timeouts enforced
+// - Function timeouts remain disabled unless explicitly configured
 // - Errors sanitized for LLM
 // - No configuration needed!
 ```

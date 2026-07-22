@@ -1408,12 +1408,27 @@ public sealed class HostedAgentTuiRuntime : IHpdAgentTuiRuntime, IAgentTuiSessio
         JsonElement element,
         string propertyName,
         TEnum fallback)
-        where TEnum : struct
-        => element.TryGetProperty(propertyName, out var property) &&
-           property.ValueKind == JsonValueKind.String &&
-           Enum.TryParse<TEnum>(property.GetString(), ignoreCase: true, out var value)
-            ? value
-            : fallback;
+        where TEnum : struct, Enum
+    {
+        if (!element.TryGetProperty(propertyName, out var property))
+            return fallback;
+
+        if (property.ValueKind == JsonValueKind.String &&
+            Enum.TryParse<TEnum>(property.GetString(), ignoreCase: true, out var namedValue) &&
+            Enum.IsDefined(namedValue))
+        {
+            return namedValue;
+        }
+
+        if (property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var numericValue))
+        {
+            var value = (TEnum)Enum.ToObject(typeof(TEnum), numericValue);
+            if (Enum.IsDefined(value))
+                return value;
+        }
+
+        return fallback;
+    }
 
     private static bool? GetOptionalBoolean(JsonElement element, string propertyName)
         => element.TryGetProperty(propertyName, out var property) && property.ValueKind is JsonValueKind.True or JsonValueKind.False

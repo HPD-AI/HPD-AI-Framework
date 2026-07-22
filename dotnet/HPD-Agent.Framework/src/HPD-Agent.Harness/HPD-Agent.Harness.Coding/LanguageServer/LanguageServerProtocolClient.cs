@@ -70,6 +70,16 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
     internal JsonObject UnregisterCapabilityForTesting(JsonNode? parameters)
         => HandleUnregisterCapability(parameters);
 
+    internal JsonObject CreateInitializeParametersForTesting()
+        => CreateInitializeParameters();
+
+    internal JsonArray HandleWorkspaceConfigurationForTesting(JsonNode? parameters)
+        => HandleWorkspaceConfiguration(parameters);
+
+    internal IReadOnlyList<LanguageServerDynamicRegistration> GetDiagnosticRegistrationsForTesting(
+        bool requireWorkspaceDiagnostics)
+        => GetDiagnosticRegistrations(requireWorkspaceDiagnostics);
+
     internal LanguageServerDiagnosticPullResult ParseDocumentDiagnosticReportForTesting(
         string path,
         string uri,
@@ -371,6 +381,19 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
 
     private async ValueTask InitializeAsync(CancellationToken cancellationToken)
     {
+        var parameters = CreateInitializeParameters();
+        var result = await SendRequestAsync(
+            "initialize",
+            parameters,
+            TimeSpan.FromSeconds(45),
+            cancellationToken).ConfigureAwait(false);
+
+        Capabilities = ParseServerCapabilities(result);
+        await SendNotificationAsync("initialized", new JsonObject(), cancellationToken).ConfigureAwait(false);
+    }
+
+    private JsonObject CreateInitializeParameters()
+    {
         var initializationOptions = new JsonObject();
         foreach (var pair in _launchDescriptor.InitializationOptions)
             initializationOptions[pair.Key] = ToJsonNode(pair.Value);
@@ -388,21 +411,14 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
             ["name"] = Path.GetFileName(_root)
         });
 
-        var result = await SendRequestAsync(
-            "initialize",
-            new JsonObject
-            {
-                ["processId"] = Environment.ProcessId,
-                ["rootUri"] = new Uri(_root).AbsoluteUri,
-                ["workspaceFolders"] = workspaceFolders,
-                ["capabilities"] = CreateClientCapabilities(),
-                ["initializationOptions"] = initializationOptions
-            },
-            TimeSpan.FromSeconds(45),
-            cancellationToken).ConfigureAwait(false);
-
-        Capabilities = ParseServerCapabilities(result);
-        await SendNotificationAsync("initialized", new JsonObject(), cancellationToken).ConfigureAwait(false);
+        return new JsonObject
+        {
+            ["processId"] = Environment.ProcessId,
+            ["rootUri"] = new Uri(_root).AbsoluteUri,
+            ["workspaceFolders"] = workspaceFolders,
+            ["capabilities"] = CreateClientCapabilities(),
+            ["initializationOptions"] = initializationOptions
+        };
     }
 
     private JsonObject CreateClientCapabilities()
@@ -906,11 +922,11 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
         return result;
     }
 
-    private LanguageServerDynamicRegistration[] GetDiagnosticRegistrations(bool workspaceDiagnostics)
+    private LanguageServerDynamicRegistration[] GetDiagnosticRegistrations(bool requireWorkspaceDiagnostics)
         => _dynamicRegistrations.Values
             .Where(registration =>
                 registration.Method == "textDocument/diagnostic" &&
-                registration.WorkspaceDiagnostics == workspaceDiagnostics)
+                (!requireWorkspaceDiagnostics || registration.WorkspaceDiagnostics))
             .ToArray();
 
     private int GetDiagnosticRegistrationVersion()
@@ -1007,7 +1023,7 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
         LanguageServerDiagnosticRequest request,
         CancellationToken cancellationToken)
     {
-        var registrations = GetDiagnosticRegistrations(workspaceDiagnostics: false);
+        var registrations = GetDiagnosticRegistrations(requireWorkspaceDiagnostics: false);
         if (!Capabilities.DocumentDiagnostics && registrations.Length == 0)
             return LanguageServerDiagnosticPullResult.NotHandled;
 
@@ -1029,13 +1045,13 @@ internal sealed class LanguageServerProtocolClient : IAsyncDisposable
         if (Capabilities.DocumentDiagnostics)
             tasks.Add(RequestDocumentDiagnosticReportAsync(request, identifier: null, cancellationToken).AsTask());
 
-        foreach (var registration in GetDiagnosticRegistrations(workspaceDiagnostics: false))
+        foreach (var registration in GetDiagnosticRegistrations(requireWorkspaceDiagnostics: false))
             tasks.Add(RequestDocumentDiagnosticReportAsync(request, registration.Identifier, cancellationToken).AsTask());
 
         if (Capabilities.WorkspaceDiagnostics)
             tasks.Add(RequestWorkspaceDiagnosticReportAsync(request, identifier: null, cancellationToken).AsTask());
 
-        foreach (var registration in GetDiagnosticRegistrations(workspaceDiagnostics: true))
+        foreach (var registration in GetDiagnosticRegistrations(requireWorkspaceDiagnostics: true))
             tasks.Add(RequestWorkspaceDiagnosticReportAsync(request, registration.Identifier, cancellationToken).AsTask());
 
         return await MergePullResultsAsync(request.Path, tasks).ConfigureAwait(false);

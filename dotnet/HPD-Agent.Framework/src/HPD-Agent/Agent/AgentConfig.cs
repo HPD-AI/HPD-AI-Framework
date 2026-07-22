@@ -925,9 +925,11 @@ public class ErrorHandlingConfig
     public int MaxRetries { get; set; } = 3;
 
     /// <summary>
-    /// Timeout for a single function execution (default: 30 seconds)
+    /// Optional timeout for a single function execution.
+    /// The default is <c>null</c>, which allows functions to run until the caller cancels them.
+    /// Set an explicit value to enable function timeout middleware.
     /// </summary>
-    public TimeSpan? SingleFunctionTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    public TimeSpan? SingleFunctionTimeout { get; set; }
 
     /// <summary>
     /// Delay before retrying failed function (default: 1 second, exponentially increased per attempt)

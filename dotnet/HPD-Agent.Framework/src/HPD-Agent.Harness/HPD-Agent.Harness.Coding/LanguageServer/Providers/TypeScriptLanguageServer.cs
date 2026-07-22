@@ -11,12 +11,12 @@ namespace HPDOS.ToolHarnesses.Middleware;
     ".cjs", "javascript",
     ".mts", "typescript",
     ".cts", "typescript")]
-[LanguageServerRootMarkers("package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock")]
+[LanguageServerRootMarkers("package.json", "tsconfig.json", "jsconfig.json", "package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock")]
 [LanguageServerExcludeRootMarkers("deno.json", "deno.jsonc")]
 public sealed partial class TypeScriptLanguageServer : ILanguageServerProvider
 {
     private static readonly StaticCommandLanguageServerProvider RootProvider = new(
-        ["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"],
+        ["package.json", "tsconfig.json", "jsconfig.json", "package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"],
         "typescript-language-server",
         ["--stdio"],
         ["deno.json", "deno.jsonc"]);

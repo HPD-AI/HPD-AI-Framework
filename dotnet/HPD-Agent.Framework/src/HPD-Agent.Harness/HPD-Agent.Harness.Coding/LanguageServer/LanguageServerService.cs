@@ -11,6 +11,7 @@ public sealed class LanguageServerService : ILanguageServerService
     private readonly ILanguageServerToolResolver _toolResolver;
     private readonly ConcurrentDictionary<string, ClientSession> _clients = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Task<ClientSession?>> _startupTasks = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, LanguageServerStatus> _starting = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, LanguageServerUnavailableServer> _unavailable = new(StringComparer.Ordinal);
 
     public LanguageServerService()
@@ -33,6 +34,7 @@ public sealed class LanguageServerService : ILanguageServerService
         CancellationToken cancellationToken = default)
     {
         var statuses = new List<LanguageServerStatus>();
+        statuses.AddRange(_starting.Values);
         foreach (var client in _clients.Values)
         {
             statuses.Add(new LanguageServerStatus
@@ -285,6 +287,12 @@ public sealed class LanguageServerService : ILanguageServerService
         CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
+        _starting[key] = new LanguageServerStatus
+        {
+            ServerId = candidate.Definition.Id,
+            Root = candidate.Root,
+            Status = LanguageServerStatusKind.Starting
+        };
         try
         {
             var launch = await candidate.Definition.Provider.ResolveLaunchAsync(
@@ -330,10 +338,18 @@ public sealed class LanguageServerService : ILanguageServerService
             stopwatch.Stop();
             return session;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or System.ComponentModel.Win32Exception or TimeoutException or OperationCanceledException)
         {
             RecordUnavailable(candidate, unavailableKey, ex.Message);
             return null;
+        }
+        finally
+        {
+            _starting.TryRemove(key, out _);
         }
     }
 
@@ -423,19 +439,18 @@ public sealed class LanguageServerService : ILanguageServerService
             }
         }
 
-        if (!_options.AllowWellKnownLocalServers)
-            yield break;
-
-        foreach (var server in WellKnownLanguageServerRegistryProvider.Instance.GetAll())
-        {
-            if (seenIds.Add(server.Id))
-                yield return server;
-        }
     }
 
     private bool IsEnabled(LanguageServerDefinition definition)
-        => definition.EnabledByDefault &&
-           (!definition.Experimental || _options.EnabledExperimentalServers.Contains(definition.Id));
+    {
+        if (_options.DisabledServers.Contains(definition.Id))
+            return false;
+
+        if (!definition.EnabledByDefault && !_options.EnabledServers.Contains(definition.Id))
+            return false;
+
+        return !definition.Experimental || _options.EnabledExperimentalServers.Contains(definition.Id);
+    }
 
     private static bool MatchesExtension(LanguageServerDefinition definition, string extension)
         => definition.Extensions.Any(candidate => string.Equals(candidate, extension, StringComparison.OrdinalIgnoreCase));

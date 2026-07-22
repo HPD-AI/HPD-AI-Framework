@@ -84,7 +84,13 @@ public sealed record LanguageServerOptions
 
     public IReadOnlyList<LanguageServerDefinition> Servers { get; init; } = [];
 
-    public bool AllowWellKnownLocalServers { get; init; }
+    /// <summary>Server IDs that are explicitly enabled even when their declaration is disabled by default.</summary>
+    public IReadOnlySet<string> EnabledServers { get; init; }
+        = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>Server IDs that are disabled for this runtime.</summary>
+    public IReadOnlySet<string> DisabledServers { get; init; }
+        = new HashSet<string>(StringComparer.Ordinal);
 
     public IReadOnlySet<string> EnabledExperimentalServers { get; init; }
         = new HashSet<string>(StringComparer.Ordinal);

@@ -7,4 +7,5 @@ public static class CodingHarnessTuiTranscriptRendererKeys
     public const string FileMutation = "hpd.coding.file-mutation";
     public const string Diagnostics = "hpd.coding.diagnostics";
     public const string Exploration = "hpd.coding.exploration";
+    public const string SubAgent = "hpd.coding.subagent";
 }

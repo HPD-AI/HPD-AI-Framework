@@ -29,18 +29,76 @@ public sealed class FileMutationTuiTests
 
         registry.EventHandlers.Select(static handler => handler.Key).Should().Contain([
             "hpd.coding.file-mutation.applied",
-            "hpd.coding.diagnostics.received"
+            "hpd.coding.diagnostics.received",
+            "hpd.coding.language-server.status"
         ]);
         registry.FooterItems.Select(static item => item.Key).Should().Contain([
             "hpd.coding.files",
-            "hpd.coding.diagnostics"
+            "hpd.coding.diagnostics",
+            "hpd.coding.language-servers"
         ]);
+        registry.Commands.Should().Contain(static command => command.Name == "lsp");
+        registry.Pages.Should().Contain(static page => page.Id == "hpd.coding.language-servers");
         registry.TranscriptRenderers.TryFindRenderer<CodingFileMutationTranscriptCell>(
             CodingHarnessTuiTranscriptRendererKeys.FileMutation,
             out _).Should().BeTrue();
         registry.TranscriptRenderers.TryFindRenderer<CodingDiagnosticsTranscriptCell>(
             CodingHarnessTuiTranscriptRendererKeys.Diagnostics,
             out _).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task LanguageServerStatus_OnlyLiveDeliveryClaimsRunningProcess()
+    {
+        var registry = new HpdAgentTuiBuilder().AddAgentTuiDefaults().AddCodingHarnessTui().Build();
+        var historical = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"), registry);
+        var live = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"), registry);
+        var status = new LanguageServerStatusSnapshotEvent
+        {
+            Servers =
+            [
+                new LanguageServerStatusSnapshot
+                {
+                    ServerId = "typescript",
+                    Root = "/repo",
+                    Status = LanguageServerStatusKind.Running
+                }
+            ]
+        };
+
+        await historical.ApplyEventAsync(status, deliveryMode: AgentTuiEventDeliveryMode.Historical);
+        await live.ApplyEventAsync(status, deliveryMode: AgentTuiEventDeliveryMode.Live);
+
+        RenderShell(registry, historical).Should().NotContain("● 1 LSP");
+        RenderShell(registry, live).Should().Contain("● 1 LSP");
+    }
+
+    [Fact]
+    public async Task LanguageServerStatus_FooterSummarizesLifecycleAndEmptySnapshotClearsIt()
+    {
+        var registry = new HpdAgentTuiBuilder().AddAgentTuiDefaults().AddCodingHarnessTui().Build();
+        var state = new AgentTuiSessionState(
+            new AgentTuiRuntimeScope("agent", "session", "main"), registry);
+
+        await state.ApplyEventAsync(new LanguageServerStatusSnapshotEvent
+        {
+            Servers =
+            [
+                new LanguageServerStatusSnapshot { ServerId = "typescript", Root = "/repo", Status = LanguageServerStatusKind.Running },
+                new LanguageServerStatusSnapshot { ServerId = "eslint", Root = "/repo", Status = LanguageServerStatusKind.Starting },
+                new LanguageServerStatusSnapshot { ServerId = "deno", Root = "/repo/deno", Status = LanguageServerStatusKind.Unavailable, Message = "not installed" }
+            ]
+        });
+
+        var rendered = RenderShell(registry, state);
+        rendered.Should().Contain("● 1 LSP");
+        rendered.Should().Contain("◌ 1 starting");
+        rendered.Should().Contain("◉ 1 unavailable");
+
+        await state.ApplyEventAsync(new LanguageServerStatusSnapshotEvent());
+        RenderShell(registry, state).Should().NotContain("● 1 LSP").And.NotContain("unavailable");
     }
 
     [Fact]

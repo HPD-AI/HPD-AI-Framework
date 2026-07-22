@@ -269,6 +269,8 @@ public class AgentBuilderWithToolTests
         Assert.Equal("test/support-escalation", invocation.ChildAgentId);
         Assert.Equal("support_escalation", invocation.RoleName);
         Assert.Equal("order_escalation", invocation.TaskName);
+        Assert.Equal(SubAgentContextPolicy.Fork, invocation.ContextPolicy);
+        Assert.Equal(AgentInvocationMode.Synchronous, invocation.Mode);
     }
 
     [Fact]
@@ -334,6 +336,8 @@ public class AgentBuilderWithToolTests
         Assert.Equal("test/support-escalation", invocation.ChildAgentId);
         Assert.Equal("support_escalation", invocation.RoleName);
         Assert.Equal("order_escalation", invocation.TaskName);
+        Assert.Equal(SubAgentContextPolicy.Fork, invocation.ContextPolicy);
+        Assert.Equal(AgentInvocationMode.Synchronous, invocation.Mode);
     }
 
     [Fact]

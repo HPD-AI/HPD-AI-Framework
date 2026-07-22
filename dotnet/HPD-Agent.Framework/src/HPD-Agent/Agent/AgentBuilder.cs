@@ -3347,7 +3347,9 @@ public static class AgentBuilderMiddlewareExtensions
 
     /// <summary>
     /// Adds function timeout middleware to enforce execution time limits.
-    /// Uses SingleFunctionTimeout from AgentConfig.ErrorHandling (default: 30 seconds).
+    /// Uses <see cref="ErrorHandlingConfig.SingleFunctionTimeout"/> when configured; otherwise this
+    /// explicit convenience method applies a 30-second timeout. Building an agent without calling
+    /// this method does not enable function timeouts unless the configuration contains a value.
     /// </summary>
     /// <param name="builder">The agent builder</param>
     /// <returns>The builder for chaining</returns>

@@ -15,7 +15,8 @@ public sealed class CanonicalCodingEventCodecTests
             Started(),
             OutputChunk(),
             Progress(),
-            Diagnostics()
+            Diagnostics(),
+            LanguageServerStatus()
         ];
 
         foreach (var proposed in events)
@@ -165,6 +166,19 @@ public sealed class CanonicalCodingEventCodecTests
                 Character = 4,
                 Code = "CS1002",
                 Message = "Missing semicolon"
+            }
+        ]
+    };
+
+    private static LanguageServerStatusSnapshotEvent LanguageServerStatus() => new()
+    {
+        Servers =
+        [
+            new LanguageServerStatusSnapshot
+            {
+                ServerId = "csharp",
+                Root = "/repo",
+                Status = LanguageServerStatusKind.Running
             }
         ]
     };

@@ -11,6 +11,9 @@ using HPD.Agent.ToolHarness.Coding.TUI.Exploration.Footer;
 using HPD.Agent.ToolHarness.Coding.TUI.FileMutations;
 using HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Handlers;
 using HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Footer;
+using HPD.Agent.ToolHarness.Coding.TUI.SubAgents;
+using HPD.Agent.ToolHarness.Coding.TUI.LanguageServers;
+using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Composition;
 using HPDOS.ToolHarnesses.Middleware;
 
@@ -32,8 +35,53 @@ public static class CodingHarnessTuiExtensions
         return tui
             .AddCodingHarnessExpansionTui(theme)
             .AddCodingExplorationTui(theme)
+            .AddCodingSubAgentTui(theme)
             .AddCodingCommandTui(theme, permissionScope)
-            .AddCodingFileMutationTui(theme);
+            .AddCodingFileMutationTui(theme)
+            .AddCodingLanguageServerTui(theme);
+    }
+
+    /// <summary>Adds live language-server status, footer presentation, and the inspect-only <c>/lsp</c> page.</summary>
+    public static HpdAgentTuiBuilder AddCodingLanguageServerTui(
+        this HpdAgentTuiBuilder tui,
+        CodingHarnessTuiTheme? theme = null)
+    {
+        ArgumentNullException.ThrowIfNull(tui);
+        theme ??= CodingHarnessTuiTheme.Default;
+
+        return tui
+            .TryAddEventHandler<LanguageServerStatusSnapshotEvent, LanguageServerStatusTuiHandler>(
+                "hpd.coding.language-server.status")
+            .TryAddFooterItem(
+                "hpd.coding.language-servers",
+                new LanguageServerStatusFooterItem(theme))
+            .TryAddPage(LanguageServerStatusPage.Create(theme))
+            .TryAddSlashCommand(new HpdAgentTuiCommandDescriptor(
+                "lsp",
+                context => context.Navigation.GoToPage(LanguageServerStatusPage.PageId))
+            {
+                Title = "/lsp",
+                Description = "Inspect activated language servers."
+            });
+    }
+
+    /// <summary>
+    /// Adds semantic, replayable transcript presentation for coding subagent invocations.
+    /// </summary>
+    public static HpdAgentTuiBuilder AddCodingSubAgentTui(
+        this HpdAgentTuiBuilder tui,
+        CodingHarnessTuiTheme? theme = null)
+    {
+        ArgumentNullException.ThrowIfNull(tui);
+        theme ??= CodingHarnessTuiTheme.Default;
+
+        return tui
+            .TryAddEventHandler(
+                "hpd.coding.subagent.lifecycle",
+                new CodingSubAgentTuiHandler())
+            .TryAddTranscriptRenderer<CodingSubAgentCell>(
+                CodingHarnessTuiTranscriptRendererKeys.SubAgent,
+                new CodingSubAgentCellRenderer(theme));
     }
 
     public static HpdAgentTuiBuilder AddCodingHarnessExpansionTui(

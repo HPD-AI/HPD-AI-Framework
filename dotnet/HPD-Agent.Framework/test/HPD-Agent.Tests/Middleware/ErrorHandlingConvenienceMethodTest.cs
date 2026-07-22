@@ -10,6 +10,14 @@ namespace HPD.Agent.Tests.Middleware;
 public class ErrorHandlingConvenienceMethodTest
 {
     [Fact]
+    public void ErrorHandlingConfig_Default_DoesNotEnableFunctionTimeout()
+    {
+        var config = new ErrorHandlingConfig();
+
+        Assert.Null(config.SingleFunctionTimeout);
+    }
+
+    [Fact]
     public void WithErrorHandling_SimpleUsage_RegistersAllMiddleware()
     {
         // Arrange

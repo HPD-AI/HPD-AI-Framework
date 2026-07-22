@@ -3,7 +3,9 @@ using HPD.Agent.Middleware;
 using HPD.Events;
 using HPD.Events.Core;
 using HPDOS.ToolHarnesses.Middleware;
+using HPDOS.ToolHarnesses.Middleware.Generated;
 using Microsoft.Extensions.AI;
+using System.Diagnostics;
 using System.Text.Json.Nodes;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
@@ -11,6 +13,25 @@ namespace HPD.Agent.ToolHarness.Coding.Tests;
 [Collection(CurrentDirectoryCollection.Name)]
 public sealed class LanguageServerMiddlewareTests
 {
+    [Fact]
+    public void GeneratedLanguageServerRegistry_HasUniqueCompleteDeclarations()
+    {
+        var definitions = new GeneratedLanguageServerRegistryProvider().GetAll().ToArray();
+
+        definitions.Should().HaveCount(51);
+        definitions.Select(static definition => definition.Id)
+            .Should().OnlyHaveUniqueItems();
+        definitions.Should().OnlyContain(static definition =>
+            !string.IsNullOrWhiteSpace(definition.Id) &&
+            definition.Extensions.Count > 0 &&
+            definition.Extensions.All(static extension => extension.StartsWith(".", StringComparison.Ordinal)));
+        definitions.Should().Contain(static definition => definition.Id == "typescript");
+        definitions.Should().Contain(static definition => definition.Id == "csharp");
+        definitions.Should().Contain(static definition => definition.Id == "rust-analyzer");
+        definitions.Should().Contain(static definition => definition.Id == "pyright");
+        definitions.Should().Contain(static definition => definition.Id == "sourcekit-lsp");
+    }
+
     [Fact]
     public async Task AfterFunctionAsync_DoesNothingWhenDisabled()
     {
@@ -454,7 +475,8 @@ public sealed class LanguageServerMiddlewareTests
         var middleware = new CodingLanguageServerMiddleware(
             new LanguageServerOptions { ConfigVersion = 7 },
             service);
-        var context = CreateAfterFunctionContext(CreateAgentContext(), CreateReadFileSnapshot(path));
+        var coordinator = new CapturingEventCoordinator();
+        var context = CreateAfterFunctionContext(CreateAgentContext(coordinator), CreateReadFileSnapshot(path));
 
         try
         {
@@ -467,6 +489,11 @@ public sealed class LanguageServerMiddlewareTests
                 server.Root == "/repo" &&
                 server.ConfigVersion == 7 &&
                 server.Reason == "not installed");
+            coordinator.Captured.OfType<LanguageServerStatusSnapshotEvent>()
+                .Should().ContainSingle().Which.Servers.Should().ContainSingle(server =>
+                    server.ServerId == "csharp" &&
+                    server.Status == LanguageServerStatusKind.Unavailable &&
+                    server.Message == "not installed");
         }
         finally
         {
@@ -759,6 +786,86 @@ public sealed class LanguageServerMiddlewareTests
     }
 
     [Fact]
+    public void ProtocolClient_WorkspaceCapableDynamicRegistrationStillServesDocumentDiagnostics()
+    {
+        var client = CreateProtocolClient();
+        client.RegisterCapabilityForTesting(new JsonObject
+        {
+            ["registrations"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["id"] = "csharp-ls-diagnostics",
+                    ["method"] = "textDocument/diagnostic",
+                    ["registerOptions"] = new JsonObject { ["workspaceDiagnostics"] = true }
+                }
+            }
+        });
+        client.GetDiagnosticRegistrationsForTesting(requireWorkspaceDiagnostics: false)
+            .Should().ContainSingle(registration => registration.Id == "csharp-ls-diagnostics");
+        client.GetDiagnosticRegistrationsForTesting(requireWorkspaceDiagnostics: true)
+            .Should().ContainSingle(registration => registration.Id == "csharp-ls-diagnostics");
+    }
+
+    [Fact]
+    public void ProtocolClient_InitializeAdvertisesWorkspaceFoldersConfigurationAndVersionedDiagnostics()
+    {
+        var client = CreateProtocolClient();
+        var parameters = client.CreateInitializeParametersForTesting();
+
+        parameters["workspaceFolders"]!.AsArray().Should().ContainSingle();
+        parameters["capabilities"]!["workspace"]!["workspaceFolders"]!.GetValue<bool>().Should().BeTrue();
+        parameters["capabilities"]!["workspace"]!["configuration"]!.GetValue<bool>().Should().BeTrue();
+        parameters["capabilities"]!["textDocument"]!["publishDiagnostics"]!["versionSupport"]!
+            .GetValue<bool>().Should().BeTrue();
+    }
+
+    [Fact]
+    public void ProtocolClient_WorkspaceConfigurationPreservesRequestOrderAndUsesNullForMissingSections()
+    {
+        var client = CreateProtocolClient(new LanguageServerOptions
+        {
+            WorkspaceConfiguration = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["typescript"] = new Dictionary<string, object?> { ["validate"] = true },
+                ["eslint"] = false
+            }
+        });
+
+        var result = client.HandleWorkspaceConfigurationForTesting(new JsonObject
+        {
+            ["items"] = new JsonArray
+            {
+                new JsonObject { ["section"] = "eslint" },
+                new JsonObject { ["section"] = "missing" },
+                new JsonObject { ["section"] = "typescript" }
+            }
+        });
+
+        result.Should().HaveCount(3);
+        result[0]!.GetValue<bool>().Should().BeFalse();
+        result[1].Should().BeNull();
+        result[2]!["validate"]!.GetValue<bool>().Should().BeTrue();
+    }
+
+    [Fact]
+    public void ProtocolClient_PublishedDiagnosticsRejectOlderVersionsAndAcceptNewestUnversionedPublish()
+    {
+        var client = CreateProtocolClient();
+        var path = Path.Combine(Path.GetTempPath(), "freshness.ts");
+        var uri = new Uri(path).AbsoluteUri;
+
+        client.AcceptPublishedDiagnosticsForTesting(Published(uri, 5, "new"));
+        client.AcceptPublishedDiagnosticsForTesting(Published(uri, 4, "stale"));
+        client.CurrentDiagnostics.SelectMany(static set => set.Diagnostics)
+            .Should().ContainSingle().Which.Message.Should().Be("new");
+
+        client.AcceptPublishedDiagnosticsForTesting(Published(uri, null, "latest unversioned"));
+        client.CurrentDiagnostics.SelectMany(static set => set.Diagnostics)
+            .Should().ContainSingle().Which.Message.Should().Be("latest unversioned");
+    }
+
+    [Fact]
     public void ProtocolClient_DidChangeUsesTextOnlyContentChangeForFullSync()
     {
         var client = CreateProtocolClient();
@@ -858,7 +965,7 @@ public sealed class LanguageServerMiddlewareTests
     }
 
     [Fact]
-    public async Task LanguageServerService_UsesWellKnownLanguagesOnlyWhenEnabled()
+    public async Task LanguageServerService_UsesGeneratedCSharpProviderByDefault()
     {
         var tempRoot = CreateTempRoot();
         var path = Path.Combine(tempRoot, "Program.cs");
@@ -867,23 +974,136 @@ public sealed class LanguageServerMiddlewareTests
 
         try
         {
-            var disabled = new LanguageServerService(new LanguageServerOptions
+            var service = new LanguageServerService(new LanguageServerOptions
             {
                 WorkspaceFolders = [tempRoot]
             });
 
-            var enabled = new LanguageServerService(new LanguageServerOptions
-            {
-                WorkspaceFolders = [tempRoot],
-                AllowWellKnownLocalServers = true
-            });
-
-            (await disabled.ResolveDocumentAsync(path, CancellationToken.None)).HasServers.Should().BeFalse();
-
-            var resolution = await enabled.ResolveDocumentAsync(path, CancellationToken.None);
+            var resolution = await service.ResolveDocumentAsync(path, CancellationToken.None);
             resolution.HasServers.Should().BeTrue();
             resolution.PrimaryLanguageId.Should().Be("csharp");
             resolution.Servers.Should().ContainSingle(server => server.ServerId == "csharp" && server.Root == tempRoot);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LanguageServerService_DisabledByDefaultProviderCanBeExplicitlyEnabled()
+    {
+        var tempRoot = CreateTempRoot();
+        var path = Path.Combine(tempRoot, "default.nix");
+        await File.WriteAllTextAsync(path, "{ pkgs ? import <nixpkgs> {} }: pkgs.hello\n");
+
+        try
+        {
+            var defaults = new LanguageServerService(new LanguageServerOptions
+            {
+                WorkspaceFolders = [tempRoot]
+            });
+            var enabled = new LanguageServerService(new LanguageServerOptions
+            {
+                WorkspaceFolders = [tempRoot],
+                EnabledServers = new HashSet<string>(StringComparer.Ordinal) { "nil" }
+            });
+
+            (await defaults.ResolveDocumentAsync(path, CancellationToken.None)).Servers
+                .Should().ContainSingle(server => server.ServerId == "nixd");
+            (await enabled.ResolveDocumentAsync(path, CancellationToken.None)).Servers
+                .Should().Contain(server => server.ServerId == "nil");
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LanguageServerService_ExplicitDisableWinsOverGeneratedDefault()
+    {
+        var tempRoot = CreateTempRoot();
+        var path = Path.Combine(tempRoot, "main.rs");
+        await File.WriteAllTextAsync(Path.Combine(tempRoot, "Cargo.toml"), "[package]\nname = \"sample\"\nversion = \"0.1.0\"\n");
+        await File.WriteAllTextAsync(path, "fn main() {}\n");
+
+        try
+        {
+            var service = new LanguageServerService(new LanguageServerOptions
+            {
+                WorkspaceFolders = [tempRoot],
+                DisabledServers = new HashSet<string>(StringComparer.Ordinal) { "rust-analyzer" }
+            });
+
+            (await service.ResolveDocumentAsync(path, CancellationToken.None)).HasServers.Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("main.go", "go.mod", "gopls", "go")]
+    [InlineData("main.py", "pyproject.toml", "pyright", "python")]
+    [InlineData("main.lua", ".luarc.json", "lua-language-server", "lua")]
+    [InlineData("main.tex", "Tectonic.toml", "texlab", "tex")]
+    public async Task LanguageServerService_ResolvesGeneratedCatalogProvider(
+        string fileName,
+        string marker,
+        string serverId,
+        string languageId)
+    {
+        var tempRoot = CreateTempRoot();
+        var path = Path.Combine(tempRoot, fileName);
+        await File.WriteAllTextAsync(Path.Combine(tempRoot, marker), "");
+        await File.WriteAllTextAsync(path, "");
+
+        try
+        {
+            var service = new LanguageServerService(new LanguageServerOptions
+            {
+                WorkspaceFolders = [tempRoot]
+            });
+
+            var resolution = await service.ResolveDocumentAsync(path, CancellationToken.None);
+            resolution.Servers.Should().Contain(server =>
+                server.ServerId == serverId && server.LanguageId == languageId);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(".venv", "bin")]
+    [InlineData(".venv", "Scripts")]
+    [InlineData("venv", "bin")]
+    [InlineData("venv", "Scripts")]
+    [InlineData(".env", "bin")]
+    [InlineData(".env", "Scripts")]
+    [InlineData("node_modules", ".bin")]
+    [InlineData("vendor/bundle", "bin")]
+    [InlineData("", "bin")]
+    public async Task LanguageServerToolResolver_FindsEcosystemLocalBinary(string parent, string bin)
+    {
+        var tempRoot = CreateTempRoot();
+        var binDirectory = string.IsNullOrEmpty(parent)
+            ? Path.Combine(tempRoot, bin)
+            : Path.Combine(tempRoot, parent.Replace('/', Path.DirectorySeparatorChar), bin);
+        Directory.CreateDirectory(binDirectory);
+        var executableName = OperatingSystem.IsWindows() ? "sample-lsp.cmd" : "sample-lsp";
+        var executable = Path.Combine(binDirectory, executableName);
+        await File.WriteAllTextAsync(executable, "");
+
+        try
+        {
+            var resolved = await new LanguageServerToolResolver()
+                .FindExecutableAsync("sample-lsp", tempRoot, CancellationToken.None);
+
+            resolved.Should().Be(executable);
         }
         finally
         {
@@ -923,6 +1143,92 @@ public sealed class LanguageServerMiddlewareTests
 
     [Fact]
     [Trait("Category", "Smoke")]
+    public async Task LanguageServerService_CSharpSmoke_StartsDiagnosesCorrectsAndShutsDown()
+    {
+        if (!string.Equals(
+                System.Environment.GetEnvironmentVariable("HPD_LSP_SMOKE_CSHARP"),
+                "1",
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var executable = FindPathExecutable("csharp-ls");
+        executable.Should().NotBeNull("HPD_LSP_SMOKE_CSHARP=1 requires csharp-ls on PATH");
+
+        var root = CreateTempRoot();
+        var projectPath = Path.Combine(root, "Smoke.csproj");
+        var path = Path.Combine(root, "Program.cs");
+        var uri = new Uri(path).AbsoluteUri;
+        await File.WriteAllTextAsync(projectPath,
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>");
+        await RestoreSmokeProjectAsync(projectPath);
+        const string invalidText = "public static class Program { public static string Value => 42; }\n";
+        const string correctedText = "public static class Program { public static string Value => \"fixed 😀\"; }\n";
+        await File.WriteAllTextAsync(path, invalidText);
+
+        var service = new LanguageServerService(new LanguageServerOptions { WorkspaceFolders = [root] });
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            var resolution = await service.ResolveDocumentAsync(path, timeout.Token);
+            resolution.Servers.Should().ContainSingle(server =>
+                server.ServerId == "csharp" && server.Root == root && server.LanguageId == "csharp");
+
+            var invalidStartedAt = DateTimeOffset.UtcNow;
+            var opened = await service.OpenDocumentAsync(new LanguageServerDocumentOpenRequest
+            {
+                Path = path,
+                Uri = uri,
+                LanguageId = "csharp",
+                Text = invalidText,
+                Version = 0
+            }, timeout.Token);
+            opened.Opened.Should().BeTrue(await FormatLanguageServerStatusesAsync(service));
+            (await service.GetStatusAsync(timeout.Token)).Should().ContainSingle(status =>
+                status.ServerId == "csharp" && status.Status == LanguageServerStatusKind.Running);
+
+            var invalidDiagnostics = await WaitForDiagnosticsAsync(
+                service, path, uri, documentVersion: 0, invalidStartedAt,
+                static diagnostics => diagnostics.Any(set => set.Diagnostics.Any(item =>
+                    item.Severity == LanguageServerDiagnosticSeverity.Error)),
+                timeout.Token);
+            invalidDiagnostics.SelectMany(static set => set.Diagnostics)
+                .Should().Contain(item => item.Severity == LanguageServerDiagnosticSeverity.Error);
+
+            await File.WriteAllTextAsync(path, correctedText, timeout.Token);
+            var correctedStartedAt = DateTimeOffset.UtcNow;
+            await service.ChangeDocumentAsync(new LanguageServerDocumentChangeRequest
+            {
+                Path = path,
+                Uri = uri,
+                Text = correctedText,
+                Version = 1
+            }, timeout.Token);
+            await service.SaveDocumentAsync(new LanguageServerDocumentSaveRequest
+            {
+                Path = path,
+                Uri = uri,
+                Text = correctedText
+            }, timeout.Token);
+
+            var correctedDiagnostics = await WaitForDiagnosticsAsync(
+                service, path, uri, documentVersion: 1, correctedStartedAt,
+                static diagnostics => diagnostics.All(set => set.Diagnostics.All(item =>
+                    item.Severity != LanguageServerDiagnosticSeverity.Error)),
+                timeout.Token);
+            correctedDiagnostics.SelectMany(static set => set.Diagnostics)
+                .Should().NotContain(item => item.Severity == LanguageServerDiagnosticSeverity.Error);
+        }
+        finally
+        {
+            await service.DisposeAsync();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Smoke")]
     public async Task LanguageServerService_TypeScriptSmoke_StartsRealLanguageServerWhenEnabled()
     {
         if (!string.Equals(
@@ -940,7 +1246,7 @@ public sealed class LanguageServerMiddlewareTests
         var dependencyStatus = GetTypeScriptSmokeDependencyStatus(smokeRoot!);
         dependencyStatus.IsReady.Should().BeTrue(dependencyStatus.Message);
 
-        var path = Path.Combine(smokeRoot!, "hpd-lsp-smoke.ts");
+        var path = Path.Combine(smokeRoot!, $"hpd-lsp-smoke-{Guid.NewGuid():N}.ts");
         var originalText = File.Exists(path) ? await File.ReadAllTextAsync(path) : null;
         var uri = new Uri(path).AbsoluteUri;
         await File.WriteAllTextAsync(path, "export const hpdLspSmoke: string = 42;\n");
@@ -1023,7 +1329,7 @@ public sealed class LanguageServerMiddlewareTests
         var dependencyStatus = GetTypeScriptSmokeDependencyStatus(smokeRoot!);
         dependencyStatus.IsReady.Should().BeTrue(dependencyStatus.Message);
 
-        var path = Path.Combine(smokeRoot!, "hpd-lsp-middleware-smoke.ts");
+        var path = Path.Combine(smokeRoot!, $"hpd-lsp-middleware-smoke-{Guid.NewGuid():N}.ts");
         var originalText = File.Exists(path) ? await File.ReadAllTextAsync(path) : null;
         var smokeText = "export const hpdMiddlewareSmoke: string = 42;\n";
         await File.WriteAllTextAsync(path, smokeText);
@@ -1300,7 +1606,7 @@ public sealed class LanguageServerMiddlewareTests
             ]
         };
 
-    private static LanguageServerProtocolClient CreateProtocolClient()
+    private static LanguageServerProtocolClient CreateProtocolClient(LanguageServerOptions? options = null)
         => new(
             "typescript",
             Path.GetTempPath(),
@@ -1310,7 +1616,19 @@ public sealed class LanguageServerMiddlewareTests
                 Arguments = ["--stdio"],
                 WorkingDirectory = Path.GetTempPath()
             },
-            new LanguageServerOptions());
+            options ?? new LanguageServerOptions());
+
+    private static JsonObject Published(string uri, int? version, string message)
+    {
+        var result = new JsonObject
+        {
+            ["uri"] = uri,
+            ["diagnostics"] = new JsonArray { CreateLspDiagnostic(0, 0, "code", message) }
+        };
+        if (version is not null)
+            result["version"] = version.Value;
+        return result;
+    }
 
     private static JsonObject CreateLspDiagnostic(int line, int character, string code, string message)
         => new()
@@ -1432,6 +1750,58 @@ public sealed class LanguageServerMiddlewareTests
             ? "language server service reported no statuses"
             : string.Join("; ", statuses.Select(status =>
                 $"{status.ServerId}@{status.Root}: {status.Status} {status.Message}"));
+    }
+
+    private static async Task<IReadOnlyList<LanguageServerDiagnosticSet>> WaitForDiagnosticsAsync(
+        ILanguageServerService service,
+        string path,
+        string uri,
+        int documentVersion,
+        DateTimeOffset startedAt,
+        Func<IReadOnlyList<LanguageServerDiagnosticSet>, bool> predicate,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<LanguageServerDiagnosticSet> latest = [];
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            latest = await service.GetDiagnosticsAsync(new LanguageServerDiagnosticRequest
+            {
+                Path = path,
+                Uri = uri,
+                Mode = LanguageServerDiagnosticMode.Document,
+                DocumentVersion = documentVersion,
+                StartedAt = startedAt,
+                Timeout = TimeSpan.FromSeconds(1),
+                Debounce = TimeSpan.FromMilliseconds(50)
+            }, cancellationToken);
+            if (predicate(latest))
+                return latest;
+
+            await Task.Delay(100, cancellationToken);
+        }
+
+        return latest;
+    }
+
+    private static async Task RestoreSmokeProjectAsync(string projectPath)
+    {
+        using var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            WorkingDirectory = Path.GetDirectoryName(projectPath)!,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            ArgumentList = { "restore", projectPath, "--nologo" }
+        });
+        process.Should().NotBeNull("the C# smoke fixture requires dotnet restore");
+        await process!.WaitForExitAsync();
+        if (process.ExitCode != 0)
+        {
+            var stderr = await process.StandardError.ReadToEndAsync();
+            throw new InvalidOperationException($"Failed to restore C# LSP smoke project: {stderr}");
+        }
     }
 
     private static string FormatMiddlewareSmokeOutput(AfterFunctionContext context)

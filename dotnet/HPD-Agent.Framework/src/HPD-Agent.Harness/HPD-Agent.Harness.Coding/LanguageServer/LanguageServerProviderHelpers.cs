@@ -29,7 +29,7 @@ public sealed class StaticCommandLanguageServerProvider(
             directory = Path.GetDirectoryName(directory);
         }
 
-        return ValueTask.FromResult<string?>(context.WorkspaceRoot);
+        return ValueTask.FromResult<string?>(_markers.Count == 0 ? context.WorkspaceRoot : null);
     }
 
     public async ValueTask<LanguageServerLaunchDescriptor?> ResolveLaunchAsync(
@@ -83,6 +83,19 @@ public sealed class StaticCommandLanguageServerProvider(
 
 public sealed class LanguageServerToolResolver : ILanguageServerToolResolver
 {
+    private static readonly string[] LocalBinDirectories =
+    [
+        Path.Combine("node_modules", ".bin"),
+        Path.Combine(".venv", "bin"),
+        Path.Combine(".venv", "Scripts"),
+        Path.Combine("venv", "bin"),
+        Path.Combine("venv", "Scripts"),
+        Path.Combine(".env", "bin"),
+        Path.Combine(".env", "Scripts"),
+        Path.Combine("vendor", "bundle", "bin"),
+        "bin"
+    ];
+
     public ValueTask<string?> FindExecutableAsync(
         string name,
         string root,
@@ -138,10 +151,13 @@ public sealed class LanguageServerToolResolver : ILanguageServerToolResolver
         var directory = root;
         while (!string.IsNullOrEmpty(directory))
         {
-            var binDirectory = Path.Combine(directory, "node_modules", ".bin");
-            var candidate = FindExecutableInDirectory(binDirectory, name);
-            if (candidate is not null)
-                return candidate;
+            foreach (var localBinDirectory in LocalBinDirectories)
+            {
+                var binDirectory = Path.Combine(directory, localBinDirectory);
+                var candidate = FindExecutableInDirectory(binDirectory, name);
+                if (candidate is not null)
+                    return candidate;
+            }
 
             var parent = Path.GetDirectoryName(directory);
             if (parent == directory)

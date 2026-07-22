@@ -368,7 +368,10 @@ public sealed record ThreadExecutionFinishedEvent : AgentEvent
     public override EventChannel Channel { get; init; } = EventChannel.Control;
 }
 
-/// <summary>Records a parent delegation to a durable child thread.</summary>
+/// <summary>
+/// Records a parent delegation to a durable child thread, including its resolved context
+/// and invocation-mode decisions.
+/// </summary>
 public sealed record SubAgentInvocationStartedEvent(
     string InvocationId,
     string ParentToolCallId,
@@ -377,6 +380,7 @@ public sealed record SubAgentInvocationStartedEvent(
     string ChildThreadId,
     string RoleName,
     string TaskName,
+    SubAgentContextPolicy ContextPolicy,
     AgentInvocationMode Mode) : AgentEvent
 {
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;

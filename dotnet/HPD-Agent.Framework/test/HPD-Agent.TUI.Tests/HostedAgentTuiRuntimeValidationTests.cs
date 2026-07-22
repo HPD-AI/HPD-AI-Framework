@@ -76,6 +76,37 @@ public sealed class HostedAgentTuiRuntimeValidationTests
     }
 
     [Fact]
+    public async Task ListThreadsAsync_ParsesNumericThreadKindAndVisibility()
+    {
+        using var http = new HttpClient(new JsonHandler("""
+            [
+              {
+                "id": "subagent/explore/task/invocation",
+                "sessionId": "session-1",
+                "defaultAgentId": "coding/explorer",
+                "name": "explore",
+                "createdAt": "2026-07-21T00:00:00Z",
+                "lastActivity": "2026-07-21T00:01:00Z",
+                "kind": 1,
+                "visibility": 1
+              }
+            ]
+            """))
+        {
+            BaseAddress = new Uri("http://127.0.0.1/api/hpd-agent/")
+        };
+        await using var runtime = new HostedAgentTuiRuntime(http, new HostedAgentTuiRuntimeOptions
+        {
+            BaseAddress = http.BaseAddress
+        });
+
+        var thread = (await runtime.ListThreadsAsync("session-1")).Should().ContainSingle().Subject;
+
+        thread.Kind.Should().Be(ThreadKind.SubAgent);
+        thread.Visibility.Should().Be(ThreadVisibility.Hidden);
+    }
+
+    [Fact]
     public async Task EnsureDurableScopeAsync_CreatesMissingThreadInExistingSession()
     {
         var handler = new ScopeInitializationHandler();

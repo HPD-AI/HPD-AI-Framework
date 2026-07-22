@@ -133,7 +133,10 @@ public static class SubAgentRuntime
         if (mode == AgentInvocationMode.Background)
             return RegisterBackgroundInvocation(request);
 
-        var result = await InvokeSynchronousCoreAsync(request, cancellationToken).ConfigureAwait(false);
+        var result = await InvokeSynchronousCoreAsync(
+            request,
+            AgentInvocationMode.Synchronous,
+            cancellationToken).ConfigureAwait(false);
         return new AgentInvocationResult
         {
             Mode = AgentInvocationMode.Synchronous,
@@ -174,7 +177,8 @@ public static class SubAgentRuntime
                     try
                     {
                         var result = await InvokeSynchronousCoreAsync(
-                            request with { RequestedMode = AgentInvocationMode.Synchronous },
+                            request,
+                            AgentInvocationMode.Background,
                             runtimeToken).ConfigureAwait(false);
 
                         backgroundContext.SetCompletion(
@@ -219,6 +223,7 @@ public static class SubAgentRuntime
 
     private static async Task<SubAgentInvocationResult> InvokeSynchronousCoreAsync(
         SubAgentInvocationRequest request,
+        AgentInvocationMode invocationMode,
         CancellationToken cancellationToken)
     {
         var definition = request.Definition;
@@ -279,7 +284,8 @@ public static class SubAgentRuntime
                     route.ThreadId,
                     definition.Name,
                     request.TaskName,
-                    AgentInvocationMode.Synchronous), cancellationToken).ConfigureAwait(false);
+                    contextPolicy,
+                    invocationMode), cancellationToken).ConfigureAwait(false);
             }
             await publisher.CommitAndPublishAsync(
                 new ThreadKey(route.SessionId, route.ThreadId),

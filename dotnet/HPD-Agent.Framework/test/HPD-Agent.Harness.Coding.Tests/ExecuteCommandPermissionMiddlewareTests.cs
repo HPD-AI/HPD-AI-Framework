@@ -1233,7 +1233,8 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
     {
         ExecuteCommandPermissionParityChecklist.Entries
             .Where(entry => entry.Status == ExecuteCommandPermissionParityStatus.PersistenceEnabled)
-            .Should().OnlyContain(entry => entry.Status >= ExecuteCommandPermissionParityStatus.CorpusCovered);
+            .All(entry => entry.Status >= ExecuteCommandPermissionParityStatus.CorpusCovered)
+            .Should().BeTrue();
     }
 
     [Fact]

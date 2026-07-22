@@ -81,5 +81,9 @@ public static class CodingHarnessEventSerialization
             typeof(LanguageServerDiagnosticsReceivedEvent),
             "LANGUAGE_SERVER_DIAGNOSTICS_RECEIVED",
             CodingToolHarnessJsonContext.Default.LanguageServerDiagnosticsReceivedEvent);
+        AgentEventSerializer.RegisterEventType(
+            typeof(LanguageServerStatusSnapshotEvent),
+            "LANGUAGE_SERVER_STATUS_SNAPSHOT",
+            CodingToolHarnessJsonContext.Default.LanguageServerStatusSnapshotEvent);
     }
 }

@@ -530,6 +530,19 @@ public sealed class CodingLanguageServerMiddleware : IToolHarnessMiddleware, IAs
             return;
         }
 
+        await context.PublishAsync(new LanguageServerStatusSnapshotEvent
+        {
+            SessionId = context.SessionId,
+            ThreadId = context.ThreadId,
+            Servers = statuses.Select(static status => new LanguageServerStatusSnapshot
+            {
+                ServerId = status.ServerId,
+                Root = status.Root,
+                Status = status.Status,
+                Message = status.Message
+            }).ToArray()
+        }, cancellationToken).ConfigureAwait(false);
+
         var unavailable = statuses
             .Where(status => status.Status == LanguageServerStatusKind.Unavailable)
             .ToArray();

@@ -10,6 +10,22 @@ public abstract record LanguageServerEvent : AgentEvent
     public required string Uri { get; init; }
 }
 
+/// <summary>Authoritative snapshot of language-server processes observed by the current runtime.</summary>
+public sealed record LanguageServerStatusSnapshotEvent : AgentEvent
+{
+    public override EventKind Kind { get; init; } = EventKind.Diagnostic;
+    public IReadOnlyList<LanguageServerStatusSnapshot> Servers { get; init; } = [];
+}
+
+/// <summary>Serializable status of one activated language server.</summary>
+public sealed record LanguageServerStatusSnapshot
+{
+    public required string ServerId { get; init; }
+    public required string Root { get; init; }
+    public required LanguageServerStatusKind Status { get; init; }
+    public string? Message { get; init; }
+}
+
 public sealed record LanguageServerDocumentOpenedEvent : LanguageServerEvent
 {
     public required string LanguageId { get; init; }

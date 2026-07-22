@@ -35,7 +35,8 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private readonly HashSet<string> _handledInteractionIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _sessionTitleUpdates = new(StringComparer.Ordinal);
     private readonly HashSet<string> _completedThreadExecutionIds = new(StringComparer.Ordinal);
-    private readonly Queue<string> _pendingPrompts = new();
+    private readonly Dictionary<AgentTuiRuntimeScope, PendingPromptQueue> _pendingPromptsByScope = [];
+    private PendingPrompt? _queuedPromptBeingSubmitted;
     private string? _activeThreadExecutionId;
     private string? _cancelConfirmationExecutionId;
     private DateTimeOffset _cancelConfirmationExpiresAt;
@@ -150,7 +151,6 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _pendingRecoveryRequests = [];
         _hydratedThreadState = null;
         _completedThreadExecutionIds.Clear();
-        _pendingPrompts.Clear();
         _inputSubmissionPending = false;
         _awaitingRuntimeSubmissionId = 0;
         _activeThreadExecutionId = null;
@@ -161,6 +161,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _state.Shell.Runtime = _runtime;
         _state.Shell.SwitchScopeAsync = SwitchScopeAsync;
         _state.Shell.SetPromptDraftAsync = SetPromptDraftAsync;
+        _state.Shell.AboveEditor.Add(new PendingPromptPreview(PendingPrompts(scope)));
         var autocomplete = new AutocompleteController()
             .Register(new AgentTuiAutocompleteProviderAdapter(_registry, () => _state));
         _prompt = _registry.PromptFactory.Create(
@@ -258,8 +259,9 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
 
         if (_activeThreadExecutionId is not null)
         {
-            _pendingPrompts.Enqueue(text);
-            _state.Shell.PromptStatusText = PendingPromptFooter(_pendingPrompts.Count);
+            var pendingPrompts = PendingPrompts(_scope);
+            pendingPrompts.Enqueue(text);
+            _state.Shell.PromptStatusText = PendingPromptFooter(pendingPrompts.Count);
             RequestRender();
             return;
         }
@@ -315,23 +317,33 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         _inputSubmissionPending = true;
         _state.Shell.PromptStatusText = "state: submitting";
         RequestRender();
-        _ = SubmitInputAsync(
+        _ = SubmitInputWithQueuedPromptAsync(
             _scope,
             new UserMessagesInputEvent { Messages = [new ChatMessage(ChatRole.User, text)],
                 AgentId = _scope.AgentId,
                 SessionId = _scope.SessionId,
                 ThreadId = _scope.ThreadId,
+                ClientInputId = _queuedPromptBeingSubmitted?.ClientInputId ?? Guid.NewGuid().ToString("N"),
                 RunConfig = runConfig
             },
-            text);
+            text,
+            _queuedPromptBeingSubmitted);
     }
 
     private async Task SubmitInputAsync(
         AgentTuiRuntimeScope scope,
         AgentInputEvent input,
         string? sessionTitleText = null)
+        => await SubmitInputWithQueuedPromptAsync(scope, input, sessionTitleText, queuedPrompt: null)
+            .ConfigureAwait(false);
+
+    private async Task SubmitInputWithQueuedPromptAsync(
+        AgentTuiRuntimeScope scope,
+        AgentInputEvent input,
+        string? sessionTitleText = null,
+        PendingPrompt? queuedPrompt = null)
     {
-        _ = await SubmitInputCoreAsync(scope, input, sessionTitleText, restoreRejectedDraft: true)
+        _ = await SubmitInputCoreWithQueuedPromptAsync(scope, input, sessionTitleText, restoreRejectedDraft: true, queuedPrompt)
             .ConfigureAwait(false);
     }
 
@@ -340,10 +352,27 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         AgentInputEvent input,
         string? sessionTitleText,
         bool restoreRejectedDraft)
+        => await SubmitInputCoreWithQueuedPromptAsync(
+            scope,
+            input,
+            sessionTitleText,
+            restoreRejectedDraft,
+            queuedPrompt: null).ConfigureAwait(false);
+
+    private async Task<AgentTuiSubmitResult?> SubmitInputCoreWithQueuedPromptAsync(
+        AgentTuiRuntimeScope scope,
+        AgentInputEvent input,
+        string? sessionTitleText,
+        bool restoreRejectedDraft,
+        PendingPrompt? queuedPrompt)
     {
-        var rejectedDraft = restoreRejectedDraft &&
-            input is SteeringInputEvent { Messages.Count: 1 } steering
-            ? steering.Messages[0].Text
+        var rejectedDraft = restoreRejectedDraft
+            ? input switch
+            {
+                SteeringInputEvent { Messages.Count: 1 } steering => steering.Messages[0].Text,
+                UserMessagesInputEvent { Messages.Count: 1 } messages => messages.Messages[0].Text,
+                _ => null
+            }
             : null;
         try
         {
@@ -385,6 +414,14 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 return null;
 
             _inputSubmissionPending = false;
+            if (submitted.Disposition is AgentInputDisposition.Accepted or AgentInputDisposition.Completed or AgentInputDisposition.Queued)
+            {
+                if (queuedPrompt is not null)
+                {
+                    PendingPrompts(scope).Remove(queuedPrompt.ClientInputId);
+                    RequestRender();
+                }
+            }
             if (submitted.Disposition == AgentInputDisposition.Queued &&
                 submitted.ActiveExecution is { } queuedExecution &&
                 !_completedThreadExecutionIds.Remove(queuedExecution.ThreadExecutionId))
@@ -394,6 +431,11 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             else if (submitted.Disposition != AgentInputDisposition.Accepted &&
                      submitted.Disposition != AgentInputDisposition.Completed)
             {
+                if (queuedPrompt is not null && input is UserMessagesInputEvent)
+                {
+                    PendingPrompts(scope).Remove(queuedPrompt.ClientInputId);
+                    RequestRender();
+                }
                 if (!string.IsNullOrEmpty(rejectedDraft) &&
                     _prompt is not null &&
                     _prompt.Model.Text.Length == 0)
@@ -424,6 +466,12 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 return null;
             }
 
+            if (queuedPrompt is not null && input is UserMessagesInputEvent)
+            {
+                PendingPrompts(scope).Remove(queuedPrompt.ClientInputId);
+                if (_prompt is not null && _prompt.Model.Text.Length == 0)
+                    _prompt.Model.SetText(queuedPrompt.Text);
+            }
             _state.Shell.Transcript.AddFinal(new TranscriptEntry(
                 Id: $"submit-error-{Guid.NewGuid():N}",
                 EntryKey: null,
@@ -452,6 +500,26 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
             return false;
         }
 
+        if (key.Key == KeyCode.UpArrow && key.Modifiers == KeyModifiers.Alt)
+        {
+            var pendingPrompts = PendingPrompts(_scope);
+            if (pendingPrompts.Count == 0) return false;
+            if (_prompt is null || _prompt.Model.Text.Length != 0)
+            {
+                _state.Shell.PromptStatusText = "state: running | clear the current draft to edit a queued follow-up";
+                RequestRender();
+                return true;
+            }
+
+            if (pendingPrompts.PopNewest() is { } pending)
+                _prompt.Model.SetText(pending.Text);
+            _state.Shell.PromptStatusText = pendingPrompts.Count == 0
+                ? "state: running"
+                : PendingPromptFooter(pendingPrompts.Count);
+            RequestRender();
+            return true;
+        }
+
         if (key.Key == KeyCode.Escape && key.Modifiers == KeyModifiers.None)
         {
             if (_dialogs?.HasOpenDialog == true)
@@ -469,7 +537,7 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 return false;
             }
 
-            if (_activeThreadExecutionId is not null && _pendingPrompts.Count > 0)
+            if (_activeThreadExecutionId is not null && PendingPrompts(_scope).Count > 0)
             {
                 _ = PromotePendingPromptToSteeringAsync(_scope, _state);
                 return true;
@@ -1037,13 +1105,15 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
         AgentTuiSessionState state)
     {
         if (_activeThreadExecutionId is not { } activeExecutionId ||
-            _pendingPrompts.Count == 0 ||
+            PendingPrompts(scope).Count == 0 ||
             _inputSubmissionPending)
         {
             return;
         }
 
-        var text = _pendingPrompts.Peek();
+        var pendingPrompts = PendingPrompts(scope);
+        var pending = pendingPrompts.PeekOldest()!;
+        var text = pending.Text;
         _inputSubmissionPending = true;
         state.Shell.PromptStatusText = "state: steering";
         RequestRender();
@@ -1055,25 +1125,24 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
                 SessionId = scope.SessionId,
                 ThreadId = scope.ThreadId,
                 ThreadExecutionId = activeExecutionId,
-                ClientInputId = Guid.NewGuid().ToString("N"),
+                ClientInputId = pending.ClientInputId,
                 Messages = [new ChatMessage(ChatRole.User, text)]
             },
             sessionTitleText: null,
             restoreRejectedDraft: false).ConfigureAwait(false);
 
         if (submitted?.Disposition == AgentInputDisposition.Accepted &&
-            _pendingPrompts.Count > 0 &&
-            string.Equals(_pendingPrompts.Peek(), text, StringComparison.Ordinal))
+            pendingPrompts.PeekOldest()?.ClientInputId == pending.ClientInputId)
         {
-            _pendingPrompts.Dequeue();
+            pendingPrompts.Remove(pending.ClientInputId);
         }
 
         if (_state == state && _activeThreadExecutionId is null)
             SubmitNextPendingPrompt();
 
-        if (_state == state && _pendingPrompts.Count > 0)
+        if (_state == state && pendingPrompts.Count > 0)
         {
-            state.Shell.PromptStatusText = PendingPromptFooter(_pendingPrompts.Count);
+            state.Shell.PromptStatusText = PendingPromptFooter(pendingPrompts.Count);
             RequestRender();
         }
     }
@@ -1081,20 +1150,35 @@ public sealed class HpdAgentTuiApp : IAsyncDisposable
     private void SubmitNextPendingPrompt()
     {
         if (_activeThreadExecutionId is not null ||
-            _pendingPrompts.Count == 0 ||
+            PendingPrompts(_scope!).Count == 0 ||
             _inputSubmissionPending)
         {
             return;
         }
 
-        var text = _pendingPrompts.Dequeue();
-        SubmitPrompt(text.AsMemory());
+        var pending = PendingPrompts(_scope!).PeekOldest()!;
+        _queuedPromptBeingSubmitted = pending;
+        try
+        {
+            SubmitPrompt(pending.Text.AsMemory());
+        }
+        finally
+        {
+            _queuedPromptBeingSubmitted = null;
+        }
+    }
+
+    private PendingPromptQueue PendingPrompts(AgentTuiRuntimeScope scope)
+    {
+        if (!_pendingPromptsByScope.TryGetValue(scope, out var queue))
+            _pendingPromptsByScope[scope] = queue = new PendingPromptQueue();
+        return queue;
     }
 
     private static string PendingPromptFooter(int count)
         => count == 1
-            ? "state: running | follow-up queued | press Esc to steer now"
-            : $"state: running | {count} follow-ups queued | press Esc to steer next now";
+            ? "state: running | follow-up queued | Alt+↑ edit | Esc steer now"
+            : $"state: running | {count} follow-ups queued | Alt+↑ edit latest | Esc steer next";
 
     private ValueTask ReconcileThreadPresentationAsync(
         AgentTuiThreadState threadState,
