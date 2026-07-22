@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
+using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Environment.Contracts;
 using HPD.Events;
 using HPDOS.ToolHarnesses.Middleware;
@@ -134,6 +135,33 @@ using HPDOS.ToolHarnesses.Middleware;
 [JsonSerializable(typeof(LanguageServerWatchedFileChangedEvent))]
 [JsonSerializable(typeof(LanguageServerDiagnosticsReceivedEvent))]
 [JsonSerializable(typeof(LanguageServerStatusSnapshotEvent))]
+[JsonSerializable(typeof(DebugLifecycleEvent))]
+[JsonSerializable(typeof(DebugTreeStartedEvent))]
+[JsonSerializable(typeof(DebugSessionStateChangedEvent))]
+[JsonSerializable(typeof(DebugSessionExitedEvent))]
+[JsonSerializable(typeof(DebugSessionTerminatedEvent))]
+[JsonSerializable(typeof(DebugTreeFaultedEvent))]
+[JsonSerializable(typeof(DebugSessionFailedEvent))]
+[JsonSerializable(typeof(DebugTreeTerminatedEvent))]
+[JsonSerializable(typeof(DebugSessionSummaryEvent))]
+[JsonSerializable(typeof(DebugRestartTransitionEvent))]
+[JsonSerializable(typeof(DebugChildSessionStartedEvent))]
+[JsonSerializable(typeof(DebugBreakpointChangedEvent))]
+[JsonSerializable(typeof(DebugRunInTerminalRequestEvent))]
+[JsonSerializable(typeof(DebugRunInTerminalResponseEvent))]
+[JsonSerializable(typeof(DebugSessionStoppedEvent))]
+[JsonSerializable(typeof(DebugSessionContinuedEvent))]
+[JsonSerializable(typeof(DebugProcessChangedEvent))]
+[JsonSerializable(typeof(DebugThreadChangedEvent))]
+[JsonSerializable(typeof(DebugModuleChangedEvent))]
+[JsonSerializable(typeof(DebugLoadedSourceChangedEvent))]
+[JsonSerializable(typeof(DebugCapabilitiesChangedEvent))]
+[JsonSerializable(typeof(DebugStateInvalidatedEvent))]
+[JsonSerializable(typeof(DebugMemoryChangedEvent))]
+[JsonSerializable(typeof(DebugOutputAvailableEvent))]
+[JsonSerializable(typeof(DebugProgressStartedEvent))]
+[JsonSerializable(typeof(DebugProgressUpdatedEvent))]
+[JsonSerializable(typeof(DebugProgressCompletedEvent))]
 [JsonSerializable(typeof(LanguageServerStatusSnapshot))]
 [JsonSerializable(typeof(IReadOnlyList<LanguageServerStatusSnapshot>), TypeInfoPropertyName = "LanguageServerStatusSnapshotReadOnlyList")]
 [JsonSerializable(typeof(List<LanguageServerStatusSnapshot>), TypeInfoPropertyName = "LanguageServerStatusSnapshotList")]

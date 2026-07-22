@@ -70,6 +70,53 @@ public class CustomEventSourceGenerationTests
     }
 
     [Fact]
+    public void EventRegistration_SameTypeAndDiscriminator_IsIdempotentAndInspectable()
+    {
+        _ = AgentEventSerializer.ToJson(new GeneratedCustomProgressEvent("registration", 1));
+        Assert.True(AgentEventSerializer.TryGetEventTypeRegistration(
+            typeof(GeneratedCustomProgressEvent),
+            out var existing));
+
+        Parallel.For(0, 32, _ => AgentEventSerializer.RegisterEventType(
+            typeof(GeneratedCustomProgressEvent),
+            existing.Discriminator,
+            existing.TypeInfo));
+
+        Assert.True(AgentEventSerializer.TryGetEventTypeRegistration(
+            typeof(GeneratedCustomProgressEvent),
+            out var final));
+        Assert.Equal(existing, final);
+    }
+
+    [Fact]
+    public void EventRegistration_SameTypeWithDifferentDiscriminator_FailsWithoutMutation()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            AgentEventSerializer.RegisterEventType(
+                typeof(GeneratedCustomProgressEvent),
+                "CONFLICTING_CUSTOM_PROGRESS"));
+
+        Assert.Contains("already registered", exception.Message);
+        Assert.Equal(
+            "GENERATED_CUSTOM_PROGRESS",
+            AgentEventSerializer.GetEventTypeName(typeof(GeneratedCustomProgressEvent)));
+    }
+
+    [Fact]
+    public void EventRegistration_SameDiscriminatorWithDifferentType_FailsWithoutMutation()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            AgentEventSerializer.RegisterEventType(
+                typeof(AttributeNamedCustomEvent),
+                "GENERATED_CUSTOM_PROGRESS"));
+
+        Assert.Contains("already registered", exception.Message);
+        Assert.Equal(
+            "CUSTOM_SOURCE_GEN_EVENT",
+            AgentEventSerializer.GetEventTypeName(typeof(AttributeNamedCustomEvent)));
+    }
+
+    [Fact]
     public void SourceGeneratedCustomStructEvent_RoundTripsThroughAgentStructEventSerializer()
     {
         var json = AgentStructEventSerializer.ToJson(new GeneratedCustomStructSample("audio", 12));

@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Agent.Serialization;
+using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPDOS.ToolHarnesses.Middleware;
 using System.Text.Json;
 
@@ -16,7 +17,28 @@ public sealed class CanonicalCodingEventCodecTests
             OutputChunk(),
             Progress(),
             Diagnostics(),
-            LanguageServerStatus()
+            LanguageServerStatus(),
+            new DebugChildSessionStartedEvent
+            {
+                DebugTreeId = "tree-1", DebugSessionId = "child-1", AdapterId = "fixture",
+                ParentDebugSessionId = "root-1", IsAttach = false, OutputPresentation = "separate"
+            },
+            new DebugRunInTerminalRequestEvent
+            {
+                DebugRequestId = "request-1", DebugTreeId = "tree-1", DebugSessionId = "child-1",
+                WorkingDirectory = "/workspace", Arguments = ["tool", "a b"],
+                EnvironmentDelta = new Dictionary<string, string?> { ["DELETE"] = null }
+            },
+            new DebugRunInTerminalResponseEvent
+            {
+                DebugRequestId = "request-1", ProcessId = 123, ShellProcessId = 124
+            },
+            new DebugBreakpointChangedEvent
+            {
+                DebugTreeId = "tree-1", DebugSessionId = "child-1", AdapterId = "fixture",
+                Reason = "changed", BreakpointId = 7, Verified = true,
+                SourcePath = "/workspace/a.cs", Line = 12
+            }
         ];
 
         foreach (var proposed in events)
@@ -72,6 +94,35 @@ public sealed class CanonicalCodingEventCodecTests
         decoded.CombinedOutputArtifactPath.Should().BeNull();
         decoded.StdoutContentId.Should().Be("stdout-content");
         decoded.CombinedOutputLocalPath.Should().Be("/tmp/combined.log");
+    }
+
+    [Fact]
+    public void Phase5_debugger_events_roundtrip_through_canonical_codec()
+    {
+        DebugLifecycleEvent[] events =
+        [
+            new DebugSessionStoppedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", Reason = "breakpoint" },
+            new DebugSessionContinuedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", AdapterThreadId = 1 },
+            new DebugSessionFailedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", SafeReasonCode = "PROTOCOL_FAULT" },
+            new DebugProcessChangedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", Name = "p" },
+            new DebugThreadChangedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", Reason = "started", AdapterThreadId = 1 },
+            new DebugModuleChangedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", Reason = "new", OpaqueModuleId = "m", Name = "module" },
+            new DebugLoadedSourceChangedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", Reason = "new", Name = "source" },
+            new DebugCapabilitiesChangedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", Enabled = ["readMemory"], Disabled = [] },
+            new DebugStateInvalidatedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", Areas = ["variables"] },
+            new DebugMemoryChangedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", MemoryReferenceToken = "token", Offset = 0, Count = 4 },
+            new DebugOutputAvailableEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", FirstSequence = 1, LastSequence = 2, Category = "Console", InlineText = "text" },
+            new DebugProgressStartedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", ProgressId = "p", Title = "work" },
+            new DebugProgressUpdatedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", ProgressId = "p", Percentage = 50 },
+            new DebugProgressCompletedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", ProgressId = "p" },
+            new DebugSessionSummaryEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", FinalStatus = "Terminated", DurationMilliseconds = 1, ChildSessionCount = 0, RetainedOutputBytes = 0, DroppedOutputRecords = 0, DroppedOutputBytes = 0, ProjectionFailures = 0 }
+        ];
+
+        foreach (var proposed in events)
+        {
+            var json = AgentEventSerializer.ToJson(ThreadEventValidation.PrepareForAppend("session", "thread", proposed));
+            AgentEventSerializer.FromJson(json).Should().BeOfType(proposed.GetType());
+        }
     }
 
     [Fact]

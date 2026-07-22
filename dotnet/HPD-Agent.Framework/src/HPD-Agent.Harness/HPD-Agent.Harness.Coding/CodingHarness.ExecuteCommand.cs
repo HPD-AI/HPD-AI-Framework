@@ -85,6 +85,15 @@ public partial class CodingToolHarness
         if (normalized.Request.Action == ExecuteCommandAction.Stop)
             return await StopBackgroundCommandAsync(normalized.Request, context, cancellationToken).ConfigureAwait(false);
 
+        if (!context.RuntimeCapabilities.TryGet<RuntimeProcessExecutionBinding>(out _))
+        {
+            return FormatExecuteCommandError(new ExecuteCommandError(
+                ExecuteCommandErrorKind.MissingRunner,
+                normalized.Request.Command,
+                normalized.Request.WorkingDirectory,
+                "The runtime does not expose an authorized process execution binding."));
+        }
+
         if (normalized.Request.StartsInBackground)
             return await RunExecuteCommandBackgroundAsync(normalized.Request, context, cancellationToken).ConfigureAwait(false);
 
@@ -135,6 +144,7 @@ public partial class CodingToolHarness
         var baseCommand = GetBaseCommand(request.Command);
         var category = DetectCommandCategory(baseCommand, request.Command);
         var processSpec = CreateProcessInvocationSpec(
+            GetProcessExecutionTarget(context),
             environmentContext.ShellExecutable,
             [.. environmentContext.ShellCommandArgumentsPrefix, request.Command],
             request.WorkingDirectory,
@@ -163,7 +173,7 @@ public partial class CodingToolHarness
                 outputStore,
                 eventState);
 
-            handle = await GetProcessProvider(context).StartAsync(
+            handle = await GetProcessExecution(context).ProcessProvider.StartAsync(
                 processSpec,
                 outputSink,
                 cancellationToken).ConfigureAwait(false);
@@ -295,6 +305,7 @@ public partial class CodingToolHarness
         var baseCommand = GetBaseCommand(request.Command);
         var category = DetectCommandCategory(baseCommand, request.Command);
         var processSpec = CreateProcessInvocationSpec(
+            GetProcessExecutionTarget(context),
             environmentContext.ShellExecutable,
             [.. environmentContext.ShellCommandArgumentsPrefix, request.Command],
             request.WorkingDirectory,
@@ -325,7 +336,7 @@ public partial class CodingToolHarness
                 outputStore,
                 eventState);
 
-            handle = await GetProcessProvider(context).StartAsync(
+            handle = await GetProcessExecution(context).ProcessProvider.StartAsync(
                 processSpec,
                 outputSink,
                 cancellationToken).ConfigureAwait(false);
@@ -1589,12 +1600,17 @@ public partial class CodingToolHarness
             await outputStore.DisposeAsync().ConfigureAwait(false);
     }
 
-    private static IProcessProvider GetProcessProvider(FunctionExecutionContext context) =>
-        context.RuntimeCapabilities.TryGet<IProcessProvider>(out var provider)
-            ? provider
-            : throw new InvalidOperationException("No IProcessProvider runtime capability is available.");
+    private static RuntimeProcessExecutionBinding GetProcessExecution(FunctionExecutionContext context) =>
+        context.RuntimeCapabilities.TryGet<RuntimeProcessExecutionBinding>(out var binding)
+            ? binding
+            : throw new InvalidOperationException(
+                "No runtime process execution binding is available. The runtime must publish both its process provider and authorized execution target.");
+
+    private static TargetHandle<ExecutionUnit> GetProcessExecutionTarget(FunctionExecutionContext context) =>
+        GetProcessExecution(context).ExecutionTarget;
 
     private static ProcessInvocationSpec CreateProcessInvocationSpec(
+        TargetHandle<ExecutionUnit> target,
         string fileName,
         IReadOnlyList<string> arguments,
         string? workingDirectory,
@@ -1603,7 +1619,7 @@ public partial class CodingToolHarness
         ProcessIsolationPolicy isolation) =>
         new()
         {
-            Target = CreateLocalExecutionUnitHandle(),
+            Target = target,
             Command = new ProcessCommandSpec
             {
                 FileName = fileName,
@@ -1642,15 +1658,6 @@ public partial class CodingToolHarness
         return environment.ToDictionary(pair => pair.Key, pair => (string?)pair.Value, StringComparer.Ordinal);
     }
 
-    private static TargetHandle<ExecutionUnit> CreateLocalExecutionUnitHandle() =>
-        new(
-            new TargetRoute
-            {
-                Kind = new TargetKind("local.execution-unit"),
-                Scope = new ResourceScope("local"),
-            },
-            TargetHandleLifetime.LiveCapability,
-            TargetHandleAuthority.Control | TargetHandleAuthority.Observe);
 }
 
 public enum ExecuteCommandAction

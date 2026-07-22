@@ -407,28 +407,20 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider
 
         ThrowIfHelperError(response, "process.readOutput");
 
-        int yielded = 0;
         if (TryCreateOutputChunk(entry, response.ProcessOutputEvent, out ProcessOutputChunk responseChunk))
         {
             RecordLastOutputSequence(processId, responseChunk.Sequence);
-            yielded++;
             yield return responseChunk;
         }
 
         await foreach (AppleVirtualizationHelperEnvelope helperEvent in _helper.ReadEventsAsync(cancellationToken).ConfigureAwait(false))
         {
-            if (yielded >= MaxReadOutputChunksPerCall)
-            {
-                yield break;
-            }
-
             if (!TryCreateOutputChunk(entry, helperEvent.ProcessOutputEvent, out ProcessOutputChunk outputChunk))
             {
                 continue;
             }
 
             RecordLastOutputSequence(processId, outputChunk.Sequence);
-            yielded++;
             yield return outputChunk;
         }
     }

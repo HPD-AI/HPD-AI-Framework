@@ -96,8 +96,25 @@ public sealed class LocalSandboxMiddleware : IAgentMiddleware, IAsyncDisposable
     {
         capabilities.Set(_registry!);
         capabilities.Set(_runtime!);
-        capabilities.Set<IProcessProvider>(_processProvider!);
+        capabilities.Set(new RuntimeProcessExecutionBinding
+        {
+            EnvironmentId = "local",
+            EnvironmentRevision = 1,
+            ProcessProvider = _processProvider!,
+            EnvironmentRuntime = _runtime,
+            ExecutionTarget = CreateExecutionTarget()
+        });
     }
+
+    private static TargetHandle<ExecutionUnit> CreateExecutionTarget() =>
+        new(
+            new TargetRoute
+            {
+                Kind = new TargetKind("local.execution-unit"),
+                Scope = new ResourceScope("local")
+            },
+            TargetHandleLifetime.LiveCapability,
+            TargetHandleAuthority.Control | TargetHandleAuthority.Observe);
 
     public async ValueTask DisposeAsync()
     {

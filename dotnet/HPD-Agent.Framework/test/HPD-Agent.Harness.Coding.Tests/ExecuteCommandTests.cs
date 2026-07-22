@@ -446,7 +446,7 @@ public sealed class ExecuteCommandTests : IDisposable
             session,
             thread,
             CancellationToken.None);
-        agentContext.RuntimeCapabilities.Set<IProcessProvider>(runner);
+        RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
         var runConfig = CreateWorkspaceRunConfig();
         var arguments = new Dictionary<string, object?> { ["command"] = "node server.js" };
         var beforeContext = agentContext.AsBeforeFunction(
@@ -1149,7 +1149,7 @@ public sealed class ExecuteCommandTests : IDisposable
             new Session("session-1"),
             new Thread("session-1", "test-agent") { Id = "thread-1" },
             CancellationToken.None);
-        agentContext.RuntimeCapabilities.Set<IProcessProvider>(runner);
+        RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
         var arguments = new Dictionary<string, object?> { ["action"] = action };
         if (backgroundHandleId is not null)
             arguments["backgroundHandleId"] = backgroundHandleId;
@@ -1440,6 +1440,24 @@ public sealed class ExecuteCommandTests : IDisposable
         ]);
     }
 
+    private static void RegisterProcessExecution(IRuntimeCapabilityRegistry capabilities, IProcessProvider provider)
+    {
+        capabilities.Set(new RuntimeProcessExecutionBinding
+        {
+            EnvironmentId = "test-local",
+            EnvironmentRevision = 1,
+            ProcessProvider = provider,
+            ExecutionTarget = new TargetHandle<ExecutionUnit>(
+                new TargetRoute
+                {
+                    Kind = new TargetKind("test.execution-unit"),
+                    Scope = new ResourceScope("test")
+                },
+                TargetHandleLifetime.LiveCapability,
+                TargetHandleAuthority.Control | TargetHandleAuthority.Observe)
+        });
+    }
+
     private static FunctionExecutionContext CreateContext(
         IProcessProvider? runner,
         ISessionStore? sessionStore = null,
@@ -1472,7 +1490,7 @@ public sealed class ExecuteCommandTests : IDisposable
             CancellationToken.None,
             contentStore: contentStore);
         if (runner is not null)
-            agentContext.RuntimeCapabilities.Set<IProcessProvider>(runner);
+            RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
 
         runConfig ??= CreateWorkspaceRunConfig();
         var beforeContext = agentContext.AsBeforeFunction(
@@ -1520,7 +1538,7 @@ public sealed class ExecuteCommandTests : IDisposable
             session,
             thread,
             CancellationToken.None);
-        agentContext.RuntimeCapabilities.Set<IProcessProvider>(runner);
+        RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
 
         var arguments = new Dictionary<string, object?> { ["command"] = command };
         var beforeContext = agentContext.AsBeforeFunction(

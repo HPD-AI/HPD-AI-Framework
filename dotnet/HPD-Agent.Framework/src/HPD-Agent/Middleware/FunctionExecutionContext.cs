@@ -100,6 +100,7 @@ public sealed class FunctionExecutionContext
 
     public IContentStore? ContentStore => _contentStore;
 
+
     public IAgentBackgroundTaskRegistry? BackgroundTasks { get; }
 
     public bool CanRegisterBackgroundTasks => BackgroundTasks is not null;

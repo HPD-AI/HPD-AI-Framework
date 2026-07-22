@@ -29,6 +29,8 @@ namespace HPD.Agent.Serialization;
 /// </remarks>
 public static partial class AgentEventSerializer
 {
+    private static readonly object RegistrationLock = new();
+
     /// <summary>
     /// Type name to SCREAMING_SNAKE_CASE discriminator mapping.
     /// Framework events are pre-registered; custom events are auto-added by source generator.
@@ -247,9 +249,12 @@ public static partial class AgentEventSerializer
     /// <returns>The SCREAMING_SNAKE_CASE type discriminator.</returns>
     public static string GetEventTypeName(Type eventType)
     {
-        return TypeNames.TryGetValue(eventType, out var typeName)
-            ? typeName
-            : ToScreamingSnakeCase(eventType.Name);
+        lock (RegistrationLock)
+        {
+            return TypeNames.TryGetValue(eventType, out var typeName)
+                ? typeName
+                : ToScreamingSnakeCase(eventType.Name);
+        }
     }
 
     /// <summary>
@@ -288,6 +293,13 @@ public static partial class AgentEventSerializer
 
         if (typeInfo is not null)
         {
+            if (typeInfo.Type != eventType)
+            {
+                throw new ArgumentException(
+                    $"JSON metadata for '{typeInfo.Type.FullName}' cannot be registered for event type '{eventType.FullName}'.",
+                    nameof(typeInfo));
+            }
+
             var reservedProperty = typeInfo.Properties.FirstOrDefault(static property =>
                 property.Name is "version" or "type");
             if (reservedProperty is not null)
@@ -299,10 +311,49 @@ public static partial class AgentEventSerializer
             }
         }
 
-        TypeNames[eventType] = discriminator;
-        DiscriminatorToType[discriminator] = eventType;
-        if (typeInfo is not null)
-            TypeInfos[eventType] = typeInfo;
+        lock (RegistrationLock)
+        {
+            if (TypeNames.TryGetValue(eventType, out var existingDiscriminator) &&
+                !existingDiscriminator.Equals(discriminator, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Event type '{eventType.FullName}' is already registered as '{existingDiscriminator}' and cannot be registered as '{discriminator}'.");
+            }
+
+            if (DiscriminatorToType.TryGetValue(discriminator, out var existingType) && existingType != eventType)
+            {
+                throw new InvalidOperationException(
+                    $"Event discriminator '{discriminator}' is already registered for '{existingType.FullName}' and cannot be registered for '{eventType.FullName}'.");
+            }
+
+            // Update all maps under one lock so readers never observe a partial registration.
+            var canonicalDiscriminator = existingDiscriminator ?? discriminator;
+            TypeNames[eventType] = canonicalDiscriminator;
+            DiscriminatorToType[canonicalDiscriminator] = eventType;
+            if (typeInfo is not null)
+                TypeInfos[eventType] = typeInfo;
+        }
+    }
+
+    /// <summary>
+    /// Returns an immutable snapshot of one event registration for diagnostics and tests.
+    /// </summary>
+    public static bool TryGetEventTypeRegistration(Type eventType, out EventTypeRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(eventType);
+
+        lock (RegistrationLock)
+        {
+            if (!TypeNames.TryGetValue(eventType, out var discriminator))
+            {
+                registration = default;
+                return false;
+            }
+
+            TypeInfos.TryGetValue(eventType, out var typeInfo);
+            registration = new EventTypeRegistration(eventType, discriminator, typeInfo);
+            return true;
+        }
     }
 
     // Reverse lookup: SCREAMING_SNAKE_CASE discriminator → concrete event type
@@ -313,13 +364,16 @@ public static partial class AgentEventSerializer
     // Initialise reverse lookup from TypeNames at startup
     static AgentEventSerializer()
     {
-        foreach (var (type, discriminator) in TypeNames)
+        lock (RegistrationLock)
         {
-            DiscriminatorToType[discriminator] = type;
-            // Warm up the STJ source-gen context so every registered type has metadata
-            // available before the first Serialize call.
-            if (StandardJsonOptions.TypeInfoResolver?.GetTypeInfo(type, StandardJsonOptions) is { } typeInfo)
-                TypeInfos[type] = typeInfo;
+            foreach (var (type, discriminator) in TypeNames)
+            {
+                DiscriminatorToType[discriminator] = type;
+                // Warm up the STJ source-gen context so every registered type has metadata
+                // available before the first Serialize call.
+                if (StandardJsonOptions.TypeInfoResolver?.GetTypeInfo(type, StandardJsonOptions) is { } typeInfo)
+                    TypeInfos[type] = typeInfo;
+            }
         }
     }
 
@@ -358,9 +412,7 @@ public static partial class AgentEventSerializer
 
     private static string ToJsonEnvelope(object value, Type concreteType, string version)
     {
-        var eventType = TypeNames.TryGetValue(concreteType, out var typeName)
-            ? typeName
-            : ToScreamingSnakeCase(concreteType.Name);
+        var eventType = GetEventTypeName(concreteType);
 
         var eventJson = JsonSerializer.Serialize(value, GetTypeInfo(concreteType));
         var prefix = $"\"version\":\"{version}\",\"type\":\"{eventType}\"";
@@ -385,7 +437,13 @@ public static partial class AgentEventSerializer
             return null;
 
         var discriminator = typeProp.GetString();
-        if (discriminator == null || !DiscriminatorToType.TryGetValue(discriminator, out var concreteType))
+        Type? concreteType;
+        lock (RegistrationLock)
+        {
+            if (discriminator == null || !DiscriminatorToType.TryGetValue(discriminator, out concreteType))
+                return null;
+        }
+        if (concreteType is null)
             return null;
 
         var typeInfo = GetTypeInfo(concreteType);
@@ -421,13 +479,21 @@ public static partial class AgentEventSerializer
 
     private static JsonTypeInfo GetTypeInfo(Type concreteType)
     {
-        if (TypeInfos.TryGetValue(concreteType, out var typeInfo))
-            return typeInfo;
+        lock (RegistrationLock)
+        {
+            if (TypeInfos.TryGetValue(concreteType, out var registeredTypeInfo))
+                return registeredTypeInfo;
+        }
 
-        typeInfo = StandardJsonOptions.TypeInfoResolver?.GetTypeInfo(concreteType, StandardJsonOptions)
+        var typeInfo = StandardJsonOptions.TypeInfoResolver?.GetTypeInfo(concreteType, StandardJsonOptions)
             ?? throw new JsonException($"No JSON metadata registered for event type '{concreteType.FullName}'.");
-        TypeInfos[concreteType] = typeInfo;
-        return typeInfo;
+        lock (RegistrationLock)
+        {
+            if (TypeInfos.TryGetValue(concreteType, out var registeredTypeInfo))
+                return registeredTypeInfo;
+            TypeInfos[concreteType] = typeInfo;
+            return typeInfo;
+        }
     }
 
     /// <summary>

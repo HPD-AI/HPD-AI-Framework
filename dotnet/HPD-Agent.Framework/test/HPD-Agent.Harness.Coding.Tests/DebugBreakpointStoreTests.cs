@@ -1,0 +1,151 @@
+using HPD.Agent.ToolHarness.Coding.Debugging;
+using HPD.Agent.ToolHarness.Coding.Debugging.Protocol.Generated;
+
+namespace HPD.Agent.ToolHarness.Coding.Tests;
+
+public sealed class DebugBreakpointStoreTests
+{
+    [Fact]
+    public async Task Concurrent_replacements_are_serialized_and_commit_in_adapter_order()
+    {
+        await using var store = new DebugBreakpointStore();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var applied = new List<string>();
+
+        var first = store.ReplaceFunctionAsync(
+            [new("first")],
+            async (_, items, _) =>
+            {
+                entered.SetResult();
+                await release.Task;
+                applied.Add(items[0].Name);
+            }).AsTask();
+        await entered.Task;
+        var second = store.ReplaceFunctionAsync(
+            [new("second")],
+            (_, items, _) =>
+            {
+                applied.Add(items[0].Name);
+                return ValueTask.CompletedTask;
+            }).AsTask();
+
+        second.IsCompleted.Should().BeFalse();
+        release.SetResult();
+        await Task.WhenAll(first, second);
+
+        applied.Should().Equal("first", "second");
+        store.Snapshot.Function.Should().ContainSingle().Which.Name.Should().Be("second");
+    }
+
+    [Fact]
+    public async Task Concurrent_read_modify_write_additions_do_not_lose_updates()
+    {
+        await using var store = new DebugBreakpointStore();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = store.MutateFunctionAsync(
+            current => [.. current, new("first")],
+            async (_, _, _) => { entered.SetResult(); await release.Task; }).AsTask();
+        await entered.Task;
+        var second = store.MutateFunctionAsync(
+            current => [.. current, new("second")],
+            static (_, _, _) => ValueTask.CompletedTask).AsTask();
+
+        release.SetResult();
+        await Task.WhenAll(first, second);
+
+        store.Snapshot.Function.Select(x => x.Name).Should().Equal("first", "second");
+    }
+
+    [Fact]
+    public async Task Empty_replacement_is_sent_and_failed_replacement_does_not_change_desired_state()
+    {
+        await using var store = new DebugBreakpointStore();
+        store.Seed(new() { SourceBreakpoints = [new("/workspace/a.cs", 10)] });
+        var observedCount = -1;
+
+        await store.ReplaceSourceAsync([], (_, items, _) =>
+        {
+            observedCount = items.Count;
+            return ValueTask.CompletedTask;
+        });
+        observedCount.Should().Be(0);
+        store.Snapshot.Source.Should().BeEmpty();
+
+        var replace = async () => await store.ReplaceSourceAsync(
+            [new("/workspace/b.cs", 20)],
+            (_, _, _) => ValueTask.FromException(new InvalidOperationException("adapter rejected")));
+        await replace.Should().ThrowAsync<InvalidOperationException>();
+        store.Snapshot.Source.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Confirmed_state_reconciles_by_adapter_id_and_remains_store_local()
+    {
+        var root = new DebugConfirmedBreakpointStore();
+        var child = new DebugConfirmedBreakpointStore();
+        root.Replace(DebugBreakpointKind.Source,
+            [new Breakpoint { Id = 7, Verified = false, Source = new Source { Path = "/workspace/a.cs" }, Line = 10 }]);
+
+        root.Reconcile("changed", new Breakpoint
+        {
+            Id = 7,
+            Verified = true,
+            Source = new Source { Path = "/workspace/a.cs" },
+            Line = 12,
+            Message = "moved"
+        });
+
+        root.Snapshot.Should().ContainSingle().Which.Should().Match<DebugConfirmedBreakpoint>(x =>
+            x.AdapterId == 7 && x.Verified && x.Line == 12 && x.Message == "moved");
+        child.Snapshot.Should().BeEmpty();
+
+        root.Reconcile("removed", new Breakpoint { Id = 7, Verified = false });
+        root.Snapshot.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Child_composition_copies_only_portable_intentions_and_rediscovers_persistent_data()
+    {
+        var desired = new DebugDesiredBreakpointSnapshot
+        {
+            Source = [new("/workspace/a.cs", 10)],
+            Function = [new("Run")],
+            Exception = [new("all")],
+            Instruction = [new("portable", Portable: true), new("bound", Portable: false)],
+            Data =
+            [
+                new("root-data", CanPersist: true, Recipe: new("field"), OriginSessionId: "root", SuspensionEpoch: 3),
+                new("frame-data", CanPersist: false, Recipe: new("local"), OriginSessionId: "root", SuspensionEpoch: 3)
+            ]
+        };
+
+        var child = await DebugChildBreakpointComposer.ComposeAsync(
+            desired,
+            instructionReferencesArePortable: true,
+            (recipe, _) => ValueTask.FromResult<DebugDataBreakpoint?>(new("child-" + recipe.Name)),
+            CancellationToken.None);
+
+        child.Source.Should().Equal(desired.Source);
+        child.Function.Should().Equal(desired.Function);
+        child.Exception.Should().Equal(desired.Exception);
+        child.Instruction.Should().ContainSingle().Which.InstructionReference.Should().Be("portable");
+        child.Data.Should().ContainSingle().Which.Should().Match<DebugDataBreakpoint>(x =>
+            x.DataId == "child-field" && x.OriginSessionId == null && x.SuspensionEpoch == null && x.CanPersist);
+    }
+
+    [Fact]
+    public async Task Persistent_data_recipe_without_rediscovery_provider_fails_explicitly()
+    {
+        var resolver = new PortableDebugChildBreakpointResolver();
+        var desired = new DebugDesiredBreakpointSnapshot
+        {
+            Data = [new("root-data", CanPersist: true, Recipe: new("field"), OriginSessionId: "root")]
+        };
+
+        var compose = async () => await resolver.ComposeAsync(desired, null!, null!, CancellationToken.None);
+        await compose.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*no child-session rediscovery provider*");
+    }
+}

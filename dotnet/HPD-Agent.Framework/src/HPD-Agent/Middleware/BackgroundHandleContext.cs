@@ -95,6 +95,9 @@ public enum BackgroundHandleKind
     /// <summary>A process or command handle.</summary>
     Process,
 
+    /// <summary>An owned debugger session tree.</summary>
+    DebugSession,
+
     /// <summary>A workflow handle.</summary>
     Workflow,
 

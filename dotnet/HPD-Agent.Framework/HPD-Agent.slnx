@@ -10,6 +10,9 @@
     <Project Path="src/HPD-Agent.MultiAgent/HPD-Agent.MultiAgent.csproj" />
     <Project Path="src/HPD-Agent.SourceGenerator/HPD-Agent.SourceGenerator.csproj" />
   </Folder>
+  <Folder Name="/Engineering/">
+    <Project Path="eng/HPD-Agent.DebugProtocol.CodeGen/HPD-Agent.DebugProtocol.CodeGen.csproj" />
+  </Folder>
   <Folder Name="/AOT Smoke Tests/">
     <Project Path="test/HPD-Agent.Skills.AotSmoke/HPD-Agent.Skills.AotSmoke.csproj" />
   </Folder>
