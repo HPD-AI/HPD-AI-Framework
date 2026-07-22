@@ -28,11 +28,13 @@ public class MockFileSystemTools
 public class MockDebuggingToolHarness
 {
     [Skill]
-    public static Skill FileDebugging() => SkillFactory.Create(
-        "FileDebugging",
-        "Debug file system issues",
-        "Use file operations to debug issues",
-        "MockFileSystemTools.ReadFile",
-        "MockFileSystemTools.WriteFile"
-    );
+    public static Skill FileDebugging() => Skill.Create(
+        name: "FileDebugging",
+        description: "Debug file system issues",
+        instructions: SkillInstructions.FromText("Use file operations to debug issues"),
+        capabilities:
+        [
+            SkillCapabilities.Function<MockFileSystemTools>(nameof(MockFileSystemTools.ReadFile)),
+            SkillCapabilities.Function<MockFileSystemTools>(nameof(MockFileSystemTools.WriteFile))
+        ]);
 }

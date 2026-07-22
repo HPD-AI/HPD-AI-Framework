@@ -80,6 +80,9 @@ internal class FunctionCapability : BaseCapability
     /// </summary>
     public ValidationData? ValidationData { get; set; }
 
+    /// <summary>Stable IDs of skills that may reveal this function.</summary>
+    public List<string> ParentSkillIds { get; set; } = new();
+
     // ========== Code Generation ==========
 
     /// <summary>
@@ -93,6 +96,14 @@ internal class FunctionCapability : BaseCapability
     public override string GenerateRegistrationCode(object parent)
     {
         var ToolHarness = (ToolHarnessInfo)parent;
+        var capabilityParents = ParentSkillIds.ToList();
+        if (ToolHarness.IsCollapsed)
+        {
+            var owner = string.IsNullOrEmpty(ToolHarness.Namespace)
+                ? ToolHarness.ClassName
+                : $"{ToolHarness.Namespace}.{ToolHarness.ClassName}";
+            capabilityParents.Add($"generated:{owner}:harness");
+        }
 
         var nameCode = $"\"{FunctionName}\"";
         var descriptionCode = HasDynamicDescription
@@ -193,12 +204,15 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         }
         options.AppendLine($"                ParameterDescriptions = {GenerateParameterDescriptions()},");
 
-        // ALWAYS add ParentToolHarness metadata (enables ToolHarnessReferences to work with any ToolHarness)
-        // Note: ToolHarnesses without [Collapse] remain "always visible" by default
-        // Skills can use ToolHarnessReferences to Collapse them on-demand
         options.AppendLine("                AdditionalProperties = new Dictionary<string, object>");
         options.AppendLine("                {");
-        options.AppendLine($"                    [\"ParentToolHarness\"] = \"{ToolHarness.ClassName}\",");
+        options.AppendLine("                    [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata");
+        options.AppendLine("                    {");
+        options.AppendLine($"                        Id = CapabilityId.Create(@\"generated:{ToolHarness.ClassName}.{FunctionName}\"),");
+        options.AppendLine("                        Kind = HPDCapabilityKind.Function,");
+        options.AppendLine($"                        DeclarationMemberName = @\"{Name.Replace("\"", "\"\"")}\",");
+        options.AppendLine($"                        ParentContainerIds = System.Collections.Immutable.ImmutableArray.Create<CapabilityId>({string.Join(", ", capabilityParents.Select(id => $"CapabilityId.Create(@\"{id.Replace("\"", "\"\"")}\")"))})");
+        options.AppendLine("                    },");
 
         // Add Kind if it's an output tool (structured output)
         if (Kind == "Output")
@@ -207,8 +221,7 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         }
 
         options.AppendLine($"                    [\"InvocationModePolicy\"] = \"{InvocationModePolicy}\",");
-        options.AppendLine($"                    [\"InvocationModeHandling\"] = \"{InvocationModeHandling}\",");
-        options.AppendLine("                    [\"IsContainer\"] = false");
+        options.AppendLine($"                    [\"InvocationModeHandling\"] = \"{InvocationModeHandling}\"");
         options.Append("                }");
 
         return

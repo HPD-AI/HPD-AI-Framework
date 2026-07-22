@@ -123,6 +123,9 @@ public class AgentConfig
 
     private CollapsingConfig _collapsing = new();
 
+    /// <summary>Gets or sets progressive skill runtime behavior.</summary>
+    public SkillRuntimeOptions Skills { get; set; } = new();
+
     /// <summary>
     /// ToolHarnesses to include. Supports both simple string names and rich references.
     /// Resolved via source-generated registry at Build() time.
@@ -1176,26 +1179,6 @@ public class MistralSettings
 }
 
 /// <summary>
-/// Controls where skill instructions are injected during skill execution.
-/// Iteration filter ALWAYS injects to system prompt - this controls whether to ALSO include in function result.
-/// </summary>
-public enum SkillInstructionMode
-{
-    /// <summary>
-    /// Instructions only in system prompt via iteration filter (function result has activation message only).
-    /// Most token efficient - instructions appear once in system prompt.
-    /// Recommended: Use this mode to avoid redundant instructions in conversation history.
-    /// </summary>
-    PromptMiddlewareOnly,
-
-    /// <summary>
-    /// Instructions in BOTH system prompt (via iteration filter) AND function result (redundant double emphasis).
-    /// Uses more tokens but may improve LLM compliance for complex skills.
-    /// </summary>
-    Both
-}
-
-/// <summary>
 /// Configuration for Collapsing feature.
 /// Controls hierarchical organization of functions to reduce token usage.
 /// </summary>
@@ -1220,15 +1203,6 @@ public class CollapsingConfig
     /// Default: 10.
     /// </summary>
     public int MaxFunctionNamesInDescription { get; set; } = 10;
-
-    /// <summary>
-    /// Controls whether skill instructions appear in function result (in addition to system prompt).
-    /// Iteration filter ALWAYS injects to system prompt - this controls redundancy in function result.
-    /// - PromptMiddlewareOnly: Instructions only in system prompt.
-    /// - Both: Instructions in both system prompt AND function result.
-    /// Default: PromptMiddlewareOnly.
-    /// </summary>
-    public SkillInstructionMode SkillInstructionMode { get; set; } = SkillInstructionMode.PromptMiddlewareOnly;
 
     /// <summary>
     /// WhetherSystemPrompt injections persist across message turns.

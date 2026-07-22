@@ -1,5 +1,4 @@
 using HPD.Agent;
-using HPD.Agent;
 
 namespace HPD.Agent.Tests.TestToolHarnesses;
 
@@ -27,21 +26,29 @@ public partial class CombinedCapabilitiesTools
     //     
 
     [Skill]
-    public static Skill DataAnalysisSkill() => SkillFactory.Create(
-        "DataAnalysis",
-        "Comprehensive data analysis workflow",
-        "Use AnalyzeData and ValidateData to perform thorough data analysis",
-        "CombinedCapabilitiesTools.AnalyzeData",
-        "CombinedCapabilitiesTools.ValidateData"
-    );
+    public static Skill DataAnalysisSkill() => Skill.Create(
+        name: "DataAnalysis",
+        description: "Comprehensive data analysis workflow",
+        instructions: SkillInstructions.FromText("Use AnalyzeData and ValidateData to perform thorough data analysis"),
+        capabilities:
+        [
+            SkillCapabilities.Function<CombinedCapabilitiesTools>(nameof(AnalyzeData)),
+            SkillCapabilities.Function<CombinedCapabilitiesTools>(nameof(ValidateData)),
+            SkillCapabilities.Resource(
+                "read_validation_guide",
+                "Reads the validation rules to apply before analysis.",
+                "Every record must have a stable identifier.")
+        ]);
 
     [Skill]
-    public static Skill DataTransformationSkill() => SkillFactory.Create(
-        "DataTransformation",
-        "Data transformation and conversion workflow",
-        "Use TransformData to convert data between formats",
-        "CombinedCapabilitiesTools.TransformData"
-    );
+    public static Skill DataTransformationSkill() => Skill.Create(
+        name: "DataTransformation",
+        description: "Data transformation and conversion workflow",
+        instructions: SkillInstructions.FromText("Use TransformData to convert data between formats"),
+        capabilities:
+        [
+            SkillCapabilities.Function<CombinedCapabilitiesTools>(nameof(TransformData))
+        ]);
 
     //     
     // SUB-AGENTS
@@ -127,13 +134,15 @@ public partial class SkillsAndSubAgentsToolHarness
 {
     // Skill that references functions from MockFileSystemTools
     [Skill]
-    public static Skill FileOperationsSkill() => SkillFactory.Create(
-        "FileOps",
-        "File operation workflows",
-        "Use file operations for reading and writing",
-        "MockFileSystemTools.ReadFile",
-        "MockFileSystemTools.WriteFile"
-    );
+    public static Skill FileOperationsSkill() => Skill.Create(
+        name: "FileOps",
+        description: "File operation workflows",
+        instructions: SkillInstructions.FromText("Use file operations for reading and writing"),
+        capabilities:
+        [
+            SkillCapabilities.Function<MockFileSystemTools>(nameof(MockFileSystemTools.ReadFile)),
+            SkillCapabilities.Function<MockFileSystemTools>(nameof(MockFileSystemTools.WriteFile))
+        ]);
 
     // Sub-Agent
     [SubAgent]

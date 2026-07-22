@@ -34,6 +34,13 @@ internal static class ReflectionToolFactory
             return false;
         }
 
+        if (methods.Any(method => HasAttribute(method, "SkillAttribute")))
+        {
+            error = $"ToolHarness '{toolharnessType.Name}' contains [Skill] declarations but was not found in ToolHarnessRegistry.All. " +
+                "Skills require source generation so their capability graph and Native AOT delegates can be validated at compile time.";
+            return false;
+        }
+
         var hasInstanceMethods = methods.Any(method => !method.IsStatic);
         if (hasInstanceMethods && toolharnessType.GetConstructor(Type.EmptyTypes) is null)
         {
@@ -163,11 +170,6 @@ internal static class ReflectionToolFactory
         IToolMetadata? context,
         JsonSerializerOptions serializerOptions)
     {
-        if (HasAttribute(method, "SkillAttribute"))
-        {
-            return CreateSkill(method, instance, serializerOptions);
-        }
-
         if (HasAttribute(method, "SubAgentAttribute"))
         {
             return CreateSubAgent(method, instance, serializerOptions);
@@ -221,47 +223,6 @@ internal static class ReflectionToolFactory
                     ["IsContainer"] = false,
                     ["CapabilityType"] = "Function",
                     ["Kind"] = GetToolKind(method).ToString()
-                }
-            });
-    }
-
-    private static AIFunction CreateSkill(
-        MethodInfo method,
-        object? instance,
-        JsonSerializerOptions serializerOptions)
-    {
-        var skill = InvokeCapabilityMethod<Skill>(method, instance);
-        var references = skill.References ?? Array.Empty<string>();
-        var functionList = references.Length == 0 ? "(none)" : string.Join(", ", references);
-        var mode = AgentConfig.GlobalConfig?.Collapsing?.SkillInstructionMode ?? SkillInstructionMode.PromptMiddlewareOnly;
-        var returnMessage = mode == SkillInstructionMode.Both && !string.IsNullOrWhiteSpace(skill.FunctionResult)
-            ? $"{skill.Name} skill activated. Available functions: {functionList}\n\n{skill.FunctionResult}"
-            : $"{skill.Name} skill activated. Available functions: {functionList}";
-
-        return HPDAIFunctionFactory.Create(
-            async (arguments, functionContext, cancellationToken) => returnMessage,
-            new HPDAIFunctionFactoryOptions
-            {
-                Name = skill.Name,
-                Description = $"{skill.Description}. References {references.Length} functions: {functionList}",
-                RequiresPermission = HasAttribute(method, "RequiresPermissionAttribute"),
-                SerializerOptions = serializerOptions,
-                ResultType = typeof(string),
-                SchemaProvider = CreateEmptySchema,
-                AdditionalProperties = new Dictionary<string, object?>
-                {
-                    ["CapabilityType"] = "Skill",
-                    ["IsContainer"] = true,
-                    ["IsSkill"] = true,
-                    ["ParentContainer"] = method.DeclaringType?.Name,
-                    ["ReferencedFunctions"] = references,
-                    ["ReferencedToolHarnesses"] = references
-                        .Select(reference => reference.Split('.')[0])
-                        .Where(name => !string.IsNullOrWhiteSpace(name))
-                        .Distinct(StringComparer.Ordinal)
-                        .ToArray(),
-                    ["SystemPrompt"] = skill.SystemPrompt,
-                    ["FunctionResult"] = skill.FunctionResult
                 }
             });
     }

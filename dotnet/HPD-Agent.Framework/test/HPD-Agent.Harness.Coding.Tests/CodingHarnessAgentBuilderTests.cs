@@ -109,7 +109,12 @@ public class CodingToolHarnessAgentBuilderTests
             .Select(tool => tool.Name)
             .ToArray();
 
-        toolNames.Should().BeEquivalentTo(["ReadFile", "ListDirectory", "GlobSearch", "Grep"]);
+        // DefaultOptions is the complete immutable catalog; turn middleware projects its
+        // model-visible subset. The generated activation remains present so scoped middleware
+        // and graph relationships can be resolved without reflection.
+        toolNames.Should().BeEquivalentTo([
+            nameof(CodingToolHarness), "ReadFile", "ListDirectory", "GlobSearch", "Grep"
+        ]);
         agent.Middlewares.Should().ContainSingle(middleware => middleware is ContainerMiddleware);
 
         var collapse = typeof(CodingToolHarness)

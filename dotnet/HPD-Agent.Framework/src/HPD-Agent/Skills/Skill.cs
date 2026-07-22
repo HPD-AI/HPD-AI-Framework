@@ -1,56 +1,90 @@
-// <summary>
-/// Represents a type-safe skill - a semantic grouping of functions with instructions.
-/// Created via SkillFactory.Create() and processed by source generator.
+/// <summary>
+/// Describes an immutable progressively disclosed skill.
 /// </summary>
-public class Skill
+/// <remarks>
+/// A skill is owned by a tool harness. Before activation the model sees only
+/// <see cref="Name"/> and <see cref="Description"/>. Activating it returns
+/// <see cref="Instructions"/> and reveals its child <see cref="Capabilities"/>.
+/// </remarks>
+public sealed record Skill
 {
-    /// <summary>
-    /// Skill name (REQUIRED - becomes AIFunction name shown to agent)
-    /// </summary>
-    public string Name { get; internal set; } = string.Empty;
+    private Skill()
+    {
+    }
 
-    /// <summary>
-    /// Description shown in tool list before activation (REQUIRED - becomes AIFunction description).
-    /// This is what the agent sees when browsing available tools.
-    /// Example: "Debug file operations" appears as tool description before skill is invoked.
-    /// </summary>
-    public string Description { get; internal set; } = string.Empty;
+    /// <summary>Gets the logical definition identifier.</summary>
+    public required string Id { get; init; }
 
-    /// <summary>
-    /// Instructions returned as FUNCTION RESULT when skill is activated.
-    /// Visible to LLM once, as contextual acknowledgment.
-    /// Use for: Status messages, operation lists, dynamic feedback.
-    /// </summary>
-    public string? FunctionResult { get; internal set; }
+    /// <summary>Gets the model-visible activation function name.</summary>
+    public required string Name { get; init; }
 
-    /// <summary>
-    /// Instructions injected into SYSTEM PROMPT persistently.
-    /// Visible to LLM on every iteration after activation.
-    /// Use for: Core rules, safety guidelines, best practices, permanent context.
-    /// </summary>
-    public string? SystemPrompt { get; internal set; }
+    /// <summary>Gets the discovery description visible before activation.</summary>
+    public required string Description { get; init; }
 
-    /// <summary>
-    /// String-based references to functions or skills in "ToolHarnessName.FunctionName" format.
-    /// Validated at compile-time by source generator, works with instance methods at runtime.
-    /// Example: "FileSystemToolHarness.ReadFile"
-    /// </summary>
-    public string[] References { get; internal set; } = Array.Empty<string>();
+    /// <summary>Gets the authoritative instructions returned by activation.</summary>
+    public required SkillInstructionProvider Instructions { get; init; }
 
-    /// <summary>Skill configuration options</summary>
-    public SkillOptions Options { get; internal set; } = new();
+    /// <summary>Gets optional higher-priority reinforcement instructions.</summary>
+    public SkillInstructionProvider? Reinforcement { get; init; }
 
-    // Internal - resolved by source generator during code generation
+    /// <summary>Gets the capabilities revealed after activation.</summary>
+    public IReadOnlyList<SkillCapability> Capabilities { get; init; } = Array.Empty<SkillCapability>();
 
-    /// <summary>
-    /// Resolved function references in "ToolHarnessName.FunctionName" format
-    /// Set by source generator after flattening skill references
-    /// </summary>
-    internal string[] ResolvedFunctionReferences { get; set; } = Array.Empty<string>();
+    /// <summary>Gets the activation lifetime.</summary>
+    public SkillActivationLifetime Lifetime { get; init; } = SkillActivationLifetime.MessageTurn;
 
-    /// <summary>
-    /// Resolved ToolHarness types that need to be registered
-    /// Set by source generator after analyzing all references
-    /// </summary>
-    internal string[] ResolvedToolHarnessTypes { get; set; } = Array.Empty<string>();
+    /// <summary>Gets optional source and trust provenance.</summary>
+    public SkillProvenance? Provenance { get; init; }
+
+    /// <summary>Creates and validates an immutable skill definition.</summary>
+    /// <param name="name">The model-visible activation name.</param>
+    /// <param name="description">The discovery description visible before activation.</param>
+    /// <param name="instructions">The authoritative activation instruction provider.</param>
+    /// <param name="capabilities">Capabilities revealed by activation.</param>
+    /// <param name="reinforcement">Optional higher-priority reinforcement provider.</param>
+    /// <param name="lifetime">How long activation remains effective.</param>
+    /// <param name="id">An optional logical definition identifier; defaults to <paramref name="name"/>.</param>
+    /// <param name="provenance">Optional source and trust provenance.</param>
+    /// <returns>A validated immutable skill.</returns>
+    public static Skill Create(
+        string name,
+        string description,
+        SkillInstructionProvider instructions,
+        IReadOnlyList<SkillCapability>? capabilities = null,
+        SkillInstructionProvider? reinforcement = null,
+        SkillActivationLifetime lifetime = SkillActivationLifetime.MessageTurn,
+        string? id = null,
+        SkillProvenance? provenance = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        ArgumentNullException.ThrowIfNull(instructions);
+
+        if (lifetime != SkillActivationLifetime.MessageTurn)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(lifetime),
+                lifetime,
+                "Only message-turn skill activation is currently supported.");
+        }
+
+        var capabilitySnapshot = capabilities is null
+            ? Array.Empty<SkillCapability>()
+            : capabilities.ToArray();
+
+        if (capabilitySnapshot.Any(static capability => capability is null))
+            throw new ArgumentException("Skill capabilities cannot contain null values.", nameof(capabilities));
+
+        return new Skill
+        {
+            Id = string.IsNullOrWhiteSpace(id) ? name : id,
+            Name = name,
+            Description = description,
+            Instructions = instructions,
+            Capabilities = capabilitySnapshot,
+            Reinforcement = reinforcement,
+            Lifetime = lifetime,
+            Provenance = provenance
+        };
+    }
 }

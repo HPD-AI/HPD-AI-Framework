@@ -38,7 +38,7 @@ internal sealed class OutputArtifactWriter
         AddIfPresent(tags, "voice", options.VoiceId);
 
         var info = await contentStore.WriteBytesAsync(
-            scope: sessionId.Value,
+            scope: ContentScope.Create(sessionId.Value),
             data: bytes,
             metadata: new ContentMetadata
             {
@@ -51,7 +51,7 @@ internal sealed class OutputArtifactWriter
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return new StoredAudioArtifact(
-            new AudioArtifactRef("hpd-content", info.Id, info.ContentType, info.SizeBytes, sha256),
+            new AudioArtifactRef("hpd-content", info.Address.ContentId, info.ContentType, info.SizeBytes, sha256),
             info.ContentType,
             info.SizeBytes,
             sha256);

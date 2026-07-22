@@ -22,16 +22,14 @@ internal class SkillCapability : BaseCapability
     /// </summary>
     public string MethodName { get; set; } = string.Empty;
 
+    /// <summary>Whether the declaring skill method is static.</summary>
+    public bool MethodIsStatic { get; set; }
+
     /// <summary>
     /// Whether the skill is marked with [RequiresPermission].
     /// When true, invoking this skill requires user approval.
     /// </summary>
     public bool RequiresPermission { get; set; }
-
-    /// <summary>
-    /// Skill options extracted from Skill builder
-    /// </summary>
-    public SkillOptionsInfo Options { get; set; } = new();
 
     /// <summary>
     /// Unresolved references to functions or other skills (before resolution phase)
@@ -86,28 +84,6 @@ internal class SkillCapability : BaseCapability
     }
 
     /// <summary>
-    /// Gets additional metadata properties for this skill.
-    /// </summary>
-    public override Dictionary<string, object> GetAdditionalProperties()
-    {
-        var props = base.GetAdditionalProperties();
-        props["IsContainer"] = true;
-        props["IsSkill"] = true;
-        props["ParentContainer"] = ParentToolHarnessName;
-        props["ReferencedFunctions"] = ResolvedFunctionReferences.ToArray();
-        props["ReferencedToolHarnesses"] = ResolvedToolHarnessTypes.ToArray();
-        props["RequiresPermission"] = RequiresPermission;
-
-        if (!string.IsNullOrEmpty(SystemPrompt))
-            props["SystemPrompt"] = SystemPrompt;
-
-        if (!string.IsNullOrEmpty(FunctionResult))
-            props["FunctionResult"] = FunctionResult;
-
-        return props;
-    }
-
-    /// <summary>
     /// Resolves references to other capabilities (functions and skills).
     /// For Phase 1, this is a placeholder. Full implementation will delegate to SkillResolver
     /// in Phase 2-3, then be fully migrated in Phase 5.
@@ -122,32 +98,6 @@ internal class SkillCapability : BaseCapability
         // For now, just keep unresolved references as-is for compilation
     }
 
-    // ========== Helper Methods ==========
-
-    /// <summary>
-    /// Formats a property value for code generation.
-    /// </summary>
-    private string FormatPropertyValue(object value)
-    {
-        return value switch
-        {
-            string s => $"@\"{s.Replace("\"", "\"\"")}\"",
-            bool b => b.ToString().ToLower(),
-            int i => i.ToString(),
-            string[] arr => $"new string[] {{ {string.Join(", ", arr.Select(s => $"\"{s}\""))} }}",
-            _ => value.ToString() ?? "null"
-        };
-    }
-}
-
-// ========== Supporting Classes (Duplicated from SkillInfo.cs for Phase 1) ==========
-// In Phase 2, we'll consolidate these to avoid duplication
-
-/// <summary>
-/// Information about skill options extracted from Skill builder
-/// </summary>
-internal class SkillOptionsInfo
-{
 }
 
 /// <summary>

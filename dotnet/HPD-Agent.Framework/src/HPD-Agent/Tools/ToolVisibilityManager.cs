@@ -64,6 +64,50 @@ public class ToolVisibilityManager
         int currentAgentDepth = 0,
         int maxSubAgentDepth = 4)
     {
+        var typedFunctions = allTools.Where(HasTypedCapabilityMetadata).ToList();
+        var legacyFunctions = allTools.Where(function => !HasTypedCapabilityMetadata(function)).ToList();
+        var visible = GetLegacyToolsForAgentTurn(
+            legacyFunctions,
+            expandedContainers,
+            currentAgentDepth,
+            maxSubAgentDepth);
+
+        if (typedFunctions.Count == 0)
+            return visible;
+
+        var graph = CapabilityGraph.CreateFromFunctions(typedFunctions);
+        var activeIds = expandedContainers
+            .Select(name => graph.ModelNames.TryGetValue(name, out var id) ? id : default)
+            .Where(id => !string.IsNullOrWhiteSpace(id.Value))
+            .ToHashSet();
+        var neverCollapsedIds = graph.Nodes.Values
+            .Where(node => node.Kind == HPDCapabilityKind.ToolHarnessActivation)
+            .Where(node => _neverCollapseToolHarnesses.Contains(node.Function.Name) ||
+                node.Function.AdditionalProperties?.TryGetValue("ToolHarnessName", out var value) == true &&
+                value is string toolHarnessName && _neverCollapseToolHarnesses.Contains(toolHarnessName))
+            .Select(node => node.Id)
+            .ToHashSet();
+        activeIds.UnionWith(neverCollapsedIds);
+        visible.AddRange(graph.Nodes.Values
+            .Where(node => CapabilityGraph.IsVisible(node, activeIds))
+            .Where(node => !neverCollapsedIds.Contains(node.Id))
+            .Where(node => IsSubAgentAvailable(node.Function, currentAgentDepth, maxSubAgentDepth))
+            .OrderBy(node => node.Function.Name)
+            .Select(node => node.Function));
+        return visible.DistinctBy(function => function.Name).ToList();
+    }
+
+    private static bool HasTypedCapabilityMetadata(AIFunction function)
+        => function.AdditionalProperties?.TryGetValue(
+            HPDCapabilityMetadata.AdditionalPropertiesKey,
+            out var metadata) == true && metadata is HPDCapabilityMetadata;
+
+    private List<AIFunction> GetLegacyToolsForAgentTurn(
+        List<AIFunction> allTools,
+        ImmutableHashSet<string> expandedContainers,
+        int currentAgentDepth,
+        int maxSubAgentDepth)
+    {
         ArgumentOutOfRangeException.ThrowIfNegative(currentAgentDepth);
         ArgumentOutOfRangeException.ThrowIfNegative(maxSubAgentDepth);
 

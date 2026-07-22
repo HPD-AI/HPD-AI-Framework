@@ -105,6 +105,14 @@ internal class SubAgentCapability : BaseCapability
         sb.AppendLine("        },");
         sb.AppendLine("        AdditionalProperties = new System.Collections.Generic.Dictionary<string, object>");
         sb.AppendLine("        {");
+        var owner = string.IsNullOrEmpty(ToolHarness.Namespace) ? ToolHarness.ClassName : $"{ToolHarness.Namespace}.{ToolHarness.ClassName}";
+        sb.AppendLine("            [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata");
+        sb.AppendLine("            {");
+        sb.AppendLine($"                Id = CapabilityId.Create(@\"generated:{ToolHarness.ClassName}.{SubAgentName}\"),");
+        sb.AppendLine("                Kind = HPDCapabilityKind.SubAgent,");
+        if (ToolHarness.IsCollapsed)
+            sb.AppendLine($"                ParentContainerIds = System.Collections.Immutable.ImmutableArray.Create(CapabilityId.Create(@\"generated:{owner}:harness\"))");
+        sb.AppendLine("            },");
         sb.AppendLine("            [\"IsSubAgent\"] = true,");
         sb.AppendLine("            [\"ExecutionModel\"] = \"ThreadNative\",");
         sb.AppendLine($"            [\"ParentToolHarness\"] = \"{ToolHarness.ClassName}\",");

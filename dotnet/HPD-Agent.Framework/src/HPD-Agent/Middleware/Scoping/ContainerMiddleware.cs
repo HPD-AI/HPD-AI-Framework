@@ -64,12 +64,13 @@ public class ContainerMiddleware : IAgentMiddleware
 
     private readonly ToolVisibilityManager _visibilityManager;
     private readonly CollapsingConfig _config;
+    private readonly SkillRuntimeOptions _skillOptions;
     private readonly Microsoft.Extensions.Logging.ILogger<ContainerMiddleware>? _logger;
-    private readonly IList<AITool> _initialTools; // V2: Store for container detection
+    private IList<AITool> _initialTools; // V2: Store for container detection
 
     // Smart Recovery: Maps to identify hidden tools and containers
-    private readonly Dictionary<string, string> _itemToContainerMap;
-    private readonly HashSet<string> _knownContainerNames;
+    private Dictionary<string, string> _itemToContainerMap;
+    private HashSet<string> _knownContainerNames;
 
     // ToolHarness-scoped middleware (015): factory registry for building scoped pipelines at expansion time
     private readonly IReadOnlyDictionary<string, ToolHarnessFactory>? _toolharnessFactories;
@@ -102,6 +103,7 @@ public class ContainerMiddleware : IAgentMiddleware
         IReadOnlyDictionary<string, List<IAgentMiddleware>>? HARNESScopedMiddlewares = null,
         IReadOnlyDictionary<string, Dictionary<string, System.Text.Json.JsonElement>>? middlewareConfigs = null,
         CollapsingConfig? config = null,
+        SkillRuntimeOptions? skillOptions = null,
         Microsoft.Extensions.Logging.ILogger<ContainerMiddleware>? logger = null)
     {
         if (initialTools == null)
@@ -113,6 +115,7 @@ public class ContainerMiddleware : IAgentMiddleware
         var aiFunctions = initialTools.OfType<AIFunction>().ToList();
 
         _config = config ?? new CollapsingConfig { Enabled = true };
+        _skillOptions = skillOptions ?? new SkillRuntimeOptions();
 
         // Create ToolVisibilityManager for filtering, passing NeverCollapse config
         _visibilityManager = new ToolVisibilityManager(
@@ -127,6 +130,20 @@ public class ContainerMiddleware : IAgentMiddleware
 
         // Initialize Smart Recovery maps for hidden items and qualified names
         _itemToContainerMap = BuildItemToContainerMap(initialTools);
+        _knownContainerNames = new HashSet<string>(
+            _itemToContainerMap.Values,
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal void ReplaceCapabilityFunctions(IEnumerable<AIFunction> functions)
+    {
+        ArgumentNullException.ThrowIfNull(functions);
+        var retained = _initialTools.Where(tool => tool is not AIFunction function ||
+            function.AdditionalProperties?.ContainsKey(
+                HPDCapabilityMetadata.AdditionalPropertiesKey) != true).ToList();
+        retained.AddRange(functions);
+        _initialTools = retained;
+        _itemToContainerMap = BuildItemToContainerMap(retained);
         _knownContainerNames = new HashSet<string>(
             _itemToContainerMap.Values,
             StringComparer.OrdinalIgnoreCase);
@@ -152,6 +169,14 @@ public class ContainerMiddleware : IAgentMiddleware
         }
 
         var collapsingState = context.GetMiddlewareState<ContainerMiddlewareState>() ?? new ContainerMiddlewareState();
+        if (collapsingState.TurnCapabilityFunctions.IsDefaultOrEmpty && context.Options.Tools is { Count: > 0 })
+        {
+            collapsingState = collapsingState with
+            {
+                TurnCapabilityFunctions = context.Options.Tools.OfType<AIFunction>().ToImmutableArray()
+            };
+            context.UpdateMiddlewareState<ContainerMiddlewareState>(_ => collapsingState);
+        }
 
         //─────────────────────────────────────────────────────────────────────────────────────────────
         // STEP 0A: Remove stale container protocols from previous turns (session restoration)
@@ -206,7 +231,9 @@ public class ContainerMiddleware : IAgentMiddleware
 
             //  CRITICAL FIX: Always filter from _initialTools (complete list), not context.Options.Tools (already filtered)
             // This ensures that when containers expand, their nested functions become visible in subsequent iterations
-            var aiFunctions = _initialTools.OfType<AIFunction>().ToList();
+            var aiFunctions = collapsingState.TurnCapabilityFunctions.IsDefaultOrEmpty
+                ? _initialTools.OfType<AIFunction>().ToList()
+                : collapsingState.TurnCapabilityFunctions.ToList();
 
             // Apply visibility rules (unified container tracking)
             var visibleFunctions = _visibilityManager.GetToolsForAgentTurn(
@@ -296,10 +323,21 @@ public class ContainerMiddleware : IAgentMiddleware
         {
             // 1. Standard Expansion Check (Is it a container?)
             // We use the existing DetectContainers logic just for this single tool call
-            var (expansions, instructions) = DetectContainers(new[] { toolCall }, _initialTools);
+            var turnTools = currentState.TurnCapabilityFunctions.IsDefaultOrEmpty
+                ? _initialTools
+                : currentState.TurnCapabilityFunctions.Cast<AITool>().ToList();
+            var (expansions, instructions) = DetectContainers(new[] { toolCall }, turnTools);
 
             if (expansions.Count > 0)
             {
+                var calledFunction = FindFunctionInList(toolCall.Name, turnTools);
+                if (GetCapabilityMetadata(calledFunction)?.Kind == HPDCapabilityKind.SkillActivation)
+                {
+                    // Skill activation is transactional: its children become visible only after
+                    // the instruction provider returns successfully in AfterFunctionAsync.
+                    continue;
+                }
+
                 foreach(var e in expansions) containersToExpand.Add(e);
                 foreach(var i in instructions) containerInstructions[i.Key] = i.Value;
 
@@ -550,6 +588,26 @@ public class ContainerMiddleware : IAgentMiddleware
         AfterFunctionContext context,
         CancellationToken cancellationToken)
     {
+        if (context.Exception is null &&
+            context.Function is { } successfulFunction &&
+            GetCapabilityMetadata(successfulFunction)?.Kind == HPDCapabilityKind.SkillActivation)
+        {
+            context.UpdateMiddlewareState<ContainerMiddlewareState>(state =>
+                state.WithExpandedContainer(successfulFunction.Name));
+        }
+
+        if (_skillOptions.InstructionDelivery == SkillInstructionDelivery.ToolResultWithSystemReinforcement &&
+            context.Function is { } activatedFunction &&
+            GetCapabilityMetadata(activatedFunction)?.Kind == HPDCapabilityKind.SkillActivation &&
+            context.ResultMetadata.TryGet<string>("HPD.SkillReinforcement", out var reinforcement) &&
+            !string.IsNullOrWhiteSpace(reinforcement))
+        {
+            context.UpdateMiddlewareState<ContainerMiddlewareState>(state =>
+                state.WithContainerInstructions(
+                    activatedFunction.Name,
+                    new ContainerInstructionSet(null, reinforcement)));
+        }
+
         // ToolHarness-scoped middleware (015): dispatch to the owning toolharness's pipeline (reverse order)
         if (context.Function != null)
         {
@@ -727,7 +785,8 @@ public class ContainerMiddleware : IAgentMiddleware
         if (collapsingState.ContainersExpandedThisTurn.Count > 0 ||
             !collapsingState.ActiveContainerInstructions.IsEmpty ||
             !collapsingState.RecoveredFunctionCalls.IsEmpty ||
-            !collapsingState.ToolHarnessPipelines.IsEmpty)
+            !collapsingState.ToolHarnessPipelines.IsEmpty ||
+            !collapsingState.TurnCapabilityFunctions.IsDefaultOrEmpty)
         {
             context.UpdateMiddlewareState<ContainerMiddlewareState>(_ => updatedCollapsing);
         }
@@ -864,16 +923,21 @@ public class ContainerMiddleware : IAgentMiddleware
             var function = FindFunctionInList(toolCall.Name, tools);
             if (function == null) continue;
 
-            // Check if it's a container
-            if (function.AdditionalProperties?.TryGetValue("IsContainer", out var isContainerVal) != true ||
-                isContainerVal is not bool isContainer || !isContainer)
+            // Typed skill/tool-harness activations and legacy collapse containers are containers.
+            var typedMetadata = GetCapabilityMetadata(function);
+            var isTypedContainer = typedMetadata?.Kind is
+                HPDCapabilityKind.SkillActivation or HPDCapabilityKind.ToolHarnessActivation;
+            var isLegacyContainer = function.AdditionalProperties?.TryGetValue("IsContainer", out var isContainerVal) == true &&
+                isContainerVal is bool isContainer && isContainer;
+            if (!isTypedContainer && !isLegacyContainer)
             {
                 continue;
             }
 
             // Check if it's a skill container (has both IsContainer=true AND IsSkill=true)
-            var isSkill = function.AdditionalProperties?.TryGetValue("IsSkill", out var isSkillVal) == true
-                && isSkillVal is bool isS && isS;
+            var isSkill = typedMetadata?.Kind == HPDCapabilityKind.SkillActivation ||
+                (function.AdditionalProperties?.TryGetValue("IsSkill", out var isSkillVal) == true
+                    && isSkillVal is bool isS && isS);
 
             // Determine container name
             string containerName;
@@ -1142,8 +1206,10 @@ public class ContainerMiddleware : IAgentMiddleware
                 continue;
 
             // Check if it's a container
-            var isContainer = af.AdditionalProperties?.TryGetValue("IsContainer", out var val) == true
-                && val is bool b && b;
+            var isContainer = GetCapabilityMetadata(af)?.Kind is
+                    HPDCapabilityKind.SkillActivation or HPDCapabilityKind.ToolHarnessActivation ||
+                (af.AdditionalProperties?.TryGetValue("IsContainer", out var val) == true
+                    && val is bool b && b);
 
             if (!isContainer)
                 continue;
@@ -1179,6 +1245,13 @@ public class ContainerMiddleware : IAgentMiddleware
 
         return null;
     }
+
+    private static HPDCapabilityMetadata? GetCapabilityMetadata(AIFunction? function)
+        => function?.AdditionalProperties?.TryGetValue(
+            HPDCapabilityMetadata.AdditionalPropertiesKey,
+            out var value) == true
+            ? value as HPDCapabilityMetadata
+            : null;
 
     /// <summary>
     /// Checks if a function call IS a container (not a child function).
@@ -1217,9 +1290,24 @@ public class ContainerMiddleware : IAgentMiddleware
     private static Dictionary<string, string> BuildItemToContainerMap(IList<AITool> tools)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        
+        var typedNames = tools.OfType<AIFunction>()
+            .Select(function => (Function: function, Metadata: GetCapabilityMetadata(function)))
+            .Where(entry => entry.Metadata is not null)
+            .ToDictionary(entry => entry.Metadata!.Id, entry => entry.Function.Name);
+
         foreach (var tool in tools.OfType<AIFunction>())
         {
+            var metadata = GetCapabilityMetadata(tool);
+            if (metadata?.Kind is HPDCapabilityKind.SkillActivation or HPDCapabilityKind.ToolHarnessActivation)
+            {
+                foreach (var childId in metadata.Reveals)
+                {
+                    if (typedNames.TryGetValue(childId, out var modelName))
+                        map[modelName] = tool.Name;
+                }
+                continue;
+            }
+
             // Only map items inside Containers
             var isContainer = tool.AdditionalProperties?.TryGetValue("IsContainer", out var v) == true 
                 && v is bool b && b;
@@ -1487,6 +1575,13 @@ public class ContainerMiddleware : IAgentMiddleware
 public sealed record ContainerMiddlewareState
 {
     /// <summary>
+    /// Gets the complete capability set pinned to the current model turn. This runtime-only
+    /// snapshot is excluded from durable middleware state.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ImmutableArray<AIFunction> TurnCapabilityFunctions { get; init; } = [];
+
+    /// <summary>
     /// All expanded containers (ToolHarnesses AND skills) across the entire session.
     /// Containers in this set have their member functions visible.
     /// Persists across message turns.
@@ -1610,7 +1705,8 @@ public sealed record ContainerMiddlewareState
             ExpandedContainers = ImmutableHashSet<string>.Empty,
             ContainersExpandedThisTurn = ImmutableHashSet<string>.Empty,
             RecoveredFunctionCalls = ImmutableDictionary<string, RecoveryInfo>.Empty,
-            ToolHarnessPipelines = ImmutableDictionary<string, AgentMiddlewarePipeline>.Empty
+            ToolHarnessPipelines = ImmutableDictionary<string, AgentMiddlewarePipeline>.Empty,
+            TurnCapabilityFunctions = []
         };
     }
 }

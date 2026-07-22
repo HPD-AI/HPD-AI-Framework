@@ -105,10 +105,10 @@ public sealed class AgentInputContentSourceResolver : IInputContentSourceResolve
                 "No content store was provided for this input content resolver.");
         }
 
-        var scope = storeRef.Scope ?? _contentStoreScope;
+        var scope = ContentScope.Create(storeRef.Scope ?? _contentStoreScope ?? ContentScope.Global.Value);
+        var address = new ContentAddress(scope, storeRef.ContentId);
         var stat = await _contentStore.StatAsync(
-            scope,
-            storeRef.ContentId,
+            address,
             cancellationToken).ConfigureAwait(false);
 
         if (stat is null)
@@ -137,12 +137,11 @@ public sealed class AgentInputContentSourceResolver : IInputContentSourceResolve
             Sha256 = inputContent.Sha256,
             OpenStreamAsync = async openCancellationToken =>
             {
-                var stream = await _contentStore.OpenReadAsync(
-                    scope,
-                    storeRef.ContentId,
+                var result = await _contentStore.OpenReadAsync(
+                    stat.Address,
                     openCancellationToken).ConfigureAwait(false);
 
-                return stream
+                return result?.Content
                     ?? throw new FileNotFoundException(
                         $"Content store item '{storeRef.ContentId}' was not found.",
                         storeRef.ContentId);

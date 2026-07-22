@@ -950,7 +950,8 @@ static async Task PrintAssistantOutputResultsAsync(
 
         if (!string.IsNullOrWhiteSpace(exportDir) && artifact is not null)
         {
-            var bytesToExport = await contentStore.ReadBytesAsync(sessionId, artifact.Artifact.ArtifactId);
+            var bytesToExport = await contentStore.ReadBytesAsync(new ContentAddress(
+                ContentScope.Create(sessionId), artifact.Artifact.ArtifactId));
             if (bytesToExport is not null)
             {
                 Directory.CreateDirectory(exportDir);

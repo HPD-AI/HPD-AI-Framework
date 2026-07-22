@@ -1,4 +1,5 @@
 using FluentAssertions;
+using HPD.Agent.StructuredOutput;
 using Xunit;
 
 namespace HPD.Agent.Tests.SubAgents;

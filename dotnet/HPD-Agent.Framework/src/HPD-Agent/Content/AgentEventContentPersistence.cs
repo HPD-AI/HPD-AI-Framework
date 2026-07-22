@@ -51,7 +51,7 @@ internal static class AgentEventContentPersistence
         await using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
 
         return await contentStore.WriteAsync(
-            request.Scope ?? defaultScope,
+            ContentScope.Create(request.Scope ?? defaultScope ?? ContentScope.Global.Value),
             stream,
             new ContentMetadata
             {

@@ -707,7 +707,7 @@ public sealed class ExecuteCommandTests : IDisposable
         xml.Should().NotContain("artifact_path=");
         xml.Should().Contain("content_id=");
 
-        var artifacts = await contentStore.QueryAsync("session-1", new ContentQuery
+        var artifacts = await contentStore.QueryAsync(ContentScope.Create("session-1"), new ContentQuery
         {
             Tags = new Dictionary<string, string> { ["kind"] = "artifact" }
         });
@@ -1906,44 +1906,39 @@ public sealed class ExecuteCommandTests : IDisposable
 
     private sealed class ThrowingContentStore : IContentStore
     {
-        public Task<ContentInfo> WriteAsync(
-            string? scope,
+        public ValueTask<ContentInfo> WriteAsync(
+            ContentScope scope,
             Stream data,
             ContentMetadata metadata,
             ContentWriteOptions options,
             CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("commit blocked");
 
-        public Task<Stream?> OpenReadAsync(
-            string? scope,
-            string contentId,
+        public ValueTask<ContentReadResult?> OpenReadAsync(
+            ContentAddress address,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<Stream?>(null);
+            => ValueTask.FromResult<ContentReadResult?>(null);
 
-        public Task<Uri?> CreateReadUriAsync(
-            string? scope,
-            string contentId,
+        public ValueTask<Uri?> CreateReadUriAsync(
+            ContentAddress address,
             TimeSpan expiresIn,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<Uri?>(null);
+            => ValueTask.FromResult<Uri?>(null);
 
-        public Task<ContentInfo?> StatAsync(
-            string? scope,
-            string contentId,
+        public ValueTask<ContentInfo?> StatAsync(
+            ContentAddress address,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<ContentInfo?>(null);
+            => ValueTask.FromResult<ContentInfo?>(null);
 
-        public Task DeleteAsync(
-            string? scope,
-            string contentId,
-            ContentDeleteOptions? options = null,
+        public ValueTask DeleteAsync(
+            ContentAddress address,
             CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+            => ValueTask.CompletedTask;
 
-        public Task<IReadOnlyList<ContentInfo>> QueryAsync(
-            string? scope = null,
+        public ValueTask<IReadOnlyList<ContentInfo>> QueryAsync(
+            ContentScope scope,
             ContentQuery? query = null,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<ContentInfo>>([]);
+            => ValueTask.FromResult<IReadOnlyList<ContentInfo>>([]);
     }
 }

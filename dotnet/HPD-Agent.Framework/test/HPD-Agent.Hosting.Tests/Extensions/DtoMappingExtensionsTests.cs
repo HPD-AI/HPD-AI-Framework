@@ -166,8 +166,7 @@ public class DtoMappingExtensionsTests
         // Arrange
         var metadata = new HPD.Agent.ContentInfo
         {
-            Id = "content-123",
-            Version = "rev:123",
+            Address = new ContentAddress(ContentScope.Global, "content-123", "rev:123"),
             Name = "content-123",
             ContentType = "image/png",
             SizeBytes = 1024000,

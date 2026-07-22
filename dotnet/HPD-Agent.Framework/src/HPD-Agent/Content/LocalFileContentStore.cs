@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Collections.Concurrent;
 
 namespace HPD.Agent;
 
@@ -12,26 +13,26 @@ namespace HPD.Agent;
 /// <code>
 /// basePath/
 ///   {scope}/
-///     {contentId}.jpg    (JPEG images)
-///     {contentId}.png    (PNG images)
-///     {contentId}.md     (Markdown files)
-///     {contentId}.txt    (Text files)
-///     {contentId}.bin    (Unknown types)
-///     {contentId}.meta   (JSON metadata companion file)
+///     {contentId}.{generation}.bin (immutable content generation)
+///     {contentId}.meta             (atomically replaced current-generation pointer)
+///     .hpd-store.lock              (cross-process scope mutation lock)
 /// </code>
 /// </remarks>
 public class LocalFileContentStore : IContentStore
 {
     private readonly string _basePath;
+    private static readonly ConcurrentDictionary<string, object> StoreLocks = new(StringComparer.Ordinal);
     // Name index file per scope: scope/.nameindex (JSON: name -> contentId)
-    private readonly object _writeLock = new();
+    private readonly object _writeLock;
 
     /// <summary>Create a new local file content store.</summary>
     /// <param name="basePath">Base directory for content storage</param>
     public LocalFileContentStore(string basePath)
     {
-        _basePath = basePath ?? throw new ArgumentNullException(nameof(basePath));
-        Directory.CreateDirectory(basePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(basePath);
+        _basePath = Path.GetFullPath(basePath);
+        _writeLock = StoreLocks.GetOrAdd(_basePath, static _ => new object());
+        Directory.CreateDirectory(_basePath);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -39,8 +40,8 @@ public class LocalFileContentStore : IContentStore
     // ═══════════════════════════════════════════════════════════════════
 
     /// <inheritdoc />
-    public async Task<ContentInfo> WriteAsync(
-        string? scope,
+    public async ValueTask<ContentInfo> WriteAsync(
+        ContentScope scope,
         Stream data,
         ContentMetadata metadata,
         ContentWriteOptions options,
@@ -53,8 +54,8 @@ public class LocalFileContentStore : IContentStore
             ? "application/octet-stream"
             : metadata.ContentType;
 
-        var actualScope = scope ?? "global";
-        var scopePath = Path.Combine(_basePath, SanitizePath(actualScope));
+        ValidateScope(scope);
+        var scopePath = GetScopePath(scope);
         Directory.CreateDirectory(scopePath);
 
         var (tempPath, contentHash, sizeBytes) = await WriteStreamToTempFileAsync(scopePath, data, cancellationToken)
@@ -64,12 +65,13 @@ public class LocalFileContentStore : IContentStore
         {
             lock (_writeLock)
             {
+                using var scopeLock = AcquireScopeLock(scopePath, cancellationToken);
                 return options.Mode switch
                 {
-                    ContentWriteMode.Create or ContentWriteMode.Stage => Create(scopePath, tempPath, contentType, metadata, contentHash, sizeBytes, options),
-                    ContentWriteMode.ReplaceById => ReplaceById(scopePath, tempPath, contentType, metadata, contentHash, options),
-                    ContentWriteMode.ReplaceByName => ReplaceByName(scopePath, tempPath, contentType, metadata, contentHash, options),
-                    ContentWriteMode.Append => Append(scopePath, tempPath, contentType, metadata, contentHash, options),
+                    ContentWriteMode.Create => Create(scope, scopePath, tempPath, contentType, metadata, contentHash, sizeBytes, options),
+                    ContentWriteMode.ReplaceById => ReplaceById(scope, scopePath, tempPath, contentType, metadata, contentHash, options),
+                    ContentWriteMode.ReplaceByName => ReplaceByName(scope, scopePath, tempPath, contentType, metadata, contentHash, options),
+                    ContentWriteMode.Append => Append(scope, scopePath, tempPath, contentType, metadata, contentHash, options),
                     _ => throw new ArgumentOutOfRangeException(nameof(options), options.Mode, "Unsupported content write mode.")
                 };
             }
@@ -82,90 +84,98 @@ public class LocalFileContentStore : IContentStore
     }
 
     /// <inheritdoc />
-    public Task<Stream?> OpenReadAsync(
-        string? scope,
-        string contentId,
+    public ValueTask<ContentReadResult?> OpenReadAsync(
+        ContentAddress address,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(contentId))
-            return Task.FromResult<Stream?>(null);
-
-        var actualScope = scope ?? "global";
-        var scopePath = Path.Combine(_basePath, SanitizePath(actualScope));
+        ValidateAddress(address);
+        var scopePath = GetScopePath(address.Scope);
 
         if (!Directory.Exists(scopePath))
-            return Task.FromResult<Stream?>(null);
-
-        var filePath = FindContentFile(scopePath, contentId);
-        if (filePath == null)
-            return Task.FromResult<Stream?>(null);
-
-        Stream stream = new FileStream(
-            filePath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read | FileShare.Delete,
-            bufferSize: 81920,
-            useAsync: true);
-        return Task.FromResult<Stream?>(stream);
-    }
-
-    /// <inheritdoc />
-    public Task<Uri?> CreateReadUriAsync(
-        string? scope,
-        string contentId,
-        TimeSpan expiresIn,
-        CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult<Uri?>(null);
-    }
-
-    /// <inheritdoc />
-    public Task<ContentInfo?> StatAsync(
-        string? scope,
-        string contentId,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(contentId))
-            return Task.FromResult<ContentInfo?>(null);
-
-        var actualScope = scope ?? "global";
-        var scopePath = Path.Combine(_basePath, SanitizePath(actualScope));
-        if (!Directory.Exists(scopePath))
-            return Task.FromResult<ContentInfo?>(null);
-
-        return Task.FromResult(BuildContentInfoFromId(scopePath, contentId));
-    }
-
-    /// <inheritdoc />
-    public Task DeleteAsync(
-        string? scope,
-        string contentId,
-        ContentDeleteOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(contentId))
-            return Task.CompletedTask;
-
-        var actualScope = scope ?? "global";
-        var scopePath = Path.Combine(_basePath, SanitizePath(actualScope));
-
-        if (!Directory.Exists(scopePath))
-            return Task.CompletedTask;
+            return ValueTask.FromResult<ContentReadResult?>(null);
 
         lock (_writeLock)
         {
+            using var scopeLock = AcquireScopeLock(scopePath, cancellationToken);
+            var filePath = FindContentFile(scopePath, address.ContentId);
+            if (filePath == null)
+                return ValueTask.FromResult<ContentReadResult?>(null);
+
+            var info = BuildContentInfoFromId(address.Scope, scopePath, address.ContentId);
+            if (info is null)
+                return ValueTask.FromResult<ContentReadResult?>(null);
+            EnsureAddressMatches(address, info.Address);
+
+            Stream stream = new FileStream(
+                filePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read | FileShare.Delete,
+                bufferSize: 81920,
+                useAsync: true);
+            return ValueTask.FromResult<ContentReadResult?>(new ContentReadResult
+            {
+                Content = stream,
+                Info = info
+            });
+        }
+    }
+
+    /// <inheritdoc />
+    public ValueTask<Uri?> CreateReadUriAsync(
+        ContentAddress address,
+        TimeSpan expiresIn,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateAddress(address);
+        return ValueTask.FromResult<Uri?>(null);
+    }
+
+    /// <inheritdoc />
+    public ValueTask<ContentInfo?> StatAsync(
+        ContentAddress address,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateAddress(address);
+        var scopePath = GetScopePath(address.Scope);
+        if (!Directory.Exists(scopePath))
+            return ValueTask.FromResult<ContentInfo?>(null);
+
+        lock (_writeLock)
+        {
+            using var scopeLock = AcquireScopeLock(scopePath, cancellationToken);
+            var info = BuildContentInfoFromId(address.Scope, scopePath, address.ContentId);
+            if (info is not null)
+                EnsureAddressMatches(address, info.Address);
+            return ValueTask.FromResult(info);
+        }
+    }
+
+    /// <inheritdoc />
+    public ValueTask DeleteAsync(
+        ContentAddress address,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateAddress(address);
+        var contentId = address.ContentId;
+        var scopePath = GetScopePath(address.Scope);
+
+        if (!Directory.Exists(scopePath))
+            return ValueTask.CompletedTask;
+
+        lock (_writeLock)
+        {
+            using var scopeLock = AcquireScopeLock(scopePath, cancellationToken);
             // Read metadata to find name before deleting
             var metaRaw = ReadMetaFile(scopePath, contentId);
-            if (options?.IfMatchVersion != null && metaRaw?.Version != options.IfMatchVersion)
-                throw new ContentConflictException(
-                    $"Content '{contentId}' version conflict.",
-                    contentId,
-                    options.IfMatchVersion,
-                    metaRaw?.Version);
+            if (metaRaw is not null)
+                EnsureAddressMatches(address, new ContentAddress(address.Scope, contentId, metaRaw.Version, metaRaw.ContentHash));
 
-            // Delete content + meta files
-            foreach (var file in Directory.GetFiles(scopePath, $"{contentId}.*"))
+            // Remove the authoritative pointer first. A crash can leave orphaned immutable
+            // generations, but can never leave a published pointer to reclaimed bytes.
+            TryDelete(Path.Combine(scopePath, $"{contentId}.meta"));
+            foreach (var file in Directory.GetFiles(scopePath, $"{contentId}.*")
+                .Where(file => !file.EndsWith(".meta", StringComparison.Ordinal)))
             {
                 try { File.Delete(file); } catch { }
             }
@@ -179,47 +189,43 @@ public class LocalFileContentStore : IContentStore
             }
         }
 
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<ContentInfo>> QueryAsync(
-        string? scope = null,
+    public ValueTask<IReadOnlyList<ContentInfo>> QueryAsync(
+        ContentScope scope,
         ContentQuery? query = null,
         CancellationToken cancellationToken = default)
     {
-        IEnumerable<string> scopePaths;
+        ValidateScope(scope);
+        var scopePath = GetScopePath(scope);
+        if (!Directory.Exists(scopePath))
+            return ValueTask.FromResult<IReadOnlyList<ContentInfo>>(Array.Empty<ContentInfo>());
+        IEnumerable<string> scopePaths = new[] { scopePath };
 
-        if (scope == null)
+        List<ContentInfo> snapshot;
+        lock (_writeLock)
         {
-            if (!Directory.Exists(_basePath))
-                return Task.FromResult<IReadOnlyList<ContentInfo>>(Array.Empty<ContentInfo>());
-            scopePaths = Directory.GetDirectories(_basePath);
-        }
-        else
-        {
-            var scopePath = Path.Combine(_basePath, SanitizePath(scope));
-            if (!Directory.Exists(scopePath))
-                return Task.FromResult<IReadOnlyList<ContentInfo>>(Array.Empty<ContentInfo>());
-            scopePaths = new[] { scopePath };
+            using var scopeLock = AcquireScopeLock(scopePath, cancellationToken);
+            snapshot = scopePaths
+                .SelectMany(sp => Directory.Exists(sp) ? Directory.GetFiles(sp, "*.meta") : Array.Empty<string>())
+                .Select(metaPath =>
+                {
+                    var contentId = Path.GetFileNameWithoutExtension(metaPath);
+                    var filePath = FindContentFile(Path.GetDirectoryName(metaPath)!, contentId)
+                        ?? throw new InvalidDataException($"Content '{contentId}' current generation is unavailable.");
+                    var fileInfo = new FileInfo(filePath);
+                    var metaRaw = ReadRequiredMetaFile(Path.GetDirectoryName(metaPath)!, contentId);
+                    var contentType = metaRaw.ContentType;
+                    var metadata = DeserializeMetadata(metaRaw);
+                    return BuildContentInfo(scope, contentId, contentType, fileInfo.Length,
+                        fileInfo.CreationTimeUtc, fileInfo.LastWriteTimeUtc, metadata, metaRaw);
+                })
+                .ToList();
         }
 
-        var results = scopePaths
-            .SelectMany(sp => Directory.Exists(sp) ? Directory.GetFiles(sp) : Array.Empty<string>())
-            .Where(f => !f.EndsWith(".meta") && !f.EndsWith(".nameindex") && !f.EndsWith(".tmp"))
-            .GroupBy(f => Path.GetFileNameWithoutExtension(f))
-            .Select(g => g.First())
-            .Select(filePath =>
-            {
-                var contentId = Path.GetFileNameWithoutExtension(filePath);
-                var fileInfo = new FileInfo(filePath);
-                var metaRaw = ReadRequiredMetaFile(Path.GetDirectoryName(filePath)!, contentId);
-                var contentType = metaRaw.ContentType;
-                var metadata = DeserializeMetadata(metaRaw);
-                return BuildContentInfo(contentId, contentType, fileInfo.Length,
-                    fileInfo.CreationTimeUtc, fileInfo.LastWriteTimeUtc, metadata, metaRaw);
-            })
-            .AsEnumerable();
+        IEnumerable<ContentInfo> results = snapshot;
 
         // Apply filters
         if (query?.ContentType != null)
@@ -241,7 +247,7 @@ public class LocalFileContentStore : IContentStore
         if (query?.Limit != null)
             results = results.Take(query.Limit.Value);
 
-        return Task.FromResult<IReadOnlyList<ContentInfo>>(results.ToList());
+        return ValueTask.FromResult<IReadOnlyList<ContentInfo>>(results.ToList());
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -249,6 +255,7 @@ public class LocalFileContentStore : IContentStore
     // ═══════════════════════════════════════════════════════════════════
 
     private static ContentInfo Create(
+        ContentScope scope,
         string scopePath,
         string tempPath,
         string contentType,
@@ -266,9 +273,9 @@ public class LocalFileContentStore : IContentStore
         }
 
         var id = Guid.NewGuid().ToString("N");
-        var filePath = Path.Combine(scopePath, $"{id}{GetExtensionFromContentType(contentType)}");
+        var filePath = NewGenerationPath(scopePath, id, contentType);
         File.Move(tempPath, filePath, overwrite: false);
-        WriteMetaFile(scopePath, id, contentType, metadata, contentHash, NewVersion());
+        WriteMetaFile(scopePath, id, contentType, metadata, contentHash, NewVersion(), Path.GetFileName(filePath));
         if (metadata.Name != null)
         {
             nameIndex[MakeNameKey(metadata)] = id;
@@ -276,11 +283,12 @@ public class LocalFileContentStore : IContentStore
         }
 
         var fileInfo = new FileInfo(filePath);
-        return BuildContentInfo(id, contentType, sizeBytes,
+        return BuildContentInfo(scope, id, contentType, sizeBytes,
             fileInfo.CreationTimeUtc, fileInfo.LastWriteTimeUtc, metadata, ReadMetaFile(scopePath, id));
     }
 
     private static ContentInfo ReplaceById(
+        ContentScope scope,
         string scopePath,
         string tempPath,
         string contentType,
@@ -298,13 +306,10 @@ public class LocalFileContentStore : IContentStore
 
         EnsureVersionMatches(contentId, existingMeta.Version, options.IfMatchVersion);
 
-        var existingFile = FindContentFile(scopePath, contentId);
-        var newFilePath = Path.Combine(scopePath, $"{contentId}{GetExtensionFromContentType(contentType)}");
-        if (existingFile != null && existingFile != newFilePath)
-            File.Delete(existingFile);
-
-        File.Move(tempPath, newFilePath, overwrite: true);
-        WriteMetaFile(scopePath, contentId, contentType, metadata, contentHash, NewVersion());
+        var existingFile = FindContentFile(scopePath, contentId)!;
+        var newFilePath = NewGenerationPath(scopePath, contentId, contentType);
+        File.Move(tempPath, newFilePath, overwrite: false);
+        WriteMetaFile(scopePath, contentId, contentType, metadata, contentHash, NewVersion(), Path.GetFileName(newFilePath));
 
         var nameIndex = ReadNameIndex(scopePath);
         if (existingMeta.Name != null)
@@ -312,11 +317,13 @@ public class LocalFileContentStore : IContentStore
         if (metadata.Name != null)
             nameIndex[MakeNameKey(metadata)] = contentId;
         WriteNameIndex(scopePath, nameIndex);
+        TryDelete(existingFile);
 
-        return BuildContentInfoFromId(scopePath, contentId)!;
+        return BuildContentInfoFromId(scope, scopePath, contentId)!;
     }
 
     private static ContentInfo ReplaceByName(
+        ContentScope scope,
         string scopePath,
         string tempPath,
         string contentType,
@@ -331,10 +338,11 @@ public class LocalFileContentStore : IContentStore
         if (!nameIndex.TryGetValue(MakeNameKey(metadata), out var contentId))
             throw new FileNotFoundException($"Content named '{metadata.Name}' was not found.");
 
-        return ReplaceById(scopePath, tempPath, contentType, metadata, contentHash, options with { ContentId = contentId });
+        return ReplaceById(scope, scopePath, tempPath, contentType, metadata, contentHash, options with { ContentId = contentId });
     }
 
     private static ContentInfo Append(
+        ContentScope scope,
         string scopePath,
         string tempPath,
         string contentType,
@@ -350,7 +358,7 @@ public class LocalFileContentStore : IContentStore
         }
 
         if (contentId == null || FindContentFile(scopePath, contentId) == null)
-            return Create(scopePath, tempPath, contentType, metadata, contentHash, new FileInfo(tempPath).Length, options with { Mode = ContentWriteMode.Create });
+            return Create(scope, scopePath, tempPath, contentType, metadata, contentHash, new FileInfo(tempPath).Length, options with { Mode = ContentWriteMode.Create });
 
         var existingMeta = ReadMetaFile(scopePath, contentId);
         if (existingMeta == null)
@@ -359,20 +367,23 @@ public class LocalFileContentStore : IContentStore
         EnsureVersionMatches(contentId, existingMeta?.Version, options.IfMatchVersion);
 
         var existingFile = FindContentFile(scopePath, contentId)!;
-        using (var output = new FileStream(existingFile, FileMode.Append, FileAccess.Write, FileShare.None))
+        var combinedPath = Path.Combine(scopePath, $".append-{Guid.NewGuid():N}.tmp");
+        using (var output = new FileStream(combinedPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        using (var existing = new FileStream(existingFile, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
         using (var input = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
+            existing.CopyTo(output);
             input.CopyTo(output);
         }
 
         File.Delete(tempPath);
-        var appendedHash = ComputeHashFile(existingFile);
-        WriteMetaFile(scopePath, contentId, contentType, metadata, appendedHash, NewVersion());
-        return BuildContentInfoFromId(scopePath, contentId)!;
+        var appendedHash = ComputeHashFile(combinedPath);
+        return ReplaceById(scope, scopePath, combinedPath, contentType, metadata, appendedHash,
+            options with { Mode = ContentWriteMode.ReplaceById, ContentId = contentId });
     }
 
     private static void WriteMetaFile(string scopePath, string contentId, string contentType,
-        ContentMetadata? metadata, string? contentHash, string version)
+        ContentMetadata? metadata, string? contentHash, string version, string dataFileName)
     {
         var meta = new LocalContentMetadata(
             ContentType: contentType,
@@ -384,9 +395,11 @@ public class LocalFileContentStore : IContentStore
             Tags: metadata?.Tags is null
                 ? null
                 : new Dictionary<string, string>(metadata.Tags, StringComparer.Ordinal),
-            ContentHash: contentHash);
+            ContentHash: contentHash,
+            DataFileName: dataFileName);
         var metaPath = Path.Combine(scopePath, $"{contentId}.meta");
-        File.WriteAllText(metaPath, System.Text.Json.JsonSerializer.Serialize(meta, HPDJsonContext.Default.LocalContentMetadata));
+        WriteTextAtomically(metaPath,
+            System.Text.Json.JsonSerializer.Serialize(meta, HPDJsonContext.Default.LocalContentMetadata));
     }
 
     private static LocalContentMetadata? ReadMetaFile(string scopePath, string contentId)
@@ -427,7 +440,7 @@ public class LocalFileContentStore : IContentStore
         };
     }
 
-    private static ContentInfo BuildContentInfo(string contentId, string contentType, long sizeBytes,
+    private static ContentInfo BuildContentInfo(ContentScope scope, string contentId, string contentType, long sizeBytes,
         DateTime createdAt, DateTime lastModified, ContentMetadata? metadata, LocalContentMetadata? metaRaw)
     {
         var hash = metaRaw?.ContentHash;
@@ -437,8 +450,11 @@ public class LocalFileContentStore : IContentStore
 
         return new ContentInfo
         {
-            Id = contentId,
-            Version = metaRaw.Version ?? throw new InvalidDataException($"Content '{contentId}' metadata is missing a version."),
+            Address = new ContentAddress(
+                scope,
+                contentId,
+                metaRaw.Version ?? throw new InvalidDataException($"Content '{contentId}' metadata is missing a version."),
+                hash),
             Name = metadata?.Name ?? contentId,
             ContentType = contentType,
             SizeBytes = sizeBytes,
@@ -453,7 +469,7 @@ public class LocalFileContentStore : IContentStore
         };
     }
 
-    private static ContentInfo? BuildContentInfoFromId(string scopePath, string contentId)
+    private static ContentInfo? BuildContentInfoFromId(ContentScope scope, string scopePath, string contentId)
     {
         var filePath = FindContentFile(scopePath, contentId);
         if (filePath == null)
@@ -463,7 +479,7 @@ public class LocalFileContentStore : IContentStore
         var metaRaw = ReadRequiredMetaFile(scopePath, contentId);
         var contentType = metaRaw.ContentType;
         var metadata = DeserializeMetadata(metaRaw);
-        return BuildContentInfo(contentId, contentType, fileInfo.Length,
+        return BuildContentInfo(scope, contentId, contentType, fileInfo.Length,
             fileInfo.CreationTimeUtc, fileInfo.LastWriteTimeUtc, metadata, metaRaw);
     }
 
@@ -473,21 +489,24 @@ public class LocalFileContentStore : IContentStore
 
     private static Dictionary<string, string> ReadNameIndex(string scopePath)
     {
-        var indexPath = Path.Combine(scopePath, ".nameindex");
-        if (!File.Exists(indexPath)) return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        try
+        // Metadata pointers are authoritative. Rebuilding avoids a separately committed
+        // name-index file becoming catalog truth after a crash.
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var metaPath in Directory.GetFiles(scopePath, "*.meta"))
         {
-            var json = File.ReadAllText(indexPath);
-            return System.Text.Json.JsonSerializer.Deserialize(json, HPDJsonContext.Default.DictionaryStringString)
-                   ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var id = Path.GetFileNameWithoutExtension(metaPath);
+            var metadata = ReadMetaFile(scopePath, id);
+            if (metadata?.Name is not null)
+                result[MakeNameKey(metadata.Name, metadata.Tags)] = id;
         }
-        catch { return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); }
+        return result;
     }
 
     private static void WriteNameIndex(string scopePath, Dictionary<string, string> index)
     {
         var indexPath = Path.Combine(scopePath, ".nameindex");
-        File.WriteAllText(indexPath, System.Text.Json.JsonSerializer.Serialize(index, HPDJsonContext.Default.DictionaryStringString));
+        WriteTextAtomically(indexPath,
+            System.Text.Json.JsonSerializer.Serialize(index, HPDJsonContext.Default.DictionaryStringString));
     }
 
     private static string MakeNameKey(ContentMetadata metadata) => MakeNameKey(metadata.Name, metadata.Tags);
@@ -506,14 +525,102 @@ public class LocalFileContentStore : IContentStore
 
     private static string? FindContentFile(string scopePath, string contentId)
     {
+        var metadata = ReadMetaFile(scopePath, contentId);
+        if (!string.IsNullOrWhiteSpace(metadata?.DataFileName))
+        {
+            var candidate = Path.Combine(scopePath, metadata.DataFileName);
+            return File.Exists(candidate) ? candidate : null;
+        }
+
+        // Legacy fallback for stores created before generation pointers.
         var files = Directory.GetFiles(scopePath, $"{contentId}.*")
             .Where(f => !f.EndsWith(".meta") && !f.EndsWith(".nameindex") && !f.EndsWith(".tmp"))
             .ToArray();
         return files.Length > 0 ? files[0] : null;
     }
 
-    private static string SanitizePath(string segment) =>
-        string.Join("_", segment.Split(Path.GetInvalidFileNameChars()));
+    private static string NewGenerationPath(string scopePath, string contentId, string contentType)
+        => Path.Combine(scopePath,
+            $"{contentId}.{Guid.NewGuid():N}{GetExtensionFromContentType(contentType)}");
+
+    private static FileStream AcquireScopeLock(string scopePath, CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(scopePath, ".hpd-store.lock");
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException)
+            {
+                cancellationToken.WaitHandle.WaitOne(TimeSpan.FromMilliseconds(10));
+            }
+        }
+    }
+
+    private static void WriteTextAtomically(string destination, string content)
+    {
+        var temporary = destination + $".{Guid.NewGuid():N}.tmp";
+        try
+        {
+            using (var stream = new FileStream(
+                temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                bufferSize: 4096, options: FileOptions.WriteThrough))
+            using (var writer = new StreamWriter(stream, System.Text.Encoding.UTF8))
+            {
+                writer.Write(content);
+                writer.Flush();
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temporary, destination, overwrite: true);
+        }
+        finally
+        {
+            TryDelete(temporary);
+        }
+    }
+
+    private string GetScopePath(ContentScope scope)
+    {
+        ValidateScope(scope);
+        return Path.Combine(_basePath, scope.Value);
+    }
+
+    private static void ValidateScope(ContentScope scope) => ValidateSegment(scope.Value, nameof(scope));
+
+    private static void ValidateAddress(ContentAddress address)
+    {
+        ValidateScope(address.Scope);
+        ValidateSegment(address.ContentId, nameof(address));
+    }
+
+    private static void ValidateSegment(string value, string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
+        if (value is "." or ".." ||
+            value.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
+            value.Contains(Path.DirectorySeparatorChar) ||
+            value.Contains(Path.AltDirectorySeparatorChar))
+        {
+            throw new ArgumentException("Content scope and identifier values must be single, unmodified path segments.", parameterName);
+        }
+    }
+
+    private static void EnsureAddressMatches(ContentAddress expected, ContentAddress actual)
+    {
+        EnsureVersionMatches(actual.ContentId, actual.Version, expected.Version);
+        if (expected.Sha256 is not null &&
+            !string.Equals(expected.Sha256, actual.Sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ContentConflictException(
+                $"Content '{actual.ContentId}' hash conflict.",
+                actual.ContentId,
+                expected.Sha256,
+                actual.Sha256);
+        }
+    }
 
     private static string ComputeHash(byte[] data)
     {
@@ -649,4 +756,5 @@ public sealed record LocalContentMetadata(
     string? Origin = null,
     string? OriginalSource = null,
     Dictionary<string, string>? Tags = null,
-    string? ContentHash = null);
+    string? ContentHash = null,
+    string? DataFileName = null);

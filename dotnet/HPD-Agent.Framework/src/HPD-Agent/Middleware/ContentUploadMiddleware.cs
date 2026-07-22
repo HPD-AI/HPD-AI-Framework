@@ -256,11 +256,11 @@ public class ContentUploadMiddleware : IAgentMiddleware
                 cancellationToken: cancellationToken);
 
             var uriContent = new UriContent(
-                ContentReferenceResolverMiddleware.CreateContentUri(info.Id),
+                ContentReferenceResolverMiddleware.CreateContentUri(info.Address.ContentId),
                 mediaType);
 
             await context.PublishAsync(new ContentUploadedEvent(
-                ContentId: info.Id,
+                ContentId: info.Address.ContentId,
                 MediaType: mediaType,
                 SizeBytes: data.Data.Length));
 
@@ -317,11 +317,11 @@ public class ContentUploadMiddleware : IAgentMiddleware
         return null;
     }
 
-    private static string CreateScope(HookContext context)
+    private static ContentScope CreateScope(HookContext context)
     {
         if (context.SessionId is null || context.ThreadId is null)
             throw new InvalidOperationException("Content upload requires an active session and thread.");
 
-        return ContentStoreScopes.ForThread(context.SessionId, context.ThreadId);
+        return ContentScope.Create(ContentStoreScopes.ForThread(context.SessionId, context.ThreadId));
     }
 }

@@ -82,6 +82,7 @@ public class AgentBuilder
     internal readonly Dictionary<string, IToolMetadata?> _toolharnessContexts = new();
     //  Unified content store for all agent content (skills, knowledge, memory, uploads, artifacts)
     internal IContentStore? _contentStore;
+    internal ISkillStore? _skillStore;
     // Track explicitly registered ToolHarnesses (for Collapsing manager)
     internal readonly HashSet<string> _explicitlyRegisteredToolHarnesses = new(StringComparer.OrdinalIgnoreCase);
     internal readonly List<Middleware.IAgentMiddleware> _middlewares = new(); // Unified middleware list
@@ -158,6 +159,13 @@ public class AgentBuilder
     /// </summary>
     internal readonly Dictionary<string, List<Middleware.IAgentMiddleware>> _HARNESScopedMiddlewares
         = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Runtime skill sources grouped by their owning registered tool harness.</summary>
+    internal readonly Dictionary<string, List<ISkillSource>> _skillSources
+        = new(StringComparer.OrdinalIgnoreCase);
+    internal readonly Dictionary<string, List<StoredSkillSourceRegistration>> _storedSkillSources
+        = new(StringComparer.OrdinalIgnoreCase);
+    private SkillCatalog? _skillCatalog;
 
     /// <summary>
     /// Middleware overrides from builder calls (takes precedence over config).
@@ -1019,6 +1027,13 @@ public class AgentBuilder
         return this;
     }
 
+    /// <summary>Configures the host-owned store used by deferred <c>AddSkillsFromStore</c> registrations.</summary>
+    public AgentBuilder WithSkillStore(ISkillStore store)
+    {
+        _skillStore = store ?? throw new ArgumentNullException(nameof(store));
+        return this;
+    }
+
     /// <summary>
     /// Configure the provider registry for intelligent content upload routing.
     /// When set, ContentUploadMiddleware can automatically detect provider capabilities
@@ -1831,6 +1846,10 @@ public class AgentBuilder
     /// <param name="cancellationToken">Cancellation token for async operations</param>
     public async Task<Agent> BuildAsync(CancellationToken cancellationToken = default)
     {
+        if (_config.Skills.ActivationLifetime != SkillActivationLifetime.MessageTurn)
+            throw new InvalidOperationException(
+                $"Skill activation lifetime '{_config.Skills.ActivationLifetime}' is not supported. " +
+                "Use MessageTurn until its persistence semantics are implemented.");
         await ResolveStoredAgentDefinitionAsync(cancellationToken).ConfigureAwait(false);
         EnsureAutoConfiguration();
 
@@ -1851,6 +1870,25 @@ public class AgentBuilder
         // replacing the user's service provider
         _serviceProvider = new CompositeServiceProvider(_serviceProvider, _secretResolver);
 
+        // Skill sources participate in epoch-zero tool construction, so their infrastructure
+        // must be final before BuildDependenciesAsync invokes BuildToolOptionsAsync.
+        if (_contentStore is null)
+        {
+            _contentStore = _serviceProvider.GetService<IContentStore>();
+            if (_contentStore is null)
+            {
+                _contentStore = new InMemoryContentStore();
+                _logger?.CreateLogger<AgentBuilder>().LogInformation(
+                    "Using default InMemoryContentStore (in-memory, ephemeral). " +
+                    "Use .WithContentStore() for persistence (e.g., LocalFileContentStore).");
+            }
+        }
+        if (_storedSkillSources.Count > 0)
+        {
+            _skillStore ??= _serviceProvider.GetService<ISkillStore>();
+            MaterializeStoredSkillSources();
+        }
+
         var buildData = await BuildDependenciesAsync(cancellationToken).ConfigureAwait(false);
         await MaterializeSubAgentDefinitionsAsync(buildData, cancellationToken).ConfigureAwait(false);
 
@@ -1867,13 +1905,7 @@ public class AgentBuilder
 
         // Default content store: InMemoryContentStore for zero-config out-of-the-box experience (V3)
         // Users can override with WithContentStore() for persistent storage (LocalFileContentStore, etc.)
-        if (_contentStore == null)
-        {
-            _contentStore = new InMemoryContentStore();
-            _logger?.CreateLogger<AgentBuilder>().LogInformation(
-                "Using default InMemoryContentStore (in-memory, ephemeral). " +
-                "Use .WithContentStore() for persistence (e.g., LocalFileContentStore).");
-        }
+        // Content storage was resolved before dependency/tool construction.
 
         // Resolve config middlewares before auto-middleware registration
         // This enables Config = Base, Builder = Override/Extend pattern
@@ -1925,6 +1957,43 @@ public class AgentBuilder
                 $"{declaration.Assembly ?? "unknown-assembly"}:{declaration.Owner ?? "unknown-toolharness"}.{declaration.Member ?? declaration.Definition!.Name}",
                 cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private void MaterializeStoredSkillSources()
+    {
+        var resolved = new List<(string Owner, IContentBackedSkillStore Store, SkillQuery Query)>();
+        foreach (var (owner, registrations) in _storedSkillSources)
+        {
+            foreach (var registration in registrations)
+            {
+                var store = registration.Store ?? _skillStore as IContentBackedSkillStore
+                    ?? throw new InvalidOperationException(
+                        $"Toolharness '{owner}' requested stored skills, but no content-backed ISkillStore is configured. " +
+                        "Call WithSkillStore(...), register IContentBackedSkillStore/ISkillStore in DI, or use AddSkillSource(...).");
+                resolved.Add((owner, store, registration.Query));
+            }
+        }
+
+        foreach (var attachment in resolved.Where(item => item.Query.IsUnfiltered))
+        {
+            var conflictingOwner = resolved.FirstOrDefault(item =>
+                !string.Equals(item.Owner, attachment.Owner, StringComparison.Ordinal) &&
+                ReferenceEquals(item.Store, attachment.Store) &&
+                item.Query.IsUnfiltered).Owner;
+            if (conflictingOwner is not null)
+                throw new InvalidOperationException(
+                    $"Stored skill store is attached without a selector to both '{attachment.Owner}' and " +
+                    $"'{conflictingOwner}'. Use SkillQuery.ByIds(...), SkillQuery.WithTag(...), or another " +
+                    "filtered query so each harness selects its intended skills.");
+        }
+
+        foreach (var (owner, store, query) in resolved)
+        {
+            if (!_skillSources.TryGetValue(owner, out var sources))
+                _skillSources[owner] = sources = [];
+            sources.Add(new ContentStoreSkillSource(store, store.ContentStore, query));
+        }
+        _storedSkillSources.Clear();
     }
 
     private async Task ResolveStoredAgentDefinitionAsync(CancellationToken cancellationToken)
@@ -2104,6 +2173,7 @@ public class AgentBuilder
                 _HARNESScopedMiddlewares,    // builder-time DI instances
                 _toolharnessMiddlewareConfigs,    // config-ctor middleware configs from ToolHarnessReference
                 _config.Collapsing,
+                _config.Skills,
                 containerLogger);
             _middlewares.Add(containerMiddleware);
 
@@ -2151,7 +2221,7 @@ public class AgentBuilder
     /// </summary>
     private Agent CreateAgent(AgentBuildDependencies buildData)
     {
-        return new Agent(
+        var agent = new Agent(
             _config!,
             buildData.ClientToUse,
             buildData.MergedOptions,
@@ -2165,6 +2235,13 @@ public class AgentBuilder
             _stateFactories,
             buildData.OwnedHttpClients,
             buildData.ClientSet);
+        if (_skillCatalog is not null)
+            agent.SetSkillCatalog(
+                _skillCatalog,
+                _skillSources.SelectMany(pair => pair.Value.Select(source => (
+                    Source: source,
+                    Context: new SkillSourceContext(_config.Name, pair.Key, null, _serviceProvider)))));
+        return agent;
     }
 
     private void ActivateRegisteredFeatures()
@@ -2286,15 +2363,42 @@ public class AgentBuilder
         // Instance-based ToolHarnesses (requiring DI) use their own direct delegate calls.
         // No reflection fallback - the catalog is required.
         var toolFunctions = CreateFunctionsFromCatalog();
+        var staticFunctions = toolFunctions.ToArray();
+        var staticMetadata = staticFunctions
+            .Where(function => TryGetCapabilityMetadata(function, out _))
+            .ToDictionary(function => function, function => GetCapabilityMetadata(function));
+        var initialSnapshot = await BuildSkillSnapshotAsync(
+            0,
+            staticFunctions,
+            staticMetadata,
+            cancellationToken).ConfigureAwait(false);
+        toolFunctions.AddRange(initialSnapshot.Functions.Where(function => !staticFunctions.Contains(function)));
+        _skillCatalog = new SkillCatalog(
+            initialSnapshot,
+            (epoch, token) => BuildSkillSnapshotAsync(epoch, staticFunctions, staticMetadata, token));
+
+        var typedSkillFunctions = toolFunctions.Where(function =>
+            function.AdditionalProperties?.TryGetValue(
+                HPDCapabilityMetadata.AdditionalPropertiesKey,
+                out var value) == true && value is HPDCapabilityMetadata).ToArray();
+        if (typedSkillFunctions.Length > 0)
+            _ = CapabilityGraph.CreateFromFunctions(typedSkillFunctions);
 
         // Middleware out container functions if Collapsing is disabled.
         // Container functions are only needed when Collapsing is enabled for the two-turn expansion flow.
         if (_config.Collapsing?.Enabled != true)
         {
-            toolFunctions = toolFunctions.Where(f =>
-                !(f.AdditionalProperties?.TryGetValue("IsContainer", out var isContainer) == true &&
-                  isContainer is bool isCont && isCont)
-            ).ToList();
+            toolFunctions = toolFunctions.Where(function =>
+            {
+                var legacyContainer = function.AdditionalProperties?.TryGetValue("IsContainer", out var value) == true &&
+                    value is bool isContainer && isContainer;
+                var typedContainer = function.AdditionalProperties?.TryGetValue(
+                        HPDCapabilityMetadata.AdditionalPropertiesKey,
+                        out var metadataValue) == true &&
+                    metadataValue is HPDCapabilityMetadata metadata &&
+                    metadata.Kind is HPDCapabilityKind.SkillActivation or HPDCapabilityKind.ToolHarnessActivation;
+                return !legacyContainer && !typedContainer;
+            }).ToList();
         }
 
         // Load MCP tools if configured.
@@ -2376,9 +2480,262 @@ public class AgentBuilder
                     openApiResult.Functions.Count, _openApiSources.Count);
         }
 
+        NormalizeCapabilityMetadata(toolFunctions);
+        _ = CapabilityGraph.CreateFromFunctions(toolFunctions);
+
         return new AgentToolBuildResult(
             MergeToolFunctions(_config.ResolveClientConfig(ProviderClientFamily.Chat)?.BuildEffectiveChatOptions(), toolFunctions),
             openApiResult?.OwnedHttpClients.Count > 0 ? openApiResult.OwnedHttpClients : null);
+    }
+
+    private async ValueTask<SkillCatalogSnapshot> BuildSkillSnapshotAsync(
+        long epoch,
+        IReadOnlyList<AIFunction> staticFunctions,
+        IReadOnlyDictionary<AIFunction, HPDCapabilityMetadata> staticMetadata,
+        CancellationToken cancellationToken)
+    {
+        var functions = staticFunctions.ToList();
+        foreach (var (function, metadata) in staticMetadata)
+        {
+            if (function.AdditionalProperties is not IDictionary<string, object?> properties)
+                throw new InvalidOperationException($"Function '{function.Name}' metadata cannot be normalized.");
+            properties[HPDCapabilityMetadata.AdditionalPropertiesKey] = metadata;
+        }
+
+        var serialization = CreateToolSerializationOptions();
+        foreach (var (owner, sources) in _skillSources)
+        {
+            foreach (var source in sources)
+            {
+                var skills = await source.GetSkillsAsync(
+                    new SkillSourceContext(_config.Name, owner, null, _serviceProvider),
+                    cancellationToken).ConfigureAwait(false);
+                MaterializeRuntimeSkillReferences(skills, functions, serialization);
+                functions.AddRange(RuntimeSkillFunctionProjector.Project(
+                    owner,
+                    skills,
+                    functions,
+                    serialization));
+            }
+        }
+
+        var availableRunners = _serviceProvider?.GetServices<ISkillScriptRunner>().ToArray()
+            ?? Array.Empty<ISkillScriptRunner>();
+        foreach (var activation in functions.Where(function =>
+            function.AdditionalProperties?.TryGetValue(
+                SkillRuntimeMetadata.SkillDefinitionKey,
+                out var value) == true && value is Skill))
+        {
+            var definition = (Skill)activation.AdditionalProperties![SkillRuntimeMetadata.SkillDefinitionKey]!;
+            foreach (var script in definition.Capabilities.OfType<SkillScript>())
+            {
+                var matches = availableRunners.Count(runner => runner.CanRun(script));
+                if (matches != 1)
+                    throw new InvalidOperationException(
+                        $"Skill script '{definition.Id}:{script.Name}' requires exactly one compatible runner; found {matches}.");
+            }
+        }
+
+        var typed = functions.Where(function => TryGetCapabilityMetadata(function, out _)).ToImmutableArray();
+        // A tool profile may intentionally materialize only part of a generated harness. Build the
+        // epoch from the capabilities that actually exist in this agent, rather than retaining
+        // generator edges to functions excluded by that profile.
+        var materializedIds = typed
+            .Select(function => GetCapabilityMetadata(function).Id)
+            .ToImmutableHashSet();
+        foreach (var function in typed)
+        {
+            var metadata = GetCapabilityMetadata(function);
+            var projected = metadata with
+            {
+                ParentContainerIds = metadata.ParentContainerIds
+                    .Where(materializedIds.Contains)
+                    .ToImmutableArray(),
+                Reveals = metadata.Reveals
+                    .Where(materializedIds.Contains)
+                    .ToImmutableArray()
+            };
+            if (projected != metadata)
+                SetCapabilityMetadata(function, projected);
+        }
+        var graph = CapabilityGraph.CreateFromFunctions(typed);
+        var descriptors = typed
+            .Where(function => GetCapabilityMetadata(function).Kind == HPDCapabilityKind.SkillActivation)
+            .Select(function =>
+            {
+                var metadata = GetCapabilityMetadata(function);
+                var skill = function.AdditionalProperties?.TryGetValue(
+                    SkillRuntimeMetadata.SkillDefinitionKey,
+                    out var value) == true ? value as Skill : null;
+                return skill is null ? null : new SkillDescriptor
+                {
+                    Id = metadata.Id,
+                    ModelName = function.Name,
+                    Description = function.Description,
+                    Instructions = skill.Instructions,
+                    Reinforcement = skill.Reinforcement,
+                    Children = metadata.Reveals,
+                    Lifetime = skill.Lifetime
+                };
+            })
+            .Where(descriptor => descriptor is not null)
+            .ToImmutableDictionary(descriptor => descriptor!.Id, descriptor => descriptor!);
+        return new SkillCatalogSnapshot
+        {
+            Epoch = epoch,
+            Graph = graph,
+            Functions = typed,
+            Skills = descriptors
+        };
+    }
+
+    private void MaterializeRuntimeSkillReferences(
+        IReadOnlyList<Skill> skills,
+        List<AIFunction> functions,
+        HPDToolSerializationOptions serialization)
+    {
+        foreach (var reference in skills
+            .SelectMany(skill => skill.Capabilities)
+            .OfType<ISkillFunctionReference>())
+        {
+            var alreadyMaterialized = functions.Any(function =>
+                TryGetCapabilityMetadata(function, out var metadata) &&
+                metadata.DeclarationMemberName == reference.MemberName &&
+                metadata.Id.Value.StartsWith(
+                    $"generated:{reference.ToolHarnessType.Name}.",
+                    StringComparison.Ordinal));
+            if (alreadyMaterialized)
+                continue;
+
+            var factory = _availableToolHarnesses.Values.FirstOrDefault(candidate =>
+                candidate.ToolHarnessType == reference.ToolHarnessType)
+                ?? throw new InvalidOperationException(
+                    $"Runtime skill references unavailable toolharness '{reference.ToolHarnessType.FullName}'. " +
+                    "Ensure its generated registry is loaded before constructing the agent.");
+            var generated = factory.CreateFunctions(
+                factory.CreateInstance(),
+                ToolHarnessContexts.GetValueOrDefault(factory.Name),
+                serialization);
+            var function = generated.SingleOrDefault(candidate =>
+                TryGetCapabilityMetadata(candidate, out var metadata) &&
+                metadata.DeclarationMemberName == reference.MemberName)
+                ?? throw new InvalidOperationException(
+                    $"Runtime skill references unavailable generated function " +
+                    $"'{reference.ToolHarnessType.Name}.{reference.MemberName}'.");
+            functions.Add(function);
+        }
+    }
+
+    private static bool TryGetCapabilityMetadata(AIFunction function, out HPDCapabilityMetadata metadata)
+    {
+        metadata = function.AdditionalProperties?.TryGetValue(
+            HPDCapabilityMetadata.AdditionalPropertiesKey,
+            out var value) == true ? value as HPDCapabilityMetadata : null!;
+        return metadata is not null;
+    }
+
+    private static HPDCapabilityMetadata GetCapabilityMetadata(AIFunction function)
+        => TryGetCapabilityMetadata(function, out var metadata)
+            ? metadata
+            : throw new InvalidOperationException($"Function '{function.Name}' lacks typed capability metadata.");
+
+    private static void NormalizeCapabilityMetadata(List<AIFunction> functions)
+    {
+        var identifiers = new Dictionary<AIFunction, CapabilityId>();
+        foreach (var function in functions)
+        {
+            if (TryGetCapabilityMetadata(function, out var existing))
+            {
+                identifiers[function] = existing.Id;
+                continue;
+            }
+            var owner = function.AdditionalProperties?.TryGetValue("ParentToolHarness", out var ownerValue) == true
+                ? ownerValue?.ToString()
+                : null;
+            identifiers[function] = CapabilityId.Create(
+                $"runtime:{owner ?? "agent"}:{function.Name}");
+        }
+
+        var containersByName = functions
+            .Where(IsLegacyContainer)
+            .SelectMany(function => ContainerAliases(function).Select(alias => (alias, function)))
+            .GroupBy(entry => entry.alias, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First().function, StringComparer.OrdinalIgnoreCase);
+        var functionsByName = functions
+            .GroupBy(function => function.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var function in functions)
+        {
+            if (TryGetCapabilityMetadata(function, out _))
+                continue;
+            var parents = ImmutableArray<CapabilityId>.Empty;
+            var parentName = function.AdditionalProperties?.TryGetValue("ParentContainer", out var parentValue) == true
+                ? parentValue?.ToString()
+                : function.AdditionalProperties?.TryGetValue("ParentToolHarness", out var harnessValue) == true
+                    ? harnessValue?.ToString()
+                    : null;
+            if (parentName is not null && containersByName.TryGetValue(parentName, out var parent))
+                parents = [identifiers[parent]];
+
+            var children = LegacyChildren(function)
+                .Select(ContainerFunctionProjection.Unqualify)
+                .Where(functionsByName.ContainsKey)
+                .Select(name => identifiers[functionsByName[name]])
+                .Distinct()
+                .ToImmutableArray();
+            SetCapabilityMetadata(function, new HPDCapabilityMetadata
+            {
+                Id = identifiers[function],
+                Kind = InferCapabilityKind(function),
+                ParentContainerIds = parents,
+                Reveals = children
+            });
+        }
+    }
+
+    private static void SetCapabilityMetadata(AIFunction function, HPDCapabilityMetadata metadata)
+    {
+        if (function.AdditionalProperties is not IDictionary<string, object?> properties)
+            throw new InvalidOperationException($"Function '{function.Name}' metadata cannot be normalized.");
+        properties[HPDCapabilityMetadata.AdditionalPropertiesKey] = metadata;
+    }
+
+    private static bool IsLegacyContainer(AIFunction function)
+        => function.AdditionalProperties?.TryGetValue("IsContainer", out var value) == true && value is true;
+
+    private static IEnumerable<string> ContainerAliases(AIFunction function)
+    {
+        yield return function.Name;
+        if (function.AdditionalProperties?.TryGetValue("ToolHarnessName", out var value) == true && value is string name)
+            yield return name;
+    }
+
+    private static IEnumerable<string> LegacyChildren(AIFunction function)
+    {
+        foreach (var key in new[] { "ReferencedFunctions", "ChildFunctions" })
+        {
+            if (function.AdditionalProperties?.TryGetValue(key, out var value) == true && value is string[] children)
+            {
+                foreach (var child in children)
+                    yield return child;
+            }
+        }
+    }
+
+    private static HPDCapabilityKind InferCapabilityKind(AIFunction function)
+    {
+        if (IsLegacyContainer(function))
+            return HPDCapabilityKind.ToolHarnessActivation;
+        if (function.AdditionalProperties?.TryGetValue("IsSubAgent", out var subAgent) == true && subAgent is true)
+            return HPDCapabilityKind.SubAgent;
+        if (function.AdditionalProperties?.TryGetValue("IsMultiAgent", out var multiAgent) == true && multiAgent is true)
+            return HPDCapabilityKind.MultiAgent;
+        if (function.AdditionalProperties?.TryGetValue("CapabilityType", out var type) == true && type?.ToString() == "OpenApi")
+            return HPDCapabilityKind.OpenApi;
+        if (function.AdditionalProperties?.ContainsKey("MCPServerName") == true)
+            return HPDCapabilityKind.Mcp;
+        return HPDCapabilityKind.Function;
     }
 
     private static AgentClientConfig? CreateRunClientOverrides(AgentRunConfig? options)
@@ -3959,11 +4316,10 @@ public static class AgentBuilderToolHarnessExtensions
     public static AgentBuilder WithToolHarness<T>(this AgentBuilder builder, IToolMetadata? context = null) where T : class, new()
     {
         RuntimeHelpers.RunModuleConstructor(typeof(T).Assembly.ManifestModule.ModuleHandle);
-        builder.LoadToolRegistryFromAssembly(typeof(T).Assembly);
         builder.LoadGeneratedRegistries();
         var toolharnessName = typeof(T).Name;
 
-        var factory = GetToolHarnessFactory(builder, typeof(T), toolharnessName);
+        var factory = GetToolHarnessFactory(builder, toolharnessName);
 
         // AOT-compatible path: Use catalog
         builder._selectedToolHarnessFactories.Add(factory);
@@ -4106,6 +4462,25 @@ public static class AgentBuilderToolHarnessExtensions
             list.AddRange(options.ScopedMiddlewares);
         }
 
+        if (options.SkillSources.Count > 0)
+        {
+            var toolharnessName = typeof(T).Name;
+            if (!builder._skillSources.TryGetValue(toolharnessName, out var sources))
+            {
+                sources = [];
+                builder._skillSources[toolharnessName] = sources;
+            }
+            sources.AddRange(options.SkillSources);
+        }
+
+        if (options.StoredSkillSources.Count > 0)
+        {
+            var toolharnessName = typeof(T).Name;
+            if (!builder._storedSkillSources.TryGetValue(toolharnessName, out var registrations))
+                builder._storedSkillSources[toolharnessName] = registrations = [];
+            registrations.AddRange(options.StoredSkillSources);
+        }
+
         return builder;
     }
 
@@ -4117,7 +4492,6 @@ public static class AgentBuilderToolHarnessExtensions
     public static AgentBuilder WithToolHarness<T>(this AgentBuilder builder, T instance, IToolMetadata? context = null) where T : class
     {
         RuntimeHelpers.RunModuleConstructor(typeof(T).Assembly.ManifestModule.ModuleHandle);
-        builder.LoadToolRegistryFromAssembly(typeof(T).Assembly);
         builder.LoadGeneratedRegistries();
         var toolharnessName = typeof(T).Name;
 

@@ -8,9 +8,9 @@ namespace HPD.Agent;
 /// </summary>
 public static class ContentStoreByteExtensions
 {
-    public static Task<ContentInfo> WriteBytesAsync(
+    public static ValueTask<ContentInfo> WriteBytesAsync(
         this IContentStore store,
-        string? scope,
+        ContentScope scope,
         byte[] data,
         string contentType,
         ContentMetadata? metadata = null,
@@ -24,9 +24,9 @@ public static class ContentStoreByteExtensions
         return store.WriteBytesAsync(scope, data, resolvedMetadata, options, cancellationToken);
     }
 
-    public static Task<ContentInfo> WriteBytesAsync(
+    public static ValueTask<ContentInfo> WriteBytesAsync(
         this IContentStore store,
-        string? scope,
+        ContentScope scope,
         byte[] data,
         ContentMetadata metadata,
         ContentWriteOptions? options = null,
@@ -45,53 +45,50 @@ public static class ContentStoreByteExtensions
 
     public static async Task<byte[]?> ReadBytesAsync(
         this IContentStore store,
-        string? scope,
-        string contentId,
+        ContentAddress address,
         CancellationToken cancellationToken = default)
     {
         if (store == null) throw new ArgumentNullException(nameof(store));
 
-        await using var stream = await store.OpenReadAsync(scope, contentId, cancellationToken).ConfigureAwait(false);
-        if (stream == null)
+        await using var result = await store.OpenReadAsync(address, cancellationToken).ConfigureAwait(false);
+        if (result == null)
             return null;
 
         using var memory = new MemoryStream();
-        await stream.CopyToAsync(memory, cancellationToken).ConfigureAwait(false);
+        await result.Content.CopyToAsync(memory, cancellationToken).ConfigureAwait(false);
         return memory.ToArray();
     }
 
     public static Task<byte[]?> ReadBytesAsync(
         this IContentStore store,
-        string? scope,
         ContentInfo content,
         CancellationToken cancellationToken = default)
     {
         if (content == null) throw new ArgumentNullException(nameof(content));
 
-        return store.ReadBytesAsync(scope, content.Id, cancellationToken);
+        return store.ReadBytesAsync(content.Address, cancellationToken);
     }
 
-    public static Task DeleteAsync(
+    public static ValueTask DeleteAsync(
         this IContentStore store,
-        string? scope,
         ContentInfo content,
         CancellationToken cancellationToken = default)
     {
         if (content == null) throw new ArgumentNullException(nameof(content));
 
-        return store.DeleteAsync(scope, content.Id, null, cancellationToken);
+        return store.DeleteAsync(content.Address, cancellationToken);
     }
 
-    public static bool Contains(this InMemoryContentStore store, string? scope, ContentInfo content)
+    public static bool Contains(this InMemoryContentStore store, ContentInfo content)
     {
         if (content == null) throw new ArgumentNullException(nameof(content));
 
-        return store.Contains(scope ?? "global", content.Id);
+        return store.Contains(content.Address.Scope.Value, content.Address.ContentId);
     }
 
-    public static Task<ContentInfo> WriteTextAsync(
+    public static ValueTask<ContentInfo> WriteTextAsync(
         this IContentStore store,
-        string? scope,
+        ContentScope scope,
         string text,
         ContentMetadata metadata,
         ContentWriteOptions? options = null,
@@ -105,11 +102,10 @@ public static class ContentStoreByteExtensions
 
     public static async Task<string?> ReadTextAsync(
         this IContentStore store,
-        string? scope,
-        string contentId,
+        ContentAddress address,
         CancellationToken cancellationToken = default)
     {
-        var data = await store.ReadBytesAsync(scope, contentId, cancellationToken).ConfigureAwait(false);
+        var data = await store.ReadBytesAsync(address, cancellationToken).ConfigureAwait(false);
         return data == null ? null : Encoding.UTF8.GetString(data);
     }
 }

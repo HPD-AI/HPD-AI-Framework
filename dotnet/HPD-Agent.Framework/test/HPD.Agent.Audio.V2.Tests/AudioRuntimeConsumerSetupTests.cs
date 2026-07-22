@@ -52,7 +52,8 @@ public sealed class AudioRuntimeConsumerSetupTests
         Assert.Equal("audio/mpeg", artifact.MediaType);
         Assert.Equal(4, artifact.SizeBytes);
 
-        var storedBytes = await contentStore.ReadBytesAsync("consumer-tts-session", artifact.Artifact.ArtifactId);
+        var storedBytes = await contentStore.ReadBytesAsync(new ContentAddress(
+            ContentScope.Create("consumer-tts-session"), artifact.Artifact.ArtifactId));
         Assert.Equal([1, 2, 3, 4], storedBytes);
     }
 

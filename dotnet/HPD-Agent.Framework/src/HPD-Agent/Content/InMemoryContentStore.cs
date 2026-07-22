@@ -44,8 +44,8 @@ public class InMemoryContentStore : IContentStore
     // ═══════════════════════════════════════════════════════════════════
 
     /// <inheritdoc />
-    public async Task<ContentInfo> WriteAsync(
-        string? scope,
+    public async ValueTask<ContentInfo> WriteAsync(
+        ContentScope scope,
         Stream data,
         ContentMetadata metadata,
         ContentWriteOptions options,
@@ -59,7 +59,8 @@ public class InMemoryContentStore : IContentStore
             : metadata.ContentType;
         var bytes = await ReadAllBytesAsync(data, cancellationToken).ConfigureAwait(false);
 
-        var actualScope = scope ?? "global";
+        ValidateScope(scope);
+        var actualScope = scope.Value;
         lock (_writeLock)
         {
             var scopeDict = _scopedContent.GetOrAdd(actualScope, _ => new ConcurrentDictionary<string, StoredContent>());
@@ -67,116 +68,102 @@ public class InMemoryContentStore : IContentStore
 
             return options.Mode switch
             {
-                ContentWriteMode.Create or ContentWriteMode.Stage => Create(scopeDict, nameIndex, bytes, contentType, metadata, options),
-                ContentWriteMode.ReplaceById => ReplaceById(scopeDict, nameIndex, bytes, contentType, metadata, options),
-                ContentWriteMode.ReplaceByName => ReplaceByName(scopeDict, nameIndex, bytes, contentType, metadata, options),
-                ContentWriteMode.Append => Append(scopeDict, nameIndex, bytes, contentType, metadata, options),
+                ContentWriteMode.Create => Create(scope, scopeDict, nameIndex, bytes, contentType, metadata, options),
+                ContentWriteMode.ReplaceById => ReplaceById(scope, scopeDict, nameIndex, bytes, contentType, metadata, options),
+                ContentWriteMode.ReplaceByName => ReplaceByName(scope, scopeDict, nameIndex, bytes, contentType, metadata, options),
+                ContentWriteMode.Append => Append(scope, scopeDict, nameIndex, bytes, contentType, metadata, options),
                 _ => throw new ArgumentOutOfRangeException(nameof(options), options.Mode, "Unsupported content write mode.")
             };
         }
     }
 
     /// <inheritdoc />
-    public Task<Stream?> OpenReadAsync(
-        string? scope,
-        string contentId,
+    public ValueTask<ContentReadResult?> OpenReadAsync(
+        ContentAddress address,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(contentId))
-            return Task.FromResult<Stream?>(null);
-
-        var actualScope = scope ?? "global";
+        ValidateAddress(address);
+        var actualScope = address.Scope.Value;
 
         if (!_scopedContent.TryGetValue(actualScope, out var scopeDict))
-            return Task.FromResult<Stream?>(null);
+            return ValueTask.FromResult<ContentReadResult?>(null);
 
-        if (!scopeDict.TryGetValue(contentId, out var item))
-            return Task.FromResult<Stream?>(null);
+        if (!scopeDict.TryGetValue(address.ContentId, out var item))
+            return ValueTask.FromResult<ContentReadResult?>(null);
 
-        return Task.FromResult<Stream?>(new MemoryStream(item.Data, writable: false));
+        EnsureAddressMatches(address, item);
+        return ValueTask.FromResult<ContentReadResult?>(new ContentReadResult
+        {
+            Content = new MemoryStream(item.Data, writable: false),
+            Info = MapToContentInfo(address.Scope, item)
+        });
     }
 
     /// <inheritdoc />
-    public Task<Uri?> CreateReadUriAsync(
-        string? scope,
-        string contentId,
+    public ValueTask<Uri?> CreateReadUriAsync(
+        ContentAddress address,
         TimeSpan expiresIn,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromResult<Uri?>(null);
+        ValidateAddress(address);
+        return ValueTask.FromResult<Uri?>(null);
     }
 
     /// <inheritdoc />
-    public Task<ContentInfo?> StatAsync(
-        string? scope,
-        string contentId,
+    public ValueTask<ContentInfo?> StatAsync(
+        ContentAddress address,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(contentId))
-            return Task.FromResult<ContentInfo?>(null);
-
-        var actualScope = scope ?? "global";
+        ValidateAddress(address);
+        var actualScope = address.Scope.Value;
         if (!_scopedContent.TryGetValue(actualScope, out var scopeDict))
-            return Task.FromResult<ContentInfo?>(null);
+            return ValueTask.FromResult<ContentInfo?>(null);
 
-        return scopeDict.TryGetValue(contentId, out var item)
-            ? Task.FromResult<ContentInfo?>(MapToContentInfo(item))
-            : Task.FromResult<ContentInfo?>(null);
+        if (!scopeDict.TryGetValue(address.ContentId, out var item))
+            return ValueTask.FromResult<ContentInfo?>(null);
+
+        EnsureAddressMatches(address, item);
+        return ValueTask.FromResult<ContentInfo?>(MapToContentInfo(address.Scope, item));
     }
 
     /// <inheritdoc />
-    public Task DeleteAsync(
-        string? scope,
-        string contentId,
-        ContentDeleteOptions? options = null,
+    public ValueTask DeleteAsync(
+        ContentAddress address,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(contentId))
-            return Task.CompletedTask;
+        ValidateAddress(address);
+        var actualScope = address.Scope.Value;
 
-        var actualScope = scope ?? "global";
-
-        if (_scopedContent.TryGetValue(actualScope, out var scopeDict) &&
-            scopeDict.TryGetValue(contentId, out var existing))
+        lock (_writeLock)
         {
-            if (options?.IfMatchVersion != null && existing.Version != options.IfMatchVersion)
-                throw new ContentConflictException(
-                    $"Content '{contentId}' version conflict.",
-                    contentId,
-                    options.IfMatchVersion,
-                    existing.Version);
+            if (_scopedContent.TryGetValue(actualScope, out var scopeDict) &&
+                scopeDict.TryGetValue(address.ContentId, out var existing))
+            {
+                EnsureAddressMatches(address, existing);
+            }
+
+            if (_scopedContent.TryGetValue(actualScope, out scopeDict) &&
+                scopeDict.TryRemove(address.ContentId, out var removed))
+            {
+                var name = removed.Metadata?.Name;
+                if (name != null && _nameIndex.TryGetValue(actualScope, out var nameIndex))
+                    nameIndex.TryRemove(MakeNameKey(removed.Metadata), out _);
+            }
         }
 
-        if (_scopedContent.TryGetValue(actualScope, out scopeDict) &&
-            scopeDict.TryRemove(contentId, out var removed))
-        {
-            // Also remove from name index
-            var name = removed.Metadata?.Name;
-            if (name != null && _nameIndex.TryGetValue(actualScope, out var nameIndex))
-                nameIndex.TryRemove(MakeNameKey(removed.Metadata), out _);
-        }
-
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<ContentInfo>> QueryAsync(
-        string? scope = null,
+    public ValueTask<IReadOnlyList<ContentInfo>> QueryAsync(
+        ContentScope scope,
         ContentQuery? query = null,
         CancellationToken cancellationToken = default)
     {
-        IEnumerable<StoredContent> allContent;
-
-        if (scope == null)
-        {
-            allContent = _scopedContent.Values.SelectMany(d => d.Values);
-        }
-        else
-        {
-            if (!_scopedContent.TryGetValue(scope, out var scopeDict))
-                return Task.FromResult<IReadOnlyList<ContentInfo>>(Array.Empty<ContentInfo>());
-            allContent = scopeDict.Values;
-        }
+        ValidateScope(scope);
+        if (!_scopedContent.TryGetValue(scope.Value, out var scopeDict))
+            return ValueTask.FromResult<IReadOnlyList<ContentInfo>>(Array.Empty<ContentInfo>());
+        IEnumerable<StoredContent> allContent = scopeDict.Values;
 
         // Apply filters
         if (query?.ContentType != null)
@@ -197,12 +184,12 @@ public class InMemoryContentStore : IContentStore
             allContent = allContent.Where(a =>
                 (a.Metadata?.Name ?? a.Id).Equals(query.Name, StringComparison.OrdinalIgnoreCase));
 
-        var results = allContent.Select(MapToContentInfo);
+        var results = allContent.Select(item => MapToContentInfo(scope, item));
 
         if (query?.Limit != null)
             results = results.Take(query.Limit.Value);
 
-        return Task.FromResult<IReadOnlyList<ContentInfo>>(results.ToList());
+        return ValueTask.FromResult<IReadOnlyList<ContentInfo>>(results.ToList());
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -232,6 +219,7 @@ public class InMemoryContentStore : IContentStore
     // ═══════════════════════════════════════════════════════════════════
 
     private static ContentInfo Create(
+        ContentScope scope,
         ConcurrentDictionary<string, StoredContent> scopeDict,
         ConcurrentDictionary<string, string> nameIndex,
         byte[] bytes,
@@ -262,10 +250,11 @@ public class InMemoryContentStore : IContentStore
         if (name != null)
             nameIndex[nameKey] = content.Id;
 
-        return MapToContentInfo(content);
+        return MapToContentInfo(scope, content);
     }
 
     private static ContentInfo ReplaceById(
+        ContentScope scope,
         ConcurrentDictionary<string, StoredContent> scopeDict,
         ConcurrentDictionary<string, string> nameIndex,
         byte[] bytes,
@@ -295,10 +284,11 @@ public class InMemoryContentStore : IContentStore
             nameIndex.TryRemove(MakeNameKey(existing.Metadata), out _);
         if (metadata.Name != null)
             nameIndex[MakeNameKey(metadata)] = updated.Id;
-        return MapToContentInfo(updated);
+        return MapToContentInfo(scope, updated);
     }
 
     private static ContentInfo ReplaceByName(
+        ContentScope scope,
         ConcurrentDictionary<string, StoredContent> scopeDict,
         ConcurrentDictionary<string, string> nameIndex,
         byte[] bytes,
@@ -315,10 +305,11 @@ public class InMemoryContentStore : IContentStore
             throw new FileNotFoundException($"Content named '{metadata.Name}' was not found.");
         }
 
-        return ReplaceById(scopeDict, nameIndex, bytes, contentType, metadata, options with { ContentId = contentId });
+        return ReplaceById(scope, scopeDict, nameIndex, bytes, contentType, metadata, options with { ContentId = contentId });
     }
 
     private static ContentInfo Append(
+        ContentScope scope,
         ConcurrentDictionary<string, StoredContent> scopeDict,
         ConcurrentDictionary<string, string> nameIndex,
         byte[] bytes,
@@ -331,7 +322,7 @@ public class InMemoryContentStore : IContentStore
             nameIndex.TryGetValue(MakeNameKey(metadata), out contentId);
 
         if (contentId == null || !scopeDict.TryGetValue(contentId, out var existing))
-            return Create(scopeDict, nameIndex, bytes, contentType, metadata, options with { Mode = ContentWriteMode.Create });
+            return Create(scope, scopeDict, nameIndex, bytes, contentType, metadata, options with { Mode = ContentWriteMode.Create });
 
         EnsureVersionMatches(existing, options.IfMatchVersion);
 
@@ -349,7 +340,7 @@ public class InMemoryContentStore : IContentStore
             ContentHash = ComputeHash(appended)
         };
         scopeDict[updated.Id] = updated;
-        return MapToContentInfo(updated);
+        return MapToContentInfo(scope, updated);
     }
 
     private static void EnsureVersionMatches(StoredContent existing, string? expectedVersion)
@@ -364,7 +355,7 @@ public class InMemoryContentStore : IContentStore
         }
     }
 
-    private static ContentInfo MapToContentInfo(StoredContent item)
+    private static ContentInfo MapToContentInfo(ContentScope scope, StoredContent item)
     {
         var extendedMeta = item.ContentHash != null
             ? (IReadOnlyDictionary<string, object>)new Dictionary<string, object> { ["contentHash"] = item.ContentHash }
@@ -372,8 +363,7 @@ public class InMemoryContentStore : IContentStore
 
         return new ContentInfo
         {
-            Id = item.Id,
-            Version = item.Version,
+            Address = new ContentAddress(scope, item.Id, item.Version, item.ContentHash),
             Name = item.Metadata?.Name ?? item.Id,
             ContentType = item.ContentType,
             SizeBytes = item.Data.Length,
@@ -395,6 +385,29 @@ public class InMemoryContentStore : IContentStore
     }
 
     private static string NewVersion() => $"rev:{Guid.NewGuid():N}";
+
+    private static void ValidateScope(ContentScope scope) =>
+        ArgumentException.ThrowIfNullOrWhiteSpace(scope.Value);
+
+    private static void ValidateAddress(ContentAddress address)
+    {
+        ValidateScope(address.Scope);
+        ArgumentException.ThrowIfNullOrWhiteSpace(address.ContentId);
+    }
+
+    private static void EnsureAddressMatches(ContentAddress address, StoredContent existing)
+    {
+        EnsureVersionMatches(existing, address.Version);
+        if (address.Sha256 is not null &&
+            !string.Equals(existing.ContentHash, address.Sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ContentConflictException(
+                $"Content '{existing.Id}' hash conflict.",
+                existing.Id,
+                address.Sha256,
+                existing.ContentHash);
+        }
+    }
 
     private static string MakeNameKey(ContentMetadata metadata)
     {

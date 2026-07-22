@@ -429,7 +429,7 @@ public class ClientToolMiddlewareTests
         var skill = new ClientSkillDefinition(
             Name: "CheckoutWorkflow",
             Description: "Guides through checkout process",
-            SystemPrompt: "1. Verify cart\n2. Get payment\n3. Confirm order",
+            Instructions: "1. Verify cart\n2. Get payment\n3. Confirm order",
             References: new[] { new ClientSkillReference("AddToCart") }
         );
 
@@ -465,7 +465,7 @@ public class ClientToolMiddlewareTests
         var skill = new ClientSkillDefinition(
             Name: "CheckoutWorkflow",
             Description: "Guides through checkout process",
-            SystemPrompt: "1. Verify cart\n2. Get payment\n3. Confirm order"
+            Instructions: "1. Verify cart\n2. Get payment\n3. Confirm order"
         );
 
         var ToolHarness = new clientToolHarnessDefinition(
@@ -494,6 +494,14 @@ public class ClientToolMiddlewareTests
         var functionNames = context.Options.Tools.OfType<AIFunction>().Select(f => f.Name).ToList();
         Assert.Contains("AddToCart", functionNames);
         Assert.Contains("CheckoutWorkflow", functionNames);
+        var activation = Assert.Single(
+            context.Options.Tools.OfType<AIFunction>(),
+            function => function.Name == "CheckoutWorkflow");
+        var metadata = Assert.IsType<HPDCapabilityMetadata>(
+            activation.AdditionalProperties![HPDCapabilityMetadata.AdditionalPropertiesKey]);
+        Assert.Equal(HPDCapabilityKind.SkillActivation, metadata.Kind);
+        Assert.DoesNotContain("IsSkill", activation.AdditionalProperties.Keys);
+        Assert.DoesNotContain("ReferencedFunctions", activation.AdditionalProperties.Keys);
     }
 
     [Fact]
@@ -507,7 +515,7 @@ public class ClientToolMiddlewareTests
         var skill = new ClientSkillDefinition(
             Name: "CheckoutWorkflow",
             Description: "Guides through checkout process",
-            SystemPrompt: "Follow these steps",
+            Instructions: "Follow these steps",
             References: new[] { new ClientSkillReference("NonExistentTool") }
         );
 
@@ -538,7 +546,7 @@ public class ClientToolMiddlewareTests
         var skillWithCrossRef = new ClientSkillDefinition(
             Name: "FullOrderWorkflow",
             Description: "Complete order workflow",
-            SystemPrompt: "Use tools from both ToolHarnesses",
+            Instructions: "Use tools from both ToolHarnesses",
             References: new[]
             {
                 new ClientSkillReference("AddToCart"),  // Local tool
@@ -587,7 +595,7 @@ public class ClientToolMiddlewareTests
         var skillWithBadRef = new ClientSkillDefinition(
             Name: "BadWorkflow",
             Description: "Workflow with invalid reference",
-            SystemPrompt: "This will fail",
+            Instructions: "This will fail",
             References: new[]
             {
                 new ClientSkillReference("SomeTool", "NonExistentToolHarness")
@@ -619,11 +627,11 @@ public class ClientToolMiddlewareTests
         // When a ToolHarness is collapsed:
         // - Container function (Client_ECommerce) is added
         // - Collapsed tools (with ParentToolHarness metadata) are added for ToolCollapsingMiddleware
-        // - Skills are ALWAYS added (they're entry points)
+        // - Skills are materialized but graph-hidden behind the owning harness
         var skill = new ClientSkillDefinition(
             Name: "QuickCheckout",
             Description: "Fast checkout process",
-            SystemPrompt: "Use this for quick orders"
+            Instructions: "Use this for quick orders"
         );
 
         var ToolHarness = new clientToolHarnessDefinition(
@@ -649,14 +657,14 @@ public class ClientToolMiddlewareTests
         // Act
         await middleware.BeforeIterationAsync(context, CancellationToken.None);
 
-        // Assert - container and skill should be visible
+        // Assert - all native functions are materialized for graph projection
         var functions = context.Options.Tools.OfType<AIFunction>().ToList();
         var functionNames = functions.Select(f => f.Name).ToList();
 
         // Container function exists
         Assert.Contains("Client_ECommerce", functionNames);
 
-        // Skill is visible (skills are always available as entry points)
+        // Skill is present but parented by the harness activation
         Assert.Contains("QuickCheckout", functionNames);
 
         // Tools exist (with ParentToolHarness metadata for ToolCollapsingMiddleware to filter)
@@ -667,6 +675,14 @@ public class ClientToolMiddlewareTests
         var addToCart = functions.First(f => f.Name == "AddToCart");
         Assert.True(addToCart.AdditionalProperties?.ContainsKey("ParentToolHarness") == true);
         Assert.Equal("Client_ECommerce", addToCart.AdditionalProperties!["ParentToolHarness"]);
+        var skillFunction = functions.First(f => f.Name == "QuickCheckout");
+        var skillMetadata = Assert.IsType<HPDCapabilityMetadata>(
+            skillFunction.AdditionalProperties![HPDCapabilityMetadata.AdditionalPropertiesKey]);
+        var container = functions.First(f => f.Name == "Client_ECommerce");
+        var containerMetadata = Assert.IsType<HPDCapabilityMetadata>(
+            container.AdditionalProperties![HPDCapabilityMetadata.AdditionalPropertiesKey]);
+        Assert.Equal(HPDCapabilityKind.ToolHarnessActivation, containerMetadata.Kind);
+        Assert.Contains(containerMetadata.Id, skillMetadata.ParentContainerIds);
     }
 
     [Fact]
@@ -713,7 +729,7 @@ public class ClientToolMiddlewareTests
             new ClientSkillDefinition(
                 Name: "",
                 Description: "Description",
-                SystemPrompt: "Instructions"
+                Instructions: "Instructions"
             ).Validate());
     }
 
@@ -725,20 +741,19 @@ public class ClientToolMiddlewareTests
             new ClientSkillDefinition(
                 Name: "Skill",
                 Description: "",
-                SystemPrompt: "Instructions"
+                Instructions: "Instructions"
             ).Validate());
     }
 
     [Fact]
-    public void SkillDefinition_Validation_RequiresFunctionResultOrSystemPrompt()
+    public void SkillDefinition_Validation_RequiresInstructions()
     {
-        // Act & Assert - at least one of FunctionResult or SystemPrompt must be provided
+        // Act & Assert - authoritative activation instructions are required.
         Assert.Throws<ArgumentException>(() =>
             new ClientSkillDefinition(
                 Name: "Skill",
                 Description: "Description",
-                FunctionResult: null,
-                SystemPrompt: null
+                Instructions: null!
             ).Validate());
     }
 

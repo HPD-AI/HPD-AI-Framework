@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
 using System.Text.Json;
+using System.Collections.Immutable;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.AI;
@@ -517,7 +518,7 @@ public class ClientToolMiddleware : IAgentMiddleware
                 allFunctions.Add(container);
                 allFunctions.AddRange(CollapsedTools);
 
-                // Skills are always visible (collapsed state) - they're entry points
+                // Skill activations remain graph children of the collapsed client harness.
                 allFunctions.AddRange(skillAIFunctions);
             }
             else
@@ -528,6 +529,7 @@ public class ClientToolMiddleware : IAgentMiddleware
             }
         }
 
+        NormalizeClientCapabilityGraph(allFunctions, state);
         return allFunctions;
     }
 
@@ -577,42 +579,46 @@ public class ClientToolMiddleware : IAgentMiddleware
     /// </summary>
     private static AIFunction ConvertSkillToAIFunction(ClientSkillDefinition skill, string toolName)
     {
-        // Build a return message with the FunctionResult (ephemeral, one-time)
-        var returnMessage = $"Skill '{skill.Name}' activated.";
-        if (!string.IsNullOrWhiteSpace(skill.FunctionResult))
-        {
-            returnMessage += $"\n\n{skill.FunctionResult}";
-        }
-
-        // Build referenced function names for ToolVisibilityManager
-        var referencedFunctions = Array.Empty<string>();
-        var referencedToolHarnesses = Array.Empty<string>();
-        if (skill.References != null && skill.References.Count > 0)
-        {
-            var funcList = new List<string>();
-            var HARNESSet = new HashSet<string>();
-            foreach (var reference in skill.References)
-            {
-                // Build qualified function name
-                var qualifiedName = string.IsNullOrEmpty(reference.ToolsetName)
-                    ? reference.ToolName  // Local reference
-                    : $"{reference.ToolsetName}.{reference.ToolName}";  // Cross-ToolHarness reference
-                funcList.Add(qualifiedName);
-
-                // Track referenced ToolHarnesses for visibility
-                if (!string.IsNullOrEmpty(reference.ToolsetName))
-                {
-                    HARNESSet.Add(reference.ToolsetName);
-                }
-            }
-            referencedFunctions = funcList.ToArray();
-            referencedToolHarnesses = HARNESSet.ToArray();
-        }
+        var returnMessage = skill.Instructions;
+        var skillId = CapabilityId.Create($"client:{toolName}:skill:{skill.Name}");
+        var childIds = (skill.References ?? Array.Empty<ClientSkillReference>())
+            .Select(reference => CapabilityId.Create(
+                $"client:{reference.ToolsetName ?? toolName}:tool:{reference.ToolName}"))
+            .ToImmutableArray();
+        var definition = Skill.Create(
+            id: skillId.Value,
+            name: skill.Name,
+            description: skill.Description,
+            instructions: SkillInstructions.FromText(skill.Instructions),
+            reinforcement: string.IsNullOrWhiteSpace(skill.Reinforcement)
+                ? null
+                : SkillInstructions.FromText(skill.Reinforcement));
 
         return HPDAIFunctionFactory.Create(
-            async (args, _, ct) =>
+            async (args, functionContext, ct) =>
             {
-                return returnMessage;
+                await functionContext.PublishAsync(
+                    new SkillActivationStartedEvent(skillId, skill.Name), ct).ConfigureAwait(false);
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(skill.Reinforcement))
+                        functionContext.ResultMetadata.Set("HPD.SkillReinforcement", skill.Reinforcement);
+                    await functionContext.PublishAsync(
+                        new SkillActivatedEvent(
+                            skillId,
+                            skill.Name,
+                            childIds.Length,
+                            SkillActivationLifetime.MessageTurn),
+                        ct).ConfigureAwait(false);
+                    return returnMessage;
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    await functionContext.PublishAsync(
+                        new SkillActivationFailedEvent(skillId, skill.Name, exception.GetType().Name),
+                        CancellationToken.None).ConfigureAwait(false);
+                    throw;
+                }
             },
             new HPDAIFunctionFactoryOptions
             {
@@ -623,17 +629,15 @@ public class ClientToolMiddleware : IAgentMiddleware
                 SchemaProvider = () => CreateEmptySchema(),
                 AdditionalProperties = new Dictionary<string, object?>
                 {
-                    ["IsSkill"] = true,
-                    ["IsContainer"] = true,  // Skills are containers (for ToolVisibilityManager)
-                    ["IsClientSkill"] = true,
+                    [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata
+                    {
+                        Id = skillId,
+                        Kind = HPDCapabilityKind.SkillActivation,
+                        Reveals = childIds
+                    },
+                    [SkillRuntimeMetadata.SkillDefinitionKey] = definition,
                     ["clientToolHarnessName"] = toolName,
-                    ["SourceType"] = "clientToolHarness",
-                    // Dual-context architecture: FunctionResult for ephemeral, SystemPrompt for persistent
-                    ["FunctionResult"] = skill.FunctionResult,
-                    ["SystemPrompt"] = skill.SystemPrompt,
-                    // These are used by ToolVisibilityManager for visibility rules
-                    ["ReferencedFunctions"] = referencedFunctions,
-                    ["ReferencedToolHarnesses"] = referencedToolHarnesses
+                    ["SourceType"] = "clientToolHarness"
                 }
             });
     }
@@ -1168,5 +1172,95 @@ public class ClientToolMiddleware : IAgentMiddleware
                 CompletedAt = _completedAt,
                 Metadata = _metadata
             });
+    }
+
+    private static void NormalizeClientCapabilityGraph(
+        List<AIFunction> functions,
+        ClientToolStateData state)
+    {
+        var referenceParents = state.RegisteredToolHarnesses
+            .SelectMany(owner => (owner.Value.Skills ?? Array.Empty<ClientSkillDefinition>())
+                .SelectMany(skill => (skill.References ?? Array.Empty<ClientSkillReference>())
+                    .Select(reference => new
+                    {
+                        Toolset = reference.ToolsetName ?? owner.Key,
+                        reference.ToolName,
+                        SkillId = CapabilityId.Create($"client:{owner.Key}:skill:{skill.Name}")
+                    })))
+            .GroupBy(entry => (entry.Toolset, entry.ToolName))
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(entry => entry.SkillId).Distinct().ToArray());
+
+        foreach (var (toolsetName, toolset) in state.RegisteredToolHarnesses)
+        {
+            var harnessId = CapabilityId.Create($"client:{toolsetName}");
+            var skills = toolset.Skills ?? Array.Empty<ClientSkillDefinition>();
+            foreach (var tool in toolset.Tools)
+            {
+                var function = functions.FirstOrDefault(candidate =>
+                    candidate.Name == tool.Name &&
+                    candidate.AdditionalProperties?.TryGetValue("clientToolHarnessName", out var owner) == true &&
+                    string.Equals(owner?.ToString(), toolsetName, StringComparison.Ordinal));
+                if (function is null)
+                    continue;
+                var parents = referenceParents.TryGetValue((toolsetName, tool.Name), out var skillParents)
+                    ? skillParents.ToImmutableArray()
+                    : toolset.StartCollapsed
+                        ? ImmutableArray.Create(harnessId)
+                        : ImmutableArray<CapabilityId>.Empty;
+                SetCapabilityMetadata(function, new HPDCapabilityMetadata
+                {
+                    Id = CapabilityId.Create($"client:{toolsetName}:tool:{tool.Name}"),
+                    Kind = HPDCapabilityKind.Function,
+                    ParentContainerIds = parents
+                });
+            }
+
+            foreach (var skill in skills)
+            {
+                var function = functions.First(candidate => candidate.Name == skill.Name);
+                var skillId = CapabilityId.Create($"client:{toolsetName}:skill:{skill.Name}");
+                var childIds = (skill.References ?? Array.Empty<ClientSkillReference>())
+                    .Select(reference => CapabilityId.Create(
+                        $"client:{reference.ToolsetName ?? toolsetName}:tool:{reference.ToolName}"))
+                    .ToImmutableArray();
+                SetCapabilityMetadata(function, new HPDCapabilityMetadata
+                {
+                    Id = skillId,
+                    Kind = HPDCapabilityKind.SkillActivation,
+                    ParentContainerIds = toolset.StartCollapsed ? [harnessId] : [],
+                    Reveals = childIds
+                });
+            }
+
+            if (toolset.StartCollapsed)
+            {
+                var container = functions.FirstOrDefault(candidate =>
+                    candidate.Name == toolsetName || candidate.Name == $"Client_{toolsetName}");
+                if (container is not null)
+                {
+                    var reveals = skills
+                        .Select(skill => CapabilityId.Create($"client:{toolsetName}:skill:{skill.Name}"))
+                        .Concat(toolset.Tools
+                            .Where(tool => !referenceParents.ContainsKey((toolsetName, tool.Name)))
+                            .Select(tool => CapabilityId.Create($"client:{toolsetName}:tool:{tool.Name}")))
+                        .ToImmutableArray();
+                    SetCapabilityMetadata(container, new HPDCapabilityMetadata
+                    {
+                        Id = harnessId,
+                        Kind = HPDCapabilityKind.ToolHarnessActivation,
+                        Reveals = reveals
+                    });
+                }
+            }
+        }
+    }
+
+    private static void SetCapabilityMetadata(AIFunction function, HPDCapabilityMetadata metadata)
+    {
+        if (function.AdditionalProperties is not IDictionary<string, object?> properties)
+            throw new InvalidOperationException($"Client function '{function.Name}' metadata is immutable.");
+        properties[HPDCapabilityMetadata.AdditionalPropertiesKey] = metadata;
     }
 }

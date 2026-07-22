@@ -132,13 +132,23 @@ internal static class CapabilityAnalyzer
     {
         diagnostics = new List<Diagnostic>();
 
-        // Must be public
-        if (!method.Modifiers.Any(SyntaxKind.PublicKeyword))
-            return null;
-
         var attrs = method.AttributeLists
             .SelectMany(al => al.Attributes)
             .ToList();
+
+        // Generated registrations call capability members directly. Report an actionable skill
+        // diagnostic instead of silently dropping an inaccessible declaration.
+        if (!method.Modifiers.Any(SyntaxKind.PublicKeyword))
+        {
+            if (HasAttribute(attrs, "Skill"))
+            {
+                diagnostics.Add(Diagnostic.Create(
+                    SkillDiagnostics.InaccessibleMember,
+                    method.Identifier.GetLocation(),
+                    method.Identifier.ValueText));
+            }
+            return null;
+        }
 
         // Dispatch based on attribute type (priority order: Skill > SubAgent > AIFunction)
         // This order matters because a method could theoretically have multiple attributes
@@ -238,51 +248,55 @@ internal static class CapabilityAnalyzer
         var returnType = semanticModel.GetTypeInfo(method.ReturnType).Type;
         if (returnType == null || returnType.Name != "Skill")
         {
-            // Invalid skill method - skip
+            diagnostics.Add(Diagnostic.Create(
+                SkillDiagnostics.ReflectionDeclarationRejected,
+                method.ReturnType.GetLocation(),
+                method.Identifier.ValueText));
             return null;
         }
 
         var methodName = method.Identifier.ValueText;
         System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Analyzing Skill method: {methodName}");
 
-        // Find SkillFactory.Create() invocation in method body
+        // Find the well-known Skill.Create() invocation in the method body.
         var invocation = method.Body?.DescendantNodes()
             .OfType<InvocationExpressionSyntax>()
-            .FirstOrDefault(inv => IsSkillFactoryCreate(inv, semanticModel));
+            .FirstOrDefault(inv => IsSkillCreate(inv, semanticModel));
 
         if (invocation == null)
         {
-            // Check arrow expression body: => SkillFactory.Create(...)
+            // Check arrow expression body: => Skill.Create(...)
             invocation = method.ExpressionBody?.DescendantNodes()
                 .OfType<InvocationExpressionSyntax>()
-                .FirstOrDefault(inv => IsSkillFactoryCreate(inv, semanticModel));
+                .FirstOrDefault(inv => IsSkillCreate(inv, semanticModel));
         }
 
         if (invocation == null)
         {
-            System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] No SkillFactory.Create() found in {methodName}");
+            System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] No Skill.Create() found in {methodName}");
+            diagnostics.Add(Diagnostic.Create(
+                SkillDiagnostics.ReflectionDeclarationRejected,
+                method.Identifier.GetLocation(),
+                methodName));
             return null;
         }
 
-        System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Found SkillFactory.Create() in {methodName}");
+        System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Found Skill.Create() in {methodName}");
 
         var arguments = invocation.ArgumentList.Arguments;
 
-        // Minimum 2 arguments: name, description (functionResult/systemPrompt are optional but one is required)
-        if (arguments.Count < 2)
+        if (arguments.Count < 3)
         {
+            diagnostics.Add(Diagnostic.Create(
+                SkillDiagnostics.MissingInstructions,
+                invocation.GetLocation(),
+                methodName));
             return null;
         }
 
         // Extract required positional arguments (name, description)
         var name = ExtractStringLiteral(arguments[0].Expression, semanticModel);
         var description = ExtractStringLiteral(arguments[1].Expression, semanticModel);
-
-        // Extract dual-context instructions (functionResult and systemPrompt)
-        string? functionResult = null;
-        string? systemPrompt = null;
-        SkillOptionsInfo? options = null;
-        int referencesStartIndex = 2;
 
         // Build a dictionary of named arguments for easy lookup
         var namedArgs = arguments
@@ -291,40 +305,28 @@ internal static class CapabilityAnalyzer
                 a => a.NameColon!.Name.Identifier.ValueText,
                 a => a);
 
-        // Extract functionResult.
-        if (namedArgs.TryGetValue("functionResult", out var funcResultArg))
+        var instructionArgument = namedArgs.TryGetValue("instructions", out var namedInstructions)
+            ? namedInstructions
+            : arguments[2];
+        var instructionType = semanticModel.GetTypeInfo(instructionArgument.Expression).ConvertedType;
+        if (instructionType is null || instructionType.Name != "SkillInstructionProvider")
         {
-            functionResult = ExtractStringLiteral(funcResultArg.Expression, semanticModel);
+            diagnostics.Add(Diagnostic.Create(
+                SkillDiagnostics.InvalidInstructionProvider,
+                instructionArgument.GetLocation(),
+                methodName));
+            return null;
         }
 
-        // Extract systemPrompt.
-        if (namedArgs.TryGetValue("systemPrompt", out var sysPromptArg))
+        if (namedArgs.TryGetValue("lifetime", out var lifetimeArgument) &&
+            semanticModel.GetConstantValue(lifetimeArgument.Expression) is { HasValue: true, Value: int lifetimeValue } &&
+            lifetimeValue != 0)
         {
-            systemPrompt = ExtractStringLiteral(sysPromptArg.Expression, semanticModel);
-        }
-
-        // Extract options (named parameter)
-        if (namedArgs.TryGetValue("options", out var optionsArg))
-        {
-            System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Found named 'options' parameter in {methodName}");
-            options = ExtractSkillOptions(optionsArg.Expression, semanticModel);
-        }
-        else
-        {
-            // Check remaining positional args for SkillOptions
-            for (int i = referencesStartIndex; i < arguments.Count; i++)
-            {
-                if (arguments[i].NameColon != null) continue; // Skip named args
-
-                var argType = semanticModel.GetTypeInfo(arguments[i].Expression).Type;
-                if (argType?.Name == "SkillOptions")
-                {
-                    System.Diagnostics.Debug.WriteLine($"[CapabilityAnalyzer] Found SkillOptions at position {i} in {methodName}");
-                    options = ExtractSkillOptions(arguments[i].Expression, semanticModel);
-                    referencesStartIndex = i + 1;
-                    break;
-                }
-            }
+            diagnostics.Add(Diagnostic.Create(
+                SkillDiagnostics.UnsupportedLifetime,
+                lifetimeArgument.GetLocation(),
+                methodName));
+            return null;
         }
 
         // Check for [AIDescription] attribute override (supports dynamic descriptions like Functions)
@@ -336,22 +338,74 @@ internal static class CapabilityAnalyzer
 
         if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(description))
         {
+            diagnostics.Add(Diagnostic.Create(
+                string.IsNullOrWhiteSpace(description)
+                    ? SkillDiagnostics.InvalidDescription
+                    : SkillDiagnostics.UnsupportedMetadata,
+                invocation.GetLocation(),
+                methodName));
             return null;
         }
 
-        // Extract function/skill references (remaining arguments)
+        // Extract symbol-analyzable function references from the capabilities argument.
         var references = new List<ReferenceInfo>();
-        for (int i = referencesStartIndex; i < arguments.Count; i++)
+        var capabilitiesArg = namedArgs.TryGetValue("capabilities", out var namedCapabilities)
+            ? namedCapabilities
+            : arguments.Count > 3 ? arguments[3] : null;
+        if (capabilitiesArg is not null)
         {
-            var argExpr = arguments[i].Expression;
+            var childNames = new HashSet<string>(System.StringComparer.Ordinal);
+            foreach (var capabilityInvocation in capabilitiesArg.Expression
+                .DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>())
+            {
+                if (semanticModel.GetSymbolInfo(capabilityInvocation).Symbol is IMethodSymbol capabilitySymbol &&
+                    capabilitySymbol.ContainingType.Name == "SkillCapabilities" &&
+                    capabilitySymbol.Name is "Resource" or "Script")
+                {
+                    var capabilityArguments = capabilityInvocation.ArgumentList.Arguments;
+                    var capabilityName = capabilityArguments.Count > 0
+                        ? ExtractStringLiteral(capabilityArguments[0].Expression, semanticModel)
+                        : null;
+                    var capabilityDescription = capabilityArguments.Count > 1
+                        ? ExtractStringLiteral(capabilityArguments[1].Expression, semanticModel)
+                        : null;
+                    if (string.IsNullOrWhiteSpace(capabilityDescription))
+                    {
+                        diagnostics.Add(Diagnostic.Create(
+                            capabilitySymbol.Name == "Resource"
+                                ? SkillDiagnostics.ResourceMissingDescription
+                                : SkillDiagnostics.ScriptMissingDescription,
+                            capabilityInvocation.GetLocation(),
+                            capabilityName ?? capabilitySymbol.Name));
+                    }
+                    if (!string.IsNullOrWhiteSpace(capabilityName) && !childNames.Add(capabilityName!))
+                    {
+                        diagnostics.Add(Diagnostic.Create(
+                            SkillDiagnostics.DuplicateChildName,
+                            capabilityInvocation.GetLocation(),
+                            methodName,
+                            capabilityName));
+                    }
+                }
 
-            // Named arguments configure the skill; positional arguments after name/description are references.
-            if (arguments[i].NameColon != null)
-                continue;
-
-            var reference = AnalyzeSkillReference(argExpr, semanticModel);
-            if (reference != null)
-                references.Add(reference);
+                var reference = AnalyzeSkillFunctionReference(
+                    capabilityInvocation,
+                    semanticModel,
+                    methodName,
+                    diagnostics);
+                if (reference is not null)
+                {
+                    if (!childNames.Add(reference.FullName.Split('.').Last()))
+                    {
+                        diagnostics.Add(Diagnostic.Create(
+                            SkillDiagnostics.DuplicateChildName,
+                            capabilityInvocation.GetLocation(),
+                            methodName,
+                            reference.FullName.Split('.').Last()));
+                    }
+                    references.Add(reference);
+                }
+            }
         }
 
         // Extract conditional and context metadata (same as Functions)
@@ -367,12 +421,10 @@ internal static class CapabilityAnalyzer
         {
             Name = name,
             MethodName = methodName,
+            MethodIsStatic = method.Modifiers.Any(SyntaxKind.StaticKeyword),
             Description = description,
-            FunctionResult = functionResult,
-            SystemPrompt = systemPrompt,
             ParentToolHarnessName = className,
             ParentNamespace = namespaceName,
-            Options = options ?? new SkillOptionsInfo(),
             UnresolvedReferences = references,
             RequiresPermission = requiresPermission,
 
@@ -1221,66 +1273,75 @@ internal static class CapabilityAnalyzer
     // ========== Skill Helper Methods (Phase 5: Migrated from SkillAnalyzer) ==========
 
     /// <summary>
-    /// Checks if an invocation is SkillFactory.Create()
+    /// Checks if an invocation is the public Skill.Create() entry point.
     /// </summary>
-    private static bool IsSkillFactoryCreate(InvocationExpressionSyntax invocation, SemanticModel semanticModel)
+    private static bool IsSkillCreate(InvocationExpressionSyntax invocation, SemanticModel semanticModel)
     {
         var symbolInfo = semanticModel.GetSymbolInfo(invocation);
         var symbol = symbolInfo.Symbol as IMethodSymbol;
 
-        return symbol?.ContainingType?.Name == "SkillFactory" &&
+        return symbol?.ContainingType?.Name == "Skill" &&
                symbol?.Name == "Create";
     }
 
     /// <summary>
-    /// Analyzes a reference (function or skill) from a string literal.
-    /// Phase 5: Migrated from SkillAnalyzer.AnalyzeReference().
+    /// Analyzes SkillCapabilities.Function&lt;TToolHarness&gt;(nameof(...)).
     /// </summary>
-    private static ReferenceInfo? AnalyzeSkillReference(
-        ExpressionSyntax expression,
-        SemanticModel semanticModel)
+    private static ReferenceInfo? AnalyzeSkillFunctionReference(
+        InvocationExpressionSyntax invocation,
+        SemanticModel semanticModel,
+        string skillName,
+        List<Diagnostic> diagnostics)
     {
-        // Extract string literal: "FileSystemToolHarness.ReadFile"
-        var reference = ExtractStringLiteral(expression, semanticModel);
+        if (semanticModel.GetSymbolInfo(invocation).Symbol is not IMethodSymbol symbol ||
+            symbol.Name != "Function" ||
+            symbol.ContainingType.Name != "SkillCapabilities" ||
+            symbol.TypeArguments.Length != 1 ||
+            invocation.ArgumentList.Arguments.Count != 1)
+            return null;
 
-        if (string.IsNullOrWhiteSpace(reference))
+        var memberName = ExtractStringLiteral(invocation.ArgumentList.Arguments[0].Expression, semanticModel);
+        if (string.IsNullOrWhiteSpace(memberName))
+            return null;
+
+        var toolType = symbol.TypeArguments[0];
+        var toolName = toolType.Name;
+        var referencedMembers = toolType.GetMembers(memberName!).OfType<IMethodSymbol>().ToArray();
+        if (referencedMembers.Length > 1)
         {
+            diagnostics.Add(Diagnostic.Create(
+                SkillDiagnostics.AmbiguousMember,
+                invocation.GetLocation(),
+                skillName,
+                memberName));
             return null;
         }
-
-        // Parse "ToolHarnessName.FunctionName" format
-        var parts = reference!.Split('.');
-
-        if (parts.Length != 2)
+        var referencedMember = referencedMembers.SingleOrDefault();
+        if (referencedMember is null || !referencedMember.GetAttributes().Any(attribute =>
+                attribute.AttributeClass?.Name == "AIFunctionAttribute"))
         {
+            diagnostics.Add(Diagnostic.Create(
+                SkillDiagnostics.MemberNotFunction,
+                invocation.GetLocation(),
+                skillName,
+                memberName));
             return null;
         }
-
-        var toolName = parts[0];
-        var methodName = parts[1];
-
-        if (string.IsNullOrWhiteSpace(toolName) || string.IsNullOrWhiteSpace(methodName))
-        {
-            return null;
-        }
+        var functionAttribute = referencedMember?.GetAttributes()
+            .FirstOrDefault(attribute => attribute.AttributeClass?.Name == "AIFunctionAttribute");
+        var configuredName = functionAttribute?.NamedArguments
+            .FirstOrDefault(argument => argument.Key == "Name").Value.Value as string;
+        var modelName = string.IsNullOrWhiteSpace(configuredName) ? memberName! : configuredName!;
+        var fullName = $"{toolName}.{modelName}";
 
         return new ReferenceInfo
         {
             ReferenceType = ReferenceType.Function,
             ToolHarnessType = toolName,
-            MethodName = methodName,
-            FullName = reference,
-            Location = expression.GetLocation()
+            MethodName = memberName!,
+            FullName = fullName,
+            Location = invocation.GetLocation()
         };
-    }
-
-    /// <summary>
-    /// Extracts SkillOptions from object creation expression or method chain.
-    /// SkillOptions currently has no source-generator-visible properties.
-    /// </summary>
-    private static SkillOptionsInfo ExtractSkillOptions(ExpressionSyntax expression, SemanticModel semanticModel)
-    {
-        return new SkillOptionsInfo();
     }
 
     /// <summary>

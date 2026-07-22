@@ -4,6 +4,9 @@ namespace HPD.Agent;
 
 public static class ContentStoreScopes
 {
+    /// <summary>Gets the standard scope for managed skill packages.</summary>
+    public static ContentScope Skills { get; } = ContentScope.Create("hpd:skills");
+
     public static string ForThread(string sessionId, string threadId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);

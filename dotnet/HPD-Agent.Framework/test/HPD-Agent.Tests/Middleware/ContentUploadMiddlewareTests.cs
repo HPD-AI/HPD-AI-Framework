@@ -49,7 +49,8 @@ public class ContentUploadMiddlewareTests
         Assert.Equal(ContentReferenceResolverMiddleware.ContentUriScheme, uriContent.Uri.Scheme);
         Assert.Equal("image/png", uriContent.MediaType);
 
-        var stored = await contentStore.ReadBytesAsync(ContentStoreScopes.ForThread(session.Id, "main"), uriContent.Uri.Host);
+        var stored = await contentStore.ReadBytesAsync(new ContentAddress(
+            ContentScope.Create(ContentStoreScopes.ForThread(session.Id, "main")), uriContent.Uri.Host));
         Assert.NotNull(stored);
         Assert.Equal(imageBytes, stored);
         Assert.Single(await capture.WaitForAsync<ContentUploadedEvent>());
@@ -131,7 +132,7 @@ public class ContentUploadMiddlewareTests
 
         Assert.IsType<HostedFileContent>(Assert.Single(context.UserMessage!.Contents));
         Assert.Single(hostedClient.Uploads);
-        Assert.Empty(await contentStore.QueryAsync(ContentStoreScopes.ForThread(session.Id, "main")));
+        Assert.Empty(await contentStore.QueryAsync(ContentScope.Create(ContentStoreScopes.ForThread(session.Id, "main"))));
     }
 
     [Fact]
@@ -153,7 +154,8 @@ public class ContentUploadMiddlewareTests
         await middleware.BeforeMessageTurnAsync(context, CancellationToken.None);
 
         var uriContent = Assert.IsType<UriContent>(Assert.Single(context.UserMessage!.Contents));
-        var stored = await contentStore.ReadBytesAsync(ContentStoreScopes.ForThread(session.Id, "main"), uriContent.Uri.Host);
+        var stored = await contentStore.ReadBytesAsync(new ContentAddress(
+            ContentScope.Create(ContentStoreScopes.ForThread(session.Id, "main")), uriContent.Uri.Host));
         Assert.NotNull(stored);
         Assert.Equal(bytes, stored);
         Assert.Single(await capture.WaitForAsync<HostedFileUploadFailedEvent>());
@@ -336,11 +338,11 @@ public class ContentReferenceResolverMiddlewareTests
         var session = new SessionModel("test-session");
         var imageBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 };
         var contentInfo = await contentStore.WriteBytesAsync(
-            ContentStoreScopes.ForThread(session.Id, "main"),
+            ContentScope.Create(ContentStoreScopes.ForThread(session.Id, "main")),
             imageBytes,
             "image/png",
             new ContentMetadata { Origin = ContentSource.User });
-        var contentUri = new UriContent(ContentReferenceResolverMiddleware.CreateContentUri(contentInfo.Id), "image/png");
+        var contentUri = new UriContent(ContentReferenceResolverMiddleware.CreateContentUri(contentInfo.Address.ContentId), "image/png");
         var message = new ChatMessage(ChatRole.User, [new TextContent("Analyze:"), contentUri]);
         using var capture = new EventCapture();
         var context = CreateBeforeIterationContext(session, message, capture.Coordinator);
@@ -350,7 +352,7 @@ public class ContentReferenceResolverMiddlewareTests
         var resolved = Assert.IsType<DataContent>(context.Messages[0].Contents[1]);
         Assert.Equal(imageBytes, resolved.Data.ToArray());
         Assert.Equal("image/png", resolved.MediaType);
-        Assert.Equal(contentInfo.Id, (await capture.WaitForAsync<ContentReferenceResolvedEvent>()).Single().ContentUri.Host);
+        Assert.Equal(contentInfo.Address.ContentId, (await capture.WaitForAsync<ContentReferenceResolvedEvent>()).Single().ContentUri.Host);
     }
 
     [Fact]

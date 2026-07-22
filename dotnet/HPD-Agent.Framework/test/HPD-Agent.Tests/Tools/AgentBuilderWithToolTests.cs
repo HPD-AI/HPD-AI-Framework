@@ -184,39 +184,28 @@ public class AgentBuilderWithToolTests
     }
 
     [Fact]
-    public void ReflectionToolFactory_CreatesSkillCapability()
+    public void GeneratedFactory_CreatesSkillCapabilityWithoutDiscoveryLeakage()
     {
-        Assert.True(ReflectionToolFactory.TryCreateToolHarnessFactory(
-            typeof(ReflectionAdvancedToolHarness),
-            out var factory,
-            out var error));
-
-        Assert.Null(error);
-
+        var factory = GetAdvancedFactory();
         var functions = factory.CreateFunctions(new ReflectionAdvancedToolHarness(), null, null);
         var skill = Assert.Single(functions, f => f.Name == "order_support");
 
-        Assert.Equal("Order support flow. References 2 functions: ReflectionAdvancedToolHarness.advanced_lookup_order, ReflectionAdvancedToolHarness.advanced_get_return_policy", skill.Description);
-        Assert.True((bool)skill.AdditionalProperties!["IsSkill"]!);
-        Assert.True((bool)skill.AdditionalProperties!["IsContainer"]!);
+        Assert.Equal("Order support flow", skill.Description);
+        var metadata = Assert.IsType<HPDCapabilityMetadata>(
+            skill.AdditionalProperties![HPDCapabilityMetadata.AdditionalPropertiesKey]);
+        Assert.Equal(HPDCapabilityKind.SkillActivation, metadata.Kind);
+        Assert.Equal(2, metadata.Reveals.Length);
     }
 
     [Fact]
-    public void ReflectionToolFactory_CreatesSubAgentCapability()
+    public void GeneratedFactory_CreatesSubAgentCapability()
     {
-        Assert.True(ReflectionToolFactory.TryCreateToolHarnessFactory(
-            typeof(ReflectionAdvancedToolHarness),
-            out var factory,
-            out var error));
-
-        Assert.Null(error);
-
+        var factory = GetAdvancedFactory();
         var functions = factory.CreateFunctions(new ReflectionAdvancedToolHarness(), null, null);
         var subAgent = Assert.Single(functions, f => f.Name == "support_escalation");
 
         Assert.Equal("Escalates support questions to a specialist.", subAgent.Description);
         Assert.True((bool)subAgent.AdditionalProperties!["IsSubAgent"]!);
-        Assert.False((bool)subAgent.AdditionalProperties!["IsContainer"]!);
     }
 
     [Fact]
@@ -269,93 +258,56 @@ public class AgentBuilderWithToolTests
         Assert.Equal("test/support-escalation", invocation.ChildAgentId);
         Assert.Equal("support_escalation", invocation.RoleName);
         Assert.Equal("order_escalation", invocation.TaskName);
-        Assert.Equal(SubAgentContextPolicy.Fork, invocation.ContextPolicy);
+        Assert.Equal(SubAgentContextPolicy.Isolated, invocation.ContextPolicy);
         Assert.Equal(AgentInvocationMode.Synchronous, invocation.Mode);
     }
 
     [Fact]
-    public async Task ReflectionFallbackSubAgent_PublishesTypedInvocationLifecycle()
+    public void GeneratedFactory_CreatesMultiAgentCapability()
     {
-        Assert.True(ReflectionToolFactory.TryCreateToolHarnessFactory(
-            typeof(ReflectionAdvancedToolHarness),
-            out var factory,
-            out var error));
-
-        Assert.Null(error);
-
-        var subAgentFunction = Assert.Single(
-            factory.CreateFunctions(new ReflectionAdvancedToolHarness(), null, null),
-            f => f.Name == "support_escalation");
-        var client = new FakeChatClient();
-        client.EnqueueToolCall(
-            "support_escalation",
-            "call-subagent",
-            new Dictionary<string, object?>
-            {
-                ["taskName"] = "order_escalation",
-                ["input"] = "help with this order"
-            });
-        client.EnqueueTextResponse("child handled escalation");
-        client.EnqueueTextResponse("parent saw escalation");
-
-        var config = new AgentConfig
-        {
-            Name = "Support Parent",
-            MaxAgenticIterations = 5,
-            Clients = new AgentClientConfig
-            {
-                Chat = new ClientProviderConfig
-                {
-                    ProviderKey = "test",
-                    ModelName = "test-model",
-                    DefaultMicrosoftChatOptions = new ChatOptions
-                    {
-                        Tools = [subAgentFunction]
-                    }
-                }
-            },
-            AgenticLoop = new AgenticLoopConfig
-            {
-                MaxTurnDuration = TimeSpan.FromSeconds(20)
-            }
-        };
-
-        var agent = await new AgentBuilder(config, new TestProviderRegistry(client))
-            .WithAgentStore(new InMemoryAgentStore())
-            .BuildAsync(CancellationToken.None);
-        await agent.CreateSessionAsync("reflection-lifecycle");
-        await agent.RunAsync(new UserMessagesInputEvent
-        {
-            Messages = [new ChatMessage(ChatRole.User, "Please escalate this.")],
-            SessionId = "reflection-lifecycle",
-            ThreadId = "main"
-        }, CancellationToken.None);
-
-        var parentEvents = await agent.Config.SessionStore!.CollectThreadEventsAsync("reflection-lifecycle", "main");
-        var invocation = Assert.Single(parentEvents!.OfType<SubAgentInvocationStartedEvent>());
-        Assert.Equal("test/support-escalation", invocation.ChildAgentId);
-        Assert.Equal("support_escalation", invocation.RoleName);
-        Assert.Equal("order_escalation", invocation.TaskName);
-        Assert.Equal(SubAgentContextPolicy.Fork, invocation.ContextPolicy);
-        Assert.Equal(AgentInvocationMode.Synchronous, invocation.Mode);
-    }
-
-    [Fact]
-    public void ReflectionToolFactory_CreatesMultiAgentCapability()
-    {
-        Assert.True(ReflectionToolFactory.TryCreateToolHarnessFactory(
-            typeof(ReflectionAdvancedToolHarness),
-            out var factory,
-            out var error));
-
-        Assert.Null(error);
-
+        var factory = GetAdvancedFactory();
         var functions = factory.CreateFunctions(new ReflectionAdvancedToolHarness(), null, null);
         var workflow = Assert.Single(functions, f => f.Name == "support_workflow");
 
         Assert.Equal("Runs a support workflow.", workflow.Description);
         Assert.True((bool)workflow.AdditionalProperties!["IsMultiAgent"]!);
         Assert.False((bool)workflow.AdditionalProperties!["IsContainer"]!);
+    }
+
+    [Fact]
+    public void GeneratedFactory_PreservesMixedCapabilitiesWithoutNameCollisions()
+    {
+        var functions = GetAdvancedFactory()
+            .CreateFunctions(new ReflectionAdvancedToolHarness(), null, null);
+
+        Assert.Single(functions, function => function.Name == "advanced_lookup_order");
+        Assert.Single(functions, function => function.Name == "advanced_get_return_policy");
+        Assert.Single(functions, function => function.Name == "order_support");
+        Assert.Single(functions, function => function.Name == "support_escalation");
+        Assert.Single(functions, function => function.Name == "support_workflow");
+        Assert.Equal(functions.Count, functions.Select(function => function.Name).Distinct(StringComparer.Ordinal).Count());
+
+        var kinds = functions
+            .Select(function => function.AdditionalProperties?.TryGetValue(
+                HPDCapabilityMetadata.AdditionalPropertiesKey, out var value) == true
+                    ? value as HPDCapabilityMetadata
+                    : null)
+            .Where(metadata => metadata is not null)
+            .Select(metadata => metadata!.Kind)
+            .ToHashSet();
+
+        Assert.Contains(HPDCapabilityKind.Function, kinds);
+        Assert.Contains(HPDCapabilityKind.SkillActivation, kinds);
+        Assert.Contains(HPDCapabilityKind.SubAgent, kinds);
+        Assert.Contains(HPDCapabilityKind.MultiAgent, kinds);
+    }
+
+    private static ToolHarnessFactory GetAdvancedFactory()
+    {
+        var builder = new AgentBuilder().WithToolHarness<ReflectionAdvancedToolHarness>();
+        return Assert.Single(
+            builder._selectedToolHarnessFactories,
+            factory => factory.Name == nameof(ReflectionAdvancedToolHarness));
     }
 }
 
@@ -397,13 +349,18 @@ public class ReflectionAdvancedToolHarness
     public string AdvancedGetReturnPolicy(string category) => $"{category} items can be returned.";
 
     [Skill]
-    public static Skill OrderSupportSkill() => SkillFactory.Create(
-        "order_support",
-        "Order support flow",
-        "Use advanced_lookup_order and advanced_get_return_policy together for order questions.",
-        "When using this skill, answer only from tool results.",
-        "ReflectionAdvancedToolHarness.advanced_lookup_order",
-        "ReflectionAdvancedToolHarness.advanced_get_return_policy");
+    public static Skill OrderSupportSkill() => Skill.Create(
+        name: "order_support",
+        description: "Order support flow",
+        instructions: SkillInstructions.FromText(
+            "Use advanced_lookup_order and advanced_get_return_policy together for order questions."),
+        reinforcement: SkillInstructions.FromText(
+            "When using this skill, answer only from tool results."),
+        capabilities:
+        [
+            SkillCapabilities.Function<ReflectionAdvancedToolHarness>(nameof(AdvancedLookupOrder)),
+            SkillCapabilities.Function<ReflectionAdvancedToolHarness>(nameof(AdvancedGetReturnPolicy))
+        ]);
 
     [SubAgent]
     public static SubAgent EscalationAgent() => SubAgent.FromConfig(

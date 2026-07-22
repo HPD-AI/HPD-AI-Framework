@@ -2525,7 +2525,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
             bufferSize: 81920,
             useAsync: true);
         var contentInfo = await _contentStore.WriteAsync(
-            _sessionId,
+            ContentScope.Create(_sessionId),
             data,
             new ContentMetadata
             {
@@ -2549,7 +2549,7 @@ internal sealed class ExecuteCommandOutputStoreSession : IAsyncDisposable
         return local with
         {
             ArtifactPath = null,
-            ContentId = contentInfo.Id
+            ContentId = contentInfo.Address.ContentId
         };
     }
 

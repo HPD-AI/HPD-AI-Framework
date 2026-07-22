@@ -13,6 +13,104 @@ namespace HPD.Agent.Tests.Middleware;
 /// </summary>
 public class SkillInstructionMiddlewareTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AfterFunction_CommitsSkillReinforcementOnlyWhenConfigured(bool enabled)
+    {
+        var activation = AIFunctionFactory.Create(
+            () => "instructions",
+            new AIFunctionFactoryOptions
+            {
+                Name = "review_skill",
+                Description = "Activates review guidance.",
+                AdditionalProperties = new Dictionary<string, object?>
+                {
+                    [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata
+                    {
+                        Id = CapabilityId.Create("test:review_skill"),
+                        Kind = HPDCapabilityKind.SkillActivation
+                    }
+                }
+            });
+        var metadata = new ToolResultMetadata();
+        metadata.Set("HPD.SkillReinforcement", "Always cite concrete evidence.");
+        var state = AgentLoopState.InitialSafe([], "run", "conversation", "agent");
+        var agentContext = new AgentContext(
+            "agent",
+            "conversation",
+            state,
+            new HPD.Events.Core.EventCoordinator(),
+            new global::HPD.Agent.Session("session"),
+            new global::HPD.Agent.Thread("session", "agent"),
+            CancellationToken.None);
+        var context = agentContext.AsAfterFunction(
+            activation,
+            "call",
+            "instructions",
+            null,
+            new AgentRunConfig(),
+            resultMetadata: metadata);
+        var middleware = new ContainerMiddleware(
+            [activation],
+            ImmutableHashSet<string>.Empty,
+            skillOptions: new SkillRuntimeOptions
+            {
+                InstructionDelivery = enabled
+                    ? SkillInstructionDelivery.ToolResultWithSystemReinforcement
+                    : SkillInstructionDelivery.ToolResult
+            });
+
+        await middleware.AfterFunctionAsync(context, CancellationToken.None);
+
+        var instructions = context.Analyze(current => current.MiddlewareState
+            .GetState<ContainerMiddlewareState>("HPD.Agent.ContainerMiddlewareState")?
+            .ActiveContainerInstructions.GetValueOrDefault("review_skill"));
+        var expanded = context.Analyze(current => current.MiddlewareState
+            .GetState<ContainerMiddlewareState>("HPD.Agent.ContainerMiddlewareState")!
+            .ExpandedContainers.Contains("review_skill"));
+        Assert.True(expanded);
+        if (enabled)
+            Assert.Equal("Always cite concrete evidence.", instructions?.SystemPrompt);
+        else
+            Assert.Null(instructions);
+    }
+
+    [Fact]
+    public async Task AfterFunction_FailedSkillActivationDoesNotRevealChildren()
+    {
+        var activation = AIFunctionFactory.Create(
+            () => "instructions",
+            new AIFunctionFactoryOptions
+            {
+                Name = "failing_skill",
+                AdditionalProperties = new Dictionary<string, object?>
+                {
+                    [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata
+                    {
+                        Id = CapabilityId.Create("test:failing_skill"),
+                        Kind = HPDCapabilityKind.SkillActivation
+                    }
+                }
+            });
+        var state = AgentLoopState.InitialSafe([], "run", "conversation", "agent");
+        var agentContext = new AgentContext(
+            "agent", "conversation", state, new HPD.Events.Core.EventCoordinator(),
+            new global::HPD.Agent.Session("session"),
+            new global::HPD.Agent.Thread("session", "agent"),
+            CancellationToken.None);
+        var context = agentContext.AsAfterFunction(
+            activation, "call", null, new InvalidOperationException("instruction failure"), new AgentRunConfig());
+        var middleware = new ContainerMiddleware([activation], ImmutableHashSet<string>.Empty);
+
+        await middleware.AfterFunctionAsync(context, CancellationToken.None);
+
+        var expanded = context.Analyze(current => current.MiddlewareState
+            .GetState<ContainerMiddlewareState>("HPD.Agent.ContainerMiddlewareState")?
+            .ExpandedContainers.Contains("failing_skill") == true);
+        Assert.False(expanded);
+    }
+
     [Fact]
     public async Task Middleware_DoesNotModifyInstructions_WhenNoActiveContainers()
     {

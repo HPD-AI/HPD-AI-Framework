@@ -100,8 +100,8 @@ public static class DtoMappingExtensions
         ArgumentNullException.ThrowIfNull(content);
 
         return new ContentDto(
-            content.Id,
-            content.Version,
+            content.Address.ContentId,
+            content.Address.Version!,
             content.ContentType,
             content.SizeBytes,
             content.CreatedAt.ToString("O"));

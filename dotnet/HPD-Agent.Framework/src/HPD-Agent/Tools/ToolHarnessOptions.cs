@@ -25,6 +25,8 @@ namespace HPD.Agent;
 public sealed class ToolHarnessOptions
 {
     internal readonly List<Middleware.IAgentMiddleware> ScopedMiddlewares = [];
+    internal readonly List<ISkillSource> SkillSources = [];
+    internal readonly List<StoredSkillSourceRegistration> StoredSkillSources = [];
 
     /// <summary>
     /// Adds a middleware instance that will be activated whenever this toolharness's container is
@@ -40,4 +42,29 @@ public sealed class ToolHarnessOptions
         ScopedMiddlewares.Add(middleware);
         return this;
     }
+
+    /// <summary>Adds a runtime skill source owned by this tool harness.</summary>
+    public ToolHarnessOptions AddSkillSource(ISkillSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        SkillSources.Add(source);
+        return this;
+    }
+
+    /// <summary>Loads managed skills from the builder- or DI-configured content-backed skill store.</summary>
+    public ToolHarnessOptions AddSkillsFromStore(SkillQuery? query = null)
+    {
+        StoredSkillSources.Add(new(null, query ?? new SkillQuery()));
+        return this;
+    }
+
+    /// <summary>Loads managed skills from an explicit content-backed store.</summary>
+    public ToolHarnessOptions AddSkillsFromStore(IContentBackedSkillStore store, SkillQuery? query = null)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        StoredSkillSources.Add(new(store, query ?? new SkillQuery()));
+        return this;
+    }
 }
+
+internal sealed record StoredSkillSourceRegistration(IContentBackedSkillStore? Store, SkillQuery Query);

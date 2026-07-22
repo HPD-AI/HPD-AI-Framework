@@ -52,9 +52,9 @@ public class AgentEventContentPersistenceTests
         Assert.Equal("agent-1", info.Tags?["agent.id"]);
         Assert.Equal("test", info.Tags?["test-tag"]);
 
-        await using var stream = await store.OpenReadAsync("default-scope", info.Id);
-        Assert.NotNull(stream);
-        using var reader = new StreamReader(stream);
+        await using var opened = await store.OpenReadAsync(info.Address);
+        Assert.NotNull(opened);
+        using var reader = new StreamReader(opened!.Content);
         var json = await reader.ReadToEndAsync();
 
         Assert.Contains("\"type\":\"PERSISTABLE_CONTENT_TEST\"", json);
@@ -72,7 +72,7 @@ public class AgentEventContentPersistenceTests
             "default-scope");
 
         Assert.Null(info);
-        Assert.Empty(await store.QueryAsync("default-scope"));
+        Assert.Empty(await store.QueryAsync(ContentScope.Create("default-scope")));
     }
 }
 

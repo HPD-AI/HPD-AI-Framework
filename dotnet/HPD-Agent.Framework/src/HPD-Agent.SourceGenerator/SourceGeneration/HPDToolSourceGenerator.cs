@@ -138,7 +138,7 @@ public class HPDToolSourceGenerator : IIncrementalGenerator
         // Partial toolharnesses commonly put [Collapse] on one partial declaration and
         // [AIFunction] methods on other partial declarations. Keep the metadata-only
         // part so the partial merge can generate the container.
-        if (!capabilities.Any() && !isCollapsed)
+        if (!capabilities.Any() && !isCollapsed && capabilityDiagnostics.Count == 0)
             return null;
 
         // Merge capability diagnostics with toolharness diagnostics
@@ -502,6 +502,38 @@ namespace HPD.Agent.Diagnostics {{
         if (allSkillCapabilities.Any())
         {
             ResolveSkillCapabilities(allSkillCapabilities);
+        }
+
+        foreach (var duplicate in allSkillCapabilities.GroupBy(skill => skill.Name, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1))
+        {
+            foreach (var skill in duplicate)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    HPD.Agent.SourceGenerator.Capabilities.SkillDiagnostics.DuplicateSkillName,
+                    Location.None,
+                    duplicate.Key));
+            }
+        }
+
+        foreach (var toolHarness in ToolHarnessGroups)
+        {
+            foreach (var function in toolHarness.FunctionCapabilities)
+            {
+                var qualifiedModelName = $"{toolHarness.ClassName}.{function.FunctionName}";
+                function.ParentSkillIds = allSkillCapabilities
+                    .Where(skill => skill.ResolvedFunctionReferences.Contains(qualifiedModelName))
+                    .Select(skill =>
+                    {
+                        var owner = string.IsNullOrEmpty(skill.ParentNamespace)
+                            ? skill.ParentToolHarnessName
+                            : $"{skill.ParentNamespace}.{skill.ParentToolHarnessName}";
+                        return $"generated:{owner}:{skill.Name}";
+                    })
+                    .Distinct()
+                    .OrderBy(id => id)
+                    .ToList();
+            }
         }
 
         foreach (var ToolHarness in ToolHarnessGroups)

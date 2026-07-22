@@ -177,6 +177,26 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
 
     public static ToolCallType? LookupToolCallType(AIFunction? function)
     {
+        if (function?.AdditionalProperties?.TryGetValue(
+                HPDCapabilityMetadata.AdditionalPropertiesKey,
+                out var typedValue) == true &&
+            typedValue is HPDCapabilityMetadata metadata)
+        {
+            return metadata.Kind switch
+            {
+                HPDCapabilityKind.SkillActivation => ToolCallType.Skill,
+                HPDCapabilityKind.SubAgent => ToolCallType.SubAgent,
+                HPDCapabilityKind.MultiAgent => ToolCallType.MultiAgent,
+                HPDCapabilityKind.Mcp => ToolCallType.MCPServer,
+                HPDCapabilityKind.OpenApi => ToolCallType.OpenApi,
+                HPDCapabilityKind.Function or
+                HPDCapabilityKind.SkillResource or
+                HPDCapabilityKind.SkillScript or
+                HPDCapabilityKind.ToolHarnessActivation => ToolCallType.Function,
+                _ => null
+            };
+        }
+
         if (function?.AdditionalProperties?.TryGetValue("CapabilityType", out var capType) != true
             || capType is not string capTypeStr)
             return null;

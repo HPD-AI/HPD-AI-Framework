@@ -134,6 +134,14 @@ internal class MultiAgentCapability : BaseCapability
         sb.AppendLine("        },");
         sb.AppendLine("        AdditionalProperties = new System.Collections.Generic.Dictionary<string, object>");
         sb.AppendLine("        {");
+        var owner = string.IsNullOrEmpty(toolharness.Namespace) ? toolharness.ClassName : $"{toolharness.Namespace}.{toolharness.ClassName}";
+        sb.AppendLine("            [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata");
+        sb.AppendLine("            {");
+        sb.AppendLine($"                Id = CapabilityId.Create(@\"generated:{toolharness.ClassName}.{Name}\"),");
+        sb.AppendLine("                Kind = HPDCapabilityKind.MultiAgent,");
+        if (toolharness.IsCollapsed)
+            sb.AppendLine($"                ParentContainerIds = System.Collections.Immutable.ImmutableArray.Create(CapabilityId.Create(@\"generated:{owner}:harness\"))");
+        sb.AppendLine("            },");
         sb.AppendLine("            [\"CapabilityType\"] = \"MultiAgent\",");
         sb.AppendLine("            [\"IsMultiAgent\"] = true,");
         sb.AppendLine("            [\"IsContainer\"] = false,");  // NOT a container - same as SubAgent

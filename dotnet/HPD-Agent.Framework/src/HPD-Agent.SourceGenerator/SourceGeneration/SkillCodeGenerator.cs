@@ -142,6 +142,13 @@ internal static class SkillCodeGenerator
 
         foreach (var skill in ToolHarness.SkillCapabilities)
         {
+            var owner = string.IsNullOrEmpty(skill.ParentNamespace)
+                ? skill.ParentToolHarnessName
+                : $"{skill.ParentNamespace}.{skill.ParentToolHarnessName}";
+            var skillExpression = skill.MethodIsStatic
+                ? $"{ToolHarness.ClassName}.{skill.MethodName}()"
+                : $"instance.{skill.MethodName}()";
+
             // Check if skill has conditional registration (same pattern as Functions/SubAgents)
             var hasConditionalEvaluator = skill.IsConditional &&
                                         skill.HasTypedMetadata;
@@ -151,12 +158,20 @@ internal static class SkillCodeGenerator
                 sb.AppendLine($"        if (Evaluate{skill.Name}Condition(context))");
                 sb.AppendLine("        {");
                 sb.AppendLine($"            functions.Add(Create{skill.MethodName}Skill(instance, context, serialization));");
+                sb.AppendLine($"            functions.AddRange(SkillCapabilityFunctionProjector.CreateChildren(");
+                sb.AppendLine($"                {skillExpression},");
+                sb.AppendLine($"                CapabilityId.Create(@\"generated:{owner}:{skill.Name}\"),");
+                sb.AppendLine("                serialization));");
                 sb.AppendLine("        }");
             }
             else
             {
                 // Each skill generates exactly one container function
                 sb.AppendLine($"        functions.Add(Create{skill.MethodName}Skill(instance, context, serialization));");
+                sb.AppendLine($"        functions.AddRange(SkillCapabilityFunctionProjector.CreateChildren(");
+                sb.AppendLine($"            {skillExpression},");
+                sb.AppendLine($"            CapabilityId.Create(@\"generated:{owner}:{skill.Name}\"),");
+                sb.AppendLine("            serialization));");
             }
         }
 
@@ -171,113 +186,78 @@ internal static class SkillCodeGenerator
     public static string GenerateSkillContainerFunction(HPD.Agent.SourceGenerator.Capabilities.SkillCapability skill, ToolHarnessInfo ToolHarness)
     {
         var sb = new StringBuilder();
-
-        // Simple activation message for function result
-        // The prompt Middleware will build the complete context from metadata
-        var functionList = string.Join(", ", skill.ResolvedFunctionReferences);
-        var returnMessage = $"{skill.Name} skill activated. Available functions: {functionList}";
-
-        if (!string.IsNullOrEmpty(skill.FunctionResult))
-        {
-            returnMessage += $"\n\n{skill.FunctionResult}";
-        }
-
-        var escapedReturnMessage = returnMessage.Replace("\"", "\"\"");
-
-        // Build description like ToolHarness Collapsing: append function list
-        var functionNames = string.Join(", ", skill.ResolvedFunctionReferences);
-
-        // Support dynamic descriptions (like Functions)
+        var owner = string.IsNullOrEmpty(skill.ParentNamespace)
+            ? skill.ParentToolHarnessName
+            : $"{skill.ParentNamespace}.{skill.ParentToolHarnessName}";
+        var skillId = $"generated:{owner}:{skill.Name}";
+        var skillExpression = skill.MethodIsStatic
+            ? $"{ToolHarness.ClassName}.{skill.MethodName}()"
+            : $"instance.{skill.MethodName}()";
         var descriptionCode = skill.HasDynamicDescription
             ? $"Resolve{skill.Name}Description(context)"
-            : $"\"{skill.Description}\"";
-
-        var fullDescriptionTemplate = $"{{0}}. References {skill.ResolvedFunctionReferences.Count} functions: {functionNames}";
+            : $"@\"{skill.Description.Replace("\"", "\"\"")}\"";
 
         sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// Container function for {skill.Name} skill.");
+        sb.AppendLine($"        /// Creates the activation function for the {skill.Name} skill.");
         sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        /// <param name=\"instance\">ToolHarness instance</param>");
-        sb.AppendLine($"        /// <param name=\"context\">Execution context for dynamic descriptions</param>");
+        sb.AppendLine($"        /// <param name=\"instance\">The owning tool harness instance.</param>");
+        sb.AppendLine($"        /// <param name=\"context\">Metadata used for conditional descriptions.</param>");
+        sb.AppendLine($"        /// <param name=\"serialization\">Serialization configuration.</param>");
+        sb.AppendLine($"        /// <returns>The generated activation function.</returns>");
         sb.AppendLine($"        private static AIFunction Create{skill.MethodName}Skill({ToolHarness.ClassName} instance, IToolMetadata? context, HPDToolSerializationOptions? serialization)");
         sb.AppendLine("        {");
-
-        // Generate runtime function body that checks configuration
-        var baseMessage = $"{skill.Name} skill activated. Available functions: {functionList}";
-        var escapedBaseMessage = baseMessage.Replace("\"", "\"\"");
-
-        if (!string.IsNullOrEmpty(skill.FunctionResult))
-        {
-            var escapedInstructions = skill.FunctionResult.Replace("\"", "\"\"");
-            sb.AppendLine("            return HPDAIFunctionFactory.Create(");
-            sb.AppendLine("                async (arguments, functionContext, cancellationToken) =>");
-            sb.AppendLine("                {");
-            sb.AppendLine("                    // Check if instructions should be included in function result");
-            sb.AppendLine("                    var mode = HPD.Agent.AgentConfig.GlobalConfig?.Collapsing?.SkillInstructionMode ?? HPD.Agent.SkillInstructionMode.PromptMiddlewareOnly;");
-            sb.AppendLine("                    if (mode == HPD.Agent.SkillInstructionMode.Both)");
-            sb.AppendLine("                    {");
-            sb.AppendLine($"                        return @\"{escapedBaseMessage}");
-            sb.AppendLine();
-            sb.AppendLine($"{escapedInstructions}\";");
-            sb.AppendLine("                    }");
-
-            var reinforcementMessage = $"{skill.Name} skill activated. Available functions: {functionList}.\\n\\nREMINDER: Follow the instructions provided for this skill when using its functions.";
-            var escapedReinforcementMessage = reinforcementMessage.Replace("\"", "\"\"");
-            sb.AppendLine($"                    return @\"{escapedReinforcementMessage}\";");
-            sb.AppendLine("                },");
-        }
-        else
-        {
-            sb.AppendLine("            return HPDAIFunctionFactory.Create(");
-            sb.AppendLine("                async (arguments, functionContext, cancellationToken) =>");
-            sb.AppendLine("                {");
-
-            sb.AppendLine($"                    return @\"{escapedBaseMessage}\";");
-            sb.AppendLine("                },");
-        }
+        sb.AppendLine($"            var skillDefinition = {skillExpression};");
+        sb.AppendLine("            return HPDAIFunctionFactory.Create(");
+        sb.AppendLine("                async (arguments, functionContext, cancellationToken) =>");
+        sb.AppendLine("                {");
+        sb.AppendLine($"                    var capabilityId = CapabilityId.Create(@\"{skillId.Replace("\"", "\"\"")}\");");
+        sb.AppendLine("                    await functionContext.PublishAsync(new SkillActivationStartedEvent(capabilityId, skillDefinition.Name), cancellationToken).ConfigureAwait(false);");
+        sb.AppendLine("                    try");
+        sb.AppendLine("                    {");
+        sb.AppendLine("                        var instructionContext = new SkillInstructionContext(functionContext, functionContext.Services, functionContext.ContentStore);");
+        sb.AppendLine("                        var instructions = await skillDefinition.Instructions(instructionContext, cancellationToken).ConfigureAwait(false);");
+        sb.AppendLine("                        if (skillDefinition.Reinforcement is not null)");
+        sb.AppendLine("                        {");
+        sb.AppendLine("                            var reinforcement = await skillDefinition.Reinforcement(instructionContext, cancellationToken).ConfigureAwait(false);");
+        sb.AppendLine("                            functionContext.ResultMetadata.Set(\"HPD.SkillReinforcement\", reinforcement);");
+        sb.AppendLine("                        }");
+        sb.AppendLine("                        await functionContext.PublishAsync(new SkillActivatedEvent(capabilityId, skillDefinition.Name, skillDefinition.Capabilities.Count, skillDefinition.Lifetime), cancellationToken).ConfigureAwait(false);");
+        sb.AppendLine("                        return instructions;");
+        sb.AppendLine("                    }");
+        sb.AppendLine("                    catch (Exception exception) when (exception is not OperationCanceledException)");
+        sb.AppendLine("                    {");
+        sb.AppendLine("                        await functionContext.PublishAsync(new SkillActivationFailedEvent(capabilityId, skillDefinition.Name, exception.GetType().Name), CancellationToken.None).ConfigureAwait(false);");
+        sb.AppendLine("                        throw;");
+        sb.AppendLine("                    }");
+        sb.AppendLine("                },");
         sb.AppendLine("                new HPDAIFunctionFactoryOptions");
         sb.AppendLine("                {");
         sb.AppendLine($"                    Name = \"{skill.Name}\",");
-
-        // Use dynamic description if available, otherwise static
-        if (skill.HasDynamicDescription)
-        {
-            // Generate: Description = Resolve{Name}Description(context) + ". References X functions: ..."
-            sb.AppendLine($"                    Description = {descriptionCode} + \". References {skill.ResolvedFunctionReferences.Count} functions: {functionNames}\",");
-        }
-        else
-        {
-            var staticFullDescription = $"{skill.Description}. References {skill.ResolvedFunctionReferences.Count} functions: {functionNames}";
-            sb.AppendLine($"                    Description = \"{staticFullDescription}\",");
-        }
-
+        sb.AppendLine($"                    Description = {descriptionCode},");
         sb.AppendLine($"                    RequiresPermission = {skill.RequiresPermission.ToString().ToLower()},");
         sb.AppendLine("                    SchemaProvider = () => CreateEmptyContainerSchema(),");
         sb.AppendLine("                    SerializerOptions = serialization?.SerializerOptions,");
         sb.AppendLine("                    ResultType = typeof(string),");
-
         sb.AppendLine("                    AdditionalProperties = new Dictionary<string, object>");
         sb.AppendLine("                    {");
-        sb.AppendLine("                        [\"IsContainer\"] = true,");
-        sb.AppendLine("                        [\"IsSkill\"] = true,");
-        // PHASE 5: SkillCapability uses ParentToolHarnessName instead of ContainingClass
-        sb.AppendLine($"                        [\"ParentContainer\"] = \"{skill.ParentToolHarnessName}\",");
-        sb.AppendLine($"                        [\"ReferencedFunctions\"] = new string[] {{ {string.Join(", ", skill.ResolvedFunctionReferences.Select(f => $"\"{f}\""))} }},");
-        sb.AppendLine($"                        [\"ReferencedToolHarnesses\"] = new string[] {{ {string.Join(", ", skill.ResolvedToolHarnessTypes.Select(p => $"\"{p}\""))} }},");
-
-        if (!string.IsNullOrEmpty(skill.SystemPrompt))
+        sb.AppendLine("                        [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata");
+        sb.AppendLine("                        {");
+        sb.AppendLine($"                            Id = CapabilityId.Create(@\"{skillId.Replace("\"", "\"\"")}\"),");
+        sb.AppendLine("                            Kind = HPDCapabilityKind.SkillActivation,");
+        if (ToolHarness.IsCollapsed)
+            sb.AppendLine($"                            ParentContainerIds = System.Collections.Immutable.ImmutableArray.Create(CapabilityId.Create(@\"generated:{owner}:harness\")),");
+        sb.AppendLine("                            Reveals = System.Collections.Immutable.ImmutableArray.Create<CapabilityId>(");
+        for (var i = 0; i < skill.ResolvedFunctionReferences.Count; i++)
         {
-            var escapedSysPrompt = skill.SystemPrompt.Replace("\"", "\"\"");
-            sb.AppendLine($"                        [\"SystemPrompt\"] = @\"{escapedSysPrompt}\",");
+            var child = skill.ResolvedFunctionReferences[i];
+            var comma = i == skill.ResolvedFunctionReferences.Count - 1 ? string.Empty : ",";
+            sb.AppendLine($"                                CapabilityId.Create(@\"generated:{child.Replace("\"", "\"\"")}\"){comma}");
         }
-
-        // Store FunctionResult for introspection
-        if (!string.IsNullOrEmpty(skill.FunctionResult))
-        {
-            var escapedFuncResult = skill.FunctionResult.Replace("\"", "\"\"");
-            sb.AppendLine($"                        [\"FunctionResult\"] = @\"{escapedFuncResult}\",");
-        }
-
+        sb.AppendLine("                            ).AddRange(skillDefinition.Capabilities");
+        sb.AppendLine("                                .Where(capability => capability is SkillResource or SkillScript)");
+        sb.AppendLine($"                                .Select(capability => CapabilityId.Create(@\"{skillId.Replace("\"", "\"\"")}\" + \":\" + capability.Name)))");
+        sb.AppendLine("                        }");
+        sb.AppendLine("                        , [SkillRuntimeMetadata.SkillDefinitionKey] = skillDefinition");
         sb.AppendLine("                    }");
         sb.AppendLine("                });");
         sb.AppendLine("        }");
@@ -373,6 +353,20 @@ internal static class SkillCodeGenerator
         sb.AppendLine("                    ResultType = typeof(string),");
         sb.AppendLine("                    AdditionalProperties = new Dictionary<string, object?>");
         sb.AppendLine("                    {");
+        var owner = string.IsNullOrEmpty(ToolHarness.Namespace)
+            ? ToolHarness.ClassName
+            : $"{ToolHarness.Namespace}.{ToolHarness.ClassName}";
+        var revealIds = ToolHarness.FunctionCapabilities.Select(function => $"generated:{ToolHarness.ClassName}.{function.FunctionName}")
+            .Concat(ToolHarness.SkillCapabilities.Select(skill => $"generated:{owner}:{skill.Name}"))
+            .Concat(ToolHarness.SubAgentCapabilities.Select(agent => $"generated:{ToolHarness.ClassName}.{agent.SubAgentName}"))
+            .Concat(ToolHarness.MultiAgentCapabilities.Select(agent => $"generated:{ToolHarness.ClassName}.{agent.Name}"))
+            .ToArray();
+        sb.AppendLine("                        [HPDCapabilityMetadata.AdditionalPropertiesKey] = new HPDCapabilityMetadata");
+        sb.AppendLine("                        {");
+        sb.AppendLine($"                            Id = CapabilityId.Create(@\"generated:{owner}:harness\"),");
+        sb.AppendLine("                            Kind = HPDCapabilityKind.ToolHarnessActivation,");
+        sb.AppendLine($"                            Reveals = System.Collections.Immutable.ImmutableArray.Create<CapabilityId>({string.Join(", ", revealIds.Select(id => $"CapabilityId.Create(@\"{id}\")"))})");
+        sb.AppendLine("                        },");
         sb.AppendLine("                        [\"IsContainer\"] = true,");
         sb.AppendLine("                        [\"IsToolHarnessContainer\"] = true,");
         sb.AppendLine($"                        [\"ReferencedFunctions\"] = new string[] {{ {string.Join(", ", allCapabilities.Select(c => $"\"{c}\""))} }},");

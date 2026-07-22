@@ -624,6 +624,108 @@ public record AgentTurnFinishedEvent(int Iteration) : AgentEvent
     public override HPD.Events.EventKind Kind { get; init; } = HPD.Events.EventKind.Lifecycle;
 }
 
+/// <summary>Emitted before runtime skill sources are reconciled.</summary>
+public sealed record SkillReloadStartedEvent(long CurrentEpoch, string Reason) : AgentEvent;
+
+/// <summary>Emitted after a validated immutable skill catalog epoch is published.</summary>
+public sealed record SkillReloadPublishedEvent(
+    long PreviousEpoch,
+    long NewEpoch,
+    IReadOnlyList<string> ChangedSkillIds,
+    string Reason) : AgentEvent;
+
+/// <summary>Emitted when a replacement skill catalog is rejected and the prior epoch remains active.</summary>
+public sealed record SkillReloadRejectedEvent(
+    long RetainedEpoch,
+    string Error,
+    string Reason) : AgentEvent, IErrorEvent
+{
+    /// <inheritdoc />
+    public string ErrorMessage => Error;
+
+    /// <inheritdoc />
+    [JsonIgnore]
+    public Exception? Exception => null;
+}
+
+/// <summary>Emitted before a skill resolves its authoritative instructions.</summary>
+public sealed record SkillActivationStartedEvent(CapabilityId CapabilityId, string Name) : AgentEvent;
+
+/// <summary>Emitted after skill instructions resolve successfully.</summary>
+public sealed record SkillActivatedEvent(
+    CapabilityId CapabilityId,
+    string Name,
+    int RevealedCapabilityCount,
+    SkillActivationLifetime Lifetime) : AgentEvent;
+
+/// <summary>Emitted when skill instruction resolution fails.</summary>
+public sealed record SkillActivationFailedEvent(
+    CapabilityId CapabilityId,
+    string Name,
+    string ErrorType) : AgentEvent, IErrorEvent
+{
+    /// <inheritdoc />
+    public string ErrorMessage => "Skill activation failed.";
+
+    /// <inheritdoc />
+    [JsonIgnore]
+    public Exception? Exception => null;
+}
+
+/// <summary>Emitted before a model-visible skill resource is read.</summary>
+public sealed record SkillResourceReadStartedEvent(CapabilityId CapabilityId, string Name) : AgentEvent;
+
+/// <summary>Emitted after a model-visible skill resource is read.</summary>
+public sealed record SkillResourceReadCompletedEvent(CapabilityId CapabilityId, string Name) : AgentEvent;
+
+/// <summary>Emitted when a skill resource read fails.</summary>
+public sealed record SkillResourceReadFailedEvent(
+    CapabilityId CapabilityId,
+    string Name,
+    string ErrorType) : AgentEvent, IErrorEvent
+{
+    /// <inheritdoc />
+    public string ErrorMessage => "Skill resource read failed.";
+
+    /// <inheritdoc />
+    [JsonIgnore]
+    public Exception? Exception => null;
+}
+
+/// <summary>Emitted before an external skill script runner starts.</summary>
+public sealed record SkillScriptStartedEvent(
+    CapabilityId CapabilityId,
+    string Name,
+    string Runner) : AgentEvent;
+
+/// <summary>Emitted after an external skill script runner completes.</summary>
+public sealed record SkillScriptCompletedEvent(CapabilityId CapabilityId, string Name) : AgentEvent;
+
+/// <summary>Emitted when external skill script execution fails.</summary>
+public sealed record SkillScriptFailedEvent(
+    CapabilityId CapabilityId,
+    string Name,
+    SkillScriptErrorCategory Category) : AgentEvent, IErrorEvent
+{
+    /// <inheritdoc />
+    public string ErrorMessage => "Skill script execution failed.";
+
+    /// <inheritdoc />
+    [JsonIgnore]
+    public Exception? Exception => null;
+}
+
+/// <summary>Emitted when an external skill script exceeds its configured timeout.</summary>
+public sealed record SkillScriptTimedOutEvent(CapabilityId CapabilityId, string Name) : AgentEvent, IErrorEvent
+{
+    /// <inheritdoc />
+    public string ErrorMessage => "Skill script execution timed out.";
+
+    /// <inheritdoc />
+    [JsonIgnore]
+    public Exception? Exception => null;
+}
+
 /// <summary>
 /// Emitted during agent execution to expose internal state for testing/debugging.
 /// NOT intended for production use - only for characterization tests and debugging.

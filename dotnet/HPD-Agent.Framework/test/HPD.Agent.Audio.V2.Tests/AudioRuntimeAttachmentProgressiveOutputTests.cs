@@ -81,7 +81,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             Assert.Equal("hpd-content", evt.Artifact.Store);
             Assert.NotNull(evt.Artifact.ArtifactId);
         });
-        Assert.Equal(2, (await contentStore.QueryAsync("session-progressive")).Count);
+        Assert.Equal(2, (await contentStore.QueryAsync(ContentScope.Create("session-progressive"))).Count);
         var completed = Assert.Single(completedEvents);
         Assert.Equal(2, completed.SegmentCount);
         Assert.False(completed.Played);
@@ -1022,7 +1022,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         Assert.Equal(["Hello there.", "Second sentence."], tts.Texts);
         Assert.All(attachment.LastOutputResults, result =>
             Assert.Equal(AssistantTextToSpeechOutputStatus.SynthesizedNotPlayed, result.Status));
-        var artifacts = await contentStore.QueryAsync("session-progressive");
+        var artifacts = await contentStore.QueryAsync(ContentScope.Create("session-progressive"));
         Assert.Equal(2, artifacts.Count);
         await WaitUntilAsync(() => chunkEvents.Count == 4);
         Assert.Equal(4, chunkEvents.Count);
@@ -1060,7 +1060,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
             .OfType<AudioTtsSynthesisTraceRecord>()
             .Where(trace => trace.Disposition == TtsSynthesisDisposition.Synthesized));
         Assert.NotNull(synthesizedTrace.ProviderFirstAudioAt);
-        Assert.Equal(1, (await contentStore.QueryAsync("session-progressive")).Count);
+        Assert.Equal(1, (await contentStore.QueryAsync(ContentScope.Create("session-progressive"))).Count);
     }
 
     [Fact]
@@ -1110,7 +1110,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
         var result = Assert.Single(attachment.LastOutputResults);
         Assert.Equal(AssistantTextToSpeechOutputStatus.SynthesisFailedTextOnly, result.Status);
         Assert.Equal("PushTextTtsUnsupported", result.Error?.Code);
-        Assert.Empty(await contentStore.QueryAsync("session-progressive"));
+        Assert.Empty(await contentStore.QueryAsync(ContentScope.Create("session-progressive")));
     }
 
     [Fact]
@@ -1487,7 +1487,7 @@ public sealed class AudioRuntimeAttachmentProgressiveOutputTests
     }
 
     private static async Task<int> CountArtifactsAsync(InMemoryContentStore contentStore) =>
-        (await contentStore.QueryAsync("session-progressive")).Count;
+        (await contentStore.QueryAsync(ContentScope.Create("session-progressive"))).Count;
 
     private sealed class ScriptedAudioOutputSink(
         Func<OutputPlaybackRequest, IReadOnlyList<OutputPlaybackEvent>> createEvents) : IAudioOutputSink

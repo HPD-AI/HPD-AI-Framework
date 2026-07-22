@@ -162,9 +162,10 @@ public class PermissionMiddlewareRunConfigTests
             new HPD.Agent.Session("test-session"),
             new HPD.Agent.Thread("test-session", "test-agent") { Id = "test-thread" },
             CancellationToken.None,
-            interruptionHandler: (interruption, _) =>
+            inputHandler: (interruption, _) =>
             {
-                interruptions.Add(interruption);
+                if (interruption is InterruptionRequestEvent request)
+                    interruptions.Add(request);
                 return ValueTask.CompletedTask;
             });
     }

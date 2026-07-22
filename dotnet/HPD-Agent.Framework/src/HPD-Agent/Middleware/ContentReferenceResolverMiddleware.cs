@@ -97,9 +97,9 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
         try
         {
             var scope = CreateScope(context);
+            var address = new ContentAddress(scope, contentId);
             var info = await _contentStore!.StatAsync(
-                scope: scope,
-                contentId: contentId,
+                address: address,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
 
             if (info == null)
@@ -111,8 +111,7 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
             }
 
             var directUri = await _contentStore.CreateReadUriAsync(
-                scope: scope,
-                contentId: contentId,
+                address: info.Address,
                 expiresIn: TimeSpan.FromMinutes(15),
                 cancellationToken: cancellationToken).ConfigureAwait(false);
 
@@ -163,21 +162,21 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
     private async Task<AIContent?> UploadToHostedFileAsync(
         BeforeIterationContext context,
         IHostedFileClient hostedFileClient,
-        string scope,
+        ContentScope scope,
         string contentId,
         ContentInfo info,
         Uri sourceUri,
         CancellationToken cancellationToken)
     {
-        await using var stream = await _contentStore!.OpenReadAsync(scope, contentId, cancellationToken)
+        await using var result = await _contentStore!.OpenReadAsync(info.Address, cancellationToken)
             .ConfigureAwait(false);
-        if (stream == null)
+        if (result == null)
             return null;
 
         try
         {
             var hosted = await hostedFileClient.UploadAsync(
-                stream,
+                result.Content,
                 info.ContentType,
                 info.Name,
                 new HostedFileClientOptions { Purpose = "assistants" },
@@ -201,19 +200,19 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
 
     private async Task<AIContent?> BufferAsDataContentAsync(
         HookContext context,
-        string scope,
+        ContentScope scope,
         string contentId,
         ContentInfo info,
         Uri sourceUri,
         CancellationToken cancellationToken)
     {
-        await using var stream = await _contentStore!.OpenReadAsync(scope, contentId, cancellationToken)
+        await using var result = await _contentStore!.OpenReadAsync(info.Address, cancellationToken)
             .ConfigureAwait(false);
-        if (stream == null)
+        if (result == null)
             return null;
 
         using var memory = new MemoryStream();
-        await stream.CopyToAsync(memory, cancellationToken).ConfigureAwait(false);
+        await result.Content.CopyToAsync(memory, cancellationToken).ConfigureAwait(false);
 
         await context.PublishAsync(new ContentReferenceResolvedEvent(
             ContentUri: sourceUri,
@@ -246,11 +245,11 @@ public class ContentReferenceResolverMiddleware : IAgentMiddleware
         return contentId;
     }
 
-    private static string CreateScope(HookContext context)
+    private static ContentScope CreateScope(HookContext context)
     {
         if (context.SessionId is null || context.ThreadId is null)
             throw new InvalidOperationException("Content reference resolution requires an active session and thread.");
 
-        return ContentStoreScopes.ForThread(context.SessionId, context.ThreadId);
+        return ContentScope.Create(ContentStoreScopes.ForThread(context.SessionId, context.ThreadId));
     }
 }

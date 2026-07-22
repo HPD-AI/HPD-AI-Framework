@@ -28,7 +28,7 @@ public sealed class AgentContentService : IAgentContentService
         if (await _sessionManager.Store.GetThreadAsync(new ThreadKey(sessionId, threadId), cancellationToken) == null)
             return AgentServiceResult<ContentDto>.NotFound;
 
-        var scope = ContentStoreScopes.ForThread(sessionId, threadId);
+        var scope = ContentScope.Create(ContentStoreScopes.ForThread(sessionId, threadId));
         var stored = await _contentStore.WriteAsync(
             scope: scope,
             data: content,
@@ -46,8 +46,8 @@ public sealed class AgentContentService : IAgentContentService
             cancellationToken: cancellationToken);
 
         var dto = new ContentDto(
-            stored.Id,
-            stored.Version,
+            stored.Address.ContentId,
+            stored.Address.Version!,
             stored.ContentType,
             stored.SizeBytes,
             stored.CreatedAt.ToString("O"));
@@ -67,13 +67,13 @@ public sealed class AgentContentService : IAgentContentService
             return AgentServiceResult<IReadOnlyList<ContentDto>>.NotFound;
 
         var content = await _contentStore.QueryAsync(
-            scope: ContentStoreScopes.ForThread(sessionId, threadId),
+            scope: ContentScope.Create(ContentStoreScopes.ForThread(sessionId, threadId)),
             query: new ContentQuery { Tags = new Dictionary<string, string> { ["kind"] = "upload" } },
             cancellationToken: cancellationToken);
 
         var dtos = content.Select(a => new ContentDto(
-            a.Id,
-            a.Version,
+            a.Address.ContentId,
+            a.Address.Version!,
             a.ContentType,
             a.SizeBytes,
             a.CreatedAt.ToString("O"))).ToList();
@@ -94,13 +94,13 @@ public sealed class AgentContentService : IAgentContentService
         if (await _sessionManager.Store.GetThreadAsync(new ThreadKey(sessionId, threadId), cancellationToken) == null)
             return AgentServiceResult<AgentContentDownload>.NotFound;
 
-        var scope = ContentStoreScopes.ForThread(sessionId, threadId);
-        var info = await _contentStore.StatAsync(scope, contentId, cancellationToken);
+        var scope = ContentScope.Create(ContentStoreScopes.ForThread(sessionId, threadId));
+        var info = await _contentStore.StatAsync(new ContentAddress(scope, contentId), cancellationToken);
 
         if (info == null)
             return AgentServiceResult<AgentContentDownload>.NotFound;
 
-        var data = await _contentStore.ReadBytesAsync(scope, contentId, cancellationToken);
+        var data = await _contentStore.ReadBytesAsync(info.Address, cancellationToken);
         if (data == null)
             return AgentServiceResult<AgentContentDownload>.NotFound;
 
@@ -121,17 +121,13 @@ public sealed class AgentContentService : IAgentContentService
         if (await _sessionManager.Store.GetThreadAsync(new ThreadKey(sessionId, threadId), cancellationToken) == null)
             return AgentServiceResult.NotFound;
 
-        var scope = ContentStoreScopes.ForThread(sessionId, threadId);
-        var content = await _contentStore.StatAsync(scope, contentId, cancellationToken);
+        var scope = ContentScope.Create(ContentStoreScopes.ForThread(sessionId, threadId));
+        var content = await _contentStore.StatAsync(new ContentAddress(scope, contentId), cancellationToken);
 
         if (content == null)
             return AgentServiceResult.NotFound;
 
-        await _contentStore.DeleteAsync(
-            scope,
-            contentId,
-            new ContentDeleteOptions { IfMatchVersion = content.Version },
-            cancellationToken);
+        await _contentStore.DeleteAsync(content.Address, cancellationToken);
         return AgentServiceResult.Success;
     }
 }

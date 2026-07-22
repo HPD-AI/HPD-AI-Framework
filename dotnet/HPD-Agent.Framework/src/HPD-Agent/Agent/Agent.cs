@@ -89,6 +89,10 @@ public sealed class Agent
     // HttpClients created by AgentBuilder for OpenAPI sources that did not provide their own.
     // Disposed when the Agent is disposed.
     private readonly IReadOnlyList<HttpClient>? _ownedHttpClients;
+    private SkillCatalog? _skillCatalog;
+    private readonly ContainerMiddleware? _containerMiddleware;
+    private CancellationTokenSource? _skillWatchCancellation;
+    private IReadOnlyList<Task> _skillWatchTasks = [];
 
     private async Task<bool> DrainAcceptedSteeringAsync(
         ActiveRuntimeInput? activeInput,
@@ -292,6 +296,7 @@ public sealed class Agent
 
         // Initialize unified middleware pipeline
         _middlewarePipeline = new AgentMiddlewarePipeline(middlewares ?? Array.Empty<IAgentMiddleware>());
+        _containerMiddleware = middlewares?.OfType<ContainerMiddleware>().SingleOrDefault();
         _inputDispatcher = new AgentInputDispatcher(_middlewarePipeline);
 
         // Create event coordinator for Middleware events and human-in-the-loop
@@ -362,6 +367,131 @@ public sealed class Agent
     /// Default chat options
     /// </summary>
     public ChatOptions? DefaultOptions => Config?.ResolveClientConfig(Providers.ProviderClientFamily.Chat)?.BuildEffectiveChatOptions() ?? _messageProcessor.DefaultOptions;
+
+    internal void SetSkillCatalog(
+        SkillCatalog catalog,
+        IEnumerable<(ISkillSource Source, SkillSourceContext Context)> sources)
+    {
+        _skillCatalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        ArgumentNullException.ThrowIfNull(sources);
+        var watchable = sources
+            .Where(entry => entry.Source is IWatchableSkillSource)
+            .ToArray();
+        if (watchable.Length == 0)
+            return;
+        _skillWatchCancellation = new CancellationTokenSource();
+        _skillWatchTasks = watchable.Select(entry => WatchSkillSourceAsync(
+            (IWatchableSkillSource)entry.Source,
+            entry.Context,
+            _skillWatchCancellation.Token)).ToArray();
+    }
+
+    private async Task WatchSkillSourceAsync(
+        IWatchableSkillSource source,
+        SkillSourceContext context,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var enumerator = source.WatchAsync(context, cancellationToken)
+                .GetAsyncEnumerator(cancellationToken);
+            Task<bool> pendingChange = enumerator.MoveNextAsync().AsTask();
+            while (await pendingChange.ConfigureAwait(false))
+            {
+                // Filesystem backends commonly emit several notifications for one logical write.
+                // Reconciliation begins only after a quiet window, so the candidate publishes once.
+                while (true)
+                {
+                    pendingChange = enumerator.MoveNextAsync().AsTask();
+                    var quietWindow = Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken);
+                    var completed = await Task.WhenAny(pendingChange, quietWindow).ConfigureAwait(false);
+                    if (completed != pendingChange)
+                        break;
+                    if (!await pendingChange.ConfigureAwait(false))
+                        break;
+                }
+
+                await ReloadSkillsAsync("watch", cancellationToken).ConfigureAwait(false);
+                if (pendingChange.IsCompletedSuccessfully && !pendingChange.Result)
+                    break;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            // A watcher is advisory. Preserve the last-known-good catalog and keep failures
+            // bounded to host diagnostics; explicit ReloadSkillsAsync remains available.
+            _agentLogger?.LogWarning(
+                exception,
+                "Skill source watcher stopped for harness {ToolHarness}; catalog epoch {Epoch} remains active.",
+                context.OwnerToolHarnessName,
+                SkillCatalogEpoch);
+        }
+    }
+
+    /// <summary>Rereads all harness-bound runtime skill sources and atomically publishes a validated catalog.</summary>
+    public async ValueTask<SkillReloadResult> ReloadSkillsAsync(CancellationToken cancellationToken = default)
+        => await ReloadSkillsAsync("manual", cancellationToken).ConfigureAwait(false);
+
+    private async ValueTask<SkillReloadResult> ReloadSkillsAsync(
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        if (_skillCatalog is null)
+            return new SkillReloadResult(false, 0, "This agent has no skill catalog.");
+
+        var previousEpoch = SkillCatalogEpoch;
+        await _eventCoordinator.EmitAsync(
+            EnrichOutputEvent(new SkillReloadStartedEvent(previousEpoch, reason)),
+            cancellationToken).ConfigureAwait(false);
+        var result = await _skillCatalog.ReloadAsync(
+            new SkillReloadRequest(reason),
+            cancellationToken).ConfigureAwait(false);
+        if (!result.Published)
+        {
+            await _eventCoordinator.EmitAsync(
+                EnrichOutputEvent(new SkillReloadRejectedEvent(
+                    result.Epoch,
+                    BoundSkillReloadError(result.Error),
+                    reason)),
+                cancellationToken).ConfigureAwait(false);
+            return result;
+        }
+
+        using var lease = _skillCatalog.Acquire();
+        _messageProcessor.ReplaceCapabilityFunctions(lease.Snapshot.Functions);
+        _containerMiddleware?.ReplaceCapabilityFunctions(lease.Snapshot.Functions);
+        await _eventCoordinator.EmitAsync(
+            EnrichOutputEvent(new SkillReloadPublishedEvent(
+                previousEpoch,
+                result.Epoch,
+                result.ChangedSkillIds ?? Array.Empty<string>(),
+                reason)),
+            cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    private static string BoundSkillReloadError(string? error)
+    {
+        const int maximumLength = 512;
+        var bounded = string.IsNullOrWhiteSpace(error)
+            ? "The replacement skill catalog failed validation."
+            : error.Replace('\r', ' ').Replace('\n', ' ');
+        return bounded.Length <= maximumLength ? bounded : bounded[..maximumLength];
+    }
+
+    internal long SkillCatalogEpoch
+    {
+        get
+        {
+            if (_skillCatalog is null)
+                return -1;
+            using var lease = _skillCatalog.Acquire();
+            return lease.Snapshot.Epoch;
+        }
+    }
 
     /// <summary>
     /// Gets whether this agent currently has a continuous runtime input loop.
@@ -3538,6 +3668,7 @@ public sealed class Agent
         {
             if (chatClientLease is not null)
                 await chatClientLease.DisposeAsync().ConfigureAwait(false);
+            turn.CatalogLease?.Dispose();
             RootAgent = previousRootAgent;
         }
     }
@@ -3680,6 +3811,14 @@ public sealed class Agent
     {
         StopAsync().GetAwaiter().GetResult();
 
+        _skillWatchCancellation?.Cancel();
+        if (_skillWatchTasks.Count > 0)
+        {
+            try { Task.WhenAll(_skillWatchTasks).GetAwaiter().GetResult(); }
+            catch (OperationCanceledException) { }
+        }
+        _skillWatchCancellation?.Dispose();
+
         RuntimeStructHandlerSubscription[] structSubscriptions;
         lock (_structHandlerLock)
         {
@@ -3702,6 +3841,7 @@ public sealed class Agent
         if (_ownedHttpClients != null)
             foreach (var client in _ownedHttpClients)
                 client.Dispose();
+        _skillCatalog?.Dispose();
     }
 
     /// <summary>
@@ -3749,12 +3889,24 @@ public sealed class Agent
 
         // Prepare turn (stateless - no thread)
         var inputMessages = messages.ToList();
-        var turn = await _messageProcessor.PrepareTurnAsync(
-            thread: null,
-            inputMessages,
-            effectiveOptions,
-            Name,
-            cancellationToken);
+        var catalogLease = _skillCatalog?.Acquire();
+        PreparedTurn turn;
+        try
+        {
+            turn = await _messageProcessor.PrepareTurnAsync(
+                thread: null,
+                inputMessages,
+                effectiveOptions,
+                Name,
+                cancellationToken,
+                catalogLease?.Snapshot.Functions);
+            turn = turn with { CatalogLease = catalogLease };
+        }
+        catch
+        {
+            catalogLease?.Dispose();
+            throw;
+        }
 
         var turnHistory = new List<ChatMessage>();
         var historyCompletionSource = new TaskCompletionSource<IReadOnlyList<ChatMessage>>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -4050,12 +4202,24 @@ public sealed class Agent
 
         // Prepare turn
         var inputMessages = messages?.ToList() ?? new List<ChatMessage>();
-        var turn = await _messageProcessor.PrepareTurnAsync(
-            thread,
-            inputMessages,
-            chatOptions,
-            Name,
-            cancellationToken);
+        var catalogLease = _skillCatalog?.Acquire();
+        PreparedTurn turn;
+        try
+        {
+            turn = await _messageProcessor.PrepareTurnAsync(
+                thread,
+                inputMessages,
+                chatOptions,
+                Name,
+                cancellationToken,
+                catalogLease?.Snapshot.Functions);
+            turn = turn with { CatalogLease = catalogLease };
+        }
+        catch
+        {
+            catalogLease?.Dispose();
+            throw;
+        }
 
         var turnHistory = new List<ChatMessage>();
         var historyCompletionSource = new TaskCompletionSource<IReadOnlyList<ChatMessage>>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -6851,15 +7015,24 @@ public sealed class Agent
 
             if (tool.AdditionalProperties is { } properties)
             {
+                if (tool is AIFunction typedFunction &&
+                    properties.TryGetValue(HPDCapabilityMetadata.AdditionalPropertiesKey, out var typedValue) &&
+                    typedValue is HPDCapabilityMetadata typedMetadata)
+                {
+                    callType = FunctionExecutionCore.LookupToolCallType(typedFunction);
+                    isContainer = typedMetadata.Kind is
+                        HPDCapabilityKind.SkillActivation or HPDCapabilityKind.ToolHarnessActivation;
+                }
+
                 if (properties.TryGetValue("ToolHarnessName", out var toolharnessValue) && toolharnessValue is string h)
                     toolharnessName = h;
                 else if (properties.TryGetValue("ParentToolHarness", out var parentValue) && parentValue is string p)
                     toolharnessName = p;
 
-                if (properties.TryGetValue("IsContainer", out var containerValue) && containerValue is bool container)
+                if (callType is null && properties.TryGetValue("IsContainer", out var containerValue) && containerValue is bool container)
                     isContainer = container;
 
-                if (properties.TryGetValue("CapabilityType", out var capabilityValue) && capabilityValue is string capability)
+                if (callType is null && properties.TryGetValue("CapabilityType", out var capabilityValue) && capabilityValue is string capability)
                 {
                     callType = capability switch
                     {
@@ -8264,6 +8437,9 @@ internal class FunctionCallProcessor
 /// </summary>
 internal record PreparedTurn
 {
+    /// <summary>Gets the immutable capability-catalog lease pinned for this complete turn.</summary>
+    internal SkillCatalogLease? CatalogLease { get; init; }
+
     /// <summary>
     /// Prepared thread history and new input for the first iteration.
     /// Iteration middleware may project this list before provider invocation.
@@ -8292,7 +8468,8 @@ internal record PreparedTurn
 internal class MessageProcessor
 {
     private readonly string? _systemInstructions;
-    private readonly ChatOptions? _defaultOptions;
+    private ChatOptions? _defaultOptions;
+    private readonly object _optionsLock = new();
 
     public MessageProcessor(
         string? systemInstructions,
@@ -8312,6 +8489,23 @@ internal class MessageProcessor
     /// </summary>
     public ChatOptions? DefaultOptions => _defaultOptions;
 
+    internal void ReplaceCapabilityFunctions(IEnumerable<AIFunction> functions)
+    {
+        ArgumentNullException.ThrowIfNull(functions);
+        lock (_optionsLock)
+        {
+            var replacement = _defaultOptions?.Clone() ?? new ChatOptions();
+            var retained = replacement.Tools?
+                .Where(tool => tool is not AIFunction function ||
+                    function.AdditionalProperties?.ContainsKey(
+                        HPDCapabilityMetadata.AdditionalPropertiesKey) != true)
+                .ToList() ?? [];
+            retained.AddRange(functions);
+            replacement.Tools = retained;
+            _defaultOptions = replacement;
+        }
+    }
+
     /// <summary>
     /// Prepares a complete turn for execution.
     /// Loads thread history, merges options, and adds system instructions.
@@ -8327,7 +8521,8 @@ internal class MessageProcessor
         IEnumerable<ChatMessage> inputMessages,
         ChatOptions? options,
         string agentName,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<AIFunction>? pinnedCapabilities = null)
     {
         var inputMessagesList = inputMessages.ToList();
         var messagesForLLM = new List<ChatMessage>();
@@ -8342,7 +8537,26 @@ internal class MessageProcessor
         messagesForLLM.AddRange(inputMessagesList);
 
         // STEP 3: Merge options and add system instructions
-        var effectiveOptions = MergeOptions(options);
+        // Every turn owns its options snapshot. Catalog pinning and visibility middleware mutate
+        // this object, so sharing the builder defaults would allow reloads or concurrent turns to
+        // change the capabilities advertised by an in-flight response.
+        var effectiveOptions = MergeOptions(options)?.Clone();
+        if (pinnedCapabilities is not null)
+        {
+            effectiveOptions ??= new ChatOptions();
+            effectiveOptions.Tools ??= [];
+            for (var index = effectiveOptions.Tools.Count - 1; index >= 0; index--)
+            {
+                if (effectiveOptions.Tools[index] is AIFunction function &&
+                    function.AdditionalProperties?.ContainsKey(
+                        HPDCapabilityMetadata.AdditionalPropertiesKey) == true)
+                {
+                    effectiveOptions.Tools.RemoveAt(index);
+                }
+            }
+            foreach (var function in pinnedCapabilities)
+                effectiveOptions.Tools.Add(function);
+        }
 
         // Add system instructions to ChatOptions.Instructions (Microsoft's pattern)
         // This follows the official Microsoft.Extensions.AI pattern used by ChatClientAgent
@@ -8382,35 +8596,38 @@ internal class MessageProcessor
     /// </summary>
     private ChatOptions? MergeOptions(ChatOptions? providedOptions)
     {
-        if (_defaultOptions == null)
+        ChatOptions? defaults;
+        lock (_optionsLock)
+            defaults = _defaultOptions;
+        if (defaults == null)
             return providedOptions;
 
         if (providedOptions == null)
-            return _defaultOptions;
+            return defaults;
 
-        var merged = _defaultOptions.Clone();
+        var merged = defaults.Clone();
         merged.Tools = (providedOptions.Tools is { Count: > 0 })
             ? providedOptions.Tools
-            : _defaultOptions.Tools;
-        merged.ToolMode = providedOptions.ToolMode ?? _defaultOptions.ToolMode;
-        merged.AllowMultipleToolCalls = providedOptions.AllowMultipleToolCalls ?? _defaultOptions.AllowMultipleToolCalls;
-        merged.MaxOutputTokens = providedOptions.MaxOutputTokens ?? _defaultOptions.MaxOutputTokens;
-        merged.Temperature = providedOptions.Temperature ?? _defaultOptions.Temperature;
-        merged.TopP = providedOptions.TopP ?? _defaultOptions.TopP;
-        merged.TopK = providedOptions.TopK ?? _defaultOptions.TopK;
-        merged.FrequencyPenalty = providedOptions.FrequencyPenalty ?? _defaultOptions.FrequencyPenalty;
-        merged.PresencePenalty = providedOptions.PresencePenalty ?? _defaultOptions.PresencePenalty;
-        merged.ResponseFormat = providedOptions.ResponseFormat ?? _defaultOptions.ResponseFormat;
-        merged.Reasoning = providedOptions.Reasoning ?? _defaultOptions.Reasoning;
-        merged.Seed = providedOptions.Seed ?? _defaultOptions.Seed;
-        merged.StopSequences = providedOptions.StopSequences ?? _defaultOptions.StopSequences;
-        merged.ModelId = providedOptions.ModelId ?? _defaultOptions.ModelId;
-        merged.Instructions = providedOptions.Instructions ?? _defaultOptions.Instructions;
-        merged.ConversationId = providedOptions.ConversationId ?? _defaultOptions.ConversationId;
-        merged.AllowBackgroundResponses = providedOptions.AllowBackgroundResponses ?? _defaultOptions.AllowBackgroundResponses;
-        merged.ContinuationToken = providedOptions.ContinuationToken ?? _defaultOptions.ContinuationToken;
-        merged.RawRepresentationFactory = providedOptions.RawRepresentationFactory ?? _defaultOptions.RawRepresentationFactory;
-        merged.AdditionalProperties = MergeDictionaries(_defaultOptions.AdditionalProperties, providedOptions.AdditionalProperties);
+            : defaults.Tools;
+        merged.ToolMode = providedOptions.ToolMode ?? defaults.ToolMode;
+        merged.AllowMultipleToolCalls = providedOptions.AllowMultipleToolCalls ?? defaults.AllowMultipleToolCalls;
+        merged.MaxOutputTokens = providedOptions.MaxOutputTokens ?? defaults.MaxOutputTokens;
+        merged.Temperature = providedOptions.Temperature ?? defaults.Temperature;
+        merged.TopP = providedOptions.TopP ?? defaults.TopP;
+        merged.TopK = providedOptions.TopK ?? defaults.TopK;
+        merged.FrequencyPenalty = providedOptions.FrequencyPenalty ?? defaults.FrequencyPenalty;
+        merged.PresencePenalty = providedOptions.PresencePenalty ?? defaults.PresencePenalty;
+        merged.ResponseFormat = providedOptions.ResponseFormat ?? defaults.ResponseFormat;
+        merged.Reasoning = providedOptions.Reasoning ?? defaults.Reasoning;
+        merged.Seed = providedOptions.Seed ?? defaults.Seed;
+        merged.StopSequences = providedOptions.StopSequences ?? defaults.StopSequences;
+        merged.ModelId = providedOptions.ModelId ?? defaults.ModelId;
+        merged.Instructions = providedOptions.Instructions ?? defaults.Instructions;
+        merged.ConversationId = providedOptions.ConversationId ?? defaults.ConversationId;
+        merged.AllowBackgroundResponses = providedOptions.AllowBackgroundResponses ?? defaults.AllowBackgroundResponses;
+        merged.ContinuationToken = providedOptions.ContinuationToken ?? defaults.ContinuationToken;
+        merged.RawRepresentationFactory = providedOptions.RawRepresentationFactory ?? defaults.RawRepresentationFactory;
+        merged.AdditionalProperties = MergeDictionaries(defaults.AdditionalProperties, providedOptions.AdditionalProperties);
         return merged;
     }
 

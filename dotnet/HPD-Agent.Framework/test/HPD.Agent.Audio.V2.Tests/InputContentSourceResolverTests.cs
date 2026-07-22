@@ -60,7 +60,7 @@ public sealed class InputContentSourceResolverTests
         var bytes = new byte[] { 4, 5, 6 };
         await using var writeStream = new MemoryStream(bytes);
         var info = await store.WriteAsync(
-            "session-audio",
+            ContentScope.Create("session-audio"),
             writeStream,
             new ContentMetadata
             {
@@ -78,8 +78,8 @@ public sealed class InputContentSourceResolverTests
             ContentStore = new InputContentStoreRef(
                 StoreKind: "hpd-content",
                 Scope: "session-audio",
-                ContentId: info.Id,
-                Version: info.Version,
+                ContentId: info.Address.ContentId,
+                Version: info.Address.Version,
                 ReadUri: null)
         };
         var resolver = new AgentInputContentSourceResolver([], store);

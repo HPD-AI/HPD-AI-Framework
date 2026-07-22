@@ -9,14 +9,14 @@ namespace HPD.Agent.ClientTools;
 /// </summary>
 /// <param name="Name">Skill name (becomes AIFunction name, shown to agent)</param>
 /// <param name="Description">Shown BEFORE activation - helps agent decide whether to use skill</param>
-/// <param name="FunctionResult">Ephemeral instructions returned in function result when skill is activated (one-time)</param>
-/// <param name="SystemPrompt">Persistent instructions injected into system prompt after activation (every iteration)</param>
+/// <param name="Instructions">Authoritative instructions returned when the skill activates.</param>
+/// <param name="Reinforcement">Optional higher-priority reinforcement while the skill remains active.</param>
 /// <param name="References">Tool references - these become visible when skill is activated</param>
 public record ClientSkillDefinition(
     string Name,
     string Description,
-    string? FunctionResult = null,
-    string? SystemPrompt = null,
+    string Instructions,
+    string? Reinforcement = null,
     IReadOnlyList<ClientSkillReference>? References = null
 )
 {
@@ -32,12 +32,8 @@ public record ClientSkillDefinition(
         if (string.IsNullOrWhiteSpace(Description))
             throw new ArgumentException("Skill description is required", nameof(Description));
 
-        if (string.IsNullOrWhiteSpace(FunctionResult) && string.IsNullOrWhiteSpace(SystemPrompt))
-            throw new ArgumentException(
-                "At least one of FunctionResult or SystemPrompt must be provided. " +
-                "FunctionResult is shown once when skill is activated. " +
-                "SystemPrompt is injected into the system prompt persistently.",
-                nameof(FunctionResult));
+        if (string.IsNullOrWhiteSpace(Instructions))
+            throw new ArgumentException("Skill instructions are required.", nameof(Instructions));
 
     }
 

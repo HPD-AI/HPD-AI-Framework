@@ -96,7 +96,8 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         Assert.Equal(4, artifactRef.SizeBytes);
         Assert.False(string.IsNullOrWhiteSpace(artifactRef.Sha256));
 
-        var storedInfo = await contentStore.StatAsync("session-output", artifactRef.ArtifactId);
+        var storedInfo = await contentStore.StatAsync(new ContentAddress(
+            ContentScope.Create("session-output"), artifactRef.ArtifactId));
         Assert.NotNull(storedInfo);
         Assert.Equal("audio/mpeg", storedInfo.ContentType);
         Assert.Equal(4, storedInfo.SizeBytes);
@@ -107,7 +108,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         Assert.Equal("voice-model", storedInfo.Tags?["model"]);
         Assert.Equal("voice-1", storedInfo.Tags?["voice"]);
 
-        var storedBytes = await contentStore.ReadBytesAsync("session-output", artifactRef.ArtifactId);
+        var storedBytes = await contentStore.ReadBytesAsync(storedInfo!.Address);
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, storedBytes);
 
         Assert.Contains(result.Ledger.OfType<AssistantOutputLedgerRecord>(), r =>
@@ -171,7 +172,7 @@ public sealed class AudioRuntimeAttachmentAssistantOutputTests
         Assert.Equal("still keep text", result.Text);
         Assert.Equal(OutputCommitDisposition.SynthesisFailedTextOnly, result.Commit?.Disposition);
         Assert.NotNull(result.Error);
-        Assert.Empty(await contentStore.QueryAsync("session-output"));
+        Assert.Empty(await contentStore.QueryAsync(ContentScope.Create("session-output")));
         Assert.Contains(result.Ledger.OfType<TtsSynthesisResultLedgerRecord>(), r =>
             r.Disposition == TtsSynthesisDisposition.Failed &&
             r.Error is not null);
