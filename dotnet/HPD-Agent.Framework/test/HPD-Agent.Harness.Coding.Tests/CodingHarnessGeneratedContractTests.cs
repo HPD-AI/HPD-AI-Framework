@@ -17,6 +17,7 @@ public sealed class CodingHarnessGeneratedContractTests
         Functions.Keys.Should().Contain(
         [
             "EditFile",
+            "Debug",
             "ExecuteCommand",
             "GlobSearch",
             "Grep",
@@ -25,7 +26,7 @@ public sealed class CodingHarnessGeneratedContractTests
             "WriteFile"
         ]);
 
-        foreach (var functionName in new[] { "EditFile", "ExecuteCommand", "GlobSearch", "Grep", "ListDirectory", "ReadFile", "WriteFile" })
+        foreach (var functionName in new[] { "Debug", "EditFile", "ExecuteCommand", "GlobSearch", "Grep", "ListDirectory", "ReadFile", "WriteFile" })
         {
             var function = Functions[functionName];
             var schema = function.JsonSchema;
@@ -35,6 +36,28 @@ public sealed class CodingHarnessGeneratedContractTests
             properties.TryGetProperty("context", out _).Should().BeFalse();
             properties.TryGetProperty("cancellationToken", out _).Should().BeFalse();
         }
+    }
+
+    [Fact]
+    public void Debug_AdvertisesOneClosedBranchPerSemanticOperation()
+    {
+        var branches = Properties("Debug").GetProperty("request").GetProperty("oneOf").EnumerateArray().ToArray();
+
+        branches.Should().HaveCount(49);
+        branches.Should().OnlyContain(branch => !branch.GetProperty("additionalProperties").GetBoolean());
+        branches.Select(branch => branch.GetProperty("properties").GetProperty("action").GetProperty("const").GetString())
+            .Should().OnlyHaveUniqueItems();
+
+        var launch = branches.Single(branch =>
+            branch.GetProperty("properties").GetProperty("action").GetProperty("const").GetString() == "launch");
+        launch.GetProperty("properties").GetProperty("target").GetProperty("oneOf").GetArrayLength().Should().Be(3);
+
+        var attach = branches.Single(branch =>
+            branch.GetProperty("properties").GetProperty("action").GetProperty("const").GetString() == "attach");
+        attach.GetProperty("properties").GetProperty("target").GetProperty("oneOf").GetArrayLength().Should().Be(2);
+
+        launch.GetProperty("properties").GetProperty("initialConfiguration").ToString()
+            .Should().NotContain("instructionBreakpoints").And.NotContain("dataBreakpoints");
     }
 
     [Fact]
@@ -86,6 +109,7 @@ public sealed class CodingHarnessGeneratedContractTests
     [Theory]
     [InlineData("EditFile", "{\"path\":\"file.txt\",\"edits\":[{\"oldString\":\"a\",\"newString\":\"b\",\"unexpected\":true}]}", "edits[0].unexpected")]
     [InlineData("ExecuteCommand", "{\"request\":{\"action\":\"stop\",\"backgroundHandleId\":\"cmd_1\",\"command\":\"echo no\"}}", "request.command")]
+    [InlineData("Debug", "{\"request\":{\"action\":\"continue\",\"debugTreeId\":\"tree_1\",\"threadId\":1,\"host\":\"localhost\"}}", "request.host")]
     [InlineData("Grep", "{\"pattern\":\"TODO\",\"outputMode\":\"content\"}", "outputMode")]
     public async Task GeneratedBinding_RejectsAliasesWrongBranchesAndEnumCasing(
         string functionName,

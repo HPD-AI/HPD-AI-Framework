@@ -6,6 +6,23 @@ namespace HPD.Agent.ToolHarness.Coding.Tests;
 public sealed class DebugBreakpointStoreTests
 {
     [Fact]
+    public void Output_snapshot_ranges_are_exact_and_reject_dropped_prefixes()
+    {
+        var buffer = new DebugOutputBuffer(maximumRetainedBytes: 8, maximumRecordBytes: 4, maximumRecords: 2);
+        buffer.Append("tree", "session", new OutputEventBody { Output = "one" }, allowAnsi: false);
+        buffer.Append("tree", "session", new OutputEventBody { Output = "two" }, allowAnsi: false);
+        buffer.Append("tree", "session", new OutputEventBody { Output = "tri" }, allowAnsi: false);
+
+        var range = buffer.Snapshot(fromSequence: 2, toSequence: 2);
+        range.Records.Should().ContainSingle().Which.Text.Should().Be("two");
+        range.OldestSequence.Should().Be(2);
+        range.NewestSequence.Should().Be(2);
+
+        var stale = () => buffer.Snapshot(fromSequence: 1, toSequence: 2);
+        stale.Should().Throw<InvalidOperationException>().WithMessage("*oldest retained sequence is 2*");
+    }
+
+    [Fact]
     public async Task Concurrent_replacements_are_serialized_and_commit_in_adapter_order()
     {
         await using var store = new DebugBreakpointStore();

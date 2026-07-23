@@ -2267,6 +2267,63 @@ public class RuntimeLifecycleTests : AgentTestBase
     }
 
     [Fact]
+    public async Task InterruptionRequest_WithStreamId_DoesNotCancelActiveRuntimeInput()
+    {
+        var blockingClient = new BlockingChatClient();
+        IEventFlowHandle? targetedFlow = null;
+        var middleware = new RuntimeHookRecordingMiddleware("A", [])
+        {
+            OnAfterStarted = (context, _) =>
+            {
+                targetedFlow = context.EventFlows.Create("targeted-flow");
+                return Task.CompletedTask;
+            }
+        };
+        var agent = CreateAgentWithMiddlewares(
+            client: blockingClient,
+            middlewares: [middleware]);
+
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
+        await agent.RunAsync("block", cancellationToken: TestCancellationToken);
+        await blockingClient.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+
+        await agent.RunAsync(new InterruptionRequestEvent(
+            eventFlowId: "targeted-flow",
+            Reason: "stop only the targeted flow",
+            Source: InterruptionSource.User), TestCancellationToken);
+        await Task.Delay(50, TestCancellationToken);
+
+        Assert.NotNull(targetedFlow);
+        Assert.True(targetedFlow.IsInterrupted);
+        Assert.False(blockingClient.Cancelled.Task.IsCompleted);
+        Assert.True(agent.IsRunning);
+
+        await agent.StopAsync(TestCancellationToken);
+        await blockingClient.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+    }
+
+    [Fact]
+    public async Task InterruptionRequest_WithoutStreamId_CancelsActiveRuntimeInput()
+    {
+        var blockingClient = new BlockingChatClient();
+        var agent = CreateAgent(client: blockingClient);
+
+        await agent.StartAsync(cancellationToken: TestCancellationToken);
+        await agent.RunAsync("block", cancellationToken: TestCancellationToken);
+        await blockingClient.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+
+        await agent.RunAsync(new InterruptionRequestEvent(
+            eventFlowId: null,
+            Reason: "stop the active execution",
+            Source: InterruptionSource.User), TestCancellationToken);
+
+        await blockingClient.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5), TestCancellationToken);
+        Assert.True(agent.IsRunning);
+
+        await agent.StopAsync(TestCancellationToken);
+    }
+
+    [Fact]
     public async Task StartedAgent_RunAsync_QueuesTextInput_AndDispatchesOutputHandlers()
     {
         var fakeClient = new FakeChatClient();

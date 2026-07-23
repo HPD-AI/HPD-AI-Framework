@@ -7,6 +7,39 @@ internal sealed class DebugRestartService(
     DebugSemanticService semantics,
     DebugSessionStartOrchestrator starts)
 {
+    public Task<DebugRestartResult> RestartAsync(
+        DebugTreeLookupScope owner,
+        string treeId,
+        string? sessionId,
+        CancellationToken cancellationToken)
+    {
+        var tree = manager.ResolveTree(owner, treeId);
+        var session = tree.SelectSession(sessionId);
+        if (session.SessionId != tree.RootSessionId)
+            throw new InvalidOperationException(
+                "A child session without in-place restart support cannot be reconstructed as a root debug tree.");
+        var template = tree.RestartTemplate
+            ?? throw new InvalidOperationException("The debug tree does not retain a restart template.");
+        tree.Authorization.ValidateCurrent(tree.RuntimeBinding, session.LaunchPlan);
+        var desired = tree.Breakpoints.Snapshot;
+        var replacement = template with
+        {
+            Runtime = tree.RuntimeBinding,
+            LaunchPlan = session.LaunchPlan,
+            IsAttach = session.IsAttach,
+            InitialConfiguration = new()
+            {
+                SourceBreakpoints = desired.Source,
+                FunctionBreakpoints = desired.Function,
+                ExceptionFilters = desired.Exception,
+                InstructionBreakpoints = desired.Instruction,
+                DataBreakpoints = desired.Data,
+                StopOnEntry = template.InitialConfiguration.StopOnEntry
+            }
+        };
+        return RestartAsync(owner, treeId, session.SessionId, replacement, cancellationToken);
+    }
+
     public async Task<DebugRestartResult> RestartAsync(
         DebugTreeLookupScope owner,
         string treeId,

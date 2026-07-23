@@ -48,4 +48,60 @@ public sealed class DebugConfigurationCoordinatorTests
 
         (await boundary.Should().ThrowAsync<DebugStartTerminatedException>()).Which.ReasonCode.Should().Be("ADAPTER_EXITED");
     }
+
+    [Fact]
+    public async Task Launch_and_configuration_failures_preserve_both_causes()
+    {
+        var coordinator = new DebugConfigurationCoordinator(
+            _ => Task.FromException(new InvalidOperationException(
+                "configurationDone: Expected process to be stopped.")),
+            CancellationToken.None);
+        coordinator.ObserveInitialized();
+        Func<Task> configuration = async () =>
+            await coordinator.ConfigurationCompletion;
+        await configuration.Should().ThrowAsync<InvalidOperationException>();
+
+        var launch = coordinator.RunLaunchAsync(
+            _ => Task.FromException(new InvalidOperationException(
+                "launch: program is not a valid executable")),
+            CancellationToken.None);
+        Func<Task> launchAction = async () => await launch;
+        await launchAction.Should().ThrowAsync<InvalidOperationException>();
+
+        var boundary = async () =>
+            await coordinator.AwaitStartBoundaryAsync(CancellationToken.None);
+        var error = (await boundary.Should()
+            .ThrowAsync<DebugStartBoundaryException>()).Which;
+        error.Message.Should().Contain("launch: program is not a valid executable");
+        error.Message.Should().Contain(
+            "configurationDone: Expected process to be stopped.");
+        error.LaunchException.Message.Should().StartWith("launch:");
+        error.ConfigurationException.Message.Should().StartWith("configurationDone:");
+    }
+
+    [Fact]
+    public async Task Delayed_launch_failure_is_not_hidden_by_earlier_configuration_failure()
+    {
+        var releaseLaunch = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var coordinator = new DebugConfigurationCoordinator(
+            _ => Task.FromException(new InvalidOperationException(
+                "configurationDone: cascade failure")),
+            CancellationToken.None);
+        var launch = coordinator.RunLaunchAsync(
+            _ => releaseLaunch.Task, CancellationToken.None);
+        coordinator.ObserveInitialized();
+        var boundary = coordinator.AwaitStartBoundaryAsync(CancellationToken.None);
+        boundary.IsCompleted.Should().BeFalse();
+
+        releaseLaunch.SetException(new InvalidOperationException(
+            "launch: delayed primary failure"));
+        Func<Task> launchAction = async () => await launch;
+        await launchAction.Should().ThrowAsync<InvalidOperationException>();
+        Func<Task> boundaryAction = async () => await boundary;
+        var error = (await boundaryAction.Should()
+            .ThrowAsync<DebugStartBoundaryException>()).Which;
+        error.Message.Should().Contain("launch: delayed primary failure");
+        error.Message.Should().Contain("configurationDone: cascade failure");
+    }
 }

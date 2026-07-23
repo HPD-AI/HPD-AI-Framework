@@ -11,7 +11,8 @@ internal sealed record DebugOperationResult(
     int ThreadId,
     bool IsStopped,
     bool TimedOutWaitingForStop,
-    DebugThreadSnapshot? Thread);
+    DebugThreadSnapshot? Thread,
+    DebugSessionStatus? EndedStatus = null);
 
 internal enum DebugSteppingGranularity { Statement, Line, Instruction }
 
@@ -110,6 +111,16 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
     public IReadOnlyList<string> ListTrees(DebugTreeLookupScope owner)
         => manager.ListTrees(owner).Select(x => x.Ownership.DebugTreeId).ToArray();
 
+    public IReadOnlyList<DebugTreeSnapshot> ListTreeSnapshots(DebugTreeLookupScope owner)
+        => manager.ListTrees(owner).Select(DebugSnapshotProjector.Project).ToArray();
+
+    public DebugTreeSnapshot GetSnapshot(DebugTreeLookupScope owner, string treeId)
+    {
+        var tree = manager.ResolveTree(owner, treeId);
+        tree.Authorization.Demand(DebugTreeGrant.Inspect);
+        return DebugSnapshotProjector.Project(tree);
+    }
+
     public DebugSessionStatus GetStatus(DebugTreeLookupScope owner, string treeId, string? sessionId)
         => Session(owner, treeId, sessionId).State.Status;
 
@@ -135,11 +146,13 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         string treeId,
         string? sessionId,
         bool includeTelemetry,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        long? fromSequence = null,
+        long? toSequence = null)
     {
         var tree = manager.ResolveTree(owner, treeId);
         var session = tree.SelectSession(sessionId);
-        var snapshot = session.Output.Snapshot(includeTelemetry);
+        var snapshot = session.Output.Snapshot(fromSequence, toSequence, includeTelemetry);
         var text = string.Concat(snapshot.Records.Select(x => x.Text));
         var result = await tree.Artifacts.WriteTextAsync(text, "debug-output", "mixed",
             session.LaunchPlan.AdapterId, session.SessionId,
@@ -1048,6 +1061,10 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         {
             return new(treeId, session.SessionId, threadId, false, true,
                 session.State.Threads.SingleOrDefault(x => x.ThreadId == threadId));
+        }
+        catch (DebugSessionEndedException ended)
+        {
+            return new(treeId, session.SessionId, threadId, false, false, null, ended.Status);
         }
     }
 

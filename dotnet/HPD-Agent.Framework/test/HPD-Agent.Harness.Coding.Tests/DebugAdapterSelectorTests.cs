@@ -20,6 +20,30 @@ public sealed class DebugAdapterSelectorTests
     }
 
     [Fact]
+    public async Task Explicit_selection_does_not_reclassify_executable_from_its_artifact_extension()
+    {
+        var netcoredbg = new CountingFactory(DebugAdapterAvailabilityKind.Available);
+        var selector = Selector((
+            Entry(
+                "netcoredbg",
+                ["csharp"],
+                [".cs"],
+                targetKinds: DebugTargetKind.Executable),
+            netcoredbg));
+
+        var result = await selector.SelectAsync(Context(explicitId: "netcoredbg") with
+        {
+            Language = null,
+            FileExtension = ".dll",
+            TargetKind = DebugTargetKind.Executable
+        });
+
+        result.Kind.Should().Be(DebugAdapterSelectionKind.Available);
+        result.Entry!.Descriptor.Id.Should().Be("netcoredbg");
+        netcoredbg.ProbeCount.Should().Be(1);
+    }
+
+    [Fact]
     public async Task Automatic_selection_reports_available_unavailable_ambiguous_and_no_match()
     {
         var available = new CountingFactory(DebugAdapterAvailabilityKind.Available);

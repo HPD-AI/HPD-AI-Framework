@@ -14,7 +14,8 @@ using HPDOS.ToolHarnesses.Middleware;
     Middlewares = [
         typeof(EnvironmentContextMiddleware),
         typeof(CodingLanguageServerMiddleware),
-        typeof(ExecuteCommandPermissionMiddleware)
+        typeof(ExecuteCommandPermissionMiddleware),
+        typeof(DebugPermissionMiddleware)
     ])]
 public partial class CodingToolHarness
 {
@@ -49,6 +50,21 @@ public partial class CodingToolHarness
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         ValidateExecuteCommandPermissionMiddlewareRegistration();
+        ValidateDebugPermissionMiddlewareRegistration();
+    }
+
+    private static void ValidateDebugPermissionMiddlewareRegistration()
+    {
+        var collapse = typeof(CodingToolHarness)
+            .GetCustomAttributes(typeof(CollapseAttribute), inherit: false)
+            .OfType<CollapseAttribute>()
+            .SingleOrDefault();
+
+        if (collapse?.Middlewares?.Contains(typeof(DebugPermissionMiddleware)) == true)
+            return;
+
+        throw new InvalidOperationException(
+            $"{nameof(CodingToolHarness)} exposes Debug without {nameof(DebugPermissionMiddleware)}.");
     }
 
     private static void ValidateExecuteCommandPermissionMiddlewareRegistration()

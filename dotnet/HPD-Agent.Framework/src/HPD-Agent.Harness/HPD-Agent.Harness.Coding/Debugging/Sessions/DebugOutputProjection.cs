@@ -100,10 +100,32 @@ internal sealed class DebugOutputBuffer
     }
 
     public DebugOutputSnapshot Snapshot(bool includeTelemetry = false)
+        => Snapshot(fromSequence: null, toSequence: null, includeTelemetry: includeTelemetry);
+
+    public DebugOutputSnapshot Snapshot(
+        long? fromSequence,
+        long? toSequence,
+        bool includeTelemetry = false)
     {
+        if (fromSequence is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(fromSequence), "Output sequence numbers begin at one.");
+        if (toSequence is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(toSequence), "Output sequence numbers begin at one.");
+        if (fromSequence is { } from && toSequence is { } to && from > to)
+            throw new ArgumentException("The output range start must not exceed its end.", nameof(fromSequence));
+
         lock (_gate)
         {
-            var records = _records.Where(x => includeTelemetry || x.Category != DebugOutputCategory.Telemetry).ToArray();
+            var oldestRetained = _records.TryPeek(out var oldest) ? oldest.Sequence : checked(_nextSequence + 1);
+            if (fromSequence is { } requested && requested < oldestRetained && _droppedRecords > 0)
+                throw new InvalidOperationException(
+                    $"Output sequence {requested} is no longer retained; the oldest retained sequence is {oldestRetained}.");
+
+            var records = _records.Where(x =>
+                    (includeTelemetry || x.Category != DebugOutputCategory.Telemetry) &&
+                    (fromSequence is null || x.Sequence >= fromSequence.Value) &&
+                    (toSequence is null || x.Sequence <= toSequence.Value))
+                .ToArray();
             return new(records, records.FirstOrDefault()?.Sequence ?? 0, records.LastOrDefault()?.Sequence ?? 0,
                 records.Sum(x => (long)x.Utf8Bytes), _droppedRecords, _droppedBytes);
         }

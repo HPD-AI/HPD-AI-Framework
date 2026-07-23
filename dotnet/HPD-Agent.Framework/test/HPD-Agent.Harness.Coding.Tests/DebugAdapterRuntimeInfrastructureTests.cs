@@ -86,7 +86,93 @@ public sealed class DebugAdapterRuntimeInfrastructureTests
         catalog.GetFactory("debugpy").Should().BeOfType<DebugPyAdapterFactory>();
         trust.TrustLevel.Should().Be(DebugAdapterTrustLevel.Denied);
         trust.ReasonCode.Should().Be("HOST_TRUST_POLICY_NOT_CONFIGURED");
+        services.GetRequiredService<IDebugAdapterConfigurationComposer>()
+            .Should().BeOfType<BuiltInDebugAdapterConfigurationComposer>();
+        services.GetRequiredService<DebugRuntimeServiceFactory>().Should().NotBeNull();
     }
+
+    [Fact]
+    public async Task Runtime_service_factory_preserves_manager_isolation()
+    {
+        using var provider = new ServiceCollection()
+            .AddHPDCodingDebugging()
+            .BuildServiceProvider();
+        await using var firstManager = new DebugSessionManager();
+        await using var secondManager = new DebugSessionManager();
+        var factory = provider.GetRequiredService<DebugRuntimeServiceFactory>();
+
+        var first = factory.Create(Runtime(firstManager));
+        var second = factory.Create(Runtime(secondManager));
+
+        first.Manager.Should().BeSameAs(firstManager);
+        second.Manager.Should().BeSameAs(secondManager);
+        first.Manager.Should().NotBeSameAs(second.Manager);
+        first.Semantics.Should().NotBeSameAs(second.Semantics);
+    }
+
+    [Theory]
+    [InlineData("debugpy", DebugTargetKind.SourceFile, "stopOnEntry", null)]
+    [InlineData("netcoredbg", DebugTargetKind.Executable, "stopAtEntry", null)]
+    [InlineData("gdb", DebugTargetKind.Executable, "stopOnEntry", "stopAtBeginningOfMainSubprogram")]
+    [InlineData("lldb-dap", DebugTargetKind.Executable, "stopOnEntry", null)]
+    [InlineData("codelldb", DebugTargetKind.Executable, "stopOnEntry", null)]
+    [InlineData("delve", DebugTargetKind.ProjectDirectory, "stopOnEntry", null)]
+    [InlineData("javascript", DebugTargetKind.SourceFile, "stopOnEntry", null)]
+    [InlineData("rdbg", DebugTargetKind.SourceFile, "stopOnEntry", null)]
+    public void Semantic_launch_configuration_is_closed_and_adapter_specific(
+        string adapterId,
+        DebugTargetKind targetKind,
+        string stopProperty,
+        string? secondStopProperty)
+    {
+        var descriptor = Descriptor(adapterId, targetKind | DebugTargetKind.Process);
+        var value = new BuiltInDebugAdapterConfigurationComposer().ComposeLaunch(
+            descriptor,
+            new("/workspace/target", "/workspace", targetKind, ["--flag"], StopOnEntry: true));
+
+        value.GetProperty("request").GetString().Should().Be("launch");
+        value.GetProperty("program").GetString().Should().Be("/workspace/target");
+        value.GetProperty("cwd").GetString().Should().Be("/workspace");
+        value.GetProperty("args")[0].GetString().Should().Be("--flag");
+        value.GetProperty(stopProperty).GetBoolean().Should().BeTrue();
+        if (secondStopProperty is not null)
+            value.GetProperty(secondStopProperty).GetBoolean().Should().BeTrue();
+        if (adapterId == "delve") value.GetProperty("mode").GetString().Should().Be("debug");
+        if (adapterId == "javascript") value.GetProperty("type").GetString().Should().Be("pwa-node");
+    }
+
+    [Fact]
+    public void Semantic_attach_configuration_emits_numeric_process_aliases()
+    {
+        var descriptor = Descriptor("delve", DebugTargetKind.Process);
+        var value = new BuiltInDebugAdapterConfigurationComposer().ComposeAttach(
+            descriptor, new("/workspace", ProcessId: "1234"));
+
+        value.GetProperty("request").GetString().Should().Be("attach");
+        value.GetProperty("mode").GetString().Should().Be("local");
+        value.GetProperty("pid").GetInt64().Should().Be(1234);
+        value.GetProperty("processId").GetInt64().Should().Be(1234);
+    }
+
+    private static DebugAdapterDescriptor Descriptor(string id, DebugTargetKind targetKinds) => new()
+    {
+        Id = id,
+        Languages = [],
+        FileExtensions = [],
+        RootMarkers = [],
+        TargetKinds = targetKinds,
+        Provenance = new() { PackageId = id, PackageVersion = "1", AssemblyName = "tests" }
+    };
+
+    private static DebugRuntimeBinding Runtime(DebugSessionManager manager) => new()
+    {
+        AgentRuntimeRegistrationId = manager.RuntimeId,
+        SessionId = "session",
+        ThreadId = "thread",
+        SessionManager = manager,
+        EventScope = new(null, "session", "thread"),
+        State = new()
+    };
 
     private static DebugAdapterAvailabilityCacheKey Key(
         string adapter = "fixture",

@@ -293,12 +293,14 @@ internal sealed class MacOSProcessIsolationBackend : ISandboxBackend
             StartInfo = new ProcessStartInfo
             {
                 FileName = "log",
-                Arguments = $"stream --predicate '(eventMessage ENDSWITH \"{_sessionSuffix}\")'",
                 RedirectStandardOutput = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             }
         };
+        _logStreamProcess.StartInfo.ArgumentList.Add("stream");
+        _logStreamProcess.StartInfo.ArgumentList.Add("--predicate");
+        _logStreamProcess.StartInfo.ArgumentList.Add($"eventMessage ENDSWITH \"{_sessionSuffix}\"");
 
         _logStreamProcess.OutputDataReceived += (sender, e) =>
         {

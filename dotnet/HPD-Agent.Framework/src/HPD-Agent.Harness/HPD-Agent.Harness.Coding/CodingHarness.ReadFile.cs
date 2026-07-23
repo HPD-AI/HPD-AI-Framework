@@ -518,6 +518,13 @@ public static class CodingToolMetadataKeys
 {
     public const string ReadFileSnapshot = "coding.readFile.snapshot";
     public const string FileMutationSnapshot = "coding.fileMutation.snapshot";
+    public const string DebugOperation = "coding.debug.operation";
+    public const string DebugSessionSnapshot = "coding.debug.sessionSnapshot";
+    public const string DebugStopSnapshot = "coding.debug.stopSnapshot";
+    public const string DebugBreakpoints = "coding.debug.breakpoints";
+    public const string DebugStackFrames = "coding.debug.stackFrames";
+    public const string DebugCapabilities = "coding.debug.capabilities";
+    public const string DebugOutputReference = "coding.debug.outputReference";
 }
 
 /// <summary>

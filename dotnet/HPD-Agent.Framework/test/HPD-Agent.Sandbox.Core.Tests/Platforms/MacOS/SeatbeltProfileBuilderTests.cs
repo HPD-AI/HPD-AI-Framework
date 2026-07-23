@@ -56,6 +56,21 @@ public class SeatbeltProfileBuilderTests
     }
 
     [Fact]
+    public void Build_AllowsResolvedMacOSTemporaryDirectoryAlias()
+    {
+        var tmpdir = System.Environment.GetEnvironmentVariable("TMPDIR");
+        if (string.IsNullOrWhiteSpace(tmpdir) ||
+            !Path.GetFullPath(tmpdir).StartsWith("/var/folders/", StringComparison.Ordinal))
+            return;
+
+        var profile = new SeatbeltProfileBuilder("test").Build();
+        var normalized = Path.GetFullPath(tmpdir).TrimEnd('/');
+
+        Assert.Contains($"(subpath \"{normalized}\")", profile);
+        Assert.Contains($"(subpath \"/private{normalized}\")", profile);
+    }
+
+    [Fact]
     public void DenyWrite_AddsDenyFileWriteRule()
     {
         var builder = new SeatbeltProfileBuilder("test");

@@ -2,6 +2,7 @@ namespace HPD.Agent.Sandbox.Local.Tests.ProcessIsolation;
 
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using FluentAssertions;
 using HPD.Agent.Sandbox;
 using HPD.Agent.Sandbox.Local;
@@ -12,6 +13,182 @@ using Xunit;
 
 public sealed class LocalSandboxProviderIntegrationTests
 {
+    [SkippableFact]
+    [Trait("Category", "RealAdapter")]
+    public async Task Netcoredbg_initializes_through_production_sidecar_isolation()
+    {
+        var adapter = System.Environment.GetEnvironmentVariable("HPD_NETCOREDBG");
+        Skip.If(string.IsNullOrWhiteSpace(adapter) || !File.Exists(adapter),
+            "Set HPD_NETCOREDBG to a netcoredbg executable to run this qualification.");
+        Skip.If(RuntimeInformation.IsOSPlatform(OSPlatform.Windows),
+            "Windows local OS sandboxing is unsupported.");
+        await SkipIfLocalSandboxUnavailableAsync();
+
+        await using var manager = new SandboxIsolationManager();
+        var provider = new LocalProcessProvider(
+            new SandboxIsolationPlanner(),
+            new HostSandboxApplicator(manager));
+        await using var handle = await provider.StartAsync(new ProcessInvocationSpec
+        {
+            Target = Handle<ExecutionUnit>(TargetRouteSegmentKind.ExecutionUnit, "netcoredbg"),
+            Role = ProcessRole.Sidecar,
+            Command = new ProcessCommandSpec
+            {
+                FileName = adapter!,
+                Arguments = ["--interpreter=vscode"],
+                WorkingDirectory = Path.GetTempPath(),
+                Environment = new Dictionary<string, string?>()
+            },
+            Io = new ProcessIoSpec
+            {
+                StandardInput = new ProcessInputSpec { Kind = ProcessInputKind.Stream },
+                StandardOutput = new ProcessOutputSpec { Capture = false, Stream = true },
+                StandardError = new ProcessOutputSpec { Capture = false, Stream = true },
+                MergeStandardError = false,
+                LogPolicy = new ProcessLogPolicy { RetainOutputEvents = false }
+            },
+            Policy = new ProcessInvocationPolicy
+            {
+                AllowBackground = true,
+                StopProcessTree = true,
+                StopOnRunCancellation = false,
+                OutputDrainTimeout = TimeSpan.FromSeconds(2)
+            },
+            Isolation = new ProcessIsolationPolicy
+            {
+                Mode = ProcessIsolationMode.Isolated,
+                Network = NetworkEgressPolicy.Blocked,
+                Interactive = new ProcessInteractivePolicy { AllowStdin = true },
+                Environment = new EnvironmentAccessPolicy
+                {
+                    AllowedVariables = [],
+                    StripUnlistedVariables = true
+                },
+                Degradation = ProcessIsolationDegradationPolicy.FailClosed
+            },
+            PersistResource = false,
+            ObservationRetention = ObservationRetentionPolicy.ResultAndDiagnostics
+        });
+
+        const string body =
+            """{"seq":1,"type":"request","command":"initialize","arguments":{"adapterID":"netcoredbg","clientID":"hpd","clientName":"HPD","columnsStartAt1":true,"linesStartAt1":true,"pathFormat":"path"}}""";
+        await handle.WriteStdinAsync(
+            Encoding.UTF8.GetBytes($"Content-Length: {Encoding.UTF8.GetByteCount(body)}\r\n\r\n{body}"));
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var stdout = new StringBuilder();
+        var stderr = new StringBuilder();
+        try
+        {
+            await foreach (var chunk in handle.ReadOutputAsync(timeout.Token))
+            {
+                var text = Encoding.UTF8.GetString(chunk.Bytes.Span);
+                if (chunk.Stream == ProcessOutputStream.Stdout)
+                    stdout.Append(text);
+                else
+                    stderr.Append(text);
+                if (stdout.ToString().Contains("\"command\":\"initialize\"", StringComparison.Ordinal))
+                    break;
+            }
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+        }
+
+        stdout.ToString().Should().Contain(
+            "\"command\":\"initialize\"",
+            $"netcoredbg stderr was: {stderr}");
+
+        var program = System.Environment.GetEnvironmentVariable("HPD_DEBUG_PROGRAM");
+        if (string.IsNullOrWhiteSpace(program))
+            return;
+
+        var launchBody =
+            """{"seq":2,"type":"request","command":"launch","arguments":{"request":"launch","program":""" +
+            System.Text.Json.JsonSerializer.Serialize(program) +
+            ""","cwd":""" +
+            System.Text.Json.JsonSerializer.Serialize(Path.GetDirectoryName(program)) +
+            ""","stopAtEntry":true,"noDebug":false}}""";
+        await handle.WriteStdinAsync(
+            Encoding.UTF8.GetBytes($"Content-Length: {Encoding.UTF8.GetByteCount(launchBody)}\r\n\r\n{launchBody}"));
+
+        using var launchTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        try
+        {
+            await foreach (var chunk in handle.ReadOutputAsync(launchTimeout.Token))
+            {
+                var text = Encoding.UTF8.GetString(chunk.Bytes.Span);
+                if (chunk.Stream == ProcessOutputStream.Stdout)
+                    stdout.Append(text);
+                else
+                    stderr.Append(text);
+                if (stdout.ToString().Contains("\"event\":\"initialized\"", StringComparison.Ordinal))
+                    break;
+            }
+        }
+        catch (OperationCanceledException) when (launchTimeout.IsCancellationRequested)
+        {
+        }
+
+        stdout.ToString().Should().Contain(
+            "\"event\":\"initialized\"",
+            $"netcoredbg stderr was: {stderr}");
+
+        var source = System.Environment.GetEnvironmentVariable("HPD_DEBUG_SOURCE");
+        var nextSequence = 3;
+        if (!string.IsNullOrWhiteSpace(source))
+        {
+            var setBreakpoints =
+                """{"seq":3,"type":"request","command":"setBreakpoints","arguments":{"source":{"path":""" +
+                System.Text.Json.JsonSerializer.Serialize(source) +
+                """},"breakpoints":[{"line":7,"column":8}]}}""";
+            await handle.WriteStdinAsync(
+                Encoding.UTF8.GetBytes($"Content-Length: {Encoding.UTF8.GetByteCount(setBreakpoints)}\r\n\r\n{setBreakpoints}"));
+            nextSequence++;
+        }
+
+        var exceptionFilter = System.Environment.GetEnvironmentVariable("HPD_DEBUG_EXCEPTION_FILTER");
+        if (!string.IsNullOrWhiteSpace(exceptionFilter))
+        {
+            var setExceptionBreakpoints =
+                """{"seq":""" + nextSequence +
+                ""","type":"request","command":"setExceptionBreakpoints","arguments":{"filters":[""" +
+                System.Text.Json.JsonSerializer.Serialize(exceptionFilter) +
+                """]}}""";
+            await handle.WriteStdinAsync(
+                Encoding.UTF8.GetBytes($"Content-Length: {Encoding.UTF8.GetByteCount(setExceptionBreakpoints)}\r\n\r\n{setExceptionBreakpoints}"));
+            nextSequence++;
+        }
+
+        var configurationDone =
+            """{"seq":""" + nextSequence +
+            ""","type":"request","command":"configurationDone","arguments":{}}""";
+        await handle.WriteStdinAsync(
+            Encoding.UTF8.GetBytes($"Content-Length: {Encoding.UTF8.GetByteCount(configurationDone)}\r\n\r\n{configurationDone}"));
+
+        using var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        try
+        {
+            await foreach (var chunk in handle.ReadOutputAsync(stopTimeout.Token))
+            {
+                var text = Encoding.UTF8.GetString(chunk.Bytes.Span);
+                if (chunk.Stream == ProcessOutputStream.Stdout)
+                    stdout.Append(text);
+                else
+                    stderr.Append(text);
+                if (stdout.ToString().Contains("\"event\":\"stopped\"", StringComparison.Ordinal))
+                    break;
+            }
+        }
+        catch (OperationCanceledException) when (stopTimeout.IsCancellationRequested)
+        {
+        }
+
+        stdout.ToString().Should().Contain(
+            "\"event\":\"stopped\"",
+            $"netcoredbg stderr was: {stderr}");
+    }
+
     [Fact]
     public async Task Local_process_provider_registers_process_invocation_capability()
     {

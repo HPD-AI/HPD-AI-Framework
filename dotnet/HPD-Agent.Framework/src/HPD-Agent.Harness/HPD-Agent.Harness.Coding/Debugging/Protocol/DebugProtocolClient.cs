@@ -258,8 +258,8 @@ public sealed class DebugProtocolClient : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-        _lifetime.Cancel();
         SettleAll(new ObjectDisposedException(nameof(DebugProtocolClient)));
+        _lifetime.Cancel();
         try { await _transport.StopAsync(new(Reason: "PROTOCOL_CLIENT_DISPOSED")).ConfigureAwait(false); } catch { }
         try { await _reader.ConfigureAwait(false); } catch { }
         _events.Writer.TryComplete();
@@ -296,7 +296,25 @@ public sealed class DebugProtocolClient : IAsyncDisposable
         using var writeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         writeCts.CancelAfter(_options.WriteTimeout);
         await _writeLock.WaitAsync(writeCts.Token).ConfigureAwait(false);
-        try { await _transport.WriteProtocolAsync(frame, writeCts.Token).ConfigureAwait(false); }
+        try
+        {
+            var write = _transport.WriteProtocolAsync(frame, writeCts.Token).AsTask();
+            try
+            {
+                await write.WaitAsync(writeCts.Token).ConfigureAwait(false);
+            }
+            catch
+            {
+                if (!write.IsCompleted)
+                    _ = write.ContinueWith(
+                        static completed => _ = completed.Exception,
+                        CancellationToken.None,
+                        TaskContinuationOptions.OnlyOnFaulted |
+                            TaskContinuationOptions.ExecuteSynchronously,
+                        TaskScheduler.Default);
+                throw;
+            }
+        }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             await FaultAsync(new DebugProtocolException("WRITE_TIMEOUT", "The DAP protocol write timed out.")).ConfigureAwait(false);

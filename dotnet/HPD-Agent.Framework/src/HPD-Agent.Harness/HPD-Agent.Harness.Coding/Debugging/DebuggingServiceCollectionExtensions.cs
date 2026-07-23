@@ -2,7 +2,6 @@ using HPD.Agent.ToolHarness.Coding.Debugging.Generated;
 using HPD.Agent.ToolHarness.Coding.Debugging.Adapters;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
 using HPD.Agent;
-using HPD.Events;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -33,20 +32,33 @@ public static class DebuggingServiceCollectionExtensions
         services.TryAddSingleton<IDebugAdapterAvailabilityCache, DebugAdapterAvailabilityCache>();
         services.TryAddSingleton<IDebugAdapterTrustPolicy, DenyByDefaultDebugAdapterTrustPolicy>();
         services.TryAddSingleton<IDebugWorkspaceCanonicalizer, LexicalDebugWorkspaceCanonicalizer>();
+        services.TryAddSingleton<IDebugAdapterConfigurationComposer, BuiltInDebugAdapterConfigurationComposer>();
         services.TryAddSingleton<IDebugEndpointResolver, DenyAllDebugEndpointResolver>();
         services.TryAddSingleton<IDebugAdapterCatalogFailurePolicy, FailStartupDebugAdapterCatalogFailurePolicy>();
         services.TryAddSingleton<DebugAdapterSelector>();
         services.TryAddSingleton<DebugInitializePolicy>();
         services.TryAddSingleton<DebugProtocolTransportFactory>();
         services.TryAddSingleton<DebugSessionStartOrchestrator>();
+        services.TryAddSingleton<DebugRuntimeServiceFactory>();
+        services.TryAddSingleton<DebugResultFormatter>();
+        services.TryAddSingleton<DebugPermissionAuthorizationService>();
+        services.TryAddTransient<DebugPermissionMiddleware>();
+        services.TryAddSingleton(provider => new DebugStartPlanningService(
+            provider.GetRequiredService<DebugAdapterSelector>(),
+            provider.GetRequiredService<IDebugAdapterConfigurationComposer>(),
+            provider.GetRequiredService<IDebugAdapterTrustPolicy>(),
+            provider.GetRequiredService<DebugSessionStartOrchestrator>(),
+            provider.GetRequiredService<DebugResultFormatter>(),
+            provider.GetService<IDebugHostRequestBroker>(),
+            provider.GetService<IDebugChildSessionPlanFactory>()));
+        services.TryAddSingleton(provider => new DebugOperationDispatcher(
+            provider.GetRequiredService<DebugRuntimeServiceFactory>(),
+            provider.GetRequiredService<DebugResultFormatter>(),
+            provider.GetRequiredService<DebugPermissionAuthorizationService>(),
+            provider.GetRequiredService<DebugStartPlanningService>()));
         services.TryAddSingleton<DebugAdapterExtensionRegistry>();
         services.TryAddSingleton<IDebugAdapterExtensionHost>(provider =>
             provider.GetRequiredService<DebugAdapterExtensionRegistry>());
-        services.TryAddSingleton<IDebugEventPublisher>(provider => new DebugEventPublisher(
-            provider.GetRequiredService<IEventCoordinator>(),
-            provider.GetService<IThreadEventPublisher>()));
-        services.TryAddSingleton<IDebugLifecycleEventPublisher>(provider =>
-            provider.GetRequiredService<IDebugEventPublisher>());
         services.TryAddSingleton(provider => new DebugAdapterCatalog(
             provider.GetServices<IDebugAdapterCatalogProvider>(),
             provider,

@@ -56,6 +56,9 @@ using HPDOS.ToolHarnesses.Middleware;
 [JsonSerializable(typeof(ExecuteCommandPermissionStateData))]
 [JsonSerializable(typeof(ExecuteCommandBatchPermissionStateData))]
 [JsonSerializable(typeof(ExecuteCommandPermissionDecision))]
+[JsonSerializable(typeof(DebugPermissionStateData))]
+[JsonSerializable(typeof(DebugPermissionDecision))]
+[JsonSerializable(typeof(Dictionary<string, DebugPermissionDecision>))]
 [JsonSerializable(typeof(ExecuteCommandPermissionAuditDetails))]
 [JsonSerializable(typeof(ExecuteCommandSubcommandPlan))]
 [JsonSerializable(typeof(ExecuteCommandShellScope))]
@@ -125,6 +128,7 @@ using HPDOS.ToolHarnesses.Middleware;
 [JsonSerializable(typeof(List<FileMutationRange>), TypeInfoPropertyName = "FileMutationRangeList")]
 [JsonSerializable(typeof(IReadOnlyList<string>), TypeInfoPropertyName = "StringReadOnlyList")]
 [JsonSerializable(typeof(List<string>), TypeInfoPropertyName = "StringList")]
+[JsonSerializable(typeof(DebugOperation))]
 
 // Language server events
 [JsonSerializable(typeof(LanguageServerEvent))]

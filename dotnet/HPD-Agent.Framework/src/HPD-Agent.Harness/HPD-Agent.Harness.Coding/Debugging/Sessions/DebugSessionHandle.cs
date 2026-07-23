@@ -141,17 +141,20 @@ internal sealed class DebugSessionHandle :
         try
         {
             var tree = _manager.ResolveTree(_scope, _treeId);
-            metadata["activeDebugSessionId"] = tree.ActiveSessionId ?? string.Empty;
-            metadata["debugSessionCount"] = tree.Sessions.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            metadata["childSessionCount"] = tree.Sessions.Values.Count(x => x.ParentSessionId is not null)
+            var snapshot = DebugSnapshotProjector.Project(tree);
+            metadata["activeDebugSessionId"] = snapshot.ActiveDebugSessionId ?? string.Empty;
+            metadata["debugSessionCount"] = snapshot.SessionCount.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            metadata["debugSessionsTruncated"] = snapshot.SessionsTruncated.ToString();
+            metadata["childSessionCount"] = snapshot.ChildSessionCount
                 .ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var active = tree.ActiveSessionId is { } id && tree.Sessions.TryGetValue(id, out var selected) ? selected : null;
-            metadata["adapterId"] = active?.LaunchPlan.AdapterId ?? string.Empty;
-            metadata["retainedOutputBytes"] = tree.Sessions.Values.Sum(x => x.Output.Snapshot(true).RetainedBytes)
+            var active = snapshot.Sessions.FirstOrDefault(x =>
+                string.Equals(x.DebugSessionId, snapshot.ActiveDebugSessionId, StringComparison.Ordinal));
+            metadata["adapterId"] = active?.AdapterId ?? string.Empty;
+            metadata["retainedOutputBytes"] = snapshot.RetainedOutputBytes
                 .ToString(System.Globalization.CultureInfo.InvariantCulture);
-            metadata["droppedOutputBytes"] = tree.Sessions.Values.Sum(x => x.Output.Snapshot(true).DroppedBytes)
+            metadata["droppedOutputBytes"] = snapshot.DroppedOutputBytes
                 .ToString(System.Globalization.CultureInfo.InvariantCulture);
-            metadata["projectionFailures"] = tree.Sessions.Values.Sum(x => x.Projections.FollowUpFailures)
+            metadata["projectionFailures"] = snapshot.ProjectionFailures
                 .ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
         catch (KeyNotFoundException) { }
@@ -163,12 +166,7 @@ internal sealed class DebugSessionHandle :
         try
         {
             var tree = _manager.ResolveTree(_scope, _treeId);
-            var statuses = tree.Sessions.Values.Select(x => x.State.Status).ToArray();
-            if (statuses.Any(x => x == DebugSessionStatus.Faulted)) return "Faulted";
-            if (statuses.Any(x => x == DebugSessionStatus.Stopped)) return "Stopped";
-            if (statuses.Any(x => x == DebugSessionStatus.PartiallyStopped)) return "PartiallyStopped";
-            if (statuses.All(x => x == DebugSessionStatus.Terminated)) return "Terminated";
-            return "Running";
+            return DebugSnapshotProjector.Project(tree).Status;
         }
         catch (KeyNotFoundException) { return "Terminated"; }
     }

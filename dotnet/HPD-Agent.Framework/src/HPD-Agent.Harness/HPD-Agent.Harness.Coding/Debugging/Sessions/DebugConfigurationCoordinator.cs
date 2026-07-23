@@ -70,7 +70,20 @@ internal sealed class DebugConfigurationCoordinator
 
     public async Task AwaitStartBoundaryAsync(CancellationToken cancellationToken)
     {
-        await Task.WhenAll(_launch.Task, _configuration.Task).WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await Task.WhenAll(_launch.Task, _configuration.Task)
+                .WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch when (_launch.Task.IsFaulted && _configuration.Task.IsFaulted)
+        {
+            var launchError = _launch.Task.Exception!.InnerException!;
+            var configurationError = _configuration.Task.Exception!.InnerException!;
+            if (ReferenceEquals(launchError, configurationError))
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                    .Capture(launchError).Throw();
+            throw new DebugStartBoundaryException(launchError, configurationError);
+        }
     }
 
     public void ObserveTerminal(string reasonCode)
@@ -98,4 +111,16 @@ public sealed class DebugStartTerminatedException(string reasonCode)
     : InvalidOperationException($"The adapter terminated before debug start completed ({reasonCode}).")
 {
     public string ReasonCode { get; } = reasonCode;
+}
+
+public sealed class DebugStartBoundaryException(
+    Exception launchException,
+    Exception configurationException)
+    : InvalidOperationException(
+        $"Debugger launch/attach failed: {launchException.Message} " +
+        $"Debugger configuration also failed: {configurationException.Message}",
+        launchException)
+{
+    public Exception LaunchException { get; } = launchException;
+    public Exception ConfigurationException { get; } = configurationException;
 }

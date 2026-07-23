@@ -482,7 +482,14 @@ public static class SubAgentContexts
             ["enum"] = new JsonArray("fork", "fresh"),
             ["description"] = "Whether the child should inherit the current conversation or start fresh. Use fresh unless prior conversation is required."
         };
-        return JsonSerializer.SerializeToElement(schema);
+        var buffer = new System.Buffers.ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            schema.WriteTo(writer);
+        }
+
+        using var document = JsonDocument.Parse(buffer.WrittenMemory);
+        return document.RootElement.Clone();
     }
 
     /// <summary>

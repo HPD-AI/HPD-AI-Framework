@@ -125,12 +125,11 @@ internal class MultiAgentCapability : BaseCapability
         sb.AppendLine($"        RequiresPermission = {RequiresPermission.ToString().ToLower()},");
         sb.AppendLine("        SchemaProvider = () =>");
         sb.AppendLine("        {");
-        sb.AppendLine("            var options = new global::Microsoft.Extensions.AI.AIJsonSchemaCreateOptions { IncludeSchemaKeyword = false };");
-        sb.AppendLine($"            return global::Microsoft.Extensions.AI.AIJsonUtilities.CreateJsonSchema(");
-        sb.AppendLine($"                typeof({toolharness.ClassName}{(InvocationModePolicy == "ModelChoice" ? "MultiAgentInputWithModeArgs" : "MultiAgentInputArgs")}),");
-        sb.AppendLine("                serializerOptions: global::Microsoft.Extensions.AI.AIJsonUtilities.DefaultOptions,");
-        sb.AppendLine("                inferenceOptions: options");
-        sb.AppendLine("            );");
+        var multiAgentSchema = InvocationModePolicy == "ModelChoice"
+            ? "{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{\\\"input\\\":{\\\"type\\\":\\\"string\\\"},\\\"invocationMode\\\":{\\\"type\\\":[\\\"string\\\",\\\"null\\\"]}},\\\"additionalProperties\\\":false}"
+            : "{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{\\\"input\\\":{\\\"type\\\":\\\"string\\\"}},\\\"additionalProperties\\\":false}";
+        sb.AppendLine($"            using var schemaDocument = global::System.Text.Json.JsonDocument.Parse(\"{multiAgentSchema}\");");
+        sb.AppendLine("            return schemaDocument.RootElement.Clone();");
         sb.AppendLine("        },");
         sb.AppendLine("        AdditionalProperties = new System.Collections.Generic.Dictionary<string, object>");
         sb.AppendLine("        {");

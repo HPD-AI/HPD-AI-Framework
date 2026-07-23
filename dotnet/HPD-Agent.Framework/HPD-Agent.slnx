@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+
 <Solution>
   <Configurations>
     <Platform Name="Any CPU" />
@@ -110,6 +110,11 @@
     <Project Path="../HPD-Extract.Framework/src/HPD-Extract.Images/HPD-Extract.Images.csproj" />
     <Project Path="../HPD-Extract.Framework/src/HPD-Extract/HPD-Extract.csproj" />
     <Project Path="../shared/src/HPD-OpenApi.Core/HPD-OpenApi.Core.csproj" />
+  </Folder>
+  <Folder Name="/src/" />
+  <Folder Name="/src/HPD-Agent.Harness/" />
+  <Folder Name="/test/">
+    <Project Path="test/HPD-Agent.Debugging.AotSmoke/HPD-Agent.Debugging.AotSmoke.csproj" />
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="test/HPD-Agent.Tests/HPD-Agent.Tests.csproj" />

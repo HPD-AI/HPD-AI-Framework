@@ -353,6 +353,141 @@ public sealed class DebugProtocolClientTests
         await WaitUntilAsync(() => !client.ActiveProgressIds.Contains("p1"));
     }
 
+    [Fact]
+    public async Task Malformed_json_faults_transport_and_settles_every_pending_request()
+    {
+        await using var transport = new InMemoryDebugProtocolTransport();
+        await using var client = CreateInitializedTestClient(transport);
+        var first = client.SendAsync(DebugProtocolDescriptors.ThreadsRequest, new DapNoArguments()).AsTask();
+        var second = client.SendAsync(DebugProtocolDescriptors.ThreadsRequest, new DapNoArguments()).AsTask();
+        await ReadWrittenMessageAsync(transport);
+        await ReadWrittenMessageAsync(transport);
+
+        await transport.FeedProtocolAsync(DebugProtocolFramer.Encode("{not-json"u8));
+
+        foreach (var pending in new[] { first, second })
+        {
+            var action = async () => await pending;
+            await action.Should().ThrowAsync<DebugProtocolException>()
+                .Where(exception => exception.ReasonCode == "MALFORMED_JSON");
+        }
+        client.PendingRequestCount.Should().Be(0);
+        (await transport.WaitForExitAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2)))
+            .SafeReasonCode.Should().Be("PROTOCOL_FAULT");
+    }
+
+    [Fact]
+    public async Task Adapter_eof_and_disposal_settle_pending_requests_exactly_once()
+    {
+        var crashedTransport = new InMemoryDebugProtocolTransport();
+        await using (var crashedClient = CreateInitializedTestClient(crashedTransport))
+        {
+            var pending = crashedClient.SendAsync(
+                DebugProtocolDescriptors.ThreadsRequest, new DapNoArguments()).AsTask();
+            await ReadWrittenMessageAsync(crashedTransport);
+            crashedTransport.Complete(new(HPD.Environment.Contracts.ProcessCompletionKind.Exited, 23));
+
+            var action = async () => await pending;
+            await action.Should().ThrowAsync<DebugProtocolException>()
+                .Where(exception => exception.ReasonCode == "TRANSPORT_EOF");
+            crashedClient.PendingRequestCount.Should().Be(0);
+        }
+
+        var disposedTransport = new InMemoryDebugProtocolTransport();
+        var disposedClient = CreateInitializedTestClient(disposedTransport);
+        var disposedPending = disposedClient.SendAsync(
+            DebugProtocolDescriptors.ThreadsRequest, new DapNoArguments()).AsTask();
+        await ReadWrittenMessageAsync(disposedTransport);
+        await disposedClient.DisposeAsync();
+
+        var disposedAction = async () => await disposedPending;
+        await disposedAction.Should().ThrowAsync<ObjectDisposedException>();
+        disposedClient.PendingRequestCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Pending_and_reverse_request_limits_fail_boundedly_without_leaking_waiters()
+    {
+        await using var transport = new InMemoryDebugProtocolTransport();
+        await using var client = new DebugProtocolClient(transport, new DebugProtocolClientOptions
+        {
+            RequireInitializeFirst = false,
+            MaxPendingRequests = 1,
+            ReverseRequestTimeout = TimeSpan.FromMilliseconds(50)
+        });
+
+        var pending = client.SendAsync(
+            DebugProtocolDescriptors.ThreadsRequest, new DapNoArguments()).AsTask();
+        await ReadWrittenMessageAsync(transport);
+        var overLimit = () => client.SendAsync(
+            DebugProtocolDescriptors.ThreadsRequest, new DapNoArguments()).AsTask();
+        await overLimit.Should().ThrowAsync<DebugProtocolException>()
+            .Where(exception => exception.ReasonCode == "PENDING_REQUEST_LIMIT");
+
+        using var handler = client.RegisterReverseRequestHandler(
+            "fixtureReverse",
+            async (_, cancellationToken) =>
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return null;
+            });
+        await FeedAsync(transport,
+            """{"seq":91,"type":"request","command":"fixtureReverse","arguments":{}}""");
+        var response = await ReadWrittenMessageAsync(transport);
+        response.GetProperty("success").GetBoolean().Should().BeFalse();
+        response.GetProperty("message").GetString().Should().Be("timeout");
+
+        await client.DisposeAsync();
+        var pendingAction = async () => await pending;
+        await pendingAction.Should().ThrowAsync<ObjectDisposedException>();
+        client.PendingRequestCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Request_timeout_bounds_a_transport_write_that_ignores_cancellation()
+    {
+        await using var transport = new WedgedWriteTransport();
+        await using var client = new DebugProtocolClient(
+            transport,
+            new DebugProtocolClientOptions
+            {
+                RequireInitializeFirst = false,
+                WriteTimeout = TimeSpan.FromSeconds(30)
+            });
+
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        var request = async () => await client.SendAsync(
+            DebugProtocolDescriptors.ThreadsRequest,
+            new DapNoArguments(),
+            timeout: TimeSpan.FromMilliseconds(75));
+        await request.Should().ThrowAsync<OperationCanceledException>();
+
+        started.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1));
+        client.PendingRequestCount.Should().Be(0);
+        transport.WriteStarted.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Repeated_protocol_lifecycles_leave_no_pending_requests_or_live_transport()
+    {
+        for (var iteration = 0; iteration < 200; iteration++)
+        {
+            var transport = new InMemoryDebugProtocolTransport();
+            var client = CreateInitializedTestClient(transport);
+            var responseTask = client.SendAsync(
+                DebugProtocolDescriptors.ThreadsRequest, new DapNoArguments()).AsTask();
+            var request = await ReadWrittenMessageAsync(transport);
+            var sequence = request.GetProperty("seq").GetInt32();
+            await FeedAsync(transport, $$$$"""
+                {"seq":{{{{iteration + 1}}}},"type":"response","request_seq":{{{{sequence}}}},"success":true,"command":"threads","body":{"threads":[]}}
+                """);
+            (await responseTask).Threads.Should().BeEmpty();
+            await client.DisposeAsync();
+            client.PendingRequestCount.Should().Be(0);
+            transport.IsAlive.Should().BeFalse();
+        }
+    }
+
     private static async Task<JsonElement> ReadWrittenMessageAsync(InMemoryDebugProtocolTransport transport)
     {
         await foreach (var bytes in transport.ReadWrittenAsync().WithCancellation(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token))
@@ -378,6 +513,62 @@ public sealed class DebugProtocolClientTests
         {
             if (DateTime.UtcNow >= deadline) throw new TimeoutException();
             await Task.Delay(10);
+        }
+    }
+
+    private sealed class WedgedWriteTransport : IDebugProtocolTransport
+    {
+        private readonly TaskCompletionSource _stopped =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _disposed;
+
+        public bool WriteStarted { get; private set; }
+        public bool IsAlive => Volatile.Read(ref _disposed) == 0;
+
+        public async ValueTask<int> ReadProtocolAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            await _stopped.Task.WaitAsync(cancellationToken);
+            return 0;
+        }
+
+        public async ValueTask WriteProtocolAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            WriteStarted = true;
+            await _stopped.Task;
+        }
+
+        public async IAsyncEnumerable<DebugTransportDiagnosticChunk> ReadDiagnosticsAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation]
+            CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+
+        public async ValueTask<DebugTransportExit> WaitForExitAsync(
+            CancellationToken cancellationToken = default)
+        {
+            await _stopped.Task.WaitAsync(cancellationToken);
+            return new(HPD.Environment.Contracts.ProcessCompletionKind.Cancelled, null);
+        }
+
+        public ValueTask StopAsync(
+            DebugTransportStopRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            _stopped.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            Interlocked.Exchange(ref _disposed, 1);
+            _stopped.TrySetResult();
+            return ValueTask.CompletedTask;
         }
     }
 }

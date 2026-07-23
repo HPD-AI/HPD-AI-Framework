@@ -85,6 +85,7 @@ internal sealed class DebugSessionStartOrchestrator
                 RuntimeBinding = request.Runtime,
                 Authorization = DebugTreeAuthorization.Create(
                     request.Runtime, reservation.Ownership, request.LaunchPlan, request.IsAttach, request.Authorization),
+                RestartTemplate = request,
                 Artifacts = new DebugArtifactWriter(
                     request.ContentStore,
                     ContentScope.Create($"debug:{request.Runtime.SessionId}:{reservation.TreeId}"),
@@ -214,7 +215,10 @@ internal sealed class DebugSessionStartOrchestrator
 
             tree.AddSession(session);
             if (parentSessionId is not null && tree.Sessions.TryGetValue(parentSessionId, out var parent))
+            {
                 parent.ChildSessionIds.TryAdd(sessionId, 0);
+                tree.ActivateSession(sessionId);
+            }
             return session;
         }
         catch

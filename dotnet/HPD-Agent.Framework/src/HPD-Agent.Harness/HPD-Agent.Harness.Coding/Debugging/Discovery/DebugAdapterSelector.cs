@@ -65,7 +65,10 @@ public sealed class DebugAdapterSelector(
             context.Resolution.WorkspaceRoot,
             context.Resolution.TargetPlatform);
         DebugAdapterCatalogEntry[] entries = explicitSelection
-            ? catalog.TryGet(context.ExplicitAdapterId!, out var explicitEntry) && IsMetadataMatch(explicitEntry.Descriptor, context) ? [explicitEntry] : []
+            ? catalog.TryGet(context.ExplicitAdapterId!, out var explicitEntry) &&
+                IsMetadataMatch(explicitEntry.Descriptor, context, applyClassifier: false)
+                ? [explicitEntry]
+                : []
             : catalog.Entries.Where(entry => IsMetadataMatch(entry.Descriptor, context)).ToArray();
         if (entries.Length == 0)
             return new() { Kind = DebugAdapterSelectionKind.NoMatch };
@@ -125,7 +128,10 @@ public sealed class DebugAdapterSelector(
             : Result(DebugAdapterSelectionKind.Ambiguous, top, context.MaxReportedCandidates);
     }
 
-    private static bool IsMetadataMatch(DebugAdapterDescriptor descriptor, DebugAdapterSelectionContext context)
+    private static bool IsMetadataMatch(
+        DebugAdapterDescriptor descriptor,
+        DebugAdapterSelectionContext context,
+        bool applyClassifier = true)
     {
         const DebugTargetKind attachKinds = DebugTargetKind.Process | DebugTargetKind.RegisteredRemoteEndpoint;
         if (context.Operation == DebugAdapterSelectionOperation.Attach && (context.TargetKind & attachKinds) == 0)
@@ -138,6 +144,8 @@ public sealed class DebugAdapterSelector(
             context.RuntimeLanguageHint is not null &&
             !descriptor.Languages.Contains(context.RuntimeLanguageHint, StringComparer.OrdinalIgnoreCase))
             return false;
+        if (!applyClassifier)
+            return true;
         var hasClassifier = !string.IsNullOrWhiteSpace(context.Language) || !string.IsNullOrWhiteSpace(context.FileExtension);
         if (!hasClassifier)
             return true;

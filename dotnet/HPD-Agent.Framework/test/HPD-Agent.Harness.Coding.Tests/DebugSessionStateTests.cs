@@ -8,6 +8,31 @@ namespace HPD.Agent.ToolHarness.Coding.Tests;
 public sealed class DebugSessionStateTests
 {
     [Fact]
+    public async Task Shared_snapshot_projects_bounded_tree_session_and_output_state()
+    {
+        await using var transport = new InMemoryDebugProtocolTransport();
+        await using var manager = new DebugSessionManager();
+        var ownership = new DebugTreeOwnership(manager.RuntimeId, "owner", "thread", "tree", "env", 1);
+        await using var tree = Tree(ownership, "root", manager, Plan());
+        var root = Session("root", "root", transport);
+        root.State.Transition(DebugSessionStatus.Initializing);
+        root.State.Transition(DebugSessionStatus.Configuring);
+        root.State.ObserveThread(7);
+        root.State.ObserveStopped(7, allThreadsStopped: true, "breakpoint", "hit");
+        root.Output.Append("tree", "root", new() { Output = "hello\n", Category = "stdout" }, allowAnsi: false);
+        tree.AddSession(root);
+
+        var snapshot = DebugSnapshotProjector.Project(tree);
+
+        snapshot.DebugTreeId.Should().Be("tree");
+        snapshot.Status.Should().Be("Stopped");
+        snapshot.RetainedOutputBytes.Should().Be(6);
+        snapshot.Sessions.Should().ContainSingle().Which.Should().Match<DebugSessionSnapshot>(
+            x => x.DebugSessionId == "root" && x.ThreadCount == 1 &&
+                 x.StoppedThreadCount == 1 && x.StopReason == "breakpoint");
+    }
+
+    [Fact]
     public void Partial_stop_and_continue_update_only_the_identified_thread_and_epoch()
     {
         var state = RunningState(1, 2);
@@ -110,6 +135,10 @@ public sealed class DebugSessionStateTests
         tree.AddSession(child);
         child.State.Transition(DebugSessionStatus.Initializing);
         child.State.Transition(DebugSessionStatus.Configuring);
+        child.State.Transition(DebugSessionStatus.Running);
+        tree.ActivateSession("child");
+        tree.SelectSession().SessionId.Should().Be("child",
+            "a configured child is targetable before its first stopped event");
         child.State.ObserveThread(1);
         child.State.ObserveStopped(1, false, "entry", null);
 

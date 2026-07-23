@@ -242,7 +242,10 @@ internal sealed class DebugOutcomeWaitRegistration(Task<DebugThreadSnapshot> tas
 }
 
 public sealed class DebugSessionEndedException(DebugSessionStatus status)
-    : InvalidOperationException($"The debug session ended with status '{status}'.");
+    : InvalidOperationException($"The debug session ended with status '{status}'.")
+{
+    public DebugSessionStatus Status { get; } = status;
+}
 
 internal sealed class DebugSession : IAsyncDisposable
 {
@@ -310,6 +313,7 @@ internal sealed class DebugSessionTree : IAsyncDisposable
     public required DebugRuntimeBinding RuntimeBinding { get; init; }
     public required DebugTreeAuthorization Authorization { get; init; }
     public required DebugArtifactWriter Artifacts { get; init; }
+    public DebugSessionStartRequest? RestartTemplate { get; init; }
     public ITreeDebugEventPublisher? EventPublisher { get; init; }
     public DebugContinuationTokenRegistry Continuations { get; } = new();
     public DebugBreakpointStore Breakpoints { get; } = new();
@@ -352,6 +356,15 @@ internal sealed class DebugSessionTree : IAsyncDisposable
         if (id is null || !Sessions.TryGetValue(id, out var session))
             throw new KeyNotFoundException("No live debug protocol session is selectable.");
         return session;
+    }
+
+    public void ActivateSession(string sessionId)
+    {
+        if (!Sessions.TryGetValue(sessionId, out var session) ||
+            session.State.Status is DebugSessionStatus.Terminated or DebugSessionStatus.Faulted)
+            throw new KeyNotFoundException(
+                $"Live debug session '{sessionId}' is not selectable.");
+        lock (_activeGate) ActiveSessionId = sessionId;
     }
 
     public void ObserveStopped(string sessionId)

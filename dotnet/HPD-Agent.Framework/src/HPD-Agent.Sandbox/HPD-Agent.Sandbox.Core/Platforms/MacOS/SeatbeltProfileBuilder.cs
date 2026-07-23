@@ -483,11 +483,13 @@ public sealed class SeatbeltProfileBuilder
         var tmpdir = System.Environment.GetEnvironmentVariable("TMPDIR");
         if (!string.IsNullOrEmpty(tmpdir) && tmpdir.Contains("/var/folders/"))
         {
-            var parent = Path.GetDirectoryName(tmpdir.TrimEnd('/'));
-            if (parent != null)
-            {
-                _profile.AppendLine($"(allow file-write* (subpath \"{parent}\"))");
-            }
+            var normalizedTmp = Path.GetFullPath(tmpdir).TrimEnd('/');
+            _profile.AppendLine($"(allow file-write* (subpath \"{normalizedTmp}\"))");
+
+            // macOS exposes /var as a symlink to /private/var. Seatbelt reports and
+            // evaluates CLR diagnostic/debug pipe creation against the resolved path.
+            if (normalizedTmp.StartsWith("/var/", StringComparison.Ordinal))
+                _profile.AppendLine($"(allow file-write* (subpath \"/private{normalizedTmp}\"))");
         }
 
         _profile.AppendLine();

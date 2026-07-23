@@ -125,7 +125,8 @@ public class CodingToolHarnessAgentBuilderTests
         collapse.Middlewares.Should().BeEquivalentTo([
             typeof(EnvironmentContextMiddleware),
             typeof(CodingLanguageServerMiddleware),
-            typeof(ExecuteCommandPermissionMiddleware)
+            typeof(ExecuteCommandPermissionMiddleware),
+            typeof(DebugPermissionMiddleware)
         ]);
     }
 

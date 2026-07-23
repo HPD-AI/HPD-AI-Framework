@@ -76,6 +76,29 @@ jobs:
           9.0.x
           10.0.x
 
+    - name: Provision required debugger adapters
+      if: matrix.collect-coverage
+      shell: bash
+      run: |
+        DEBUGPY_ROOT="$RUNNER_TEMP/hpd-debugpy"
+        NETCOREDBG_ROOT="$RUNNER_TEMP/hpd-netcoredbg"
+        NETCOREDBG_ARCHIVE="$RUNNER_TEMP/netcoredbg-linux-amd64.tar.gz"
+
+        python3 -m venv "$DEBUGPY_ROOT"
+        "$DEBUGPY_ROOT/bin/python" -m pip install --disable-pip-version-check debugpy==1.8.21
+
+        curl --fail --location --silent --show-error \
+          --output "$NETCOREDBG_ARCHIVE" \
+          https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-linux-amd64.tar.gz
+        echo "080eb3b2d2152465f599d3b33d1ee6e747794e11cc0a3773ec689f5e5f2c5afa  $NETCOREDBG_ARCHIVE" \
+          | sha256sum --check
+        mkdir -p "$NETCOREDBG_ROOT"
+        tar -xzf "$NETCOREDBG_ARCHIVE" -C "$NETCOREDBG_ROOT"
+
+        echo "HPD_DEBUGPY_PYTHON=$DEBUGPY_ROOT/bin/python" >> "$GITHUB_ENV"
+        echo "HPD_NETCOREDBG=$NETCOREDBG_ROOT/netcoredbg/netcoredbg" >> "$GITHUB_ENV"
+        echo "HPD_DOTNET=$(command -v dotnet)" >> "$GITHUB_ENV"
+
     - name: Install Linux seccomp helper toolchain
       if: runner.os == 'Linux'
       run: |

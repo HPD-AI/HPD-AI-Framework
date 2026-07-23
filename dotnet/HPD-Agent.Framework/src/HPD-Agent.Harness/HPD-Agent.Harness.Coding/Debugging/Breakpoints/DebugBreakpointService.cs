@@ -1,10 +1,28 @@
+using System.Collections.Immutable;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol.Generated;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
 
+internal sealed record DebugBreakpointSnapshot(
+    DebugDesiredBreakpointSnapshot Desired,
+    ImmutableArray<DebugConfirmedBreakpoint> Confirmed,
+    string DebugSessionId);
+
 internal sealed class DebugBreakpointService(DebugSessionManager sessions)
 {
     private readonly DebugSessionManager _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
+
+    public DebugBreakpointSnapshot GetSnapshot(
+        DebugTreeLookupScope owner,
+        string treeId,
+        string? sessionId = null)
+    {
+        var (tree, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.Inspect);
+        return new DebugBreakpointSnapshot(
+            tree.Breakpoints.Snapshot,
+            session.ConfirmedBreakpoints.Snapshot,
+            session.SessionId);
+    }
 
     public ValueTask SetSourceAsync(DebugTreeLookupScope owner, string treeId, string? sessionId,
         IReadOnlyList<DebugSourceBreakpoint> breakpoints, CancellationToken cancellationToken = default)
@@ -78,6 +96,23 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
         }, cancellationToken);
     }
 
+    public ValueTask SetInstructionTokensAsync(
+        DebugTreeLookupScope owner,
+        string treeId,
+        string? sessionId,
+        IReadOnlyList<(string Token, long? Offset, string? Condition, string? HitCondition)> breakpoints,
+        CancellationToken cancellationToken = default)
+    {
+        var (_, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.InstructionBreakpoints);
+        var resolved = breakpoints.Select(item => new DebugInstructionBreakpoint(
+            session.Projections.ResolveTextToken(item.Token, "instruction", out _, out _),
+            item.Offset,
+            item.Condition,
+            item.HitCondition,
+            Portable: false)).ToArray();
+        return SetInstructionAsync(owner, treeId, session.SessionId, resolved, cancellationToken);
+    }
+
     public ValueTask SetDataAsync(DebugTreeLookupScope owner, string treeId, string? sessionId,
         IReadOnlyList<DebugDataBreakpoint> breakpoints, CancellationToken cancellationToken = default)
     {
@@ -94,6 +129,24 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
                 { DataId = x.DataId, AccessType = x.AccessType is null ? null : new(x.AccessType), Condition = x.Condition, HitCondition = x.HitCondition }).ToList() }, ct).ConfigureAwait(false);
             session.ConfirmedBreakpoints.Replace(DebugBreakpointKind.Data, response.Breakpoints);
         }, cancellationToken);
+    }
+
+    public ValueTask SetDataTokensAsync(
+        DebugTreeLookupScope owner,
+        string treeId,
+        string? sessionId,
+        IReadOnlyList<(string Token, string? AccessType, string? Condition, string? HitCondition)> breakpoints,
+        CancellationToken cancellationToken = default)
+    {
+        var (_, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.DataBreakpoints);
+        var resolved = breakpoints.Select(item => new DebugDataBreakpoint(
+            session.Projections.ResolveDataBreakpointToken(item.Token),
+            item.AccessType,
+            item.Condition,
+            item.HitCondition,
+            Portable: false,
+            OriginSessionId: session.SessionId)).ToArray();
+        return SetDataAsync(owner, treeId, session.SessionId, resolved, cancellationToken);
     }
 
     private (DebugSessionTree Tree, DebugSession Session) Resolve(

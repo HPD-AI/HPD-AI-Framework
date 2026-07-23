@@ -107,6 +107,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         {
             var function = funcInfo.Function;
             var functionName = funcInfo.FunctionName;
+            var permissionKey = GetPermissionKey(functionName, funcInfo.Arguments);
 
             // Check if permission is required (run config + builder override + attribute)
             var attributeRequiresPermission = function is HPDAIFunctionFactory.HPDAIFunction hpdFunction
@@ -120,7 +121,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             // No permission required - auto-approve
             if (!effectiveRequiresPermission)
             {
-                batchState = batchState.RecordApproval(functionName);
+                batchState = batchState.RecordApproval(permissionKey);
                 continue;
             }
 
@@ -128,19 +129,19 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             var permissionResult = await CheckSinglePermissionAsync(
                 context,
                 function,
-                functionName,
+                permissionKey,
                 funcInfo.CallId,
                 funcInfo.Arguments,
                 cancellationToken).ConfigureAwait(false);
 
             if (permissionResult.IsApproved)
             {
-                batchState = batchState.RecordApproval(functionName);
+                batchState = batchState.RecordApproval(permissionKey);
             }
             else
             {
                 batchState = batchState.RecordDenial(
-                    functionName,
+                    permissionKey,
                     permissionResult.DenialReason,
                     permissionResult.DeniedBehavior);
             }
@@ -172,6 +173,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             return;
         
         var functionName = function.Name;
+        var permissionKey = GetPermissionKey(functionName, context.Arguments);
 
         // Check if permission is required (run config + builder override + attribute)
         var attributeRequiresPermission = function is HPDAIFunctionFactory.HPDAIFunction hpdFunction
@@ -198,21 +200,21 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         );
 
         // If already approved in batch, allow execution immediately
-        if (batchState.ApprovedFunctions.Contains(functionName))
+        if (batchState.ApprovedFunctions.Contains(permissionKey))
         {
             return;
         }
 
         // If already denied in batch, block execution immediately
-        if (batchState.DeniedFunctions.Contains(functionName))
+        if (batchState.DeniedFunctions.Contains(permissionKey))
         {
             context.BlockExecution = true;
             var denialReason = batchState.DenialReasons.GetValueOrDefault(
-                functionName,
+                permissionKey,
                 "Permission denied in batch approval");
             context.OverrideResult = denialReason;
             var deniedBehavior = batchState.DenialBehaviors.GetValueOrDefault(
-                functionName,
+                permissionKey,
                 PermissionDeniedBehavior.InterruptTurn);
             if (deniedBehavior == PermissionDeniedBehavior.InterruptTurn)
                 await InterruptDeniedPermissionAsync(context, denialReason, cancellationToken).ConfigureAwait(false);
@@ -227,13 +229,13 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         if (permState != null)
         {
             // Check for stored permission choice (session-scoped)
-            var storedChoice = permState.GetPermission(functionName);
+            var storedChoice = permState.GetPermission(permissionKey);
 
             // Apply stored choice if found
             if (storedChoice == PermissionChoice.AlwaysAllow)
             {
                 // Record approval in batch state for parallel optimization
-                var updatedBatchState = batchState.RecordApproval(functionName);
+                var updatedBatchState = batchState.RecordApproval(permissionKey);
                 context.UpdateState(s => s with
                 {
                     MiddlewareState = s.MiddlewareState.WithBatchPermission(updatedBatchState)
@@ -245,10 +247,10 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
 
             if (storedChoice == PermissionChoice.AlwaysDeny)
             {
-                var denialReason = $"Execution of '{functionName}' was denied by a stored user preference.";
+                var denialReason = $"Execution of '{permissionKey}' was denied by a stored user preference.";
 
                 // Record denial in batch state for parallel optimization
-                var updatedBatchState = batchState.RecordDenial(functionName, denialReason);
+                var updatedBatchState = batchState.RecordDenial(permissionKey, denialReason);
                 context.UpdateState(s => s with
                 {
                     MiddlewareState = s.MiddlewareState.WithBatchPermission(updatedBatchState)
@@ -275,7 +277,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 new PermissionRequestEvent(
                     permissionId,
                     _middlewareName,
-                    functionName,
+                    permissionKey,
                     function.Description ?? "No description available",
                     callId,
                     context.Arguments != null ? new Dictionary<string, object?>(context.Arguments) : null))
@@ -312,8 +314,8 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 context.UpdateState(s =>
                 {
                     var currentPermState = s.MiddlewareState.PermissionPersistent() ?? new();
-                    var updatedPermState = currentPermState.WithPermission(functionName, response.Choice);
-                    var updatedBatchState = batchState.RecordApproval(functionName);
+                    var updatedPermState = currentPermState.WithPermission(permissionKey, response.Choice);
+                    var updatedBatchState = batchState.RecordApproval(permissionKey);
 
                     return s with
                     {
@@ -326,7 +328,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             else
             {
                 // Just update batch state (don't persist "Ask" choice)
-                var updatedBatchState = batchState.RecordApproval(functionName);
+                var updatedBatchState = batchState.RecordApproval(permissionKey);
                 context.UpdateState(s => s with
                 {
                     MiddlewareState = s.MiddlewareState.WithBatchPermission(updatedBatchState)
@@ -344,7 +346,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
 
             // Record denial in batch state (for parallel execution optimization)
             var updatedBatchState = batchState.RecordDenial(
-                functionName,
+                permissionKey,
                 denialReason,
                 response.DeniedBehavior);
             context.UpdateState(s => s with
@@ -389,7 +391,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
     private async Task<(bool IsApproved, string DenialReason, PermissionDeniedBehavior DeniedBehavior)> CheckSinglePermissionAsync(
         BeforeParallelBatchContext context,
         AIFunction function,
-        string functionName,
+        string permissionKey,
         string callId,
         IReadOnlyDictionary<string, object?> arguments,
         CancellationToken cancellationToken)
@@ -398,7 +400,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         var permState = context.Analyze(s => s.MiddlewareState.PermissionPersistent());
         if (permState != null)
         {
-            var storedChoice = permState.GetPermission(functionName);
+            var storedChoice = permState.GetPermission(permissionKey);
 
             if (storedChoice == PermissionChoice.AlwaysAllow)
             {
@@ -407,7 +409,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
 
             if (storedChoice == PermissionChoice.AlwaysDeny)
             {
-                return (false, $"Execution of '{functionName}' was denied by a stored user preference.", PermissionDeniedBehavior.InterruptTurn);
+                return (false, $"Execution of '{permissionKey}' was denied by a stored user preference.", PermissionDeniedBehavior.InterruptTurn);
             }
         }
 
@@ -421,7 +423,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 new PermissionRequestEvent(
                     permissionId,
                     _middlewareName,
-                    functionName,
+                    permissionKey,
                     function.Description ?? "No description available",
                     callId,
                     arguments != null ? new Dictionary<string, object?>(arguments) : null))
@@ -446,7 +448,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
                 context.UpdateState(s =>
                 {
                     var currentPermState = s.MiddlewareState.PermissionPersistent() ?? new();
-                    var updatedPermState = currentPermState.WithPermission(functionName, response.Choice);
+                    var updatedPermState = currentPermState.WithPermission(permissionKey, response.Choice);
 
                     return s with
                     {
@@ -480,5 +482,24 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             functionName,
             attributeRequiresPermission)
             ?? attributeRequiresPermission;
+    }
+
+    private static string GetPermissionKey(
+        string functionName,
+        IReadOnlyDictionary<string, object?>? arguments)
+    {
+        if (arguments is null)
+            return functionName;
+
+        foreach (var argument in arguments.Values)
+        {
+            if (argument is not IActionScopedPermission scoped ||
+                string.IsNullOrWhiteSpace(scoped.PermissionScope))
+                continue;
+
+            return $"{functionName}:{scoped.PermissionScope}";
+        }
+
+        return functionName;
     }
 }
