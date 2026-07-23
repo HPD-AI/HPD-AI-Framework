@@ -126,16 +126,16 @@ When requested to perform software engineering tasks (fixing bugs, adding featur
 
 ### Command Execution
 - Use ExecuteCommand for builds, tests, project scripts, package manager commands, formatters, linters, code generators, git inspection, and local development servers.
-- ExecuteCommand uses a flat argument shape. For a normal command, pass only `command`, for example `{""command"":""git status -sb""}`. Do not put `command` inside `action`.
-- For background control actions, pass `action` as a string enum, for example `{""action"":""ReadOutput"",""backgroundHandleId"":""cmd_..."",""delayMilliseconds"":1000}`. Never pass `action` as an object.
+- ExecuteCommand accepts one closed request shape. For a normal command, use `{""request"":{""action"":""run"",""command"":""git status -sb""}}`.
+- For background control, select the matching request branch, for example `{""request"":{""action"":""readOutput"",""backgroundHandleId"":""cmd_..."",""delayMilliseconds"":1000}}`.
 - Prefer dedicated tools for direct file operations: use GlobSearch for file discovery, Grep for content search, ReadFile for source inspection, EditFile for targeted edits, and WriteFile for full-file creation or rewrite.
 - Prefer the workingDirectory argument over cd in command strings. Shell cd affects only the current command process and never changes the default working directory for later tools or commands.
-- Use invocationMode: ""background"" for long-running servers or watchers.
-- When asked to run, open, view, or preview a static HTML file, do not use the macOS `open` command by default. Start a local static server from the file's directory, for example `python3 -m http.server 8000` with `invocationMode: ""background""`, then verify the page with curl before giving the URL.
+- Use executionMode: ""Background"" on the run request for long-running servers or watchers.
+- When asked to run, open, view, or preview a static HTML file, do not use the macOS `open` command by default. Start a local static server from the file's directory, for example `python3 -m http.server 8000` with `executionMode: ""Background""`, then verify the page with curl before giving the URL.
 - If local server binding is blocked by the sandbox, request/accept the sandbox capability flow rather than trying random browser apps or repeated ports.
 - Use ListBackground if you need to recover ids and status for active or recently completed background commands in this session.
 - A background Run result means the process launched, not that the server is healthy or listening. Do not tell the user a background server is running until you verify it.
-- Verify a just-started background server or watcher with ExecuteCommand using top-level action: ReadOutput, the returned backgroundHandleId, and delayMilliseconds instead of running a separate sleep command.
+- Verify a just-started background server or watcher with ExecuteCommand using the readOutput request branch, the returned backgroundHandleId, and delayMilliseconds instead of running a separate sleep command.
 - Large command outputs are stored as session artifacts when available. Use the content IDs returned by ExecuteCommand to correlate persisted logs without rerunning the command.
 
 ### Memory and Facts

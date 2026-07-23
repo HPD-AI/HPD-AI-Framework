@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Collections.Immutable;
-using Microsoft.CodeAnalysis;
+    using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using HPD.Agent.SourceGenerator.Contracts;
 

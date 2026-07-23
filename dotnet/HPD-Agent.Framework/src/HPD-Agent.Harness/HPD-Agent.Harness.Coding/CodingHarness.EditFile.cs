@@ -1280,12 +1280,17 @@ public partial class CodingToolHarness
     private static partial Regex TrailingWhitespaceRegex();
 }
 
-public sealed record FileEditReplacement
-{
-    public required string OldString { get; init; }
-    public required string NewString { get; init; }
-    public bool ReplaceAll { get; init; }
-}
+/// <summary>Describes one exact text replacement applied by <see cref="CodingToolHarness.EditFile"/>.</summary>
+/// <param name="OldString">The existing text to locate.</param>
+/// <param name="NewString">The complete replacement text.</param>
+/// <param name="ReplaceAll">Whether every occurrence may be replaced.</param>
+public sealed record FileEditReplacement(
+    [property: Description("The exact existing text to replace. Do not include ReadFile line-number prefixes.")]
+    string OldString,
+    [property: Description("The complete replacement text.")]
+    string NewString,
+    [property: Description("Whether to replace every occurrence. Omit or use false when oldString must identify one unique occurrence.")]
+    bool ReplaceAll = false);
 
 internal sealed record EditReadValidationResult(
     ReadFileSnapshot? PriorRead,

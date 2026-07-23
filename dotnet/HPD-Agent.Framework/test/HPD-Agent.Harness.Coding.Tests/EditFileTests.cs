@@ -171,13 +171,13 @@ public sealed class EditFileTests : IDisposable
         var replaceAll = await EditFileTextAsync(agentContext, toolharness, "A.cs", "cat", "fox", replaceAll: true);
         var multi = await EditFileTextAsync(agentContext, toolharness, "A.cs",
         [
-            new FileEditReplacement { OldString = "fox", NewString = "wolf", ReplaceAll = true },
-            new FileEditReplacement { OldString = "dog", NewString = "hound" }
+            new FileEditReplacement("fox", "wolf", ReplaceAll: true),
+            new FileEditReplacement("dog", "hound")
         ]);
         var overlap = await EditFileTextAsync(agentContext, toolharness, "A.cs",
         [
-            new FileEditReplacement { OldString = "hound", NewString = "hound pup" },
-            new FileEditReplacement { OldString = "pup", NewString = "puppy" }
+            new FileEditReplacement("hound", "hound pup"),
+            new FileEditReplacement("pup", "puppy")
         ]);
 
         ambiguous.Should().Contain("kind=\"ambiguous_match\"");
@@ -486,7 +486,7 @@ public sealed class EditFileTests : IDisposable
         string oldString,
         string newString,
         bool replaceAll = false)
-        => EditFileTextAsync(agentContext, toolharness, path, [new FileEditReplacement { OldString = oldString, NewString = newString, ReplaceAll = replaceAll }]);
+        => EditFileTextAsync(agentContext, toolharness, path, [new FileEditReplacement(oldString, newString, replaceAll)]);
 
     private static async Task<string> EditFileTextAsync(
         AgentContext agentContext,
@@ -502,7 +502,7 @@ public sealed class EditFileTests : IDisposable
         string oldString,
         string newString,
         bool replaceAll = false)
-        => EditFileWithContextAsync(agentContext, toolharness, path, [new FileEditReplacement { OldString = oldString, NewString = newString, ReplaceAll = replaceAll }]);
+        => EditFileWithContextAsync(agentContext, toolharness, path, [new FileEditReplacement(oldString, newString, replaceAll)]);
 
     private static async Task<(object? Result, ToolResultMetadata Metadata)> EditFileWithContextAsync(
         AgentContext agentContext,

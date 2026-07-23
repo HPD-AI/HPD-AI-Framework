@@ -1063,7 +1063,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
     public void Analyzer_InvalidSandboxPolicy_ReturnsInvalidRequestWithoutThrowing()
     {
         var act = () => ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
-            new Dictionary<string, object?> { ["command"] = "git status -sb" },
+            RunArguments("git status -sb"),
             CreateWorkspaceRunConfigWithSandboxOverride(false),
             new ExecuteCommandOptions(),
             new ExecuteCommandShellScope
@@ -1448,7 +1448,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         ExecuteCommandShellFamily shellFamily = ExecuteCommandShellFamily.Zsh,
         ExecuteCommandSandboxPolicy? sandboxPolicy = null)
         => ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
-            new Dictionary<string, object?> { ["command"] = command },
+            RunArguments(command),
             CreateWorkspaceRunConfig(sandboxPolicy),
             new ExecuteCommandOptions(),
             new ExecuteCommandShellScope
@@ -1542,7 +1542,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         => agentContext.AsBeforeFunction(
             ExecuteCommandFunction(),
             callId,
-            new Dictionary<string, object?> { ["command"] = command },
+            RunArguments(command),
             runConfig ?? CreateWorkspaceRunConfig(),
             toolharnessName: nameof(CodingToolHarness),
             skillName: null);
@@ -1554,7 +1554,17 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         => new(
             ExecuteCommandFunction(),
             callId,
-            new Dictionary<string, object?> { ["command"] = command });
+            RunArguments(command));
+
+    private static IReadOnlyDictionary<string, object?> RunArguments(string command)
+        => new Dictionary<string, object?>
+        {
+            ["request"] = new Dictionary<string, object?>
+            {
+                ["action"] = "run",
+                ["command"] = command
+            }
+        };
 
     private static IDisposable RespondToPermissionRequests(
         EventCoordinator coordinator,

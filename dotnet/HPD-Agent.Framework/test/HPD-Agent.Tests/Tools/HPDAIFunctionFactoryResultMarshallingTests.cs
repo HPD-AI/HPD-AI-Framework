@@ -66,6 +66,34 @@ public class HPDAIFunctionFactoryResultMarshallingTests
     }
 
     [Fact]
+    public async Task FunctionExecutionCore_NormalizesProviderArgumentsForGeneratedBinding()
+    {
+        BoundTestArguments? invokedArguments = null;
+        var function = HPDAIFunctionFactory.Create(
+            (arguments, _, _) =>
+            {
+                invokedArguments = arguments.GetBoundArguments<BoundTestArguments>();
+                return Task.FromResult<object?>("ok");
+            },
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "RuntimeIngress",
+                ArgumentBinder = json => AIFunctionBindingResult.Success(
+                    new BoundTestArguments(json.GetProperty("value").GetString()!))
+            });
+        IReadOnlyDictionary<string, object?> providerArguments =
+            new Dictionary<string, object?> { ["value"] = JsonSerializer.SerializeToElement("bound") };
+        var arguments = FunctionExecutionCore.CreateInvocationArguments(providerArguments);
+
+        var result = await Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(function)
+            .InvokeAsync(arguments, CreateContext(function), CancellationToken.None);
+
+        Assert.Equal("ok", result);
+        Assert.Equal("bound", invokedArguments!.Value);
+        Assert.Equal("bound", arguments.GetJson().GetProperty("value").GetString());
+    }
+
+    [Fact]
     public void HPDAIFunction_ExposesStableComposedContractDescriptor()
     {
         JsonElement Schema()

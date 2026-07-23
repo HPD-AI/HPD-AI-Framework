@@ -322,18 +322,26 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
             ExecuteCommandOptions options,
             ExecuteCommandShellScope? shellOverride = null)
         {
-            var action = GetEnum(arguments, "action", ExecuteCommandAction.Run);
-            var command = GetString(arguments, "command");
-            var backgroundHandleId = GetString(arguments, "backgroundHandleId");
-            var workingDirectory = GetString(arguments, "workingDirectory");
-            var timeoutMilliseconds = GetInt(arguments, "timeoutMilliseconds", 120_000);
-            var startsInBackground = string.Equals(
-                GetString(arguments, "invocationMode"),
-                "background",
-                StringComparison.OrdinalIgnoreCase);
-            var tailLines = GetInt(arguments, "tailLines", 200);
-            var delayMilliseconds = GetInt(arguments, "delayMilliseconds", 0);
-            var environment = GetStringDictionary(arguments, "environment");
+            var requestArguments = GetRequestArguments(arguments);
+            var action = GetString(requestArguments, "action") switch
+            {
+                "run" => ExecuteCommandAction.Run,
+                "listBackground" => ExecuteCommandAction.ListBackground,
+                "readOutput" => ExecuteCommandAction.ReadOutput,
+                "stop" => ExecuteCommandAction.Stop,
+                _ => ExecuteCommandAction.Run
+            };
+            var command = GetString(requestArguments, "command");
+            var backgroundHandleId = GetString(requestArguments, "backgroundHandleId");
+            var workingDirectory = GetString(requestArguments, "workingDirectory");
+            var timeoutMilliseconds = GetInt(requestArguments, "timeoutMilliseconds", 120_000);
+            var startsInBackground = GetEnum(
+                requestArguments,
+                "executionMode",
+                CommandExecutionMode.Synchronous) == CommandExecutionMode.Background;
+            var tailLines = GetInt(requestArguments, "tailLines", 200);
+            var delayMilliseconds = GetInt(requestArguments, "delayMilliseconds", 0);
+            var environment = GetStringDictionary(requestArguments, "environment");
 
             var normalized = CodingToolHarness.NormalizeExecuteCommandRequest(
                 action,
@@ -608,6 +616,30 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
 
         private static string? GetString(IReadOnlyDictionary<string, object?> arguments, string key)
             => arguments.TryGetValue(key, out var value) ? ConvertToString(value) : null;
+
+        private static IReadOnlyDictionary<string, object?> GetRequestArguments(
+            IReadOnlyDictionary<string, object?> arguments)
+        {
+            if (!arguments.TryGetValue("request", out var value) || value is null)
+                return EmptyArguments;
+
+            if (value is IReadOnlyDictionary<string, object?> readOnly)
+                return readOnly;
+
+            if (value is IDictionary<string, object?> dictionary)
+                return new Dictionary<string, object?>(dictionary, StringComparer.Ordinal);
+
+            if (value is JsonElement { ValueKind: JsonValueKind.Object } element)
+                return element.EnumerateObject().ToDictionary(
+                    property => property.Name,
+                    property => (object?)property.Value.Clone(),
+                    StringComparer.Ordinal);
+
+            return EmptyArguments;
+        }
+
+        private static readonly IReadOnlyDictionary<string, object?> EmptyArguments =
+            new Dictionary<string, object?>(StringComparer.Ordinal);
 
         private static string? ConvertToString(object? value)
             => value switch
@@ -1078,7 +1110,14 @@ internal static class ExecuteCommandPermissionRuleLifecycle
         };
 
         return ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
-            new Dictionary<string, object?> { ["command"] = rule.Pattern },
+            new Dictionary<string, object?>
+            {
+                ["request"] = new Dictionary<string, object?>
+                {
+                    ["action"] = "run",
+                    ["command"] = rule.Pattern
+                }
+            },
             runConfig,
             new ExecuteCommandOptions(),
             rule.Shell);

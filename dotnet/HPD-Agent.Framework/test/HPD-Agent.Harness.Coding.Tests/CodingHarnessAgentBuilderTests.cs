@@ -173,13 +173,13 @@ public class CodingToolHarnessAgentBuilderTests
     public void CodingToolHarnessPrompt_IncludesExecuteCommandGuidance()
     {
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Use ExecuteCommand for builds, tests, project scripts");
-        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("pass only `command`");
-        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Never pass `action` as an object");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("one closed request shape");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("\"action\":\"readOutput\"");
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Prefer the workingDirectory argument over cd");
-        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Use invocationMode: \"background\" for long-running servers or watchers.");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Use executionMode: \"Background\" on the run request for long-running servers or watchers.");
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("Use ListBackground if you need to recover ids");
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("background Run result means the process launched");
-        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("top-level action: ReadOutput");
+        CodingToolHarnessPrompts.SystemPrompt.Should().Contain("the readOutput request branch");
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("delayMilliseconds instead of running a separate sleep command");
         CodingToolHarnessPrompts.SystemPrompt.Should().Contain("content IDs returned by ExecuteCommand");
     }
@@ -232,13 +232,11 @@ public class CodingToolHarnessAgentBuilderTests
                 ["fixedStrings"] = true
             });
 
-            listResult.Should().BeOfType<string>()
-                .Which.Should().Contain("<directory")
+            GetStringResult(listResult).Should().Contain("<directory")
                 .And.NotContain("Offset must be greater than or equal to 1.")
                 .And.NotContain("Limit must be between 1 and 1000.");
 
-            globResult.Should().BeOfType<string>()
-                .Which.Should().Contain("<glob")
+            GetStringResult(globResult).Should().Contain("<glob")
                 .And.NotContain("Offset must be greater than or equal to 1.")
                 .And.NotContain("Limit must be between 1 and 1000.")
                 .And.NotContain("Path is required.");
@@ -267,8 +265,19 @@ public class CodingToolHarnessAgentBuilderTests
         if (tool is not HPDAIFunctionFactory.HPDAIFunction hpdFunction)
             return await tool.InvokeAsync(arguments);
 
+        arguments.SetJson(JsonSerializer.SerializeToElement(
+            arguments.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)));
         return await hpdFunction.InvokeAsync(arguments, CreateFunctionContext(tool));
     }
+
+    private static string GetStringResult(object? result)
+        => result switch
+        {
+            string text => text,
+            JsonElement { ValueKind: JsonValueKind.String } element => element.GetString()!,
+            JsonElement element => element.GetRawText(),
+            _ => throw new InvalidOperationException($"Expected a string tool result, but received {result?.GetType().FullName ?? "null"}.")
+        };
 
     private static IReadOnlyList<string> GetCodingFunctions(SubAgent subAgent)
     {

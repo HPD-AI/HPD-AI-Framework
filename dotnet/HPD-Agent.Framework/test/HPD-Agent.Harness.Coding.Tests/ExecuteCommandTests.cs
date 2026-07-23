@@ -201,7 +201,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public async Task ExecuteCommand_EmptyRunCommand_ReturnsValidationError()
     {
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(new FakeProcessProvider()),
             command: "   ");
 
@@ -213,7 +213,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public async Task ExecuteCommand_MissingWorkingDirectory_ReturnsValidationError()
     {
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(new FakeProcessProvider()),
             command: "dotnet test",
             workingDirectory: "missing");
@@ -243,7 +243,7 @@ public sealed class ExecuteCommandTests : IDisposable
             }
         };
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(new FakeProcessProvider(), runConfig: runConfig),
             command: "ls");
 
@@ -257,7 +257,7 @@ public sealed class ExecuteCommandTests : IDisposable
         var filePath = Path.Combine(_tempRoot, "not-a-directory.txt");
         await File.WriteAllTextAsync(filePath, "hello");
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(new FakeProcessProvider()),
             command: "dotnet test",
             workingDirectory: filePath);
@@ -273,7 +273,7 @@ public sealed class ExecuteCommandTests : IDisposable
         Directory.CreateDirectory(docsRoot);
         var runner = new FakeProcessProvider();
 
-        await new CodingToolHarness().ExecuteCommand(
+        await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner, runConfig: CreateWorkspaceRunConfig(_tempRoot, docsRoot)),
             command: "pwd");
 
@@ -286,7 +286,7 @@ public sealed class ExecuteCommandTests : IDisposable
     {
         var runner = new FakeProcessProvider();
 
-        await new CodingToolHarness().ExecuteCommand(
+        await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "dotnet test");
 
@@ -304,7 +304,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Mode = ExecuteCommandIsolationMode.Disabled
         };
 
-        await new CodingToolHarness().ExecuteCommand(
+        await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner, runConfig: runConfig),
             command: "dotnet test");
 
@@ -319,7 +319,7 @@ public sealed class ExecuteCommandTests : IDisposable
         var runConfig = CreateWorkspaceRunConfig();
         runConfig.ContextOverrides![ExecuteCommandSandboxPolicy.ContextKey] = false;
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner, runConfig: runConfig),
             command: "dotnet test");
 
@@ -354,7 +354,7 @@ public sealed class ExecuteCommandTests : IDisposable
             }
         };
 
-        await new CodingToolHarness().ExecuteCommand(
+        await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner, runConfig: runConfig),
             command: "npm install");
 
@@ -448,7 +448,7 @@ public sealed class ExecuteCommandTests : IDisposable
             CancellationToken.None);
         RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
         var runConfig = CreateWorkspaceRunConfig();
-        var arguments = new Dictionary<string, object?> { ["command"] = "node server.js" };
+        var arguments = RunArguments("node server.js");
         var beforeContext = agentContext.AsBeforeFunction(
             function,
             "call-1",
@@ -474,7 +474,7 @@ public sealed class ExecuteCommandTests : IDisposable
         var executionContext = new FunctionExecutionContext(beforeContext, request);
 
         var result = await new CodingToolHarness()
-            .ExecuteCommand(context: executionContext, command: "node server.js")
+            .ExecuteCommandCore(context: executionContext, command: "node server.js")
             .ConfigureAwait(false);
 
         result.ToString().Should().Contain("Server running");
@@ -487,7 +487,7 @@ public sealed class ExecuteCommandTests : IDisposable
     public void ExecuteCommandPermissionBoundary_SandboxModeChangesPermissionFingerprint()
     {
         var sandboxed = ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
-            new Dictionary<string, object?> { ["command"] = "npm install" },
+            RunArguments("npm install"),
             CreateWorkspaceRunConfig(),
             new ExecuteCommandOptions(),
             new ExecuteCommandShellScope { Executable = "zsh", Family = ExecuteCommandShellFamily.Zsh });
@@ -497,7 +497,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Mode = ExecuteCommandIsolationMode.Disabled
         };
         var unsandboxed = ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
-            new Dictionary<string, object?> { ["command"] = "npm install" },
+            RunArguments("npm install"),
             unsandboxedConfig,
             new ExecuteCommandOptions(),
             new ExecuteCommandShellScope { Executable = "zsh", Family = ExecuteCommandShellFamily.Zsh });
@@ -516,7 +516,7 @@ public sealed class ExecuteCommandTests : IDisposable
             ["mode"] = "disabled"
         };
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(new FakeProcessProvider(), runConfig: runConfig),
             command: "dotnet test");
 
@@ -531,7 +531,7 @@ public sealed class ExecuteCommandTests : IDisposable
         Directory.CreateDirectory(docsRoot);
         var runner = new FakeProcessProvider();
 
-        await new CodingToolHarness().ExecuteCommand(
+        await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner, runConfig: CreateWorkspaceRunConfig(_tempRoot, docsRoot)),
             command: "pwd",
             workingDirectory: "@docs");
@@ -549,7 +549,7 @@ public sealed class ExecuteCommandTests : IDisposable
         {
             var runner = new FakeProcessProvider();
 
-            var result = await new CodingToolHarness().ExecuteCommand(
+            var result = await new CodingToolHarness().ExecuteCommandCore(
                 context: CreateContext(runner, runConfig: CreateWorkspaceRunConfig(_tempRoot)),
                 command: "pwd",
                 workingDirectory: outside);
@@ -585,12 +585,12 @@ public sealed class ExecuteCommandTests : IDisposable
     {
         var runner = new FakeProcessProvider();
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             action: action,
             command: command,
             backgroundHandleId: backgroundHandleId,
             workingDirectory: workingDirectory,
-            invocationMode: startsInBackground ? "background" : null,
+            startsInBackground: startsInBackground,
             tailLines: tailLines,
             delayMilliseconds: delayMilliseconds,
             context: CreateContext(runner));
@@ -615,7 +615,7 @@ public sealed class ExecuteCommandTests : IDisposable
     {
         var runner = new FakeProcessProvider();
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             action: ExecuteCommandAction.ReadOutput,
             backgroundHandleId: "cmd_1",
             timeoutMilliseconds: timeoutMilliseconds,
@@ -640,7 +640,7 @@ public sealed class ExecuteCommandTests : IDisposable
             MaxInlineCommandOutputChars = 1024
         });
 
-        var result = await toolharness.ExecuteCommand(
+        var result = await toolharness.ExecuteCommandCore(
             context: CreateContext(runner),
             command: "printf hello",
             timeoutMilliseconds: 1_000,
@@ -677,7 +677,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: "\u001B[31mwarning\u001B[0m\u0007\n", exitCode: 0)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "printf warning");
 
@@ -699,7 +699,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: "artifact stdout\n", stderr: "artifact stderr\n", exitCode: 0)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner, store, contentStore: contentStore),
             command: "dotnet test");
 
@@ -733,7 +733,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: "preview survives\n", exitCode: 0)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner, contentStore: new ThrowingContentStore()),
             command: "dotnet test");
 
@@ -772,7 +772,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stderr: "failed\n", exitCode: 2)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "dotnet test");
 
@@ -789,7 +789,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: "", exitCode: 1)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "rg MissingSymbol src");
 
@@ -808,7 +808,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: stdout, exitCode: 0)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "dotnet test");
 
@@ -827,7 +827,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: CreateStream([0, 1, 2, 3, 4], "\0\u0001\u0002\u0003\u0004"), exitCode: 0)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "cat image.png");
 
@@ -845,7 +845,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: CreateStream([0xFF, 0xFE, (byte)'o', (byte)'k'], text), exitCode: 0)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "printf bytes");
 
@@ -856,7 +856,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public async Task ExecuteCommand_MissingRunner_FailsClosed()
     {
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner: null),
             command: "dotnet test");
 
@@ -871,7 +871,7 @@ public sealed class ExecuteCommandTests : IDisposable
             Result = CreateResult(stdout: "", stderr: "", exitCode: 0)
         };
 
-        var result = await new CodingToolHarness().ExecuteCommand(
+        var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner),
             command: "mkdir -p src/generated");
 
@@ -893,27 +893,27 @@ public sealed class ExecuteCommandTests : IDisposable
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(100)
         });
 
-        var start = await toolharness.ExecuteCommand(
+        var start = await toolharness.ExecuteCommandCore(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId),
             command: "npm run dev",
-            invocationMode: "background");
+            startsInBackground: true);
         var startXml = start.ToString();
 
         startXml.Should().Contain("background=\"true\"");
         startXml.Should().Contain("background_handle_id=\"");
         startXml.Should().Contain("startup_status=\"launched_not_verified\"");
         startXml.Should().Contain("Background start only means the process launched.");
-        startXml.Should().Contain("action=\"ReadOutput\"");
+        startXml.Should().Contain("a readOutput request");
         var handleId = ExtractAttribute(startXml!, "background_handle_id");
 
-        var list = await toolharness.ExecuteCommand(
+        var list = await toolharness.ExecuteCommandCore(
             action: ExecuteCommandAction.ListBackground,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId));
         var listXml = list.ToString();
         listXml.Should().Contain(handleId);
         listXml.Should().Contain("npm run dev");
 
-        var otherSessionList = await toolharness.ExecuteCommand(
+        var otherSessionList = await toolharness.ExecuteCommandCore(
             action: ExecuteCommandAction.ListBackground,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: $"other-{Guid.NewGuid():N}"));
         otherSessionList.ToString().Should().Contain("count=\"0\"");
@@ -921,7 +921,7 @@ public sealed class ExecuteCommandTests : IDisposable
         completion.SetResult(CreateResult(stdout: "server ready\n", exitCode: 0));
         await registry.WhenIdleAsync();
 
-        var read = await toolharness.ExecuteCommand(
+        var read = await toolharness.ExecuteCommandCore(
             action: ExecuteCommandAction.ReadOutput,
             backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId));
@@ -943,15 +943,15 @@ public sealed class ExecuteCommandTests : IDisposable
         });
         var context = CreateContext(runner, backgroundTasks: registry, sessionId: sessionId);
 
-        var start = await toolharness.ExecuteCommand(
+        var start = await toolharness.ExecuteCommandCore(
             context: context,
             command: "python3 app.py",
-            invocationMode: "background");
+            startsInBackground: true);
         var handleId = ExtractAttribute(start.ToString()!, "background_handle_id");
         completion.SetResult(CreateResult(stderr: "\u001B[31mserver warning\u001B[0m\u0007\n", exitCode: 0));
         await registry.WhenIdleAsync();
 
-        var read = await toolharness.ExecuteCommand(
+        var read = await toolharness.ExecuteCommandCore(
             action: ExecuteCommandAction.ReadOutput,
             backgroundHandleId: handleId,
             context: context);
@@ -981,10 +981,10 @@ public sealed class ExecuteCommandTests : IDisposable
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(100)
         });
 
-        var result = await toolharness.ExecuteCommand(
+        var result = await toolharness.ExecuteCommandCore(
             context: context,
             command: "python3 -m http.server 8080",
-            invocationMode: "background");
+            startsInBackground: true);
         var xml = result.ToString();
 
         xml.Should().NotContain("background_handle_id=\"");
@@ -1025,10 +1025,10 @@ public sealed class ExecuteCommandTests : IDisposable
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
 
-        var start = await toolharness.ExecuteCommand(
+        var start = await toolharness.ExecuteCommandCore(
             context: CreateContext(runner, backgroundTasks: registry, eventCoordinator: coordinator, sessionId: sessionId),
             command: "python3 -m http.server 8000",
-            invocationMode: "background");
+            startsInBackground: true);
         var startXml = start.ToString();
 
         startXml.Should().Contain("background=\"true\"");
@@ -1057,20 +1057,20 @@ public sealed class ExecuteCommandTests : IDisposable
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
 
-        var start = await toolharness.ExecuteCommand(
+        var start = await toolharness.ExecuteCommandCore(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: ownerSessionId),
             command: "npm run dev",
-            invocationMode: "background");
+            startsInBackground: true);
         var handleId = ExtractAttribute(start.ToString()!, "background_handle_id");
 
         completion.SetResult(CreateResult(stdout: "private output\n", exitCode: 0));
         await registry.WhenIdleAsync();
 
-        var otherSessionRead = await toolharness.ExecuteCommand(
+        var otherSessionRead = await toolharness.ExecuteCommandCore(
             action: ExecuteCommandAction.ReadOutput,
             backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: otherSessionId));
-        var ownerRead = await toolharness.ExecuteCommand(
+        var ownerRead = await toolharness.ExecuteCommandCore(
             action: ExecuteCommandAction.ReadOutput,
             backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: ownerSessionId));
@@ -1097,13 +1097,13 @@ public sealed class ExecuteCommandTests : IDisposable
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
 
-        var start = await toolharness.ExecuteCommand(
+        var start = await toolharness.ExecuteCommandCore(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: ownerSessionId),
             command: "npm run dev",
-            invocationMode: "background");
+            startsInBackground: true);
         var handleId = ExtractAttribute(start.ToString()!, "background_handle_id");
 
-        var otherSessionStop = await toolharness.ExecuteCommand(
+        var otherSessionStop = await toolharness.ExecuteCommandCore(
             action: ExecuteCommandAction.Stop,
             backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: otherSessionId));
@@ -1113,7 +1113,7 @@ public sealed class ExecuteCommandTests : IDisposable
         runner.LastHandle!.StopCalls.Should().Be(0);
 
         completion.SetResult(CreateResult(stdout: "stopped\n", exitCode: null, completionKind: ProcessCompletionKind.Stopped));
-        var ownerStop = await toolharness.ExecuteCommand(
+        var ownerStop = await toolharness.ExecuteCommandCore(
             action: ExecuteCommandAction.Stop,
             backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: ownerSessionId));
@@ -1150,9 +1150,19 @@ public sealed class ExecuteCommandTests : IDisposable
             new Thread("session-1", "test-agent") { Id = "thread-1" },
             CancellationToken.None);
         RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
-        var arguments = new Dictionary<string, object?> { ["action"] = action };
+        var requestArguments = new Dictionary<string, object?>
+        {
+            ["action"] = action switch
+            {
+                ExecuteCommandAction.ListBackground => "listBackground",
+                ExecuteCommandAction.ReadOutput => "readOutput",
+                ExecuteCommandAction.Stop => "stop",
+                _ => throw new ArgumentOutOfRangeException(nameof(action))
+            }
+        };
         if (backgroundHandleId is not null)
-            arguments["backgroundHandleId"] = backgroundHandleId;
+            requestArguments["backgroundHandleId"] = backgroundHandleId;
+        var arguments = new Dictionary<string, object?> { ["request"] = requestArguments };
 
         var beforeContext = agentContext.AsBeforeFunction(
             function,
@@ -1181,7 +1191,7 @@ public sealed class ExecuteCommandTests : IDisposable
             });
 
         var result = await new CodingToolHarness()
-            .ExecuteCommand(
+            .ExecuteCommandCore(
                 action: action,
                 backgroundHandleId: backgroundHandleId,
                 context: executionContext)
@@ -1207,14 +1217,14 @@ public sealed class ExecuteCommandTests : IDisposable
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
 
-        var first = await toolharness.ExecuteCommand(
+        var first = await toolharness.ExecuteCommandCore(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId),
             command: "npm run dev",
-            invocationMode: "background");
-        var second = await toolharness.ExecuteCommand(
+            startsInBackground: true);
+        var second = await toolharness.ExecuteCommandCore(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId),
             command: "npm run dev",
-            invocationMode: "background");
+            startsInBackground: true);
 
         first.ToString().Should().Contain("background=\"true\"");
         second.ToString().Should().Contain("kind=\"background_limit_exceeded\"");
@@ -1238,14 +1248,14 @@ public sealed class ExecuteCommandTests : IDisposable
             BackgroundStartSettleDelay = TimeSpan.FromMilliseconds(1)
         });
 
-        var start = await toolharness.ExecuteCommand(
+        var start = await toolharness.ExecuteCommandCore(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId),
             command: "npm run dev",
-            invocationMode: "background");
+            startsInBackground: true);
         var handleId = ExtractAttribute(start.ToString()!, "background_handle_id");
 
         completion.SetResult(CreateResult(stdout: "stopped\n", exitCode: null, completionKind: ProcessCompletionKind.Stopped));
-        var stop = await toolharness.ExecuteCommand(
+        var stop = await toolharness.ExecuteCommandCore(
             action: ExecuteCommandAction.Stop,
             backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId));
@@ -1259,7 +1269,7 @@ public sealed class ExecuteCommandTests : IDisposable
         registry.LastDescriptor.Metadata.Should().ContainKey(BackgroundTaskNotificationMetadataKeys.SuppressNotificationReason)
             .WhoseValue.Should().Be("handled-by-foreground-stop");
 
-        var secondStop = await toolharness.ExecuteCommand(
+        var secondStop = await toolharness.ExecuteCommandCore(
             action: ExecuteCommandAction.Stop,
             backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId));
@@ -1283,7 +1293,7 @@ public sealed class ExecuteCommandTests : IDisposable
             AutoBackgroundAfter = TimeSpan.FromMilliseconds(1)
         });
 
-        var start = await toolharness.ExecuteCommand(
+        var start = await toolharness.ExecuteCommandCore(
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId),
             command: "npm run dev");
         var startXml = start.ToString();
@@ -1296,7 +1306,7 @@ public sealed class ExecuteCommandTests : IDisposable
         await registry.WhenIdleAsync();
 
         var handleId = ExtractAttribute(startXml!, "background_handle_id");
-        var read = await toolharness.ExecuteCommand(
+        var read = await toolharness.ExecuteCommandCore(
             action: ExecuteCommandAction.ReadOutput,
             backgroundHandleId: handleId,
             context: CreateContext(runner, backgroundTasks: registry, sessionId: sessionId));
@@ -1318,7 +1328,7 @@ public sealed class ExecuteCommandTests : IDisposable
             MaxOutputChunkEventChars = 10
         });
 
-        var result = await toolharness.ExecuteCommand(
+        var result = await toolharness.ExecuteCommandCore(
             context: CreateContext(runner),
             command: "printf lots");
 
@@ -1363,7 +1373,7 @@ public sealed class ExecuteCommandTests : IDisposable
             return ValueTask.CompletedTask;
         });
 
-        var commandTask = new CodingToolHarness().ExecuteCommand(
+        var commandTask = new CodingToolHarness().ExecuteCommandCore(
             context: context,
             command: "dotnet test");
 
@@ -1411,7 +1421,7 @@ public sealed class ExecuteCommandTests : IDisposable
             ProgressAfter = TimeSpan.Zero
         });
 
-        await toolharness.ExecuteCommand(
+        await toolharness.ExecuteCommandCore(
             context: context,
             command: "npm run dev");
 
@@ -1540,7 +1550,14 @@ public sealed class ExecuteCommandTests : IDisposable
             CancellationToken.None);
         RegisterProcessExecution(agentContext.RuntimeCapabilities, runner);
 
-        var arguments = new Dictionary<string, object?> { ["command"] = command };
+        var arguments = new Dictionary<string, object?>
+        {
+            ["request"] = new Dictionary<string, object?>
+            {
+                ["action"] = "run",
+                ["command"] = command
+            }
+        };
         var beforeContext = agentContext.AsBeforeFunction(
             function,
             "call-1",
@@ -1568,7 +1585,7 @@ public sealed class ExecuteCommandTests : IDisposable
         var executionContext = new FunctionExecutionContext(beforeContext, request);
 
         return await new CodingToolHarness()
-            .ExecuteCommand(context: executionContext, command: command)
+            .ExecuteCommandCore(context: executionContext, command: command)
             .ConfigureAwait(false);
     }
 
@@ -1580,6 +1597,16 @@ public sealed class ExecuteCommandTests : IDisposable
                 Name = nameof(CodingToolHarness.ExecuteCommand),
                 Description = "Test ExecuteCommand function"
             });
+
+    private static IReadOnlyDictionary<string, object?> RunArguments(string command)
+        => new Dictionary<string, object?>
+        {
+            ["request"] = new Dictionary<string, object?>
+            {
+                ["action"] = "run",
+                ["command"] = command
+            }
+        };
 
     private static IDisposable RespondToPermissionRequests(
         EventCoordinator coordinator,

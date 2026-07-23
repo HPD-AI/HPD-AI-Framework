@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Xml;
 using HPD.Agent;
@@ -32,28 +33,82 @@ public partial class CodingToolHarness
     private const int DefaultExecuteCommandMaxOutputChunkEventsPerCommand = 10_000;
     private const int MaxExecuteCommandTailLines = 2_000;
 
-    [AIFunction(
-        InvocationModePolicy = AgentInvocationModePolicy.ModelChoice,
-        InvocationModeHandling = AgentInvocationModeHandling.ToolBody)]
-        [Description("Runs, lists, inspects, or stops shell commands for the coding workspace. Use Run for builds, tests, project scripts, package managers, git inspection, code generation, formatters, linters, and local servers. Use ListBackground, ReadOutput, or Stop only for background commands previously started by this function.")]
+    /// <summary>
+    /// Runs or manages a command using one closed, action-specific request contract.
+    /// </summary>
+    /// <param name="request">The command operation selected by its action discriminator.</param>
+    /// <param name="context">The current function execution context.</param>
+    /// <param name="cancellationToken">A token that cancels the operation.</param>
+    /// <returns>The command result or a structured command error.</returns>
+    [AIFunction]
+    [Description("Runs, lists, inspects, or stops shell commands for the coding workspace. Select exactly one action shape. Use run for builds, tests, project scripts, package managers, git inspection, code generation, formatters, linters, and local servers. Use listBackground, readOutput, or stop only for background commands previously started by this function.")]
     public async Task<object> ExecuteCommand(
-        [Description("Operation to perform as a string enum. Omit this for normal command runs, or pass Run, ListBackground, ReadOutput, or Stop. Do not pass an object for action.")]
+        [Description("The closed command operation to perform.")]
+        ExecuteCommandOperation request,
+        FunctionExecutionContext context = null!,
+        CancellationToken cancellationToken = default)
+        => request switch
+        {
+            RunCommandOperation run => await ExecuteCommandCore(
+                ExecuteCommandAction.Run,
+                run.Command,
+                backgroundHandleId: null,
+                run.WorkingDirectory,
+                run.TimeoutMilliseconds,
+                run.ExecutionMode == CommandExecutionMode.Background,
+                tailLines: 200,
+                delayMilliseconds: 0,
+                run.Environment,
+                context,
+                cancellationToken).ConfigureAwait(false),
+            ListBackgroundCommandsOperation => await ExecuteCommandCore(
+                ExecuteCommandAction.ListBackground,
+                command: null,
+                backgroundHandleId: null,
+                workingDirectory: null,
+                DefaultExecuteCommandTimeoutMilliseconds,
+                startsInBackground: false,
+                tailLines: 200,
+                delayMilliseconds: 0,
+                environment: null,
+                context,
+                cancellationToken).ConfigureAwait(false),
+            ReadCommandOutputOperation read => await ExecuteCommandCore(
+                ExecuteCommandAction.ReadOutput,
+                command: null,
+                read.BackgroundHandleId,
+                workingDirectory: null,
+                DefaultExecuteCommandTimeoutMilliseconds,
+                startsInBackground: false,
+                read.TailLines,
+                read.DelayMilliseconds,
+                environment: null,
+                context,
+                cancellationToken).ConfigureAwait(false),
+            StopCommandOperation stop => await ExecuteCommandCore(
+                ExecuteCommandAction.Stop,
+                command: null,
+                stop.BackgroundHandleId,
+                workingDirectory: null,
+                DefaultExecuteCommandTimeoutMilliseconds,
+                startsInBackground: false,
+                tailLines: 200,
+                delayMilliseconds: 0,
+                environment: null,
+                context,
+                cancellationToken).ConfigureAwait(false),
+            _ => throw new ArgumentOutOfRangeException(nameof(request))
+        };
+
+    internal async Task<object> ExecuteCommandCore(
         ExecuteCommandAction action = ExecuteCommandAction.Run,
-        [Description("The shell command to execute. Required when action is Run. For normal commands use this top-level argument. Do not nest command under action. Do not use for ListBackground, ReadOutput, or Stop.")]
         string? command = null,
-        [Description("Background handle id returned by a previous background Run. Required when action is ReadOutput or Stop. Do not use for Run or ListBackground.")]
         string? backgroundHandleId = null,
-        [Description("Optional working directory for Run only. Relative paths are resolved from the selected workspace root shown in environment_context.")]
         string? workingDirectory = null,
-        [Description("Optional timeout in milliseconds for Run only. Defaults to 120000.")]
         int timeoutMilliseconds = DefaultExecuteCommandTimeoutMilliseconds,
-        [Description("For Run only, set to background to start the command in the background and return a handle id immediately. Omit or set synchronous for normal command runs.")]
-        string? invocationMode = null,
-        [Description("For ReadOutput only, maximum number of recent combined output lines to return.")]
+        bool startsInBackground = false,
         int tailLines = 200,
-        [Description("For ReadOutput only, optional delay in milliseconds before reading output. Useful immediately after starting servers or watchers.")]
         int delayMilliseconds = 0,
-        [Description("Optional environment variables to add or override for this command.")]
         IReadOnlyDictionary<string, string>? environment = null,
         FunctionExecutionContext context = null!,
         CancellationToken cancellationToken = default)
@@ -66,7 +121,7 @@ public partial class CodingToolHarness
             backgroundHandleId,
             workingDirectory,
             timeoutMilliseconds,
-            IsExecuteCommandBackgroundInvocation(invocationMode),
+            startsInBackground,
             tailLines,
             delayMilliseconds,
             environment,
@@ -102,9 +157,6 @@ public partial class CodingToolHarness
             context,
             cancellationToken).ConfigureAwait(false);
     }
-
-    private static bool IsExecuteCommandBackgroundInvocation(string? invocationMode)
-        => string.Equals(invocationMode, "background", StringComparison.OrdinalIgnoreCase);
 
     private async Task<string> RunExecuteCommandBackgroundAsync(
         ExecuteCommandRequest request,
@@ -757,14 +809,14 @@ public partial class CodingToolHarness
                                                      startsInBackground ||
                                                      tailLines != 200 ||
                                                      delayMilliseconds != 0
-                => "ListBackground accepts no command, backgroundHandleId, workingDirectory, environment, invocationMode, tailLines, or delayMilliseconds arguments.",
+                => "ListBackground accepts no command, backgroundHandleId, workingDirectory, environment, executionMode, tailLines, or delayMilliseconds arguments.",
             ExecuteCommandAction.ReadOutput when string.IsNullOrWhiteSpace(backgroundHandleId)
                 => "ReadOutput requires backgroundHandleId.",
             ExecuteCommandAction.ReadOutput when !string.IsNullOrWhiteSpace(command) ||
                                                 !string.IsNullOrWhiteSpace(workingDirectory) ||
                                                 environment is not null ||
                                                 startsInBackground
-                => "ReadOutput does not accept command, workingDirectory, environment, or invocationMode.",
+                => "ReadOutput does not accept command, workingDirectory, environment, or executionMode.",
             ExecuteCommandAction.Stop when string.IsNullOrWhiteSpace(backgroundHandleId)
                 => "Stop requires backgroundHandleId.",
             ExecuteCommandAction.Stop when !string.IsNullOrWhiteSpace(command) ||
@@ -773,7 +825,7 @@ public partial class CodingToolHarness
                                           startsInBackground ||
                                           tailLines != 200 ||
                                           delayMilliseconds != 0
-                => "Stop does not accept command, workingDirectory, environment, invocationMode, tailLines, or delayMilliseconds arguments.",
+                => "Stop does not accept command, workingDirectory, environment, executionMode, tailLines, or delayMilliseconds arguments.",
             _ => null
         };
     }
@@ -938,7 +990,7 @@ public partial class CodingToolHarness
         writer.WriteAttributeString("output_path", outputPath);
         writer.WriteAttributeString("startup_status", "launched_not_verified");
         writer.WriteStartElement("verification_hint");
-        writer.WriteString("Background start only means the process launched. Use ExecuteCommand with action=\"ReadOutput\", backgroundHandleId, and delayMilliseconds to verify server readiness before telling the user it is running.");
+        writer.WriteString("Background start only means the process launched. Use ExecuteCommand with a readOutput request containing backgroundHandleId and delayMilliseconds to verify server readiness before telling the user it is running.");
         writer.WriteEndElement();
         writer.WriteEndElement();
         writer.Flush();
@@ -1658,6 +1710,66 @@ public partial class CodingToolHarness
         return environment.ToDictionary(pair => pair.Key, pair => (string?)pair.Value, StringComparer.Ordinal);
     }
 
+}
+
+/// <summary>Closed model-facing command operation.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "action")]
+[JsonDerivedType(typeof(RunCommandOperation), "run")]
+[JsonDerivedType(typeof(ListBackgroundCommandsOperation), "listBackground")]
+[JsonDerivedType(typeof(ReadCommandOutputOperation), "readOutput")]
+[JsonDerivedType(typeof(StopCommandOperation), "stop")]
+public abstract record ExecuteCommandOperation;
+
+/// <summary>Runs a new shell command.</summary>
+/// <param name="Command">The shell command to execute.</param>
+/// <param name="WorkingDirectory">An optional workspace-relative working directory.</param>
+/// <param name="TimeoutMilliseconds">The foreground timeout in milliseconds.</param>
+/// <param name="ExecutionMode">Whether the spawned command remains attached or returns a background handle.</param>
+/// <param name="Environment">Environment variables to add or override.</param>
+public sealed record RunCommandOperation(
+    [property: Description("The shell command to execute.")]
+    string Command,
+    [property: Description("Optional working directory. Relative paths are resolved from the selected workspace root.")]
+    string? WorkingDirectory = null,
+    [property: Description("Timeout in milliseconds. Defaults to 120000.")]
+    int TimeoutMilliseconds = 120_000,
+    [property: Description("Whether to wait for completion or start the command in the background and return a handle.")]
+    CommandExecutionMode ExecutionMode = CommandExecutionMode.Synchronous,
+    [property: Description("Optional environment variables to add or override.")]
+    IReadOnlyDictionary<string, string>? Environment = null)
+    : ExecuteCommandOperation;
+
+/// <summary>Lists background commands owned by the current session.</summary>
+public sealed record ListBackgroundCommandsOperation : ExecuteCommandOperation;
+
+/// <summary>Reads recent output from a background command.</summary>
+/// <param name="BackgroundHandleId">The handle returned by a background run.</param>
+/// <param name="TailLines">The maximum number of recent combined output lines.</param>
+/// <param name="DelayMilliseconds">An optional delay before reading output.</param>
+public sealed record ReadCommandOutputOperation(
+    [property: Description("Background handle id returned by a previous background run.")]
+    string BackgroundHandleId,
+    [property: Description("Maximum number of recent combined output lines to return.")]
+    int TailLines = 200,
+    [property: Description("Optional delay in milliseconds before reading output.")]
+    int DelayMilliseconds = 0)
+    : ExecuteCommandOperation;
+
+/// <summary>Stops a background command.</summary>
+/// <param name="BackgroundHandleId">The handle returned by a background run.</param>
+public sealed record StopCommandOperation(
+    [property: Description("Background handle id returned by a previous background run.")]
+    string BackgroundHandleId)
+    : ExecuteCommandOperation;
+
+/// <summary>Controls whether a spawned command runs synchronously or in the background.</summary>
+public enum CommandExecutionMode
+{
+    /// <summary>Wait for the command to finish or reach its foreground timeout.</summary>
+    Synchronous,
+
+    /// <summary>Start the command and return a background handle immediately.</summary>
+    Background
 }
 
 public enum ExecuteCommandAction

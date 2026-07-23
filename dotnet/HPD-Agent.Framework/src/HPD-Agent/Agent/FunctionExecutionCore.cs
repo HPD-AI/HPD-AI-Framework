@@ -1,6 +1,7 @@
 using HPD.Agent.Middleware;
 using HPD.Agent.ClientTools;
 using Microsoft.Extensions.AI;
+using System.Text.Json;
 
 namespace HPD.Agent;
 
@@ -462,7 +463,9 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                         beforeFunctionContext,
                         req);
 
-                    var args = new AIFunctionArguments(new Dictionary<string, object?>(req.Arguments));
+                    var args = CreateInvocationArguments(
+                        req.Arguments,
+                        functionCall.Arguments as AIFunctionArguments);
                     if (req.Function is HPDAIFunctionFactory.HPDAIFunction hpdFunction)
                     {
                         return await hpdFunction.InvokeAsync(args, functionContext, cancellationToken).ConfigureAwait(false);
@@ -487,6 +490,21 @@ internal sealed class FunctionExecutionCore : IFunctionExecutionCore
                 new ToolResultMetadata(),
                 ex);
         }
+    }
+
+    internal static AIFunctionArguments CreateInvocationArguments(
+        IReadOnlyDictionary<string, object?> arguments,
+        AIFunctionArguments? sourceArguments = null)
+    {
+        var invocationArguments = new AIFunctionArguments(
+            new Dictionary<string, object?>(arguments));
+        var sourceJson = sourceArguments?.GetJson() ?? default;
+        invocationArguments.SetJson(sourceJson.ValueKind == JsonValueKind.Undefined
+            ? JsonSerializer.SerializeToElement(
+                arguments.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
+                HPDJsonContext.Default.DictionaryStringObject)
+            : sourceJson.Clone());
+        return invocationArguments;
     }
 
     internal async Task<FunctionExecutionOutcome> CompleteFunctionAsync(
