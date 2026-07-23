@@ -7,6 +7,35 @@ namespace HPD.Agent.Tests.Skills;
 public sealed class SkillStoreTests
 {
     [Fact]
+    public async Task PackageFactory_PersistsGeneratedCanonicalContract()
+    {
+        var content = new InMemoryContentStore();
+        var store = new ContentStoreSkillStore(content, ContentStoreScopes.Skills);
+        var package = CreatePackage("generated", "1", "Generated contract instructions.") with
+        {
+            Scripts =
+            [
+                SkillPackageScript.Create(
+                    "summarize",
+                    "Summarizes a file.",
+                    "python",
+                    new MemoryStream(Encoding.UTF8.GetBytes("print('ok')")),
+                    GeneratedScriptInput.AIContract)
+            ]
+        };
+
+        var installed = await store.InstallAsync(package);
+        var script = Assert.Single(installed.Scripts);
+
+        Assert.Equal(
+            GeneratedScriptInput.AIContract.CanonicalSchemaFingerprint,
+            script.SchemaFingerprint);
+        Assert.Equal(
+            GeneratedScriptInput.AIContract.JsonSchema.GetRawText(),
+            script.ParametersSchema.GetRawText());
+    }
+
+    [Fact]
     public async Task ContentBackedStore_ReconstructsPublishedInventory()
     {
         var content = new InMemoryContentStore();
@@ -322,7 +351,8 @@ public sealed class SkillStoreTests
                     Name = "same",
                     Description = "Runs the same capability.",
                     Content = Stream("script"),
-                    Runtime = "demo"
+                    Runtime = "demo",
+                    ParametersSchema = EmptySchema()
                 }
             ]
         };
@@ -355,7 +385,8 @@ public sealed class SkillStoreTests
                     Name = "normalize",
                     Description = "Normalizes the active dataset and returns an artifact.",
                     Content = Stream("print('normalize')"),
-                    Runtime = "python"
+                    Runtime = "python",
+                    ParametersSchema = EmptySchema()
                 }
             ]
         });
@@ -382,6 +413,13 @@ public sealed class SkillStoreTests
 
     private static MemoryStream Stream(string value)
         => new(Encoding.UTF8.GetBytes(value));
+
+    private static System.Text.Json.JsonElement EmptySchema()
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(
+            """{"type":"object","properties":{},"required":[],"additionalProperties":false}""");
+        return document.RootElement.Clone();
+    }
 
     private static async Task<SkillStoreChange> NextChangeAsync(
         IWatchableSkillStore store,

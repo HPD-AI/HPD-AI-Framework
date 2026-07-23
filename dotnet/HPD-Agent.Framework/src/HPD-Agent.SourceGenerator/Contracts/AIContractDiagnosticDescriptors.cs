@@ -69,4 +69,12 @@ internal static class AIContractDiagnosticDescriptors
         Category,
         DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor InvalidReusableContractDeclaration = new(
+        "HPDAI009",
+        "Invalid reusable AI input-contract declaration",
+        "Reusable AI input contract type '{0}' must be a non-generic, top-level partial type",
+        Category,
+        DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }

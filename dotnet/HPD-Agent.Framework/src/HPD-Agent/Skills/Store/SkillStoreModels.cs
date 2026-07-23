@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace HPD.Agent;
 
 /// <summary>Mutates versioned skill packages independently from agent registration.</summary>
@@ -83,8 +85,82 @@ public sealed record SkillPackageScript
     public required Stream Content { get; init; }
     /// <summary>Gets the runner runtime identifier.</summary>
     public required string Runtime { get; init; }
+    /// <summary>Gets the explicit closed input schema for model arguments.</summary>
+    public required JsonElement ParametersSchema { get; init; }
     /// <summary>Gets whether execution requires permission.</summary>
     public bool RequiresPermission { get; init; } = true;
+    /// <summary>Gets the maximum execution duration.</summary>
+    public TimeSpan Timeout { get; init; } = TimeSpan.FromMinutes(2);
+    /// <summary>Gets the maximum encoded output size.</summary>
+    public long MaximumOutputBytes { get; init; } = 1_048_576;
+
+    /// <summary>Creates a packaged script from a reusable generated input contract.</summary>
+    /// <typeparam name="T">The generated CLR input type.</typeparam>
+    /// <param name="name">The model-visible script name.</param>
+    /// <param name="description">The selection and side-effect description.</param>
+    /// <param name="runtime">The runner runtime identifier.</param>
+    /// <param name="content">The readable script content.</param>
+    /// <param name="input">The reusable generated input contract.</param>
+    /// <param name="requiresPermission">Whether execution requires permission.</param>
+    /// <param name="timeout">The execution deadline, or the default two-minute deadline.</param>
+    /// <param name="maximumOutputBytes">The maximum encoded output size.</param>
+    /// <returns>A package script carrying the contract's canonical schema.</returns>
+    public static SkillPackageScript Create<T>(
+        string name,
+        string description,
+        string runtime,
+        Stream content,
+        IAIInputContract<T> input,
+        bool requiresPermission = true,
+        TimeSpan? timeout = null,
+        long maximumOutputBytes = 1_048_576)
+        => Create(
+            name,
+            description,
+            runtime,
+            content,
+            SkillScriptInput.Generated(input),
+            requiresPermission,
+            timeout,
+            maximumOutputBytes);
+
+    /// <summary>Creates a packaged script from an already compiled script input contract.</summary>
+    /// <param name="name">The model-visible script name.</param>
+    /// <param name="description">The selection and side-effect description.</param>
+    /// <param name="runtime">The runner runtime identifier.</param>
+    /// <param name="content">The readable script content.</param>
+    /// <param name="input">The explicit compiled script input contract.</param>
+    /// <param name="requiresPermission">Whether execution requires permission.</param>
+    /// <param name="timeout">The execution deadline, or the default two-minute deadline.</param>
+    /// <param name="maximumOutputBytes">The maximum encoded output size.</param>
+    /// <returns>A package script carrying the contract's canonical schema.</returns>
+    public static SkillPackageScript Create(
+        string name,
+        string description,
+        string runtime,
+        Stream content,
+        SkillScriptInputContract input,
+        bool requiresPermission = true,
+        TimeSpan? timeout = null,
+        long maximumOutputBytes = 1_048_576)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        ArgumentException.ThrowIfNullOrWhiteSpace(runtime);
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentNullException.ThrowIfNull(input);
+        return new SkillPackageScript
+        {
+            Name = name,
+            Description = description,
+            Runtime = runtime,
+            Content = content,
+            ParametersSchema = input.JsonSchema.Clone(),
+            RequiresPermission = requiresPermission,
+            Timeout = timeout ?? TimeSpan.FromMinutes(2),
+            MaximumOutputBytes = maximumOutputBytes
+        };
+    }
 }
 
 /// <summary>A package version whose bytes have immutable content addresses.</summary>
@@ -104,7 +180,16 @@ public sealed record StoredSkill
 public sealed record StoredSkillResource(string Name, string Description, string ContentType, ContentAddress Address);
 
 /// <summary>A stored package script.</summary>
-public sealed record StoredSkillScript(string Name, string Description, string Runtime, bool RequiresPermission, ContentAddress Address);
+public sealed record StoredSkillScript(
+    string Name,
+    string Description,
+    string Runtime,
+    bool RequiresPermission,
+    TimeSpan Timeout,
+    long MaximumOutputBytes,
+    JsonElement ParametersSchema,
+    string SchemaFingerprint,
+    ContentAddress Address);
 
 /// <summary>Filters stored skill publications for one harness attachment.</summary>
 public sealed record SkillQuery(

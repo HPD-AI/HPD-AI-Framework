@@ -14,6 +14,20 @@ namespace HPD.Agent.SourceGenerator.Contracts;
 /// </summary>
 internal static class AIBindingSourceEmitter
 {
+    /// <summary>Emits a direct binder for one reusable root contract.</summary>
+    public static string EmitRoot(string contractName, AIContractNode contract)
+    {
+        var helpers = new StringBuilder();
+        var helper = EmitNodeHelper(contractName, contract, helpers, new HashSet<string>(StringComparer.Ordinal));
+        var builder = new StringBuilder();
+        builder.AppendLine($"        private static {TypeName(contract.Type)} BindAIInputContract(global::System.Text.Json.JsonElement json)");
+        builder.AppendLine("        {");
+        builder.AppendLine($"            return {helper}(json, \"\");");
+        builder.AppendLine("        }");
+        builder.Append(helpers);
+        return builder.ToString();
+    }
+
     /// <summary>Emits the binder entry point and recursive helpers for one generated function.</summary>
     public static string Emit(FunctionCapability function)
     {
@@ -44,7 +58,7 @@ internal static class AIBindingSourceEmitter
                 builder.AppendLine($"                    result.{EscapeIdentifier(parameter.Name)} = {helperName}({jsonVariable}, \"{Escape(parameter.Name)}\");");
             }
         }
-        builder.AppendLine("                return global::HPD.Agent.AIFunctionBindingResult.Success(result);");
+        builder.AppendLine("                return global::HPD.Agent.AIFunctionBindingResult.Success(result, json);");
         builder.AppendLine("            }");
         builder.AppendLine("            catch (global::HPD.Agent.HPDToolArgumentException exception)");
         builder.AppendLine("            {");

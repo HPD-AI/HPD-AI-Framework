@@ -91,8 +91,14 @@ public static class SkillCapabilityFunctionProjector
     {
         var capabilityId = CapabilityId.Create($"{skillId.Value}:{script.Name}");
         return HPDAIFunctionFactory.Create(
-            async (_, functionContext, cancellationToken) =>
+            async (arguments, functionContext, cancellationToken) =>
             {
+                var boundInput = arguments.GetBoundInput();
+                var scriptArguments = new SkillScriptArguments(
+                    boundInput.EffectiveJson,
+                    boundInput.Value,
+                    script.InputContract.BoundType,
+                    script.InputContract.CanonicalSchemaFingerprint);
                 var runner = functionContext.Services?
                     .GetServices<ISkillScriptRunner>()
                     .FirstOrDefault(candidate => candidate.CanRun(script));
@@ -122,6 +128,7 @@ public static class SkillCapabilityFunctionProjector
                         new SkillScriptExecutionContext(
                             skillName,
                             script,
+                            scriptArguments,
                             functionContext,
                             functionContext.Services,
                             script.ContentStore ?? functionContext.ContentStore),
@@ -147,7 +154,8 @@ public static class SkillCapabilityFunctionProjector
                 HPDCapabilityKind.SkillScript,
                 skillId,
                 script.RequiresPermission,
-                serialization));
+                serialization,
+                script.InputContract));
     }
 
     internal static async ValueTask<object?> ExecuteScriptAsync(
@@ -196,17 +204,21 @@ public static class SkillCapabilityFunctionProjector
         HPDCapabilityKind kind,
         CapabilityId skillId,
         bool requiresPermission,
-        HPDToolSerializationOptions? serialization)
+        HPDToolSerializationOptions? serialization,
+        SkillScriptInputContract? inputContract = null)
         => new()
         {
             Name = name,
             Description = description,
             RequiresPermission = requiresPermission,
-            SchemaProvider = static () =>
-            {
-                using var document = JsonDocument.Parse("{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}");
-                return document.RootElement.Clone();
-            },
+            SchemaProvider = inputContract is null
+                ? static () =>
+                {
+                    using var document = JsonDocument.Parse("{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}");
+                    return document.RootElement.Clone();
+                }
+                : () => inputContract.JsonSchema,
+            ArgumentBinder = inputContract is null ? null : inputContract.Bind,
             SerializerOptions = serialization?.SerializerOptions,
             ResultType = resultType,
             AdditionalProperties = new Dictionary<string, object>
@@ -223,6 +235,7 @@ public static class SkillCapabilityFunctionProjector
     private static void ValidateScript(SkillScript script)
     {
         ArgumentNullException.ThrowIfNull(script.Reference);
+        ArgumentNullException.ThrowIfNull(script.InputContract);
         if (script.Timeout <= TimeSpan.Zero)
             throw new InvalidOperationException($"Skill script '{script.Name}' must have a positive timeout.");
         if (script.MaximumOutputBytes <= 0)

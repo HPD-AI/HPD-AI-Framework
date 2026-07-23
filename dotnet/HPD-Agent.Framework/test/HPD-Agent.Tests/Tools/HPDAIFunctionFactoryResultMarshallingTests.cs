@@ -27,7 +27,7 @@ public class HPDAIFunctionFactoryResultMarshallingTests
                 {
                     bindingCount++;
                     return AIFunctionBindingResult.Success(
-                        new BoundTestArguments(json.GetProperty("value").GetString()!));
+                        new BoundTestArguments(json.GetProperty("value").GetString()!), json);
                 }
             });
         using var document = JsonDocument.Parse("""{"value":"bound"}""");
@@ -54,7 +54,7 @@ public class HPDAIFunctionFactoryResultMarshallingTests
             new HPDAIFunctionFactoryOptions
             {
                 Name = "StrictIngress",
-                ArgumentBinder = _ => AIFunctionBindingResult.Success(new BoundTestArguments("value"))
+                ArgumentBinder = json => AIFunctionBindingResult.Success(new BoundTestArguments("value"), json)
             });
 
         var result = await Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(function)
@@ -79,7 +79,7 @@ public class HPDAIFunctionFactoryResultMarshallingTests
             {
                 Name = "RuntimeIngress",
                 ArgumentBinder = json => AIFunctionBindingResult.Success(
-                    new BoundTestArguments(json.GetProperty("value").GetString()!))
+                    new BoundTestArguments(json.GetProperty("value").GetString()!), json)
             });
         IReadOnlyDictionary<string, object?> providerArguments =
             new Dictionary<string, object?> { ["value"] = JsonSerializer.SerializeToElement("bound") };

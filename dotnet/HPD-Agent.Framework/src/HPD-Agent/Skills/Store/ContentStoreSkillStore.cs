@@ -181,6 +181,17 @@ public sealed class ContentStoreSkillStore : IWatchableSkillStore, IContentBacke
                 if (!string.Equals(publication.SkillId, manifest.Manifest.Id, StringComparison.Ordinal) ||
                     !string.Equals(publication.Version, manifest.Manifest.Version, StringComparison.Ordinal))
                     throw new InvalidDataException("Publication identity does not match its version manifest.");
+                foreach (var script in manifest.Scripts)
+                {
+                    var contract = SkillScriptInput.FromCanonicalSchema(script.ParametersSchema);
+                    if (!string.Equals(
+                        contract.CanonicalSchemaFingerprint,
+                        script.SchemaFingerprint,
+                        StringComparison.Ordinal))
+                        throw new InvalidDataException($"Stored script '{script.Name}' has an invalid input-contract fingerprint.");
+                    if (script.Timeout <= TimeSpan.Zero || script.MaximumOutputBytes <= 0)
+                        throw new InvalidDataException($"Stored script '{script.Name}' has invalid execution limits.");
+                }
                 reconstructed[publication.SkillId] = new(new StoredSkill
                 {
                     Manifest = manifest.Manifest,
@@ -216,8 +227,19 @@ public sealed class ContentStoreSkillStore : IWatchableSkillStore, IContentBacke
                 await StoreAsync(prefix + "/resources/" + resource.Name, resource.ContentType, resource.Content, null, cancellationToken).ConfigureAwait(false)));
         var scripts = new List<StoredSkillScript>();
         foreach (var script in package.Scripts)
-            scripts.Add(new(script.Name, script.Description, script.Runtime, script.RequiresPermission,
+        {
+            var input = SkillScriptInput.FromCanonicalSchema(script.ParametersSchema);
+            scripts.Add(new(
+                script.Name,
+                script.Description,
+                script.Runtime,
+                script.RequiresPermission,
+                script.Timeout,
+                script.MaximumOutputBytes,
+                input.JsonSchema.Clone(),
+                input.CanonicalSchemaFingerprint,
                 await StoreAsync(prefix + "/scripts/" + script.Name, "application/octet-stream", script.Content, null, cancellationToken).ConfigureAwait(false)));
+        }
         return new StoredSkill { Manifest = package.Manifest, Instructions = instructions, Resources = resources, Scripts = scripts };
     }
 
@@ -287,6 +309,9 @@ public sealed class ContentStoreSkillStore : IWatchableSkillStore, IContentBacke
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(script.Name); ArgumentException.ThrowIfNullOrWhiteSpace(script.Description); ArgumentException.ThrowIfNullOrWhiteSpace(script.Runtime); ArgumentNullException.ThrowIfNull(script.Content);
             if (!script.Content.CanRead) throw new ArgumentException($"Skill script '{script.Name}' content must be readable.", nameof(package));
+            if (script.Timeout <= TimeSpan.Zero) throw new ArgumentException($"Skill script '{script.Name}' must have a positive timeout.", nameof(package));
+            if (script.MaximumOutputBytes <= 0) throw new ArgumentException($"Skill script '{script.Name}' must have a positive output limit.", nameof(package));
+            _ = SkillScriptInput.FromCanonicalSchema(script.ParametersSchema);
             if (!capabilityNames.Add(script.Name)) throw new ArgumentException($"Duplicate packaged capability name '{script.Name}'.", nameof(package));
         }
     }

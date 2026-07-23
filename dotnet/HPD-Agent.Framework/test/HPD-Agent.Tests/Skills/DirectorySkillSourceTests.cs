@@ -68,6 +68,22 @@ public sealed class DirectorySkillSourceTests
             Normalize before analysis.
             """);
         await File.WriteAllTextAsync(Path.Combine(directory.Path, "scripts", "normalize.py"), "raise Exception('must not run')");
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "skill.json"), """
+            {
+              "scripts": {
+                "scripts/normalize.py": {
+                  "description": "Normalizes the active dataset.",
+                  "runtime": "python",
+                  "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+            """);
         var source = new DirectorySkillSource(directory.Path, SkillDirectoryImportMode.Compatibility);
 
         var skill = Assert.Single(await source.GetSkillsAsync(Context(), default));
@@ -75,6 +91,80 @@ public sealed class DirectorySkillSourceTests
 
         Assert.Equal("python", script.Reference.Runtime);
         Assert.True(script.RequiresPermission);
+    }
+
+    [Fact]
+    public async Task Import_ResolvesRootConfinedContractSidecar()
+    {
+        using var directory = new TemporaryDirectory();
+        Directory.CreateDirectory(Path.Combine(directory.Path, "scripts"));
+        Directory.CreateDirectory(Path.Combine(directory.Path, "contracts"));
+        await WriteSkillAsync(directory.Path, "sidecar_skill");
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scripts", "summarize.py"), "print('ok')");
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "contracts", "SummarizeInput.schema.json"), """
+            {
+              "type": "object",
+              "properties": {
+                "inputFile": { "type": "string" },
+                "limit": { "type": "integer", "default": 20 }
+              },
+              "required": ["inputFile"],
+              "additionalProperties": false
+            }
+            """);
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "skill.json"), """
+            {
+              "scripts": {
+                "scripts/summarize.py": {
+                  "description": "Summarizes a file.",
+                  "runtime": "python",
+                  "parameters": {
+                    "$hpdContract": "contracts/SummarizeInput.schema.json"
+                  }
+                }
+              }
+            }
+            """);
+
+        var skill = Assert.Single(await new DirectorySkillSource(directory.Path)
+            .GetSkillsAsync(Context(), default));
+        var script = Assert.IsType<SkillScript>(Assert.Single(skill.Capabilities));
+
+        Assert.Equal("string", script.InputContract.JsonSchema
+            .GetProperty("properties")
+            .GetProperty("inputFile")
+            .GetProperty("type")
+            .GetString());
+    }
+
+    [Theory]
+    [InlineData("../outside.schema.json")]
+    [InlineData("https://example.com/input.schema.json")]
+    [InlineData("/tmp/input.schema.json")]
+    public async Task Import_RejectsContractSidecarOutsideSkillRoot(string contractReference)
+    {
+        using var directory = new TemporaryDirectory();
+        Directory.CreateDirectory(Path.Combine(directory.Path, "scripts"));
+        await WriteSkillAsync(directory.Path, "sidecar_skill");
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "scripts", "summarize.py"), "print('ok')");
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "skill.json"), $$"""
+            {
+              "scripts": {
+                "scripts/summarize.py": {
+                  "description": "Summarizes a file.",
+                  "runtime": "python",
+                  "parameters": {
+                    "$hpdContract": "{{contractReference}}"
+                  }
+                }
+              }
+            }
+            """);
+
+        var source = new DirectorySkillSource(directory.Path);
+
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await source.GetSkillsAsync(Context(), default));
     }
 
     [Fact]

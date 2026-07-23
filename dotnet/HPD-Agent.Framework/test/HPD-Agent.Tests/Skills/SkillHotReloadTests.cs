@@ -80,6 +80,69 @@ public sealed class SkillHotReloadTests
     }
 
     [Fact]
+    public async Task DirectoryReload_RetainsEpochWhenContractSidecarIsPartial()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"hpd-sidecar-reload-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        Directory.CreateDirectory(Path.Combine(path, "scripts"));
+        Directory.CreateDirectory(Path.Combine(path, "contracts"));
+        await File.WriteAllTextAsync(Path.Combine(path, "SKILL.md"), SkillDocument("Run the sidecar script."));
+        await File.WriteAllTextAsync(Path.Combine(path, "scripts", "run.py"), "print('ok')");
+        var contractPath = Path.Combine(path, "contracts", "RunInput.schema.json");
+        await File.WriteAllTextAsync(contractPath,
+            """{"type":"object","properties":{},"required":[],"additionalProperties":false}""");
+        await File.WriteAllTextAsync(Path.Combine(path, "skill.json"), """
+            {
+              "scripts": {
+                "scripts/run.py": {
+                  "description": "Runs the sidecar-backed script.",
+                  "runtime": "python",
+                  "parameters": {
+                    "$hpdContract": "contracts/RunInput.schema.json"
+                  }
+                }
+              }
+            }
+            """);
+        var services = new ServiceCollection()
+            .AddSingleton<ISkillScriptRunner, SuccessfulScriptRunner>()
+            .BuildServiceProvider();
+        var source = new DirectorySkillSource(path);
+        var agent = await new AgentBuilder(new AgentConfig { Name = "sidecar-reload-test" })
+            .WithServiceProvider(services)
+            .WithToolHarness<CombinedCapabilitiesTools>(options => options.AddSkillSource(source))
+            .BuildAsync();
+        try
+        {
+            await File.WriteAllTextAsync(contractPath, """{"type":"object","properties":""");
+            var rejected = await agent.ReloadSkillsAsync();
+
+            Assert.False(rejected.Published);
+            Assert.Equal(0, agent.SkillCatalogEpoch);
+            Assert.Contains("not valid JSON", rejected.Error);
+
+            await File.WriteAllTextAsync(contractPath, """
+                {
+                  "type": "object",
+                  "properties": { "inputFile": { "type": "string" } },
+                  "required": ["inputFile"],
+                  "additionalProperties": false
+                }
+                """);
+            var published = await agent.ReloadSkillsAsync();
+
+            Assert.True(published.Published);
+            Assert.Equal(1, agent.SkillCatalogEpoch);
+        }
+        finally
+        {
+            agent.Dispose();
+            await services.DisposeAsync();
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task WatchableSource_AutomaticallyPublishesReplacementEpoch()
     {
         var source = new InMemorySkillSource([RuntimeSkill("runtime_one")]);
@@ -178,7 +241,8 @@ public sealed class SkillHotReloadTests
                 SkillCapabilities.Script(
                     "normalize",
                     "Normalizes the active dataset and returns the normalized artifact.",
-                    new FileScriptReference("scripts/normalize.py", "python"))
+                    new FileScriptReference("scripts/normalize.py", "python"),
+                    SkillScriptInput.Empty)
             ]);
         var source = new InMemorySkillSource([scriptSkill]);
         var builder = new AgentBuilder(new AgentConfig { Name = "runner-test" })
@@ -257,6 +321,7 @@ public sealed class SkillHotReloadTests
         var script = new SkillScript("run_check", "Runs the packaged verification check.")
         {
             Reference = new FileScriptReference("scripts/check.py", "python"),
+            InputContract = SkillScriptInput.Empty,
             RequiresPermission = false
         };
         var source = new InMemorySkillSource([

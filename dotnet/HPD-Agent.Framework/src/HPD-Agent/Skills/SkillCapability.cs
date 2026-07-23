@@ -1,3 +1,5 @@
+using HPD.Agent;
+
 /// <summary>Base type for a capability revealed by a skill.</summary>
 public abstract class SkillCapability
 {
@@ -61,18 +63,55 @@ public static partial class SkillCapabilities
         => resource ?? throw new ArgumentNullException(nameof(resource));
 
     /// <summary>Creates an external script capability.</summary>
+    /// <param name="name">The model-visible function name.</param>
+    /// <param name="description">The model-visible selection and side-effect description.</param>
+    /// <param name="reference">The storage-neutral script reference and runtime identifier.</param>
+    /// <param name="input">The required explicit script input contract.</param>
+    /// <param name="requiresPermission">Whether invocation requires permission.</param>
+    /// <param name="timeout">The execution deadline, or the default two-minute deadline.</param>
+    /// <param name="maximumOutputBytes">The maximum encoded result size.</param>
+    /// <returns>The configured script capability.</returns>
     public static SkillScript Script(
         string name,
         string description,
         SkillScriptReference reference,
+        SkillScriptInputContract input,
         bool requiresPermission = true,
         TimeSpan? timeout = null,
         long maximumOutputBytes = 1_048_576)
         => new(name, description)
         {
             Reference = reference ?? throw new ArgumentNullException(nameof(reference)),
+            InputContract = input ?? throw new ArgumentNullException(nameof(input)),
             RequiresPermission = requiresPermission,
             Timeout = timeout ?? TimeSpan.FromMinutes(2),
             MaximumOutputBytes = maximumOutputBytes
         };
+
+    /// <summary>Creates an external script capability from a reusable generated input contract.</summary>
+    /// <typeparam name="T">The generated CLR input type.</typeparam>
+    /// <param name="name">The model-visible function name.</param>
+    /// <param name="description">The model-visible selection and side-effect description.</param>
+    /// <param name="reference">The storage-neutral script reference and runtime identifier.</param>
+    /// <param name="input">The required reusable generated input contract.</param>
+    /// <param name="requiresPermission">Whether invocation requires permission.</param>
+    /// <param name="timeout">The execution deadline, or the default two-minute deadline.</param>
+    /// <param name="maximumOutputBytes">The maximum encoded result size.</param>
+    /// <returns>The configured script capability.</returns>
+    public static SkillScript Script<T>(
+        string name,
+        string description,
+        SkillScriptReference reference,
+        IAIInputContract<T> input,
+        bool requiresPermission = true,
+        TimeSpan? timeout = null,
+        long maximumOutputBytes = 1_048_576)
+        => Script(
+            name,
+            description,
+            reference,
+            SkillScriptInput.Generated(input),
+            requiresPermission,
+            timeout,
+            maximumOutputBytes);
 }

@@ -1,7 +1,8 @@
 using HPD.Agent;
 using HPD.Agent.Middleware;
+using System.Text.Json;
 
-/// <summary>Describes a parameterless external script capability.</summary>
+/// <summary>Describes an external script capability with an explicit model input contract.</summary>
 public sealed class SkillScript : SkillCapability
 {
     /// <summary>Initializes a script capability.</summary>
@@ -12,6 +13,9 @@ public sealed class SkillScript : SkillCapability
 
     /// <summary>Gets the external script reference.</summary>
     public required SkillScriptReference Reference { get; init; }
+
+    /// <summary>Gets the required schema, validation, and binding contract for model arguments.</summary>
+    public required SkillScriptInputContract InputContract { get; init; }
 
     /// <summary>Gets whether invocation requires permission.</summary>
     public bool RequiresPermission { get; init; } = true;
@@ -57,7 +61,7 @@ public interface ISkillScriptRunner
     /// <summary>Returns whether this runner can execute the supplied script.</summary>
     bool CanRun(SkillScript script);
 
-    /// <summary>Executes a script using established agent context rather than model arguments.</summary>
+    /// <summary>Executes a script using validated arguments and established agent context.</summary>
     ValueTask<object?> RunAsync(SkillScriptExecutionContext context, CancellationToken cancellationToken);
 }
 
@@ -99,6 +103,126 @@ public sealed class SkillScriptExecutionException : Exception
 public sealed record SkillScriptExecutionContext(
     string SkillName,
     SkillScript Script,
+    SkillScriptArguments Arguments,
     FunctionExecutionContext FunctionContext,
     IServiceProvider? Services,
     IContentStore? ContentStore);
+
+/// <summary>Provides effective canonical JSON and an optional generated CLR value to a script runner.</summary>
+public sealed class SkillScriptArguments
+{
+    private readonly object _value;
+
+    /// <summary>Initializes script arguments from effective JSON and an explicitly described bound value.</summary>
+    /// <param name="json">The detached effective canonical JSON.</param>
+    /// <param name="value">The generated CLR value or validated dynamic JSON value.</param>
+    /// <param name="boundType">The generated CLR type, or <see langword="null"/> for dynamic JSON.</param>
+    /// <param name="contractFingerprint">The canonical input-contract fingerprint.</param>
+    public SkillScriptArguments(
+        JsonElement json,
+        object value,
+        Type? boundType,
+        string contractFingerprint)
+    {
+        Json = json.Clone();
+        _value = value;
+        BoundType = boundType;
+        ContractFingerprint = contractFingerprint;
+    }
+
+    /// <summary>Gets the effective canonical JSON argument object supplied to every runtime.</summary>
+    public JsonElement Json { get; }
+
+    /// <summary>Gets the generated CLR type, or <see langword="null"/> for a data-driven contract.</summary>
+    public Type? BoundType { get; }
+
+    /// <summary>Gets the stable input-contract fingerprint.</summary>
+    public string ContractFingerprint { get; }
+
+    /// <summary>Attempts to retrieve the generated CLR input value.</summary>
+    public bool TryGet<T>(out T? value)
+    {
+        if (_value is T typed)
+        {
+            value = typed;
+            return true;
+        }
+        value = default;
+        return false;
+    }
+
+    /// <summary>Gets the generated CLR input value or throws when this contract does not produce it.</summary>
+    public T GetRequired<T>() => TryGet<T>(out var value)
+        ? value!
+        : throw new InvalidOperationException($"This script invocation does not contain a bound '{typeof(T).FullName}' value.");
+
+    /// <summary>Writes the effective canonical JSON to an existing UTF-8 JSON writer.</summary>
+    /// <param name="writer">The destination JSON writer.</param>
+    public void WriteJson(Utf8JsonWriter writer)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        Json.WriteTo(writer);
+    }
+
+    /// <summary>Writes the effective canonical JSON as UTF-8 to a destination stream.</summary>
+    /// <param name="destination">The writable destination stream.</param>
+    /// <param name="cancellationToken">Cancels asynchronous flushing.</param>
+    public async ValueTask WriteJsonAsync(
+        Stream destination,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        if (!destination.CanWrite)
+            throw new ArgumentException("The destination stream must be writable.", nameof(destination));
+        using var writer = new Utf8JsonWriter(destination);
+        WriteJson(writer);
+        await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+}
+
+/// <summary>Owns the schema, binding, and effective JSON semantics for one skill script.</summary>
+public abstract class SkillScriptInputContract
+{
+    /// <summary>Gets the generated CLR input type, or <see langword="null"/> for a data-driven contract.</summary>
+    public abstract Type? BoundType { get; }
+
+    /// <summary>Gets the immutable canonical JSON Schema.</summary>
+    public abstract JsonElement JsonSchema { get; }
+
+    /// <summary>Gets the stable canonical schema fingerprint.</summary>
+    public abstract string CanonicalSchemaFingerprint { get; }
+
+    internal abstract AIFunctionBindingResult Bind(JsonElement arguments);
+}
+
+/// <summary>Creates explicit input contracts for skill scripts.</summary>
+public static class SkillScriptInput
+{
+    private static readonly SkillScriptInputContract s_empty =
+        new ContractAdapter(CanonicalJsonInputContract.Create(
+            JsonDocument.Parse("""{"type":"object","properties":{},"required":[],"additionalProperties":false}""").RootElement));
+
+    /// <summary>Gets the explicit closed empty-object contract for scripts with no model arguments.</summary>
+    public static SkillScriptInputContract Empty => s_empty;
+
+    /// <summary>Adapts a reusable generated input contract for script execution.</summary>
+    /// <typeparam name="T">The generated CLR input type.</typeparam>
+    /// <param name="contract">The reusable generated input contract.</param>
+    /// <returns>A script input-contract adapter.</returns>
+    public static SkillScriptInputContract Generated<T>(IAIInputContract<T> contract) =>
+        new ContractAdapter(contract ?? throw new ArgumentNullException(nameof(contract)));
+
+    /// <summary>Compiles a bounded HPD canonical JSON Schema into a data-driven script input contract.</summary>
+    /// <param name="schema">The closed canonical schema to compile immediately.</param>
+    /// <returns>A data-driven script input contract.</returns>
+    public static SkillScriptInputContract FromCanonicalSchema(JsonElement schema) =>
+        new ContractAdapter(CanonicalJsonInputContract.Create(schema));
+
+    private sealed class ContractAdapter(IAIInputContract contract) : SkillScriptInputContract
+    {
+        public override Type? BoundType => contract.BoundType;
+        public override JsonElement JsonSchema => contract.JsonSchema;
+        public override string CanonicalSchemaFingerprint => contract.CanonicalSchemaFingerprint;
+        internal override AIFunctionBindingResult Bind(JsonElement arguments) => contract.Bind(arguments);
+    }
+}

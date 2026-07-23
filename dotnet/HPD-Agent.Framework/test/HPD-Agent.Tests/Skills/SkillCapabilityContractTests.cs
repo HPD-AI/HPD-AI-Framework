@@ -72,14 +72,15 @@ public sealed class SkillCapabilityContractTests
     }
 
     [Fact]
-    public void Script_DefaultsToPermissionAndParameterlessExecutionPolicy()
+    public void Script_ExplicitEmptyInputPreservesDefaultExecutionPolicy()
     {
         var script = SkillCapabilities.Script(
             "normalize",
             "Normalizes the active dataset and returns the normalized artifact.",
             new ContentStoreScriptReference(
                 ContentAddress.Create(ContentScope.Create("installed-skills"), "normalize.py"),
-                "python"));
+                "python"),
+            SkillScriptInput.Empty);
 
         Assert.True(script.RequiresPermission);
         Assert.Equal(TimeSpan.FromMinutes(2), script.Timeout);
@@ -95,6 +96,7 @@ public sealed class SkillCapabilityContractTests
             "run_check",
             "Runs the packaged check.",
             new FileScriptReference("run-check.sh", "shell"),
+            SkillScriptInput.Empty,
             requiresPermission: requiresPermission);
         var skill = Skill.Create(
             "verification",
@@ -118,6 +120,7 @@ public sealed class SkillCapabilityContractTests
         var script = new SkillScript("slow", "Runs a deliberately slow operation.")
         {
             Reference = new FileScriptReference("slow.py", "python"),
+            InputContract = SkillScriptInput.Empty,
             Timeout = TimeSpan.FromMilliseconds(25)
         };
         var runner = new DelegateRunner(async (_, cancellationToken) =>
@@ -129,7 +132,7 @@ public sealed class SkillCapabilityContractTests
         var timeout = await Assert.ThrowsAsync<SkillScriptExecutionException>(() => SkillCapabilityFunctionProjector
             .ExecuteScriptAsync(
                 runner,
-                new SkillScriptExecutionContext("test", script, null!, null, null),
+                new SkillScriptExecutionContext("test", script, EmptyArguments(), null!, null, null),
                 CancellationToken.None)
             .AsTask());
         Assert.Equal(SkillScriptErrorCategory.TimedOut, timeout.Category);
@@ -141,9 +144,10 @@ public sealed class SkillCapabilityContractTests
         var script = new SkillScript("bounded", "Returns a bounded result.")
         {
             Reference = new FileScriptReference("bounded.py", "python"),
+            InputContract = SkillScriptInput.Empty,
             MaximumOutputBytes = 3
         };
-        var context = new SkillScriptExecutionContext("test", script, null!, null, null);
+        var context = new SkillScriptExecutionContext("test", script, EmptyArguments(), null!, null, null);
 
         var oversized = await Assert.ThrowsAsync<SkillScriptExecutionException>(() => SkillCapabilityFunctionProjector
             .ExecuteScriptAsync(new DelegateRunner((_, _) => ValueTask.FromResult<object?>("large")), context, default)
@@ -274,5 +278,15 @@ public sealed class SkillCapabilityContractTests
         public ValueTask<object?> RunAsync(
             SkillScriptExecutionContext context,
             CancellationToken cancellationToken) => run(context, cancellationToken);
+    }
+
+    private static SkillScriptArguments EmptyArguments()
+    {
+        using var document = System.Text.Json.JsonDocument.Parse("{}");
+        return new SkillScriptArguments(
+            document.RootElement,
+            document.RootElement,
+            null,
+            SkillScriptInput.Empty.CanonicalSchemaFingerprint);
     }
 }

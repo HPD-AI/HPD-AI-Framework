@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Text;
 
 namespace HPD.Agent.SourceGenerator.Contracts;
@@ -8,6 +9,14 @@ namespace HPD.Agent.SourceGenerator.Contracts;
 /// </summary>
 internal static class AICanonicalSchemaEmitter
 {
+    /// <summary>Emits the canonical schema for one reusable root contract.</summary>
+    public static string EmitRoot(AIContractNode contract)
+    {
+        var builder = new StringBuilder();
+        AppendNode(builder, contract);
+        return builder.ToString();
+    }
+
     /// <summary>Emits the canonical schema for a model-facing method contract.</summary>
     public static string Emit(AIFunctionMethodContract contract)
     {
@@ -22,7 +31,13 @@ internal static class AICanonicalSchemaEmitter
 
             AppendString(builder, contract.Parameters[index].JsonName);
             builder.Append(':');
-            AppendNode(builder, contract.Parameters[index].Contract);
+            AppendNode(
+                builder,
+                contract.Parameters[index].Contract,
+                contract.Parameters[index].Symbol.HasExplicitDefaultValue,
+                contract.Parameters[index].Symbol.HasExplicitDefaultValue
+                    ? contract.Parameters[index].Symbol.ExplicitDefaultValue
+                    : null);
         }
 
         builder.Append('}');
@@ -56,7 +71,11 @@ internal static class AICanonicalSchemaEmitter
         return builder.ToString();
     }
 
-    private static void AppendNode(StringBuilder builder, AIContractNode node)
+    private static void AppendNode(
+        StringBuilder builder,
+        AIContractNode node,
+        bool hasDefault = false,
+        object? defaultValue = null)
     {
         builder.Append('{');
         switch (node)
@@ -89,6 +108,11 @@ internal static class AICanonicalSchemaEmitter
             builder.Append(",\"description\":");
             AppendString(builder, node.Description!);
         }
+        if (hasDefault)
+        {
+            builder.Append(",\"default\":");
+            AppendDefault(builder, node, defaultValue);
+        }
 
         builder.Append('}');
     }
@@ -119,7 +143,14 @@ internal static class AICanonicalSchemaEmitter
             }
             AppendString(builder, property.JsonName);
             builder.Append(':');
-            AppendNode(builder, property.Contract);
+            var binding = contract.Construction.Members.First(member =>
+                Microsoft.CodeAnalysis.SymbolEqualityComparer.Default.Equals(member.Property, property.Symbol));
+            var hasDefault = binding.ConstructorParameter?.HasExplicitDefaultValue == true;
+            AppendNode(
+                builder,
+                property.Contract,
+                hasDefault,
+                hasDefault ? binding.ConstructorParameter!.ExplicitDefaultValue : null);
             wroteProperty = true;
         }
         builder.Append('}');
@@ -261,5 +292,42 @@ internal static class AICanonicalSchemaEmitter
             }
         }
         builder.Append('"');
+    }
+
+    private static void AppendConstant(StringBuilder builder, object? value)
+    {
+        if (value is null) { builder.Append("null"); return; }
+        switch (value)
+        {
+            case string text: AppendString(builder, text); break;
+            case char character: AppendString(builder, character.ToString()); break;
+            case bool boolean: builder.Append(boolean ? "true" : "false"); break;
+            case float number: builder.Append(number.ToString("R", System.Globalization.CultureInfo.InvariantCulture)); break;
+            case double number: builder.Append(number.ToString("R", System.Globalization.CultureInfo.InvariantCulture)); break;
+            case decimal number: builder.Append(number.ToString(System.Globalization.CultureInfo.InvariantCulture)); break;
+            default: builder.Append(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)); break;
+        }
+    }
+
+    private static void AppendDefault(StringBuilder builder, AIContractNode node, object? value)
+    {
+        if (value is not null &&
+            node is ScalarContractNode { Kind: AIScalarKind.Enum } scalar &&
+            scalar.Type is Microsoft.CodeAnalysis.INamedTypeSymbol enumType)
+        {
+            var member = enumType.GetMembers()
+                .OfType<Microsoft.CodeAnalysis.IFieldSymbol>()
+                .FirstOrDefault(field =>
+                    field.HasConstantValue &&
+                    Equals(
+                        Convert.ToInt64(field.ConstantValue, System.Globalization.CultureInfo.InvariantCulture),
+                        Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture)));
+            if (member is null)
+                throw new InvalidOperationException($"Enum default '{value}' is not declared by '{enumType.Name}'.");
+            AppendString(builder, member.Name);
+            return;
+        }
+
+        AppendConstant(builder, value);
     }
 }

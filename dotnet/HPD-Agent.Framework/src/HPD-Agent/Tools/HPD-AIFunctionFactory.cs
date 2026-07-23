@@ -145,7 +145,7 @@ public class HPDAIFunctionFactory
                 var binding = HPDOptions.ArgumentBinder(validationJsonArgs);
                 validationErrors = binding.Errors;
                 if (binding.Value is not null && binding.Errors.Count == 0)
-                    arguments.SetBoundArguments(binding.Value);
+                    arguments.SetBoundInput(new AIFunctionBoundInput(binding.Value, binding.EffectiveJson.Clone()));
             }
             else
             {
@@ -360,18 +360,32 @@ public static class AIFunctionArgumentsExtensions
         arguments[JsonSerializerOptionsKey] = options;
     }
 
-    /// <summary>Stores the one-shot result produced by a generated argument binder.</summary>
-    public static void SetBoundArguments(this AIFunctionArguments arguments, object value) =>
+    /// <summary>Stores the complete one-shot result produced by an input binder.</summary>
+    public static void SetBoundInput(this AIFunctionArguments arguments, AIFunctionBoundInput value) =>
         arguments[BoundArgumentsKey] = value;
+
+    /// <summary>Gets the complete one-shot bound input produced before invocation.</summary>
+    public static AIFunctionBoundInput GetBoundInput(this AIFunctionArguments arguments)
+    {
+        if (arguments.TryGetValue(BoundArgumentsKey, out var value) && value is AIFunctionBoundInput typed)
+            return typed;
+        throw new InvalidOperationException("AI-function arguments were not bound before invocation.");
+    }
 
     /// <summary>Gets the one-shot result produced by a generated argument binder.</summary>
     public static T GetBoundArguments<T>(this AIFunctionArguments arguments)
     {
-        if (arguments.TryGetValue(BoundArgumentsKey, out var value) && value is T typed)
+        if (arguments.TryGetValue(BoundArgumentsKey, out var value) &&
+            value is AIFunctionBoundInput { Value: T typed })
             return typed;
         throw new InvalidOperationException("Generated AI-function arguments were not bound before invocation.");
     }
 }
+
+/// <summary>Contains the CLR value and effective canonical JSON produced by successful input binding.</summary>
+/// <param name="Value">The generated CLR value or private argument carrier.</param>
+/// <param name="EffectiveJson">The detached effective JSON document.</param>
+public sealed record AIFunctionBoundInput(object Value, JsonElement EffectiveJson);
 
 public static class HPDToolArgumentBinder
 {
@@ -574,14 +588,19 @@ public class HPDAIFunctionFactoryOptions
     public Dictionary<string, object?>? AdditionalProperties { get; set; }
 }
 
-/// <summary>Contains either one bound generated argument pack or structural validation errors.</summary>
-public sealed record AIFunctionBindingResult(object? Value, IReadOnlyList<ValidationError> Errors)
+/// <summary>Contains either one bound input with effective JSON or structural validation errors.</summary>
+public sealed record AIFunctionBindingResult(
+    object? Value,
+    JsonElement EffectiveJson,
+    IReadOnlyList<ValidationError> Errors)
 {
     /// <summary>Creates a successful binding result.</summary>
-    public static AIFunctionBindingResult Success(object value) => new(value, Array.Empty<ValidationError>());
+    public static AIFunctionBindingResult Success(object value, JsonElement effectiveJson) =>
+        new(value, effectiveJson.Clone(), Array.Empty<ValidationError>());
 
     /// <summary>Creates a failed binding result.</summary>
-    public static AIFunctionBindingResult Failure(ValidationError error) => new(null, new[] { error });
+    public static AIFunctionBindingResult Failure(ValidationError error) =>
+        new(null, default, new[] { error });
 }
 
 public sealed record HPDToolSerializationOptions(JsonSerializerOptions? SerializerOptions = null);

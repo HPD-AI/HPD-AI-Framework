@@ -129,6 +129,10 @@ public sealed class DirectorySkillSource : IWatchableSkillSource
                 {
                     Reference = new ContentStoreScriptReference(address, runtime),
                     RequiresPermission = scriptMetadata?.RequiresPermission ?? true,
+                    InputContract = SkillScriptInput.FromCanonicalSchema(
+                        scriptMetadata is null
+                            ? throw new InvalidDataException($"Script '{relative}' requires an explicit parameters schema.")
+                            : ResolveParametersSchema(skillRoot, relative, scriptMetadata.ParametersSchema)),
                     ContentStore = _snapshots
                 });
             }
@@ -168,10 +172,55 @@ public sealed class DirectorySkillSource : IWatchableSkillSource
                 result.Scripts[property.Name] = new DirectoryScriptMetadata(
                     value.GetProperty("description").GetString() ?? string.Empty,
                     value.GetProperty("runtime").GetString() ?? string.Empty,
-                    value.TryGetProperty("requiresPermission", out var permission) ? permission.GetBoolean() : true);
+                    value.TryGetProperty("requiresPermission", out var permission) ? permission.GetBoolean() : true,
+                    value.GetProperty("parameters").Clone());
             }
         }
         return result;
+    }
+
+    private JsonElement ResolveParametersSchema(
+        string skillRoot,
+        string scriptPath,
+        JsonElement declaration)
+    {
+        if (declaration.ValueKind != JsonValueKind.Object ||
+            !declaration.TryGetProperty("$hpdContract", out var reference))
+            return declaration;
+        if (declaration.EnumerateObject().Count() != 1 ||
+            reference.ValueKind != JsonValueKind.String ||
+            string.IsNullOrWhiteSpace(reference.GetString()))
+            throw new InvalidDataException(
+                $"Script '{scriptPath}' has an invalid $hpdContract declaration.");
+
+        var relativePath = reference.GetString()!;
+        if (Path.IsPathRooted(relativePath) ||
+            Uri.TryCreate(relativePath, UriKind.Absolute, out _))
+            throw new InvalidDataException(
+                $"Script '{scriptPath}' $hpdContract must reference a local path beneath its skill root.");
+        var contractPath = Path.GetFullPath(Path.Combine(skillRoot, relativePath));
+        var skillPrefix = skillRoot.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+            ? skillRoot
+            : skillRoot + Path.DirectorySeparatorChar;
+        if (!contractPath.StartsWith(skillPrefix, StringComparison.Ordinal))
+            throw new InvalidDataException(
+                $"Script '{scriptPath}' $hpdContract path escapes its skill root.");
+        EnsureSafeDescendant(contractPath);
+        if (!File.Exists(contractPath))
+            throw new InvalidDataException(
+                $"Script '{scriptPath}' $hpdContract file is unavailable.");
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllBytes(contractPath));
+            return document.RootElement.Clone();
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException(
+                $"Script '{scriptPath}' $hpdContract file is not valid JSON.",
+                exception);
+        }
     }
 
     private static (Dictionary<string, string> Frontmatter, string Instructions) ParseSkillDocument(
@@ -357,5 +406,9 @@ public sealed class DirectorySkillSource : IWatchableSkillSource
         public Dictionary<string, DirectoryScriptMetadata> Scripts { get; } = new(StringComparer.Ordinal);
     }
 
-    private sealed record DirectoryScriptMetadata(string Description, string Runtime, bool RequiresPermission);
+    private sealed record DirectoryScriptMetadata(
+        string Description,
+        string Runtime,
+        bool RequiresPermission,
+        JsonElement ParametersSchema);
 }

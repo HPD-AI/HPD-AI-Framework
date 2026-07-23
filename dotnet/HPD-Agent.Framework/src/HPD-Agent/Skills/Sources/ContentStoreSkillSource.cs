@@ -51,6 +51,9 @@ public sealed class ContentStoreSkillSource : IWatchableSkillSource
             {
                 Reference = new ContentStoreScriptReference(script.Address, script.Runtime),
                 RequiresPermission = script.RequiresPermission,
+                Timeout = script.Timeout,
+                MaximumOutputBytes = script.MaximumOutputBytes,
+                InputContract = CreateInputContract(script),
                 ContentStore = _contentStore
             }));
 
@@ -86,5 +89,18 @@ public sealed class ContentStoreSkillSource : IWatchableSkillSource
             },
             capabilities: capabilities,
             provenance: provenance);
+    }
+
+    private static SkillScriptInputContract CreateInputContract(StoredSkillScript script)
+    {
+        var contract = SkillScriptInput.FromCanonicalSchema(script.ParametersSchema);
+        if (!string.Equals(
+            contract.CanonicalSchemaFingerprint,
+            script.SchemaFingerprint,
+            StringComparison.Ordinal))
+        {
+            throw new InvalidDataException($"Stored script '{script.Name}' has an invalid input-contract fingerprint.");
+        }
+        return contract;
     }
 }
