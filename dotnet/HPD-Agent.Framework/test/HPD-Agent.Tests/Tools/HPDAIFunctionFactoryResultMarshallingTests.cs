@@ -10,6 +10,82 @@ namespace HPD.Agent.Tests.Tools;
 public class HPDAIFunctionFactoryResultMarshallingTests
 {
     [Fact]
+    public async Task HPDAIFunction_GeneratedArgumentBinder_BindsOnceAndReusesValue()
+    {
+        var bindingCount = 0;
+        BoundTestArguments? invokedArguments = null;
+        var function = HPDAIFunctionFactory.Create(
+            (arguments, _, _) =>
+            {
+                invokedArguments = arguments.GetBoundArguments<BoundTestArguments>();
+                return Task.FromResult<object?>("ok");
+            },
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "BoundOnce",
+                ArgumentBinder = json =>
+                {
+                    bindingCount++;
+                    return AIFunctionBindingResult.Success(
+                        new BoundTestArguments(json.GetProperty("value").GetString()!));
+                }
+            });
+        using var document = JsonDocument.Parse("""{"value":"bound"}""");
+        var arguments = new AIFunctionArguments();
+        arguments.SetJson(document.RootElement.Clone());
+
+        await Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(function)
+            .InvokeAsync(arguments, CreateContext(function), CancellationToken.None);
+
+        Assert.Equal(1, bindingCount);
+        Assert.Equal("bound", invokedArguments!.Value);
+    }
+
+    [Fact]
+    public async Task HPDAIFunction_GeneratedArgumentBinder_RequiresRawJson()
+    {
+        var invoked = false;
+        var function = HPDAIFunctionFactory.Create(
+            (_, _, _) =>
+            {
+                invoked = true;
+                return Task.FromResult<object?>("unexpected");
+            },
+            new HPDAIFunctionFactoryOptions
+            {
+                Name = "StrictIngress",
+                ArgumentBinder = _ => AIFunctionBindingResult.Success(new BoundTestArguments("value"))
+            });
+
+        var result = await Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(function)
+            .InvokeAsync(new AIFunctionArguments { ["value"] = "reconstructed" }, CreateContext(function), CancellationToken.None);
+
+        var json = Assert.IsType<JsonElement>(result);
+        Assert.False(invoked);
+        Assert.Equal("raw_json_required", json.GetProperty("errors")[0].GetProperty("error_code").GetString());
+    }
+
+    [Fact]
+    public void HPDAIFunction_ExposesStableComposedContractDescriptor()
+    {
+        JsonElement Schema()
+        {
+            using var document = JsonDocument.Parse("""{"type":"object","properties":{},"additionalProperties":false}""");
+            return document.RootElement.Clone();
+        }
+
+        var options = new HPDAIFunctionFactoryOptions { Name = "Described", SchemaProvider = Schema };
+        var first = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(HPDAIFunctionFactory.Create((_, _, _) => Task.FromResult<object?>(null), options));
+        var second = Assert.IsType<HPDAIFunctionFactory.HPDAIFunction>(HPDAIFunctionFactory.Create((_, _, _) => Task.FromResult<object?>(null), options));
+
+        Assert.NotNull(first.ContractDescriptor);
+        Assert.Equal("Described", first.ContractDescriptor!.FunctionName);
+        Assert.Equal(64, first.ContractDescriptor.CanonicalSchemaFingerprint.Length);
+        Assert.Equal(first.ContractDescriptor.CanonicalSchemaFingerprint, second.ContractDescriptor!.CanonicalSchemaFingerprint);
+        Assert.Equal(first.JsonSchema.GetRawText(), first.ContractDescriptor.CanonicalSchema.GetRawText());
+    }
+
+    [Fact]
     public async Task HPDAIFunction_InvokeAsync_ProvidesFunctionExecutionContext()
     {
         FunctionExecutionContext? capturedContext = null;
@@ -275,6 +351,7 @@ public class HPDAIFunctionFactoryResultMarshallingTests
 }
 
 internal sealed record WeatherResult(string City, int Temperature);
+internal sealed record BoundTestArguments(string Value);
 
 internal enum SearchMode
 {

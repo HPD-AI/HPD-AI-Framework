@@ -78,6 +78,28 @@ public sealed class FunctionInvocationModeTests
         backgroundContext.Completion.Metadata.Should().ContainKey("function.name").WhoseValue.Should().Be("long_task");
     }
 
+    [Theory]
+    [InlineData("Synchronous")]
+    [InlineData("BACKGROUND")]
+    public void ReadRequestedMode_RejectsAlternateCasing(string value)
+    {
+        using var document = JsonDocument.Parse($"{{\"invocationMode\":\"{value}\"}}");
+
+        var action = () => AgentInvocationModes.ReadRequestedMode(document.RootElement);
+
+        action.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void ReadRequestedMode_RejectsDuplicateProperty()
+    {
+        using var document = JsonDocument.Parse("""{"invocationMode":"synchronous","invocationMode":"background"}""");
+
+        var action = () => AgentInvocationModes.ReadRequestedMode(document.RootElement);
+
+        action.Should().Throw<InvalidOperationException>();
+    }
+
     private static AIFunction CreateFunction(
         AgentInvocationModePolicy policy,
         Func<AIFunctionArguments, FunctionExecutionContext, CancellationToken, Task<object?>> invoke)

@@ -4,6 +4,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using HPD.Agent.SourceGenerator.Contracts;
 
 namespace HPD.Agent.SourceGenerator.Capabilities;
 
@@ -27,6 +28,7 @@ internal static class ParameterAnalyzer
                 ? null
                 : semanticModel.GetTypeInfo(param.Type).Type;
             var kind = FunctionParameterClassifier.Classify(typeSymbol);
+            var parameterSymbol = semanticModel.GetDeclaredSymbol(param);
 
             if (kind == FunctionParameterKind.Unsupported)
             {
@@ -37,14 +39,28 @@ internal static class ParameterAnalyzer
                     FunctionParameterClassifier.GetMetadataName(typeSymbol)));
             }
 
+            AIContractNode? contract = null;
+            if (kind == FunctionParameterKind.ModelFacing && typeSymbol is not null)
+            {
+                var parameterDescription = GetDescription(param);
+                var analysis = AIContractAnalyzer.Analyze(
+                    typeSymbol,
+                    param.Identifier.ValueText,
+                    parameterDescription.Contains("{metadata.") ? null : parameterDescription,
+                    param.GetLocation());
+                contract = analysis.Contract;
+                diagnostics.AddRange(analysis.Diagnostics);
+            }
+
             parameters.Add(new ParameterInfo
             {
+                Symbol = parameterSymbol,
+                Contract = contract,
                 Name = param.Identifier.ValueText,
                 Type = param.Type?.ToString() ?? "object",
                 MetadataTypeName = FunctionParameterClassifier.GetMetadataName(typeSymbol),
                 Kind = kind,
                 Description = GetDescription(param),
-                IsEnum = IsEnum(param, semanticModel),
                 HasDefaultValue = param.Default != null,
                 DefaultValue = GetDefaultValue(param, semanticModel),
                 ConditionalExpression = GetConditionalExpression(param)
@@ -63,30 +79,6 @@ internal static class ParameterAnalyzer
         }
 
         return " = default!;";
-    }
-
-    private static bool IsEnum(ParameterSyntax param, SemanticModel semanticModel)
-    {
-        if (param.Type is null)
-        {
-            return false;
-        }
-
-        var type = semanticModel.GetTypeInfo(param.Type).Type;
-
-        if (type?.TypeKind == TypeKind.Enum)
-        {
-            return true;
-        }
-
-        if (type is INamedTypeSymbol namedType &&
-            namedType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T &&
-            namedType.TypeArguments.Length == 1)
-        {
-            return namedType.TypeArguments[0].TypeKind == TypeKind.Enum;
-        }
-
-        return false;
     }
 
     private static string GetDescription(ParameterSyntax param)

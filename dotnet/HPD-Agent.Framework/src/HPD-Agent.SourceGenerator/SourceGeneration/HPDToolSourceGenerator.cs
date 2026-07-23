@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using HPD.Agent.SourceGenerator.Capabilities;
+using HPD.Agent.SourceGenerator.Contracts;
 
 /// <summary>
 /// Source generator for HPD-Agent AI ToolHarnesses. Generates AOT-compatible ToolHarness registration code.
@@ -1164,15 +1165,7 @@ namespace HPD.Agent.Diagnostics {{
         foreach (var function in ToolHarness.FunctionCapabilities)
         {
             sb.AppendLine();
-            sb.AppendLine(GenerateSchemaValidator(function, ToolHarness));
-            
-            // Generate manual JSON parser for AOT compatibility
-            var relevantParams = function.Parameters.Where(p => p.IsModelFacing).ToList();
-            if (relevantParams.Any())
-            {
-                sb.AppendLine();
-                sb.AppendLine(GenerateJsonParser(function, ToolHarness));
-            }
+            sb.AppendLine(AIBindingSourceEmitter.Emit(function));
         }
 
         // PHASE 2B: Generate context resolvers for ALL capabilities (Functions, Skills, SubAgents)
@@ -1337,7 +1330,8 @@ $@"    /// <summary>
                 {
                     sb.AppendLine($"        [System.ComponentModel.Description(\"{EscapeForAttribute(param.Description)}\")]");
                 }
-                sb.AppendLine($"        public {param.Type} {param.Name} {{ get; set; }}{ParameterAnalyzer.GetDefaultInitializer(param)}");
+                var identifier = SyntaxFacts.GetKeywordKind(param.Name) is SyntaxKind.None ? param.Name : "@" + param.Name;
+                sb.AppendLine($"        public {param.Type} {identifier} {{ get; set; }}{ParameterAnalyzer.GetDefaultInitializer(param)}");
             }
 
             sb.AppendLine("    }");
@@ -1349,71 +1343,6 @@ $@"    /// <summary>
         // Function schemas are emitted directly from parameter metadata to keep generated tools AOT-friendly.
 
         return sb.ToString();
-    }
-
-    private static string GenerateSchemaValidator(HPD.Agent.SourceGenerator.Capabilities.FunctionCapability function, ToolHarnessInfo ToolHarness)
-    {
-        var relevantParams = function.Parameters.Where(p => p.IsModelFacing).ToList();
-
-        if (!relevantParams.Any())
-        {
-            return
-$@"        private static Func<JsonElement, JsonSerializerOptions, List<ValidationError>>? Create{function.Name}Validator() => (jsonArgs, serializerOptions) =>
-        {{
-            var errors = new List<ValidationError>();
-            try
-            {{
-                HPDToolArgumentBinder.ValidateNoUnmappedProperties(jsonArgs, serializerOptions);
-            }}
-            catch (HPDToolArgumentException ex)
-            {{
-                errors.Add(new ValidationError {{ Property = ex.PropertyName, ErrorMessage = ex.Message, ErrorCode = ex.ErrorCode }});
-            }}
-            return errors;
-        }};";
-        }
-
-        var dtoName = $"{function.Name}Args";
-        var sb = new StringBuilder();
-        sb.AppendLine($"        private static Func<JsonElement, JsonSerializerOptions, List<ValidationError>> Create{function.Name}Validator()");
-        sb.AppendLine("        {");
-        sb.AppendLine("            return (jsonArgs, serializerOptions) =>");
-        sb.AppendLine("            {");
-        sb.AppendLine("                var errors = new List<ValidationError>();");
-        sb.AppendLine();
-
-        sb.AppendLine("                // Parse and validate property types");
-        sb.AppendLine("                try");
-        sb.AppendLine("                {");
-        sb.AppendLine($"                    HPDToolArgumentBinder.ValidateNoUnmappedProperties(jsonArgs, serializerOptions, {FormatStringArray(relevantParams.Select(p => p.Name))});");
-        sb.AppendLine($"                    var dto = Parse{dtoName}(jsonArgs, serializerOptions);");
-
-        sb.AppendLine("                }");
-        sb.AppendLine("                catch (HPDToolArgumentException ex)");
-        sb.AppendLine("                {");
-        sb.AppendLine("                    errors.Add(new ValidationError { Property = ex.PropertyName, ErrorMessage = ex.Message, ErrorCode = ex.ErrorCode });");
-        sb.AppendLine("                }");
-        sb.AppendLine("                catch (JsonException ex)");
-        sb.AppendLine("                {");
-        sb.AppendLine("                    // Type conversion error - extract property name from exception if available");
-        sb.AppendLine("                    string propertyName = ex.Path ?? \"Unknown\";");
-        sb.AppendLine("                    errors.Add(new ValidationError { Property = propertyName, ErrorMessage = ex.Message, ErrorCode = \"type_conversion_error\" });");
-        sb.AppendLine("                }");
-        sb.AppendLine("                return errors;");
-        sb.AppendLine("            };");
-        sb.AppendLine("        }");
-        return sb.ToString();
-    }
-
-    private static bool IsNullableParameter(ParameterInfo param)
-    {
-        // Simple heuristic - check if type ends with ?
-        return param.Type.EndsWith("?");
-    }
-
-    private static string FormatStringArray(IEnumerable<string> values)
-    {
-        return string.Join(", ", values.Select(value => $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\""));
     }
 
     private static string EscapeForAttribute(string value)
@@ -2319,41 +2248,6 @@ $@"        private static Func<JsonElement, JsonSerializerOptions, List<Validati
 
         // Default to static if we can't determine (safer - won't add instance prefix)
         return true;
-    }
-
-    /// <summary>
-    /// Generates an argument parser that delegates conversion to the shared AOT-safe binder.
-    /// </summary>
-    private static string GenerateJsonParser(HPD.Agent.SourceGenerator.Capabilities.FunctionCapability function, ToolHarnessInfo ToolHarness)
-    {
-        var dtoName = $"{function.Name}Args";
-        var relevantParams = function.Parameters.Where(p => p.IsModelFacing).ToList();
-        
-        var sb = new StringBuilder();
-        sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// Parses JSON arguments for {dtoName}.");
-        sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        private static {dtoName} Parse{dtoName}(JsonElement json, JsonSerializerOptions serializerOptions)");
-        sb.AppendLine("        {");
-        sb.AppendLine($"            var result = new {dtoName}();");
-        sb.AppendLine();
-        
-        foreach (var param in relevantParams)
-        {
-            if (!IsNullableParameter(param) && !param.HasDefaultValue)
-            {
-                sb.AppendLine($"            result.{param.Name} = HPDToolArgumentBinder.BindRequired<{param.Type}>(json, \"{param.Name}\", serializerOptions);");
-            }
-            else
-            {
-                sb.AppendLine($"            result.{param.Name} = HPDToolArgumentBinder.BindOptional<{param.Type}>(json, \"{param.Name}\", result.{param.Name}, serializerOptions);");
-            }
-        }
-        
-        sb.AppendLine("            return result;");
-        sb.AppendLine("        }");
-        
-        return sb.ToString();
     }
 
     /// <summary>

@@ -294,16 +294,31 @@ public static class AgentInvocationModes
     /// <returns>The parsed invocation mode, or <see langword="null"/> when none was supplied.</returns>
     public static AgentInvocationMode? ReadRequestedMode(JsonElement json)
     {
-        if (!json.TryGetProperty("invocationMode", out var property))
+        if (json.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("Function arguments must be a JSON object.");
+
+        JsonElement property = default;
+        var occurrences = 0;
+        foreach (var candidate in json.EnumerateObject())
+        {
+            if (!string.Equals(candidate.Name, "invocationMode", StringComparison.Ordinal))
+                continue;
+            occurrences++;
+            property = candidate.Value;
+        }
+
+        if (occurrences == 0)
             return null;
+        if (occurrences > 1)
+            throw new InvalidOperationException("invocationMode must occur at most once.");
 
         if (property.ValueKind != JsonValueKind.String)
             throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.");
 
         var value = property.GetString();
-        if (string.Equals(value, "synchronous", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(value, "synchronous", StringComparison.Ordinal))
             return AgentInvocationMode.Synchronous;
-        if (string.Equals(value, "background", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(value, "background", StringComparison.Ordinal))
             return AgentInvocationMode.Background;
 
         throw new InvalidOperationException("invocationMode must be either 'synchronous' or 'background'.");

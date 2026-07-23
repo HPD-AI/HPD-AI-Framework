@@ -2,6 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Collections.Immutable;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using HPD.Agent.SourceGenerator.Contracts;
 
 namespace HPD.Agent.SourceGenerator.Capabilities;
 
@@ -89,7 +93,6 @@ internal class FunctionCapability : BaseCapability
     /// Generates the registration code for this function.
     /// Creates HPDAIFunctionFactory.Create(...) call with all necessary metadata.
     ///
-    /// Phase 3: Full implementation migrated from HPDToolSourceGenerator.GenerateFunctionRegistration().
     /// </summary>
     /// <param name="parent">The parent ToolHarness that contains this function (ToolHarnessInfo).</param>
     /// <returns>The generated registration code as a string.</returns>
@@ -122,7 +125,7 @@ internal class FunctionCapability : BaseCapability
                 FunctionParameterKind.AIFunctionArguments => "arguments",
                 FunctionParameterKind.ServiceProvider => "arguments.Services",
                 FunctionParameterKind.FunctionExecutionContext => "functionContext",
-                _ => $"args.{p.Name}"
+                _ => $"args.{EscapeIdentifier(p.Name)}"
             };
         }));
 
@@ -159,8 +162,7 @@ internal class FunctionCapability : BaseCapability
             invocationLogic =
 $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
             {{
-                var jsonArgs = arguments.GetJson();
-                var args = Parse{dtoName}(jsonArgs, arguments.GetJsonSerializerOptions());
+                var args = arguments.GetBoundArguments<{dtoName}>();
                 {returnStatement}
             }})";
         }
@@ -195,7 +197,7 @@ $@"({asyncKeyword} (arguments, functionContext, cancellationToken) =>
         options.AppendLine($"                RequiresPermission = {RequiresPermission.ToString().ToLower()},");
         options.AppendLine($"                InvocationModePolicy = global::HPD.Agent.AgentInvocationModePolicy.{InvocationModePolicy},");
         options.AppendLine($"                InvocationModeHandling = global::HPD.Agent.AgentInvocationModeHandling.{InvocationModeHandling},");
-        options.AppendLine($"                Validator = Create{Name}Validator(),");
+        options.AppendLine($"                ArgumentBinder = Bind{Name}Arguments,");
         options.AppendLine($"                SchemaProvider = {schemaProviderCode},");
         options.AppendLine("                SerializerOptions = serialization?.SerializerOptions,");
         if (!isVoidReturn)
@@ -272,92 +274,12 @@ $@"HPDAIFunctionFactory.Create(
 
     private string GenerateJsonSchema(List<ParameterInfo> relevantParams)
     {
-        var sb = new StringBuilder();
-        sb.Append("{\"type\":\"object\",\"properties\":{");
-
-        for (var i = 0; i < relevantParams.Count; i++)
-        {
-            var param = relevantParams[i];
-            if (i > 0)
-                sb.Append(',');
-
-            sb.Append('"').Append(EscapeJsonString(param.Name)).Append("\":{");
-            AppendJsonSchemaForParameter(sb, param);
-            sb.Append('}');
-        }
-
-        sb.Append("}");
-
-        var requiredParams = relevantParams
-            .Where(param => !param.IsNullable && !param.HasDefaultValue)
-            .Select(param => param.Name)
-            .ToList();
-
-        if (requiredParams.Count > 0)
-        {
-            sb.Append(",\"required\":[");
-            for (var i = 0; i < requiredParams.Count; i++)
-            {
-                if (i > 0)
-                    sb.Append(',');
-
-                sb.Append('"').Append(EscapeJsonString(requiredParams[i])).Append('"');
-            }
-            sb.Append(']');
-        }
-
-        sb.Append(",\"additionalProperties\":false}");
-        return sb.ToString();
-    }
-
-    private static void AppendJsonSchemaForParameter(StringBuilder sb, ParameterInfo param)
-    {
-        sb.Append("\"type\":\"").Append(GetJsonSchemaType(param.Type)).Append('"');
-
-        if (!string.IsNullOrWhiteSpace(param.Description) && !param.HasDynamicDescription)
-        {
-            sb.Append(",\"description\":\"").Append(EscapeJsonString(param.Description)).Append('"');
-        }
-    }
-
-    private static string GetJsonSchemaType(string type)
-    {
-        var normalized = NormalizeTypeName(type);
-
-        if (normalized.EndsWith("[]", StringComparison.Ordinal) ||
-            normalized.StartsWith("System.Collections.Generic.IEnumerable<", StringComparison.Ordinal) ||
-            normalized.StartsWith("IEnumerable<", StringComparison.Ordinal) ||
-            normalized.StartsWith("System.Collections.Generic.IReadOnlyList<", StringComparison.Ordinal) ||
-            normalized.StartsWith("IReadOnlyList<", StringComparison.Ordinal) ||
-            normalized.StartsWith("System.Collections.Generic.List<", StringComparison.Ordinal) ||
-            normalized.StartsWith("List<", StringComparison.Ordinal))
-        {
-            return "array";
-        }
-
-        return normalized switch
-        {
-            "string" or "System.String" or "char" or "System.Char" or "System.Guid" or "System.DateTime" or "System.DateOnly" or "System.TimeOnly" => "string",
-            "bool" or "System.Boolean" => "boolean",
-            "byte" or "sbyte" or "short" or "ushort" or "int" or "uint" or "long" or "ulong"
-                or "System.Byte" or "System.SByte" or "System.Int16" or "System.UInt16" or "System.Int32" or "System.UInt32" or "System.Int64" or "System.UInt64" => "integer",
-            "float" or "double" or "decimal" or "System.Single" or "System.Double" or "System.Decimal" => "number",
-            _ => "object"
-        };
-    }
-
-    private static string NormalizeTypeName(string type)
-    {
-        var normalized = type.Trim();
-
-        if (normalized.EndsWith("?", StringComparison.Ordinal))
-            normalized = normalized.Substring(0, normalized.Length - 1);
-
-        const string nullablePrefix = "System.Nullable<";
-        if (normalized.StartsWith(nullablePrefix, StringComparison.Ordinal) && normalized.EndsWith(">", StringComparison.Ordinal))
-            normalized = normalized.Substring(nullablePrefix.Length, normalized.Length - nullablePrefix.Length - 1);
-
-        return normalized;
+        var parameters = relevantParams.Select(param => new AIFunctionContractParameter(
+            param.Symbol!,
+            param.Name,
+            param.Contract!,
+            IsRequired: !param.HasDefaultValue)).ToImmutableArray();
+        return AICanonicalSchemaEmitter.Emit(new AIFunctionMethodContract(parameters));
     }
 
     private static string GetDeclaredResultType(string returnType)
@@ -394,6 +316,9 @@ $@"HPDAIFunctionFactory.Create(
                 .Select(item => item.Trim())
                 .Where(item => item.Length > 0)
                 .ToArray();
+
+    private static string EscapeIdentifier(string value) =>
+        SyntaxFacts.GetKeywordKind(value) is SyntaxKind.None ? value : "@" + value;
 
     private static string GenerateStringArrayLiteral(string[] values)
     {
@@ -566,17 +491,20 @@ $@"HPDAIFunctionFactory.Create(
 
 /// <summary>
 /// Information about a function parameter discovered during source generation.
-/// This is the same structure as in ToolHarnessInfo.cs but duplicated here for Phase 1.
-/// In Phase 2, we'll consolidate to use a single shared ParameterInfo class.
+/// Carries the Roslyn symbol and analyzed semantic contract used by every generated surface.
 /// </summary>
 internal class ParameterInfo
 {
+    /// <summary>Gets or sets the Roslyn parameter symbol.</summary>
+    public IParameterSymbol? Symbol { get; set; }
+
+    /// <summary>Gets or sets the recursively analyzed model-facing contract.</summary>
+    public AIContractNode? Contract { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
     public string MetadataTypeName { get; set; } = "object";
     public FunctionParameterKind Kind { get; set; } = FunctionParameterKind.ModelFacing;
     public string Description { get; set; } = string.Empty;
-    public bool IsEnum { get; set; }
     public bool HasDefaultValue { get; set; }
     public string? DefaultValue { get; set; }
 
@@ -603,9 +531,9 @@ internal class ParameterInfo
     public bool IsModelFacing => Kind == FunctionParameterKind.ModelFacing;
 
     /// <summary>
-    /// Whether this parameter is nullable (simple heuristic).
+    /// Whether this parameter contract permits explicit JSON null.
     /// </summary>
-    public bool IsNullable => Type.EndsWith("?");
+    public bool IsNullable => Contract?.AllowsNull == true;
 }
 
 /// <summary>

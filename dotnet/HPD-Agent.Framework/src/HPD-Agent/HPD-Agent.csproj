@@ -68,6 +68,7 @@
     <InternalsVisibleTo Include="HPD-Agent.Hosting.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Evaluations.Tests" />
     <InternalsVisibleTo Include="HPD-Agent.Harness.Coding.Tests" />
+    <InternalsVisibleTo Include="HPD-Agent.AIFunctionContracts.AotSmoke" />
   </ItemGroup>
 
 </Project>

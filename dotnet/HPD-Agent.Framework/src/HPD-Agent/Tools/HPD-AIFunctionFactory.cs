@@ -4,6 +4,8 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Extensions.AI;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using HPD.Agent.Middleware;
 
 namespace HPD.Agent;
@@ -50,6 +52,9 @@ public class HPDAIFunctionFactory
                 options.InvocationModePolicy);
             Name = options.Name ?? _method?.Name ?? "Unknown";
             Description = options.Description ?? "";
+            ContractDescriptor = JsonSchema.ValueKind == JsonValueKind.Undefined
+                ? null
+                : AIFunctionContractDescriptor.Create(Name, JsonSchema);
         }
 
         public HPDAIFunctionFactoryOptions HPDOptions { get; }
@@ -58,6 +63,9 @@ public class HPDAIFunctionFactory
         public override JsonElement JsonSchema { get; }
         public override MethodInfo? UnderlyingMethod => _method;
         public override JsonSerializerOptions JsonSerializerOptions => HPDOptions.SerializerOptions ?? _defaultSerializerOptions;
+
+        /// <summary>Gets the immutable composed contract published by this generated function.</summary>
+        public AIFunctionContractDescriptor? ContractDescriptor { get; }
 
         public ValueTask<object?> InvokeAsync(
             AIFunctionArguments arguments,
@@ -97,9 +105,19 @@ public class HPDAIFunctionFactory
             }
             else
             {
+                if (HPDOptions.ArgumentBinder is not null)
+                {
+                    return CreateValidationError(
+                        string.Empty,
+                        "raw_json_required",
+                        "Generated AI functions require the original JSON argument object.");
+                }
+
                 // If no raw JSON is available, serialize the arguments dictionary.
                 var argumentsDict = arguments
-                    .Where(kvp => kvp.Key != AIFunctionArgumentsExtensions.JsonKey && kvp.Key != AIFunctionArgumentsExtensions.JsonSerializerOptionsKey)
+                    .Where(kvp => kvp.Key != AIFunctionArgumentsExtensions.JsonKey &&
+                        kvp.Key != AIFunctionArgumentsExtensions.JsonSerializerOptionsKey &&
+                        kvp.Key != AIFunctionArgumentsExtensions.BoundArgumentsKey)
                     .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
                 var jsonString = JsonSerializer.Serialize(argumentsDict, HPDJsonContext.Default.DictionaryStringObject);
                 jsonArgs = JsonDocument.Parse(jsonString).RootElement;
@@ -119,8 +137,20 @@ public class HPDAIFunctionFactory
                 validationJsonArgs = sanitizedArguments.GetJson();
             }
 
-            // 2. Use the validator.
-            var validationErrors = HPDOptions.Validator?.Invoke(validationJsonArgs, serializerOptions);
+            // 2. Bind generated contracts once, or use the validator for external/manual functions.
+            arguments.Remove(AIFunctionArgumentsExtensions.BoundArgumentsKey);
+            IReadOnlyList<ValidationError>? validationErrors;
+            if (HPDOptions.ArgumentBinder is not null)
+            {
+                var binding = HPDOptions.ArgumentBinder(validationJsonArgs);
+                validationErrors = binding.Errors;
+                if (binding.Value is not null && binding.Errors.Count == 0)
+                    arguments.SetBoundArguments(binding.Value);
+            }
+            else
+            {
+                validationErrors = HPDOptions.Validator?.Invoke(validationJsonArgs, serializerOptions);
+            }
 
             // TODO: Add container-specific parameter validation
             // Edge case: LLMs sometimes try to invoke containers with parameters like Math({function: "Add", a: 5, b: 10})
@@ -182,6 +212,18 @@ public class HPDAIFunctionFactory
         }
     }
 
+    private static JsonElement CreateValidationError(string property, string errorCode, string message)
+    {
+        var response = new ValidationErrorResponse();
+        response.Errors.Add(new ValidationError
+        {
+            Property = property,
+            ErrorCode = errorCode,
+            ErrorMessage = message
+        });
+        return JsonSerializer.SerializeToElement(response, HPDJsonContext.Default.ValidationErrorResponse);
+    }
+
     private static async ValueTask<object?> MarshalResultAsync(
         object? result,
         HPDAIFunctionFactoryOptions options,
@@ -190,16 +232,16 @@ public class HPDAIFunctionFactory
     {
         var declaredResultType = options.ResultType;
 
-        if (options.MarshalResult is not null)
-        {
-            return await options.MarshalResult(result, declaredResultType, cancellationToken).ConfigureAwait(false);
-        }
-
         if (result is null)
             return null;
 
         if (IsEventSafeResult(result))
             return result;
+
+        if (options.MarshalResult is not null)
+        {
+            return await options.MarshalResult(result, declaredResultType, cancellationToken).ConfigureAwait(false);
+        }
 
         if (result is JsonDocument document)
             return document.RootElement.Clone();
@@ -248,6 +290,32 @@ public class HPDAIFunctionFactory
     }
 }
 
+/// <summary>Describes the immutable composed JSON contract exposed by an HPD AI function.</summary>
+public sealed record AIFunctionContractDescriptor
+{
+    /// <summary>Gets the published function name.</summary>
+    public required string FunctionName { get; init; }
+
+    /// <summary>Gets the lowercase SHA-256 fingerprint of the canonical composed schema.</summary>
+    public required string CanonicalSchemaFingerprint { get; init; }
+
+    /// <summary>Gets a detached copy of the canonical composed schema.</summary>
+    public required JsonElement CanonicalSchema { get; init; }
+
+    internal static AIFunctionContractDescriptor Create(string functionName, JsonElement schema)
+    {
+        var canonical = schema.GetRawText();
+        var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)))
+            .ToLowerInvariant();
+        return new AIFunctionContractDescriptor
+        {
+            FunctionName = functionName,
+            CanonicalSchemaFingerprint = fingerprint,
+            CanonicalSchema = schema.Clone()
+        };
+    }
+}
+
 /// <summary>
 /// Extensions to AIFunctionArguments for JSON handling.
 /// </summary>
@@ -255,6 +323,7 @@ public static class AIFunctionArgumentsExtensions
 {
     internal const string JsonKey = "__raw_json__";
     internal const string JsonSerializerOptionsKey = "__json_serializer_options__";
+    internal const string BoundArgumentsKey = "__hpd_bound_arguments__";
     
     /// <summary>
     /// Gets the raw JSON element from the arguments.
@@ -289,6 +358,18 @@ public static class AIFunctionArgumentsExtensions
     public static void SetJsonSerializerOptions(this AIFunctionArguments arguments, JsonSerializerOptions options)
     {
         arguments[JsonSerializerOptionsKey] = options;
+    }
+
+    /// <summary>Stores the one-shot result produced by a generated argument binder.</summary>
+    public static void SetBoundArguments(this AIFunctionArguments arguments, object value) =>
+        arguments[BoundArgumentsKey] = value;
+
+    /// <summary>Gets the one-shot result produced by a generated argument binder.</summary>
+    public static T GetBoundArguments<T>(this AIFunctionArguments arguments)
+    {
+        if (arguments.TryGetValue(BoundArgumentsKey, out var value) && value is T typed)
+            return typed;
+        throw new InvalidOperationException("Generated AI-function arguments were not bound before invocation.");
     }
 }
 
@@ -481,10 +562,26 @@ public class HPDAIFunctionFactoryOptions
     // The validator now returns a list of detailed, structured errors.
     public Func<JsonElement, JsonSerializerOptions, List<ValidationError>>? Validator { get; set; }
 
+    /// <summary>
+    /// Gets or sets the generated one-shot structural validator and argument binder.
+    /// A successful result is retained through invocation so CLR construction is not repeated.
+    /// </summary>
+    public Func<JsonElement, AIFunctionBindingResult>? ArgumentBinder { get; set; }
+
     public Func<JsonElement>? SchemaProvider { get; set; }
 
     // Additional metadata properties for ToolHarness Collapsing and other features
     public Dictionary<string, object?>? AdditionalProperties { get; set; }
+}
+
+/// <summary>Contains either one bound generated argument pack or structural validation errors.</summary>
+public sealed record AIFunctionBindingResult(object? Value, IReadOnlyList<ValidationError> Errors)
+{
+    /// <summary>Creates a successful binding result.</summary>
+    public static AIFunctionBindingResult Success(object value) => new(value, Array.Empty<ValidationError>());
+
+    /// <summary>Creates a failed binding result.</summary>
+    public static AIFunctionBindingResult Failure(ValidationError error) => new(null, new[] { error });
 }
 
 public sealed record HPDToolSerializationOptions(JsonSerializerOptions? SerializerOptions = null);

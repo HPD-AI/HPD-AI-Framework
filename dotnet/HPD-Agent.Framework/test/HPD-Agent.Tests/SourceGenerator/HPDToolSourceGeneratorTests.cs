@@ -171,10 +171,47 @@ namespace TestToolHarnesses
 
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
         Assert.NotNull(generatedCode);
-        Assert.Contains("HPDToolArgumentBinder.BindOptional<SearchMode>", generatedCode);
-        Assert.Contains("HPDToolArgumentBinder.ValidateNoUnmappedProperties(jsonArgs, serializerOptions, \"pattern\", \"mode\")", generatedCode);
-        Assert.Contains("ParseSearchArgs(jsonArgs, arguments.GetJsonSerializerOptions())", generatedCode);
-        Assert.DoesNotContain("global::System.Enum.TryParse<SearchMode>", generatedCode);
+        Assert.Contains("ArgumentBinder = BindSearchArguments", generatedCode);
+        Assert.Contains("HPDGeneratedToolArgumentBinder.ValidateProperties(json, \"\", \"pattern\", \"mode\")", generatedCode);
+        Assert.Contains("GetBoundArguments<SearchArgs>()", generatedCode);
+        Assert.Contains("\"Files\" => global::TestToolHarnesses.SearchMode.Files", generatedCode);
+        Assert.Contains("\\\"enum\\\":[\\\"Files\\\",\\\"Content\\\"]", generatedCode);
+        Assert.DoesNotContain("HPDToolArgumentBinder.BindOptional", generatedCode);
+    }
+
+    [Fact]
+    public void GeneratedToolHarness_WithUnion_CompilesStrictDirectBinder()
+    {
+        var source = """
+            using System.Text.Json.Serialization;
+            using HPD.Agent;
+
+            namespace GeneratedContracts
+            {
+                [JsonPolymorphic(TypeDiscriminatorPropertyName = "action")]
+                [JsonDerivedType(typeof(LaunchRequest), "launch")]
+                [JsonDerivedType(typeof(ContinueRequest), "continue")]
+                public abstract record OperationRequest;
+                public sealed record LaunchRequest(string Target) : OperationRequest;
+                public sealed record ContinueRequest(string DebugTreeId, int? ThreadId = null) : OperationRequest;
+
+                [Collapse("Union", FunctionResult = "ok")]
+                public partial class UnionToolHarness
+                {
+                    [AIFunction]
+                    public string Execute(OperationRequest request) => request.GetType().Name;
+                }
+            }
+            """;
+
+        var (generatedCode, diagnostics) = RunGenerator(source);
+
+        Assert.Empty(diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.False(string.IsNullOrEmpty(generatedCode), string.Join("\n", diagnostics.Select(diagnostic => diagnostic.ToString())));
+        Assert.Contains("unknown_union_discriminator", generatedCode);
+        Assert.Contains("\"launch\" => BindContract_Execute_request_case_launch", generatedCode);
+        Assert.Contains("GetBoundArguments<ExecuteArgs>()", generatedCode);
+        Assert.DoesNotContain("JsonSerializer.Deserialize", generatedCode);
     }
 
     // ── T047 ─────────────────────────────────────────────────────────────────
