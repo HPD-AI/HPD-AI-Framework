@@ -21,8 +21,16 @@ public sealed class OpenAICompatibleChatRequest
     [JsonPropertyName("max_tokens")]
     public int? MaxTokens { get; set; }
 
+    /// <summary>Gets or sets the provider's maximum completion-token limit.</summary>
+    [JsonPropertyName("max_completion_tokens")]
+    public int? MaxCompletionTokens { get; set; }
+
     [JsonPropertyName("top_p")]
     public float? TopP { get; set; }
+
+    /// <summary>Gets or sets the number of highest-probability tokens considered.</summary>
+    [JsonPropertyName("top_k")]
+    public int? TopK { get; set; }
 
     [JsonPropertyName("frequency_penalty")]
     public float? FrequencyPenalty { get; set; }
@@ -48,6 +56,10 @@ public sealed class OpenAICompatibleChatRequest
     [JsonPropertyName("reasoning_effort")]
     public string? ReasoningEffort { get; set; }
 
+    /// <summary>Gets or sets provider-native thinking configuration.</summary>
+    [JsonPropertyName("thinking")]
+    public OpenAICompatibleThinkingRequest? Thinking { get; set; }
+
     [JsonPropertyName("response_format")]
     public OpenAICompatibleResponseFormatRequest? ResponseFormat { get; set; }
 
@@ -56,6 +68,14 @@ public sealed class OpenAICompatibleChatRequest
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? ExtraFields { get; set; }
+}
+
+/// <summary>Represents a provider-native thinking enablement request.</summary>
+public sealed class OpenAICompatibleThinkingRequest
+{
+    /// <summary>Gets or sets the provider-native thinking mode.</summary>
+    [JsonPropertyName("type")]
+    public required string Type { get; set; }
 }
 
 public sealed class OpenAICompatibleRequestMessage

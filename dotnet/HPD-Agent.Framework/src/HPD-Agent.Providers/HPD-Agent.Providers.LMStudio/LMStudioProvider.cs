@@ -10,6 +10,24 @@ internal sealed class LMStudioProvider : OpenAICompatibleChatProviderBase<LMStud
     internal static readonly Uri DefaultEndpoint = new("http://localhost:1234/v1/");
     internal const string DefaultChatModel = "local-model";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        Temperature = true,
+        TopP = true,
+        TopK = true,
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxTokens,
+        FrequencyPenalty = true,
+        PresencePenalty = true,
+        StopSequences = true,
+        Seed = true,
+        JsonSchemaResponseFormat = true,
+        Tools = true,
+        AutoToolChoice = true,
+        NoneToolChoice = true,
+        RequiredToolChoice = true,
+        Vision = true
+    };
+
     private static readonly OpenAICompatibleProviderDefinition ProviderDefinition = new()
     {
         ProviderKey = "lmstudio",
@@ -21,11 +39,14 @@ internal sealed class LMStudioProvider : OpenAICompatibleChatProviderBase<LMStud
         ProviderUri = new Uri("https://lmstudio.ai/"),
         DocumentationUri = new Uri("https://lmstudio.ai/docs/developer/openai-compat"),
         RequiresApiKey = false,
+        RequestProfile = ChatRequestProfile,
         Capabilities = new Dictionary<string, object?>
         {
             ["SupportsStreaming"] = true,
             ["SupportsFunctionCalling"] = true,
             ["SupportsJsonResponseFormat"] = true,
+            ["SupportsSeed"] = true,
+            ["SupportsVisionInput"] = true,
             ["OpenAICompatibleEndpoint"] = "http://localhost:1234/v1/",
             ["SupportsLocalRuntime"] = true
         }

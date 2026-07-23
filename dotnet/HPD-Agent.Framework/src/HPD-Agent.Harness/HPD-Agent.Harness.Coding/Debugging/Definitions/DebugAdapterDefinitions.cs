@@ -15,6 +15,15 @@ public enum DebugTargetKind
     RegisteredRemoteEndpoint = 32
 }
 
+[Flags]
+public enum DebugAdapterProgramKind
+{
+    None = 0,
+    SourceFile = 1,
+    ExecutableFile = 2,
+    ProjectDirectory = 4
+}
+
 public sealed record DebugAdapterProvenance
 {
     public required string PackageId { get; init; }
@@ -45,6 +54,7 @@ public sealed record DebugAdapterDescriptor
     public required IReadOnlyList<string> FileExtensions { get; init; }
     public required IReadOnlyList<string> RootMarkers { get; init; }
     public required DebugTargetKind TargetKinds { get; init; }
+    public DebugAdapterProgramKind ProgramKinds { get; init; }
     public IReadOnlyList<string> CommandHints { get; init; } = [];
     public IReadOnlyList<string> ArgumentHints { get; init; } = [];
     public string? InstallGuidanceId { get; init; }

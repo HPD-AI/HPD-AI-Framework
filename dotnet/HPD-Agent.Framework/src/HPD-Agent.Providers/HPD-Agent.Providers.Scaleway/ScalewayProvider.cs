@@ -10,6 +10,21 @@ internal sealed class ScalewayProvider : OpenAICompatibleChatProviderBase<Scalew
     internal static readonly Uri DefaultEndpoint = new("https://api.scaleway.ai/v1/");
     internal const string DefaultChatModel = "qwen3.5-397b-a17b";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        Temperature = true,
+        TopP = true,
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxTokens,
+        PresencePenalty = true,
+        StopSequences = true,
+        Seed = true,
+        JsonObjectResponseFormat = true,
+        JsonSchemaResponseFormat = true,
+        Tools = true,
+        AutoToolChoice = true,
+        NamedToolChoice = true
+    };
+
     private static readonly OpenAICompatibleProviderDefinition ProviderDefinition = new()
     {
         ProviderKey = "scaleway",
@@ -21,6 +36,7 @@ internal sealed class ScalewayProvider : OpenAICompatibleChatProviderBase<Scalew
         ProviderUri = new Uri("https://www.scaleway.com/en/generative-apis/"),
         DocumentationUri = new Uri("https://www.scaleway.com/en/docs/generative-apis/reference-content/openai-compatibility/"),
         RequiresApiKey = true,
+        RequestProfile = ChatRequestProfile,
         Capabilities = new Dictionary<string, object?>
         {
             ["SupportsStreaming"] = true,

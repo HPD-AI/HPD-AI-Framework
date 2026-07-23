@@ -10,6 +10,13 @@ internal sealed class NvidiaNimProvider : OpenAICompatibleChatProviderBase<Nvidi
     internal static readonly Uri DefaultEndpoint = new("https://integrate.api.nvidia.com/v1/");
     internal const string DefaultChatModel = "meta/llama-3.1-70b-instruct";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        Temperature = true,
+        TopP = true,
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxTokens
+    };
+
     private static readonly OpenAICompatibleProviderDefinition ProviderDefinition = new()
     {
         ProviderKey = "nvidia-nim",
@@ -21,11 +28,10 @@ internal sealed class NvidiaNimProvider : OpenAICompatibleChatProviderBase<Nvidi
         ProviderUri = new Uri("https://build.nvidia.com/"),
         DocumentationUri = new Uri("https://docs.api.nvidia.com/nim/reference/google-codegemma-7b-infer"),
         RequiresApiKey = true,
+        RequestProfile = ChatRequestProfile,
         Capabilities = new Dictionary<string, object?>
         {
             ["SupportsStreaming"] = true,
-            ["SupportsFunctionCalling"] = true,
-            ["SupportsJsonResponseFormat"] = true,
             ["OpenAICompatibleEndpoint"] = "https://integrate.api.nvidia.com/v1/"
         }
     };

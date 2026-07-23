@@ -319,12 +319,12 @@ public sealed class ProviderBehaviorRestorationTests
             {
                 Reasoning = new Microsoft.Extensions.AI.ReasoningOptions
                 {
-                    Effort = Microsoft.Extensions.AI.ReasoningEffort.ExtraHigh
+                    Effort = Microsoft.Extensions.AI.ReasoningEffort.High
                 }
             });
 
         using var request = JsonDocument.Parse(handler.RequestBody);
-        request.RootElement.GetProperty("reasoning_effort").GetString().Should().Be("xhigh");
+        request.RootElement.GetProperty("reasoning_effort").GetString().Should().Be("high");
     }
 
 #if NET10_0_OR_GREATER

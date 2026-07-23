@@ -18,6 +18,27 @@ internal class FireworksProvider : IChatClientProvider
     private static readonly Uri DefaultEndpoint = new("https://api.fireworks.ai/inference/v1/");
     private const string DefaultChatModel = "accounts/fireworks/models/llama-v3p1-8b-instruct";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        Temperature = true,
+        TopP = true,
+        TopK = true,
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxTokens,
+        FrequencyPenalty = true,
+        PresencePenalty = true,
+        StopSequences = true,
+        Seed = true,
+        JsonObjectResponseFormat = true,
+        JsonSchemaResponseFormat = true,
+        Tools = true,
+        AutoToolChoice = true,
+        NoneToolChoice = true,
+        RequiredToolChoice = true,
+        NamedToolChoice = true,
+        ParallelToolCalls = true,
+        StreamingUsage = true
+    };
+
     public string ProviderKey => "fireworks";
     public string DisplayName => "Fireworks AI";
 
@@ -61,7 +82,8 @@ internal class FireworksProvider : IChatClientProvider
             DisplayName = DisplayName,
             ProviderUri = baseUri,
             DefaultModelId = config.ModelName,
-            ChatCompletionsPath = "chat/completions"
+            ChatCompletionsPath = "chat/completions",
+            RequestProfile = ChatRequestProfile
         });
 
         return new FireworksConfiguredChatClient(client, config.ModelName, baseUri);

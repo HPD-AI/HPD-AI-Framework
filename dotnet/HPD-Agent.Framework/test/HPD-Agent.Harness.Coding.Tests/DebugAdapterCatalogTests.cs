@@ -10,6 +10,7 @@ namespace HPD.Agent.ToolHarness.Coding.Tests;
 [DebugAdapterFileExtensions(".test")]
 [DebugAdapterRootMarkers("test.project")]
 [DebugAdapterTargetKinds(DebugTargetKind.SourceFile)]
+[DebugAdapterProgramKinds(DebugAdapterProgramKind.SourceFile)]
 [DebugAdapterFactory(typeof(ConstructorInjectedTestFactory))]
 public sealed class ConstructorInjectedTestAdapterDeclaration;
 
@@ -37,6 +38,7 @@ public sealed class DebugAdapterCatalogTests
 
         netCore.Descriptor.Languages.Should().Contain(["csharp", "fsharp"]);
         netCore.Descriptor.TargetKinds.Should().HaveFlag(DebugTargetKind.Process);
+        netCore.Descriptor.ProgramKinds.Should().Be(DebugAdapterProgramKind.ExecutableFile);
         netCore.Descriptor.CommandHints.Should().Equal("netcoredbg");
         netCore.Descriptor.ArgumentHints.Should().Equal("--interpreter=vscode");
         netCore.Descriptor.Provenance.AssemblyName.Should().Be("HPD-Agent.Harness.Coding");

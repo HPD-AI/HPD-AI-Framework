@@ -10,6 +10,17 @@ internal sealed class SiliconFlowProvider : OpenAICompatibleChatProviderBase<Sil
     internal static readonly Uri DefaultEndpoint = new("https://api.siliconflow.com/v1/");
     internal const string DefaultChatModel = "Qwen/Qwen3-32B";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        Temperature = true,
+        TopP = true,
+        TopK = true,
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxTokens,
+        FrequencyPenalty = true,
+        StopSequences = true,
+        Tools = true
+    };
+
     private static readonly OpenAICompatibleProviderDefinition ProviderDefinition = new()
     {
         ProviderKey = "siliconflow",
@@ -21,11 +32,11 @@ internal sealed class SiliconFlowProvider : OpenAICompatibleChatProviderBase<Sil
         ProviderUri = new Uri("https://www.siliconflow.com/"),
         DocumentationUri = new Uri("https://docs.siliconflow.com/en/api-reference/chat-completions/chat-completions"),
         RequiresApiKey = true,
+        RequestProfile = ChatRequestProfile,
         Capabilities = new Dictionary<string, object?>
         {
             ["SupportsStreaming"] = true,
             ["SupportsFunctionCalling"] = true,
-            ["SupportsJsonResponseFormat"] = true,
             ["OpenAICompatibleEndpoint"] = "https://api.siliconflow.com/v1/"
         }
     };

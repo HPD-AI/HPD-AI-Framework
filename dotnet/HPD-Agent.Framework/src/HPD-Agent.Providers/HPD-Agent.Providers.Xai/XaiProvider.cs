@@ -14,6 +14,23 @@ internal sealed class XaiProvider : IChatClientProvider
     internal static readonly Uri DefaultEndpoint = new("https://api.x.ai/v1/");
     internal const string DefaultChatModel = "grok-4.3";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        Temperature = true,
+        TopP = true,
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxTokens,
+        TextResponseFormat = true,
+        JsonObjectResponseFormat = true,
+        JsonSchemaResponseFormat = true,
+        Tools = true,
+        AutoToolChoice = true,
+        NoneToolChoice = true,
+        RequiredToolChoice = true,
+        NamedToolChoice = true,
+        ParallelToolCalls = true,
+        Vision = true
+    };
+
     public string ProviderKey => "xai";
     public string DisplayName => "xAI";
 
@@ -56,7 +73,8 @@ internal sealed class XaiProvider : IChatClientProvider
                 ProviderKey = ProviderKey,
                 DisplayName = DisplayName,
                 ProviderUri = endpoint,
-                DefaultModelId = modelName
+                DefaultModelId = modelName,
+                RequestProfile = ChatRequestProfile
             });
     }
 
@@ -81,7 +99,7 @@ internal sealed class XaiProvider : IChatClientProvider
                         ["SupportsFunctionCalling"] = true,
                         ["SupportsJsonResponseFormat"] = true,
                         ["SupportsReasoningEffort"] = true,
-                        ["SupportsVision"] = false
+                        ["SupportsVision"] = true
                     }
                 }
             }

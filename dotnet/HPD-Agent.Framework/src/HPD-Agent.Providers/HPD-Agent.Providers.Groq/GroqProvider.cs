@@ -22,6 +22,24 @@ internal sealed class GroqProvider : IChatClientProvider
     internal static readonly Uri DefaultEndpoint = new("https://api.groq.com/openai/v1/");
     internal const string DefaultChatModel = "llama-3.3-70b-versatile";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        Temperature = true,
+        TopP = true,
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxCompletionTokens,
+        StopSequences = true,
+        Seed = true,
+        JsonObjectResponseFormat = true,
+        JsonSchemaResponseFormat = true,
+        Tools = true,
+        AutoToolChoice = true,
+        NoneToolChoice = true,
+        RequiredToolChoice = true,
+        NamedToolChoice = true,
+        ParallelToolCalls = true,
+        Vision = true
+    };
+
     public string ProviderKey => "groq";
     public string DisplayName => "Groq";
 
@@ -74,7 +92,8 @@ internal sealed class GroqProvider : IChatClientProvider
             DisplayName = DisplayName,
             ProviderUri = new Uri("https://groq.com/"),
             DefaultModelId = config.ModelName,
-            ChatCompletionsPath = "chat/completions"
+            ChatCompletionsPath = "chat/completions",
+            RequestProfile = ChatRequestProfile
         };
 
         return new GroqConfiguredChatClient(new OpenAICompatibleChatClient(httpClient, options));
@@ -102,8 +121,7 @@ internal sealed class GroqProvider : IChatClientProvider
                     {
                         ["SupportsStreaming"] = true,
                         ["SupportsFunctionCalling"] = true,
-                        ["SupportsVision"] = false,
-                        ["SupportsReasoning"] = true,
+                        ["SupportsVision"] = true,
                         ["SupportsJsonResponseFormat"] = true
                     }
                 }

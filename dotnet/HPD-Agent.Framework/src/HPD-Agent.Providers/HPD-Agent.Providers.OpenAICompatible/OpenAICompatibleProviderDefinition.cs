@@ -18,13 +18,9 @@ public sealed class OpenAICompatibleProviderDefinition
     public Uri? DocumentationUri { get; init; }
     public string ChatCompletionsPath { get; init; } = "chat/completions";
     public bool RequiresApiKey { get; init; } = true;
-    public bool IncludeStreamingUsage { get; init; } = true;
-    public IReadOnlyDictionary<string, object?> Capabilities { get; init; } =
-        new Dictionary<string, object?>
-        {
-            ["SupportsStreaming"] = true,
-            ["SupportsFunctionCalling"] = true,
-            ["SupportsJsonResponseFormat"] = true
-        };
-}
 
+    /// <summary>Gets or initializes the optional request fields supported by the provider.</summary>
+    public OpenAICompatibleRequestProfile RequestProfile { get; init; } = new();
+    public IReadOnlyDictionary<string, object?> Capabilities { get; init; } =
+        new Dictionary<string, object?>();
+}

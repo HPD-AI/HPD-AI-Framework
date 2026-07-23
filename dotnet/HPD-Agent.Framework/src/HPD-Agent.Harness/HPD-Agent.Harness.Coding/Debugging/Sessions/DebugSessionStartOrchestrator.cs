@@ -7,6 +7,18 @@ using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
 
+internal sealed class DebugAdapterStartException(
+    string adapterId,
+    string phase,
+    DebugAdapterDiagnosticSnapshot diagnostics,
+    Exception innerException)
+    : Exception($"Debug adapter '{adapterId}' failed during '{phase}'.", innerException)
+{
+    public string AdapterId { get; } = adapterId;
+    public string Phase { get; } = phase;
+    public DebugAdapterDiagnosticSnapshot Diagnostics { get; } = diagnostics;
+}
+
 internal sealed record DebugSessionStartRequest
 {
     public required DebugRuntimeBinding Runtime { get; init; }
@@ -169,6 +181,7 @@ internal sealed class DebugSessionStartOrchestrator
     {
         IDebugProtocolTransport? transport = null;
         DebugSession? session = null;
+        var phase = "transport";
         try
         {
             transport = await _transportFactory.CreateAsync(launchPlan, cancellationToken).ConfigureAwait(false);
@@ -184,6 +197,7 @@ internal sealed class DebugSessionStartOrchestrator
                 }),
                 LaunchPlan = launchPlan
             };
+            phase = "initialize";
             if (request.EventPublisher is not null)
             {
                 session.OutputEvents = CreateOutputCoalescer(session, tree);
@@ -199,6 +213,7 @@ internal sealed class DebugSessionStartOrchestrator
                 _initializePolicy.Create(launchPlan.AdapterId, request.InitializeFeatures),
                 cancellationToken).ConfigureAwait(false);
             session.State.Transition(DebugSessionStatus.Configuring);
+            phase = isAttach ? "attach" : "launch";
             var launchTask = coordinator.RunLaunchAsync(async ct =>
             {
                 if (isAttach)
@@ -210,6 +225,7 @@ internal sealed class DebugSessionStartOrchestrator
             }, cancellationToken);
             await coordinator.AwaitStartBoundaryAsync(cancellationToken).ConfigureAwait(false);
             await launchTask.ConfigureAwait(false);
+            phase = "configuration";
             if (session.State.Status == DebugSessionStatus.Configuring)
                 session.State.Transition(DebugSessionStatus.Running);
 
@@ -221,11 +237,26 @@ internal sealed class DebugSessionStartOrchestrator
             }
             return session;
         }
-        catch
+        catch (Exception exception)
         {
-            if (session is not null) await session.DisposeAsync().ConfigureAwait(false);
-            else if (transport is not null) await transport.DisposeAsync().ConfigureAwait(false);
-            throw;
+            if (session is not null)
+            {
+                var diagnostics = session.Protocol.AdapterDiagnostics;
+                await session.DisposeAsync().ConfigureAwait(false);
+                if (exception is OperationCanceledException)
+                    throw;
+                throw new DebugAdapterStartException(
+                    launchPlan.AdapterId, phase, diagnostics, exception);
+            }
+            if (transport is not null)
+                await transport.DisposeAsync().ConfigureAwait(false);
+            if (exception is OperationCanceledException)
+                throw;
+            throw new DebugAdapterStartException(
+                launchPlan.AdapterId,
+                phase,
+                new DebugAdapterDiagnosticSnapshot(string.Empty, 0, 0, null),
+                exception);
         }
     }
 

@@ -683,8 +683,6 @@ public sealed class ModelSelectionCommandTests
                 inputs:
                 [
                     "0.2",
-                    "0.9",
-                    "40",
                     "2048"
                 ]),
             static (_, _) => ValueTask.CompletedTask,
@@ -694,8 +692,8 @@ public sealed class ModelSelectionCommandTests
         selection.Current.Should().NotBeNull();
         selection.Current!.Chat.Should().NotBeNull();
         selection.Current.Chat!.Temperature.Should().Be(0.2);
-        selection.Current.Chat.TopP.Should().Be(0.9);
-        selection.Current.Chat.TopK.Should().Be(40);
+        selection.Current.Chat.TopP.Should().BeNull();
+        selection.Current.Chat.TopK.Should().BeNull();
         selection.Current.Chat.MaxOutputTokens.Should().Be(2048);
     }
 

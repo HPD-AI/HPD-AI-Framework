@@ -36,11 +36,9 @@ internal sealed class XaiChatClient(
     private static string? CreateReasoningEffort(Microsoft.Extensions.AI.ReasoningEffort? effort)
         => effort switch
         {
-            Microsoft.Extensions.AI.ReasoningEffort.None => "none",
             Microsoft.Extensions.AI.ReasoningEffort.Low => "low",
             Microsoft.Extensions.AI.ReasoningEffort.Medium => "medium",
             Microsoft.Extensions.AI.ReasoningEffort.High => "high",
-            Microsoft.Extensions.AI.ReasoningEffort.ExtraHigh => "xhigh",
             _ => null
         };
 

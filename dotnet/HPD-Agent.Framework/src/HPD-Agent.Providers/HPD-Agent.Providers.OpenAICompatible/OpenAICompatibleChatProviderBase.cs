@@ -121,7 +121,7 @@ public abstract class OpenAICompatibleChatProviderBase<TConfig> : IChatClientPro
             ProviderUri = Definition.ProviderUri ?? endpoint,
             DefaultModelId = config.ModelName,
             ChatCompletionsPath = Definition.ChatCompletionsPath,
-            IncludeStreamingUsage = Definition.IncludeStreamingUsage
+            RequestProfile = Definition.RequestProfile
         };
 
     protected virtual IChatClient WrapChatClient(

@@ -10,6 +10,24 @@ internal sealed class NebiusProvider : OpenAICompatibleChatProviderBase<NebiusPr
     internal static readonly Uri DefaultEndpoint = new("https://api.tokenfactory.nebius.com/v1/");
     internal const string DefaultChatModel = "meta-llama/Meta-Llama-3.1-70B-Instruct";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        Temperature = true,
+        TopP = true,
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxTokens,
+        FrequencyPenalty = true,
+        PresencePenalty = true,
+        StopSequences = true,
+        TextResponseFormat = true,
+        JsonObjectResponseFormat = true,
+        JsonSchemaResponseFormat = true,
+        Tools = true,
+        AutoToolChoice = true,
+        NoneToolChoice = true,
+        RequiredToolChoice = true,
+        NamedToolChoice = true
+    };
+
     private static readonly OpenAICompatibleProviderDefinition ProviderDefinition = new()
     {
         ProviderKey = "nebius",
@@ -21,6 +39,7 @@ internal sealed class NebiusProvider : OpenAICompatibleChatProviderBase<NebiusPr
         ProviderUri = new Uri("https://nebius.com/services/token-factory"),
         DocumentationUri = new Uri("https://docs.tokenfactory.nebius.com/api-reference/introduction"),
         RequiresApiKey = true,
+        RequestProfile = ChatRequestProfile,
         Capabilities = new Dictionary<string, object?>
         {
             ["SupportsStreaming"] = true,

@@ -48,11 +48,15 @@ public sealed class DebugSessionStartOrchestratorTests
     {
         var directory = Path.Combine(Path.GetTempPath(), "hpd-public-netcoredbg-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
-        var project = Path.Combine(directory, "Smoke.csproj");
+        var projectDirectory = Path.Combine(directory, "src", "Smoke");
+        Directory.CreateDirectory(projectDirectory);
+        var project = Path.Combine(projectDirectory, "Smoke.csproj");
         await File.WriteAllTextAsync(project,
             "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>");
-        await File.WriteAllTextAsync(Path.Combine(directory, "Program.cs"),
+        await File.WriteAllTextAsync(Path.Combine(projectDirectory, "Program.cs"),
             "var value = 42; System.Console.WriteLine(value);\n");
+        await File.WriteAllTextAsync(Path.Combine(directory, "Smoke.slnx"),
+            "<Solution><Project Path=\"src/Smoke/Smoke.csproj\" /></Solution>");
         try
         {
             using (var compiler = Process.Start(new ProcessStartInfo(
@@ -70,8 +74,8 @@ public sealed class DebugSessionStartOrchestratorTests
                 NetcoredbgDescriptor(),
                 System.Environment.GetEnvironmentVariable("HPD_NETCOREDBG")!,
                 ["--interpreter=vscode"],
-                Path.Combine(directory, "bin", "Debug", "net8.0", "Smoke.dll"),
-                "executable");
+                directory,
+                "projectDirectory");
         }
         finally
         {
@@ -99,7 +103,12 @@ public sealed class DebugSessionStartOrchestratorTests
         var planner = new DebugStartPlanningService(
             new DebugAdapterSelector(catalog, new DebugAdapterAvailabilityCache(), trust,
                 new LexicalDebugWorkspaceCanonicalizer()),
-            new BuiltInDebugAdapterConfigurationComposer(), trust, orchestrator, formatter);
+            catalog,
+            new WorkspaceRootMarkerResolver(),
+            new BuiltInDebugAdapterConfigurationComposer(), trust,
+            new BuiltInDebugAdapterLaunchTargetResolver(
+                new DotNetDebugLaunchArtifactResolver()), orchestrator, formatter,
+            new DebugAdapterDiagnosticStore());
         var dispatcher = new DebugOperationDispatcher(
             new DebugRuntimeServiceFactory(orchestrator), formatter,
             new DebugPermissionAuthorizationService(), planner);
@@ -175,6 +184,7 @@ public sealed class DebugSessionStartOrchestratorTests
             FileExtensions = [".py"],
             RootMarkers = [],
             TargetKinds = DebugTargetKind.SourceFile,
+            ProgramKinds = DebugAdapterProgramKind.SourceFile,
             Provenance = new()
             {
                 PackageId = "debugpy",
@@ -197,10 +207,15 @@ public sealed class DebugSessionStartOrchestratorTests
         var hostRequests = new RecordingHostRequestBroker();
         var planner = new DebugStartPlanningService(
             selector,
+            catalog,
+            new WorkspaceRootMarkerResolver(),
             new BuiltInDebugAdapterConfigurationComposer(),
             trust,
+            new BuiltInDebugAdapterLaunchTargetResolver(
+                new DotNetDebugLaunchArtifactResolver()),
             orchestrator,
             formatter,
+            new DebugAdapterDiagnosticStore(),
             hostRequestBroker: hostRequests,
             childSessionPlanFactory: new ChildPlanFactory());
         var dispatcher = new DebugOperationDispatcher(
@@ -1446,6 +1461,7 @@ public sealed class DebugSessionStartOrchestratorTests
         FileExtensions = [".py"],
         RootMarkers = ["pyproject.toml"],
         TargetKinds = DebugTargetKind.SourceFile | DebugTargetKind.Process,
+        ProgramKinds = DebugAdapterProgramKind.SourceFile,
         Provenance = new()
         {
             PackageId = "debugpy",
@@ -1459,9 +1475,10 @@ public sealed class DebugSessionStartOrchestratorTests
         Id = "netcoredbg",
         Languages = ["csharp", "fsharp", "visualbasic"],
         FileExtensions = [".dll", ".cs", ".fs", ".vb"],
-        RootMarkers = [".sln", ".csproj"],
+        RootMarkers = ["*.sln", "*.slnx", "*.csproj"],
         TargetKinds = DebugTargetKind.Executable | DebugTargetKind.ProjectDirectory |
             DebugTargetKind.Process,
+        ProgramKinds = DebugAdapterProgramKind.ExecutableFile,
         Provenance = new()
         {
             PackageId = "netcoredbg",

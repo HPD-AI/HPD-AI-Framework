@@ -10,6 +10,19 @@ internal sealed class ZaiProvider : OpenAICompatibleChatProviderBase<ZaiProvider
     internal static readonly Uri DefaultEndpoint = new("https://api.z.ai/api/paas/v4/");
     internal const string DefaultChatModel = "glm-4.7";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        Temperature = true,
+        TopP = true,
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxTokens,
+        StopSequences = true,
+        TextResponseFormat = true,
+        JsonObjectResponseFormat = true,
+        Tools = true,
+        AutoToolChoice = true,
+        ApplyReasoning = ApplyReasoning
+    };
+
     private static readonly OpenAICompatibleProviderDefinition ProviderDefinition = new()
     {
         ProviderKey = "zai",
@@ -21,11 +34,13 @@ internal sealed class ZaiProvider : OpenAICompatibleChatProviderBase<ZaiProvider
         ProviderUri = new Uri("https://z.ai/"),
         DocumentationUri = new Uri("https://docs.z.ai/guides/develop/openai/python"),
         RequiresApiKey = true,
+        RequestProfile = ChatRequestProfile,
         Capabilities = new Dictionary<string, object?>
         {
             ["SupportsStreaming"] = true,
             ["SupportsFunctionCalling"] = true,
             ["SupportsJsonResponseFormat"] = true,
+            ["SupportsReasoning"] = true,
             ["OpenAICompatibleEndpoint"] = "https://api.z.ai/api/paas/v4/"
         }
     };
@@ -34,4 +49,22 @@ internal sealed class ZaiProvider : OpenAICompatibleChatProviderBase<ZaiProvider
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);
+
+    /// <summary>
+    /// Translates reasoning configuration for GLM models that use Z.AI's thinking object.
+    /// </summary>
+    private static void ApplyReasoning(
+        OpenAICompatibleChatRequest request,
+        Microsoft.Extensions.AI.ReasoningOptions reasoning)
+    {
+        if (reasoning.Effort is null)
+        {
+            return;
+        }
+
+        request.Thinking = new OpenAICompatibleThinkingRequest
+        {
+            Type = reasoning.Effort == Microsoft.Extensions.AI.ReasoningEffort.None ? "disabled" : "enabled"
+        };
+    }
 }

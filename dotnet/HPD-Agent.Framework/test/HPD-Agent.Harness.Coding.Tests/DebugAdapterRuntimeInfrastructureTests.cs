@@ -128,7 +128,13 @@ public sealed class DebugAdapterRuntimeInfrastructureTests
         var descriptor = Descriptor(adapterId, targetKind | DebugTargetKind.Process);
         var value = new BuiltInDebugAdapterConfigurationComposer().ComposeLaunch(
             descriptor,
-            new("/workspace/target", "/workspace", targetKind, ["--flag"], StopOnEntry: true));
+            new("/workspace/target", "/workspace", targetKind,
+                targetKind == DebugTargetKind.ProjectDirectory
+                    ? DebugAdapterProgramKind.ProjectDirectory
+                    : targetKind == DebugTargetKind.Executable
+                        ? DebugAdapterProgramKind.ExecutableFile
+                        : DebugAdapterProgramKind.SourceFile,
+                ["--flag"], StopOnEntry: true));
 
         value.GetProperty("request").GetString().Should().Be("launch");
         value.GetProperty("program").GetString().Should().Be("/workspace/target");
@@ -139,6 +145,24 @@ public sealed class DebugAdapterRuntimeInfrastructureTests
             value.GetProperty(secondStopProperty).GetBoolean().Should().BeTrue();
         if (adapterId == "delve") value.GetProperty("mode").GetString().Should().Be("debug");
         if (adapterId == "javascript") value.GetProperty("type").GetString().Should().Be("pwa-node");
+    }
+
+    [Fact]
+    public void Semantic_launch_rejects_an_unsupported_concrete_program_shape()
+    {
+        var descriptor = Descriptor(
+            "netcoredbg", DebugTargetKind.ProjectDirectory | DebugTargetKind.Executable) with
+        {
+            ProgramKinds = DebugAdapterProgramKind.ExecutableFile
+        };
+
+        var act = () => new BuiltInDebugAdapterConfigurationComposer().ComposeLaunch(
+            descriptor,
+            new("/workspace/project", "/workspace", DebugTargetKind.ProjectDirectory,
+                DebugAdapterProgramKind.ProjectDirectory));
+
+        act.Should().Throw<DebugStartPlanningException>()
+            .Which.Kind.Should().Be("adapter_program_kind_unsupported");
     }
 
     [Fact]
@@ -161,6 +185,9 @@ public sealed class DebugAdapterRuntimeInfrastructureTests
         FileExtensions = [],
         RootMarkers = [],
         TargetKinds = targetKinds,
+        ProgramKinds = DebugAdapterProgramKind.SourceFile |
+            DebugAdapterProgramKind.ExecutableFile |
+            DebugAdapterProgramKind.ProjectDirectory,
         Provenance = new() { PackageId = id, PackageVersion = "1", AssemblyName = "tests" }
     };
 

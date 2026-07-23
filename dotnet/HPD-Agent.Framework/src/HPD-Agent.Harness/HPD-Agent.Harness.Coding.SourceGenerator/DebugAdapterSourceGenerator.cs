@@ -15,6 +15,7 @@ public sealed class DebugAdapterSourceGenerator : IIncrementalGenerator
     private const string ExtensionsAttribute = "HPD.Agent.ToolHarness.Coding.Debugging.Attributes.DebugAdapterFileExtensionsAttribute";
     private const string RootMarkersAttribute = "HPD.Agent.ToolHarness.Coding.Debugging.Attributes.DebugAdapterRootMarkersAttribute";
     private const string TargetKindsAttribute = "HPD.Agent.ToolHarness.Coding.Debugging.Attributes.DebugAdapterTargetKindsAttribute";
+    private const string ProgramKindsAttribute = "HPD.Agent.ToolHarness.Coding.Debugging.Attributes.DebugAdapterProgramKindsAttribute";
     private const string FactoryAttribute = "HPD.Agent.ToolHarness.Coding.Debugging.Attributes.DebugAdapterFactoryAttribute";
     private const string CommandHintAttribute = "HPD.Agent.ToolHarness.Coding.Debugging.Attributes.DebugAdapterCommandHintAttribute";
     private const string ArgumentHintsAttribute = "HPD.Agent.ToolHarness.Coding.Debugging.Attributes.DebugAdapterArgumentHintsAttribute";
@@ -123,6 +124,18 @@ public sealed class DebugAdapterSourceGenerator : IIncrementalGenerator
             ReportAtAttributeArgument(context, DebugAdapterGeneratorDiagnostics.UnsupportedTargetKinds, symbol, TargetKindsAttribute, 0, 0, symbol.Name, targetKinds);
             invalid = true;
         }
+        var programKinds = GetInt(symbol, ProgramKindsAttribute);
+        if (programKinds == 0)
+        {
+            Report(context, DebugAdapterGeneratorDiagnostics.MissingProgramKinds, symbol, symbol.Name);
+            invalid = true;
+        }
+        const int supportedProgramKinds = 1 | 2 | 4;
+        if ((programKinds & ~supportedProgramKinds) != 0)
+        {
+            ReportAtAttributeArgument(context, DebugAdapterGeneratorDiagnostics.UnsupportedProgramKinds, symbol, ProgramKindsAttribute, 0, 0, symbol.Name, programKinds);
+            invalid = true;
+        }
         var commands = GetRepeatedStrings(symbol, CommandHintAttribute);
         for (var index = 0; index < commands.Count; index++)
         {
@@ -174,7 +187,7 @@ public sealed class DebugAdapterSourceGenerator : IIncrementalGenerator
         if (invalid)
             return null;
         return new AdapterInfo(
-            id!, languages, extensions, roots, targetKinds, commands,
+            id!, languages, extensions, roots, targetKinds, programKinds, commands,
             arguments, installGuidance,
             priority, Has(symbol, ExperimentalAttribute), Has(symbol, DisabledAttribute),
             factory?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ?? "global::HPD.Agent.ToolHarness.Coding.Debugging.StandardDebugAdapterFactory");
@@ -202,6 +215,7 @@ public sealed class DebugAdapterSourceGenerator : IIncrementalGenerator
             writer.AppendLine($"                FileExtensions = [{List(adapter.Extensions)}],");
             writer.AppendLine($"                RootMarkers = [{List(adapter.RootMarkers)}],");
             writer.AppendLine($"                TargetKinds = (global::HPD.Agent.ToolHarness.Coding.Debugging.DebugTargetKind){adapter.TargetKinds},");
+            writer.AppendLine($"                ProgramKinds = (global::HPD.Agent.ToolHarness.Coding.Debugging.DebugAdapterProgramKind){adapter.ProgramKinds},");
             writer.AppendLine($"                CommandHints = [{List(adapter.CommandHints)}],");
             writer.AppendLine($"                ArgumentHints = [{List(adapter.ArgumentHints)}],");
             if (adapter.InstallGuidance is not null) writer.AppendLine($"                InstallGuidanceId = \"{Escape(adapter.InstallGuidance)}\",");
@@ -279,5 +293,5 @@ public sealed class DebugAdapterSourceGenerator : IIncrementalGenerator
     private static string Escape(string value) => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
     private static string Identifier(string value) => new(value.Select(character => char.IsLetterOrDigit(character) ? character : '_').ToArray());
 
-    private sealed record AdapterInfo(string Id, IReadOnlyList<string> Languages, IReadOnlyList<string> Extensions, IReadOnlyList<string> RootMarkers, int TargetKinds, IReadOnlyList<string> CommandHints, IReadOnlyList<string> ArgumentHints, string? InstallGuidance, int Priority, bool Experimental, bool Disabled, string FactoryType);
+    private sealed record AdapterInfo(string Id, IReadOnlyList<string> Languages, IReadOnlyList<string> Extensions, IReadOnlyList<string> RootMarkers, int TargetKinds, int ProgramKinds, IReadOnlyList<string> CommandHints, IReadOnlyList<string> ArgumentHints, string? InstallGuidance, int Priority, bool Experimental, bool Disabled, string FactoryType);
 }

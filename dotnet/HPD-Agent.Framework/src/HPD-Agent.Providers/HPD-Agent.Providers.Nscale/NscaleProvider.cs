@@ -10,6 +10,21 @@ internal sealed class NscaleProvider : OpenAICompatibleChatProviderBase<NscalePr
     internal static readonly Uri DefaultEndpoint = new("https://inference.api.nscale.com/v1/");
     internal const string DefaultChatModel = "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        Temperature = true,
+        TopP = true,
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxTokens,
+        FrequencyPenalty = true,
+        PresencePenalty = true,
+        StopSequences = true,
+        Seed = true,
+        Tools = true,
+        AutoToolChoice = true,
+        StreamingUsage = true,
+        ApplyReasoning = ApplyReasoning
+    };
+
     private static readonly OpenAICompatibleProviderDefinition ProviderDefinition = new()
     {
         ProviderKey = "nscale",
@@ -20,12 +35,13 @@ internal sealed class NscaleProvider : OpenAICompatibleChatProviderBase<NscalePr
         EndpointSecretKey = "nscale:Endpoint",
         ProviderUri = new Uri("https://www.nscale.com/"),
         DocumentationUri = new Uri("https://www.nscale.com/"),
+        RequestProfile = ChatRequestProfile,
         Capabilities = new Dictionary<string, object?>
         {
             ["SupportsStreaming"] = true,
             ["SupportsFunctionCalling"] = true,
-            ["SupportsJsonResponseFormat"] = true,
             ["SupportsSeed"] = true,
+            ["SupportsReasoning"] = true,
             ["OpenAICompatibleEndpoint"] = "https://inference.api.nscale.com/v1/"
         }
     };
@@ -34,4 +50,17 @@ internal sealed class NscaleProvider : OpenAICompatibleChatProviderBase<NscalePr
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);
+
+    /// <summary>
+    /// Applies the reasoning effort explicitly documented by Nscale.
+    /// </summary>
+    private static void ApplyReasoning(
+        OpenAICompatibleChatRequest request,
+        Microsoft.Extensions.AI.ReasoningOptions reasoning)
+    {
+        if (reasoning.Effort == Microsoft.Extensions.AI.ReasoningEffort.Medium)
+        {
+            request.ReasoningEffort = "medium";
+        }
+    }
 }

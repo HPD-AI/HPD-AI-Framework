@@ -6,7 +6,8 @@ namespace HPD.Agent.ToolHarness.Coding.Debugging;
 public sealed record DebugSemanticLaunchConfiguration(
     string Target,
     string WorkingDirectory,
-    DebugTargetKind TargetKind,
+    DebugTargetKind SemanticTargetKind,
+    DebugAdapterProgramKind ProgramKind,
     IReadOnlyList<string>? Arguments = null,
     bool StopOnEntry = false);
 
@@ -40,9 +41,13 @@ public sealed class BuiltInDebugAdapterConfigurationComposer : IDebugAdapterConf
         ValidateAdapter(descriptor);
         ArgumentException.ThrowIfNullOrWhiteSpace(configuration.Target);
         ArgumentException.ThrowIfNullOrWhiteSpace(configuration.WorkingDirectory);
-        if ((descriptor.TargetKinds & configuration.TargetKind) == 0)
+        if ((descriptor.TargetKinds & configuration.SemanticTargetKind) == 0)
             throw new InvalidOperationException(
-                $"Debug adapter '{descriptor.Id}' does not support target kind '{configuration.TargetKind}'.");
+                $"Debug adapter '{descriptor.Id}' does not support target kind '{configuration.SemanticTargetKind}'.");
+        if ((descriptor.ProgramKinds & configuration.ProgramKind) == 0)
+            throw new DebugStartPlanningException(
+                "adapter_program_kind_unsupported",
+                "The selected debug adapter cannot consume the resolved launch target.");
 
         return Write(writer =>
         {
@@ -57,7 +62,7 @@ public sealed class BuiltInDebugAdapterConfigurationComposer : IDebugAdapterConf
             }
             if (descriptor.Id == "delve")
                 writer.WriteString("mode",
-                    configuration.TargetKind is DebugTargetKind.ProjectDirectory or DebugTargetKind.SourceFile
+                    configuration.SemanticTargetKind is DebugTargetKind.ProjectDirectory or DebugTargetKind.SourceFile
                         ? "debug"
                         : "exec");
             writer.WriteString("program", configuration.Target);

@@ -10,6 +10,18 @@ internal sealed class OVHcloudProvider : OpenAICompatibleChatProviderBase<OVHclo
     internal static readonly Uri DefaultEndpoint = new("https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/");
     internal const string DefaultChatModel = "gpt-oss-120b";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        TextResponseFormat = true,
+        JsonObjectResponseFormat = true,
+        JsonSchemaResponseFormat = true,
+        Tools = true,
+        AutoToolChoice = true,
+        NoneToolChoice = true,
+        RequiredToolChoice = true,
+        NamedToolChoice = true
+    };
+
     private static readonly OpenAICompatibleProviderDefinition ProviderDefinition = new()
     {
         ProviderKey = "ovhcloud",
@@ -20,12 +32,12 @@ internal sealed class OVHcloudProvider : OpenAICompatibleChatProviderBase<OVHclo
         EndpointSecretKey = "ovhcloud:Endpoint",
         ProviderUri = new Uri("https://www.ovhcloud.com/"),
         DocumentationUri = new Uri("https://docs.ovhcloud.com/en/guides/public-cloud/ai-machine-learning/ai-endpoints-getting-started/"),
+        RequestProfile = ChatRequestProfile,
         Capabilities = new Dictionary<string, object?>
         {
             ["SupportsStreaming"] = true,
             ["SupportsFunctionCalling"] = true,
             ["SupportsJsonResponseFormat"] = true,
-            ["SupportsSeed"] = true,
             ["OpenAICompatibleEndpoint"] = "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/"
         }
     };

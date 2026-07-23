@@ -81,6 +81,7 @@ var descriptor = new DebugAdapterDescriptor
     FileExtensions = [".py"],
     RootMarkers = ["pyproject.toml"],
     TargetKinds = DebugTargetKind.SourceFile | DebugTargetKind.Process,
+    ProgramKinds = DebugAdapterProgramKind.SourceFile,
     Provenance = new()
     {
         PackageId = "hpd.debugpy",
@@ -91,7 +92,8 @@ var descriptor = new DebugAdapterDescriptor
 
 var configuration = new BuiltInDebugAdapterConfigurationComposer().ComposeLaunch(
     descriptor,
-    new("/workspace/app.py", "/workspace", DebugTargetKind.SourceFile, ["--smoke"], StopOnEntry: true));
+    new("/workspace/app.py", "/workspace", DebugTargetKind.SourceFile,
+        DebugAdapterProgramKind.SourceFile, ["--smoke"], StopOnEntry: true));
 var adapterConfiguration = configuration.EnumerateObject()
     .ToDictionary(x => x.Name, x => x.Value.Clone(), StringComparer.Ordinal);
 var arguments = new LaunchRequestArguments

@@ -23,6 +23,8 @@ internal static class DebugAdapterGeneratorDiagnostics
     public static readonly DiagnosticDescriptor UnsupportedTargetKinds = Create("HPDDBG015", "Unsupported debug target flags", "Debug adapter declaration '{0}' contains unsupported target-kind bits '{1}'");
     public static readonly DiagnosticDescriptor InvalidPriority = Create("HPDDBG016", "Invalid debug adapter priority", "Debug adapter declaration '{0}' has priority '{1}' outside the supported range -10000..10000");
     public static readonly DiagnosticDescriptor ExplicitStandardFactory = Create("HPDDBG017", "Shared standard factory must be implicit", "Debug adapter declaration '{0}' must omit DebugAdapterFactory when using StandardDebugAdapterFactory");
+    public static readonly DiagnosticDescriptor MissingProgramKinds = Create("HPDDBG018", "Missing debug adapter program kinds", "Debug adapter declaration '{0}' must declare at least one concrete program kind");
+    public static readonly DiagnosticDescriptor UnsupportedProgramKinds = Create("HPDDBG019", "Unsupported debug adapter program flags", "Debug adapter declaration '{0}' contains unsupported program-kind bits '{1}'");
 
     private static DiagnosticDescriptor Create(string id, string title, string message) => new(
         id, title, message, Category, DiagnosticSeverity.Error, isEnabledByDefault: true);

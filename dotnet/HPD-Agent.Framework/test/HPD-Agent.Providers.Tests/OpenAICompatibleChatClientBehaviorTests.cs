@@ -5,6 +5,7 @@ using System.Text.Json;
 using FluentAssertions;
 using HPD.Agent.ErrorHandling;
 using HPD.Agent.Providers;
+using HPD.Agent.Providers.DeepSeek;
 using HPD.Agent.Providers.OpenAICompatible;
 using Microsoft.Extensions.AI;
 
@@ -12,6 +13,167 @@ namespace HPD.Agent.Providers.Tests;
 
 public sealed class OpenAICompatibleChatClientBehaviorTests
 {
+    [Fact]
+    public async Task MinimalProfile_OmitsEveryOptionalRequestField()
+    {
+        var handler = new CapturingHandler("""
+            {"id":"chatcmpl-1","model":"minimal","choices":[{"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}]}
+            """);
+        using var client = CreateClient(handler, new OpenAICompatibleRequestProfile(), "minimal");
+
+        await client.GetResponseAsync(
+            [new ChatMessage(ChatRole.User, "hello")],
+            new ChatOptions
+            {
+                Temperature = 0.2f,
+                TopP = 0.8f,
+                TopK = 20,
+                MaxOutputTokens = 100,
+                FrequencyPenalty = 0.1f,
+                PresencePenalty = 0.2f,
+                StopSequences = ["END"],
+                Seed = 42,
+                Tools = [new TestFunction("lookup", "Looks up a value")],
+                ToolMode = ChatToolMode.Auto,
+                AllowMultipleToolCalls = false,
+                ResponseFormat = ChatResponseFormat.Json,
+                Reasoning = new Microsoft.Extensions.AI.ReasoningOptions
+                {
+                    Effort = Microsoft.Extensions.AI.ReasoningEffort.High
+                }
+            });
+
+        using var request = JsonDocument.Parse(handler.RequestBody);
+        var root = request.RootElement;
+        root.TryGetProperty("temperature", out _).Should().BeFalse();
+        root.TryGetProperty("top_p", out _).Should().BeFalse();
+        root.TryGetProperty("top_k", out _).Should().BeFalse();
+        root.TryGetProperty("max_tokens", out _).Should().BeFalse();
+        root.TryGetProperty("max_completion_tokens", out _).Should().BeFalse();
+        root.TryGetProperty("frequency_penalty", out _).Should().BeFalse();
+        root.TryGetProperty("presence_penalty", out _).Should().BeFalse();
+        root.TryGetProperty("stop", out _).Should().BeFalse();
+        root.TryGetProperty("seed", out _).Should().BeFalse();
+        root.TryGetProperty("tools", out _).Should().BeFalse();
+        root.TryGetProperty("tool_choice", out _).Should().BeFalse();
+        root.TryGetProperty("parallel_tool_calls", out _).Should().BeFalse();
+        root.TryGetProperty("response_format", out _).Should().BeFalse();
+        root.TryGetProperty("reasoning_effort", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void MaxCompletionTokensProfile_UsesOnlyProviderSelectedField()
+    {
+        var profile = new OpenAICompatibleRequestProfile
+        {
+            MaxTokensField = OpenAICompatibleMaxTokensField.MaxCompletionTokens
+        };
+        using var client = CreateInspectableClient(profile);
+
+        var request = client.Build(
+            [new ChatMessage(ChatRole.User, "hello")],
+            new ChatOptions { MaxOutputTokens = 512 });
+
+        request.MaxTokens.Should().BeNull();
+        request.MaxCompletionTokens.Should().Be(512);
+    }
+
+    [Fact]
+    public void JsonObjectOnlyProfile_DropsUnsupportedJsonSchemaWithoutDowngrade()
+    {
+        var profile = new OpenAICompatibleRequestProfile
+        {
+            JsonObjectResponseFormat = true
+        };
+        using var client = CreateInspectableClient(profile);
+        var schema = JsonDocument.Parse("""{"type":"object"}""").RootElement;
+
+        var request = client.Build(
+            [new ChatMessage(ChatRole.User, "hello")],
+            new ChatOptions
+            {
+                ResponseFormat = ChatResponseFormat.ForJsonSchema(schema)
+            });
+
+        request.ResponseFormat.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(Microsoft.Extensions.AI.ReasoningEffort.None, null, "disabled")]
+    [InlineData(Microsoft.Extensions.AI.ReasoningEffort.Low, "high", "enabled")]
+    [InlineData(Microsoft.Extensions.AI.ReasoningEffort.Medium, "high", "enabled")]
+    [InlineData(Microsoft.Extensions.AI.ReasoningEffort.High, "high", "enabled")]
+    [InlineData(Microsoft.Extensions.AI.ReasoningEffort.ExtraHigh, "max", "enabled")]
+    public void DeepSeekProfile_TranslatesReasoningToSupportedWireValues(
+        Microsoft.Extensions.AI.ReasoningEffort effort,
+        string? expectedEffort,
+        string expectedThinkingType)
+    {
+        using var client = CreateInspectableClient(DeepSeekProvider.ChatRequestProfile);
+
+        var request = client.Build(
+            [new ChatMessage(ChatRole.User, "reason")],
+            new ChatOptions
+            {
+                Reasoning = new Microsoft.Extensions.AI.ReasoningOptions { Effort = effort }
+            });
+
+        request.ReasoningEffort.Should().Be(expectedEffort);
+        request.Thinking.Should().NotBeNull();
+        request.Thinking!.Type.Should().Be(expectedThinkingType);
+    }
+
+    [Fact]
+    public void DeepSeekProfile_DropsUnsupportedOptionalFields()
+    {
+        using var client = CreateInspectableClient(DeepSeekProvider.ChatRequestProfile);
+
+        var request = client.Build(
+            [new ChatMessage(ChatRole.User, "hello")],
+            new ChatOptions
+            {
+                TopK = 40,
+                Seed = 42,
+                FrequencyPenalty = 0.2f,
+                PresencePenalty = 0.3f,
+                AllowMultipleToolCalls = false
+            });
+
+        request.TopK.Should().BeNull();
+        request.Seed.Should().BeNull();
+        request.FrequencyPenalty.Should().BeNull();
+        request.PresencePenalty.Should().BeNull();
+        request.ParallelToolCalls.Should().BeNull();
+        request.ToolChoice.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task DeepSeekProfile_SerializesDisabledThinkingWithoutNoneEffort()
+    {
+        var handler = new CapturingHandler("""
+            {"id":"chatcmpl-1","model":"deepseek-v4-pro","choices":[{"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}]}
+            """);
+        using var client = CreateClient(
+            handler,
+            DeepSeekProvider.ChatRequestProfile,
+            "deepseek-v4-pro");
+
+        await client.GetResponseAsync(
+            [new ChatMessage(ChatRole.User, "hello")],
+            new ChatOptions
+            {
+                Reasoning = new Microsoft.Extensions.AI.ReasoningOptions
+                {
+                    Effort = Microsoft.Extensions.AI.ReasoningEffort.None
+                }
+            });
+
+        using var request = JsonDocument.Parse(handler.RequestBody);
+        request.RootElement.GetProperty("thinking").GetProperty("type").GetString()
+            .Should().Be("disabled");
+        request.RootElement.TryGetProperty("reasoning_effort", out _).Should().BeFalse();
+    }
+
     [Fact]
     public async Task GetResponseAsync_SerializesMessagesToolsOptionsAndResponseFormat()
     {
@@ -373,16 +535,34 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
     private static TestChatClient CreateInspectableClient(string defaultModelId = "test-model")
         => new(new HttpClient(new CapturingHandler("{}")) { BaseAddress = new Uri("https://example.test/v1/") }, Options(defaultModelId));
 
+    private static TestChatClient CreateInspectableClient(
+        OpenAICompatibleRequestProfile requestProfile,
+        string defaultModelId = "test-model")
+        => new(
+            new HttpClient(new CapturingHandler("{}")) { BaseAddress = new Uri("https://example.test/v1/") },
+            Options(defaultModelId, requestProfile));
+
     private static OpenAICompatibleChatClient CreateClient(CapturingHandler handler, string defaultModelId = "test-model")
         => new(new HttpClient(handler) { BaseAddress = new Uri("https://example.test/v1/") }, Options(defaultModelId));
 
-    private static OpenAICompatibleChatClientOptions Options(string defaultModelId)
+    private static OpenAICompatibleChatClient CreateClient(
+        CapturingHandler handler,
+        OpenAICompatibleRequestProfile requestProfile,
+        string defaultModelId)
+        => new(
+            new HttpClient(handler) { BaseAddress = new Uri("https://example.test/v1/") },
+            Options(defaultModelId, requestProfile));
+
+    private static OpenAICompatibleChatClientOptions Options(
+        string defaultModelId,
+        OpenAICompatibleRequestProfile? requestProfile = null)
         => new()
         {
             ProviderKey = "test",
             DisplayName = "Test Provider",
             ProviderUri = new Uri("https://example.test"),
-            DefaultModelId = defaultModelId
+            DefaultModelId = defaultModelId,
+            RequestProfile = requestProfile ?? OpenAICompatibleRequestProfile.All
         };
 
     private sealed class TestChatClient(HttpClient httpClient, OpenAICompatibleChatClientOptions options)
@@ -411,7 +591,8 @@ public sealed class OpenAICompatibleChatClientBehaviorTests
             ApiKeySecretKey = "test-openai-compatible:ApiKey",
             EndpointSecretKey = "test-openai-compatible:Endpoint",
             ProviderUri = new Uri("https://default.test/"),
-            DocumentationUri = new Uri("https://default.test/docs")
+            DocumentationUri = new Uri("https://default.test/docs"),
+            RequestProfile = OpenAICompatibleRequestProfile.All
         };
 
         protected override OpenAICompatibleProviderDefinition Definition => TestDefinition;

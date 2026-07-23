@@ -42,7 +42,8 @@ public sealed class DebugRealAdapterQualificationTests
             var descriptor = Descriptor();
             var configuration = new BuiltInDebugAdapterConfigurationComposer().ComposeLaunch(
                 descriptor,
-                new(program, directory, DebugTargetKind.SourceFile, StopOnEntry: true));
+                new(program, directory, DebugTargetKind.SourceFile,
+                    DebugAdapterProgramKind.SourceFile, StopOnEntry: true));
             var launch = client.SendAsync(
                 DebugProtocolDescriptors.LaunchRequest,
                 DebugProtocolArgumentComposer.Launch(configuration, noDebug: false),
@@ -210,7 +211,11 @@ public sealed class DebugRealAdapterQualificationTests
                 timeout: TimeSpan.FromSeconds(20));
             var configuration = new BuiltInDebugAdapterConfigurationComposer().ComposeLaunch(
                 descriptor,
-                new(program, directory, targetKind, StopOnEntry: true));
+                new(program, directory, targetKind,
+                    targetKind == DebugTargetKind.SourceFile
+                        ? DebugAdapterProgramKind.SourceFile
+                        : DebugAdapterProgramKind.ExecutableFile,
+                    StopOnEntry: true));
             var launch = client.SendAsync(
                 DebugProtocolDescriptors.LaunchRequest,
                 DebugProtocolArgumentComposer.Launch(configuration, noDebug: false),
@@ -266,6 +271,7 @@ public sealed class DebugRealAdapterQualificationTests
         FileExtensions = [".py"],
         RootMarkers = ["pyproject.toml"],
         TargetKinds = DebugTargetKind.SourceFile | DebugTargetKind.Process,
+        ProgramKinds = DebugAdapterProgramKind.SourceFile,
         Provenance = new() { PackageId = "debugpy", PackageVersion = "1.8.21", AssemblyName = "qualification" }
     };
 
@@ -276,6 +282,7 @@ public sealed class DebugRealAdapterQualificationTests
         FileExtensions = [".rs", ".c", ".cpp"],
         RootMarkers = ["Cargo.toml"],
         TargetKinds = DebugTargetKind.Executable | DebugTargetKind.Process,
+        ProgramKinds = DebugAdapterProgramKind.ExecutableFile,
         Provenance = new() { PackageId = "xcode-lldb-dap", PackageVersion = "system", AssemblyName = "qualification" }
     };
 
@@ -286,6 +293,7 @@ public sealed class DebugRealAdapterQualificationTests
         FileExtensions = [".cs", ".fs", ".vb"],
         RootMarkers = [".sln", ".csproj"],
         TargetKinds = DebugTargetKind.Executable | DebugTargetKind.ProjectDirectory | DebugTargetKind.Process,
+        ProgramKinds = DebugAdapterProgramKind.ExecutableFile,
         Provenance = new() { PackageId = "netcoredbg", PackageVersion = "3.2.0-1092", AssemblyName = "qualification" }
     };
 

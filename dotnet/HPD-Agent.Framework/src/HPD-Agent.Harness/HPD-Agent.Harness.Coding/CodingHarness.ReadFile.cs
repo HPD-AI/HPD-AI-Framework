@@ -525,6 +525,7 @@ public static class CodingToolMetadataKeys
     public const string DebugStackFrames = "coding.debug.stackFrames";
     public const string DebugCapabilities = "coding.debug.capabilities";
     public const string DebugOutputReference = "coding.debug.outputReference";
+    public const string DebugAdapterDiagnosticReference = "coding.debug.adapterDiagnosticReference";
 }
 
 /// <summary>

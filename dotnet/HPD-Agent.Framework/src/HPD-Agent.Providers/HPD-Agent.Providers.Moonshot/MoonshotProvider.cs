@@ -15,6 +15,22 @@ internal sealed class MoonshotProvider : IChatClientProvider
     internal static readonly Uri DefaultEndpoint = new("https://api.moonshot.ai/v1/");
     internal const string DefaultChatModel = "kimi-k2.5";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxCompletionTokens,
+        StopSequences = true,
+        TextResponseFormat = true,
+        JsonObjectResponseFormat = true,
+        JsonSchemaResponseFormat = true,
+        Tools = true,
+        AutoToolChoice = true,
+        NoneToolChoice = true,
+        RequiredToolChoice = true,
+        NamedToolChoice = true,
+        StreamingUsage = true,
+        Vision = true
+    };
+
     public string ProviderKey => "moonshot";
     public string DisplayName => "Moonshot";
 
@@ -57,7 +73,8 @@ internal sealed class MoonshotProvider : IChatClientProvider
                 ProviderKey = ProviderKey,
                 DisplayName = DisplayName,
                 ProviderUri = endpoint,
-                DefaultModelId = modelName
+                DefaultModelId = modelName,
+                RequestProfile = ChatRequestProfile
             });
     }
 
@@ -81,8 +98,8 @@ internal sealed class MoonshotProvider : IChatClientProvider
                         ["SupportsStreaming"] = true,
                         ["SupportsFunctionCalling"] = true,
                         ["SupportsJsonResponseFormat"] = true,
-                        ["SupportsSeed"] = true,
                         ["SupportsThinking"] = true,
+                        ["SupportsVision"] = true,
                         ["OpenAICompatibleEndpoint"] = "https://api.moonshot.ai/v1/"
                     }
                 }

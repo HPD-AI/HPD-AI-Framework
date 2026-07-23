@@ -114,6 +114,7 @@ public sealed class DebugAdapterSourceGeneratorTests
             [DebugAdapterFileExtensions(".fixture")]
             [DebugAdapterRootMarkers("fixture.json")]
             [DebugAdapterTargetKinds(DebugTargetKind.SourceFile | DebugTargetKind.Process)]
+            [DebugAdapterProgramKinds(DebugAdapterProgramKind.SourceFile)]
             [DebugAdapterCommandHint("fixture-debug")]
             [DebugAdapterArgumentHints("--dap")]
             [DebugAdapterInstallGuidance("fixture.install")]
@@ -138,12 +139,14 @@ public sealed class DebugAdapterSourceGeneratorTests
             [HpdDebugAdapter("duplicate")]
             [DebugAdapterLanguages("a")]
             [DebugAdapterTargetKinds(DebugTargetKind.SourceFile)]
+            [DebugAdapterProgramKinds(DebugAdapterProgramKind.SourceFile)]
             [DebugAdapterCommandHint("a")]
             public sealed class FirstAdapter;
 
             [HpdDebugAdapter("duplicate")]
             [DebugAdapterLanguages("b")]
             [DebugAdapterTargetKinds(DebugTargetKind.SourceFile)]
+            [DebugAdapterProgramKinds(DebugAdapterProgramKind.SourceFile)]
             [DebugAdapterCommandHint("b")]
             public sealed class SecondAdapter;
             """;
@@ -169,6 +172,7 @@ public sealed class DebugAdapterSourceGeneratorTests
             [DebugAdapterLanguages("fixture")]
             [DebugAdapterFileExtensions(".fixture")]
             [DebugAdapterTargetKinds(DebugTargetKind.SourceFile)]
+            [DebugAdapterProgramKinds(DebugAdapterProgramKind.SourceFile)]
             [DebugAdapterCommandHint("fixture-debug")]
             public sealed class FixtureDebugAdapter;
             """;

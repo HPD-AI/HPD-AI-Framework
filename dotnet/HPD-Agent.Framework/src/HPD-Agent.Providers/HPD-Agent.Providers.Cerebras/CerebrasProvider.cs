@@ -10,6 +10,25 @@ internal sealed class CerebrasProvider : OpenAICompatibleChatProviderBase<Cerebr
     internal static readonly Uri DefaultEndpoint = new("https://api.cerebras.ai/v1/");
     internal const string DefaultChatModel = "gpt-oss-120b";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        Temperature = true,
+        TopP = true,
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxCompletionTokens,
+        FrequencyPenalty = true,
+        PresencePenalty = true,
+        StopSequences = true,
+        Seed = true,
+        JsonObjectResponseFormat = true,
+        JsonSchemaResponseFormat = true,
+        Tools = true,
+        AutoToolChoice = true,
+        NoneToolChoice = true,
+        RequiredToolChoice = true,
+        NamedToolChoice = true,
+        ParallelToolCalls = true
+    };
+
     private static readonly OpenAICompatibleProviderDefinition ProviderDefinition = new()
     {
         ProviderKey = "cerebras",
@@ -20,6 +39,7 @@ internal sealed class CerebrasProvider : OpenAICompatibleChatProviderBase<Cerebr
         EndpointSecretKey = "cerebras:Endpoint",
         ProviderUri = new Uri("https://cerebras.ai/"),
         DocumentationUri = new Uri("https://inference-docs.cerebras.ai/resources/openai"),
+        RequestProfile = ChatRequestProfile,
         Capabilities = new Dictionary<string, object?>
         {
             ["SupportsStreaming"] = true,

@@ -33,6 +33,12 @@ public sealed class DebugAdapterTargetKindsAttribute(DebugTargetKind targetKinds
 }
 
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
+public sealed class DebugAdapterProgramKindsAttribute(DebugAdapterProgramKind programKinds) : Attribute
+{
+    public DebugAdapterProgramKind ProgramKinds { get; } = programKinds;
+}
+
+[AttributeUsage(AttributeTargets.Class, Inherited = false)]
 public sealed class DebugAdapterFactoryAttribute(Type factoryType) : Attribute
 {
     public Type FactoryType { get; } = factoryType;

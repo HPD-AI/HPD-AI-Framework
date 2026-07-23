@@ -143,10 +143,6 @@ public static class AgentTuiModelConfigFlow
                     .ConfigureAwait(false),
                 "output" => await ConfigureOutputLengthAsync(context, model, cancellationToken)
                     .ConfigureAwait(false),
-                "stop" => await ConfigureStopSequencesAsync(context, model, cancellationToken)
-                    .ConfigureAwait(false),
-                "seed" => await ConfigureSeedAsync(context, model, cancellationToken)
-                    .ConfigureAwait(false),
                 "clear" => model with { Chat = null },
                 { } kind when kind.StartsWith("contributor:", StringComparison.Ordinal)
                     => await providerContributors[int.Parse(kind["contributor:".Length..], CultureInfo.InvariantCulture)]
@@ -199,9 +195,6 @@ public static class AgentTuiModelConfigFlow
             sections.Add(new ModelConfigSection("output", "Output length"));
         }
 
-        sections.Add(new ModelConfigSection("stop", "Stop sequences"));
-        sections.Add(new ModelConfigSection("seed", "Seed"));
-
         for (var i = 0; i < providerContributors.Count; i++)
         {
             sections.Add(new ModelConfigSection($"contributor:{i}", providerContributors[i].Label));
@@ -238,26 +231,10 @@ public static class AgentTuiModelConfigFlow
             return model;
         }
 
-        var output = await context.Dialogs.SelectAsync(
-                "Reasoning output",
-                new[]
-                {
-                    new ReasoningOutputChoice(null, "Unchanged"),
-                    new ReasoningOutputChoice(ReasoningOutput.None, "Hidden"),
-                    new ReasoningOutputChoice(ReasoningOutput.Summary, "Summary"),
-                    new ReasoningOutputChoice(ReasoningOutput.Full, "Full")
-                },
-                static choice => choice.Label,
-                cancellationToken)
-            .ConfigureAwait(false);
-
         var chat = CloneChat(model.Chat) ?? new ChatRunConfig();
         chat.Reasoning = new ReasoningOptions
         {
-            Effort = effort.Value.Effort,
-            Output = output.IsSubmitted && output.Value is not null
-                ? output.Value.Output
-                : model.Chat?.Reasoning?.Output
+            Effort = effort.Value.Effort
         };
         return model with { Chat = chat };
     }
@@ -276,22 +253,6 @@ public static class AgentTuiModelConfigFlow
                 2,
                 cancellationToken)
             .ConfigureAwait(false);
-        chat.TopP = await ReadDoubleAsync(
-                context,
-                "Top-p",
-                chat.TopP,
-                0,
-                1,
-                cancellationToken)
-            .ConfigureAwait(false);
-        chat.TopK = await ReadIntAsync(
-                context,
-                "Top-k",
-                chat.TopK,
-                min: 1,
-                max: null,
-                cancellationToken)
-            .ConfigureAwait(false);
         return model with { Chat = chat };
     }
 
@@ -308,46 +269,6 @@ public static class AgentTuiModelConfigFlow
                 chat.MaxOutputTokens,
                 min: 1,
                 max,
-                cancellationToken)
-            .ConfigureAwait(false);
-        return model with { Chat = chat };
-    }
-
-    private static async ValueTask<AgentTuiSelectedModel> ConfigureStopSequencesAsync(
-        AgentTuiCommandContext context,
-        AgentTuiSelectedModel model,
-        CancellationToken cancellationToken)
-    {
-        var chat = CloneChat(model.Chat) ?? new ChatRunConfig();
-        var current = chat.StopSequences is null ? null : string.Join(", ", chat.StopSequences);
-        var value = await context.Dialogs.InputAsync(
-                "Stop sequences",
-                current,
-                allowEmpty: true,
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (!value.IsSubmitted || value.Value is null)
-        {
-            return model;
-        }
-
-        chat.StopSequences = string.IsNullOrWhiteSpace(value.Value)
-            ? null
-            : value.Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return model with { Chat = chat };
-    }
-
-    private static async ValueTask<AgentTuiSelectedModel> ConfigureSeedAsync(
-        AgentTuiCommandContext context,
-        AgentTuiSelectedModel model,
-        CancellationToken cancellationToken)
-    {
-        var chat = CloneChat(model.Chat) ?? new ChatRunConfig();
-        chat.Seed = await ReadLongAsync(
-                context,
-                "Seed",
-                chat.Seed,
-                min: 0,
                 cancellationToken)
             .ConfigureAwait(false);
         return model with { Chat = chat };
@@ -442,39 +363,6 @@ public static class AgentTuiModelConfigFlow
         }
     }
 
-    private static async ValueTask<long?> ReadLongAsync(
-        AgentTuiCommandContext context,
-        string title,
-        long? current,
-        long? min,
-        CancellationToken cancellationToken)
-    {
-        while (true)
-        {
-            var raw = await context.Dialogs.InputAsync(
-                    title,
-                    current?.ToString(CultureInfo.InvariantCulture),
-                    allowEmpty: true,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (!raw.IsSubmitted || raw.Value is null)
-            {
-                return current;
-            }
-
-            if (string.IsNullOrWhiteSpace(raw.Value))
-            {
-                return null;
-            }
-
-            if (long.TryParse(raw.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) &&
-                (min is null || value >= min))
-            {
-                return value;
-            }
-        }
-    }
-
     private static ChatRunConfig? CloneChat(ChatRunConfig? source)
         => source is null
             ? null
@@ -510,8 +398,6 @@ public static class AgentTuiModelConfigFlow
     {
         public static ModelConfigSection Continue { get; } = new("continue", "Continue");
     }
-
-    private sealed record ReasoningOutputChoice(ReasoningOutput? Output, string Label);
 }
 
 public interface IAgentTuiModelConfigContributor

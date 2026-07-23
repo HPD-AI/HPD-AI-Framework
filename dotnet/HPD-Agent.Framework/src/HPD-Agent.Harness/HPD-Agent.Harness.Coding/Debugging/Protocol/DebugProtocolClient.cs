@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text;
 using System.Threading.Channels;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol.Generated;
 
@@ -26,6 +27,11 @@ public sealed record DebugProtocolClientOptions
 public sealed record DebugProtocolEventMessage(int Sequence, string Event, JsonElement? Body);
 public sealed record DebugProtocolReverseRequest(int Sequence, string Command, JsonElement? Arguments);
 public sealed record DebugProtocolFault(string ReasonCode);
+public sealed record DebugAdapterDiagnosticSnapshot(
+    string StandardError,
+    long DroppedChunks,
+    long DroppedBytes,
+    DebugTransportExit? Exit);
 
 public sealed record DebugProtocolClientHealth(
     int QueuedEvents,
@@ -77,6 +83,13 @@ public sealed class DebugProtocolClient : IAsyncDisposable
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _eventDispatcher;
     private readonly Task _reader;
+    private readonly Task _diagnosticReader;
+    private readonly Task _exitObserver;
+    private readonly object _diagnosticLock = new();
+    private readonly MemoryStream _diagnosticBytes = new();
+    private long _diagnosticDroppedChunks;
+    private long _diagnosticDroppedBytes;
+    private DebugTransportExit? _transportExit;
     private int _sequence;
     private int _disposed;
     private int _pendingCount;
@@ -112,6 +125,8 @@ public sealed class DebugProtocolClient : IAsyncDisposable
             AllowSynchronousContinuations = false
         });
         _eventDispatcher = DispatchEventsAsync();
+        _diagnosticReader = ReadDiagnosticsAsync();
+        _exitObserver = ObserveExitAsync();
         _reader = ReaderLoopAsync();
     }
 
@@ -125,6 +140,18 @@ public sealed class DebugProtocolClient : IAsyncDisposable
         Volatile.Read(ref _lastFailedEvent),
         Volatile.Read(ref _lastHandlerFailureType),
         Interlocked.Read(ref _traceRecordsDropped));
+    public DebugAdapterDiagnosticSnapshot AdapterDiagnostics
+    {
+        get
+        {
+            lock (_diagnosticLock)
+                return new(
+                    Encoding.UTF8.GetString(_diagnosticBytes.ToArray()),
+                    _diagnosticDroppedChunks,
+                    _diagnosticDroppedBytes,
+                    _transportExit);
+        }
+    }
 
     public void SetSupportsCancelRequest(bool supported) => _supportsCancelRequest = supported;
 
@@ -262,11 +289,56 @@ public sealed class DebugProtocolClient : IAsyncDisposable
         _lifetime.Cancel();
         try { await _transport.StopAsync(new(Reason: "PROTOCOL_CLIENT_DISPOSED")).ConfigureAwait(false); } catch { }
         try { await _reader.ConfigureAwait(false); } catch { }
+        try { await _diagnosticReader.ConfigureAwait(false); } catch { }
+        try { await _exitObserver.ConfigureAwait(false); } catch { }
         _events.Writer.TryComplete();
         try { await _eventDispatcher.ConfigureAwait(false); } catch { }
         await _transport.DisposeAsync().ConfigureAwait(false);
         _writeLock.Dispose();
         _lifetime.Dispose();
+    }
+
+    private async Task ReadDiagnosticsAsync()
+    {
+        try
+        {
+            await foreach (var chunk in _transport.ReadDiagnosticsAsync(_lifetime.Token).ConfigureAwait(false))
+            {
+                lock (_diagnosticLock)
+                {
+                    _diagnosticDroppedChunks = Math.Max(_diagnosticDroppedChunks, chunk.DroppedChunks);
+                    _diagnosticDroppedBytes = Math.Max(_diagnosticDroppedBytes, chunk.DroppedBytes);
+                    var remaining = 64 * 1024 - checked((int)_diagnosticBytes.Length);
+                    if (remaining > 0)
+                    {
+                        var bytes = chunk.Bytes.Span[..Math.Min(remaining, chunk.Bytes.Length)];
+                        _diagnosticBytes.Write(bytes);
+                        if (bytes.Length < chunk.Bytes.Length)
+                            _diagnosticDroppedBytes += chunk.Bytes.Length - bytes.Length;
+                    }
+                    else
+                    {
+                        _diagnosticDroppedBytes += chunk.Bytes.Length;
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task ObserveExitAsync()
+    {
+        try
+        {
+            var exit = await _transport.WaitForExitAsync(_lifetime.Token).ConfigureAwait(false);
+            lock (_diagnosticLock)
+                _transportExit = exit;
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+        }
     }
 
     private async Task WriteRequestAsync<TArguments, TBody>(

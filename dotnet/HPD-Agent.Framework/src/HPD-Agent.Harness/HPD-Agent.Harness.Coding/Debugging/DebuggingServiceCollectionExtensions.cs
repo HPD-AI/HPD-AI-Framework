@@ -32,12 +32,16 @@ public static class DebuggingServiceCollectionExtensions
         services.TryAddSingleton<IDebugAdapterAvailabilityCache, DebugAdapterAvailabilityCache>();
         services.TryAddSingleton<IDebugAdapterTrustPolicy, DenyByDefaultDebugAdapterTrustPolicy>();
         services.TryAddSingleton<IDebugWorkspaceCanonicalizer, LexicalDebugWorkspaceCanonicalizer>();
+        services.TryAddSingleton<IWorkspaceRootMarkerResolver, WorkspaceRootMarkerResolver>();
+        services.TryAddSingleton<IDotNetDebugLaunchArtifactResolver, DotNetDebugLaunchArtifactResolver>();
+        services.TryAddSingleton<IDebugAdapterLaunchTargetResolver, BuiltInDebugAdapterLaunchTargetResolver>();
         services.TryAddSingleton<IDebugAdapterConfigurationComposer, BuiltInDebugAdapterConfigurationComposer>();
         services.TryAddSingleton<IDebugEndpointResolver, DenyAllDebugEndpointResolver>();
         services.TryAddSingleton<IDebugAdapterCatalogFailurePolicy, FailStartupDebugAdapterCatalogFailurePolicy>();
         services.TryAddSingleton<DebugAdapterSelector>();
         services.TryAddSingleton<DebugInitializePolicy>();
         services.TryAddSingleton<DebugProtocolTransportFactory>();
+        services.TryAddSingleton<IDebugAdapterDiagnosticStore, DebugAdapterDiagnosticStore>();
         services.TryAddSingleton<DebugSessionStartOrchestrator>();
         services.TryAddSingleton<DebugRuntimeServiceFactory>();
         services.TryAddSingleton<DebugResultFormatter>();
@@ -45,10 +49,14 @@ public static class DebuggingServiceCollectionExtensions
         services.TryAddTransient<DebugPermissionMiddleware>();
         services.TryAddSingleton(provider => new DebugStartPlanningService(
             provider.GetRequiredService<DebugAdapterSelector>(),
+            provider.GetRequiredService<DebugAdapterCatalog>(),
+            provider.GetRequiredService<IWorkspaceRootMarkerResolver>(),
             provider.GetRequiredService<IDebugAdapterConfigurationComposer>(),
             provider.GetRequiredService<IDebugAdapterTrustPolicy>(),
+            provider.GetRequiredService<IDebugAdapterLaunchTargetResolver>(),
             provider.GetRequiredService<DebugSessionStartOrchestrator>(),
             provider.GetRequiredService<DebugResultFormatter>(),
+            provider.GetRequiredService<IDebugAdapterDiagnosticStore>(),
             provider.GetService<IDebugHostRequestBroker>(),
             provider.GetService<IDebugChildSessionPlanFactory>()));
         services.TryAddSingleton(provider => new DebugOperationDispatcher(

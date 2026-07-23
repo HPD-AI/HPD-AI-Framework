@@ -70,7 +70,11 @@ public abstract record DebugTreeOperation(
 public abstract record DebugLaunchTarget;
 
 public sealed record SourceFileDebugLaunchTarget(string Path) : DebugLaunchTarget;
-public sealed record ProjectDirectoryDebugLaunchTarget(string Path) : DebugLaunchTarget;
+public sealed record ProjectDirectoryDebugLaunchTarget(
+    string Path,
+    string? ProjectPath = null,
+    string? TargetFramework = null,
+    string Configuration = "Debug") : DebugLaunchTarget;
 public sealed record ExecutableDebugLaunchTarget(string Path) : DebugLaunchTarget;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "targetKind")]

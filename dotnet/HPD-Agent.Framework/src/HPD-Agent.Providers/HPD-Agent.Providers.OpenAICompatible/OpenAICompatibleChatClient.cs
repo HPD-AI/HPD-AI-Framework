@@ -349,7 +349,7 @@ public class OpenAICompatibleChatClient : IChatClient
             Content = new StringContent(requestJson, Encoding.UTF8, "application/json")
         };
 
-    private static void AddRequestMessage(List<OpenAICompatibleRequestMessage> requestMessages, ChatMessage message)
+    private void AddRequestMessage(List<OpenAICompatibleRequestMessage> requestMessages, ChatMessage message)
     {
         if (message.Role == ChatRole.Tool)
         {
@@ -394,7 +394,7 @@ public class OpenAICompatibleChatClient : IChatClient
         requestMessages.Add(requestMessage);
     }
 
-    private static JsonElement CreateMessageContent(ChatMessage message)
+    private JsonElement CreateMessageContent(ChatMessage message)
     {
         var parts = new List<OpenAICompatibleRequestContentPart>();
         var hasNonTextContent = false;
@@ -411,7 +411,9 @@ public class OpenAICompatibleChatClient : IChatClient
                     });
                     break;
 
-                case UriContent uriContent when uriContent.HasTopLevelMediaType("image"):
+                case UriContent uriContent when
+                    _options.RequestProfile.Vision &&
+                    uriContent.HasTopLevelMediaType("image"):
                     hasNonTextContent = true;
                     parts.Add(new OpenAICompatibleRequestContentPart
                     {
@@ -424,7 +426,9 @@ public class OpenAICompatibleChatClient : IChatClient
                     });
                     break;
 
-                case DataContent dataContent when dataContent.HasTopLevelMediaType("image"):
+                case DataContent dataContent when
+                    _options.RequestProfile.Vision &&
+                    dataContent.HasTopLevelMediaType("image"):
                     hasNonTextContent = true;
                     parts.Add(new OpenAICompatibleRequestContentPart
                     {
@@ -458,7 +462,9 @@ public class OpenAICompatibleChatClient : IChatClient
 
     private void ApplyOptions(OpenAICompatibleChatRequest request, ChatOptions? options, bool stream)
     {
-        if (stream && _options.IncludeStreamingUsage)
+        var profile = _options.RequestProfile;
+
+        if (stream && profile.StreamingUsage)
         {
             request.StreamOptions = new OpenAICompatibleStreamOptions { IncludeUsage = true };
         }
@@ -468,19 +474,34 @@ public class OpenAICompatibleChatClient : IChatClient
             return;
         }
 
-        request.Temperature = options.Temperature;
-        request.MaxTokens = options.MaxOutputTokens;
-        request.TopP = options.TopP;
-        request.FrequencyPenalty = options.FrequencyPenalty;
-        request.PresencePenalty = options.PresencePenalty;
-        request.Stop = options.StopSequences?.Count > 0 ? options.StopSequences.ToList() : null;
-        request.Seed = options.Seed;
-        request.ResponseFormat = CreateResponseFormat(options.ResponseFormat, options);
-        request.ToolChoice = CreateToolChoice(options.ToolMode);
-        request.ParallelToolCalls = options.AllowMultipleToolCalls;
-        request.ReasoningEffort = CreateReasoningEffort(options.Reasoning?.Effort);
+        request.Temperature = profile.Temperature ? options.Temperature : null;
+        request.TopP = profile.TopP ? options.TopP : null;
+        request.TopK = profile.TopK ? options.TopK : null;
+        request.FrequencyPenalty = profile.FrequencyPenalty ? options.FrequencyPenalty : null;
+        request.PresencePenalty = profile.PresencePenalty ? options.PresencePenalty : null;
+        request.Stop = profile.StopSequences && options.StopSequences?.Count > 0
+            ? options.StopSequences.ToList()
+            : null;
+        request.Seed = profile.Seed ? options.Seed : null;
 
-        if (options.Tools?.Count > 0)
+        switch (profile.MaxTokensField)
+        {
+            case OpenAICompatibleMaxTokensField.MaxTokens:
+                request.MaxTokens = options.MaxOutputTokens;
+                break;
+            case OpenAICompatibleMaxTokensField.MaxCompletionTokens:
+                request.MaxCompletionTokens = options.MaxOutputTokens;
+                break;
+        }
+
+        request.ResponseFormat = CreateResponseFormat(options.ResponseFormat, options, profile);
+
+        if (options.Reasoning is not null)
+        {
+            profile.ApplyReasoning?.Invoke(request, options.Reasoning);
+        }
+
+        if (profile.Tools && options.Tools?.Count > 0)
         {
             var strict = GetStrict(options.AdditionalProperties);
             var tools = options.Tools
@@ -493,21 +514,37 @@ public class OpenAICompatibleChatClient : IChatClient
                         Name = function.Name,
                         Description = function.Description,
                         Parameters = EnsureObjectSchema(function.JsonSchema),
-                        Strict = GetStrict(function.AdditionalProperties) ?? strict
+                        Strict = profile.StrictTools
+                            ? GetStrict(function.AdditionalProperties) ?? strict
+                            : null
                     }
                 })
                 .ToList();
 
             request.Tools = tools.Count > 0 ? tools : null;
+            if (request.Tools is not null)
+            {
+                request.ToolChoice = CreateToolChoice(options.ToolMode, profile);
+                request.ParallelToolCalls = profile.ParallelToolCalls
+                    ? options.AllowMultipleToolCalls
+                    : null;
+            }
         }
     }
 
-    private static OpenAICompatibleResponseFormatRequest? CreateResponseFormat(ChatResponseFormat? responseFormat, ChatOptions? options)
+    private static OpenAICompatibleResponseFormatRequest? CreateResponseFormat(
+        ChatResponseFormat? responseFormat,
+        ChatOptions? options,
+        OpenAICompatibleRequestProfile profile)
     {
         return responseFormat switch
         {
-            ChatResponseFormatText => new OpenAICompatibleResponseFormatRequest { Type = "text" },
-            ChatResponseFormatJson json when json.Schema is JsonElement schema => new OpenAICompatibleResponseFormatRequest
+            ChatResponseFormatText when profile.TextResponseFormat =>
+                new OpenAICompatibleResponseFormatRequest { Type = "text" },
+            ChatResponseFormatJson json when
+                profile.JsonSchemaResponseFormat &&
+                json.Schema is JsonElement schema =>
+                new OpenAICompatibleResponseFormatRequest
             {
                 Type = "json_schema",
                 JsonSchema = new OpenAICompatibleJsonSchemaResponseFormat
@@ -515,22 +552,33 @@ public class OpenAICompatibleChatClient : IChatClient
                     Name = string.IsNullOrEmpty(json.SchemaName) ? "response" : json.SchemaName!,
                     Description = json.SchemaDescription,
                     Schema = schema,
-                    Strict = GetStrict(options?.AdditionalProperties)
+                    Strict = profile.StrictJsonSchema
+                        ? GetStrict(options?.AdditionalProperties)
+                        : null
                 }
             },
-            ChatResponseFormatJson => new OpenAICompatibleResponseFormatRequest { Type = "json_object" },
+            ChatResponseFormatJson json when
+                json.Schema is null &&
+                profile.JsonObjectResponseFormat =>
+                new OpenAICompatibleResponseFormatRequest { Type = "json_object" },
             _ => null
         };
     }
 
-    private static JsonElement? CreateToolChoice(ChatToolMode? mode)
+    private static JsonElement? CreateToolChoice(
+        ChatToolMode? mode,
+        OpenAICompatibleRequestProfile profile)
     {
         return mode switch
         {
-            null or AutoChatToolMode => CreateStringJsonElement("auto"),
-            NoneChatToolMode => CreateStringJsonElement("none"),
-            RequiredChatToolMode { RequiredFunctionName: { } functionName } => CreateToolChoiceJsonElement(functionName),
-            RequiredChatToolMode => CreateStringJsonElement("required"),
+            null or AutoChatToolMode when profile.AutoToolChoice =>
+                CreateStringJsonElement("auto"),
+            NoneChatToolMode when profile.NoneToolChoice =>
+                CreateStringJsonElement("none"),
+            RequiredChatToolMode { RequiredFunctionName: { } functionName } when profile.NamedToolChoice =>
+                CreateToolChoiceJsonElement(functionName),
+            RequiredChatToolMode when profile.RequiredToolChoice =>
+                CreateStringJsonElement("required"),
             _ => null
         };
     }
@@ -816,17 +864,6 @@ public class OpenAICompatibleChatClient : IChatClient
         => properties?.TryGetValue("strict", out var strict) == true && strict is bool value
             ? value
             : null;
-
-    private static string? CreateReasoningEffort(Microsoft.Extensions.AI.ReasoningEffort? effort)
-        => effort switch
-        {
-            Microsoft.Extensions.AI.ReasoningEffort.None => "none",
-            Microsoft.Extensions.AI.ReasoningEffort.Low => "low",
-            Microsoft.Extensions.AI.ReasoningEffort.Medium => "medium",
-            Microsoft.Extensions.AI.ReasoningEffort.High => "high",
-            Microsoft.Extensions.AI.ReasoningEffort.ExtraHigh => "xhigh",
-            _ => null
-        };
 
     private static string? SanitizeAuthorName(string? name)
     {

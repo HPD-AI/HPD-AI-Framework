@@ -10,6 +10,14 @@ internal sealed class HyperbolicProvider : OpenAICompatibleChatProviderBase<Hype
     internal static readonly Uri DefaultEndpoint = new("https://api.hyperbolic.xyz/v1/");
     internal const string DefaultChatModel = "Qwen/Qwen2.5-72B-Instruct";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        Temperature = true,
+        TopP = true,
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxTokens,
+        StopSequences = true
+    };
+
     private static readonly OpenAICompatibleProviderDefinition ProviderDefinition = new()
     {
         ProviderKey = "hyperbolic",
@@ -20,12 +28,10 @@ internal sealed class HyperbolicProvider : OpenAICompatibleChatProviderBase<Hype
         EndpointSecretKey = "hyperbolic:Endpoint",
         ProviderUri = new Uri("https://hyperbolic.xyz/"),
         DocumentationUri = new Uri("https://docs.hyperbolic.xyz/"),
+        RequestProfile = ChatRequestProfile,
         Capabilities = new Dictionary<string, object?>
         {
             ["SupportsStreaming"] = true,
-            ["SupportsFunctionCalling"] = true,
-            ["SupportsJsonResponseFormat"] = true,
-            ["SupportsSeed"] = true,
             ["OpenAICompatibleEndpoint"] = "https://api.hyperbolic.xyz/v1/"
         }
     };

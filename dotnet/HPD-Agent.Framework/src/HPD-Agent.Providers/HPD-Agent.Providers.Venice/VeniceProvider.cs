@@ -10,6 +10,30 @@ internal sealed class VeniceProvider : OpenAICompatibleChatProviderBase<VenicePr
     internal static readonly Uri DefaultEndpoint = new("https://api.venice.ai/api/v1/");
     internal const string DefaultChatModel = "venice-uncensored";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        Temperature = true,
+        TopP = true,
+        TopK = true,
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxTokens,
+        FrequencyPenalty = true,
+        PresencePenalty = true,
+        StopSequences = true,
+        Seed = true,
+        StreamingUsage = true,
+        TextResponseFormat = true,
+        JsonObjectResponseFormat = true,
+        JsonSchemaResponseFormat = true,
+        StrictJsonSchema = true,
+        Tools = true,
+        AutoToolChoice = true,
+        NoneToolChoice = true,
+        RequiredToolChoice = true,
+        NamedToolChoice = true,
+        ParallelToolCalls = true,
+        ApplyReasoning = ApplyReasoning
+    };
+
     private static readonly OpenAICompatibleProviderDefinition ProviderDefinition = new()
     {
         ProviderKey = "venice",
@@ -20,12 +44,14 @@ internal sealed class VeniceProvider : OpenAICompatibleChatProviderBase<VenicePr
         EndpointSecretKey = "venice:Endpoint",
         ProviderUri = new Uri("https://venice.ai/"),
         DocumentationUri = new Uri("https://docs.venice.ai/api-reference/api-spec"),
+        RequestProfile = ChatRequestProfile,
         Capabilities = new Dictionary<string, object?>
         {
             ["SupportsStreaming"] = true,
             ["SupportsFunctionCalling"] = true,
             ["SupportsJsonResponseFormat"] = true,
             ["SupportsSeed"] = true,
+            ["SupportsReasoning"] = true,
             ["OpenAICompatibleEndpoint"] = "https://api.venice.ai/api/v1/"
         }
     };
@@ -34,4 +60,22 @@ internal sealed class VeniceProvider : OpenAICompatibleChatProviderBase<VenicePr
 
     public override IProviderErrorHandler CreateErrorHandler()
         => new OpenAICompatibleErrorHandler(DisplayName);
+
+    /// <summary>
+    /// Maps MEAI reasoning levels to Venice's portable reasoning-effort values.
+    /// </summary>
+    private static void ApplyReasoning(
+        OpenAICompatibleChatRequest request,
+        Microsoft.Extensions.AI.ReasoningOptions reasoning)
+    {
+        request.ReasoningEffort = reasoning.Effort switch
+        {
+            Microsoft.Extensions.AI.ReasoningEffort.None => "none",
+            Microsoft.Extensions.AI.ReasoningEffort.Low => "low",
+            Microsoft.Extensions.AI.ReasoningEffort.Medium => "medium",
+            Microsoft.Extensions.AI.ReasoningEffort.High => "high",
+            Microsoft.Extensions.AI.ReasoningEffort.ExtraHigh => "xhigh",
+            _ => null
+        };
+    }
 }

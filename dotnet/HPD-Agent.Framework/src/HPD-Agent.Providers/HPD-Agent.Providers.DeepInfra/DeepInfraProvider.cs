@@ -17,6 +17,25 @@ internal class DeepInfraProvider : IChatClientProvider
     internal static readonly Uri DefaultEndpoint = new("https://api.deepinfra.com/v1/openai/");
     internal const string DefaultChatModel = "meta-llama/Meta-Llama-3-8B-Instruct";
 
+    internal static readonly OpenAICompatibleRequestProfile ChatRequestProfile = new()
+    {
+        Temperature = true,
+        TopP = true,
+        MaxTokensField = OpenAICompatibleMaxTokensField.MaxTokens,
+        FrequencyPenalty = true,
+        PresencePenalty = true,
+        StopSequences = true,
+        JsonObjectResponseFormat = true,
+        JsonSchemaResponseFormat = true,
+        StrictJsonSchema = true,
+        Tools = true,
+        AutoToolChoice = true,
+        NoneToolChoice = true,
+        ParallelToolCalls = true,
+        Vision = true,
+        ApplyReasoning = ApplyReasoning
+    };
+
     public string ProviderKey => "deepinfra";
     public string DisplayName => "DeepInfra";
 
@@ -59,7 +78,7 @@ internal class DeepInfraProvider : IChatClientProvider
                 ProviderUri = new Uri("https://deepinfra.com/"),
                 DefaultModelId = config.ModelName,
                 ChatCompletionsPath = "chat/completions",
-                IncludeStreamingUsage = true
+                RequestProfile = ChatRequestProfile
             });
 
         return new DeepInfraConfiguredChatClient(client, config.ModelName);
@@ -76,7 +95,7 @@ internal class DeepInfraProvider : IChatClientProvider
         {
             ProviderKey = ProviderKey,
             DisplayName = DisplayName,
-            DocumentationUri = new Uri("https://deepinfra.com/docs/openai_api"),
+            DocumentationUri = new Uri("https://docs.deepinfra.com/chat/overview"),
             Families = new Dictionary<ProviderClientFamily, ProviderFamilyDescriptor>
             {
                 [ProviderClientFamily.Chat] = new()
@@ -88,7 +107,8 @@ internal class DeepInfraProvider : IChatClientProvider
                         ["SupportsStreaming"] = true,
                         ["SupportsFunctionCalling"] = true,
                         ["SupportsJsonResponseFormat"] = true,
-                        ["SupportsSeed"] = true,
+                        ["SupportsReasoning"] = true,
+                        ["SupportsVision"] = true,
                         ["OpenAICompatibleEndpoint"] = "https://api.deepinfra.com/v1/openai/"
                     }
                 }
@@ -129,6 +149,23 @@ internal class DeepInfraProvider : IChatClientProvider
     {
         var text = uri.AbsoluteUri;
         return text.EndsWith("/", StringComparison.Ordinal) ? uri : new Uri(text + "/", UriKind.Absolute);
+    }
+
+    /// <summary>
+    /// Maps MEAI reasoning levels to the efforts documented by DeepInfra.
+    /// </summary>
+    private static void ApplyReasoning(
+        OpenAICompatibleChatRequest request,
+        Meai.ReasoningOptions reasoning)
+    {
+        request.ReasoningEffort = reasoning.Effort switch
+        {
+            Meai.ReasoningEffort.None => "none",
+            Meai.ReasoningEffort.Low => "low",
+            Meai.ReasoningEffort.Medium => "medium",
+            Meai.ReasoningEffort.High => "high",
+            _ => null
+        };
     }
 
     private sealed class DeepInfraConfiguredChatClient : Meai.IChatClient
