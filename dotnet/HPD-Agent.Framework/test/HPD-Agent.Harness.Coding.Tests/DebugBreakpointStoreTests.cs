@@ -265,7 +265,9 @@ public sealed class DebugBreakpointStoreTests
     {
         var root = new DebugAdapterBreakpointStateStore();
         var child = new DebugAdapterBreakpointStateStore();
-        root.Replace(DebugBreakpointKind.Source,
+        root.ReplaceSource(
+            "/workspace/a.cs",
+            [new DebugSourceBreakpoint("/workspace/a.cs", 10)],
             [new Breakpoint { Id = 7, Verified = false, Source = new Source { Path = "/workspace/a.cs" }, Line = 10 }]);
 
         root.Reconcile("changed", new Breakpoint
@@ -277,12 +279,95 @@ public sealed class DebugBreakpointStoreTests
             Message = "moved"
         });
 
-        root.Snapshot.Should().ContainSingle().Which.Should().Match<DebugAdapterBreakpointState>(x =>
-            x.AdapterId == 7 && x.Verified && x.Line == 12 && x.Message == "moved");
+        root.Snapshot.Should().ContainSingle().Which.Should().Match<DebugBreakpointBindingState>(x =>
+            x.AdapterId == 7 &&
+            x.Acknowledged &&
+            x.Verified &&
+            x.RequestedLine == 10 &&
+            x.ResolvedLine == 12 &&
+            x.Message == "moved");
         child.Snapshot.Should().BeEmpty();
 
         root.Reconcile("removed", new Breakpoint { Id = 7, Verified = false });
         root.Snapshot.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Requested_source_location_is_preserved_when_adapter_relocates_breakpoint()
+    {
+        var store = new DebugAdapterBreakpointStateStore();
+
+        store.ReplaceSource(
+            "/workspace/a.cs",
+            [new DebugSourceBreakpoint("/workspace/a.cs", 10, 3, "ready", "2", "value={value}")],
+            [new Breakpoint
+            {
+                Id = 9,
+                Verified = true,
+                Source = new Source { Path = "/workspace/generated/a.cs" },
+                Line = 12,
+                Column = 1
+            }]);
+
+        store.Snapshot.Should().ContainSingle().Which.Should().Match<DebugBreakpointBindingState>(item =>
+            item.ClientBreakpointId.Length == 24 &&
+            item.RequestedPath == "/workspace/a.cs" &&
+            item.RequestedLine == 10 &&
+            item.RequestedColumn == 3 &&
+            item.ResolvedPath == "/workspace/generated/a.cs" &&
+            item.ResolvedLine == 12 &&
+            item.ResolvedColumn == 1 &&
+            item.Acknowledged &&
+            item.Verified);
+    }
+
+    [Fact]
+    public void Missing_adapter_responses_leave_requested_breakpoints_explicitly_pending()
+    {
+        var store = new DebugAdapterBreakpointStateStore();
+
+        store.ReplaceFunction(
+            [new DebugFunctionBreakpoint("One"), new DebugFunctionBreakpoint("Two")],
+            [new Breakpoint { Id = 1, Verified = true }]);
+
+        store.Snapshot.Should().HaveCount(2);
+        store.Snapshot[0].Should().Match<DebugBreakpointBindingState>(item =>
+            item.RequestedName == "One" && item.Acknowledged && item.Verified);
+        store.Snapshot[1].Should().Match<DebugBreakpointBindingState>(item =>
+            item.RequestedName == "Two" && !item.Acknowledged && !item.Verified &&
+            item.AdapterId == null);
+    }
+
+    [Fact]
+    public void Extra_adapter_responses_are_retained_only_as_bounded_diagnostics()
+    {
+        var store = new DebugAdapterBreakpointStateStore();
+
+        store.ReplaceFunction(
+            [new DebugFunctionBreakpoint("One")],
+            [
+                new Breakpoint { Id = 1, Verified = true },
+                new Breakpoint { Id = 2, Verified = false, Message = new string('x', 400) }
+            ]);
+
+        store.Snapshot.Should().ContainSingle();
+        store.UnmatchedResponses.Should().ContainSingle().Which.Should()
+            .Match<DebugUnmatchedAdapterBreakpointDiagnostic>(item =>
+                item.Kind == DebugBreakpointKind.Function &&
+                item.AdapterId == 2 &&
+                !item.Verified &&
+                item.SafeMessage!.Length == 256);
+    }
+
+    [Fact]
+    public void Client_identity_is_stable_and_changes_with_semantic_intent()
+    {
+        var first = new DebugSourceBreakpoint("/workspace/a.cs", 10, Condition: "ready");
+        var same = new DebugSourceBreakpoint("/workspace/a.cs", 10, Condition: "ready");
+        var changed = new DebugSourceBreakpoint("/workspace/a.cs", 10, Condition: "other");
+
+        BreakpointIdentity.Source(first).Should().Be(BreakpointIdentity.Source(same));
+        BreakpointIdentity.Source(first).Should().NotBe(BreakpointIdentity.Source(changed));
     }
 
     [Fact]

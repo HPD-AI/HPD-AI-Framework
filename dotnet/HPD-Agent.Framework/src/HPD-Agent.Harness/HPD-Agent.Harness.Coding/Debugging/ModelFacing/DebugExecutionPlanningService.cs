@@ -21,6 +21,7 @@ internal sealed class DebugExecutionPlanningService(
     DebugExecutionStartOrchestrator starts,
     DebugStartResultProjector startResults,
     IDebugAdapterDiagnosticStore diagnosticStore,
+    DebugBreakpointSelectionEventFactory breakpointEvents,
     IDebugHostRequestBroker? hostRequestBroker = null,
     IDebugChildSessionPlanFactory? childSessionPlanFactory = null)
 {
@@ -96,6 +97,7 @@ internal sealed class DebugExecutionPlanningService(
             runtime,
             context,
             operation,
+            workspace,
             isRestart,
             cancellationToken).ConfigureAwait(false);
     }
@@ -162,6 +164,7 @@ internal sealed class DebugExecutionPlanningService(
             runtime,
             context,
             semanticLaunchOperation: null,
+            workspace,
             isRestart: false,
             cancellationToken).ConfigureAwait(false);
     }
@@ -173,6 +176,7 @@ internal sealed class DebugExecutionPlanningService(
         DebugRuntimeBinding runtime,
         FunctionExecutionContext context,
         LaunchDebugOperation? semanticLaunchOperation,
+        AgentWorkspace workspace,
         bool isRestart,
         CancellationToken cancellationToken)
     {
@@ -185,6 +189,7 @@ internal sealed class DebugExecutionPlanningService(
             result = await starts.StartAsync(new DebugExecutionStartRequest
             {
                 Runtime = runtime,
+                Workspace = workspace,
                 ExecutionPlan = plan,
                 Permission = permission,
                 SemanticLaunchOperation = semanticLaunchOperation,
@@ -243,7 +248,65 @@ internal sealed class DebugExecutionPlanningService(
                     _ => "The debug adapter process could not be started."
                 });
         }
+        await PublishInitialBreakpointSelectionsAsync(
+            result,
+            plan,
+            runtime,
+            workspace,
+            context,
+            action).ConfigureAwait(false);
         return startResults.Project(action, plan, result, context);
+    }
+
+    private async ValueTask PublishInitialBreakpointSelectionsAsync(
+        DebugSessionStartResult result,
+        DebugExecutionPlan plan,
+        DebugRuntimeBinding runtime,
+        AgentWorkspace workspace,
+        FunctionExecutionContext context,
+        string action)
+    {
+        if (runtime.SessionManager is not DebugSessionManager manager) return;
+        var owner = new DebugTreeLookupScope(
+            runtime.AgentRuntimeRegistrationId,
+            runtime.SessionId,
+            runtime.ThreadId);
+        var tree = manager.ResolveTree(owner, result.DebugTreeId);
+        if (tree.EventPublisher is not { } publisher) return;
+        var session = tree.SelectSession(result.DebugSessionId);
+        var after = tree.Breakpoints.Snapshot;
+        var kinds = new[]
+        {
+            (DebugBreakpointKind.Source, after.Source.Length),
+            (DebugBreakpointKind.Function, after.Function.Length),
+            (DebugBreakpointKind.Exception, after.Exception.Length)
+        };
+        foreach (var (kind, count) in kinds)
+        {
+            if (count == 0) continue;
+            try
+            {
+                var @event = await breakpointEvents.CreateAsync(
+                    new DebugBreakpointMutationResult(
+                        kind,
+                        new DebugDesiredBreakpointSnapshot(),
+                        after,
+                        session.AdapterBreakpoints.Snapshot,
+                        result.Breakpoints,
+                        result.DebugSessionId),
+                    workspace,
+                    context.FunctionCallId,
+                    action,
+                    result.DebugTreeId,
+                    session.AdapterPlan.AdapterId,
+                    CancellationToken.None).ConfigureAwait(false);
+                _ = await publisher.PublishDurableAsync(@event, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                tree.RecordObserverFailure();
+            }
+        }
     }
 
     private static DebugExecutionPlanMetadata CreatePlanMetadata(

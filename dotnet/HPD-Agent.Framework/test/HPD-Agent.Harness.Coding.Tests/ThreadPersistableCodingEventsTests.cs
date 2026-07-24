@@ -37,7 +37,7 @@ public sealed class CanonicalCodingEventCodecTests
             {
                 DebugTreeId = "tree-1", DebugSessionId = "child-1", AdapterId = "fixture",
                 Reason = "changed", BreakpointId = 7, Verified = true,
-                SourcePath = "/workspace/a.cs", Line = 12
+                DisplayPath = "a.cs", Line = 12
             }
         ];
 

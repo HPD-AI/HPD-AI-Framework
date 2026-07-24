@@ -558,7 +558,11 @@ public sealed class DebugExecutionPlanningV3Tests
     public void Breakpoint_counts_distinguish_acknowledged_verified_and_pending()
     {
         var store = new DebugAdapterBreakpointStateStore();
-        store.Replace(DebugBreakpointKind.Function,
+        store.ReplaceFunction(
+        [
+            new DebugFunctionBreakpoint("One"),
+            new DebugFunctionBreakpoint("Two")
+        ],
         [
             new HPD.Agent.ToolHarness.Coding.Debugging.Protocol.Generated.Breakpoint
             {
@@ -576,7 +580,7 @@ public sealed class DebugExecutionPlanningV3Tests
         var states = store.Snapshot;
         var counts = new DebugBreakpointCounts(
             Requested: 2,
-            Acknowledged: states.Length,
+            Acknowledged: states.Count(state => state.Acknowledged),
             Verified: states.Count(state => state.Verified),
             Pending: states.Count(state => !state.Verified));
 
@@ -588,16 +592,16 @@ public sealed class DebugExecutionPlanningV3Tests
     {
         var states = new[]
         {
-            new DebugAdapterBreakpointState(
-                DebugBreakpointKind.Function,
-                1,
-                false,
-                "Module has not loaded.",
-                null,
-                null,
-                null,
-                null,
-                null)
+            new DebugBreakpointBindingState
+            {
+                Kind = DebugBreakpointKind.Function,
+                ClientBreakpointId = "one",
+                AdapterId = 1,
+                Acknowledged = true,
+                Verified = false,
+                Message = "Module has not loaded.",
+                RequestedName = "One"
+            }
         };
 
         var action = () => DebugProtocolSessionStarter.EnsureBreakpointPolicy(
@@ -612,16 +616,16 @@ public sealed class DebugExecutionPlanningV3Tests
     {
         var states = new[]
         {
-            new DebugAdapterBreakpointState(
-                DebugBreakpointKind.Function,
-                1,
-                false,
-                "Module has not loaded.",
-                null,
-                null,
-                null,
-                null,
-                null)
+            new DebugBreakpointBindingState
+            {
+                Kind = DebugBreakpointKind.Function,
+                ClientBreakpointId = "one",
+                AdapterId = 1,
+                Acknowledged = true,
+                Verified = false,
+                Message = "Module has not loaded.",
+                RequestedName = "One"
+            }
         };
 
         var action = () => DebugProtocolSessionStarter.EnsureBreakpointPolicy(

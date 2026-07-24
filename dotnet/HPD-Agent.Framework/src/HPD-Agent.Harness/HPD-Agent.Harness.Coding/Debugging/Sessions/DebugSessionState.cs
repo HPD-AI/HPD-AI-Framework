@@ -444,6 +444,7 @@ internal sealed class DebugSessionTree : IAsyncDisposable
     public ConcurrentQueue<DebugStoredArtifact> StoredArtifacts { get; } = new();
     public string? ActiveSessionId { get; private set; }
     public long ObserverFailures => Interlocked.Read(ref _observerFailures);
+    public void RecordObserverFailure() => Interlocked.Increment(ref _observerFailures);
 
     public bool TryScheduleTerminal(Func<Task> operation)
     {

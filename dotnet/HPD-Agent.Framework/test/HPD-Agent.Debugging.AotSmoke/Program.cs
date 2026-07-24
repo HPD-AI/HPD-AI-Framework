@@ -224,6 +224,68 @@ if (JsonSerializer.Deserialize(
         CodingToolHarnessJsonContext.Default.DebugExecutionPlannedEvent)
     is not { AdapterStartMethod: DebugAdapterStartMethod.Attach })
     return 20;
+var breakpointSelectionEvent = new DebugBreakpointSelectionAppliedEvent
+{
+    DebugTreeId = "tree_1",
+    DebugSessionId = "session_1",
+    AdapterId = "netcoredbg",
+    ToolCallId = "call_1",
+    Action = "setSourceBreakpoints",
+    BreakpointKind = DebugBreakpointKind.Source,
+    Before = [],
+    After =
+    [
+        new DebugBreakpointSelectionEventItem
+        {
+            ClientBreakpointId = "client_1",
+            Kind = DebugBreakpointKind.Source,
+            DisplayPath = "Program.cs",
+            RequestedLine = 10,
+            ResolvedLine = 11,
+            Acknowledged = true,
+            Verified = true
+        }
+    ],
+    Changes = [new("client_1", DebugBreakpointSelectionDeltaKind.Added)],
+    Counts = new(1, 1, 1, 0),
+    SourcePreviews =
+    [
+        new DebugSourcePreview
+        {
+            DisplayPath = "Program.cs",
+            Language = "csharp",
+            Hunks = [new(8, ["line 8", "line 9", "line 10"])],
+            Truncated = false
+        }
+    ],
+    DetailsTruncated = false
+};
+var stopSummaryEvent = new DebugStopSummaryAvailableEvent
+{
+    DebugTreeId = "tree_1",
+    DebugSessionId = "session_1",
+    AdapterId = "netcoredbg",
+    AdapterThreadId = 1,
+    SuspensionEpoch = 2,
+    Reason = "breakpoint",
+    FrameName = "Main",
+    DisplayPath = "Program.cs",
+    Line = 10,
+    InspectionSucceeded = true
+};
+if (JsonSerializer.Deserialize(
+        JsonSerializer.SerializeToUtf8Bytes(
+            breakpointSelectionEvent,
+            CodingToolHarnessJsonContext.Default.DebugBreakpointSelectionAppliedEvent),
+        CodingToolHarnessJsonContext.Default.DebugBreakpointSelectionAppliedEvent)
+        is not { After.Count: 1 } ||
+    JsonSerializer.Deserialize(
+        JsonSerializer.SerializeToUtf8Bytes(
+            stopSummaryEvent,
+            CodingToolHarnessJsonContext.Default.DebugStopSummaryAvailableEvent),
+        CodingToolHarnessJsonContext.Default.DebugStopSummaryAvailableEvent)
+        is not { SuspensionEpoch: 2 })
+    return 22;
 var activatingEvent = new DebugExecutionActivatingEvent
 {
     DebugTreeId = "tree_1",

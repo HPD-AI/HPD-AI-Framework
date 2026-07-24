@@ -164,7 +164,7 @@ internal sealed class DebugProtocolSessionStarter(
 
     internal static void EnsureBreakpointPolicy(
         DebugInitialBreakpointPolicy breakpointPolicy,
-        IReadOnlyList<DebugAdapterBreakpointState> states)
+        IReadOnlyList<DebugBreakpointBindingState> states)
     {
         ArgumentNullException.ThrowIfNull(states);
         if (breakpointPolicy == DebugInitialBreakpointPolicy.RequireImmediatelyVerified &&

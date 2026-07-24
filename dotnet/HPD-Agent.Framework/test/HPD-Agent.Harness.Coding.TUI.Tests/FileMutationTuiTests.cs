@@ -115,9 +115,9 @@ public sealed class FileMutationTuiTests
 
         var rendered = RenderTranscript(state);
         rendered.Should().Contain("• Edited src/Foo.cs (+1 -1)");
-        rendered.Should().Contain("1  public sealed class Foo");
-        rendered.Should().Contain("2 -    private string _oldName;");
-        rendered.Should().Contain("2 +    private string _name;");
+        rendered.Should().Contain("1   public sealed class Foo");
+        rendered.Should().Contain("2 -     private string _oldName;");
+        rendered.Should().Contain("2 +     private string _name;");
     }
 
     [Fact]
@@ -209,8 +209,8 @@ public sealed class FileMutationTuiTests
         cell.Hunks.Sum(static hunk => hunk.Lines.Count).Should().Be(24);
 
         var rendered = RenderTranscript(state, height: 36);
-        rendered.Should().Contain("1 +line 001");
-        rendered.Should().Contain("24 +line 024");
+        rendered.Should().Contain("1 + line 001");
+        rendered.Should().Contain("24 + line 024");
         rendered.Should().NotContain("diff truncated");
     }
 
@@ -251,10 +251,10 @@ public sealed class FileMutationTuiTests
 
         var rendered = RenderTranscript(state, height: 24);
         rendered.Should().Contain("• Edited src/Foo.cs (+2 -2)");
-        rendered.Should().Contain("10 -old value");
-        rendered.Should().Contain("10 +new value");
-        rendered.Should().Contain("80 -old tail");
-        rendered.Should().Contain("80 +new tail");
+        rendered.Should().Contain("10 - old value");
+        rendered.Should().Contain("10 + new value");
+        rendered.Should().Contain("80 - old tail");
+        rendered.Should().Contain("80 + new tail");
         rendered.Should().NotContain("diff truncated");
     }
 
@@ -267,8 +267,8 @@ public sealed class FileMutationTuiTests
         await state.ApplyEventAsync(persisted);
 
         var rendered = RenderTranscript(state, height: 24);
-        rendered.Should().Contain("10 +new value");
-        rendered.Should().Contain("80 +new tail");
+        rendered.Should().Contain("10 + new value");
+        rendered.Should().Contain("80 + new tail");
         rendered.Should().Contain("diff truncated");
     }
 

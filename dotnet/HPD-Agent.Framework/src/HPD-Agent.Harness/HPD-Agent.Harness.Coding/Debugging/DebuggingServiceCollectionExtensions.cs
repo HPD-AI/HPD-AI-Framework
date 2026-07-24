@@ -42,6 +42,9 @@ public static class DebuggingServiceCollectionExtensions
         services.TryAddSingleton<DebugInitializePolicy>();
         services.TryAddSingleton<DebugProtocolTransportFactory>();
         services.TryAddSingleton<DebugProtocolSessionStarter>();
+        services.TryAddSingleton(new DebugSourcePreviewOptions());
+        services.TryAddSingleton<IDebugSourcePreviewProvider, DebugSourcePreviewProvider>();
+        services.TryAddSingleton<DebugBreakpointSelectionEventFactory>();
         services.TryAddSingleton<IDebugProtocolSessionStarter>(
             services => services.GetRequiredService<DebugProtocolSessionStarter>());
         services.TryAddSingleton<IDebugAdapterDiagnosticStore, DebugAdapterDiagnosticStore>();
@@ -79,12 +82,14 @@ public static class DebuggingServiceCollectionExtensions
             provider.GetRequiredService<DebugExecutionStartOrchestrator>(),
             provider.GetRequiredService<DebugStartResultProjector>(),
             provider.GetRequiredService<IDebugAdapterDiagnosticStore>(),
+            provider.GetRequiredService<DebugBreakpointSelectionEventFactory>(),
             provider.GetService<IDebugHostRequestBroker>(),
             provider.GetService<IDebugChildSessionPlanFactory>()));
         services.TryAddSingleton(provider => new DebugOperationDispatcher(
             provider.GetRequiredService<DebugRuntimeServiceFactory>(),
             provider.GetRequiredService<DebugResultFormatter>(),
             provider.GetRequiredService<DebugPermissionAuthorizationService>(),
+            provider.GetRequiredService<DebugBreakpointSelectionEventFactory>(),
             provider.GetRequiredService<DebugExecutionPlanningService>()));
         services.TryAddSingleton<DebugAdapterExtensionRegistry>();
         services.TryAddSingleton<IDebugAdapterExtensionHost>(provider =>

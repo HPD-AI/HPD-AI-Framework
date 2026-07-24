@@ -24,8 +24,8 @@ public sealed record DebugProjectedSession
 }
 
 public sealed record DebugProjectedBreakpoint(
-    string Reason, int? BreakpointId, bool Verified, string? SourcePath, long? Line,
-    long? Column, string? InstructionReference);
+    string Reason, int? BreakpointId, bool Verified, string? DisplayPath, long? Line,
+    long? Column, string? InstructionReferenceToken);
 
 public sealed record DebugProjectedTree
 {
@@ -92,8 +92,8 @@ public static class DebugSessionProjector
                 break;
             case DebugBreakpointChangedEvent breakpoint:
                 session.BreakpointHistory.Add(new(breakpoint.Reason, breakpoint.BreakpointId,
-                    breakpoint.Verified, breakpoint.SourcePath, breakpoint.Line, breakpoint.Column,
-                    breakpoint.InstructionReference));
+                    breakpoint.Verified, breakpoint.DisplayPath, breakpoint.Line, breakpoint.Column,
+                    breakpoint.InstructionReferenceToken));
                 break;
             case DebugSessionSummaryEvent summary:
                 session.FinalSummary = summary;

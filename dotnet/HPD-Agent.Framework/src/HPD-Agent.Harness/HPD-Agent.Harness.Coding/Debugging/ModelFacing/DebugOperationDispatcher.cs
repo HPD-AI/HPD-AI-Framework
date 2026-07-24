@@ -1,5 +1,6 @@
 using System.Globalization;
 using HPD.Agent.Middleware;
+using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
 using HPDOS.ToolHarnesses.Middleware;
 
@@ -11,16 +12,19 @@ public sealed class DebugOperationDispatcher
     private readonly DebugResultFormatter _formatter;
     private readonly DebugExecutionPlanningService? _starts;
     private readonly DebugPermissionAuthorizationService _authorization;
+    private readonly DebugBreakpointSelectionEventFactory _breakpointEvents;
 
     internal DebugOperationDispatcher(
         DebugRuntimeServiceFactory runtimeServices,
         DebugResultFormatter formatter,
         DebugPermissionAuthorizationService authorization,
+        DebugBreakpointSelectionEventFactory breakpointEvents,
         DebugExecutionPlanningService? starts = null)
     {
         _runtimeServices = runtimeServices;
         _formatter = formatter;
         _authorization = authorization;
+        _breakpointEvents = breakpointEvents;
         _starts = starts;
     }
 
@@ -506,33 +510,41 @@ public sealed class DebugOperationDispatcher
 
     private async Task<string> SetSourceBreakpointsAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, SetSourceBreakpointsOperation request, FunctionExecutionContext context, CancellationToken cancellationToken)
     {
-        await services.Breakpoints.SetSourceAsync(owner, request.DebugTreeId, request.DebugSessionId,
+        var mutation = await services.Breakpoints.SetSourceAsync(owner, request.DebugTreeId, request.DebugSessionId,
             request.Breakpoints.Select(item => new DebugSourceBreakpoint(item.Path, item.Line, item.Column, item.Condition, item.HitCondition, item.LogMessage)).ToArray(),
             cancellationToken).ConfigureAwait(false);
+        await PublishBreakpointSelectionAsync(services, owner, mutation, request.DebugTreeId,
+            "setSourceBreakpoints", context).ConfigureAwait(false);
         return BreakpointMutationResult(services, owner, request.DebugTreeId, request.DebugSessionId, "setSourceBreakpoints", context);
     }
 
     private async Task<string> SetFunctionBreakpointsAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, SetFunctionBreakpointsOperation request, FunctionExecutionContext context, CancellationToken cancellationToken)
     {
-        await services.Breakpoints.SetFunctionAsync(owner, request.DebugTreeId, request.DebugSessionId,
+        var mutation = await services.Breakpoints.SetFunctionAsync(owner, request.DebugTreeId, request.DebugSessionId,
             request.Breakpoints.Select(item => new DebugFunctionBreakpoint(item.Name, item.Condition, item.HitCondition)).ToArray(),
             cancellationToken).ConfigureAwait(false);
+        await PublishBreakpointSelectionAsync(services, owner, mutation, request.DebugTreeId,
+            "setFunctionBreakpoints", context).ConfigureAwait(false);
         return BreakpointMutationResult(services, owner, request.DebugTreeId, request.DebugSessionId, "setFunctionBreakpoints", context);
     }
 
     private async Task<string> SetExceptionBreakpointsAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, SetExceptionBreakpointsOperation request, FunctionExecutionContext context, CancellationToken cancellationToken)
     {
-        await services.Breakpoints.SetExceptionAsync(owner, request.DebugTreeId, request.DebugSessionId,
+        var mutation = await services.Breakpoints.SetExceptionAsync(owner, request.DebugTreeId, request.DebugSessionId,
             request.Breakpoints.Select(item => new DebugExceptionFilter(item.FilterId, item.Condition)).ToArray(),
             cancellationToken).ConfigureAwait(false);
+        await PublishBreakpointSelectionAsync(services, owner, mutation, request.DebugTreeId,
+            "setExceptionBreakpoints", context).ConfigureAwait(false);
         return BreakpointMutationResult(services, owner, request.DebugTreeId, request.DebugSessionId, "setExceptionBreakpoints", context);
     }
 
     private async Task<string> SetInstructionBreakpointsAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, SetInstructionBreakpointsOperation request, FunctionExecutionContext context, CancellationToken cancellationToken)
     {
-        await services.Breakpoints.SetInstructionTokensAsync(owner, request.DebugTreeId, request.DebugSessionId,
+        var mutation = await services.Breakpoints.SetInstructionTokensAsync(owner, request.DebugTreeId, request.DebugSessionId,
             request.Breakpoints.Select(item => (item.InstructionReferenceToken, item.Offset, item.Condition, item.HitCondition)).ToArray(),
             cancellationToken).ConfigureAwait(false);
+        await PublishBreakpointSelectionAsync(services, owner, mutation, request.DebugTreeId,
+            "setInstructionBreakpoints", context).ConfigureAwait(false);
         return BreakpointMutationResult(services, owner, request.DebugTreeId, request.DebugSessionId, "setInstructionBreakpoints", context);
     }
 
@@ -552,7 +564,7 @@ public sealed class DebugOperationDispatcher
 
     private async Task<string> SetDataBreakpointsAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, SetDataBreakpointsOperation request, FunctionExecutionContext context, CancellationToken cancellationToken)
     {
-        await services.Breakpoints.SetDataTokensAsync(owner, request.DebugTreeId, request.DebugSessionId,
+        var mutation = await services.Breakpoints.SetDataTokensAsync(owner, request.DebugTreeId, request.DebugSessionId,
             request.Breakpoints.Select(item => (
                 item.DataBreakpointToken,
                 item.AccessType switch
@@ -566,7 +578,39 @@ public sealed class DebugOperationDispatcher
                 item.Condition,
                 item.HitCondition)).ToArray(),
             cancellationToken).ConfigureAwait(false);
+        await PublishBreakpointSelectionAsync(services, owner, mutation, request.DebugTreeId,
+            "setDataBreakpoints", context).ConfigureAwait(false);
         return BreakpointMutationResult(services, owner, request.DebugTreeId, request.DebugSessionId, "setDataBreakpoints", context);
+    }
+
+    private async ValueTask PublishBreakpointSelectionAsync(
+        DebugRuntimeServices services,
+        DebugTreeLookupScope owner,
+        DebugBreakpointMutationResult mutation,
+        string treeId,
+        string action,
+        FunctionExecutionContext context)
+    {
+        var tree = services.Manager.ResolveTree(owner, treeId);
+        var publisher = tree.EventPublisher;
+        if (publisher is null) return;
+        try
+        {
+            var session = tree.SelectSession(mutation.DebugSessionId);
+            var @event = await _breakpointEvents.CreateAsync(
+                mutation,
+                AgentWorkspace.From(context.RunConfig),
+                context.FunctionCallId,
+                action,
+                treeId,
+                session.AdapterPlan.AdapterId,
+                CancellationToken.None).ConfigureAwait(false);
+            _ = await publisher.PublishDurableAsync(@event, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            tree.RecordObserverFailure();
+        }
     }
 
     private string Breakpoints(DebugRuntimeServices services, DebugTreeLookupScope owner, GetDebugBreakpointsOperation request, FunctionExecutionContext context)

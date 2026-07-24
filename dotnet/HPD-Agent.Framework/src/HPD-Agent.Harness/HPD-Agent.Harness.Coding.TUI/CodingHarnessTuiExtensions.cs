@@ -13,6 +13,7 @@ using HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Handlers;
 using HPD.Agent.ToolHarness.Coding.TUI.FileMutations.Footer;
 using HPD.Agent.ToolHarness.Coding.TUI.SubAgents;
 using HPD.Agent.ToolHarness.Coding.TUI.LanguageServers;
+using HPD.Agent.ToolHarness.Coding.TUI.Debugging;
 using HPD.Agent.TUI.Commands;
 using HPD.Agent.TUI.Composition;
 using HPDOS.ToolHarnesses.Middleware;
@@ -38,6 +39,7 @@ public static class CodingHarnessTuiExtensions
             .AddCodingSubAgentTui(theme)
             .AddCodingCommandTui(theme, permissionScope)
             .AddCodingFileMutationTui(theme)
+            .AddCodingDebuggerTui(theme)
             .AddCodingLanguageServerTui(theme);
     }
 
@@ -193,5 +195,49 @@ public static class CodingHarnessTuiExtensions
             .TryAddFooterItem(
                 "hpd.coding.diagnostics",
                 new CodingDiagnosticsFooterItem(theme));
+    }
+
+    /// <summary>Adds replayable semantic debugger presentation.</summary>
+    /// <summary>
+    /// Adds replayable debugger lifecycle presentation, transcript cells, status, and the
+    /// inspect-only <c>/debug</c> page.
+    /// </summary>
+    public static HpdAgentTuiBuilder AddCodingDebuggerTui(
+        this HpdAgentTuiBuilder tui,
+        CodingHarnessTuiTheme? theme = null)
+    {
+        ArgumentNullException.ThrowIfNull(tui);
+        theme ??= CodingHarnessTuiTheme.Default;
+        return tui
+            .TryAddEventHandler(
+                "hpd.coding.debug.reducer",
+                new DebugLifecycleTuiReducer())
+            .TryAddEventHandler<DebugBreakpointSelectionAppliedEvent, DebugBreakpointSelectionTuiHandler>(
+                "hpd.coding.debug.breakpoint-selection")
+            .TryAddEventHandler<DebugBreakpointChangedEvent, DebugBreakpointChangedTuiHandler>(
+                "hpd.coding.debug.breakpoint-changed")
+            .TryAddEventHandler<DebugSessionStoppedEvent, DebugStoppedTuiHandler>(
+                "hpd.coding.debug.stopped")
+            .TryAddEventHandler<DebugStopSummaryAvailableEvent, DebugStopSummaryTuiHandler>(
+                "hpd.coding.debug.stop-summary")
+            .TryAddEventHandler<DebugSessionContinuedEvent, DebugContinuedTuiHandler>(
+                "hpd.coding.debug.continued")
+            .TryAddTranscriptRenderer<DebugBreakpointCell>(
+                CodingHarnessTuiTranscriptRendererKeys.DebugBreakpoint,
+                new DebugBreakpointCellRenderer(theme))
+            .TryAddTranscriptRenderer<DebugStoppedCell>(
+                CodingHarnessTuiTranscriptRendererKeys.DebugStopped,
+                new DebugStoppedCellRenderer(theme))
+            .TryAddFooterItem(
+                "hpd.coding.debug",
+                new DebugStatusFooterItem(theme))
+            .TryAddPage(DebugStatusPage.Create(theme))
+            .TryAddSlashCommand(new HpdAgentTuiCommandDescriptor(
+                "debug",
+                context => context.Navigation.GoToPage(DebugStatusPage.PageId))
+            {
+                Title = "/debug",
+                Description = "Inspect debugger state."
+            });
     }
 }

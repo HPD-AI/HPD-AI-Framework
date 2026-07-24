@@ -8,4 +8,6 @@ public static class CodingHarnessTuiTranscriptRendererKeys
     public const string Diagnostics = "hpd.coding.diagnostics";
     public const string Exploration = "hpd.coding.exploration";
     public const string SubAgent = "hpd.coding.subagent";
+    public const string DebugBreakpoint = "hpd.coding.debug.breakpoint";
+    public const string DebugStopped = "hpd.coding.debug.stopped";
 }

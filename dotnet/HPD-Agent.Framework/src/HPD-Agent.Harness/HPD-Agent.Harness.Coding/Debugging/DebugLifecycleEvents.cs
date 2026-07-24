@@ -158,12 +158,84 @@ public sealed record DebugBreakpointChangedEvent : DebugLifecycleEvent
     public required string Reason { get; init; }
     public int? BreakpointId { get; init; }
     public required bool Verified { get; init; }
-    public string? Message { get; init; }
-    public string? SourcePath { get; init; }
+    public string? SafeMessage { get; init; }
+    public string? DisplayPath { get; init; }
     public long? Line { get; init; }
     public long? Column { get; init; }
-    public string? InstructionReference { get; init; }
+    public string? InstructionReferenceToken { get; init; }
 }
+
+/// <summary>
+/// Durable semantic evidence that one model-facing operation committed a
+/// breakpoint selection.
+/// </summary>
+public sealed record DebugBreakpointSelectionAppliedEvent : DebugLifecycleEvent
+{
+    public required string ToolCallId { get; init; }
+    public required string Action { get; init; }
+    public required DebugBreakpointKind BreakpointKind { get; init; }
+    public required IReadOnlyList<DebugBreakpointSelectionEventItem> Before { get; init; }
+    public required IReadOnlyList<DebugBreakpointSelectionEventItem> After { get; init; }
+    public required IReadOnlyList<DebugBreakpointSelectionDelta> Changes { get; init; }
+    public required DebugBreakpointCounts Counts { get; init; }
+    public IReadOnlyList<DebugSourcePreview> SourcePreviews { get; init; } = [];
+    public required bool DetailsTruncated { get; init; }
+    public string? TruncationReason { get; init; }
+}
+
+/// <summary>A bounded, adapter-safe breakpoint selection item.</summary>
+public sealed record DebugBreakpointSelectionEventItem
+{
+    public required string ClientBreakpointId { get; init; }
+    public required DebugBreakpointKind Kind { get; init; }
+    public string? DisplayPath { get; init; }
+    public long? RequestedLine { get; init; }
+    public long? RequestedColumn { get; init; }
+    public long? ResolvedLine { get; init; }
+    public long? ResolvedColumn { get; init; }
+    public string? SafeDisplayName { get; init; }
+    public string? Condition { get; init; }
+    public string? HitCondition { get; init; }
+    public string? LogMessage { get; init; }
+    public required bool Acknowledged { get; init; }
+    public required bool Verified { get; init; }
+    public string? SafeMessage { get; init; }
+}
+
+/// <summary>One stable breakpoint identity transition.</summary>
+public sealed record DebugBreakpointSelectionDelta(
+    string ClientBreakpointId,
+    DebugBreakpointSelectionDeltaKind Kind);
+
+/// <summary>Describes how one stable breakpoint selection changed.</summary>
+public enum DebugBreakpointSelectionDeltaKind
+{
+    /// <summary>The breakpoint was absent before the committed mutation.</summary>
+    Added,
+    /// <summary>The breakpoint was absent after the committed mutation.</summary>
+    Removed,
+    /// <summary>The breakpoint identity remained but its semantic presentation changed.</summary>
+    Updated,
+    /// <summary>The breakpoint identity and semantic presentation were retained.</summary>
+    Unchanged
+}
+
+/// <summary>Trusted bounded source text captured for presentation and replay.</summary>
+public sealed record DebugSourcePreview
+{
+    public required string DisplayPath { get; init; }
+    public string? Language { get; init; }
+    public string? ContentHash { get; init; }
+    public string? SourceVersion { get; init; }
+    public required IReadOnlyList<DebugSourcePreviewHunk> Hunks { get; init; }
+    public required bool Truncated { get; init; }
+    public string? UnavailableReason { get; init; }
+}
+
+/// <summary>A contiguous, one-based range of bounded source-preview lines.</summary>
+public sealed record DebugSourcePreviewHunk(
+    int StartLine,
+    IReadOnlyList<string> Lines);
 
 public sealed record DebugSessionStoppedEvent : DebugLifecycleEvent
 {
@@ -172,6 +244,28 @@ public sealed record DebugSessionStoppedEvent : DebugLifecycleEvent
     public string? Description { get; init; }
     public long? SuspensionEpoch { get; init; }
 }
+
+/// <summary>Bounded presentation enrichment for one still-current stop.</summary>
+public sealed record DebugStopSummaryAvailableEvent : DebugLifecycleEvent
+{
+    public required int AdapterThreadId { get; init; }
+    public required long SuspensionEpoch { get; init; }
+    public required string Reason { get; init; }
+    public string? FrameName { get; init; }
+    public string? DisplayPath { get; init; }
+    public long? Line { get; init; }
+    public long? Column { get; init; }
+    public DebugSourcePreview? SourcePreview { get; init; }
+    public IReadOnlyList<DebugStopValuePreview> Values { get; init; } = [];
+    public required bool InspectionSucceeded { get; init; }
+    public string? SafeFailureCode { get; init; }
+}
+
+/// <summary>A bounded, adapter-safe value captured while presenting a stop.</summary>
+public sealed record DebugStopValuePreview(
+    string Name,
+    string Value,
+    string? Type);
 
 public sealed record DebugSessionContinuedEvent : DebugLifecycleEvent
 {

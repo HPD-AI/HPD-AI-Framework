@@ -45,7 +45,7 @@ public sealed class DebugSessionProjectorTests
             new DebugBreakpointChangedEvent
             {
                 DebugTreeId = "tree", DebugSessionId = "child", AdapterId = "adapter",
-                Reason = "changed", BreakpointId = 3, Verified = true, SourcePath = "/a.cs",
+                Reason = "changed", BreakpointId = 3, Verified = true, DisplayPath = "a.cs",
                 Line = 10, ThreadSequenceNumber = 7
             },
             new DebugSessionSummaryEvent

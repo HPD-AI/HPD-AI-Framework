@@ -177,7 +177,10 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
             Starter = new FakeProtocolStarter();
             Backgrounds = new FakeBackgroundRegistry();
             Events = new FakeLifecyclePublisher();
-            Orchestrator = new(Starter, Activator);
+            Orchestrator = new(
+                Starter,
+                Activator,
+                new DebugSourcePreviewProvider([], new DebugSourcePreviewOptions()));
         }
 
         public DebugSessionManager Manager { get; }
@@ -195,6 +198,10 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
         public DebugExecutionStartRequest Request() => new()
         {
             Runtime = Runtime,
+            Workspace = new(
+                "root",
+                Path.GetTempPath(),
+                [new AgentWorkspaceRoot("root", Path.GetTempPath())]),
             ExecutionPlan = Plan,
             Permission = new("call", "launch", DebugPermissionClass.Launch),
             BackgroundHandles = Backgrounds,

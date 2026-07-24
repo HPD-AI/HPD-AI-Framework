@@ -106,9 +106,11 @@ public static class CodingHarnessEventSerialization
         AgentEventSerializer.RegisterEventType(typeof(DebugRestartTransitionEvent), "DEBUG_RESTART_TRANSITION", CodingToolHarnessJsonContext.Default.DebugRestartTransitionEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugChildSessionStartedEvent), "DEBUG_CHILD_SESSION_STARTED", CodingToolHarnessJsonContext.Default.DebugChildSessionStartedEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugBreakpointChangedEvent), "DEBUG_BREAKPOINT_CHANGED", CodingToolHarnessJsonContext.Default.DebugBreakpointChangedEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugBreakpointSelectionAppliedEvent), "DEBUG_BREAKPOINT_SELECTION_APPLIED", CodingToolHarnessJsonContext.Default.DebugBreakpointSelectionAppliedEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugRunInTerminalRequestEvent), "DEBUG_RUN_IN_TERMINAL_REQUEST", CodingToolHarnessJsonContext.Default.DebugRunInTerminalRequestEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugRunInTerminalResponseEvent), "DEBUG_RUN_IN_TERMINAL_RESPONSE", CodingToolHarnessJsonContext.Default.DebugRunInTerminalResponseEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugSessionStoppedEvent), "DEBUG_SESSION_STOPPED", CodingToolHarnessJsonContext.Default.DebugSessionStoppedEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugStopSummaryAvailableEvent), "DEBUG_STOP_SUMMARY_AVAILABLE", CodingToolHarnessJsonContext.Default.DebugStopSummaryAvailableEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugSessionContinuedEvent), "DEBUG_SESSION_CONTINUED", CodingToolHarnessJsonContext.Default.DebugSessionContinuedEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugProcessChangedEvent), "DEBUG_PROCESS_CHANGED", CodingToolHarnessJsonContext.Default.DebugProcessChangedEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugThreadChangedEvent), "DEBUG_THREAD_CHANGED", CodingToolHarnessJsonContext.Default.DebugThreadChangedEvent);

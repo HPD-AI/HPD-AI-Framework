@@ -24,7 +24,7 @@ internal static class DebugBreakpointProtocolApplier
                         LogMessage = x.LogMessage
                     }).ToList()
                 }, cancellationToken).ConfigureAwait(false);
-            session.AdapterBreakpoints.ReplaceSource(group.Key, response.Breakpoints);
+            session.AdapterBreakpoints.ReplaceSource(group.Key, group.ToArray(), response.Breakpoints);
         }
 
         if (!desired.Function.IsEmpty)
@@ -40,14 +40,14 @@ internal static class DebugBreakpointProtocolApplier
                         HitCondition = x.HitCondition
                     }).ToList()
                 }, cancellationToken).ConfigureAwait(false);
-            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Function, response.Breakpoints);
+            session.AdapterBreakpoints.ReplaceFunction(desired.Function, response.Breakpoints);
         }
 
         if (!desired.Exception.IsEmpty)
         {
             var breakpoints = await DebugExceptionBreakpointProtocol.ApplyAsync(
                 session, desired.Exception, cancellationToken).ConfigureAwait(false);
-            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Exception, breakpoints);
+            session.AdapterBreakpoints.ReplaceException(desired.Exception, breakpoints);
         }
 
         if (!desired.Instruction.IsEmpty)
@@ -64,7 +64,7 @@ internal static class DebugBreakpointProtocolApplier
                         HitCondition = x.HitCondition
                     }).ToList()
                 }, cancellationToken).ConfigureAwait(false);
-            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Instruction, response.Breakpoints);
+            session.AdapterBreakpoints.ReplaceInstruction(desired.Instruction, response.Breakpoints);
         }
 
         if (!desired.Data.IsEmpty)
@@ -87,7 +87,7 @@ internal static class DebugBreakpointProtocolApplier
                         HitCondition = x.HitCondition
                     }).ToList()
                 }, cancellationToken).ConfigureAwait(false);
-            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Data, response.Breakpoints);
+            session.AdapterBreakpoints.ReplaceData(desired.Data, response.Breakpoints);
         }
     }
 

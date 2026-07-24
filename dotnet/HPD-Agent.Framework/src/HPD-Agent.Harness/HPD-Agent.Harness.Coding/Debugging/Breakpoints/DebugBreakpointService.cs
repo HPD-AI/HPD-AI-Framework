@@ -5,10 +5,19 @@ namespace HPD.Agent.ToolHarness.Coding.Debugging;
 
 internal sealed record DebugBreakpointSnapshot(
     DebugDesiredBreakpointSnapshot Desired,
-    ImmutableArray<DebugAdapterBreakpointState> AdapterStates,
+    ImmutableArray<DebugBreakpointBindingState> AdapterStates,
     DebugBreakpointCounts Counts,
     string? DebugSessionId,
     bool DetailsRetained);
+
+/// <summary>Committed semantic breakpoint selection and its adapter bindings.</summary>
+internal sealed record DebugBreakpointMutationResult(
+    DebugBreakpointKind Kind,
+    DebugDesiredBreakpointSnapshot Before,
+    DebugDesiredBreakpointSnapshot After,
+    ImmutableArray<DebugBreakpointBindingState> Bindings,
+    DebugBreakpointCounts Counts,
+    string DebugSessionId);
 
 internal sealed class DebugBreakpointService(DebugSessionManager sessions)
 {
@@ -31,24 +40,26 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
         var adapterStates = session.AdapterBreakpoints.Snapshot;
         var requested = desired.Source.Length + desired.Function.Length +
             desired.Exception.Length + desired.Instruction.Length + desired.Data.Length;
+        var acknowledged = adapterStates.Count(item => item.Acknowledged);
         var verified = adapterStates.Count(item => item.Verified);
         return new DebugBreakpointSnapshot(
             desired,
             adapterStates,
             new DebugBreakpointCounts(
                 requested,
-                adapterStates.Length,
+                acknowledged,
                 verified,
                 Math.Max(0, requested - verified)),
             session.SessionId,
             true);
     }
 
-    public ValueTask SetSourceAsync(DebugTreeLookupScope owner, string treeId, string? sessionId,
+    public async ValueTask<DebugBreakpointMutationResult> SetSourceAsync(DebugTreeLookupScope owner, string treeId, string? sessionId,
         IReadOnlyList<DebugSourceBreakpoint> breakpoints, CancellationToken cancellationToken = default)
     {
         var (tree, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.SourceBreakpoints);
-        return tree.Breakpoints.ReplaceSourceAsync(breakpoints, async (prior, replacement, ct) =>
+        ImmutableArray<DebugBreakpointBindingState> committedBindings = [];
+        var mutation = await tree.Breakpoints.ReplaceSourceAsync(breakpoints, async (prior, replacement, ct) =>
         {
             var paths = prior.Select(x => x.Path).Concat(replacement.Select(x => x.Path)).Distinct(StringComparer.Ordinal);
             foreach (var path in paths)
@@ -64,54 +75,65 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
                             HitCondition = x.HitCondition, LogMessage = x.LogMessage
                         }).ToList()
                     }, ct).ConfigureAwait(false);
-                session.AdapterBreakpoints.ReplaceSource(path, response.Breakpoints);
+                session.AdapterBreakpoints.ReplaceSource(path, requested, response.Breakpoints);
             }
-        }, cancellationToken);
+            committedBindings = session.AdapterBreakpoints.Snapshot;
+        }, cancellationToken).ConfigureAwait(false);
+        return CreateMutationResult(DebugBreakpointKind.Source, mutation, session, committedBindings);
     }
 
-    public ValueTask SetFunctionAsync(DebugTreeLookupScope owner, string treeId, string? sessionId,
+    public async ValueTask<DebugBreakpointMutationResult> SetFunctionAsync(DebugTreeLookupScope owner, string treeId, string? sessionId,
         IReadOnlyList<DebugFunctionBreakpoint> breakpoints, CancellationToken cancellationToken = default)
     {
         var (tree, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.FunctionBreakpoints);
         RequireCapability(session, capability => capability.SupportsFunctionBreakpoints == true,
             "function breakpoints");
-        return tree.Breakpoints.ReplaceFunctionAsync(breakpoints, async (_, replacement, ct) =>
+        ImmutableArray<DebugBreakpointBindingState> committedBindings = [];
+        var mutation = await tree.Breakpoints.ReplaceFunctionAsync(breakpoints, async (_, replacement, ct) =>
         {
             var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.SetFunctionBreakpointsRequest,
                 new SetFunctionBreakpointsArguments { Breakpoints = replacement.Select(x => new FunctionBreakpoint
                 { Name = x.Name, Condition = x.Condition, HitCondition = x.HitCondition }).ToList() }, ct).ConfigureAwait(false);
-            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Function, response.Breakpoints);
-        }, cancellationToken);
+            session.AdapterBreakpoints.ReplaceFunction(replacement, response.Breakpoints);
+            committedBindings = session.AdapterBreakpoints.Snapshot;
+        }, cancellationToken).ConfigureAwait(false);
+        return CreateMutationResult(DebugBreakpointKind.Function, mutation, session, committedBindings);
     }
 
-    public ValueTask SetExceptionAsync(DebugTreeLookupScope owner, string treeId, string? sessionId,
+    public async ValueTask<DebugBreakpointMutationResult> SetExceptionAsync(DebugTreeLookupScope owner, string treeId, string? sessionId,
         IReadOnlyList<DebugExceptionFilter> filters, CancellationToken cancellationToken = default)
     {
         var (tree, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.ExceptionBreakpoints);
-        return tree.Breakpoints.ReplaceExceptionAsync(filters, async (_, replacement, ct) =>
+        ImmutableArray<DebugBreakpointBindingState> committedBindings = [];
+        var mutation = await tree.Breakpoints.ReplaceExceptionAsync(filters, async (_, replacement, ct) =>
         {
             var breakpoints = await DebugExceptionBreakpointProtocol.ApplyAsync(
                 session, replacement, ct).ConfigureAwait(false);
-            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Exception, breakpoints);
-        }, cancellationToken);
+            session.AdapterBreakpoints.ReplaceException(replacement, breakpoints);
+            committedBindings = session.AdapterBreakpoints.Snapshot;
+        }, cancellationToken).ConfigureAwait(false);
+        return CreateMutationResult(DebugBreakpointKind.Exception, mutation, session, committedBindings);
     }
 
-    public ValueTask SetInstructionAsync(DebugTreeLookupScope owner, string treeId, string? sessionId,
+    public async ValueTask<DebugBreakpointMutationResult> SetInstructionAsync(DebugTreeLookupScope owner, string treeId, string? sessionId,
         IReadOnlyList<DebugInstructionBreakpoint> breakpoints, CancellationToken cancellationToken = default)
     {
         var (tree, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.InstructionBreakpoints);
         RequireCapability(session, capability => capability.SupportsInstructionBreakpoints == true,
             "instruction breakpoints");
-        return tree.Breakpoints.ReplaceInstructionAsync(breakpoints, async (_, replacement, ct) =>
+        ImmutableArray<DebugBreakpointBindingState> committedBindings = [];
+        var mutation = await tree.Breakpoints.ReplaceInstructionAsync(breakpoints, async (_, replacement, ct) =>
         {
             var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.SetInstructionBreakpointsRequest,
                 new SetInstructionBreakpointsArguments { Breakpoints = replacement.Select(x => new InstructionBreakpoint
                 { InstructionReference = x.InstructionReference, Offset = x.Offset, Condition = x.Condition, HitCondition = x.HitCondition }).ToList() }, ct).ConfigureAwait(false);
-            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Instruction, response.Breakpoints);
-        }, cancellationToken);
+            session.AdapterBreakpoints.ReplaceInstruction(replacement, response.Breakpoints);
+            committedBindings = session.AdapterBreakpoints.Snapshot;
+        }, cancellationToken).ConfigureAwait(false);
+        return CreateMutationResult(DebugBreakpointKind.Instruction, mutation, session, committedBindings);
     }
 
-    public ValueTask SetInstructionTokensAsync(
+    public ValueTask<DebugBreakpointMutationResult> SetInstructionTokensAsync(
         DebugTreeLookupScope owner,
         string treeId,
         string? sessionId,
@@ -130,13 +152,14 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
         return SetInstructionAsync(owner, treeId, session.SessionId, resolved, cancellationToken);
     }
 
-    public ValueTask SetDataAsync(DebugTreeLookupScope owner, string treeId, string? sessionId,
+    public async ValueTask<DebugBreakpointMutationResult> SetDataAsync(DebugTreeLookupScope owner, string treeId, string? sessionId,
         IReadOnlyList<DebugDataBreakpoint> breakpoints, CancellationToken cancellationToken = default)
     {
         var (tree, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.DataBreakpoints);
         RequireCapability(session, capability => capability.SupportsDataBreakpoints == true,
             "data breakpoints");
-        return tree.Breakpoints.ReplaceDataAsync(breakpoints, async (_, replacement, ct) =>
+        ImmutableArray<DebugBreakpointBindingState> committedBindings = [];
+        var mutation = await tree.Breakpoints.ReplaceDataAsync(breakpoints, async (_, replacement, ct) =>
         {
             foreach (var item in replacement)
                 if (item.OriginSessionId is { } origin && !string.Equals(origin, session.SessionId, StringComparison.Ordinal))
@@ -144,11 +167,13 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
             var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.SetDataBreakpointsRequest,
                 new SetDataBreakpointsArguments { Breakpoints = replacement.Select(x => new DataBreakpoint
                 { DataId = x.DataId, AccessType = x.AccessType is null ? null : new(x.AccessType), Condition = x.Condition, HitCondition = x.HitCondition }).ToList() }, ct).ConfigureAwait(false);
-            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Data, response.Breakpoints);
-        }, cancellationToken);
+            session.AdapterBreakpoints.ReplaceData(replacement, response.Breakpoints);
+            committedBindings = session.AdapterBreakpoints.Snapshot;
+        }, cancellationToken).ConfigureAwait(false);
+        return CreateMutationResult(DebugBreakpointKind.Data, mutation, session, committedBindings);
     }
 
-    public ValueTask SetDataTokensAsync(
+    public ValueTask<DebugBreakpointMutationResult> SetDataTokensAsync(
         DebugTreeLookupScope owner,
         string treeId,
         string? sessionId,
@@ -166,6 +191,29 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
             Portable: false,
             OriginSessionId: session.SessionId)).ToArray();
         return SetDataAsync(owner, treeId, session.SessionId, resolved, cancellationToken);
+    }
+
+    private static DebugBreakpointMutationResult CreateMutationResult(
+        DebugBreakpointKind kind,
+        DebugDesiredBreakpointMutation mutation,
+        DebugSession session,
+        ImmutableArray<DebugBreakpointBindingState> bindings)
+    {
+        var requested = mutation.After.Source.Length + mutation.After.Function.Length +
+            mutation.After.Exception.Length + mutation.After.Instruction.Length + mutation.After.Data.Length;
+        var acknowledged = bindings.Count(item => item.Acknowledged);
+        var verified = bindings.Count(item => item.Verified);
+        return new DebugBreakpointMutationResult(
+            kind,
+            mutation.Before,
+            mutation.After,
+            bindings,
+            new DebugBreakpointCounts(
+                requested,
+                acknowledged,
+                verified,
+                Math.Max(0, requested - verified)),
+            session.SessionId);
     }
 
     private static void RequireCapability(

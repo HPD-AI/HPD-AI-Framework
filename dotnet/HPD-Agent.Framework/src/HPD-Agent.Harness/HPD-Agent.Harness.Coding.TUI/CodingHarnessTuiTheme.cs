@@ -28,6 +28,17 @@ public sealed class CodingHarnessTuiTheme
     public Style? DiagnosticError { get; init; }
     public Style? DiagnosticWarning { get; init; }
 
+    public Style? DebugRunning { get; init; }
+    public Style? DebugStopped { get; init; }
+    public Style? DebugFailed { get; init; }
+    public Style? DebugBreakpointVerified { get; init; }
+    public Style? DebugBreakpointPending { get; init; }
+    public Style? DebugBreakpointRejected { get; init; }
+    public Style? DebugCurrentLine { get; init; }
+    public Style? SourceLineNumber { get; init; }
+    public Style? SourceGutter { get; init; }
+    public Style? SourceTrailingAnnotation { get; init; }
+
     public Style? PermissionTitle { get; init; }
     public Style? PermissionDetail { get; init; }
     public Style? PermissionCommand { get; init; }
@@ -80,6 +91,18 @@ public sealed class CodingHarnessTuiTheme
     public Style ResolveDiagnosticWarning(Theme theme)
         => DiagnosticWarning ?? theme.Warning;
 
+    public Style ResolveDebugRunning(Theme theme) => DebugRunning ?? theme.Accent;
+    public Style ResolveDebugStopped(Theme theme) => DebugStopped ?? theme.Warning;
+    public Style ResolveDebugFailed(Theme theme) => DebugFailed ?? theme.Error;
+    public Style ResolveDebugBreakpointVerified(Theme theme) => DebugBreakpointVerified ?? theme.Success;
+    public Style ResolveDebugBreakpointPending(Theme theme) => DebugBreakpointPending ?? theme.Warning;
+    public Style ResolveDebugBreakpointRejected(Theme theme) => DebugBreakpointRejected ?? theme.Error;
+    public Style ResolveDebugCurrentLine(Theme theme) => DebugCurrentLine ?? theme.Accent;
+    public Style ResolveSourceGutter(Theme theme, Color background)
+        => SourceGutter ?? SourceLineNumber ?? ResolveDiffGutter(theme, background);
+    public Style ResolveSourceTrailingAnnotation(Theme theme)
+        => SourceTrailingAnnotation ?? ResolveMuted(theme);
+
     public Style ResolvePermissionTitle(Theme theme)
         => PermissionTitle ?? theme.Accent;
 
@@ -114,6 +137,17 @@ public sealed class CodingHarnessTuiTheme
 
             DiagnosticError = new Style(new Color(255, 95, 110), Color.Default),
             DiagnosticWarning = new Style(new Color(255, 205, 105), Color.Default),
+
+            DebugRunning = new Style(new Color(105, 185, 255), Color.Default),
+            DebugStopped = new Style(new Color(255, 205, 105), Color.Default),
+            DebugFailed = new Style(new Color(255, 95, 110), Color.Default),
+            DebugBreakpointVerified = new Style(new Color(108, 210, 140), Color.Default),
+            DebugBreakpointPending = new Style(new Color(255, 205, 105), Color.Default),
+            DebugBreakpointRejected = new Style(new Color(255, 95, 110), Color.Default),
+            DebugCurrentLine = new Style(new Color(120, 190, 255), new Color(30, 48, 74)),
+            SourceLineNumber = new Style(new Color(120, 128, 145), Color.Default),
+            SourceGutter = new Style(new Color(140, 150, 170), Color.Default),
+            SourceTrailingAnnotation = new Style(new Color(145, 155, 175), Color.Default),
 
             PermissionTitle = new Style(new Color(255, 198, 109), Color.Default),
             PermissionDetail = new Style(new Color(185, 192, 205), Color.Default),

@@ -119,7 +119,8 @@ public sealed class DebugModelFacingTests
         var dispatcher = new DebugOperationDispatcher(
             new DebugRuntimeServiceFactory(),
             new DebugResultFormatter(),
-            new DebugPermissionAuthorizationService());
+            new DebugPermissionAuthorizationService(),
+            CreateBreakpointEvents());
 
         var xml = dispatcher.MutationResult(
             "setExpression",
@@ -165,7 +166,8 @@ public sealed class DebugModelFacingTests
         var dispatcher = new DebugOperationDispatcher(
             new DebugRuntimeServiceFactory(),
             new DebugResultFormatter(),
-            new DebugPermissionAuthorizationService());
+            new DebugPermissionAuthorizationService(),
+            CreateBreakpointEvents());
 
         var xml = dispatcher.ProjectThreads(
         [
@@ -357,7 +359,8 @@ public sealed class DebugModelFacingTests
         var dispatcher = new DebugOperationDispatcher(
             new DebugRuntimeServiceFactory(),
             formatter,
-            new DebugPermissionAuthorizationService());
+            new DebugPermissionAuthorizationService(),
+            CreateBreakpointEvents());
         var context = CreateContext(manager, "call-list", "listSessions");
 
         var xml = await dispatcher.ExecuteAsync(
@@ -458,7 +461,8 @@ public sealed class DebugModelFacingTests
         var dispatcher = new DebugOperationDispatcher(
             new DebugRuntimeServiceFactory(),
             new DebugResultFormatter(),
-            new DebugPermissionAuthorizationService());
+            new DebugPermissionAuthorizationService(),
+            CreateBreakpointEvents());
         var context = CreateContext(
             manager,
             "call-terminate",
@@ -489,7 +493,8 @@ public sealed class DebugModelFacingTests
         var dispatcher = new DebugOperationDispatcher(
             new DebugRuntimeServiceFactory(),
             new DebugResultFormatter(),
-            new DebugPermissionAuthorizationService());
+            new DebugPermissionAuthorizationService(),
+            CreateBreakpointEvents());
         var operationTypes = typeof(DebugOperation)
             .GetCustomAttributes<JsonDerivedTypeAttribute>()
             .Select(attribute => attribute.DerivedType)
@@ -631,6 +636,9 @@ public sealed class DebugModelFacingTests
             Artifacts = []
         };
     }
+
+    private static DebugBreakpointSelectionEventFactory CreateBreakpointEvents()
+        => new(new DebugSourcePreviewProvider([], new DebugSourcePreviewOptions()));
 
     private sealed record ModelFacingStubPlan : DebugExecutionPlan;
 
