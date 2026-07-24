@@ -152,6 +152,22 @@ public sealed class DebugPublicHostedRealAdapterTests
         entry.Attribute("supported_optional_actions").Should().NotBeNull();
         entry.Attribute("unsupported_optional_actions").Should().NotBeNull();
         entry.Attribute("exception_filter_ids").Should().NotBeNull();
+        entry.Attribute("supported_optional_actions")!.Value.Should().Contain("getModules");
+        entry.Attribute("unsupported_optional_actions")!.Value.Should().NotContain("getModules");
+        var modulesXml = await new CodingToolHarness().Debug(
+            new GetModulesOperation(treeId, Count: 20),
+            fixture.Context(
+                "application-project-event-backed-modules",
+                "getModules",
+                workspaceRoot),
+            CancellationToken.None);
+        var modulesRoot = XDocument.Parse(modulesXml).Root!;
+        modulesRoot.Attribute("success")!.Value.Should().Be("true", modulesXml);
+        int.Parse(
+                modulesRoot.Attribute("count")!.Value,
+                System.Globalization.CultureInfo.InvariantCulture)
+            .Should().BeGreaterThan(0);
+        modulesRoot.Elements("item").Should().NotBeEmpty();
         var installSourceXml = await new CodingToolHarness().Debug(
             new SetSourceBreakpointsOperation(
                 treeId,

@@ -35,8 +35,10 @@ variable, instruction, memory, location, and continuation tokens.
 state, breakpoints, capabilities, stack/scopes/variables, and bounded output instead of
 exposing protocol-shaped responses. Their bounded capability summary names supported and
 unsupported optional public actions, execution options, and valid exception-filter IDs from
-the capabilities negotiated with that live adapter. Models must use this session evidence
-rather than adapter-name assumptions.
+the capabilities negotiated with that live adapter and semantic projections HPD can satisfy
+from authoritative adapter events. For example, `getModules` remains available when an adapter
+emits module events but does not implement the optional DAP `modules` request. Models must use
+this session evidence rather than adapter-name assumptions.
 
 Stopped-state projections preserve the adapter-designated focal thread independently from
 the set of threads suspended by an `allThreadsStopped` event. `snapshot` exposes

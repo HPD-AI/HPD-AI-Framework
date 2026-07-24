@@ -74,6 +74,12 @@ public sealed class DebugModelFacingTests
         summary.UnsupportedOptionalActions.Should().Contain("setExpression");
         summary.ExecutionOptions.Should().Contain("steppingGranularity");
         summary.ExceptionFilters.Select(item => item.FilterId).Should().Equal("all", "user-unhandled");
+
+        var eventBacked = DebugCapabilityProjection.Project(
+            new Capabilities(),
+            hasProjectedModules: true);
+        eventBacked.SupportedOptionalActions.Should().Contain("getModules");
+        eventBacked.UnsupportedOptionalActions.Should().NotContain("getModules");
     }
 
     [Fact]

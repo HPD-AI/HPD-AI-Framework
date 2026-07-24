@@ -53,12 +53,17 @@ internal static class DebugCapabilityProjection
         ("terminateDebuggee", value => value.SupportTerminateDebuggee)
     ];
 
-    public static DebugCapabilitySummaryMetadata Project(Capabilities capabilities)
+    public static DebugCapabilitySummaryMetadata Project(
+        Capabilities capabilities,
+        bool hasProjectedModules = false)
     {
         ArgumentNullException.ThrowIfNull(capabilities);
+        bool Supported((string Action, Func<Capabilities, bool?> Read) item)
+            => item.Read(capabilities) == true ||
+               item.Action == "getModules" && hasProjectedModules;
         return new(
-            OptionalActions.Where(item => item.Read(capabilities) == true).Select(item => item.Action).ToArray(),
-            OptionalActions.Where(item => item.Read(capabilities) != true).Select(item => item.Action).ToArray(),
+            OptionalActions.Where(Supported).Select(item => item.Action).ToArray(),
+            OptionalActions.Where(item => !Supported(item)).Select(item => item.Action).ToArray(),
             ExecutionOptions.Where(item => item.Read(capabilities) == true).Select(item => item.Option).ToArray(),
             DebugExceptionBreakpointValidator.Describe(capabilities));
     }

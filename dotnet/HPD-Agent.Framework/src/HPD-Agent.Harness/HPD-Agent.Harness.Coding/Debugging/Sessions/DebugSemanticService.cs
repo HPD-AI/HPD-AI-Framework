@@ -648,22 +648,42 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
     {
         if (pageSize is <= 0 or > 200)
             throw new DebugSemanticException(DebugSemanticFailureReason.InvalidArguments, "Module page size must be between 1 and 200.");
-        RequireCapability(owner, treeId, sessionId, x => x.SupportsModulesRequest == true, "modules");
         var tree = manager.ResolveTree(owner, treeId);
         var session = AuthorizedSession(owner, treeId, sessionId, DebugTreeGrant.Inspect);
+        var supportsRequest = session.Capabilities?.SupportsModulesRequest == true;
+        if (!supportsRequest && !session.Projections.HasObservedModuleEvents)
+            throw new DebugSemanticException(
+                DebugSemanticFailureReason.CapabilityUnavailable,
+                "The adapter neither supports module requests nor supplied module events.");
         var generation = session.Projections.Generations.Modules;
         var context = ContinuationContext(tree, session, "modules", $"pageSize={pageSize}", generation);
         var start = continuationToken is null ? 0 : checked((int)tree.Continuations.Resolve(continuationToken, context).AdapterOffset);
-        var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.ModulesRequest,
-            new ModulesArguments { StartModule = start, ModuleCount = pageSize }, cancellationToken).ConfigureAwait(false);
-        var modules = response.Modules.Take(pageSize).Select(module => new DebugSemanticModule(
-            session.Projections.CreateSessionTextToken("module", module.Id.GetRawText()),
-            Bound(module.Name, 1024)!, Bound(module.Path, 4096), module.IsOptimized, module.IsUserCode,
-            Bound(module.Version, 256), Bound(module.SymbolStatus, 512))).ToArray();
+        DebugSemanticModule[] modules;
+        long? totalModules;
+        if (supportsRequest)
+        {
+            var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.ModulesRequest,
+                new ModulesArguments { StartModule = start, ModuleCount = pageSize }, cancellationToken).ConfigureAwait(false);
+            modules = response.Modules.Take(pageSize).Select(module => new DebugSemanticModule(
+                session.Projections.CreateSessionTextToken("module", module.Id.GetRawText()),
+                Bound(module.Name, 1024)!, Bound(module.Path, 4096), module.IsOptimized, module.IsUserCode,
+                Bound(module.Version, 256), Bound(module.SymbolStatus, 512))).ToArray();
+            totalModules = response.TotalModules;
+        }
+        else
+        {
+            var projected = session.Projections.Modules;
+            modules = projected.Skip(start).Take(pageSize).Select(module => new DebugSemanticModule(
+                session.Projections.CreateSessionTextToken("module", module.OpaqueId),
+                module.Name, module.Path, module.IsOptimized, module.IsUserCode,
+                module.Version, module.SymbolStatus)).ToArray();
+            totalModules = projected.Count;
+        }
         var nextOffset = checked(start + modules.Length);
-        var hasMore = modules.Length == pageSize && (response.TotalModules is null || nextOffset < response.TotalModules);
+        var hasMore = modules.Length == pageSize &&
+            (totalModules is null || nextOffset < totalModules);
         var next = hasMore ? tree.Continuations.Create(context, new(nextOffset)) : null;
-        return new(modules, response.TotalModules, next);
+        return new(modules, totalModules, next);
     }
 
     public async ValueTask<IReadOnlyList<DebugSemanticLocation>> BreakpointLocationsAsync(

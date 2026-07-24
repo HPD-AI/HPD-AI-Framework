@@ -298,7 +298,9 @@ public sealed class DebugOperationDispatcher
             CodingToolMetadataKeys.DebugBreakpointState, breakpoints.Counts);
         var capabilities = session.Capabilities is null
             ? null
-            : DebugCapabilityProjection.Project(session.Capabilities);
+            : DebugCapabilityProjection.Project(
+                session.Capabilities,
+                session.Projections.HasObservedModuleEvents);
         if (capabilities is not null)
             context.ResultMetadata.Set(CodingToolMetadataKeys.DebugCapabilities, capabilities);
         var attributes = Attr(
@@ -376,7 +378,9 @@ public sealed class DebugOperationDispatcher
         var inspection = new DebugStopInspectionMetadata(selected, stack, scopes, variables, output);
         var capabilities = session.Capabilities is null
             ? null
-            : DebugCapabilityProjection.Project(session.Capabilities);
+            : DebugCapabilityProjection.Project(
+                session.Capabilities,
+                session.Projections.HasObservedModuleEvents);
         context.ResultMetadata.Set(CodingToolMetadataKeys.DebugStopSnapshot, inspection);
         context.ResultMetadata.Set(CodingToolMetadataKeys.DebugStackFrames, stack);
         if (capabilities is not null)

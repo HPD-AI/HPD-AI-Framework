@@ -70,6 +70,43 @@ public sealed class DebugSessionStateTests
     }
 
     [Fact]
+    public async Task Module_events_supply_paged_semantic_modules_without_a_modules_request()
+    {
+        await using var transport = new InMemoryDebugProtocolTransport();
+        await using var manager = new DebugSessionManager(
+            new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
+        await using var reservation = manager.ReserveTree(
+            "owner", "thread", "env", 1, "tree");
+        var tree = Tree(reservation.Ownership, "root", manager, Plan());
+        var session = Session("root", "root", transport);
+        session.Capabilities = new Capabilities();
+        session.Projections.ObserveModule(ModuleEvent(2, "second.dll"));
+        session.Projections.ObserveModule(ModuleEvent(1, "first.dll"));
+        tree.AddSession(session);
+        reservation.Commit(tree);
+        var semantics = new DebugSemanticService(manager);
+        var scope = Scope(manager, "owner", "thread");
+
+        var first = await semantics.ModulesAsync(
+            scope, "tree", null, 1, null, CancellationToken.None);
+        var second = await semantics.ModulesAsync(
+            scope, "tree", null, 1, first.ContinuationToken, CancellationToken.None);
+
+        first.TotalModules.Should().Be(2);
+        first.Modules.Should().ContainSingle().Which.Name.Should().Be("first.dll");
+        first.ContinuationToken.Should().NotBeNull();
+        second.Modules.Should().ContainSingle().Which.Name.Should().Be("second.dll");
+        second.ContinuationToken.Should().BeNull();
+        first.Modules[0].ModuleToken.Should().NotBe("1");
+
+        session.Projections.ObserveModule(ModuleEvent(3, "third.dll"));
+        var stalePage = async () => await semantics.ModulesAsync(
+            scope, "tree", null, 1, first.ContinuationToken, CancellationToken.None);
+        (await stalePage.Should().ThrowAsync<DebugSemanticException>())
+            .Which.Reason.Should().Be(DebugSemanticFailureReason.ReferenceExpired);
+    }
+
+    [Fact]
     public void All_threads_stopped_preserves_the_adapter_designated_primary_thread()
     {
         var state = new DebugSessionState();
@@ -387,6 +424,19 @@ public sealed class DebugSessionStateTests
         state.Transition(DebugSessionStatus.Running);
         return state;
     }
+
+    private static ModuleEventBody ModuleEvent(int id, string name)
+        => new()
+        {
+            Reason = "new",
+            Module = new()
+            {
+                Id = JsonSerializer.SerializeToElement(id),
+                Name = name,
+                Path = $"/workspace/{name}",
+                SymbolStatus = "Symbols loaded."
+            }
+        };
 
     private static DebugTreeLookupScope Scope(DebugSessionManager manager, string session, string thread)
         => new(manager.RuntimeId, session, thread);

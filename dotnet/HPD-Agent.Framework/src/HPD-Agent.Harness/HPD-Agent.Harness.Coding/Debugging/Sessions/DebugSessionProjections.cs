@@ -45,6 +45,7 @@ internal sealed class DebugSessionProjections
     private long _sourceGeneration;
     private long _moduleGeneration;
     private long _memoryGeneration;
+    private bool _hasObservedModuleEvents;
     private const int MaximumTokens = 4096;
     private long _followUpFailures;
 
@@ -53,6 +54,11 @@ internal sealed class DebugSessionProjections
     public IReadOnlyList<DebugModuleSnapshot> Modules
     {
         get { lock (_gate) return _modules.Values.OrderBy(x => x.OpaqueId, StringComparer.Ordinal).ToArray(); }
+    }
+
+    public bool HasObservedModuleEvents
+    {
+        get { lock (_gate) return _hasObservedModuleEvents; }
     }
 
     public IReadOnlyList<DebugLoadedSourceSnapshot> Sources
@@ -91,6 +97,7 @@ internal sealed class DebugSessionProjections
                     Bound(body.Module.SymbolStatus, 512));
             }
             else throw new InvalidOperationException($"Unsupported DAP module reason '{Bound(body.Reason, 64)}'.");
+            _hasObservedModuleEvents = true;
             checked { _moduleGeneration++; }
             InvalidateTokensLocked(static token => token.Kind == "module");
         }
