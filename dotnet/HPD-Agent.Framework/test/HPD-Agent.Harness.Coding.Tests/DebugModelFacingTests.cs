@@ -136,6 +136,30 @@ public sealed class DebugModelFacingTests
     }
 
     [Fact]
+    public void Formatter_projects_module_fields_as_structured_xml()
+    {
+        var xml = new DebugResultFormatter().StructuredSuccess(
+            "getModules",
+            [KeyValuePair.Create<string, object?>("moduleSource", DebugModuleInventorySource.RetainedEvents)],
+            [new DebugResultItem(
+            [
+                KeyValuePair.Create<string, object?>("name", "App<&>.dll"),
+                KeyValuePair.Create<string, object?>("version", "1.2.3"),
+                KeyValuePair.Create<string, object?>("optimized", false),
+                KeyValuePair.Create<string, object?>("userCode", true)
+            ])]);
+
+        var root = XDocument.Parse(xml).Root!;
+        root.Attribute("module_source")!.Value.Should().Be("RetainedEvents");
+        var item = root.Elements("item").Single();
+        item.Attribute("name")!.Value.Should().Be("App<&>.dll");
+        item.Attribute("version")!.Value.Should().Be("1.2.3");
+        item.Attribute("optimized")!.Value.Should().Be("false");
+        item.Attribute("user_code")!.Value.Should().Be("true");
+        item.Attribute("module_token").Should().BeNull();
+    }
+
+    [Fact]
     public void Thread_projection_identifies_only_the_adapter_designated_focal_thread()
     {
         var dispatcher = new DebugOperationDispatcher(

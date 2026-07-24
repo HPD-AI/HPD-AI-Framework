@@ -18,6 +18,9 @@ internal sealed record DebugStopInspectionMetadata(
     IReadOnlyList<DebugSemanticVariables> Variables,
     DebugOutputSnapshot Output);
 
+internal sealed record DebugResultItem(
+    IEnumerable<KeyValuePair<string, object?>> Attributes);
+
 internal sealed class DebugResultFormatter
 {
     private const int MaximumResultBytes = 64 * 1024;
@@ -26,7 +29,13 @@ internal sealed class DebugResultFormatter
         string action,
         IEnumerable<KeyValuePair<string, object?>>? attributes = null,
         IEnumerable<string>? items = null)
-        => Write("debug", action, success: true, errorKind: null, attributes, items, message: null);
+        => Write("debug", action, success: true, errorKind: null, attributes, items, structuredItems: null, message: null);
+
+    public string StructuredSuccess(
+        string action,
+        IEnumerable<KeyValuePair<string, object?>>? attributes,
+        IEnumerable<DebugResultItem> items)
+        => Write("debug", action, success: true, errorKind: null, attributes, items: null, items, message: null);
 
     public string Failure(
         string action,
@@ -34,7 +43,7 @@ internal sealed class DebugResultFormatter
         string message,
         IEnumerable<KeyValuePair<string, object?>>? attributes = null,
         IEnumerable<string>? items = null)
-        => Write("error", action, success: false, kind, attributes, items, Bound(message, 4096));
+        => Write("error", action, success: false, kind, attributes, items, structuredItems: null, Bound(message, 4096));
 
     private static string Write(
         string root,
@@ -43,6 +52,7 @@ internal sealed class DebugResultFormatter
         string? errorKind,
         IEnumerable<KeyValuePair<string, object?>>? attributes,
         IEnumerable<string>? items,
+        IEnumerable<DebugResultItem>? structuredItems,
         string? message)
     {
         var builder = new StringBuilder();
@@ -74,6 +84,19 @@ internal sealed class DebugResultFormatter
             {
                 writer.WriteStartElement("item");
                 writer.WriteString(Bound(item, 4096));
+                writer.WriteEndElement();
+            }
+        }
+        if (structuredItems is not null)
+        {
+            foreach (var item in structuredItems.Take(256))
+            {
+                writer.WriteStartElement("item");
+                foreach (var pair in item.Attributes.Take(32))
+                {
+                    if (pair.Value is null) continue;
+                    writer.WriteAttributeString(ToSnakeCase(pair.Key), Bound(FormatValue(pair.Value), 4096));
+                }
                 writer.WriteEndElement();
             }
         }

@@ -533,6 +533,7 @@ public static class CodingToolMetadataKeys
     public const string DebugProjectEvaluation = "coding.debug.projectEvaluation";
     public const string DebugExceptionFilters = "coding.debug.exceptionFilters";
     public const string DebugLaunchNotices = "coding.debug.launchNotices";
+    public const string DebugModules = "coding.debug.modules";
 }
 
 /// <summary>

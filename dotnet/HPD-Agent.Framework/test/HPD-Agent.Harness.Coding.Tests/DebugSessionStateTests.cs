@@ -90,20 +90,104 @@ public sealed class DebugSessionStateTests
         var first = await semantics.ModulesAsync(
             scope, "tree", null, 1, null, CancellationToken.None);
         var second = await semantics.ModulesAsync(
-            scope, "tree", null, 1, first.ContinuationToken, CancellationToken.None);
+            scope, "tree", null, 1, first.Page.ContinuationToken, CancellationToken.None);
 
-        first.TotalModules.Should().Be(2);
-        first.Modules.Should().ContainSingle().Which.Name.Should().Be("first.dll");
-        first.ContinuationToken.Should().NotBeNull();
-        second.Modules.Should().ContainSingle().Which.Name.Should().Be("second.dll");
-        second.ContinuationToken.Should().BeNull();
-        first.Modules[0].ModuleToken.Should().NotBe("1");
+        first.Page.TotalModules.Should().Be(2);
+        first.Page.Modules.Should().ContainSingle().Which.Name.Should().Be("first.dll");
+        first.Page.ContinuationToken.Should().NotBeNull();
+        first.Page.Source.Should().Be(DebugModuleInventorySource.RetainedEvents);
+        first.Page.Completeness.Should().Be(DebugModuleInventoryCompleteness.ObservedOnly);
+        second.Page.Modules.Should().ContainSingle().Which.Name.Should().Be("second.dll");
+        second.Page.ContinuationToken.Should().BeNull();
 
         session.Projections.ObserveModule(ModuleEvent(3, "third.dll"));
         var stalePage = async () => await semantics.ModulesAsync(
-            scope, "tree", null, 1, first.ContinuationToken, CancellationToken.None);
+            scope, "tree", null, 1, first.Page.ContinuationToken, CancellationToken.None);
         (await stalePage.Should().ThrowAsync<DebugSemanticException>())
             .Which.Reason.Should().Be(DebugSemanticFailureReason.ReferenceExpired);
+    }
+
+    [Fact]
+    public async Task Module_continuation_rejects_a_changed_page_size_distinctly()
+    {
+        await using var transport = new InMemoryDebugProtocolTransport();
+        await using var manager = new DebugSessionManager(
+            new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
+        await using var reservation = manager.ReserveTree(
+            "owner", "thread", "env", 1, "tree");
+        var tree = Tree(reservation.Ownership, "root", manager, Plan());
+        var session = Session("root", "root", transport);
+        session.Capabilities = new Capabilities();
+        session.Projections.ObserveModule(ModuleEvent(1, "first.dll"));
+        session.Projections.ObserveModule(ModuleEvent(2, "second.dll"));
+        tree.AddSession(session);
+        reservation.Commit(tree);
+        var semantics = new DebugSemanticService(manager);
+        var scope = Scope(manager, "owner", "thread");
+        var first = await semantics.ModulesAsync(
+            scope, "tree", null, 1, null, CancellationToken.None);
+
+        var changedQuery = async () => await semantics.ModulesAsync(
+            scope, "tree", null, 2, first.Page.ContinuationToken, CancellationToken.None);
+
+        (await changedQuery.Should().ThrowAsync<DebugSemanticException>())
+            .Which.Reason.Should().Be(DebugSemanticFailureReason.ContinuationQueryMismatch);
+    }
+
+    [Fact]
+    public async Task Modules_request_is_authoritative_and_pages_with_the_same_query()
+    {
+        await using var transport = new InMemoryDebugProtocolTransport();
+        await using var manager = new DebugSessionManager(
+            new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
+        await using var reservation = manager.ReserveTree(
+            "owner", "thread", "env", 1, "tree");
+        var tree = Tree(reservation.Ownership, "root", manager, Plan());
+        var session = Session("root", "root", transport);
+        session.Capabilities = new Capabilities { SupportsModulesRequest = true };
+        session.Projections.ObserveModule(ModuleEvent(99, "event-only.dll"));
+        tree.AddSession(session);
+        reservation.Commit(tree);
+        var semantics = new DebugSemanticService(manager);
+        var scope = Scope(manager, "owner", "thread");
+
+        var firstTask = semantics.ModulesAsync(
+            scope, "tree", null, 1, null, CancellationToken.None).AsTask();
+        var firstRequest = await ReadWrittenMessageAsync(transport);
+        firstRequest.GetProperty("arguments").GetProperty("startModule")
+            .GetInt64().Should().Be(0);
+        await transport.FeedProtocolAsync(DebugProtocolFramer.Encode(
+            Encoding.UTF8.GetBytes("""
+                {"seq":2,"type":"response","request_seq":REQUEST_SEQ,"success":true,"command":"modules","body":{"modules":[{"id":1,"name":"first.dll","path":"/workspace/first.dll","version":"1.0","symbolStatus":"Symbols loaded."}],"totalModules":2}}
+                """.Replace(
+                    "REQUEST_SEQ",
+                    firstRequest.GetProperty("seq").GetInt32().ToString(
+                        System.Globalization.CultureInfo.InvariantCulture),
+                    StringComparison.Ordinal))));
+        var first = await firstTask;
+
+        var secondTask = semantics.ModulesAsync(
+            scope, "tree", null, 1, first.Page.ContinuationToken, CancellationToken.None).AsTask();
+        var secondRequest = await ReadWrittenMessageAsync(transport);
+        secondRequest.GetProperty("arguments").GetProperty("startModule")
+            .GetInt64().Should().Be(1);
+        await transport.FeedProtocolAsync(DebugProtocolFramer.Encode(
+            Encoding.UTF8.GetBytes("""
+                {"seq":3,"type":"response","request_seq":REQUEST_SEQ,"success":true,"command":"modules","body":{"modules":[{"id":2,"name":"second.dll","path":"/workspace/second.dll"}],"totalModules":2}}
+                """.Replace(
+                    "REQUEST_SEQ",
+                    secondRequest.GetProperty("seq").GetInt32().ToString(
+                        System.Globalization.CultureInfo.InvariantCulture),
+                    StringComparison.Ordinal))));
+        var second = await secondTask;
+
+        first.Page.Modules.Should().ContainSingle().Which.Name.Should().Be("first.dll");
+        first.Page.Source.Should().Be(DebugModuleInventorySource.AdapterRequest);
+        first.Page.Completeness.Should().Be(DebugModuleInventoryCompleteness.Authoritative);
+        first.Page.ContinuationToken.Should().NotBeNull();
+        second.Page.Modules.Should().ContainSingle().Which.Name.Should().Be("second.dll");
+        second.Page.ContinuationToken.Should().BeNull();
+        first.Page.Modules.Should().NotContain(module => module.Name == "event-only.dll");
     }
 
     [Fact]

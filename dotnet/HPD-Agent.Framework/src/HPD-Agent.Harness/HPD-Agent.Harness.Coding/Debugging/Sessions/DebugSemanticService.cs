@@ -80,12 +80,22 @@ internal sealed record DebugSemanticSourceSummary(
 internal sealed record DebugSemanticLoadedSources(
     IReadOnlyList<DebugSemanticSourceSummary> Sources, string? ContinuationToken, bool Truncated);
 
-internal sealed record DebugSemanticModule(
-    string ModuleToken, string Name, string? Path, bool? IsOptimized, bool? IsUserCode,
+public sealed record DebugModuleMetadata(
+    string Name, string? Path, bool? IsOptimized, bool? IsUserCode,
     string? Version, string? SymbolStatus);
 
+public enum DebugModuleInventorySource { AdapterRequest, RetainedEvents }
+public enum DebugModuleInventoryCompleteness { Authoritative, ObservedOnly }
+
+public sealed record DebugModulePageMetadata(
+    IReadOnlyList<DebugModuleMetadata> Modules,
+    long? TotalModules,
+    string? ContinuationToken,
+    DebugModuleInventorySource Source,
+    DebugModuleInventoryCompleteness Completeness);
+
 internal sealed record DebugSemanticModules(
-    IReadOnlyList<DebugSemanticModule> Modules, long? TotalModules, string? ContinuationToken);
+    DebugModulePageMetadata Page);
 
 internal sealed record DebugSemanticLocation(long Line, long? Column, long? EndLine, long? EndColumn);
 internal sealed record DebugSemanticStepTarget(string TargetToken, string Label, DebugSemanticLocation? Location);
@@ -658,14 +668,13 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         var generation = session.Projections.Generations.Modules;
         var context = ContinuationContext(tree, session, "modules", $"pageSize={pageSize}", generation);
         var start = continuationToken is null ? 0 : checked((int)tree.Continuations.Resolve(continuationToken, context).AdapterOffset);
-        DebugSemanticModule[] modules;
+        DebugModuleMetadata[] modules;
         long? totalModules;
         if (supportsRequest)
         {
             var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.ModulesRequest,
                 new ModulesArguments { StartModule = start, ModuleCount = pageSize }, cancellationToken).ConfigureAwait(false);
-            modules = response.Modules.Take(pageSize).Select(module => new DebugSemanticModule(
-                session.Projections.CreateSessionTextToken("module", module.Id.GetRawText()),
+            modules = response.Modules.Take(pageSize).Select(module => new DebugModuleMetadata(
                 Bound(module.Name, 1024)!, Bound(module.Path, 4096), module.IsOptimized, module.IsUserCode,
                 Bound(module.Version, 256), Bound(module.SymbolStatus, 512))).ToArray();
             totalModules = response.TotalModules;
@@ -673,8 +682,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         else
         {
             var projected = session.Projections.Modules;
-            modules = projected.Skip(start).Take(pageSize).Select(module => new DebugSemanticModule(
-                session.Projections.CreateSessionTextToken("module", module.OpaqueId),
+            modules = projected.Skip(start).Take(pageSize).Select(module => new DebugModuleMetadata(
                 module.Name, module.Path, module.IsOptimized, module.IsUserCode,
                 module.Version, module.SymbolStatus)).ToArray();
             totalModules = projected.Count;
@@ -683,7 +691,16 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         var hasMore = modules.Length == pageSize &&
             (totalModules is null || nextOffset < totalModules);
         var next = hasMore ? tree.Continuations.Create(context, new(nextOffset)) : null;
-        return new(modules, totalModules, next);
+        return new(new(
+            modules,
+            totalModules,
+            next,
+            supportsRequest
+                ? DebugModuleInventorySource.AdapterRequest
+                : DebugModuleInventorySource.RetainedEvents,
+            supportsRequest
+                ? DebugModuleInventoryCompleteness.Authoritative
+                : DebugModuleInventoryCompleteness.ObservedOnly));
     }
 
     public async ValueTask<IReadOnlyList<DebugSemanticLocation>> BreakpointLocationsAsync(

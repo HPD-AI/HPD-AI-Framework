@@ -85,6 +85,7 @@ string[] representativeRequests =
     """{"request":{"action":"stepOver","debugTreeId":"tree_1"}}""",
     """{"request":{"action":"inspectStop","debugTreeId":"tree_1"}}""",
     """{"request":{"action":"getStackTrace","debugTreeId":"tree_1"}}""",
+    """{"request":{"action":"getModules","debugTreeId":"tree_1","count":30,"continuationToken":"module_page_1"}}""",
     """{"request":{"action":"setVariable","debugTreeId":"tree_1","variablesToken":"variables_1","name":"value","value":"42"}}""",
     """{"request":{"action":"writeMemory","debugTreeId":"tree_1","memoryToken":"memory_1","base64Data":"AA=="}}""",
     """{"request":{"action":"getOutput","debugTreeId":"tree_1","maximumRecords":10}}"""
@@ -165,6 +166,18 @@ var capabilitySummaryMetadata = new DebugCapabilitySummaryMetadata(
 var launchNoticeMetadata = new DebugLaunchNoticeMetadata(
     "no_initial_stop_strategy",
     "Use stopOnEntry or initial breakpoints.");
+var modulePageMetadata = new DebugModulePageMetadata(
+    [new DebugModuleMetadata(
+        "App.dll",
+        "/workspace/App.dll",
+        IsOptimized: false,
+        IsUserCode: true,
+        Version: "1.0.0",
+        SymbolStatus: "Symbols loaded")],
+    1,
+    null,
+    DebugModuleInventorySource.AdapterRequest,
+    DebugModuleInventoryCompleteness.Authoritative);
 if (JsonSerializer.SerializeToUtf8Bytes(
         planMetadata,
         CodingToolHarnessJsonContext.Default.DebugExecutionPlanMetadata).Length == 0 ||
@@ -188,7 +201,10 @@ if (JsonSerializer.SerializeToUtf8Bytes(
         CodingToolHarnessJsonContext.Default.DebugCapabilitySummaryMetadata).Length == 0 ||
     JsonSerializer.SerializeToUtf8Bytes(
         launchNoticeMetadata,
-        CodingToolHarnessJsonContext.Default.DebugLaunchNoticeMetadata).Length == 0)
+        CodingToolHarnessJsonContext.Default.DebugLaunchNoticeMetadata).Length == 0 ||
+    JsonSerializer.SerializeToUtf8Bytes(
+        modulePageMetadata,
+        CodingToolHarnessJsonContext.Default.DebugModulePageMetadata).Length == 0)
     return 19;
 
 var plannedEvent = new DebugExecutionPlannedEvent

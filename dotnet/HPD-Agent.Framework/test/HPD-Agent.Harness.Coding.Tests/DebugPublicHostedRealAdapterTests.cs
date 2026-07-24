@@ -154,12 +154,13 @@ public sealed class DebugPublicHostedRealAdapterTests
         entry.Attribute("exception_filter_ids").Should().NotBeNull();
         entry.Attribute("supported_optional_actions")!.Value.Should().Contain("getModules");
         entry.Attribute("unsupported_optional_actions")!.Value.Should().NotContain("getModules");
+        var modulesContext = fixture.Context(
+            "application-project-event-backed-modules",
+            "getModules",
+            workspaceRoot);
         var modulesXml = await new CodingToolHarness().Debug(
             new GetModulesOperation(treeId, Count: 20),
-            fixture.Context(
-                "application-project-event-backed-modules",
-                "getModules",
-                workspaceRoot),
+            modulesContext,
             CancellationToken.None);
         var modulesRoot = XDocument.Parse(modulesXml).Root!;
         modulesRoot.Attribute("success")!.Value.Should().Be("true", modulesXml);
@@ -168,6 +169,31 @@ public sealed class DebugPublicHostedRealAdapterTests
                 System.Globalization.CultureInfo.InvariantCulture)
             .Should().BeGreaterThan(0);
         modulesRoot.Elements("item").Should().NotBeEmpty();
+        modulesRoot.Attribute("module_source")!.Value.Should().Be("RetainedEvents");
+        modulesRoot.Attribute("inventory_completeness")!.Value.Should().Be("ObservedOnly");
+        modulesRoot.Elements("item").Should().OnlyContain(item =>
+            item.Attribute("name") != null &&
+            item.Attribute("module_token") == null);
+        modulesContext.ResultMetadata.TryGet<DebugModulePageMetadata>(
+            CodingToolMetadataKeys.DebugModules,
+            out var modulePage).Should().BeTrue();
+        modulePage!.Source.Should().Be(DebugModuleInventorySource.RetainedEvents);
+        modulePage.Completeness.Should().Be(DebugModuleInventoryCompleteness.ObservedOnly);
+        if (modulePage.ContinuationToken is { } moduleContinuation)
+        {
+            var nextModulesXml = await new CodingToolHarness().Debug(
+                new GetModulesOperation(
+                    treeId,
+                    Count: 20,
+                    ContinuationToken: moduleContinuation),
+                fixture.Context(
+                    "application-project-modules-next-page",
+                    "getModules",
+                    workspaceRoot),
+                CancellationToken.None);
+            XDocument.Parse(nextModulesXml).Root!
+                .Attribute("success")!.Value.Should().Be("true", nextModulesXml);
+        }
         var installSourceXml = await new CodingToolHarness().Debug(
             new SetSourceBreakpointsOperation(
                 treeId,

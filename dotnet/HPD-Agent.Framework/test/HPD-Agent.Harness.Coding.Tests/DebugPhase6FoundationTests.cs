@@ -48,8 +48,8 @@ public sealed class DebugPhase6FoundationTests
         wrongOwner.Should().Throw<DebugSemanticException>().Which.Reason.Should().Be(DebugSemanticFailureReason.ReferenceOwnerMismatch);
         wrongRuntime.Should().Throw<DebugSemanticException>().Which.Reason.Should().Be(DebugSemanticFailureReason.ReferenceOwnerMismatch);
         wrongTree.Should().Throw<DebugSemanticException>().Which.Reason.Should().Be(DebugSemanticFailureReason.ReferenceOwnerMismatch);
-        wrongKind.Should().Throw<DebugSemanticException>().Which.Reason.Should().Be(DebugSemanticFailureReason.InvalidArguments);
-        wrongQuery.Should().Throw<DebugSemanticException>().Which.Reason.Should().Be(DebugSemanticFailureReason.InvalidArguments);
+        wrongKind.Should().Throw<DebugSemanticException>().Which.Reason.Should().Be(DebugSemanticFailureReason.ContinuationQueryMismatch);
+        wrongQuery.Should().Throw<DebugSemanticException>().Which.Reason.Should().Be(DebugSemanticFailureReason.ContinuationQueryMismatch);
         stale.Should().Throw<DebugSemanticException>().Which.Reason.Should().Be(DebugSemanticFailureReason.ReferenceExpired);
     }
 

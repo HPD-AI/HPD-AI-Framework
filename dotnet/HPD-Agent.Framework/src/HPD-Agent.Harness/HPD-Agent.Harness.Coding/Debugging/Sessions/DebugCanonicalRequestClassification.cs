@@ -20,6 +20,7 @@ internal enum DebugSemanticFailureReason
     InvalidSessionState,
     ReferenceExpired,
     ReferenceOwnerMismatch,
+    ContinuationQueryMismatch,
     InvalidArguments,
     PermissionDenied,
     AdapterRequestFailed,

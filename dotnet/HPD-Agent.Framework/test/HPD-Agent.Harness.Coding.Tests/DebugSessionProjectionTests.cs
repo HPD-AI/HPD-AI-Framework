@@ -58,6 +58,24 @@ public sealed class DebugSessionProjectionTests
     }
 
     [Fact]
+    public void Module_event_projection_is_bounded_and_evicts_oldest_entries_deterministically()
+    {
+        var projections = new DebugSessionProjections();
+
+        for (var id = 0; id <= 4096; id++)
+            projections.ObserveModule(new ModuleEventBody
+            {
+                Reason = "new",
+                Module = Module($"m{id:D4}", $"module-{id:D4}")
+            });
+
+        projections.HasObservedModuleEvents.Should().BeTrue();
+        projections.Modules.Should().HaveCount(4096);
+        projections.Modules.Should().NotContain(module => module.OpaqueId == "s:m0000");
+        projections.Modules.Should().Contain(module => module.OpaqueId == "s:m4096");
+    }
+
+    [Fact]
     public void Targeted_invalidation_advances_only_required_generations()
     {
         var projections = new DebugSessionProjections();

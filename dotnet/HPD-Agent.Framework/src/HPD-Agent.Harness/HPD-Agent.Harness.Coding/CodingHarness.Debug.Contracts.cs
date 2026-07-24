@@ -270,18 +270,49 @@ public sealed record TerminateThreadsDebugOperation(string DebugTreeId, IReadOnl
 
 public sealed record GetThreadsOperation(string DebugTreeId, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 /// <summary>Gets the stack for the supplied stopped thread, or the adapter-designated focal thread when omitted.</summary>
+/// <param name="DebugTreeId">The opaque debug-tree identifier.</param>
+/// <param name="ThreadId">The stopped thread, or the adapter-designated focal thread when omitted.</param>
+/// <param name="DebugSessionId">The optional protocol-session identifier within the tree.</param>
+/// <param name="Levels">The requested page size, from 1 through 100. Preserve it exactly when continuing the query.</param>
+/// <param name="ContinuationToken">An opaque token from the immediately preceding compatible page. When supplied, repeat every other query argument unchanged.</param>
 public sealed record GetStackTraceOperation(string DebugTreeId, int? ThreadId = null, string? DebugSessionId = null, int Levels = 20, string? ContinuationToken = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 public sealed record GetScopesOperation(string DebugTreeId, string FrameToken, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 public enum DebugVariableFilter { Indexed, Named }
+/// <summary>Returns one bounded page of children for an opaque variables reference.</summary>
+/// <param name="DebugTreeId">The opaque debug-tree identifier.</param>
+/// <param name="VariablesToken">The opaque variables token returned by scopes, variables, evaluation, or mutation.</param>
+/// <param name="DebugSessionId">The optional protocol-session identifier within the tree.</param>
+/// <param name="Filter">An optional named- or indexed-variable filter. Preserve it exactly when continuing the query.</param>
+/// <param name="Count">The requested page size, from 1 through 200. Preserve it exactly when continuing the query.</param>
+/// <param name="ContinuationToken">An opaque token from the immediately preceding compatible page. When supplied, repeat every other query argument unchanged.</param>
 public sealed record GetVariablesOperation(string DebugTreeId, string VariablesToken, string? DebugSessionId = null, DebugVariableFilter? Filter = null, int Count = 100, string? ContinuationToken = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 public enum DebugEvaluationContext { Repl, Watch, Hover, Clipboard, Variables }
 public sealed record EvaluateDebugOperation(string DebugTreeId, string Expression, string? DebugSessionId = null, string? FrameToken = null, DebugEvaluationContext Context = DebugEvaluationContext.Repl) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 public sealed record GetExceptionInfoOperation(string DebugTreeId, int ThreadId, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
+/// <summary>Returns one bounded page of modules known to the selected debug session.</summary>
+/// <param name="DebugTreeId">The opaque debug-tree identifier returned by launch or attach.</param>
+/// <param name="DebugSessionId">The optional protocol-session identifier within the tree.</param>
+/// <param name="Count">The requested page size, from 1 through 200. Preserve it exactly when continuing the query.</param>
+/// <param name="ContinuationToken">An opaque token from the immediately preceding compatible page. When supplied, repeat every other query argument unchanged.</param>
 public sealed record GetModulesOperation(string DebugTreeId, string? DebugSessionId = null, int Count = 100, string? ContinuationToken = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
+/// <summary>Returns one bounded page of sources loaded by the selected debug session.</summary>
+/// <param name="DebugTreeId">The opaque debug-tree identifier.</param>
+/// <param name="DebugSessionId">The optional protocol-session identifier within the tree.</param>
+/// <param name="Count">The requested page size, from 1 through 200. Preserve it exactly when continuing the query.</param>
+/// <param name="ContinuationToken">An opaque token from the immediately preceding compatible page. When supplied, repeat every other query argument unchanged.</param>
 public sealed record GetLoadedSourcesOperation(string DebugTreeId, string? DebugSessionId = null, int Count = 100, string? ContinuationToken = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 public sealed record GetSourceOperation(string DebugTreeId, string SourceToken, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 public sealed record GetStepInTargetsOperation(string DebugTreeId, string FrameToken, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 public sealed record GetGotoTargetsOperation(string DebugTreeId, int ThreadId, string SourceToken, int Line, string? DebugSessionId = null, int? Column = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
+/// <summary>Returns one bounded page of adapter completions for a stopped evaluation context.</summary>
+/// <param name="DebugTreeId">The opaque debug-tree identifier.</param>
+/// <param name="Text">The completion input. Preserve it exactly when continuing the query.</param>
+/// <param name="Column">The completion column. Preserve it exactly when continuing the query.</param>
+/// <param name="DebugSessionId">The optional protocol-session identifier within the tree.</param>
+/// <param name="Line">The optional completion line. Preserve it exactly when continuing the query.</param>
+/// <param name="FrameToken">The optional opaque frame token. Preserve it exactly when continuing the query.</param>
+/// <param name="Count">The requested page size, from 1 through 200. Preserve it exactly when continuing the query.</param>
+/// <param name="ContinuationToken">An opaque token from the immediately preceding compatible page. When supplied, repeat every other query argument unchanged.</param>
 public sealed record GetCompletionsOperation(string DebugTreeId, string Text, int Column, string? DebugSessionId = null, int? Line = null, string? FrameToken = null, int Count = 100, string? ContinuationToken = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 public sealed record ResolveDebugLocationOperation(string DebugTreeId, string LocationToken, string? DebugSessionId = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 
@@ -289,6 +320,15 @@ public sealed record SetDebugVariableOperation(string DebugTreeId, string Variab
 public sealed record SetDebugExpressionOperation(string DebugTreeId, string Expression, string Value, string? DebugSessionId = null, string? FrameToken = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 public sealed record ReadDebugMemoryOperation(string DebugTreeId, string MemoryToken, int Count, string? DebugSessionId = null, long Offset = 0) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 public sealed record WriteDebugMemoryOperation(string DebugTreeId, string MemoryToken, string Base64Data, string? DebugSessionId = null, long Offset = 0, bool AllowPartial = false) : DebugTreeOperation(DebugTreeId, DebugSessionId);
+/// <summary>Returns one bounded page of disassembled instructions.</summary>
+/// <param name="DebugTreeId">The opaque debug-tree identifier.</param>
+/// <param name="MemoryToken">An opaque memory or instruction token. Preserve it exactly when continuing the query.</param>
+/// <param name="InstructionCount">The requested page size, from 1 through 256. Preserve it exactly when continuing the query.</param>
+/// <param name="DebugSessionId">The optional protocol-session identifier within the tree.</param>
+/// <param name="ByteOffset">The byte offset. Preserve it exactly when continuing the query.</param>
+/// <param name="InstructionOffset">The initial instruction offset. Preserve it exactly when continuing the query.</param>
+/// <param name="ResolveSymbols">Whether the adapter should resolve symbols. Preserve it exactly when continuing the query.</param>
+/// <param name="ContinuationToken">An opaque token from the immediately preceding compatible page. When supplied, repeat every other query argument unchanged.</param>
 public sealed record DisassembleDebugOperation(string DebugTreeId, string MemoryToken, int InstructionCount = 100, string? DebugSessionId = null, long ByteOffset = 0, long InstructionOffset = 0, bool ResolveSymbols = false, string? ContinuationToken = null) : DebugTreeOperation(DebugTreeId, DebugSessionId);
 
 public enum DebugOutputFilter { Console, Stdout, Stderr, Important }

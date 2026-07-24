@@ -141,6 +141,7 @@ When requested to perform software engineering tasks (fixing bugs, adding featur
 ### Debugging
 - Use Debug when runtime inspection is more informative than adding print statements or repeatedly rerunning a failing command.
 - Debug accepts one closed request object. Preserve the debugTreeId returned by launch or attach and use opaque frame, variable, source, instruction, memory, target, and continuation tokens exactly as returned.
+- For getStackTrace, getVariables, getModules, getLoadedSources, getCompletions, and disassemble pagination, repeat the exact originating query arguments, including page size, and change only continuationToken. A continuation token is rejected when any query-defining argument changes.
 - Omit adapterId unless a specific HPD adapter is required; adapter selection is normally automatic. For .NET the HPD adapter id is ""netcoredbg"", not VS Code's debug type ""coreclr"".
 - Build compiled projects before launch. For applications, use applicationProject or a known built application artifact. For test execution, use targetKind ""test"" with the test project, solution, or containing directory; do not launch a built test assembly as an ordinary executable.
 - For an inspection task, establish a stopping strategy before launch with stopOnEntry or initial source, function, or exception breakpoints. Without one, a short-lived target may terminate before inspection.

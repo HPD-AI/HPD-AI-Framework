@@ -57,7 +57,15 @@ public sealed class DebugOperationDispatcher
             var message = exception.Reason == DebugSemanticFailureReason.CapabilityUnavailable
                 ? $"The selected adapter does not support the '{action}' action."
                 : SafeMessage(exception.Reason);
-            return Failure(context, action, operation, ErrorKind(exception.Reason), message);
+            return Failure(
+                context,
+                action,
+                operation,
+                ErrorKind(exception.Reason),
+                message,
+                exception.Reason == DebugSemanticFailureReason.ContinuationQueryMismatch
+                    ? Attr(("nextAction", action), ("requiredChange", "continuationTokenOnly"))
+                    : null);
         }
         catch (DebugStartPlanningException exception)
         {
@@ -174,7 +182,7 @@ public sealed class DebugOperationDispatcher
             GetVariablesOperation request => await VariablesAsync(services, owner, request, cancellationToken).ConfigureAwait(false),
             EvaluateDebugOperation request => await EvaluateAsync(services, owner, request, permission, cancellationToken).ConfigureAwait(false),
             GetExceptionInfoOperation request => await ExceptionInfoAsync(services, owner, request, cancellationToken).ConfigureAwait(false),
-            GetModulesOperation request => await ModulesAsync(services, owner, request, cancellationToken).ConfigureAwait(false),
+            GetModulesOperation request => await ModulesAsync(services, owner, request, context, cancellationToken).ConfigureAwait(false),
             GetLoadedSourcesOperation request => await LoadedSourcesAsync(services, owner, request, cancellationToken).ConfigureAwait(false),
             GetSourceOperation request => await SourceAsync(services, owner, request, cancellationToken).ConfigureAwait(false),
             GetStepInTargetsOperation request => await StepInTargetsAsync(services, owner, request, cancellationToken).ConfigureAwait(false),
@@ -752,13 +760,31 @@ public sealed class DebugOperationDispatcher
             ("breakMode", result.BreakMode), ("truncated", result.Truncated)));
     }
 
-    private async Task<string> ModulesAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, GetModulesOperation request, CancellationToken cancellationToken)
+    private async Task<string> ModulesAsync(
+        DebugRuntimeServices services,
+        DebugTreeLookupScope owner,
+        GetModulesOperation request,
+        FunctionExecutionContext context,
+        CancellationToken cancellationToken)
     {
         var result = await services.Semantics.ModulesAsync(owner, request.DebugTreeId, request.DebugSessionId, request.Count, request.ContinuationToken, cancellationToken).ConfigureAwait(false);
-        return _formatter.Success("getModules", Attr(
-            ("count", result.Modules.Count), ("totalModules", result.TotalModules),
-            ("continuationToken", result.ContinuationToken)),
-            result.Modules.Select(item => $"{item.Name} {item.Path} moduleToken={item.ModuleToken}"));
+        var page = result.Page;
+        context.ResultMetadata.Set(CodingToolMetadataKeys.DebugModules, page);
+        return _formatter.StructuredSuccess("getModules", Attr(
+            ("count", page.Modules.Count),
+            ("totalModules", page.TotalModules),
+            ("hasMore", page.ContinuationToken is not null),
+            ("continuationToken", page.ContinuationToken),
+            ("moduleSource", page.Source),
+            ("inventoryCompleteness", page.Completeness),
+            ("nextAction", page.ContinuationToken is null ? null : "getModules")),
+            page.Modules.Select(item => new DebugResultItem(Attr(
+                ("name", item.Name),
+                ("path", item.Path),
+                ("version", item.Version),
+                ("symbolStatus", item.SymbolStatus),
+                ("optimized", item.IsOptimized),
+                ("userCode", item.IsUserCode)))));
     }
 
     private async Task<string> LoadedSourcesAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, GetLoadedSourcesOperation request, CancellationToken cancellationToken)
@@ -1078,6 +1104,7 @@ public sealed class DebugOperationDispatcher
         DebugSemanticFailureReason.InvalidSessionState => "invalid_session_state",
         DebugSemanticFailureReason.ReferenceExpired => "reference_expired",
         DebugSemanticFailureReason.ReferenceOwnerMismatch => "reference_owner_mismatch",
+        DebugSemanticFailureReason.ContinuationQueryMismatch => "continuation_query_mismatch",
         DebugSemanticFailureReason.InvalidArguments => "invalid_request",
         DebugSemanticFailureReason.PermissionDenied => "permission_denied",
         DebugSemanticFailureReason.AdapterRequestFailed => "adapter_request_failed",
@@ -1094,6 +1121,7 @@ public sealed class DebugOperationDispatcher
         DebugSemanticFailureReason.InvalidSessionState => "The debugger operation is unavailable in the current session state.",
         DebugSemanticFailureReason.ReferenceExpired => "The debugger reference expired; inspect the current state and use a new token.",
         DebugSemanticFailureReason.ReferenceOwnerMismatch => "The debugger reference belongs to another owner, session, or query.",
+        DebugSemanticFailureReason.ContinuationQueryMismatch => "Reuse the continuation token with the exact originating query arguments and page size.",
         DebugSemanticFailureReason.InvalidArguments => "The debugger operation contains invalid arguments.",
         DebugSemanticFailureReason.PermissionDenied => "The debugger operation is not authorized.",
         DebugSemanticFailureReason.AdapterRequestFailed => "The debug adapter rejected the operation.",

@@ -64,7 +64,7 @@ internal sealed class DebugContinuationTokenRegistry
                     "The debugger continuation belongs to another runtime, tree, or protocol session.");
             if (!string.Equals(entry.Context.QueryKind, expected.QueryKind, StringComparison.Ordinal) ||
                 !string.Equals(entry.Context.QueryIdentity, expected.QueryIdentity, StringComparison.Ordinal))
-                throw new DebugSemanticException(DebugSemanticFailureReason.InvalidArguments,
+                throw new DebugSemanticException(DebugSemanticFailureReason.ContinuationQueryMismatch,
                     "The debugger continuation does not match this query.");
             if (entry.Context.Generation != expected.Generation)
             {

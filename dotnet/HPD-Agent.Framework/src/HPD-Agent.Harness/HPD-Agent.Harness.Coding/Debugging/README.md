@@ -12,6 +12,12 @@ execution planners and adapter factories. Planning is inert; long-lived runners 
 after a debug-tree identity has been reserved. Every subsequent operation uses opaque tree, session, source, frame,
 variable, instruction, memory, location, and continuation tokens.
 
+Continuation tokens are owner-, tree-, protocol-session-, generation-, and
+query-bound. A caller continuing `getStackTrace`, `getVariables`, `getModules`,
+`getLoadedSources`, `getCompletions`, or `disassemble` must repeat the originating
+query arguments—including its page size—and change only the continuation token.
+HPD reports `continuation_query_mismatch` when those arguments differ.
+
 ## Model-facing boundary
 
 - `CodingHarness.Debug.Contracts.cs` defines the complete closed request union.
@@ -39,6 +45,9 @@ the capabilities negotiated with that live adapter and semantic projections HPD 
 from authoritative adapter events. For example, `getModules` remains available when an adapter
 emits module events but does not implement the optional DAP `modules` request. Models must use
 this session evidence rather than adapter-name assumptions.
+`getModules` labels adapter-request inventories as `Authoritative` and retained event
+projections as `ObservedOnly`; an event-backed count is the bounded set HPD observed, not a
+claim about every module the target has ever loaded.
 
 Stopped-state projections preserve the adapter-designated focal thread independently from
 the set of threads suspended by an `allThreadsStopped` event. `snapshot` exposes
