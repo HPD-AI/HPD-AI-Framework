@@ -73,8 +73,8 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
         IReadOnlyList<DebugFunctionBreakpoint> breakpoints, CancellationToken cancellationToken = default)
     {
         var (tree, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.FunctionBreakpoints);
-        if (session.Capabilities?.SupportsFunctionBreakpoints != true)
-            throw new InvalidOperationException("The adapter does not support function breakpoints.");
+        RequireCapability(session, capability => capability.SupportsFunctionBreakpoints == true,
+            "function breakpoints");
         return tree.Breakpoints.ReplaceFunctionAsync(breakpoints, async (_, replacement, ct) =>
         {
             var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.SetFunctionBreakpointsRequest,
@@ -100,8 +100,8 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
         IReadOnlyList<DebugInstructionBreakpoint> breakpoints, CancellationToken cancellationToken = default)
     {
         var (tree, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.InstructionBreakpoints);
-        if (session.Capabilities?.SupportsInstructionBreakpoints != true)
-            throw new InvalidOperationException("The adapter does not support instruction breakpoints.");
+        RequireCapability(session, capability => capability.SupportsInstructionBreakpoints == true,
+            "instruction breakpoints");
         return tree.Breakpoints.ReplaceInstructionAsync(breakpoints, async (_, replacement, ct) =>
         {
             var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.SetInstructionBreakpointsRequest,
@@ -119,6 +119,8 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
         CancellationToken cancellationToken = default)
     {
         var (_, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.InstructionBreakpoints);
+        RequireCapability(session, capability => capability.SupportsInstructionBreakpoints == true,
+            "instruction breakpoints");
         var resolved = breakpoints.Select(item => new DebugInstructionBreakpoint(
             session.Projections.ResolveTextToken(item.Token, "instruction", out _, out _),
             item.Offset,
@@ -132,8 +134,8 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
         IReadOnlyList<DebugDataBreakpoint> breakpoints, CancellationToken cancellationToken = default)
     {
         var (tree, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.DataBreakpoints);
-        if (session.Capabilities?.SupportsDataBreakpoints != true)
-            throw new InvalidOperationException("The adapter does not support data breakpoints.");
+        RequireCapability(session, capability => capability.SupportsDataBreakpoints == true,
+            "data breakpoints");
         return tree.Breakpoints.ReplaceDataAsync(breakpoints, async (_, replacement, ct) =>
         {
             foreach (var item in replacement)
@@ -154,6 +156,8 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
         CancellationToken cancellationToken = default)
     {
         var (_, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.DataBreakpoints);
+        RequireCapability(session, capability => capability.SupportsDataBreakpoints == true,
+            "data breakpoints");
         var resolved = breakpoints.Select(item => new DebugDataBreakpoint(
             session.Projections.ResolveDataBreakpointToken(item.Token),
             item.AccessType,
@@ -162,6 +166,17 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
             Portable: false,
             OriginSessionId: session.SessionId)).ToArray();
         return SetDataAsync(owner, treeId, session.SessionId, resolved, cancellationToken);
+    }
+
+    private static void RequireCapability(
+        DebugSession session,
+        Func<Capabilities, bool> predicate,
+        string operation)
+    {
+        if (session.Capabilities is null || !predicate(session.Capabilities))
+            throw new DebugSemanticException(
+                DebugSemanticFailureReason.CapabilityUnavailable,
+                $"The adapter does not support {operation}.");
     }
 
     private (DebugSessionTree Tree, DebugSession Session) Resolve(

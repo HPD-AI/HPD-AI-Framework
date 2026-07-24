@@ -3,11 +3,72 @@ using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
+using HPD.Agent.ToolHarness.Coding.Debugging.Protocol.Generated;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
 
 public sealed class DebugSessionStateTests
 {
+    [Fact]
+    public async Task Unsupported_breakpoint_capabilities_win_before_opaque_token_resolution()
+    {
+        await using var transport = new InMemoryDebugProtocolTransport();
+        await using var manager = new DebugSessionManager(
+            new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
+        await using var reservation = manager.ReserveTree(
+            "owner", "thread", "env", 1, "tree");
+        var tree = Tree(
+            reservation.Ownership,
+            "root",
+            manager,
+            Plan(),
+            DebugTreeGrant.Routine | DebugTreeGrant.DataBreakpoints);
+        var session = Session("root", "root", transport);
+        session.Capabilities = new Capabilities();
+        tree.AddSession(session);
+        reservation.Commit(tree);
+        var scope = Scope(manager, "owner", "thread");
+        var breakpoints = new DebugBreakpointService(manager);
+
+        var function = async () => await breakpoints.SetFunctionAsync(
+            scope, "tree", null, [new("Method")]);
+        var instruction = async () => await breakpoints.SetInstructionTokensAsync(
+            scope, "tree", null, [("not-a-token", null, null, null)]);
+        var data = async () => await breakpoints.SetDataTokensAsync(
+            scope, "tree", null, [("not-a-token", null, null, null)]);
+
+        (await function.Should().ThrowAsync<DebugSemanticException>())
+            .Which.Reason.Should().Be(DebugSemanticFailureReason.CapabilityUnavailable);
+        (await instruction.Should().ThrowAsync<DebugSemanticException>())
+            .Which.Reason.Should().Be(DebugSemanticFailureReason.CapabilityUnavailable);
+        (await data.Should().ThrowAsync<DebugSemanticException>())
+            .Which.Reason.Should().Be(DebugSemanticFailureReason.CapabilityUnavailable);
+    }
+
+    [Fact]
+    public async Task Unsupported_data_breakpoint_discovery_is_a_capability_failure()
+    {
+        await using var transport = new InMemoryDebugProtocolTransport();
+        await using var manager = new DebugSessionManager(
+            new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
+        await using var reservation = manager.ReserveTree(
+            "owner", "thread", "env", 1, "tree");
+        var tree = Tree(reservation.Ownership, "root", manager, Plan());
+        var session = Session("root", "root", transport);
+        session.Capabilities = new Capabilities();
+        tree.AddSession(session);
+        reservation.Commit(tree);
+        var semantics = new DebugSemanticService(manager);
+
+        var discover = async () => await semantics.DataBreakpointInfoAsync(
+            Scope(manager, "owner", "thread"),
+            "tree", null, "value", null, "not-a-token",
+            null, null, null, CancellationToken.None);
+
+        (await discover.Should().ThrowAsync<DebugSemanticException>())
+            .Which.Reason.Should().Be(DebugSemanticFailureReason.CapabilityUnavailable);
+    }
+
     [Fact]
     public void All_threads_stopped_preserves_the_adapter_designated_primary_thread()
     {
@@ -363,7 +424,8 @@ public sealed class DebugSessionStateTests
         DebugTreeOwnership ownership,
         string rootSessionId,
         DebugSessionManager manager,
-        DebugAdapterStartPlan plan)
+        DebugAdapterStartPlan plan,
+        DebugTreeGrant grants = DebugTreeGrant.Routine)
     {
         var runtime = new DebugRuntimeBinding
         {
@@ -385,7 +447,7 @@ public sealed class DebugSessionStateTests
                 plan,
                 DebugSemanticStartKind.DirectLaunch,
                 "test",
-                new()),
+                new() { Grants = grants }),
             Artifacts = new DebugArtifactWriter(null, ContentScope.Create("debug:test"),
                 new Dictionary<string, string>()),
             EventPublisher = null

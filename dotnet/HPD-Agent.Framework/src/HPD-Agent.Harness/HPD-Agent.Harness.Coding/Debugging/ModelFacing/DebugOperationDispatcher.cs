@@ -809,14 +809,14 @@ public sealed class DebugOperationDispatcher
     {
         var authorization = _authorization.CreatePrivileged(permission, services, owner, request.DebugTreeId, request.DebugSessionId, DebugPrivilegedOperation.SetVariable);
         var result = await services.Semantics.SetVariableAsync(owner, request.DebugTreeId, request.DebugSessionId, request.VariablesToken, request.Name, request.Value, authorization, cancellationToken).ConfigureAwait(false);
-        return _formatter.Success("setVariable", Attr(("value", result.Value), ("type", result.Type), ("variablesToken", result.VariablesToken)));
+        return MutationResult("setVariable", result);
     }
 
     private async Task<string> SetExpressionAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, SetDebugExpressionOperation request, DebugPermissionDecision permission, CancellationToken cancellationToken)
     {
         var authorization = _authorization.CreatePrivileged(permission, services, owner, request.DebugTreeId, request.DebugSessionId, DebugPrivilegedOperation.SetExpression);
         var result = await services.Semantics.SetExpressionAsync(owner, request.DebugTreeId, request.DebugSessionId, request.Expression, request.Value, request.FrameToken, authorization, cancellationToken).ConfigureAwait(false);
-        return _formatter.Success("setExpression", Attr(("value", result.Value), ("type", result.Type), ("variablesToken", result.VariablesToken)));
+        return MutationResult("setExpression", result);
     }
 
     private async Task<string> ReadMemoryAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, ReadDebugMemoryOperation request, CancellationToken cancellationToken)
@@ -910,6 +910,18 @@ public sealed class DebugOperationDispatcher
                 ? ["Prior suspension-bound tokens are expired; inspect the current stop before using frame, scope, variable, or location tokens."]
                 : null);
     }
+
+    internal string MutationResult(string action, DebugSemanticMutationResult result)
+        => _formatter.Success(action, Attr(
+            ("value", result.Value),
+            ("type", result.Type),
+            ("variablesToken", result.VariablesToken),
+            ("priorVariableTokensInvalidated", result.PriorVariableDerivedTokensInvalidated),
+            ("frameTokensRemainValid", true),
+            ("nextAction", "inspectStop")),
+            result.PriorVariableDerivedTokensInvalidated
+                ? ["Prior variable, memory, and value-location tokens for the affected frame expired. Frame tokens and any fresh token returned by this result remain valid."]
+                : null);
 
     private DebugExecutionPlanningService RequireStarts()
         => _starts ?? throw new InvalidOperationException("Debug start planning is not configured.");

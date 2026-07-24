@@ -1,5 +1,6 @@
 using System.Xml.Linq;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using FluentAssertions;
 using HPD.Agent;
 using HPD.Agent.Middleware;
@@ -195,6 +196,83 @@ public sealed class DebugPublicHostedRealAdapterTests
                 System.Globalization.CultureInfo.InvariantCulture)
             .Should().BeGreaterThan(0);
 
+        var frameToken = ExtractToken(stop, "frameToken");
+        var variablesToken = ExtractToken(stop, "variablesToken");
+        var unsupportedDataBreakpointXml = await new CodingToolHarness().Debug(
+            new DiscoverDataBreakpointOperation(
+                treeId,
+                "first",
+                FrameToken: frameToken),
+            fixture.Context(
+                "application-project-data-breakpoint-capability",
+                "discoverDataBreakpoint",
+                workspaceRoot),
+            CancellationToken.None);
+        XDocument.Parse(unsupportedDataBreakpointXml).Root!
+            .Attribute("kind")!.Value.Should().Be(
+                "capability_unavailable",
+                unsupportedDataBreakpointXml);
+
+        var setExpressionXml = await new CodingToolHarness().Debug(
+            new SetDebugExpressionOperation(
+                treeId,
+                "first",
+                "41",
+                FrameToken: frameToken),
+            fixture.Context(
+                "application-project-set-expression",
+                "setExpression",
+                workspaceRoot),
+            CancellationToken.None);
+        AssertMutationInvalidation(setExpressionXml);
+
+        var preservedFrameXml = await new CodingToolHarness().Debug(
+            new GetScopesOperation(treeId, frameToken),
+            fixture.Context(
+                "application-project-preserved-frame",
+                "getScopes",
+                workspaceRoot),
+            CancellationToken.None);
+        XDocument.Parse(preservedFrameXml).Root!.Attribute("success")!.Value
+            .Should().Be("true", preservedFrameXml);
+
+        var expiredVariablesXml = await new CodingToolHarness().Debug(
+            new GetVariablesOperation(treeId, variablesToken),
+            fixture.Context(
+                "application-project-expired-variables",
+                "getVariables",
+                workspaceRoot),
+            CancellationToken.None);
+        XDocument.Parse(expiredVariablesXml).Root!.Attribute("kind")!.Value
+            .Should().Be("reference_expired", expiredVariablesXml);
+
+        var mutatedStop = await InspectAsync(
+            fixture,
+            treeId,
+            workspaceRoot,
+            "application-project-mutated-stop");
+        mutatedStop.Value.Should().Contain("first=41");
+        var refreshedVariablesToken = ExtractToken(mutatedStop, "variablesToken");
+        var setVariableXml = await new CodingToolHarness().Debug(
+            new SetDebugVariableOperation(
+                treeId,
+                refreshedVariablesToken,
+                "first",
+                "40"),
+            fixture.Context(
+                "application-project-set-variable",
+                "setVariable",
+                workspaceRoot),
+            CancellationToken.None);
+        AssertMutationInvalidation(setVariableXml);
+
+        var restoredStop = await InspectAsync(
+            fixture,
+            treeId,
+            workspaceRoot,
+            "application-project-restored-stop");
+        restoredStop.Value.Should().Contain("first=40");
+
         var clearBreakpointsXml = await new CodingToolHarness().Debug(
             new SetSourceBreakpointsOperation(treeId, []),
             fixture.Context(
@@ -221,6 +299,46 @@ public sealed class DebugPublicHostedRealAdapterTests
         var terminal = await WaitForTerminalAsync(fixture, treeId);
         string.Concat(terminal.Output.Records.Select(record => record.Text))
             .Should().Contain("42");
+    }
+
+    private static void AssertMutationInvalidation(string xml)
+    {
+        var root = XDocument.Parse(xml).Root!;
+        root.Attribute("success")!.Value.Should().Be("true", xml);
+        root.Attribute("prior_variable_tokens_invalidated")!.Value.Should().Be("true");
+        root.Attribute("frame_tokens_remain_valid")!.Value.Should().Be("true");
+        root.Attribute("next_action")!.Value.Should().Be("inspectStop");
+        root.Elements("item").Single().Value.Should().Contain("value-location tokens");
+    }
+
+    private static async Task<XElement> InspectAsync(
+        PublicFixture fixture,
+        string treeId,
+        string workspaceRoot,
+        string callId)
+    {
+        var xml = await new CodingToolHarness().Debug(
+            new InspectDebugStopOperation(
+                treeId,
+                IncludeVariables: true,
+                MaximumVariablesPerScope: 20,
+                MaximumFrames: 5),
+            fixture.Context(callId, "inspectStop", workspaceRoot),
+            CancellationToken.None);
+        var root = XDocument.Parse(xml).Root!;
+        root.Attribute("success")!.Value.Should().Be("true", xml);
+        return root;
+    }
+
+    private static string ExtractToken(XElement result, string name)
+    {
+        var match = Regex.Match(
+            result.Value,
+            $@"{Regex.Escape(name)}=(?<token>[a-f0-9]{{32}})",
+            RegexOptions.CultureInvariant);
+        match.Success.Should().BeTrue(
+            $"the debugger result should contain {name}: {result}");
+        return match.Groups["token"].Value;
     }
 
     [RealAdapterFact("HPD_NETCOREDBG", "HPD_DOTNET")]

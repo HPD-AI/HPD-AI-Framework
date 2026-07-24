@@ -80,7 +80,9 @@ Breakpoint results distinguish requested, adapter-acknowledged, verified, and pe
 Pending breakpoints are expected when a module has not loaded and are never described as
 confirmed. Verified means the adapter resolved the breakpoint; it does not prove that execution
 hit it. Execution-control results explicitly mark prior suspension-bound tokens invalid and
-direct callers to inspect the new stop. Natural termination disposes live sessions and owned host processes while retaining
+direct callers to inspect the new stop. Successful variable and expression mutations likewise
+mark prior variable-derived tokens invalid while preserving frame tokens and any fresh token
+returned by the mutation. Natural termination disposes live sessions and owned host processes while retaining
 a bounded, owner-scoped terminal record for status, snapshot, breakpoint, and output queries.
 
 The canonical wire contract is generated from the pinned DAP schema under `Protocol/Generated`.

@@ -55,7 +55,8 @@ internal sealed record DebugSemanticEvaluation(
 
 internal sealed record DebugSemanticMutationResult(
     string Value, string? Type, string? VariablesToken, int? NamedVariables,
-    int? IndexedVariables, string? MemoryReferenceToken, string? LocationToken);
+    int? IndexedVariables, string? MemoryReferenceToken, string? LocationToken,
+    bool PriorVariableDerivedTokensInvalidated);
 
 internal sealed record DebugSemanticDataBreakpointInfo(
     string? DiscoveryToken, string Description, IReadOnlyList<string> AccessTypes,
@@ -550,9 +551,10 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        RequireCapability(owner, treeId, sessionId,
+            capability => capability.SupportsDataBreakpoints == true,
+            "data breakpoint discovery");
         var session = AuthorizedSession(owner, treeId, sessionId, DebugTreeGrant.Inspect);
-        if (session.Capabilities?.SupportsDataBreakpoints != true)
-            throw new InvalidOperationException("The adapter does not support data breakpoints.");
         int? variablesReference = null;
         int? frameId = null;
         int threadId;
@@ -1168,7 +1170,8 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
                     ? session.Projections.CreateSuspensionTextToken(threadId, frameId, "memory", memoryReference)
                     : session.Projections.CreateSessionTextToken("memory", memoryReference),
             valueLocationReference is > 0
-                ? session.Projections.CreateSuspensionToken(threadId, frameId, "location", valueLocationReference.Value) : null);
+                ? session.Projections.CreateSuspensionToken(threadId, frameId, "location", valueLocationReference.Value) : null,
+            PriorVariableDerivedTokensInvalidated: true);
 
     private static string? Bound(string? value, int maximum)
         => value is null ? null : value[..Math.Min(value.Length, maximum)];

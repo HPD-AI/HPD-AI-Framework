@@ -108,6 +108,28 @@ public sealed class DebugModelFacingTests
     }
 
     [Fact]
+    public void Mutation_result_describes_exact_token_invalidation_boundary()
+    {
+        var dispatcher = new DebugOperationDispatcher(
+            new DebugRuntimeServiceFactory(),
+            new DebugResultFormatter(),
+            new DebugPermissionAuthorizationService());
+
+        var xml = dispatcher.MutationResult(
+            "setExpression",
+            new DebugSemanticMutationResult(
+                "3", "int", null, null, null, null, null,
+                PriorVariableDerivedTokensInvalidated: true));
+
+        var element = XElement.Parse(xml);
+        element.Attribute("prior_variable_tokens_invalidated")!.Value.Should().Be("true");
+        element.Attribute("frame_tokens_remain_valid")!.Value.Should().Be("true");
+        element.Attribute("next_action")!.Value.Should().Be("inspectStop");
+        element.Elements("item").Single().Value.Should()
+            .Contain("variable, memory, and value-location tokens");
+    }
+
+    [Fact]
     public void Thread_projection_identifies_only_the_adapter_designated_focal_thread()
     {
         var dispatcher = new DebugOperationDispatcher(
