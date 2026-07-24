@@ -16,7 +16,7 @@ public abstract class BuiltInBehavioralDebugAdapterFactory(
             context with { ProbeArgumentsOverride = probeArguments },
             cancellationToken);
 
-    public async ValueTask<DebugAdapterLaunchPlan> CreateLaunchPlanAsync(
+    public async ValueTask<DebugAdapterStartPlan> CreateLaunchPlanAsync(
         DebugAdapterDescriptor descriptor,
         DebugLaunchContext context,
         CancellationToken cancellationToken = default)
@@ -25,7 +25,7 @@ public abstract class BuiltInBehavioralDebugAdapterFactory(
             context with { Resolution = context.Resolution with { ProbeArgumentsOverride = probeArguments } },
             cancellationToken).ConfigureAwait(false));
 
-    public async ValueTask<DebugAdapterLaunchPlan> CreateAttachPlanAsync(
+    public async ValueTask<DebugAdapterStartPlan> CreateAttachPlanAsync(
         DebugAdapterDescriptor descriptor,
         DebugAttachContext context,
         CancellationToken cancellationToken = default)
@@ -34,7 +34,7 @@ public abstract class BuiltInBehavioralDebugAdapterFactory(
             context with { Resolution = context.Resolution with { ProbeArgumentsOverride = probeArguments } },
             cancellationToken).ConfigureAwait(false));
 
-    protected virtual DebugAdapterLaunchPlan Configure(DebugAdapterLaunchPlan plan)
+    protected virtual DebugAdapterStartPlan Configure(DebugAdapterStartPlan plan)
         => transportKind == DebugAdapterTransportKind.EnvironmentStdio
             ? plan
             : plan with
@@ -67,7 +67,7 @@ public sealed class DelveAdapterFactory(StandardDebugAdapterFactory standardFact
         DebugAdapterTransportKind.EnvironmentTcpServer,
         DebugDynamicEndpointMode.AdapterReportsSelectedPort)
 {
-    protected override DebugAdapterLaunchPlan Configure(DebugAdapterLaunchPlan plan)
+    protected override DebugAdapterStartPlan Configure(DebugAdapterStartPlan plan)
     {
         var arguments = plan.CommandArguments.Concat(["--listen=127.0.0.1:0"]).ToArray();
         var configured = base.Configure(plan);

@@ -87,6 +87,15 @@ public static class CodingHarnessEventSerialization
             "LANGUAGE_SERVER_STATUS_SNAPSHOT",
             CodingToolHarnessJsonContext.Default.LanguageServerStatusSnapshotEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugTreeStartedEvent), "DEBUG_TREE_STARTED", CodingToolHarnessJsonContext.Default.DebugTreeStartedEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugExecutionPlannedEvent), "DEBUG_EXECUTION_PLANNED", CodingToolHarnessJsonContext.Default.DebugExecutionPlannedEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugExecutionActivatingEvent), "DEBUG_EXECUTION_ACTIVATING", CodingToolHarnessJsonContext.Default.DebugExecutionActivatingEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugHostProcessStartedEvent), "DEBUG_HOST_PROCESS_STARTED", CodingToolHarnessJsonContext.Default.DebugHostProcessStartedEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugHostReadyEvent), "DEBUG_HOST_READY", CodingToolHarnessJsonContext.Default.DebugHostReadyEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugHostProcessExitedEvent), "DEBUG_HOST_PROCESS_EXITED", CodingToolHarnessJsonContext.Default.DebugHostProcessExitedEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugExecutionActivationFailedEvent), "DEBUG_EXECUTION_ACTIVATION_FAILED", CodingToolHarnessJsonContext.Default.DebugExecutionActivationFailedEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugOwnedResourceCleanupFailedEvent), "DEBUG_OWNED_RESOURCE_CLEANUP_FAILED", CodingToolHarnessJsonContext.Default.DebugOwnedResourceCleanupFailedEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugTerminalRecordRetainedEvent), "DEBUG_TERMINAL_RECORD_RETAINED", CodingToolHarnessJsonContext.Default.DebugTerminalRecordRetainedEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugTerminalRecordEvictedEvent), "DEBUG_TERMINAL_RECORD_EVICTED", CodingToolHarnessJsonContext.Default.DebugTerminalRecordEvictedEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugSessionStateChangedEvent), "DEBUG_SESSION_STATE_CHANGED", CodingToolHarnessJsonContext.Default.DebugSessionStateChangedEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugSessionExitedEvent), "DEBUG_SESSION_EXITED", CodingToolHarnessJsonContext.Default.DebugSessionExitedEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugSessionTerminatedEvent), "DEBUG_SESSION_TERMINATED", CodingToolHarnessJsonContext.Default.DebugSessionTerminatedEvent);

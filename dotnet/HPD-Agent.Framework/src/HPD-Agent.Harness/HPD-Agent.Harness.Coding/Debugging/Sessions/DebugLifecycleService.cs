@@ -60,9 +60,9 @@ internal sealed class DebugLifecycleService(
         bool terminateDebuggee,
         CancellationToken cancellationToken)
     {
+        var tree = manager.ResolveTree(owner, treeId);
         try
         {
-            var tree = manager.ResolveTree(owner, treeId);
             await semantics.DisconnectAsync(
                 owner, treeId, tree.RootSessionId, terminateDebuggee,
                 suspendDebuggee: false, cancellationToken).ConfigureAwait(false);

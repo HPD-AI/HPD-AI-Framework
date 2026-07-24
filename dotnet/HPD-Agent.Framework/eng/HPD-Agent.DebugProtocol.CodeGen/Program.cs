@@ -299,7 +299,7 @@ internal sealed class DapGenerator
                 .Append(" | `").Append(feature.DefinitionName).Append("` / `DebugProtocolDescriptors.").Append(feature.DefinitionName).Append("` | ")
                 .Append(capability).Append(" | ").Append(owner)
                 .Append(" | typed semantic operation or internal lifecycle | presentation policy; not a protocol boundary")
-                .Append(" | authorized adapter and launch plan | ").Append(AuthorizationClass(feature.WireName))
+                .Append(" | authorized semantic execution and adapter start plan | ").Append(AuthorizationClass(feature.WireName))
                 .Append(" | tree/session-bound; opaque references remain session/state-bound")
                 .Append(" | semantic transitions only; durability follows event policy")
                 .Append(" | ").Append(DeliveryPhase(feature.WireName, feature.Kind))

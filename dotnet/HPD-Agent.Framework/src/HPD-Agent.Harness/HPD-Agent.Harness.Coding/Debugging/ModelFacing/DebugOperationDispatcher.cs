@@ -1,5 +1,6 @@
 using System.Globalization;
 using HPD.Agent.Middleware;
+using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
 using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
@@ -8,14 +9,14 @@ public sealed class DebugOperationDispatcher
 {
     private readonly DebugRuntimeServiceFactory _runtimeServices;
     private readonly DebugResultFormatter _formatter;
-    private readonly DebugStartPlanningService? _starts;
+    private readonly DebugExecutionPlanningService? _starts;
     private readonly DebugPermissionAuthorizationService _authorization;
 
     internal DebugOperationDispatcher(
         DebugRuntimeServiceFactory runtimeServices,
         DebugResultFormatter formatter,
         DebugPermissionAuthorizationService authorization,
-        DebugStartPlanningService? starts = null)
+        DebugExecutionPlanningService? starts = null)
     {
         _runtimeServices = runtimeServices;
         _formatter = formatter;
@@ -35,9 +36,16 @@ public sealed class DebugOperationDispatcher
         {
             var permission = _authorization.DemandApproved(context, action);
             var result = await ExecuteCoreAsync(operation, permission, context, cancellationToken).ConfigureAwait(false);
-            context.ResultMetadata.Set(
-                CodingToolMetadataKeys.DebugOperation,
-                new DebugOperationMetadata(action, TreeId(operation), SessionId(operation), true));
+            if (!context.ResultMetadata.TryGet<DebugOperationMetadata>(
+                    CodingToolMetadataKeys.DebugOperation,
+                    out _))
+                context.ResultMetadata.Set(
+                    CodingToolMetadataKeys.DebugOperation,
+                    new DebugOperationMetadata(
+                        action,
+                        TreeId(operation),
+                        SessionId(operation),
+                        true));
             return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -46,11 +54,39 @@ public sealed class DebugOperationDispatcher
         }
         catch (DebugSemanticException exception)
         {
-            return Failure(context, action, operation, ErrorKind(exception.Reason), SafeMessage(exception.Reason));
+            var message = exception.Reason == DebugSemanticFailureReason.CapabilityUnavailable
+                ? $"The selected adapter does not support the '{action}' action."
+                : SafeMessage(exception.Reason);
+            return Failure(context, action, operation, ErrorKind(exception.Reason), message);
         }
         catch (DebugStartPlanningException exception)
         {
             return Failure(context, action, operation, exception.Kind, exception.Message);
+        }
+        catch (DebugExceptionBreakpointValidationException exception)
+        {
+            context.ResultMetadata.Set(
+                CodingToolMetadataKeys.DebugExceptionFilters,
+                exception.AvailableFilters);
+            return Failure(
+                context,
+                action,
+                operation,
+                "invalid_exception_filter",
+                exception.Message,
+                Attr(("availableFilterIds", Join(exception.AvailableFilters.Select(item => item.FilterId)))),
+                exception.AvailableFilters.Select(item =>
+                    $"{item.FilterId}: {item.Label}; default={item.IsDefault}; supportsCondition={item.SupportsCondition}"));
+        }
+        catch (DebugAdapterRequestException exception)
+        {
+            var failure = ClassifyProtocolFailure(action, exception);
+            return Failure(context, action, operation, failure.Kind, failure.Message);
+        }
+        catch (DebugProtocolException exception)
+        {
+            var failure = ClassifyProtocolFailure(action, exception);
+            return Failure(context, action, operation, failure.Kind, failure.Message);
         }
         catch (DebugSessionOwnershipException)
         {
@@ -87,9 +123,11 @@ public sealed class DebugOperationDispatcher
         CancellationToken cancellationToken)
     {
         if (operation is LaunchDebugOperation launch)
-            return await RequireStarts().LaunchAsync(launch, context, cancellationToken).ConfigureAwait(false);
+            return await RequireStarts().LaunchAsync(
+                launch, permission, context, cancellationToken).ConfigureAwait(false);
         if (operation is AttachDebugOperation attach)
-            return await RequireStarts().AttachAsync(attach, context, cancellationToken).ConfigureAwait(false);
+            return await RequireStarts().AttachAsync(
+                attach, permission, context, cancellationToken).ConfigureAwait(false);
 
         var runtime = DebugRuntimeBinding.Capture(context, requireProcessExecution: false);
         var services = _runtimeServices.Create(runtime);
@@ -98,13 +136,20 @@ public sealed class DebugOperationDispatcher
         return operation switch
         {
             ListDebugSessionsOperation => ListSessions(services, owner, context),
-            GetDebugStatusOperation request => Status(services, owner, request),
-            GetDebugHealthOperation request => Health(services, owner, request),
+            GetDebugStatusOperation request => Status(services, owner, request, context),
+            GetDebugHealthOperation request => Health(services, owner, request, context),
             SnapshotDebugOperation request => Snapshot(services, owner, request, context),
             InspectDebugStopOperation request => await InspectStopAsync(services, owner, request, context, cancellationToken).ConfigureAwait(false),
             DisconnectDebugOperation request => await DisconnectAsync(services, owner, request, cancellationToken).ConfigureAwait(false),
-            TerminateDebugOperation request => await TerminateAsync(services, owner, request, cancellationToken).ConfigureAwait(false),
-            RestartDebugOperation request => await RestartAsync(services, owner, request, cancellationToken).ConfigureAwait(false),
+            TerminateDebugOperation request => await TerminateAsync(
+                services, owner, request, context, cancellationToken).ConfigureAwait(false),
+            RestartDebugOperation request => await RestartAsync(
+                services,
+                owner,
+                request,
+                permission,
+                context,
+                cancellationToken).ConfigureAwait(false),
             SetSourceBreakpointsOperation request => await SetSourceBreakpointsAsync(services, owner, request, context, cancellationToken).ConfigureAwait(false),
             SetFunctionBreakpointsOperation request => await SetFunctionBreakpointsAsync(services, owner, request, context, cancellationToken).ConfigureAwait(false),
             SetExceptionBreakpointsOperation request => await SetExceptionBreakpointsAsync(services, owner, request, context, cancellationToken).ConfigureAwait(false),
@@ -141,7 +186,7 @@ public sealed class DebugOperationDispatcher
             ReadDebugMemoryOperation request => await ReadMemoryAsync(services, owner, request, cancellationToken).ConfigureAwait(false),
             WriteDebugMemoryOperation request => await WriteMemoryAsync(services, owner, request, permission, cancellationToken).ConfigureAwait(false),
             DisassembleDebugOperation request => await DisassembleAsync(services, owner, request, cancellationToken).ConfigureAwait(false),
-            GetDebugOutputOperation request => Output(services, owner, request),
+            GetDebugOutputOperation request => Output(services, owner, request, context),
             PersistDebugOutputOperation request => await PersistOutputAsync(services, owner, request, context, cancellationToken).ConfigureAwait(false),
             CancelDebugProgressOperation request => await CancelProgressAsync(services, owner, request, cancellationToken).ConfigureAwait(false),
             _ => throw new ArgumentOutOfRangeException(nameof(operation))
@@ -156,14 +201,49 @@ public sealed class DebugOperationDispatcher
             snapshots.Select(item => $"{item.DebugTreeId} {item.Status} sessions={item.SessionCount}"));
     }
 
-    private string Status(DebugRuntimeServices services, DebugTreeLookupScope owner, GetDebugStatusOperation request)
-        => _formatter.Success("getStatus", Attr(
+    private string Status(
+        DebugRuntimeServices services,
+        DebugTreeLookupScope owner,
+        GetDebugStatusOperation request,
+        FunctionExecutionContext context)
+    {
+        if (services.Manager.TryResolveTerminal(owner, request.DebugTreeId, out var terminal))
+        {
+            context.ResultMetadata.Set(
+                CodingToolMetadataKeys.DebugTerminalRecord,
+                DebugTerminalRecordMetadataProjection.Project(terminal));
+            return _formatter.Success("getStatus", Attr(
+                ("debugTreeId", request.DebugTreeId),
+                ("debugSessionId", request.DebugSessionId),
+                ("status", terminal.FinalStatus),
+                ("retained", true),
+                ("exitCode", terminal.ExitCode)));
+        }
+        return _formatter.Success("getStatus", Attr(
             ("debugTreeId", request.DebugTreeId),
             ("debugSessionId", request.DebugSessionId),
-            ("status", services.Semantics.GetStatus(owner, request.DebugTreeId, request.DebugSessionId))));
+            ("status", services.Semantics.GetStatus(
+                owner, request.DebugTreeId, request.DebugSessionId))));
+    }
 
-    private string Health(DebugRuntimeServices services, DebugTreeLookupScope owner, GetDebugHealthOperation request)
+    private string Health(
+        DebugRuntimeServices services,
+        DebugTreeLookupScope owner,
+        GetDebugHealthOperation request,
+        FunctionExecutionContext context)
     {
+        if (services.Manager.TryResolveTerminal(owner, request.DebugTreeId, out var terminal))
+        {
+            context.ResultMetadata.Set(
+                CodingToolMetadataKeys.DebugTerminalRecord,
+                DebugTerminalRecordMetadataProjection.Project(terminal));
+            return _formatter.Success("getHealth", Attr(
+                ("debugTreeId", request.DebugTreeId),
+                ("retained", true),
+                ("retainedOutputBytes", terminal.Output.RetainedBytes),
+                ("droppedOutputRecords", terminal.Output.DroppedRecords),
+                ("projectionFailures", terminal.Snapshot.ProjectionFailures)));
+        }
         var health = services.Semantics.GetHealth(owner, request.DebugTreeId, request.DebugSessionId);
         return _formatter.Success("getHealth", Attr(
             ("debugTreeId", request.DebugTreeId),
@@ -183,20 +263,64 @@ public sealed class DebugOperationDispatcher
         var snapshot = services.Semantics.GetSnapshot(owner, request.DebugTreeId);
         var breakpoints = services.Breakpoints.GetSnapshot(owner, request.DebugTreeId, request.DebugSessionId);
         var output = services.Semantics.GetOutput(owner, request.DebugTreeId, request.DebugSessionId);
+        if (services.Manager.TryResolveTerminal(owner, request.DebugTreeId, out var terminal))
+        {
+            context.ResultMetadata.Set(
+                CodingToolMetadataKeys.DebugSessionSnapshot, snapshot);
+            context.ResultMetadata.Set(
+                CodingToolMetadataKeys.DebugBreakpoints, breakpoints);
+            context.ResultMetadata.Set(
+                CodingToolMetadataKeys.DebugBreakpointState, breakpoints.Counts);
+            context.ResultMetadata.Set(
+                CodingToolMetadataKeys.DebugTerminalRecord,
+                DebugTerminalRecordMetadataProjection.Project(terminal));
+            return _formatter.Success("snapshot", Attr(
+                ("debugTreeId", snapshot.DebugTreeId),
+                ("debugSessionId", snapshot.ActiveDebugSessionId),
+                ("status", terminal.FinalStatus),
+                ("retained", true),
+                ("exitCode", terminal.ExitCode),
+                ("sessionCount", snapshot.SessionCount),
+                ("childSessionCount", snapshot.ChildSessionCount),
+                ("requestedBreakpoints", breakpoints.Counts.Requested),
+                ("acknowledgedBreakpoints", breakpoints.Counts.Acknowledged),
+                ("verifiedBreakpoints", breakpoints.Counts.Verified),
+                ("breakpointVerification", "resolved_not_hit"),
+                ("pendingBreakpoints", breakpoints.Counts.Pending),
+                ("retainedOutputBytes", output.RetainedBytes)),
+                BoundOutput(output, request.MaximumOutputBytes));
+        }
         var tree = services.Manager.ResolveTree(owner, request.DebugTreeId);
         var session = tree.SelectSession(request.DebugSessionId);
         context.ResultMetadata.Set(CodingToolMetadataKeys.DebugSessionSnapshot, snapshot);
         context.ResultMetadata.Set(CodingToolMetadataKeys.DebugBreakpoints, breakpoints);
-        if (session.Capabilities is not null)
-            context.ResultMetadata.Set(CodingToolMetadataKeys.DebugCapabilities, session.Capabilities);
-        return _formatter.Success("snapshot", Attr(
+        context.ResultMetadata.Set(
+            CodingToolMetadataKeys.DebugBreakpointState, breakpoints.Counts);
+        var capabilities = session.Capabilities is null
+            ? null
+            : DebugCapabilityProjection.Project(session.Capabilities);
+        if (capabilities is not null)
+            context.ResultMetadata.Set(CodingToolMetadataKeys.DebugCapabilities, capabilities);
+        var attributes = Attr(
             ("debugTreeId", snapshot.DebugTreeId),
             ("debugSessionId", snapshot.ActiveDebugSessionId),
             ("status", snapshot.Status),
+            ("primaryStoppedThreadId", snapshot.Sessions
+                .FirstOrDefault(item => item.DebugSessionId == snapshot.ActiveDebugSessionId)?
+                .PrimaryStoppedThreadId),
             ("sessionCount", snapshot.SessionCount),
             ("childSessionCount", snapshot.ChildSessionCount),
-            ("confirmedBreakpoints", breakpoints.Confirmed.Length),
-            ("retainedOutputBytes", output.RetainedBytes)),
+            ("requestedBreakpoints", breakpoints.Counts.Requested),
+            ("acknowledgedBreakpoints", breakpoints.Counts.Acknowledged),
+            ("verifiedBreakpoints", breakpoints.Counts.Verified),
+            ("breakpointVerification", "resolved_not_hit"),
+            ("pendingBreakpoints", breakpoints.Counts.Pending),
+            ("retainedOutputBytes", output.RetainedBytes),
+            ("supportedOptionalActions", Join(capabilities?.SupportedOptionalActions)),
+            ("unsupportedOptionalActions", Join(capabilities?.UnsupportedOptionalActions)),
+            ("executionOptions", Join(capabilities?.ExecutionOptions)),
+            ("exceptionFilterIds", Join(capabilities?.ExceptionFilters.Select(item => item.FilterId))));
+        return _formatter.Success("snapshot", attributes,
             BoundOutput(output, request.MaximumOutputBytes));
     }
 
@@ -212,9 +336,13 @@ public sealed class DebugOperationDispatcher
             request.MaximumOutputBytes is < 0 or > 16 * 1024)
             throw new ArgumentOutOfRangeException(nameof(request));
         var threads = await services.Semantics.ThreadsAsync(owner, request.DebugTreeId, request.DebugSessionId, cancellationToken).ConfigureAwait(false);
+        var session = services.Manager.ResolveTree(owner, request.DebugTreeId)
+            .SelectSession(request.DebugSessionId);
         var selected = request.ThreadId is { } requested
             ? threads.SingleOrDefault(item => item.ThreadId == requested && item.IsStopped)
-            : threads.FirstOrDefault(item => item.IsStopped);
+            : session.State.PrimaryStoppedThreadId is { } primary
+                ? threads.SingleOrDefault(item => item.ThreadId == primary && item.IsStopped)
+                : threads.FirstOrDefault(item => item.IsStopped);
         if (selected is null)
             throw new DebugSemanticException(DebugSemanticFailureReason.InvalidSessionState, "No stopped thread is available.");
         var stack = await services.Semantics.StackTraceAsync(
@@ -246,8 +374,13 @@ public sealed class DebugOperationDispatcher
         var output = services.Semantics.GetOutput(owner, request.DebugTreeId, request.DebugSessionId);
         details.AddRange(BoundOutput(output, request.MaximumOutputBytes));
         var inspection = new DebugStopInspectionMetadata(selected, stack, scopes, variables, output);
+        var capabilities = session.Capabilities is null
+            ? null
+            : DebugCapabilityProjection.Project(session.Capabilities);
         context.ResultMetadata.Set(CodingToolMetadataKeys.DebugStopSnapshot, inspection);
         context.ResultMetadata.Set(CodingToolMetadataKeys.DebugStackFrames, stack);
+        if (capabilities is not null)
+            context.ResultMetadata.Set(CodingToolMetadataKeys.DebugCapabilities, capabilities);
         return _formatter.Success("inspectStop", Attr(
             ("debugTreeId", request.DebugTreeId),
             ("threadId", selected.ThreadId),
@@ -255,7 +388,11 @@ public sealed class DebugOperationDispatcher
             ("frameCount", stack.Frames.Count),
             ("scopeCount", scopes.Count),
             ("variableCount", variables.Sum(page => page.Variables.Count)),
-            ("continuationToken", stack.ContinuationToken)), details);
+            ("continuationToken", stack.ContinuationToken),
+            ("supportedOptionalActions", Join(capabilities?.SupportedOptionalActions)),
+            ("unsupportedOptionalActions", Join(capabilities?.UnsupportedOptionalActions)),
+            ("executionOptions", Join(capabilities?.ExecutionOptions)),
+            ("exceptionFilterIds", Join(capabilities?.ExceptionFilters.Select(item => item.FilterId)))), details);
     }
 
     private async Task<string> DisconnectAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, DisconnectDebugOperation request, CancellationToken cancellationToken)
@@ -268,8 +405,27 @@ public sealed class DebugOperationDispatcher
         return _formatter.Success("disconnect", Attr(("debugTreeId", request.DebugTreeId), ("mode", request.Mode)));
     }
 
-    private async Task<string> TerminateAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, TerminateDebugOperation request, CancellationToken cancellationToken)
+    private async Task<string> TerminateAsync(
+        DebugRuntimeServices services,
+        DebugTreeLookupScope owner,
+        TerminateDebugOperation request,
+        FunctionExecutionContext context,
+        CancellationToken cancellationToken)
     {
+        if (services.Manager.TryResolveTerminal(
+                owner,
+                request.DebugTreeId,
+                out var terminal))
+        {
+            context.ResultMetadata.Set(
+                CodingToolMetadataKeys.DebugTerminalRecord,
+                DebugTerminalRecordMetadataProjection.Project(terminal));
+            return _formatter.Success("terminate", Attr(
+                ("debugTreeId", request.DebugTreeId),
+                ("target", request.Target),
+                ("alreadyTerminated", true),
+                ("terminalRecordRetained", true)));
+        }
         var scope = request.Target switch
         {
             DebugTerminationTarget.Tree => DebugTerminationScope.Tree,
@@ -285,13 +441,55 @@ public sealed class DebugOperationDispatcher
             ("graceful", result.Graceful), ("treeDisposed", result.TreeDisposed)));
     }
 
-    private async Task<string> RestartAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, RestartDebugOperation request, CancellationToken cancellationToken)
+    private async Task<string> RestartAsync(
+        DebugRuntimeServices services,
+        DebugTreeLookupScope owner,
+        RestartDebugOperation request,
+        DebugPermissionDecision permission,
+        FunctionExecutionContext context,
+        CancellationToken cancellationToken)
     {
-        var result = await services.Restart.RestartAsync(owner, request.DebugTreeId, request.DebugSessionId, cancellationToken).ConfigureAwait(false);
-        return _formatter.Success("restart", Attr(
-            ("debugTreeId", result.Replacement?.DebugTreeId ?? request.DebugTreeId),
-            ("debugSessionId", result.Replacement?.DebugSessionId ?? request.DebugSessionId),
-            ("inPlace", result.InPlace)));
+        var tree = services.Manager.ResolveTree(owner, request.DebugTreeId);
+        var session = tree.SelectSession(request.DebugSessionId);
+        var semantic = tree.SemanticRestartOperation
+            ?? throw new InvalidOperationException(
+                "The debug tree has no semantic restart input.");
+        var desired = tree.Breakpoints.Snapshot;
+        var replacementOperation = semantic with
+        {
+            InitialConfiguration = new DebugInitialConfigurationInput(
+                desired.Source.Select(item => new DebugSourceBreakpointInput(
+                    item.Path,
+                    checked((int)item.Line),
+                    item.Column is null
+                        ? null
+                        : checked((int)item.Column.Value),
+                    item.Condition,
+                    item.HitCondition,
+                    item.LogMessage)).ToArray(),
+                desired.Function.Select(item => new DebugFunctionBreakpointInput(
+                    item.Name,
+                    item.Condition,
+                    item.HitCondition)).ToArray(),
+                desired.Exception.Select(item => new DebugExceptionBreakpointInput(
+                    item.FilterId,
+                    item.Condition)).ToArray(),
+                semantic.InitialConfiguration?.BreakpointPolicy ??
+                    DebugInitialBreakpointPolicy.AllowPending)
+        };
+        await services.Semantics.DisconnectAsync(
+            owner,
+            request.DebugTreeId,
+            session.SessionId,
+            terminateDebuggee:
+                session.AdapterStartMethod == DebugAdapterStartMethod.Launch,
+            suspendDebuggee: false,
+            cancellationToken).ConfigureAwait(false);
+        return await RequireStarts().RestartAsync(
+            replacementOperation,
+            permission,
+            context,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<string> SetSourceBreakpointsAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, SetSourceBreakpointsOperation request, FunctionExecutionContext context, CancellationToken cancellationToken)
@@ -363,15 +561,28 @@ public sealed class DebugOperationDispatcher
     {
         var snapshot = services.Breakpoints.GetSnapshot(owner, request.DebugTreeId, request.DebugSessionId);
         context.ResultMetadata.Set(CodingToolMetadataKeys.DebugBreakpoints, snapshot);
-        return _formatter.Success("getBreakpoints", Attr(
-            ("debugTreeId", request.DebugTreeId),
-            ("debugSessionId", snapshot.DebugSessionId),
-            ("sourceCount", snapshot.Desired.Source.Length),
-            ("functionCount", snapshot.Desired.Function.Length),
-            ("exceptionCount", snapshot.Desired.Exception.Length),
-            ("instructionCount", snapshot.Desired.Instruction.Length),
-            ("dataCount", snapshot.Desired.Data.Length),
-            ("confirmedCount", snapshot.Confirmed.Length)));
+        var attributes = new List<KeyValuePair<string, object?>>
+        {
+            KeyValuePair.Create<string, object?>("debugTreeId", request.DebugTreeId),
+            KeyValuePair.Create<string, object?>("retained", !snapshot.DetailsRetained),
+            KeyValuePair.Create<string, object?>("detailsRetained", snapshot.DetailsRetained),
+            KeyValuePair.Create<string, object?>("requestedCount", snapshot.Counts.Requested),
+            KeyValuePair.Create<string, object?>("acknowledgedCount", snapshot.Counts.Acknowledged),
+            KeyValuePair.Create<string, object?>("verifiedCount", snapshot.Counts.Verified),
+            KeyValuePair.Create<string, object?>("verificationMeaning", "resolved_not_hit"),
+            KeyValuePair.Create<string, object?>("pendingCount", snapshot.Counts.Pending)
+        };
+        if (snapshot.DetailsRetained)
+        {
+            attributes.AddRange(Attr(
+                ("debugSessionId", snapshot.DebugSessionId),
+                ("sourceCount", snapshot.Desired.Source.Length),
+                ("functionCount", snapshot.Desired.Function.Length),
+                ("exceptionCount", snapshot.Desired.Exception.Length),
+                ("instructionCount", snapshot.Desired.Instruction.Length),
+                ("dataCount", snapshot.Desired.Data.Length)));
+        }
+        return _formatter.Success("getBreakpoints", attributes);
     }
 
     private string BreakpointMutationResult(DebugRuntimeServices services, DebugTreeLookupScope owner, string treeId, string? sessionId, string action, FunctionExecutionContext context)
@@ -380,7 +591,11 @@ public sealed class DebugOperationDispatcher
         context.ResultMetadata.Set(CodingToolMetadataKeys.DebugBreakpoints, snapshot);
         return _formatter.Success(action, Attr(
             ("debugTreeId", treeId), ("debugSessionId", snapshot.DebugSessionId),
-            ("confirmedCount", snapshot.Confirmed.Length)));
+            ("requestedCount", snapshot.Counts.Requested),
+            ("acknowledgedCount", snapshot.Counts.Acknowledged),
+            ("verifiedCount", snapshot.Counts.Verified),
+            ("verificationMeaning", "resolved_not_hit"),
+            ("pendingCount", snapshot.Counts.Pending)));
     }
 
     private async Task<string> BreakpointLocationsAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, GetBreakpointLocationsOperation request, CancellationToken cancellationToken)
@@ -394,25 +609,43 @@ public sealed class DebugOperationDispatcher
     }
 
     private async Task<string> ContinueAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, ContinueDebugOperation request, CancellationToken cancellationToken)
-        => OperationResult("continue", await services.Semantics.ContinueAsync(owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId, request.SingleThread, Timeout(request.WaitTimeoutMilliseconds), cancellationToken).ConfigureAwait(false));
+        => OperationResult("continue", await services.Semantics.ContinueAsync(
+            owner, request.DebugTreeId, request.DebugSessionId,
+            ResolvePrimaryStoppedThreadId(services, owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId),
+            request.SingleThread, Timeout(request.WaitTimeoutMilliseconds), cancellationToken).ConfigureAwait(false));
 
     private async Task<string> PauseAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, PauseDebugOperation request, CancellationToken cancellationToken)
         => OperationResult("pause", await services.Semantics.PauseAsync(owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId, Timeout(request.WaitTimeoutMilliseconds), cancellationToken).ConfigureAwait(false));
 
     private async Task<string> StepOverAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, StepOverDebugOperation request, CancellationToken cancellationToken)
-        => OperationResult("stepOver", await services.Semantics.NextAsync(owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId, request.SingleThread, Granularity(request.Granularity), Timeout(request.WaitTimeoutMilliseconds), cancellationToken).ConfigureAwait(false));
+        => OperationResult("stepOver", await services.Semantics.NextAsync(
+            owner, request.DebugTreeId, request.DebugSessionId,
+            ResolvePrimaryStoppedThreadId(services, owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId),
+            request.SingleThread, Granularity(request.Granularity), Timeout(request.WaitTimeoutMilliseconds), cancellationToken).ConfigureAwait(false));
 
     private async Task<string> StepInAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, StepInDebugOperation request, CancellationToken cancellationToken)
-        => OperationResult("stepIn", await services.Semantics.StepInAsync(owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId, request.SingleThread, request.TargetToken, Granularity(request.Granularity), Timeout(request.WaitTimeoutMilliseconds), cancellationToken).ConfigureAwait(false));
+        => OperationResult("stepIn", await services.Semantics.StepInAsync(
+            owner, request.DebugTreeId, request.DebugSessionId,
+            ResolvePrimaryStoppedThreadId(services, owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId),
+            request.SingleThread, request.TargetToken, Granularity(request.Granularity), Timeout(request.WaitTimeoutMilliseconds), cancellationToken).ConfigureAwait(false));
 
     private async Task<string> StepOutAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, StepOutDebugOperation request, CancellationToken cancellationToken)
-        => OperationResult("stepOut", await services.Semantics.StepOutAsync(owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId, request.SingleThread, Granularity(request.Granularity), Timeout(request.WaitTimeoutMilliseconds), cancellationToken).ConfigureAwait(false));
+        => OperationResult("stepOut", await services.Semantics.StepOutAsync(
+            owner, request.DebugTreeId, request.DebugSessionId,
+            ResolvePrimaryStoppedThreadId(services, owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId),
+            request.SingleThread, Granularity(request.Granularity), Timeout(request.WaitTimeoutMilliseconds), cancellationToken).ConfigureAwait(false));
 
     private async Task<string> StepBackAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, StepBackDebugOperation request, CancellationToken cancellationToken)
-        => OperationResult("stepBack", await services.Semantics.StepBackAsync(owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId, request.SingleThread, Granularity(request.Granularity), Timeout(request.WaitTimeoutMilliseconds), cancellationToken).ConfigureAwait(false));
+        => OperationResult("stepBack", await services.Semantics.StepBackAsync(
+            owner, request.DebugTreeId, request.DebugSessionId,
+            ResolvePrimaryStoppedThreadId(services, owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId),
+            request.SingleThread, Granularity(request.Granularity), Timeout(request.WaitTimeoutMilliseconds), cancellationToken).ConfigureAwait(false));
 
     private async Task<string> ReverseContinueAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, ReverseContinueDebugOperation request, CancellationToken cancellationToken)
-        => OperationResult("reverseContinue", await services.Semantics.ReverseContinueAsync(owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId, request.SingleThread, Timeout(request.WaitTimeoutMilliseconds), cancellationToken).ConfigureAwait(false));
+        => OperationResult("reverseContinue", await services.Semantics.ReverseContinueAsync(
+            owner, request.DebugTreeId, request.DebugSessionId,
+            ResolvePrimaryStoppedThreadId(services, owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId),
+            request.SingleThread, Timeout(request.WaitTimeoutMilliseconds), cancellationToken).ConfigureAwait(false));
 
     private async Task<string> RestartFrameAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, RestartFrameDebugOperation request, CancellationToken cancellationToken)
         => OperationResult("restartFrame", await services.Semantics.RestartFrameAsync(owner, request.DebugTreeId, request.DebugSessionId, request.FrameToken, Timeout(request.WaitTimeoutMilliseconds), cancellationToken).ConfigureAwait(false));
@@ -429,18 +662,50 @@ public sealed class DebugOperationDispatcher
     private async Task<string> ThreadsAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, GetThreadsOperation request, CancellationToken cancellationToken)
     {
         var items = await services.Semantics.ThreadsAsync(owner, request.DebugTreeId, request.DebugSessionId, cancellationToken).ConfigureAwait(false);
-        return _formatter.Success("getThreads", Attr(("count", items.Count)),
-            items.Select(item => $"{item.ThreadId} {item.Name} stopped={item.IsStopped} reason={item.StopReason}"));
+        return ProjectThreads(items);
+    }
+
+    internal string ProjectThreads(IReadOnlyList<DebugSemanticThread> items)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        return _formatter.Success("getThreads", Attr(
+                ("count", items.Count),
+                ("primaryStoppedThreadId", items.SingleOrDefault(item => item.IsPrimaryStoppedThread)?.ThreadId)),
+            items.Select(item =>
+                $"{item.ThreadId} {item.Name} stopped={item.IsStopped} primary={item.IsPrimaryStoppedThread} reason={item.StopReason}"));
     }
 
     private async Task<string> StackAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, GetStackTraceOperation request, FunctionExecutionContext context, CancellationToken cancellationToken)
     {
-        var result = await services.Semantics.StackTraceAsync(owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId, request.Levels, request.ContinuationToken, cancellationToken).ConfigureAwait(false);
+        var threadId = ResolvePrimaryStoppedThreadId(
+            services, owner, request.DebugTreeId, request.DebugSessionId, request.ThreadId);
+        var result = await services.Semantics.StackTraceAsync(owner, request.DebugTreeId, request.DebugSessionId, threadId, request.Levels, request.ContinuationToken, cancellationToken).ConfigureAwait(false);
         context.ResultMetadata.Set(CodingToolMetadataKeys.DebugStackFrames, result);
         return _formatter.Success("getStackTrace", Attr(
             ("count", result.Frames.Count), ("totalFrames", result.TotalFrames),
             ("continuationToken", result.ContinuationToken)),
             result.Frames.Select(item => $"{item.Name} {item.SourcePath}:{item.Line}:{item.Column} frameToken={item.FrameToken}"));
+    }
+
+    private static int ResolvePrimaryStoppedThreadId(
+        DebugRuntimeServices services,
+        DebugTreeLookupScope owner,
+        string treeId,
+        string? sessionId,
+        int? requestedThreadId)
+    {
+        if (requestedThreadId is > 0)
+            return requestedThreadId.Value;
+        if (requestedThreadId is <= 0)
+            throw new DebugSemanticException(
+                DebugSemanticFailureReason.InvalidArguments,
+                "A debugger thread ID must be positive when supplied.");
+        return services.Manager.ResolveTree(owner, treeId)
+            .SelectSession(sessionId)
+            .State.PrimaryStoppedThreadId
+            ?? throw new DebugSemanticException(
+                DebugSemanticFailureReason.InvalidSessionState,
+                "The debugger operation requires an adapter-designated stopped thread.");
     }
 
     private async Task<string> ScopesAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, GetScopesOperation request, CancellationToken cancellationToken)
@@ -582,11 +847,19 @@ public sealed class DebugOperationDispatcher
             result.Instructions.Select(item => $"{item.Address} {item.Instruction} instructionToken={item.InstructionReferenceToken}"));
     }
 
-    private string Output(DebugRuntimeServices services, DebugTreeLookupScope owner, GetDebugOutputOperation request)
+    private string Output(
+        DebugRuntimeServices services,
+        DebugTreeLookupScope owner,
+        GetDebugOutputOperation request,
+        FunctionExecutionContext context)
     {
         if (request.MaximumRecords is <= 0 or > 1000 || request.MaximumBytes is <= 0 or > 64 * 1024)
             throw new ArgumentOutOfRangeException(nameof(request));
         var snapshot = services.Semantics.GetOutput(owner, request.DebugTreeId, request.DebugSessionId);
+        if (services.Manager.TryResolveTerminal(owner, request.DebugTreeId, out var terminal))
+            context.ResultMetadata.Set(
+                CodingToolMetadataKeys.DebugTerminalRecord,
+                DebugTerminalRecordMetadataProjection.Project(terminal));
         var categories = request.Categories?.Select(OutputCategory).ToHashSet();
         var bytes = 0;
         var records = snapshot.Records
@@ -621,22 +894,39 @@ public sealed class DebugOperationDispatcher
     }
 
     private string OperationResult(string action, DebugOperationResult result)
-        => _formatter.Success(action, Attr(
+    {
+        var invalidatesTokens = action is "continue" or "stepOver" or "stepIn" or "stepOut" or
+            "stepBack" or "reverseContinue" or "restartFrame" or "goto";
+        return _formatter.Success(action, Attr(
             ("debugTreeId", result.DebugTreeId), ("debugSessionId", result.DebugSessionId),
             ("threadId", result.ThreadId), ("status", result.EndedStatus?.ToString() ??
                 (result.IsStopped ? "stopped" : "running")),
             ("timedOutWaitingForStop", result.TimedOutWaitingForStop),
-            ("stopReason", result.Thread?.StopReason)));
+            ("stopReason", result.Thread?.StopReason),
+            ("priorSuspensionTokensInvalidated", invalidatesTokens),
+            ("nextAction", invalidatesTokens && result.IsStopped ? "inspectStop" :
+                invalidatesTokens ? "snapshot" : null)),
+            invalidatesTokens
+                ? ["Prior suspension-bound tokens are expired; inspect the current stop before using frame, scope, variable, or location tokens."]
+                : null);
+    }
 
-    private DebugStartPlanningService RequireStarts()
+    private DebugExecutionPlanningService RequireStarts()
         => _starts ?? throw new InvalidOperationException("Debug start planning is not configured.");
 
-    private string Failure(FunctionExecutionContext context, string action, DebugOperation operation, string kind, string message)
+    private string Failure(
+        FunctionExecutionContext context,
+        string action,
+        DebugOperation operation,
+        string kind,
+        string message,
+        IEnumerable<KeyValuePair<string, object?>>? attributes = null,
+        IEnumerable<string>? items = null)
     {
         context.ResultMetadata.Set(
             CodingToolMetadataKeys.DebugOperation,
             new DebugOperationMetadata(action, TreeId(operation), SessionId(operation), false, kind));
-        return _formatter.Failure(action, kind, message);
+        return _formatter.Failure(action, kind, message, attributes, items);
     }
 
     private static TimeSpan Timeout(int milliseconds)
@@ -646,8 +936,9 @@ public sealed class DebugOperationDispatcher
         return TimeSpan.FromMilliseconds(milliseconds);
     }
 
-    private static DebugSteppingGranularity Granularity(DebugStepGranularity value) => value switch
+    private static DebugSteppingGranularity? Granularity(DebugStepGranularity? value) => value switch
     {
+        null => null,
         DebugStepGranularity.Statement => DebugSteppingGranularity.Statement,
         DebugStepGranularity.Line => DebugSteppingGranularity.Line,
         DebugStepGranularity.Instruction => DebugSteppingGranularity.Instruction,
@@ -675,6 +966,14 @@ public sealed class DebugOperationDispatcher
 
     private static IReadOnlyList<KeyValuePair<string, object?>> Attr(params (string Key, object? Value)[] values)
         => values.Select(value => KeyValuePair.Create(value.Key, value.Value)).ToArray();
+
+    private static string? Join(IEnumerable<string>? values)
+    {
+        if (values is null)
+            return null;
+        var materialized = values.Take(64).ToArray();
+        return materialized.Length == 0 ? "none" : string.Join(',', materialized);
+    }
 
     private static IReadOnlyList<string> BoundOutput(DebugOutputSnapshot snapshot, int maximumBytes)
     {
@@ -788,4 +1087,19 @@ public sealed class DebugOperationDispatcher
         DebugSemanticFailureReason.ContentStoreUnavailable => "Debugger artifact storage is unavailable.",
         _ => "The debugger operation failed."
     };
+
+    internal static (string Kind, string Message) ClassifyProtocolFailure(
+        string action,
+        Exception exception)
+        => exception switch
+        {
+            DebugAdapterRequestException when action is "setVariable" or "setExpression" =>
+                ("mutation_rejected",
+                    $"The adapter advertises '{action}' support but rejected the selected target or value. Inspect the current stop and choose a writable location or a compatible value."),
+            DebugAdapterRequestException =>
+                ("adapter_request_failed", "The debug adapter rejected the operation."),
+            DebugProtocolException =>
+                ("adapter_protocol_failed", "The debug adapter protocol operation failed."),
+            _ => throw new ArgumentOutOfRangeException(nameof(exception))
+        };
 }

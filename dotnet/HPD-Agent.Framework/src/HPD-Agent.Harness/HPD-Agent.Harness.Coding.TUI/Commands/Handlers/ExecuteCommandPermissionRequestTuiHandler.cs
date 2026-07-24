@@ -369,7 +369,7 @@ internal sealed class ExecuteCommandPermissionDialogComponent : IFocusable
                 : $"{request.MatchingRules.Count} saved rules matched";
 
     private static string FormatSandbox(ExecuteCommandPermissionPlan plan)
-        => plan.RequestedSandbox.Mode == ExecuteCommandIsolationMode.Disabled
+        => plan.RequestedSandbox.Mode == AgentProcessIsolationMode.Disabled
             ? "disabled"
             : plan.Risk.HasFlag(ExecuteCommandPermissionRisk.AdditionalSandboxPermissions)
                 ? $"{plan.RequestedSandbox.Mode} plus requested access"

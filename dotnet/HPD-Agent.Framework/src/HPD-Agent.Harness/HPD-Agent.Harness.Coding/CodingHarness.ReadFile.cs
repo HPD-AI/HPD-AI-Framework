@@ -526,6 +526,13 @@ public static class CodingToolMetadataKeys
     public const string DebugCapabilities = "coding.debug.capabilities";
     public const string DebugOutputReference = "coding.debug.outputReference";
     public const string DebugAdapterDiagnosticReference = "coding.debug.adapterDiagnosticReference";
+    public const string DebugExecutionPlan = "coding.debug.executionPlan";
+    public const string DebugExecutionActivation = "coding.debug.executionActivation";
+    public const string DebugBreakpointState = "coding.debug.breakpointState";
+    public const string DebugTerminalRecord = "coding.debug.terminalRecord";
+    public const string DebugProjectEvaluation = "coding.debug.projectEvaluation";
+    public const string DebugExceptionFilters = "coding.debug.exceptionFilters";
+    public const string DebugLaunchNotices = "coding.debug.launchNotices";
 }
 
 /// <summary>

@@ -47,7 +47,7 @@ internal sealed class DebugThreadState(int threadId)
 
     public void ObserveName(string? name) => Name = Bound(name, 1024);
 
-    public void Stop(string reason, string? description)
+    public void Stop(string? reason, string? description)
     {
         IsStopped = true;
         StopReason = Bound(reason, 256);
@@ -66,6 +66,18 @@ internal sealed class DebugThreadState(int threadId)
     public DebugThreadSnapshot Snapshot() => new(
         ThreadId, IsStopped, StopReason, StopDescription, SuspensionEpoch, ResumptionGeneration, Name);
 
+    public void Restore(DebugThreadSnapshot snapshot)
+    {
+        if (snapshot.ThreadId != ThreadId)
+            throw new InvalidOperationException("A debugger thread snapshot cannot be restored to another thread.");
+        IsStopped = snapshot.IsStopped;
+        StopReason = snapshot.StopReason;
+        StopDescription = snapshot.StopDescription;
+        SuspensionEpoch = snapshot.SuspensionEpoch;
+        ResumptionGeneration = snapshot.ResumptionGeneration;
+        Name = snapshot.Name;
+    }
+
     private static string? Bound(string? value, int maximum)
         => value is null ? null : value[..Math.Min(value.Length, maximum)];
 }
@@ -76,8 +88,18 @@ internal sealed class DebugSessionState
     private readonly Dictionary<int, DebugThreadState> _threads = [];
     private readonly Dictionary<long, DebugOutcomeWaiter> _waiters = [];
     private long _nextWaiterId;
+    private int? _primaryStoppedThreadId;
+    private DebugResumeTransition? _pendingResumeTransition;
 
     public DebugSessionStatus Status { get; private set; } = DebugSessionStatus.Created;
+    /// <summary>
+    /// Adapter-designated thread from the most recent stopped event. This
+    /// remains distinct when an all-threads-stopped event suspends every thread.
+    /// </summary>
+    public int? PrimaryStoppedThreadId
+    {
+        get { lock (_gate) return _primaryStoppedThreadId; }
+    }
     public IReadOnlyList<DebugThreadSnapshot> Threads
     {
         get { lock (_gate) return _threads.Values.OrderBy(x => x.ThreadId).Select(x => x.Snapshot()).ToArray(); }
@@ -111,22 +133,35 @@ internal sealed class DebugSessionState
                 GetOrAddThreadLocked(thread.Id).ObserveName(thread.Name);
             foreach (var id in _threads.Keys.Where(id => !retained.Contains(id)).ToArray())
                 _threads.Remove(id);
+            if (_primaryStoppedThreadId is { } primary && !retained.Contains(primary))
+                _primaryStoppedThreadId = null;
         }
     }
 
     public void RemoveThread(int threadId)
     {
-        lock (_gate) _threads.Remove(threadId);
+        lock (_gate)
+        {
+            _threads.Remove(threadId);
+            if (_primaryStoppedThreadId == threadId)
+                _primaryStoppedThreadId = null;
+        }
     }
 
     public void ObserveStopped(int? threadId, bool allThreadsStopped, string reason, string? description)
     {
         lock (_gate)
         {
+            _pendingResumeTransition = null;
+            _primaryStoppedThreadId = threadId is > 0 ? threadId : null;
             if (allThreadsStopped)
             {
                 if (threadId is > 0) _threads.TryAdd(threadId.Value, new(threadId.Value));
-                foreach (var thread in _threads.Values) thread.Stop(reason, description);
+                foreach (var thread in _threads.Values)
+                {
+                    var isPrimary = threadId is null || thread.ThreadId == threadId;
+                    thread.Stop(isPrimary ? reason : null, isPrimary ? description : null);
+                }
             }
             else
             {
@@ -139,21 +174,101 @@ internal sealed class DebugSessionState
         }
     }
 
+    public DebugResumeTransition BeginResume(int threadId, bool allThreadsContinued)
+    {
+        lock (_gate)
+        {
+            if (_pendingResumeTransition is not null)
+                throw new InvalidOperationException(
+                    "A debugger resume transition is already pending.");
+            if (threadId <= 0)
+                throw new ArgumentOutOfRangeException(nameof(threadId));
+            if (!_threads.TryGetValue(threadId, out var selected) || !selected.IsStopped)
+                throw new DebugSemanticException(DebugSemanticFailureReason.InvalidSessionState,
+                    $"Debug thread '{threadId}' is not stopped.");
+
+            var affected = allThreadsContinued
+                ? _threads.Values.ToArray()
+                : [selected];
+            var snapshots = affected.ToDictionary(x => x.ThreadId, x => x.Snapshot());
+            var primary = _primaryStoppedThreadId;
+            if (allThreadsContinued)
+            {
+                foreach (var thread in affected) thread.Continue();
+                _primaryStoppedThreadId = null;
+            }
+            else
+            {
+                selected.Continue();
+                if (_primaryStoppedThreadId == threadId)
+                    _primaryStoppedThreadId = null;
+            }
+            RecomputeStatusLocked();
+            return _pendingResumeTransition = new DebugResumeTransition(
+                threadId, allThreadsContinued, primary, snapshots);
+        }
+    }
+
+    public bool TryRollbackResume(DebugResumeTransition transition)
+    {
+        ArgumentNullException.ThrowIfNull(transition);
+        lock (_gate)
+        {
+            if (!ReferenceEquals(_pendingResumeTransition, transition))
+                return false;
+            foreach (var (threadId, before) in transition.ThreadsBefore)
+            {
+                if (!_threads.TryGetValue(threadId, out var current))
+                    return false;
+                var snapshot = current.Snapshot();
+                if (snapshot.IsStopped ||
+                    snapshot.ResumptionGeneration != before.ResumptionGeneration + 1 ||
+                    snapshot.SuspensionEpoch != before.SuspensionEpoch)
+                    return false;
+            }
+            RestoreResumeLocked(transition);
+            _pendingResumeTransition = null;
+            return true;
+        }
+    }
+
     public void ObserveContinued(int threadId, bool allThreadsContinued)
     {
         lock (_gate)
         {
+            if (_pendingResumeTransition is { } pending)
+            {
+                if (pending.ThreadId == threadId &&
+                    pending.AllThreadsContinued == allThreadsContinued)
+                {
+                    _pendingResumeTransition = null;
+                    return;
+                }
+                RestoreResumeLocked(pending);
+                _pendingResumeTransition = null;
+            }
             if (allThreadsContinued)
             {
                 foreach (var thread in _threads.Values) thread.Continue();
+                _primaryStoppedThreadId = null;
             }
             else
             {
                 if (threadId <= 0) throw new InvalidOperationException("A partial continued event requires a thread ID.");
                 GetOrAddThreadLocked(threadId).Continue();
+                if (_primaryStoppedThreadId == threadId)
+                    _primaryStoppedThreadId = null;
             }
             RecomputeStatusLocked();
         }
+    }
+
+    private void RestoreResumeLocked(DebugResumeTransition transition)
+    {
+        foreach (var (threadId, before) in transition.ThreadsBefore)
+            _threads[threadId].Restore(before);
+        _primaryStoppedThreadId = transition.PrimaryStoppedThreadIdBefore;
+        RecomputeStatusLocked();
     }
 
     public DebugOutcomeWaitRegistration RegisterStopWaiter(int threadId, long minimumResumptionGeneration)
@@ -234,6 +349,12 @@ internal sealed class DebugSessionState
     }
 }
 
+internal sealed record DebugResumeTransition(
+    int ThreadId,
+    bool AllThreadsContinued,
+    int? PrimaryStoppedThreadIdBefore,
+    IReadOnlyDictionary<int, DebugThreadSnapshot> ThreadsBefore);
+
 internal sealed class DebugOutcomeWaitRegistration(Task<DebugThreadSnapshot> task, Action cancel) : IDisposable
 {
     private Action? _cancel = cancel;
@@ -254,9 +375,9 @@ internal sealed class DebugSession : IAsyncDisposable
     public required string SessionId { get; init; }
     public required string RootSessionId { get; init; }
     public string? ParentSessionId { get; init; }
-    public required bool IsAttach { get; init; }
+    public required DebugAdapterStartMethod AdapterStartMethod { get; init; }
     public required DebugProtocolClient Protocol { get; init; }
-    public required DebugAdapterLaunchPlan LaunchPlan { get; init; }
+    public required DebugAdapterStartPlan AdapterPlan { get; init; }
     public Capabilities? Capabilities { get; set; }
     public int? ExitCode { get; set; }
     public JsonElement? RestartData { get; set; }
@@ -266,7 +387,7 @@ internal sealed class DebugSession : IAsyncDisposable
     public DebugProgressProjection Progress { get; } = new();
     public DebugOutputEventCoalescer? OutputEvents { get; set; }
     public DebugProgressEventCoalescer? ProgressEvents { get; set; }
-    public DebugConfirmedBreakpointStore ConfirmedBreakpoints { get; } = new();
+    public DebugAdapterBreakpointStateStore AdapterBreakpoints { get; } = new();
     public ConcurrentDictionary<string, byte> ChildSessionIds { get; } = new(StringComparer.Ordinal);
     public List<IDisposable> HandlerRegistrations { get; } = [];
     public ConcurrentDictionary<long, Task> FollowUpTasks { get; } = [];
@@ -307,17 +428,19 @@ internal sealed class DebugSessionTree : IAsyncDisposable
     private long _nextTreeStopWaiterId;
     private int _terminalScheduled;
     private long _observerFailures;
+    private int _ownedResourcesDisposed;
     private int _disposed;
     public required DebugTreeOwnership Ownership { get; init; }
     public required string RootSessionId { get; init; }
     public required DebugRuntimeBinding RuntimeBinding { get; init; }
     public required DebugTreeAuthorization Authorization { get; init; }
     public required DebugArtifactWriter Artifacts { get; init; }
-    public DebugSessionStartRequest? RestartTemplate { get; init; }
+    public LaunchDebugOperation? SemanticRestartOperation { get; init; }
     public ITreeDebugEventPublisher? EventPublisher { get; init; }
     public DebugContinuationTokenRegistry Continuations { get; } = new();
     public DebugBreakpointStore Breakpoints { get; } = new();
     public ConcurrentDictionary<string, DebugSession> Sessions { get; } = new(StringComparer.Ordinal);
+    public ConcurrentQueue<IDebugOwnedResource> OwnedResources { get; } = new();
     public ConcurrentQueue<DebugStoredArtifact> StoredArtifacts { get; } = new();
     public string? ActiveSessionId { get; private set; }
     public long ObserverFailures => Interlocked.Read(ref _observerFailures);
@@ -343,7 +466,7 @@ internal sealed class DebugSessionTree : IAsyncDisposable
     public void AddSession(DebugSession session)
     {
         RuntimeBinding.State.ThrowIfUnavailable();
-        Authorization.ValidateCurrent(RuntimeBinding, session.LaunchPlan);
+        Authorization.ValidateCurrent(RuntimeBinding, session.AdapterPlan);
         if (!Sessions.TryAdd(session.SessionId, session))
             throw new InvalidOperationException($"Debug session '{session.SessionId}' already exists.");
         lock (_activeGate) ActiveSessionId ??= session.SessionId;
@@ -431,10 +554,24 @@ internal sealed class DebugSessionTree : IAsyncDisposable
                 waiter.TrySetException(new ObjectDisposedException(nameof(DebugSessionTree)));
             _treeStopWaiters.Clear();
         }
+        await StopAndDrainOwnedResourcesAsync().ConfigureAwait(false);
         foreach (var session in Sessions.Values)
             try { await session.DisposeAsync().ConfigureAwait(false); } catch { }
         Sessions.Clear();
+        while (OwnedResources.TryDequeue(out _)) { }
         await Breakpoints.DisposeAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Stops and drains owned resources while retaining their bounded snapshots
+    /// until terminal projection has completed.
+    /// </summary>
+    internal async ValueTask StopAndDrainOwnedResourcesAsync()
+    {
+        if (Interlocked.Exchange(ref _ownedResourcesDisposed, 1) != 0)
+            return;
+        foreach (var resource in OwnedResources.ToArray().AsEnumerable().Reverse())
+            try { await resource.DisposeAsync().ConfigureAwait(false); } catch { }
     }
 }
 

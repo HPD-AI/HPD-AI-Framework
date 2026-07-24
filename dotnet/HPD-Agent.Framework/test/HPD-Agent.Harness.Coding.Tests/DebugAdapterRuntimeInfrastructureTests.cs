@@ -97,8 +97,8 @@ public sealed class DebugAdapterRuntimeInfrastructureTests
         using var provider = new ServiceCollection()
             .AddHPDCodingDebugging()
             .BuildServiceProvider();
-        await using var firstManager = new DebugSessionManager();
-        await using var secondManager = new DebugSessionManager();
+        await using var firstManager = new DebugSessionManager(new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
+        await using var secondManager = new DebugSessionManager(new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
         var factory = provider.GetRequiredService<DebugRuntimeServiceFactory>();
 
         var first = factory.Create(Runtime(firstManager));

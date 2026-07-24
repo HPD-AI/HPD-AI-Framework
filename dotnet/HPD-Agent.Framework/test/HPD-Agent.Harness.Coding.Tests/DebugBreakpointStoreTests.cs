@@ -6,6 +6,169 @@ namespace HPD.Agent.ToolHarness.Coding.Tests;
 public sealed class DebugBreakpointStoreTests
 {
     [Fact]
+    public void Exception_filters_are_validated_against_negotiated_capabilities()
+    {
+        var capabilities = new Capabilities
+        {
+            ExceptionBreakpointFilters =
+            [
+                new ExceptionBreakpointsFilter
+                {
+                    Filter = "all",
+                    Label = "All exceptions",
+                    Default = true,
+                    SupportsCondition = false
+                },
+                new ExceptionBreakpointsFilter
+                {
+                    Filter = "user-unhandled",
+                    Label = "User unhandled",
+                    SupportsCondition = true
+                }
+            ]
+        };
+
+        var metadata = DebugExceptionBreakpointValidator.Validate(
+            capabilities,
+            [new("user-unhandled", "exception.Message != null")]);
+
+        metadata.Select(item => item.FilterId).Should()
+            .Equal("all", "user-unhandled");
+        metadata[0].IsDefault.Should().BeTrue();
+        metadata[1].SupportsCondition.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("unknown", null)]
+    [InlineData("all", "condition")]
+    public void Invalid_exception_filters_return_bounded_recovery_metadata(
+        string filterId,
+        string? condition)
+    {
+        var capabilities = new Capabilities
+        {
+            ExceptionBreakpointFilters =
+            [
+                new ExceptionBreakpointsFilter
+                {
+                    Filter = "all",
+                    Label = "All exceptions",
+                    SupportsCondition = false
+                }
+            ]
+        };
+
+        var action = () => DebugExceptionBreakpointValidator.Validate(
+            capabilities,
+            [new(filterId, condition)]);
+
+        var failure = action.Should()
+            .Throw<DebugExceptionBreakpointValidationException>().Which;
+        failure.AvailableFilters.Should().ContainSingle()
+            .Which.FilterId.Should().Be("all");
+    }
+
+    [Fact]
+    public void Duplicate_exception_filters_are_rejected_ordinally()
+    {
+        var capabilities = new Capabilities
+        {
+            ExceptionBreakpointFilters =
+            [
+                new ExceptionBreakpointsFilter
+                {
+                    Filter = "all",
+                    Label = "All exceptions"
+                }
+            ]
+        };
+
+        var action = () => DebugExceptionBreakpointValidator.Validate(
+            capabilities,
+            [new("all"), new("all")]);
+
+        action.Should().Throw<DebugExceptionBreakpointValidationException>()
+            .WithMessage("*Duplicate*");
+    }
+
+    [Fact]
+    public void Nonempty_exception_filters_require_advertised_capabilities()
+    {
+        DebugExceptionBreakpointValidator.Validate(new Capabilities(), [])
+            .Should().BeEmpty();
+
+        var action = () => DebugExceptionBreakpointValidator.Validate(
+            new Capabilities(),
+            [new("all")]);
+
+        action.Should().Throw<DebugExceptionBreakpointValidationException>();
+    }
+
+    [Fact]
+    public async Task Invalid_exception_replacement_preserves_desired_state()
+    {
+        await using var store = new DebugBreakpointStore();
+        store.Seed(new DebugInitialConfiguration
+        {
+            ExceptionFilters = [new("all")]
+        });
+        var capabilities = new Capabilities
+        {
+            ExceptionBreakpointFilters =
+            [
+                new ExceptionBreakpointsFilter
+                {
+                    Filter = "all",
+                    Label = "All exceptions"
+                }
+            ]
+        };
+
+        var replace = async () => await store.ReplaceExceptionAsync(
+            [new("unknown")],
+            (_, replacement, _) =>
+            {
+                DebugExceptionBreakpointValidator.Validate(
+                    capabilities,
+                    replacement);
+                return ValueTask.CompletedTask;
+            });
+
+        await replace.Should()
+            .ThrowAsync<DebugExceptionBreakpointValidationException>();
+        store.Snapshot.Exception.Should().ContainSingle()
+            .Which.FilterId.Should().Be("all");
+    }
+
+    [Fact]
+    public void Duplicate_advertised_filters_are_bounded_without_crashing()
+    {
+        var capabilities = new Capabilities
+        {
+            ExceptionBreakpointFilters =
+            [
+                new ExceptionBreakpointsFilter
+                {
+                    Filter = "all",
+                    Label = "All\u0001 exceptions"
+                },
+                new ExceptionBreakpointsFilter
+                {
+                    Filter = "all",
+                    Label = "Duplicate"
+                }
+            ]
+        };
+
+        var metadata = DebugExceptionBreakpointValidator.Validate(
+            capabilities,
+            [new("all")]);
+
+        metadata.Should().ContainSingle();
+        metadata[0].Label.Should().Be("All exceptions");
+    }
+
+    [Fact]
     public void Output_snapshot_ranges_are_exact_and_reject_dropped_prefixes()
     {
         var buffer = new DebugOutputBuffer(maximumRetainedBytes: 8, maximumRecordBytes: 4, maximumRecords: 2);
@@ -100,8 +263,8 @@ public sealed class DebugBreakpointStoreTests
     [Fact]
     public void Confirmed_state_reconciles_by_adapter_id_and_remains_store_local()
     {
-        var root = new DebugConfirmedBreakpointStore();
-        var child = new DebugConfirmedBreakpointStore();
+        var root = new DebugAdapterBreakpointStateStore();
+        var child = new DebugAdapterBreakpointStateStore();
         root.Replace(DebugBreakpointKind.Source,
             [new Breakpoint { Id = 7, Verified = false, Source = new Source { Path = "/workspace/a.cs" }, Line = 10 }]);
 
@@ -114,7 +277,7 @@ public sealed class DebugBreakpointStoreTests
             Message = "moved"
         });
 
-        root.Snapshot.Should().ContainSingle().Which.Should().Match<DebugConfirmedBreakpoint>(x =>
+        root.Snapshot.Should().ContainSingle().Which.Should().Match<DebugAdapterBreakpointState>(x =>
             x.AdapterId == 7 && x.Verified && x.Line == 12 && x.Message == "moved");
         child.Snapshot.Should().BeEmpty();
 

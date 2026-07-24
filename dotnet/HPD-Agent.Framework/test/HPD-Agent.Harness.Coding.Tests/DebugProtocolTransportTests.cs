@@ -64,6 +64,19 @@ public sealed class DebugProtocolTransportTests
     }
 
     [Fact]
+    public async Task Disposal_stops_and_observes_adapter_exit_before_disposing_the_handle()
+    {
+        var handle = new FakeInvocationHandle([]);
+        var transport = new DebugEnvironmentProcessTransport(handle);
+
+        await transport.DisposeAsync();
+
+        handle.StopCount.Should().Be(1);
+        handle.WaitCount.Should().BeGreaterThan(0);
+        handle.DisposeCount.Should().Be(1);
+    }
+
+    [Fact]
     public async Task Protocol_overflow_or_truncation_faults_while_diagnostics_drop_without_blocking()
     {
         var overflowHandle = new FakeInvocationHandle([
@@ -130,6 +143,9 @@ public sealed class DebugProtocolTransportTests
         Action? afterYield = null) : IProcessInvocationHandle
     {
         public int EnumerationCount { get; private set; }
+        public int StopCount { get; private set; }
+        public int WaitCount { get; private set; }
+        public int DisposeCount { get; private set; }
         public TargetHandle<ProcessInvocation> Handle { get; } = DebugProtocolTransportTests.Handle();
         public ResourceRef<ProcessInvocation>? Resource => null;
         public ProcessInvocationSpec Spec { get; } = new()
@@ -137,22 +153,34 @@ public sealed class DebugProtocolTransportTests
             Target = DebugProtocolTransportTests.ExecutionHandle(),
             Command = new() { FileName = "fixture" }
         };
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            return ValueTask.CompletedTask;
+        }
         public ValueTask WriteStdinAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
         public ValueTask CloseStdinAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
         public ValueTask SignalAsync(ProcessSignal signal, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
-        public ValueTask StopAsync(ProcessStopRequest request, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
-        public ValueTask ResizeTerminalAsync(TerminalSpec size, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
-        public ValueTask<ProcessInvocationResult> WaitAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(new ProcessInvocationResult
+        public ValueTask StopAsync(ProcessStopRequest request, CancellationToken cancellationToken = default)
         {
-            CompletionKind = ProcessCompletionKind.Completed,
-            Output = new()
+            StopCount++;
+            return ValueTask.CompletedTask;
+        }
+        public ValueTask ResizeTerminalAsync(TerminalSpec size, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask<ProcessInvocationResult> WaitAsync(CancellationToken cancellationToken = default)
+        {
+            WaitCount++;
+            return ValueTask.FromResult(new ProcessInvocationResult
             {
-                Stdout = new(),
-                Stderr = new(),
-                OutputDrainTimeout = TimeSpan.Zero
-            }
-        });
+                CompletionKind = ProcessCompletionKind.Completed,
+                Output = new()
+                {
+                    Stdout = new(),
+                    Stderr = new(),
+                    OutputDrainTimeout = TimeSpan.Zero
+                }
+            });
+        }
 
         public async IAsyncEnumerable<ProcessOutputChunk> ReadOutputAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
         {

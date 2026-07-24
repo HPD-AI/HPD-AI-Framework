@@ -53,7 +53,9 @@ public sealed record DebugTreeAuthorization
     public string? ProcessProviderId { get; init; }
     public string? EndpointId { get; init; }
     public required string AuthorizationScope { get; init; }
-    public required bool IsAttach { get; init; }
+    public required DebugSemanticStartKind SemanticStartKind { get; init; }
+    public required DebugAdapterStartMethod AdapterStartMethod { get; init; }
+    public required string ExecutionPlannerId { get; init; }
     public required DebugTreeGrant Grants { get; init; }
 
     public bool Allows(DebugTreeGrant grant) => (Grants & grant) == grant;
@@ -64,38 +66,42 @@ public sealed record DebugTreeAuthorization
             throw new UnauthorizedAccessException($"Debug tree authorization does not grant '{grant}'.");
     }
 
-    public void ValidateCurrent(DebugRuntimeBinding runtime, DebugAdapterLaunchPlan plan)
+    public void ValidateCurrent(DebugRuntimeBinding runtime, DebugAdapterStartPlan plan)
     {
         ArgumentNullException.ThrowIfNull(runtime);
         ArgumentNullException.ThrowIfNull(plan);
         runtime.State.ThrowIfUnavailable();
 
-        if (!string.Equals(AgentRuntimeRegistrationId, runtime.AgentRuntimeRegistrationId, StringComparison.Ordinal) ||
-            !string.Equals(SessionId, runtime.SessionId, StringComparison.Ordinal) ||
-            !string.Equals(ThreadId, runtime.ThreadId, StringComparison.Ordinal) ||
-            !string.Equals(AdapterId, plan.AdapterId, StringComparison.Ordinal) ||
-            !string.Equals(PackageId, plan.PackageProvenance.PackageId, StringComparison.Ordinal) ||
-            !string.Equals(PackageVersion, plan.PackageProvenance.PackageVersion, StringComparison.Ordinal) ||
-            !string.Equals(TrustPolicyRevision, plan.TrustDecision.PolicyRevision, StringComparison.Ordinal) ||
-            !string.Equals(EnvironmentId, plan.EnvironmentId, StringComparison.Ordinal) ||
-            EnvironmentRevision != plan.EnvironmentRevision ||
-            PolicyRevision != plan.PolicyRevision ||
-            EndpointCatalogRevision != plan.EndpointCatalogRevision ||
-            !IsWithinWorkingDirectoryScope(plan.CanonicalWorkingDirectory, WorkingDirectoryScope) ||
-            !string.Equals(ToolLocationIdentity, plan.ToolProvenance?.LocationIdentity, StringComparison.Ordinal) ||
-            !string.Equals(ProcessProviderId, plan.ProcessProviderId, StringComparison.Ordinal) ||
-            !string.Equals(EndpointId, plan.Transport.EndpointId, StringComparison.Ordinal) ||
-            !string.Equals(AuthorizationScope, plan.AuthorizationScope, StringComparison.Ordinal))
-        {
-            throw new UnauthorizedAccessException("The debug tree authorization does not match the current runtime or launch plan.");
-        }
+        var mismatch =
+            !string.Equals(AgentRuntimeRegistrationId, runtime.AgentRuntimeRegistrationId, StringComparison.Ordinal)
+                ? "runtime-registration"
+            : !string.Equals(SessionId, runtime.SessionId, StringComparison.Ordinal) ? "session"
+            : !string.Equals(ThreadId, runtime.ThreadId, StringComparison.Ordinal) ? "thread"
+            : !string.Equals(AdapterId, plan.AdapterId, StringComparison.Ordinal) ? "adapter"
+            : !string.Equals(PackageId, plan.PackageProvenance.PackageId, StringComparison.Ordinal) ? "package"
+            : !string.Equals(PackageVersion, plan.PackageProvenance.PackageVersion, StringComparison.Ordinal) ? "package-version"
+            : !string.Equals(TrustPolicyRevision, plan.TrustDecision.PolicyRevision, StringComparison.Ordinal) ? "trust-policy"
+            : !string.Equals(EnvironmentId, plan.EnvironmentId, StringComparison.Ordinal) ? "environment"
+            : EnvironmentRevision != plan.EnvironmentRevision ? "environment-revision"
+            : PolicyRevision != plan.PolicyRevision ? "policy-revision"
+            : EndpointCatalogRevision != plan.EndpointCatalogRevision ? "endpoint-catalog-revision"
+            : !IsWithinWorkingDirectoryScope(plan.CanonicalWorkingDirectory, WorkingDirectoryScope) ? "working-directory"
+            : !string.Equals(ToolLocationIdentity, plan.ToolProvenance?.LocationIdentity, StringComparison.Ordinal) ? "tool"
+            : !string.Equals(ProcessProviderId, plan.ProcessProviderId, StringComparison.Ordinal) ? "process-provider"
+            : !string.Equals(EndpointId, plan.Transport.EndpointId, StringComparison.Ordinal) ? "endpoint"
+            : !string.Equals(AuthorizationScope, plan.AuthorizationScope, StringComparison.Ordinal) ? "authorization-scope"
+            : null;
+        if (mismatch is not null)
+            throw new UnauthorizedAccessException(
+                $"The debug tree authorization does not match the current runtime or adapter start plan ({mismatch}).");
     }
 
     internal static DebugTreeAuthorization Create(
         DebugRuntimeBinding runtime,
         DebugTreeOwnership ownership,
-        DebugAdapterLaunchPlan plan,
-        bool isAttach,
+        DebugAdapterStartPlan plan,
+        DebugSemanticStartKind semanticStartKind,
+        string executionPlannerId,
         DebugTreeAuthorizationOptions options)
     {
         ArgumentNullException.ThrowIfNull(runtime);
@@ -103,7 +109,7 @@ public sealed record DebugTreeAuthorization
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(options);
         if (plan.TrustDecision.TrustLevel != DebugAdapterTrustLevel.Trusted)
-            throw new UnauthorizedAccessException("A debug tree requires a trusted adapter launch plan.");
+            throw new UnauthorizedAccessException("A debug tree requires a trusted adapter start plan.");
 
         return new()
         {
@@ -125,7 +131,9 @@ public sealed record DebugTreeAuthorization
             ProcessProviderId = plan.ProcessProviderId,
             EndpointId = plan.Transport.EndpointId,
             AuthorizationScope = plan.AuthorizationScope,
-            IsAttach = isAttach,
+            SemanticStartKind = semanticStartKind,
+            AdapterStartMethod = plan.Method,
+            ExecutionPlannerId = executionPlannerId,
             Grants = options.Grants
         };
     }

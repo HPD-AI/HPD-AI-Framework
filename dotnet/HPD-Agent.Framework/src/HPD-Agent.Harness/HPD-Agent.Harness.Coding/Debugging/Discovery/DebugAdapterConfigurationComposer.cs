@@ -157,7 +157,7 @@ public sealed class BuiltInDebugAdapterConfigurationComposer : IDebugAdapterConf
 
 public static class DebugAdapterSemanticPlanExtensions
 {
-    public static ValueTask<DebugAdapterLaunchPlan> CreateSemanticLaunchPlanAsync(
+    public static ValueTask<DebugAdapterStartPlan> CreateSemanticLaunchPlanAsync(
         this IDebugAdapterFactory factory,
         IDebugAdapterConfigurationComposer composer,
         DebugAdapterDescriptor descriptor,
@@ -172,11 +172,12 @@ public static class DebugAdapterSemanticPlanExtensions
         {
             Resolution = resolution,
             Target = configuration.Target,
+            WorkingDirectory = configuration.WorkingDirectory,
             Configuration = adapterConfiguration
         }, cancellationToken);
     }
 
-    public static ValueTask<DebugAdapterLaunchPlan> CreateSemanticAttachPlanAsync(
+    public static ValueTask<DebugAdapterStartPlan> CreateSemanticAttachPlanAsync(
         this IDebugAdapterFactory factory,
         IDebugAdapterConfigurationComposer composer,
         DebugAdapterDescriptor descriptor,
@@ -193,6 +194,7 @@ public static class DebugAdapterSemanticPlanExtensions
             Resolution = resolution,
             ProcessId = configuration.ProcessId,
             EndpointId = endpointId,
+            WorkingDirectory = configuration.WorkingDirectory,
             Configuration = adapterConfiguration
         }, cancellationToken);
     }

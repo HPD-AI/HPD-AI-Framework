@@ -14,12 +14,12 @@ public sealed class DebugSessionProjectorTests
             new DebugTreeStartedEvent
             {
                 DebugTreeId = "tree", DebugSessionId = "root", AdapterId = "adapter",
-                EnvironmentId = "env", IsAttach = false, ThreadSequenceNumber = 1
+                EnvironmentId = "env", SemanticStartKind = DebugSemanticStartKind.DirectLaunch, AdapterStartMethod = DebugAdapterStartMethod.Launch, ExecutionPlannerId = "test", ThreadSequenceNumber = 1
             },
             new DebugChildSessionStartedEvent
             {
                 DebugTreeId = "tree", DebugSessionId = "child", AdapterId = "adapter",
-                ParentDebugSessionId = "root", IsAttach = true, ThreadSequenceNumber = 2
+                ParentDebugSessionId = "root", AdapterStartMethod = DebugAdapterStartMethod.Attach, ThreadSequenceNumber = 2
             },
             new DebugSessionStoppedEvent
             {

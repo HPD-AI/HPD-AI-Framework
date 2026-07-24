@@ -76,6 +76,8 @@ public sealed record DebugRuntimeBinding
     public required string ThreadId { get; init; }
     public required IDebugSessionManager SessionManager { get; init; }
     public RuntimeProcessExecutionBinding? ProcessExecution { get; init; }
+    /// <summary>Gets the invocation-wide process sandbox policy selected by the host.</summary>
+    public AgentProcessSandboxPolicy ProcessSandbox { get; init; } = new();
     public IEnvironmentRuntime? EnvironmentRuntime => ProcessExecution?.EnvironmentRuntime;
     public required DebugEventScope EventScope { get; init; }
     public required DebugRuntimeBindingState State { get; init; }
@@ -107,6 +109,7 @@ public sealed record DebugRuntimeBinding
             ThreadId = threadId,
             SessionManager = manager,
             ProcessExecution = processExecution,
+            ProcessSandbox = AgentProcessSandboxPolicy.FromRunConfig(context.RunConfig),
             EventScope = new DebugEventScope(context.TraceId, sessionId, threadId),
             State = bindingState
         };

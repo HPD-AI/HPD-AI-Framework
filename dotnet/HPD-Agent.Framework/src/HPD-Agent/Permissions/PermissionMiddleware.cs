@@ -212,7 +212,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             var denialReason = batchState.DenialReasons.GetValueOrDefault(
                 permissionKey,
                 "Permission denied in batch approval");
-            context.OverrideResult = denialReason;
+            context.OverrideResult = BlockedResult("denied", permissionKey, denialReason);
             var deniedBehavior = batchState.DenialBehaviors.GetValueOrDefault(
                 permissionKey,
                 PermissionDeniedBehavior.InterruptTurn);
@@ -258,7 +258,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
 
                 // Denied via stored preference - block execution
                 context.BlockExecution = true;
-                context.OverrideResult = denialReason;
+                context.OverrideResult = BlockedResult("denied", permissionKey, denialReason);
                 await InterruptDeniedPermissionAsync(context, denialReason, cancellationToken).ConfigureAwait(false);
                 return;
             }
@@ -287,7 +287,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         {
             context.BlockExecution = true;
             const string timeoutReason = "Permission request timed out. Please respond to permission requests promptly.";
-            context.OverrideResult = timeoutReason;
+            context.OverrideResult = BlockedResult("timed_out", permissionKey, timeoutReason);
             await InterruptDeniedPermissionAsync(context, timeoutReason, cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -295,7 +295,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         {
             context.BlockExecution = true;
             const string cancelledReason = "Permission request was cancelled.";
-            context.OverrideResult = cancelledReason;
+            context.OverrideResult = BlockedResult("cancelled", permissionKey, cancelledReason);
             await InterruptDeniedPermissionAsync(context, cancelledReason, cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -356,10 +356,23 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
 
             // Block execution with denial reason
             context.BlockExecution = true;
-            context.OverrideResult = denialReason;
+            context.OverrideResult = BlockedResult("denied", permissionKey, denialReason);
             if (response.DeniedBehavior == PermissionDeniedBehavior.InterruptTurn)
                 await InterruptDeniedPermissionAsync(context, denialReason, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private static string BlockedResult(
+        string outcome,
+        string permissionKey,
+        string? reason)
+    {
+        var safeReason = string.IsNullOrWhiteSpace(reason)
+            ? "Permission denied by user."
+            : reason.Trim();
+        return $"<tool_permission outcome=\"{System.Security.SecurityElement.Escape(outcome)}\" " +
+            $"permission=\"{System.Security.SecurityElement.Escape(permissionKey)}\" " +
+            $"executed=\"false\">{System.Security.SecurityElement.Escape(safeReason)}</tool_permission>";
     }
 
     private static async Task InterruptDeniedPermissionAsync(

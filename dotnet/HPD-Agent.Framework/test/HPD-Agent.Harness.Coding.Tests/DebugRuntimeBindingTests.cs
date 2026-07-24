@@ -18,7 +18,7 @@ public sealed class DebugRuntimeBindingTests
     public void Capture_retains_only_runtime_owned_services_and_opaque_scope()
     {
         var process = new ProbeProcessProvider();
-        var manager = new DebugSessionManager();
+        var manager = new DebugSessionManager(new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
         var context = CreateContext(manager, Execution(process));
 
         var binding = DebugRuntimeBinding.Capture(context, requireProcessExecution: true);
@@ -36,11 +36,35 @@ public sealed class DebugRuntimeBindingTests
     [Fact]
     public void Capture_fails_closed_without_an_authorized_execution_target()
     {
-        var context = CreateContext(new DebugSessionManager(), processExecution: null);
+        var context = CreateContext(new DebugSessionManager(new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions())), processExecution: null);
 
         var action = () => DebugRuntimeBinding.Capture(context, requireProcessExecution: true);
 
         action.Should().Throw<InvalidOperationException>().WithMessage("*authorized process execution binding*");
+    }
+
+    [Fact]
+    public void Capture_retains_the_invocation_wide_disabled_process_sandbox()
+    {
+        var runConfig = new AgentRunConfig
+        {
+            ContextOverrides = new Dictionary<string, object?>
+            {
+                [AgentProcessSandboxPolicy.ContextKey] = new AgentProcessSandboxPolicy
+                {
+                    Mode = AgentProcessIsolationMode.Disabled
+                }
+            }
+        };
+        var context = CreateContext(
+            new DebugSessionManager(new DebugTerminalRecordStore(
+                new DebugTerminalRecordStoreOptions())),
+            Execution(new ProbeProcessProvider()),
+            runConfig);
+
+        var binding = DebugRuntimeBinding.Capture(context, requireProcessExecution: true);
+
+        binding.ProcessSandbox.Mode.Should().Be(AgentProcessIsolationMode.Disabled);
     }
 
     [Fact]
@@ -116,12 +140,14 @@ public sealed class DebugRuntimeBindingTests
         {
             Resolution = resolution,
             Target = "/workspace/fixture",
+            WorkingDirectory = "/workspace",
             Configuration = document.RootElement
         });
         var attach = await factory.CreateAttachPlanAsync(descriptor, new DebugAttachContext
         {
             Resolution = resolution,
             ProcessId = "42",
+            WorkingDirectory = "/workspace",
             Configuration = document.RootElement
         });
         environment["SAFE"] = "after";
@@ -157,6 +183,7 @@ public sealed class DebugRuntimeBindingTests
             {
                 Resolution = resolution,
                 Target = "/workspace/fixture",
+                WorkingDirectory = "/workspace",
                 Configuration = document.RootElement
             });
 
@@ -171,6 +198,58 @@ public sealed class DebugRuntimeBindingTests
         process.LastSpec.Io.StandardOutput.Capture.Should().BeFalse();
         process.LastSpec.Io.StandardOutput.Stream.Should().BeTrue();
         process.LastSpec.Isolation.Network.Mode.Should().Be(NetworkEgressMode.Blocked);
+        process.LastSpec.Isolation.Mode.Should().Be(ProcessIsolationMode.Isolated);
+    }
+
+    [Fact]
+    public async Task Attach_transport_disables_cross_process_sandbox_only_after_a_trusted_plan()
+    {
+        var process = new ProbeProcessProvider();
+        var resolution = Resolution(Execution(process), DebugAdapterTrustLevel.Trusted);
+        using var document = JsonDocument.Parse("{}");
+        var plan = await new StandardDebugAdapterFactory(
+                new EnvironmentDebugAdapterToolResolver())
+            .CreateAttachPlanAsync(Descriptor(), new DebugAttachContext
+            {
+                Resolution = resolution,
+                ProcessId = "42",
+                WorkingDirectory = "/workspace",
+                Configuration = document.RootElement
+            });
+
+        await using var transport =
+            await new DebugProtocolTransportFactory().CreateAsync(plan);
+
+        process.StartCount.Should().Be(1);
+        process.LastSpec!.Isolation.Mode.Should().Be(ProcessIsolationMode.Disabled);
+    }
+
+    [Fact]
+    public async Task Full_access_policy_disables_launch_adapter_process_isolation()
+    {
+        var process = new ProbeProcessProvider();
+        var resolution = Resolution(Execution(process), DebugAdapterTrustLevel.Trusted) with
+        {
+            ProcessSandbox = new AgentProcessSandboxPolicy
+            {
+                Mode = AgentProcessIsolationMode.Disabled
+            }
+        };
+        using var document = JsonDocument.Parse("{}");
+        var plan = await new StandardDebugAdapterFactory(
+                new EnvironmentDebugAdapterToolResolver())
+            .CreateLaunchPlanAsync(Descriptor(), new DebugLaunchContext
+            {
+                Resolution = resolution,
+                Target = "/workspace/fixture",
+                WorkingDirectory = "/workspace",
+                Configuration = document.RootElement
+            });
+
+        await using var transport =
+            await new DebugProtocolTransportFactory().CreateAsync(plan);
+
+        process.LastSpec!.Isolation.Mode.Should().Be(ProcessIsolationMode.Disabled);
     }
 
     [Fact]
@@ -269,6 +348,7 @@ public sealed class DebugRuntimeBindingTests
         {
             Resolution = resolution,
             EndpointId = "endpoint-1",
+            WorkingDirectory = "/workspace",
             Configuration = configuration.RootElement
         });
 
@@ -300,6 +380,7 @@ public sealed class DebugRuntimeBindingTests
         {
             Resolution = resolution,
             Target = "/workspace",
+            WorkingDirectory = "/workspace",
             Configuration = configuration.RootElement
         });
 
@@ -311,10 +392,10 @@ public sealed class DebugRuntimeBindingTests
         };
         var codeLldbPlan = await new CodeLldbAdapterFactory(standard).CreateLaunchPlanAsync(
             codeLldbDescriptor,
-            new() { Resolution = resolution, Target = "/workspace/app", Configuration = configuration.RootElement });
+            new() { Resolution = resolution, Target = "/workspace/app", WorkingDirectory = "/workspace", Configuration = configuration.RootElement });
         var javaScriptPlan = await new JavaScriptDebugAdapterFactory(standard).CreateLaunchPlanAsync(
             Descriptor() with { Id = "javascript", CommandHints = ["js-debug-adapter"] },
-            new() { Resolution = resolution, Target = "/workspace/app.js", Configuration = configuration.RootElement });
+            new() { Resolution = resolution, Target = "/workspace/app.js", WorkingDirectory = "/workspace", Configuration = configuration.RootElement });
 
         delvePlan.Transport.Kind.Should().Be(DebugAdapterTransportKind.EnvironmentTcpServer);
         delvePlan.Transport.AllocatesDynamicLoopbackEndpoint.Should().BeTrue();
@@ -358,8 +439,12 @@ public sealed class DebugRuntimeBindingTests
             TargetHandleAuthority.Control | TargetHandleAuthority.Observe)
     };
 
-    private static FunctionExecutionContext CreateContext(IDebugSessionManager manager, RuntimeProcessExecutionBinding? processExecution)
+    private static FunctionExecutionContext CreateContext(
+        IDebugSessionManager manager,
+        RuntimeProcessExecutionBinding? processExecution,
+        AgentRunConfig? runConfig = null)
     {
+        runConfig ??= new AgentRunConfig();
         var function = AIFunctionFactory.Create(() => "ok", new AIFunctionFactoryOptions { Name = "debug_test", Description = "test" });
         var state = AgentLoopState.InitialSafe([], "run-1", "conversation-1", "AgentA");
         var session = new Session("session-1");
@@ -370,14 +455,14 @@ public sealed class DebugRuntimeBindingTests
         agentContext.RuntimeCapabilities.Set(new DebugRuntimeBindingState());
         if (processExecution is not null)
             agentContext.RuntimeCapabilities.Set(processExecution);
-        var before = agentContext.AsBeforeFunction(function, "call-1", new Dictionary<string, object?>(), new AgentRunConfig(), null, null);
+        var before = agentContext.AsBeforeFunction(function, "call-1", new Dictionary<string, object?>(), runConfig, null, null);
         var request = new FunctionRequest
         {
             Function = function,
             CallId = "call-1",
             Arguments = new Dictionary<string, object?>(),
             State = state,
-            RunConfig = new AgentRunConfig(),
+            RunConfig = runConfig,
             ResultMetadata = new ToolResultMetadata(),
             EventCoordinator = coordinator
         };

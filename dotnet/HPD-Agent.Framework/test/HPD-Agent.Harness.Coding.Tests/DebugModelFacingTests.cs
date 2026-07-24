@@ -5,6 +5,7 @@ using HPD.Agent;
 using HPD.Agent.Middleware;
 using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
+using HPD.Agent.ToolHarness.Coding.Debugging.Protocol.Generated;
 using HPD.Events;
 using HPD.Events.Core;
 using Microsoft.Extensions.AI;
@@ -15,6 +16,118 @@ namespace HPD.Agent.ToolHarness.Coding.Tests;
 
 public sealed class DebugModelFacingTests
 {
+    [Fact]
+    public void BasicStepOperations_OmitOptionalGranularityByDefault()
+    {
+        var stepOver = new StepOverDebugOperation("tree");
+        var stepIn = new StepInDebugOperation("tree");
+        var stepOut = new StepOutDebugOperation("tree");
+        var stepBack = new StepBackDebugOperation("tree");
+        stepOver.ThreadId.Should().BeNull();
+        stepOver.Granularity.Should().BeNull();
+        stepIn.ThreadId.Should().BeNull();
+        stepIn.Granularity.Should().BeNull();
+        stepOut.ThreadId.Should().BeNull();
+        stepOut.Granularity.Should().BeNull();
+        stepBack.ThreadId.Should().BeNull();
+        stepBack.Granularity.Should().BeNull();
+        new ContinueDebugOperation("tree").ThreadId.Should().BeNull();
+        new ReverseContinueDebugOperation("tree").ThreadId.Should().BeNull();
+        new GetStackTraceOperation("tree").ThreadId.Should().BeNull();
+    }
+
+    [Fact]
+    public void ProtocolFailures_AreClassifiedAtThePublicBoundary()
+    {
+        var adapterFailure = DebugOperationDispatcher.ClassifyProtocolFailure(
+            "evaluate",
+            new DebugAdapterRequestException(new DebugAdapterError
+            {
+                Command = "evaluate",
+                ResponseMessage = "Evaluation failed."
+            }));
+        var protocolFailure = DebugOperationDispatcher.ClassifyProtocolFailure(
+            "evaluate",
+            new DebugProtocolException("TRANSPORT_EOF", "closed"));
+
+        adapterFailure.Kind.Should().Be("adapter_request_failed");
+        protocolFailure.Kind.Should().Be("adapter_protocol_failed");
+    }
+
+    [Fact]
+    public void Capability_projection_is_bounded_deterministic_and_uses_public_actions()
+    {
+        var summary = DebugCapabilityProjection.Project(new Capabilities
+        {
+            SupportsSetVariable = true,
+            SupportsSetExpression = false,
+            SupportsStepBack = true,
+            SupportsSteppingGranularity = true,
+            ExceptionBreakpointFilters =
+            [
+                new ExceptionBreakpointsFilter { Filter = "user-unhandled", Label = "User unhandled", SupportsCondition = true },
+                new ExceptionBreakpointsFilter { Filter = "all", Label = "All", Default = true }
+            ]
+        });
+
+        summary.SupportedOptionalActions.Should().Contain(["setVariable", "stepBack", "reverseContinue"]);
+        summary.UnsupportedOptionalActions.Should().Contain("setExpression");
+        summary.ExecutionOptions.Should().Contain("steppingGranularity");
+        summary.ExceptionFilters.Select(item => item.FilterId).Should().Equal("all", "user-unhandled");
+    }
+
+    [Fact]
+    public void Mutation_rejection_is_distinct_from_missing_capability()
+    {
+        var failure = DebugOperationDispatcher.ClassifyProtocolFailure(
+            "setVariable",
+            new DebugAdapterRequestException(new DebugAdapterError
+            {
+                Command = "setVariable",
+                ResponseMessage = "not writable"
+            }));
+
+        failure.Kind.Should().Be("mutation_rejected");
+        failure.Message.Should().Contain("advertises 'setVariable' support");
+        failure.Message.Should().Contain("writable location");
+    }
+
+    [Fact]
+    public void Formatter_includes_actionable_exception_filter_recovery()
+    {
+        var xml = new DebugResultFormatter().Failure(
+            "setExceptionBreakpoints",
+            "invalid_exception_filter",
+            "Unsupported filter.",
+            [KeyValuePair.Create<string, object?>("availableFilterIds", "all,user-unhandled")],
+            ["all: All; default=True; supportsCondition=False"]);
+
+        var element = XElement.Parse(xml);
+        element.Attribute("available_filter_ids")!.Value.Should().Be("all,user-unhandled");
+        element.Elements("item").Single().Value.Should().Contain("default=True");
+    }
+
+    [Fact]
+    public void Thread_projection_identifies_only_the_adapter_designated_focal_thread()
+    {
+        var dispatcher = new DebugOperationDispatcher(
+            new DebugRuntimeServiceFactory(),
+            new DebugResultFormatter(),
+            new DebugPermissionAuthorizationService());
+
+        var xml = dispatcher.ProjectThreads(
+        [
+            new(10, "worker", true, false, null, 1, 0),
+            new(20, "breakpoint", true, true, "breakpoint", 1, 0)
+        ]);
+
+        var root = XDocument.Parse(xml).Root!;
+        root.Attribute("primary_stopped_thread_id")!.Value.Should().Be("20");
+        root.Elements("item").Select(item => item.Value).Should().Equal(
+            "10 worker stopped=True primary=False reason=",
+            "20 breakpoint stopped=True primary=True reason=breakpoint");
+    }
+
     [Fact]
     public void EveryPublicAction_HasAPermissionClassification()
     {
@@ -46,7 +159,7 @@ public sealed class DebugModelFacingTests
     [Fact]
     public async Task PermissionDecision_IsInvocationLocalAndRejectsActionOrCallMismatch()
     {
-        await using var manager = new DebugSessionManager();
+        await using var manager = new DebugSessionManager(new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
         var authorization = new DebugPermissionAuthorizationService();
         var context = CreateContext(manager, "call-1", "writeMemory");
 
@@ -65,7 +178,7 @@ public sealed class DebugModelFacingTests
     [Fact]
     public async Task PermissionMiddleware_TransfersBoundActionThroughMiddlewareState()
     {
-        await using var manager = new DebugSessionManager();
+        await using var manager = new DebugSessionManager(new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
         var function = AIFunctionFactory.Create(
             () => "ok",
             new AIFunctionFactoryOptions { Name = "Debug", Description = "test" });
@@ -187,11 +300,10 @@ public sealed class DebugModelFacingTests
     [Fact]
     public async Task Dispatcher_UsesTheRuntimeBoundManagerAndPublishesTypedMetadata()
     {
-        await using var manager = new DebugSessionManager();
+        await using var manager = new DebugSessionManager(new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
         var formatter = new DebugResultFormatter();
-        var starts = new DebugSessionStartOrchestrator(new DebugProtocolTransportFactory());
         var dispatcher = new DebugOperationDispatcher(
-            new DebugRuntimeServiceFactory(starts),
+            new DebugRuntimeServiceFactory(),
             formatter,
             new DebugPermissionAuthorizationService());
         var context = CreateContext(manager, "call-list", "listSessions");
@@ -211,12 +323,119 @@ public sealed class DebugModelFacingTests
     }
 
     [Fact]
+    public void Launch_notice_requires_absence_of_every_initial_stopping_strategy()
+    {
+        DebugStartResultProjector.NeedsStoppingStrategyNotice(
+            "launch",
+            new DebugInitialConfiguration()).Should().BeTrue();
+        DebugStartResultProjector.NeedsStoppingStrategyNotice(
+            "attach",
+            new DebugInitialConfiguration()).Should().BeFalse();
+        DebugStartResultProjector.NeedsStoppingStrategyNotice(
+            "launch",
+            new DebugInitialConfiguration { StopOnEntry = true }).Should().BeFalse();
+        DebugStartResultProjector.NeedsStoppingStrategyNotice(
+            "launch",
+            new DebugInitialConfiguration
+            {
+                SourceBreakpoints = [new("/workspace/app.cs", 10)]
+            }).Should().BeFalse();
+        DebugStartResultProjector.NeedsStoppingStrategyNotice(
+            "launch",
+            new DebugInitialConfiguration
+            {
+                ExceptionFilters = [new("all")]
+            }).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Launch_notice_is_projected_into_xml_and_typed_metadata()
+    {
+        await using var manager = new DebugSessionManager(
+            new DebugTerminalRecordStore(
+                new DebugTerminalRecordStoreOptions()));
+        var context = CreateContext(manager, "call-launch", "launch");
+        var plan = new ModelFacingStubPlan
+        {
+            PlannerId = "fixture",
+            SemanticStartKind = DebugSemanticStartKind.DirectLaunch,
+            EnvironmentId = "environment",
+            EnvironmentRevision = 1,
+            CanonicalWorkingDirectory = "/workspace",
+            InitialConfiguration = new()
+        };
+        var result = new DebugSessionStartResult(
+            "tree",
+            "session",
+            new BackgroundHandleSnapshot
+            {
+                HandleId = "handle",
+                Name = "debug",
+                Kind = BackgroundHandleKind.DebugSession,
+                SourceKind = BackgroundTaskSourceKind.Runtime,
+                Status = "Running"
+            },
+            DebugSessionStatus.Running,
+            1,
+            new(0, 0, 0, 0));
+
+        var xml = new DebugStartResultProjector(
+            new DebugResultFormatter()).Project(
+                "launch",
+                plan,
+                result,
+                context);
+
+        XDocument.Parse(xml).Root!.Attribute("warning")!.Value
+            .Should().Be("no_initial_stop_strategy");
+        context.ResultMetadata.TryGet<
+            DebugLaunchNoticeMetadata[]>(
+            CodingToolMetadataKeys.DebugLaunchNotices,
+            out var notices).Should().BeTrue();
+        notices.Should().ContainSingle()
+            .Which.Code.Should().Be("no_initial_stop_strategy");
+    }
+
+    [Fact]
+    public async Task Terminate_is_an_evidence_preserving_noop_for_a_terminal_tree()
+    {
+        var store = new DebugTerminalRecordStore(
+            new DebugTerminalRecordStoreOptions());
+        await using var manager = new DebugSessionManager(store);
+        store.Retain(Terminal(manager.RuntimeId, "terminal-tree"));
+        var dispatcher = new DebugOperationDispatcher(
+            new DebugRuntimeServiceFactory(),
+            new DebugResultFormatter(),
+            new DebugPermissionAuthorizationService());
+        var context = CreateContext(
+            manager,
+            "call-terminate",
+            "terminate");
+
+        var xml = await dispatcher.ExecuteAsync(
+            new TerminateDebugOperation("terminal-tree"),
+            context,
+            CancellationToken.None);
+
+        var root = XDocument.Parse(xml).Root!;
+        root.Attribute("success")!.Value.Should().Be("true");
+        root.Attribute("already_terminated")!.Value.Should().Be("true");
+        root.Attribute("terminal_record_retained")!.Value.Should().Be("true");
+        manager.TryResolveTerminal(
+            new(manager.RuntimeId, "session-1", "thread-1"),
+            "terminal-tree",
+            out _).Should().BeTrue();
+        context.ResultMetadata.TryGet<DebugTerminalRecordMetadata>(
+            CodingToolMetadataKeys.DebugTerminalRecord,
+            out _).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task EveryPublicOperation_ReachesAnExplicitDispatcherCase()
     {
-        await using var manager = new DebugSessionManager();
+        await using var manager = new DebugSessionManager(new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
         var dispatcher = new DebugOperationDispatcher(
-            new DebugRuntimeServiceFactory(
-                new DebugSessionStartOrchestrator(new DebugProtocolTransportFactory())),
+            new DebugRuntimeServiceFactory(),
             new DebugResultFormatter(),
             new DebugPermissionAuthorizationService());
         var operationTypes = typeof(DebugOperation)
@@ -260,8 +479,8 @@ public sealed class DebugModelFacingTests
             return false;
         if (type.IsEnum)
             return Enum.GetValues(type).GetValue(0);
-        if (type == typeof(DebugLaunchTarget))
-            return new SourceFileDebugLaunchTarget("/workspace/app.py");
+        if (type == typeof(DebugTarget))
+            return new SourceFileDebugTarget("/workspace/app.py");
         if (type == typeof(DebugAttachTarget))
             return new ProcessDebugAttachTarget(42);
         if (type.IsGenericType &&
@@ -321,4 +540,46 @@ public sealed class DebugModelFacingTests
             EventCoordinator = coordinator
         });
     }
+
+    private static DebugTerminalRecord Terminal(
+        string runtimeId,
+        string treeId)
+    {
+        var completed = DateTimeOffset.UtcNow;
+        return new DebugTerminalRecord
+        {
+            Ownership = new(
+                runtimeId,
+                "session-1",
+                "thread-1",
+                treeId,
+                "environment",
+                1),
+            SemanticStartKind = DebugSemanticStartKind.DirectLaunch,
+            AdapterStartMethod = DebugAdapterStartMethod.Launch,
+            AdapterId = "fixture",
+            FinalStatus = "Terminated",
+            ExitCode = 0,
+            StartedAt = completed.AddSeconds(-1),
+            CompletedAt = completed,
+            Breakpoints = new(0, 0, 0, 0),
+            Snapshot = new(
+                treeId,
+                null,
+                "Terminated",
+                [],
+                0,
+                false,
+                0,
+                0,
+                0,
+                0,
+                0),
+            Output = new([], 1, 0, 0, 0, 0),
+            Artifacts = []
+        };
+    }
+
+    private sealed record ModelFacingStubPlan : DebugExecutionPlan;
+
 }

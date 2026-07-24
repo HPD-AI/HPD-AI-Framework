@@ -382,7 +382,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
 
             var request = normalized.Request!;
             var shell = shellOverride ?? GetShellScope();
-            var sandbox = ExecuteCommandSandboxPolicy.FromRunConfig(runConfig);
+            var sandbox = AgentProcessSandboxPolicy.FromRunConfig(runConfig);
             var workspace = ExecuteCommandPermissionWorkspaceScope.From(runConfig, request.WorkingDirectory);
             if (request.Action != ExecuteCommandAction.Run)
             {
@@ -415,7 +415,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
             var risk = analysis.Risk;
             if (request.StartsInBackground)
                 risk |= ExecuteCommandPermissionRisk.BackgroundProcess;
-            if (sandbox.Mode == ExecuteCommandIsolationMode.Disabled)
+            if (sandbox.Mode == AgentProcessIsolationMode.Disabled)
                 risk |= ExecuteCommandPermissionRisk.Unsandboxed;
             if (sandbox.Filesystem.Count > 0 ||
                 sandbox.Network.Mode != ExecuteCommandNetworkMode.Blocked ||
@@ -553,7 +553,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
             ExecuteCommandPermissionMatchKind matchKind,
             string pattern,
             ExecuteCommandShellScope shell,
-            ExecuteCommandSandboxPolicy sandbox,
+            AgentProcessSandboxPolicy sandbox,
             string workingDirectory,
             ExecuteCommandPermissionWorkspaceScope workspace,
             ExecuteCommandAnalysisTrustLevel trustLevel,
@@ -602,15 +602,15 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
             };
         }
 
-        private static ExecuteCommandSandboxPolicy TryGetRequestedSandbox(AgentRunConfig runConfig)
+        private static AgentProcessSandboxPolicy TryGetRequestedSandbox(AgentRunConfig runConfig)
         {
             try
             {
-                return ExecuteCommandSandboxPolicy.FromRunConfig(runConfig);
+                return AgentProcessSandboxPolicy.FromRunConfig(runConfig);
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or JsonException)
             {
-                return new ExecuteCommandSandboxPolicy();
+                return new AgentProcessSandboxPolicy();
             }
         }
 
@@ -1105,7 +1105,7 @@ internal static class ExecuteCommandPermissionRuleLifecycle
                     rule.Workspace.RootId,
                     rule.Workspace.RootPath,
                     [new AgentWorkspaceRoot(rule.Workspace.RootId, rule.Workspace.RootPath)]),
-                [ExecuteCommandSandboxPolicy.ContextKey] = new ExecuteCommandSandboxPolicy()
+                [AgentProcessSandboxPolicy.ContextKey] = new AgentProcessSandboxPolicy()
             }
         };
 
@@ -1186,7 +1186,7 @@ public abstract record ExecuteCommandPermissionPlan
     public required ExecuteCommandShellScope Shell { get; init; }
     public required string WorkingDirectory { get; init; }
     public required ExecuteCommandPermissionWorkspaceScope Workspace { get; init; }
-    public required ExecuteCommandSandboxPolicy RequestedSandbox { get; init; }
+    public required AgentProcessSandboxPolicy RequestedSandbox { get; init; }
     public required IReadOnlyList<ExecuteCommandFilesystemEffect> FilesystemEffects { get; init; }
     public required IReadOnlyList<ExecuteCommandNetworkEffect> NetworkEffects { get; init; }
     public required bool StartsInBackground { get; init; }
@@ -1245,7 +1245,7 @@ internal sealed record ExecuteCommandPlanBase
     public required ExecuteCommandShellScope Shell { get; init; }
     public required string WorkingDirectory { get; init; }
     public required ExecuteCommandPermissionWorkspaceScope Workspace { get; init; }
-    public required ExecuteCommandSandboxPolicy RequestedSandbox { get; init; }
+    public required AgentProcessSandboxPolicy RequestedSandbox { get; init; }
     public required IReadOnlyList<ExecuteCommandFilesystemEffect> FilesystemEffects { get; init; }
     public required IReadOnlyList<ExecuteCommandNetworkEffect> NetworkEffects { get; init; }
     public required bool StartsInBackground { get; init; }
@@ -4013,7 +4013,7 @@ internal static class ExecuteCommandPathAnalyzer
         ExecuteCommandShellAnalysis analysis,
         string workingDirectory,
         string workspaceRoot,
-        ExecuteCommandSandboxPolicy sandbox)
+        AgentProcessSandboxPolicy sandbox)
     {
         var effects = new List<ExecuteCommandFilesystemEffect>();
         foreach (var segment in analysis.Segments)
@@ -4042,7 +4042,7 @@ internal static class ExecuteCommandPathAnalyzer
         ExecuteCommandSubcommandPlan segment,
         string workingDirectory,
         string workspaceRoot,
-        ExecuteCommandSandboxPolicy sandbox)
+        AgentProcessSandboxPolicy sandbox)
     {
         if (segment.Argv.Count < 2)
             yield break;
@@ -4073,9 +4073,9 @@ internal static class ExecuteCommandPathAnalyzer
         ExecuteCommandFilesystemOperation operation,
         string workspaceRoot,
         string workingDirectory,
-        ExecuteCommandSandboxPolicy sandbox)
+        AgentProcessSandboxPolicy sandbox)
     {
-        if (sandbox.Mode == ExecuteCommandIsolationMode.Disabled)
+        if (sandbox.Mode == AgentProcessIsolationMode.Disabled)
             return true;
 
         if (IsWithinWorkspace(path, workspaceRoot))
@@ -4086,8 +4086,8 @@ internal static class ExecuteCommandPathAnalyzer
             var grantPath = ResolvePath(grant.Path, workingDirectory);
             var operationCovered = grant.Kind switch
             {
-                ExecuteCommandPathGrantKind.Read => operation == ExecuteCommandFilesystemOperation.Read,
-                ExecuteCommandPathGrantKind.Write => operation is ExecuteCommandFilesystemOperation.Create
+                AgentProcessPathGrantKind.Read => operation == ExecuteCommandFilesystemOperation.Read,
+                AgentProcessPathGrantKind.Write => operation is ExecuteCommandFilesystemOperation.Create
                     or ExecuteCommandFilesystemOperation.Write
                     or ExecuteCommandFilesystemOperation.Delete,
                 _ => false
@@ -4098,20 +4098,20 @@ internal static class ExecuteCommandPathAnalyzer
 
     public static IReadOnlyList<ExecuteCommandNetworkEffect> GetNetworkEffects(
         ExecuteCommandShellAnalysis analysis,
-        ExecuteCommandSandboxPolicy sandbox)
+        AgentProcessSandboxPolicy sandbox)
         => analysis.Segments.Any(segment => Policy.HasNetworkEffect(segment.Argv))
             ? [new ExecuteCommandNetworkEffect
             {
                 Operation = ExecuteCommandNetworkOperation.LikelyEgress,
-                CoveredBySandbox = sandbox.Mode == ExecuteCommandIsolationMode.Disabled ||
+                CoveredBySandbox = sandbox.Mode == AgentProcessIsolationMode.Disabled ||
                     sandbox.Network.Mode != ExecuteCommandNetworkMode.Blocked
             }]
             : [];
 }
 
-internal static class ExecuteCommandSandboxPolicyExtensions
+internal static class AgentProcessSandboxPolicyExtensions
 {
-    public static string Canonicalize(this ExecuteCommandSandboxPolicy policy, string workingDirectory)
+    public static string Canonicalize(this AgentProcessSandboxPolicy policy, string workingDirectory)
     {
         var filesystem = policy.Filesystem
             .Select(grant =>

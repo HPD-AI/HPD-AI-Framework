@@ -808,7 +808,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
     private static ExecuteCommandPermissionRequestEvent CreatePermissionRequest()
     {
-        var sandbox = new ExecuteCommandSandboxPolicy();
+        var sandbox = new AgentProcessSandboxPolicy();
         var workspace = new ExecuteCommandPermissionWorkspaceScope
         {
             RootId = "default",

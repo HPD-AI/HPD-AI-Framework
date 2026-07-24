@@ -8,13 +8,20 @@ namespace HPD.Agent.ToolHarness.Coding.Debugging;
 /// </summary>
 public sealed class DebugRuntimeAttachmentMiddleware : IAgentMiddleware, IAsyncDisposable
 {
-    private readonly DebugSessionManager _sessionManager = new();
+    private readonly DebugSessionManager _sessionManager;
     private readonly DebugRuntimeBindingState _bindingState = new();
     private readonly IDisposable _invalidationRegistration;
     private int _disposed;
 
-    public DebugRuntimeAttachmentMiddleware()
-        => _invalidationRegistration = _bindingState.OnInvalidated(reason => { _ = _sessionManager.DisposeAsync(); });
+    public DebugRuntimeAttachmentMiddleware(
+        DebugTerminalRecordStoreOptions? terminalPolicy = null)
+    {
+        _sessionManager = new DebugSessionManager(
+            new DebugTerminalRecordStore(
+                terminalPolicy ?? new DebugTerminalRecordStoreOptions()));
+        _invalidationRegistration = _bindingState.OnInvalidated(
+            reason => { _ = _sessionManager.DisposeAsync(); });
+    }
 
     public Task BeforeStartAsync(BeforeStartContext context, CancellationToken cancellationToken)
     {

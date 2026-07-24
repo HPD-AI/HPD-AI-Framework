@@ -28,8 +28,13 @@ internal sealed class DebugResultFormatter
         IEnumerable<string>? items = null)
         => Write("debug", action, success: true, errorKind: null, attributes, items, message: null);
 
-    public string Failure(string action, string kind, string message)
-        => Write("error", action, success: false, kind, attributes: null, items: null, Bound(message, 4096));
+    public string Failure(
+        string action,
+        string kind,
+        string message,
+        IEnumerable<KeyValuePair<string, object?>>? attributes = null,
+        IEnumerable<string>? items = null)
+        => Write("error", action, success: false, kind, attributes, items, Bound(message, 4096));
 
     private static string Write(
         string root,

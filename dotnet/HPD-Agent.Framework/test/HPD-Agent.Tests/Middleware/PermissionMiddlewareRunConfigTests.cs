@@ -118,7 +118,11 @@ public class PermissionMiddlewareRunConfigTests
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
 
         context.BlockExecution.Should().BeTrue();
-        context.OverrideResult.Should().Be("Use the read-only status tool instead.");
+        var result = context.OverrideResult.Should().BeOfType<string>().Subject;
+        result.Should().Contain("<tool_permission");
+        result.Should().Contain("outcome=\"denied\"");
+        result.Should().Contain("executed=\"false\"");
+        result.Should().Contain("Use the read-only status tool instead.");
         interruptions.Should().BeEmpty();
     }
 

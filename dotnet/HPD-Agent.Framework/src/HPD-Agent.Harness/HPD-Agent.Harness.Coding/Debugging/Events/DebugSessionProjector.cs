@@ -13,7 +13,8 @@ public sealed record DebugProjectedSession
     public string? ParentDebugSessionId { get; set; }
     public required string AdapterId { get; init; }
     public string Status { get; set; } = "Started";
-    public bool IsAttach { get; set; }
+    public DebugSemanticStartKind SemanticStartKind { get; set; }
+    public DebugAdapterStartMethod AdapterStartMethod { get; set; }
     public int? ExitCode { get; set; }
     public int? StoppedThreadId { get; set; }
     public string? StopReason { get; set; }
@@ -62,11 +63,12 @@ public static class DebugSessionProjector
             case DebugTreeStartedEvent started:
                 tree.EnvironmentId = started.EnvironmentId;
                 tree.Status = "Running";
-                session.IsAttach = started.IsAttach;
+                session.SemanticStartKind = started.SemanticStartKind;
+                session.AdapterStartMethod = started.AdapterStartMethod;
                 break;
             case DebugChildSessionStartedEvent child:
                 session.ParentDebugSessionId = child.ParentDebugSessionId;
-                session.IsAttach = child.IsAttach;
+                session.AdapterStartMethod = child.AdapterStartMethod;
                 break;
             case DebugSessionStoppedEvent stopped:
                 session.Status = "Stopped";

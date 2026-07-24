@@ -607,7 +607,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         var sandboxMismatch = CreateRule(plan, ExecuteCommandPermissionBehavior.Allow, ExecuteCommandPermissionMatchKind.Prefix, "git status")
             with
             {
-                RequestedSandboxFingerprint = (plan.RequestedSandbox with { Mode = ExecuteCommandIsolationMode.Disabled })
+                RequestedSandboxFingerprint = (plan.RequestedSandbox with { Mode = AgentProcessIsolationMode.Disabled })
                     .Canonicalize(plan.WorkingDirectory)
             };
 
@@ -982,9 +982,9 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         var externalPath = $"/private/tmp/hpd-execute-command-permission-{Guid.NewGuid():N}.txt";
         var plan = Analyze(
             $"touch {externalPath}",
-            sandboxPolicy: new ExecuteCommandSandboxPolicy
+            sandboxPolicy: new AgentProcessSandboxPolicy
             {
-                Filesystem = [new ExecuteCommandPathGrant { Kind = ExecuteCommandPathGrantKind.Write, Path = externalPath }]
+                Filesystem = [new AgentProcessPathGrant { Kind = AgentProcessPathGrantKind.Write, Path = externalPath }]
             });
 
         plan.FilesystemEffects.Should().ContainSingle(effect =>
@@ -1002,9 +1002,9 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         var externalPath = Path.Combine(externalRoot, "nested", "out.txt");
         var plan = Analyze(
             $"touch {externalPath}",
-            sandboxPolicy: new ExecuteCommandSandboxPolicy
+            sandboxPolicy: new AgentProcessSandboxPolicy
             {
-                Filesystem = [new ExecuteCommandPathGrant { Kind = ExecuteCommandPathGrantKind.Write, Path = externalRoot }]
+                Filesystem = [new AgentProcessPathGrant { Kind = AgentProcessPathGrantKind.Write, Path = externalRoot }]
             });
 
         plan.FilesystemEffects.Should().ContainSingle(effect =>
@@ -1446,7 +1446,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
     private ExecuteCommandPermissionPlan Analyze(
         string command,
         ExecuteCommandShellFamily shellFamily = ExecuteCommandShellFamily.Zsh,
-        ExecuteCommandSandboxPolicy? sandboxPolicy = null)
+        AgentProcessSandboxPolicy? sandboxPolicy = null)
         => ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
             RunArguments(command),
             CreateWorkspaceRunConfig(sandboxPolicy),
@@ -1588,7 +1588,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
             return ValueTask.CompletedTask;
         });
 
-    private AgentRunConfig CreateWorkspaceRunConfig(ExecuteCommandSandboxPolicy? sandboxPolicy = null)
+    private AgentRunConfig CreateWorkspaceRunConfig(AgentProcessSandboxPolicy? sandboxPolicy = null)
     {
         var overrides = new Dictionary<string, object>
         {
@@ -1598,7 +1598,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
                 [new AgentWorkspaceRoot("default", _tempRoot)])
         };
         if (sandboxPolicy is not null)
-            overrides[ExecuteCommandSandboxPolicy.ContextKey] = sandboxPolicy;
+            overrides[AgentProcessSandboxPolicy.ContextKey] = sandboxPolicy;
         return new AgentRunConfig { ContextOverrides = overrides };
     }
 
@@ -1607,7 +1607,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         var config = CreateWorkspaceRunConfig();
         var overrides = new Dictionary<string, object>(config.ContextOverrides!)
         {
-            [ExecuteCommandSandboxPolicy.ContextKey] = sandboxOverride
+            [AgentProcessSandboxPolicy.ContextKey] = sandboxOverride
         };
         return new AgentRunConfig { ContextOverrides = overrides };
     }

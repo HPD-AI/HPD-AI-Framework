@@ -99,7 +99,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public void CodingToolHarnessJsonContext_RoundTripsExecuteCommandPermissionRequestEvent()
     {
-        var sandbox = new ExecuteCommandSandboxPolicy();
+        var sandbox = new AgentProcessSandboxPolicy();
         var workspace = new ExecuteCommandPermissionWorkspaceScope
         {
             RootId = "default",
@@ -299,9 +299,9 @@ public sealed class ExecuteCommandTests : IDisposable
     {
         var runner = new FakeProcessProvider();
         var runConfig = CreateWorkspaceRunConfig();
-        runConfig.ContextOverrides![ExecuteCommandSandboxPolicy.ContextKey] = new ExecuteCommandSandboxPolicy
+        runConfig.ContextOverrides![AgentProcessSandboxPolicy.ContextKey] = new AgentProcessSandboxPolicy
         {
-            Mode = ExecuteCommandIsolationMode.Disabled
+            Mode = AgentProcessIsolationMode.Disabled
         };
 
         await new CodingToolHarness().ExecuteCommandCore(
@@ -317,14 +317,14 @@ public sealed class ExecuteCommandTests : IDisposable
     {
         var runner = new FakeProcessProvider();
         var runConfig = CreateWorkspaceRunConfig();
-        runConfig.ContextOverrides![ExecuteCommandSandboxPolicy.ContextKey] = false;
+        runConfig.ContextOverrides![AgentProcessSandboxPolicy.ContextKey] = false;
 
         var result = await new CodingToolHarness().ExecuteCommandCore(
             context: CreateContext(runner, runConfig: runConfig),
             command: "dotnet test");
 
         result.ToString().Should().Contain("kind=\"invalid_arguments\"");
-        result.ToString().Should().Contain("ExecuteCommand sandbox policy must be an ExecuteCommandSandboxPolicy object.");
+        result.ToString().Should().Contain("Process sandbox policy must be an AgentProcessSandboxPolicy object.");
         runner.LastSpec.Should().BeNull();
     }
 
@@ -333,20 +333,20 @@ public sealed class ExecuteCommandTests : IDisposable
     {
         var runner = new FakeProcessProvider();
         var runConfig = CreateWorkspaceRunConfig();
-        runConfig.ContextOverrides![ExecuteCommandSandboxPolicy.ContextKey] = new ExecuteCommandSandboxPolicy
+        runConfig.ContextOverrides![AgentProcessSandboxPolicy.ContextKey] = new AgentProcessSandboxPolicy
         {
             Filesystem =
             [
-                new ExecuteCommandPathGrant { Kind = ExecuteCommandPathGrantKind.Read, Path = "readonly" },
-                new ExecuteCommandPathGrant { Kind = ExecuteCommandPathGrantKind.Write, Path = "/tmp/hpd-write" }
+                new AgentProcessPathGrant { Kind = AgentProcessPathGrantKind.Read, Path = "readonly" },
+                new AgentProcessPathGrant { Kind = AgentProcessPathGrantKind.Write, Path = "/tmp/hpd-write" }
             ],
-            Network = new ExecuteCommandNetworkGrant
+            Network = new AgentProcessNetworkGrant
             {
                 Mode = ExecuteCommandNetworkMode.Filtered,
                 AllowedDomains = ["registry.npmjs.org"],
                 DeniedDomains = ["169.254.169.254"]
             },
-            Interactive = new ExecuteCommandInteractiveGrant
+            Interactive = new AgentProcessInteractiveGrant
             {
                 AllowPty = true,
                 AllowLocalBinding = true,
@@ -492,9 +492,9 @@ public sealed class ExecuteCommandTests : IDisposable
             new ExecuteCommandOptions(),
             new ExecuteCommandShellScope { Executable = "zsh", Family = ExecuteCommandShellFamily.Zsh });
         var unsandboxedConfig = CreateWorkspaceRunConfig();
-        unsandboxedConfig.ContextOverrides![ExecuteCommandSandboxPolicy.ContextKey] = new ExecuteCommandSandboxPolicy
+        unsandboxedConfig.ContextOverrides![AgentProcessSandboxPolicy.ContextKey] = new AgentProcessSandboxPolicy
         {
-            Mode = ExecuteCommandIsolationMode.Disabled
+            Mode = AgentProcessIsolationMode.Disabled
         };
         var unsandboxed = ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
             RunArguments("npm install"),
@@ -511,7 +511,7 @@ public sealed class ExecuteCommandTests : IDisposable
     public async Task ExecuteCommand_RunConfigSandboxDictionary_ReturnsValidationError()
     {
         var runConfig = CreateWorkspaceRunConfig();
-        runConfig.ContextOverrides![ExecuteCommandSandboxPolicy.ContextKey] = new Dictionary<string, object?>
+        runConfig.ContextOverrides![AgentProcessSandboxPolicy.ContextKey] = new Dictionary<string, object?>
         {
             ["mode"] = "disabled"
         };
@@ -521,7 +521,7 @@ public sealed class ExecuteCommandTests : IDisposable
             command: "dotnet test");
 
         result.ToString().Should().Contain("kind=\"invalid_arguments\"");
-        result.ToString().Should().Contain("ExecuteCommand sandbox policy must be an ExecuteCommandSandboxPolicy object.");
+        result.ToString().Should().Contain("Process sandbox policy must be an AgentProcessSandboxPolicy object.");
     }
 
     [Fact]

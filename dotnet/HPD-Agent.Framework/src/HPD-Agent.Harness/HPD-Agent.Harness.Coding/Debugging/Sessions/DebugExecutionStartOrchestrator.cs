@@ -19,14 +19,16 @@ internal sealed class DebugAdapterStartException(
     public DebugAdapterDiagnosticSnapshot Diagnostics { get; } = diagnostics;
 }
 
-internal sealed record DebugSessionStartRequest
+/// <summary>Complete authorized request to reserve and activate one semantic debug execution.</summary>
+internal sealed record DebugExecutionStartRequest
 {
     public required DebugRuntimeBinding Runtime { get; init; }
-    public required DebugAdapterLaunchPlan LaunchPlan { get; init; }
+    public required DebugExecutionPlan ExecutionPlan { get; init; }
+    public required DebugPermissionDecision Permission { get; init; }
+    public LaunchDebugOperation? SemanticLaunchOperation { get; init; }
+    public bool IsRestart { get; init; }
     public required IAgentBackgroundHandleRegistry BackgroundHandles { get; init; }
     public required DebugInitializeFeatures InitializeFeatures { get; init; }
-    public DebugInitialConfiguration InitialConfiguration { get; init; } = new();
-    public bool IsAttach { get; init; }
     public JsonElement? RestartData { get; init; }
     public IDebugLifecycleEventPublisher? EventPublisher { get; init; }
     public IDebugHostRequestBroker? HostRequestBroker { get; init; }
@@ -40,23 +42,26 @@ internal sealed record DebugSessionStartResult(
     string DebugTreeId,
     string DebugSessionId,
     BackgroundHandleSnapshot Handle,
-    DebugSessionStatus Status);
+    DebugSessionStatus Status,
+    int OwnedResourceCount,
+    DebugBreakpointCounts Breakpoints);
 
-internal sealed class DebugSessionStartOrchestrator
+internal sealed class DebugExecutionStartOrchestrator
 {
-    private readonly DebugProtocolTransportFactory _transportFactory;
-    private readonly DebugInitializePolicy _initializePolicy;
+    private readonly IDebugProtocolSessionStarter _protocolStarter;
+    private readonly IDebugExecutionPlanActivator _activator;
 
-    public DebugSessionStartOrchestrator(
-        DebugProtocolTransportFactory transportFactory,
-        DebugInitializePolicy? initializePolicy = null)
+    public DebugExecutionStartOrchestrator(
+        IDebugProtocolSessionStarter protocolStarter,
+        IDebugExecutionPlanActivator activator)
     {
-        _transportFactory = transportFactory;
-        _initializePolicy = initializePolicy ?? new();
+        _protocolStarter = protocolStarter ??
+            throw new ArgumentNullException(nameof(protocolStarter));
+        _activator = activator ?? throw new ArgumentNullException(nameof(activator));
     }
 
     public async ValueTask<DebugSessionStartResult> StartAsync(
-        DebugSessionStartRequest request,
+        DebugExecutionStartRequest request,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -71,33 +76,84 @@ internal sealed class DebugSessionStartOrchestrator
         if (request.Runtime.AgentRuntimeRegistrationId != manager.RuntimeId)
             throw new InvalidOperationException("The captured runtime identity does not match its session manager.");
         if (request.Runtime.ProcessExecution is { } processExecution &&
-            (request.LaunchPlan.EnvironmentId != processExecution.EnvironmentId ||
-             request.LaunchPlan.EnvironmentRevision != processExecution.EnvironmentRevision))
-            throw new InvalidOperationException("The debug launch plan does not match the captured runtime Environment.");
+            (request.ExecutionPlan.EnvironmentId != processExecution.EnvironmentId ||
+             request.ExecutionPlan.EnvironmentRevision != processExecution.EnvironmentRevision))
+            throw new InvalidOperationException("The debug execution plan does not match the captured runtime Environment.");
+        var expectedPermission = request.IsRestart
+            ? DebugPermissionClass.Lifecycle
+            : request.ExecutionPlan.SemanticStartKind ==
+                DebugSemanticStartKind.ExplicitAttach
+                ? DebugPermissionClass.Attach
+                : DebugPermissionClass.Launch;
+        if (request.Permission.PermissionClass != expectedPermission)
+            throw new UnauthorizedAccessException(
+                "The debug execution permission does not authorize this semantic start.");
 
         await using var reservation = manager.ReserveTree(
             request.Runtime.SessionId,
             request.Runtime.ThreadId,
-            request.LaunchPlan.EnvironmentId,
-            request.LaunchPlan.EnvironmentRevision);
+            request.ExecutionPlan.EnvironmentId,
+            request.ExecutionPlan.EnvironmentRevision);
         var scope = new DebugTreeLookupScope(manager.RuntimeId, request.Runtime.SessionId, request.Runtime.ThreadId);
         var sessionId = Guid.NewGuid().ToString("N");
+        var adapterIdentity = PlannedAdapterIdentity(request.ExecutionPlan);
+        var scopedPublisher = request.EventPublisher switch
+        {
+            null => null,
+            IDebugEventPublisher publisher => publisher.Bind(request.Runtime.EventScope),
+            _ => new DebugScopedEventPublisher(
+                request.EventPublisher,
+                request.Runtime.EventScope)
+        };
         DebugSession? session = null;
         DebugSessionTree? tree = null;
         DebugSessionHandle? handle = null;
         var published = false;
         var managerCommitted = false;
+        DebugActivatedExecution? activated = null;
         using var startLifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         try
         {
+            await PublishStartEventAsync(scopedPublisher, new DebugExecutionPlannedEvent
+            {
+                DebugTreeId = reservation.TreeId,
+                DebugSessionId = sessionId,
+                AdapterId = adapterIdentity.AdapterId,
+                SemanticStartKind = request.ExecutionPlan.SemanticStartKind,
+                AdapterStartMethod = adapterIdentity.Method,
+                ExecutionPlannerId = request.ExecutionPlan.PlannerId
+            }).ConfigureAwait(false);
+            await PublishStartEventAsync(scopedPublisher, new DebugExecutionActivatingEvent
+            {
+                DebugTreeId = reservation.TreeId,
+                DebugSessionId = sessionId,
+                AdapterId = adapterIdentity.AdapterId,
+                SemanticStartKind = request.ExecutionPlan.SemanticStartKind,
+                AdapterStartMethod = adapterIdentity.Method,
+                ExecutionPlannerId = request.ExecutionPlan.PlannerId
+            }).ConfigureAwait(false);
+            activated = await _activator.ActivateAsync(
+                request.ExecutionPlan,
+                new DebugExecutionActivationContext
+                {
+                    Ownership = reservation.Ownership,
+                    Runtime = request.Runtime,
+                    Permission = request.Permission,
+                    IsRestart = request.IsRestart,
+                    DebugSessionId = sessionId,
+                    EventPublisher = scopedPublisher
+                },
+                cancellationToken).ConfigureAwait(false);
+            var adapterPlan = activated.AdapterPlan;
             tree = new DebugSessionTree
             {
                 Ownership = reservation.Ownership,
                 RootSessionId = sessionId,
                 RuntimeBinding = request.Runtime,
                 Authorization = DebugTreeAuthorization.Create(
-                    request.Runtime, reservation.Ownership, request.LaunchPlan, request.IsAttach, request.Authorization),
-                RestartTemplate = request,
+                    request.Runtime, reservation.Ownership, adapterPlan,
+                    activated.SemanticStartKind, request.ExecutionPlan.PlannerId, request.Authorization),
+                SemanticRestartOperation = request.SemanticLaunchOperation,
                 Artifacts = new DebugArtifactWriter(
                     request.ContentStore,
                     ContentScope.Create($"debug:{request.Runtime.SessionId}:{reservation.TreeId}"),
@@ -109,24 +165,24 @@ internal sealed class DebugSessionStartOrchestrator
                         ["thread"] = request.Runtime.ThreadId,
                         ["debug-tree"] = reservation.TreeId
                     }),
-                EventPublisher = request.EventPublisher switch
-                {
-                    null => null,
-                    IDebugEventPublisher publisher => publisher.Bind(request.Runtime.EventScope),
-                    _ => new DebugScopedEventPublisher(request.EventPublisher, request.Runtime.EventScope)
-                }
+                EventPublisher = scopedPublisher
             };
-            tree.Breakpoints.Seed(request.InitialConfiguration);
-            session = await CreateProtocolSessionAsync(
-                tree, sessionId, parentSessionId: null, request.LaunchPlan, request.IsAttach,
-                request.RestartData, tree.Breakpoints.Snapshot, request, startLifetime.Token,
+            foreach (var resource in activated.OwnedResources)
+                tree.OwnedResources.Enqueue(resource);
+            tree.Breakpoints.Seed(request.ExecutionPlan.InitialConfiguration);
+            session = await _protocolStarter.StartAsync(
+                tree, sessionId, parentSessionId: null, adapterPlan,
+                request.RestartData, tree.Breakpoints.Snapshot,
+                request.ExecutionPlan.InitialConfiguration.BreakpointPolicy,
+                request, startLifetime.Token,
+                RegisterCoreHandlers, CreateOutputCoalescer, CreateProgressCoalescer,
                 cancellationToken).ConfigureAwait(false);
 
             handle = new DebugSessionHandle(manager, scope, reservation.TreeId);
             var registration = await request.BackgroundHandles.RegisterHandleAsync(new()
             {
                 HandleId = reservation.TreeId,
-                Name = $"Debug session {request.LaunchPlan.AdapterId}",
+                Name = $"Debug session {adapterPlan.AdapterId}",
                 Kind = BackgroundHandleKind.DebugSession,
                 SourceKind = BackgroundTaskSourceKind.ToolCall,
                 SourceId = reservation.TreeId,
@@ -144,119 +200,94 @@ internal sealed class DebugSessionStartOrchestrator
                 {
                     DebugTreeId = reservation.TreeId,
                     DebugSessionId = sessionId,
-                    AdapterId = request.LaunchPlan.AdapterId,
-                    EnvironmentId = request.LaunchPlan.EnvironmentId,
-                    IsAttach = request.IsAttach
+                    AdapterId = adapterPlan.AdapterId,
+                    EnvironmentId = adapterPlan.EnvironmentId,
+                    SemanticStartKind = activated.SemanticStartKind,
+                    AdapterStartMethod = adapterPlan.Method,
+                    ExecutionPlannerId = request.ExecutionPlan.PlannerId
                 }, durable: true, CancellationToken.None).ConfigureAwait(false);
             published = true;
             var snapshot = await handle.GetStatusAsync(CancellationToken.None).ConfigureAwait(false);
-            return new(reservation.TreeId, sessionId, snapshot, session.State.Status);
+            var desired = tree.Breakpoints.Snapshot;
+            var adapterBreakpoints = session.AdapterBreakpoints.Snapshot;
+            var requestedBreakpoints = desired.Source.Length +
+                desired.Function.Length +
+                desired.Exception.Length +
+                desired.Instruction.Length +
+                desired.Data.Length;
+            var verifiedBreakpoints = adapterBreakpoints.Count(item => item.Verified);
+            return new(
+                reservation.TreeId,
+                sessionId,
+                snapshot,
+                session.State.Status,
+                activated.OwnedResources.Count,
+                new(
+                    requestedBreakpoints,
+                    adapterBreakpoints.Length,
+                    verifiedBreakpoints,
+                    Math.Max(0, requestedBreakpoints - verifiedBreakpoints)));
         }
-        catch
+        catch (Exception exception)
         {
             if (!published)
             {
                 startLifetime.Cancel();
                 handle?.MarkPublicationFailed();
                 if (managerCommitted)
-                    await manager.RemoveAndDisposeAsync(scope, reservation.TreeId).ConfigureAwait(false);
+                    await manager.DiscardAndDisposeAsync(scope, reservation.TreeId)
+                        .ConfigureAwait(false);
                 else if (tree is not null) await tree.DisposeAsync().ConfigureAwait(false);
                 else if (session is not null) await session.DisposeAsync().ConfigureAwait(false);
+                else if (activated is not null)
+                    foreach (var resource in activated.OwnedResources.Reverse())
+                        try { await resource.DisposeAsync().ConfigureAwait(false); } catch { }
             }
+            await PublishStartEventAsync(
+                scopedPublisher,
+                new DebugExecutionActivationFailedEvent
+                {
+                    DebugTreeId = reservation.TreeId,
+                    DebugSessionId = sessionId,
+                    AdapterId = adapterIdentity.AdapterId,
+                    ExecutionPlannerId = request.ExecutionPlan.PlannerId,
+                    SafeReasonCode = exception is DebugStartPlanningException planning
+                        ? planning.Kind
+                        : "debug_execution_activation_failed"
+                }).ConfigureAwait(false);
             throw;
         }
     }
 
-    private async ValueTask<DebugSession> CreateProtocolSessionAsync(
-        DebugSessionTree tree,
-        string sessionId,
-        string? parentSessionId,
-        DebugAdapterLaunchPlan launchPlan,
-        bool isAttach,
-        JsonElement? restartData,
-        DebugDesiredBreakpointSnapshot breakpoints,
-        DebugSessionStartRequest request,
-        CancellationToken lifetime,
-        CancellationToken cancellationToken)
+    private static (string AdapterId, DebugAdapterStartMethod Method)
+        PlannedAdapterIdentity(DebugExecutionPlan plan)
+        => plan switch
+        {
+            DirectAdapterDebugExecutionPlan direct =>
+                (direct.Adapter.AdapterId, direct.Adapter.Method),
+            HostedAttachDebugExecutionPlan hosted =>
+                (hosted.Attach.AdapterId, DebugAdapterStartMethod.Attach),
+            PreparedAdapterDebugExecutionPlan prepared =>
+                (prepared.Launch.AdapterId, DebugAdapterStartMethod.Launch),
+            _ => ("unknown", DebugAdapterStartMethod.Launch)
+        };
+
+    private static async ValueTask PublishStartEventAsync(
+        ITreeDebugEventPublisher? publisher,
+        DebugLifecycleEvent @event)
     {
-        IDebugProtocolTransport? transport = null;
-        DebugSession? session = null;
-        var phase = "transport";
+        if (publisher is null)
+            return;
         try
         {
-            transport = await _transportFactory.CreateAsync(launchPlan, cancellationToken).ConfigureAwait(false);
-            session = new DebugSession
-            {
-                SessionId = sessionId,
-                RootSessionId = tree.RootSessionId,
-                ParentSessionId = parentSessionId,
-                IsAttach = isAttach,
-                Protocol = new DebugProtocolClient(transport, new DebugProtocolClientOptions
-                {
-                    HostTraceSink = request.HostTraceSink
-                }),
-                LaunchPlan = launchPlan
-            };
-            phase = "initialize";
-            if (request.EventPublisher is not null)
-            {
-                session.OutputEvents = CreateOutputCoalescer(session, tree);
-                session.ProgressEvents = CreateProgressCoalescer(session, tree);
-            }
-            transport = null;
-            session.State.Transition(DebugSessionStatus.Initializing);
-            var coordinator = new DebugConfigurationCoordinator(
-                ct => ConfigureAsync(session, breakpoints, ct), lifetime);
-            RegisterCoreHandlers(session, tree, coordinator, request);
-
-            session.Capabilities = await session.Protocol.InitializeAsync(
-                _initializePolicy.Create(launchPlan.AdapterId, request.InitializeFeatures),
-                cancellationToken).ConfigureAwait(false);
-            session.State.Transition(DebugSessionStatus.Configuring);
-            phase = isAttach ? "attach" : "launch";
-            var launchTask = coordinator.RunLaunchAsync(async ct =>
-            {
-                if (isAttach)
-                    await session.Protocol.SendAsync(DebugProtocolDescriptors.AttachRequest,
-                        DebugProtocolArgumentComposer.Attach(launchPlan.Arguments, restartData), ct, TimeSpan.FromSeconds(30)).ConfigureAwait(false);
-                else
-                    await session.Protocol.SendAsync(DebugProtocolDescriptors.LaunchRequest,
-                        DebugProtocolArgumentComposer.Launch(launchPlan.Arguments, noDebug: false, restartData), ct, TimeSpan.FromSeconds(30)).ConfigureAwait(false);
-            }, cancellationToken);
-            await coordinator.AwaitStartBoundaryAsync(cancellationToken).ConfigureAwait(false);
-            await launchTask.ConfigureAwait(false);
-            phase = "configuration";
-            if (session.State.Status == DebugSessionStatus.Configuring)
-                session.State.Transition(DebugSessionStatus.Running);
-
-            tree.AddSession(session);
-            if (parentSessionId is not null && tree.Sessions.TryGetValue(parentSessionId, out var parent))
-            {
-                parent.ChildSessionIds.TryAdd(sessionId, 0);
-                tree.ActivateSession(sessionId);
-            }
-            return session;
+            await publisher.PublishAsync(
+                @event,
+                durable: true,
+                CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception exception)
+        catch
         {
-            if (session is not null)
-            {
-                var diagnostics = session.Protocol.AdapterDiagnostics;
-                await session.DisposeAsync().ConfigureAwait(false);
-                if (exception is OperationCanceledException)
-                    throw;
-                throw new DebugAdapterStartException(
-                    launchPlan.AdapterId, phase, diagnostics, exception);
-            }
-            if (transport is not null)
-                await transport.DisposeAsync().ConfigureAwait(false);
-            if (exception is OperationCanceledException)
-                throw;
-            throw new DebugAdapterStartException(
-                launchPlan.AdapterId,
-                phase,
-                new DebugAdapterDiagnosticSnapshot(string.Empty, 0, 0, null),
-                exception);
+            // Lifecycle telemetry must never replace the start or cleanup result.
         }
     }
 
@@ -264,7 +295,7 @@ internal sealed class DebugSessionStartOrchestrator
         DebugSession session,
         DebugSessionTree tree,
         DebugConfigurationCoordinator coordinator,
-        DebugSessionStartRequest request)
+        DebugExecutionStartRequest request)
     {
         session.HandlerRegistrations.Add(session.Protocol.OnFault(fault =>
         {
@@ -280,7 +311,7 @@ internal sealed class DebugSessionStartOrchestrator
                     {
                         DebugTreeId = tree.Ownership.DebugTreeId,
                         DebugSessionId = session.SessionId,
-                        AdapterId = session.LaunchPlan.AdapterId,
+                        AdapterId = session.AdapterPlan.AdapterId,
                         SafeReasonCode = fault.ReasonCode
                     }, durable: true).ConfigureAwait(false);
                 });
@@ -295,12 +326,23 @@ internal sealed class DebugSessionStartOrchestrator
             {
                 await PublishAsync(tree, CreateSummary(tree, session, "Faulted"), durable: true)
                     .ConfigureAwait(false);
-                await publishedManager.RemoveAndDisposeAsync(scope, tree.Ownership.DebugTreeId).ConfigureAwait(false);
+                await publishedManager.RetainAndDisposeAsync(
+                    scope,
+                    tree.Ownership.DebugTreeId,
+                    "Faulted",
+                    fault.ReasonCode).ConfigureAwait(false);
+                await PublishAsync(tree, new DebugTerminalRecordRetainedEvent
+                {
+                    DebugTreeId = tree.Ownership.DebugTreeId,
+                    DebugSessionId = session.SessionId,
+                    AdapterId = session.AdapterPlan.AdapterId,
+                    FinalStatus = "Faulted"
+                }, durable: true).ConfigureAwait(false);
                 await PublishAsync(tree, new DebugTreeFaultedEvent
                 {
                     DebugTreeId = tree.Ownership.DebugTreeId,
                     DebugSessionId = session.SessionId,
-                    AdapterId = session.LaunchPlan.AdapterId,
+                    AdapterId = session.AdapterPlan.AdapterId,
                     SafeReasonCode = fault.ReasonCode
                 }, durable: true).ConfigureAwait(false);
             });
@@ -323,7 +365,7 @@ internal sealed class DebugSessionStartOrchestrator
             return PublishAsync(tree, new DebugSessionStoppedEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId, DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId, AdapterThreadId = body.ThreadId,
+                AdapterId = session.AdapterPlan.AdapterId, AdapterThreadId = body.ThreadId,
                 Reason = body.Reason, Description = body.Description ?? body.Text,
                 SuspensionEpoch = thread?.SuspensionEpoch
             }, durable: true);
@@ -336,7 +378,7 @@ internal sealed class DebugSessionStartOrchestrator
             return PublishAsync(tree, new DebugSessionContinuedEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId, DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId, AdapterThreadId = body.ThreadId,
+                AdapterId = session.AdapterPlan.AdapterId, AdapterThreadId = body.ThreadId,
                 AllThreadsContinued = body.AllThreadsContinued == true
             }, durable: true);
         }));
@@ -351,7 +393,7 @@ internal sealed class DebugSessionStartOrchestrator
             return PublishAsync(tree, new DebugThreadChangedEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId, DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId, Reason = body.Reason,
+                AdapterId = session.AdapterPlan.AdapterId, Reason = body.Reason,
                 AdapterThreadId = body.ThreadId
             }, durable: false);
         }));
@@ -361,7 +403,7 @@ internal sealed class DebugSessionStartOrchestrator
             return PublishAsync(tree, new DebugProcessChangedEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId, DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId, Name = body.Name,
+                AdapterId = session.AdapterPlan.AdapterId, Name = body.Name,
                 SystemProcessId = body.SystemProcessId, IsLocalProcess = body.IsLocalProcess,
                 StartMethod = body.StartMethod
             }, durable: false);
@@ -373,7 +415,7 @@ internal sealed class DebugSessionStartOrchestrator
             return PublishAsync(tree, new DebugModuleChangedEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId, DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId, Reason = body.Reason,
+                AdapterId = session.AdapterPlan.AdapterId, Reason = body.Reason,
                 OpaqueModuleId = SafeOpaqueToken(body.Module.Id.GetRawText()), Name = body.Module.Name,
                 Path = body.Module.Path
             }, durable: false);
@@ -385,7 +427,7 @@ internal sealed class DebugSessionStartOrchestrator
             return PublishAsync(tree, new DebugLoadedSourceChangedEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId, DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId, Reason = body.Reason,
+                AdapterId = session.AdapterPlan.AdapterId, Reason = body.Reason,
                 Name = body.Source.Name, Path = body.Source.Path, SourceReference = body.Source.SourceReference
             }, durable: false);
         }));
@@ -396,7 +438,7 @@ internal sealed class DebugSessionStartOrchestrator
             return PublishAsync(tree, new DebugStateInvalidatedEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId, DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId,
+                AdapterId = session.AdapterPlan.AdapterId,
                 Areas = body.Areas?.Select(x => x.Value).ToArray() ?? ["all"],
                 AdapterThreadId = body.ThreadId, StackFrameId = body.StackFrameId
             }, durable: false);
@@ -408,7 +450,7 @@ internal sealed class DebugSessionStartOrchestrator
             return PublishAsync(tree, new DebugMemoryChangedEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId, DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId,
+                AdapterId = session.AdapterPlan.AdapterId,
                 MemoryReferenceToken = SafeOpaqueToken(body.MemoryReference), Offset = body.Offset,
                 Count = body.Count, InvalidatedRanges = invalidated
             }, durable: false);
@@ -424,7 +466,7 @@ internal sealed class DebugSessionStartOrchestrator
             return PublishAsync(tree, new DebugCapabilitiesChangedEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId, DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId, Enabled = changes.Enabled,
+                AdapterId = session.AdapterPlan.AdapterId, Enabled = changes.Enabled,
                 Disabled = changes.Disabled
             }, durable: false);
         }));
@@ -462,12 +504,12 @@ internal sealed class DebugSessionStartOrchestrator
         }));
         session.HandlerRegistrations.Add(session.Protocol.OnEvent(DebugProtocolDescriptors.BreakpointEvent, body =>
         {
-            session.ConfirmedBreakpoints.Reconcile(body.Reason, body.Breakpoint);
+            session.AdapterBreakpoints.Reconcile(body.Reason, body.Breakpoint);
             return PublishAsync(tree, new DebugBreakpointChangedEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId,
                 DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId,
+                AdapterId = session.AdapterPlan.AdapterId,
                 Reason = body.Reason,
                 BreakpointId = body.Breakpoint.Id,
                 Verified = body.Breakpoint.Verified,
@@ -496,7 +538,7 @@ internal sealed class DebugSessionStartOrchestrator
                         {
                             DebugTreeId = tree.Ownership.DebugTreeId,
                             DebugSessionId = session.SessionId,
-                            AdapterId = session.LaunchPlan.AdapterId
+                            AdapterId = session.AdapterPlan.AdapterId
                         },
                         tree.Ownership.DebugTreeId,
                         session.SessionId,
@@ -529,7 +571,7 @@ internal sealed class DebugSessionStartOrchestrator
             return PublishAsync(tree, new DebugSessionExitedEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId, DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId, ExitCode = body.ExitCode
+                AdapterId = session.AdapterPlan.AdapterId, ExitCode = body.ExitCode
             }, durable: true);
         }));
         session.HandlerRegistrations.Add(session.Protocol.OnEvent(DebugProtocolDescriptors.TerminatedEvent, async body =>
@@ -545,7 +587,7 @@ internal sealed class DebugSessionStartOrchestrator
             await PublishAsync(tree, new DebugSessionTerminatedEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId, DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId, RestartRequested = body.Restart is not null
+                AdapterId = session.AdapterPlan.AdapterId, RestartRequested = body.Restart is not null
             }, durable: true).ConfigureAwait(false);
             if (body.Restart is null && session.SessionId == tree.RootSessionId)
             {
@@ -559,12 +601,23 @@ internal sealed class DebugSessionStartOrchestrator
                     {
                         DebugTreeId = tree.Ownership.DebugTreeId,
                         DebugSessionId = session.SessionId,
-                        AdapterId = session.LaunchPlan.AdapterId,
+                        AdapterId = session.AdapterPlan.AdapterId,
                         SafeReasonCode = "ADAPTER_TERMINATED"
                     };
                     if (request.Runtime.SessionManager is DebugSessionManager runtimeManager)
-                        await runtimeManager.RemoveAndDisposeAsync(scope, tree.Ownership.DebugTreeId)
+                        await runtimeManager.RetainAndDisposeAsync(
+                            scope,
+                            tree.Ownership.DebugTreeId,
+                            "Terminated",
+                            "ADAPTER_TERMINATED")
                             .ConfigureAwait(false);
+                    await PublishAsync(tree, new DebugTerminalRecordRetainedEvent
+                    {
+                        DebugTreeId = tree.Ownership.DebugTreeId,
+                        DebugSessionId = session.SessionId,
+                        AdapterId = session.AdapterPlan.AdapterId,
+                        FinalStatus = "Terminated"
+                    }, durable: true).ConfigureAwait(false);
                     await PublishAsync(tree, terminatedEvent, durable: true).ConfigureAwait(false);
                 });
             }
@@ -585,7 +638,7 @@ internal sealed class DebugSessionStartOrchestrator
         {
             DebugTreeId = tree.Ownership.DebugTreeId,
             DebugSessionId = session.SessionId,
-            AdapterId = session.LaunchPlan.AdapterId,
+            AdapterId = session.AdapterPlan.AdapterId,
             FinalStatus = finalStatus,
             ExitCode = session.ExitCode,
             DurationMilliseconds = Math.Max(0, (long)(DateTimeOffset.UtcNow - session.CreatedAt).TotalMilliseconds),
@@ -605,13 +658,13 @@ internal sealed class DebugSessionStartOrchestrator
     {
         const int maximumArtifactBytes = 4 * 1024 * 1024;
         var result = await tree.Artifacts.WriteTextAsync(text, "debug-output", record.Category.ToString(),
-            session.LaunchPlan.AdapterId, session.SessionId, maximumArtifactBytes, CancellationToken.None)
+            session.AdapterPlan.AdapterId, session.SessionId, maximumArtifactBytes, CancellationToken.None)
             .ConfigureAwait(false);
         if (result.Status != DebugArtifactWriteStatus.Stored || result.Address is not { } address) return;
         tree.AddStoredArtifact(new("debug-output", session.SessionId, address.ContentId,
             address.Scope.Value, address.Version, new Dictionary<string, string>
             {
-                ["adapter"] = session.LaunchPlan.AdapterId,
+                ["adapter"] = session.AdapterPlan.AdapterId,
                 ["debugTreeId"] = tree.Ownership.DebugTreeId,
                 ["debugSessionId"] = session.SessionId,
                 ["category"] = record.Category.ToString()
@@ -620,7 +673,7 @@ internal sealed class DebugSessionStartOrchestrator
         {
             DebugTreeId = tree.Ownership.DebugTreeId,
             DebugSessionId = session.SessionId,
-            AdapterId = session.LaunchPlan.AdapterId,
+            AdapterId = session.AdapterPlan.AdapterId,
             FirstSequence = record.Sequence,
             LastSequence = record.Sequence,
             Category = record.Category.ToString(),
@@ -645,7 +698,7 @@ internal sealed class DebugSessionStartOrchestrator
         {
             DebugTreeId = tree.Ownership.DebugTreeId,
             DebugSessionId = session.SessionId,
-            AdapterId = session.LaunchPlan.AdapterId,
+            AdapterId = session.AdapterPlan.AdapterId,
             FirstSequence = batch.FirstSequence,
             LastSequence = batch.LastSequence,
             Category = batch.Category.ToString(),
@@ -665,7 +718,7 @@ internal sealed class DebugSessionStartOrchestrator
                 {
                     DebugTreeId = tree.Ownership.DebugTreeId,
                     DebugSessionId = session.SessionId,
-                    AdapterId = session.LaunchPlan.AdapterId,
+                    AdapterId = session.AdapterPlan.AdapterId,
                     ProgressId = notification.State.ProgressId,
                     Title = notification.State.Title,
                     Cancellable = notification.State.Cancellable
@@ -674,14 +727,14 @@ internal sealed class DebugSessionStartOrchestrator
                 {
                     DebugTreeId = tree.Ownership.DebugTreeId,
                     DebugSessionId = session.SessionId,
-                    AdapterId = session.LaunchPlan.AdapterId,
+                    AdapterId = session.AdapterPlan.AdapterId,
                     ProgressId = notification.State.ProgressId
                 },
                 _ => new DebugProgressCompletedEvent
                 {
                     DebugTreeId = tree.Ownership.DebugTreeId,
                     DebugSessionId = session.SessionId,
-                    AdapterId = session.LaunchPlan.AdapterId,
+                    AdapterId = session.AdapterPlan.AdapterId,
                     ProgressId = notification.State.ProgressId
                 }
             };
@@ -697,7 +750,7 @@ internal sealed class DebugSessionStartOrchestrator
         DebugSessionTree tree,
         DebugSession parent,
         StartDebuggingRequestArguments arguments,
-        DebugSessionStartRequest request,
+        DebugExecutionStartRequest request,
         CancellationToken cancellationToken)
     {
         tree.RuntimeBinding.State.ThrowIfUnavailable();
@@ -710,40 +763,32 @@ internal sealed class DebugSessionStartOrchestrator
         var plan = await request.ChildSessionPlanFactory!.CreateAsync(
             tree.RuntimeBinding,
             tree.Authorization,
-            parent.LaunchPlan,
+            parent.AdapterPlan,
             arguments.Request,
             arguments.Configuration.Clone(),
             arguments.OutputPresentation,
             tree.Breakpoints.Snapshot,
             cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(plan.LaunchPlan.AdapterId, parent.LaunchPlan.AdapterId, StringComparison.Ordinal))
+        if (!string.Equals(plan.AdapterPlan.AdapterId, parent.AdapterPlan.AdapterId, StringComparison.Ordinal))
             throw new UnauthorizedAccessException("A child session must resolve the same debug adapter type as its parent.");
-        tree.Authorization.ValidateCurrent(tree.RuntimeBinding, plan.LaunchPlan);
+        tree.Authorization.ValidateCurrent(tree.RuntimeBinding, plan.AdapterPlan);
 
         var childId = Guid.NewGuid().ToString("N");
-        var child = await CreateProtocolSessionAsync(
-            tree, childId, parent.SessionId, plan.LaunchPlan, plan.IsAttach, restartData: null,
-            plan.Breakpoints, request, CancellationToken.None, cancellationToken).ConfigureAwait(false);
+        var child = await _protocolStarter.StartAsync(
+            tree, childId, parent.SessionId, plan.AdapterPlan, restartData: null,
+            plan.Breakpoints, DebugInitialBreakpointPolicy.AllowPending,
+            request, CancellationToken.None,
+            RegisterCoreHandlers, CreateOutputCoalescer, CreateProgressCoalescer,
+            cancellationToken).ConfigureAwait(false);
         await PublishAsync(tree, new DebugChildSessionStartedEvent
         {
             DebugTreeId = tree.Ownership.DebugTreeId,
             DebugSessionId = child.SessionId,
-            AdapterId = child.LaunchPlan.AdapterId,
+            AdapterId = child.AdapterPlan.AdapterId,
             ParentDebugSessionId = parent.SessionId,
-            IsAttach = child.IsAttach,
+            AdapterStartMethod = child.AdapterStartMethod,
             OutputPresentation = arguments.OutputPresentation
         }, durable: true).ConfigureAwait(false);
-    }
-
-    private static async Task ConfigureAsync(
-        DebugSession session,
-        DebugDesiredBreakpointSnapshot breakpoints,
-        CancellationToken cancellationToken)
-    {
-        await DebugBreakpointProtocolApplier.ApplyAllAsync(session, breakpoints, cancellationToken)
-            .ConfigureAwait(false);
-        if (session.Capabilities?.SupportsConfigurationDoneRequest == true)
-            await session.Protocol.SendAsync(DebugProtocolDescriptors.ConfigurationDoneRequest, new ConfigurationDoneArguments(), cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task FetchTopFramesAsync(DebugSession session, int threadId, long suspensionEpoch)

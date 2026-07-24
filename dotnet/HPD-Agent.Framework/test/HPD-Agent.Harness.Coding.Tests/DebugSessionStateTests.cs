@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding.Debugging;
@@ -8,10 +9,130 @@ namespace HPD.Agent.ToolHarness.Coding.Tests;
 public sealed class DebugSessionStateTests
 {
     [Fact]
+    public void All_threads_stopped_preserves_the_adapter_designated_primary_thread()
+    {
+        var state = new DebugSessionState();
+        state.Transition(DebugSessionStatus.Initializing);
+        state.Transition(DebugSessionStatus.Configuring);
+        state.Transition(DebugSessionStatus.Running);
+        state.ObserveThread(10);
+        state.ObserveThread(20);
+
+        state.ObserveStopped(20, allThreadsStopped: true, "breakpoint", null);
+
+        state.PrimaryStoppedThreadId.Should().Be(20);
+        state.Threads.Should().OnlyContain(thread => thread.IsStopped);
+        state.Threads.Single(thread => thread.ThreadId == 20).StopReason.Should().Be("breakpoint");
+        state.Threads.Single(thread => thread.ThreadId == 10).StopReason.Should().BeNull(
+            "an all-threads suspension does not make every thread the focal breakpoint thread");
+        state.ObserveContinued(20, allThreadsContinued: true);
+        state.PrimaryStoppedThreadId.Should().BeNull();
+    }
+
+    [Fact]
+    public void Resume_transaction_updates_all_threads_and_rolls_back_an_adapter_rejection()
+    {
+        var state = RunningState(10, 20);
+        state.ObserveStopped(20, allThreadsStopped: true, "breakpoint", "hit");
+
+        var transition = state.BeginResume(20, allThreadsContinued: true);
+
+        state.Status.Should().Be(DebugSessionStatus.Running);
+        state.Threads.Should().OnlyContain(thread =>
+            !thread.IsStopped && thread.ResumptionGeneration == 1);
+        state.TryRollbackResume(transition).Should().BeTrue();
+        state.Status.Should().Be(DebugSessionStatus.Stopped);
+        state.PrimaryStoppedThreadId.Should().Be(20);
+        state.Threads.Single(thread => thread.ThreadId == 20).StopReason.Should().Be("breakpoint");
+        state.Threads.Single(thread => thread.ThreadId == 10).StopReason.Should().BeNull();
+    }
+
+    [Fact]
+    public void Resume_transaction_does_not_overwrite_a_newer_adapter_stop()
+    {
+        var state = RunningState(10, 20);
+        state.ObserveStopped(20, allThreadsStopped: true, "breakpoint", null);
+        var transition = state.BeginResume(20, allThreadsContinued: true);
+
+        state.ObserveStopped(10, allThreadsStopped: true, "step", null);
+
+        state.TryRollbackResume(transition).Should().BeFalse();
+        state.PrimaryStoppedThreadId.Should().Be(10);
+        state.Threads.Single(thread => thread.ThreadId == 10).StopReason.Should().Be("step");
+    }
+
+    [Fact]
+    public void Matching_continued_event_confirms_an_optimistic_resume_without_double_counting()
+    {
+        var state = RunningState(10, 20);
+        state.ObserveStopped(20, allThreadsStopped: true, "breakpoint", null);
+        state.BeginResume(20, allThreadsContinued: true);
+
+        state.ObserveContinued(20, allThreadsContinued: true);
+
+        state.Threads.Should().OnlyContain(thread =>
+            !thread.IsStopped && thread.ResumptionGeneration == 1);
+    }
+
+    [Fact]
+    public void Adapter_continued_scope_supersedes_an_optimistic_resume_scope()
+    {
+        var state = RunningState(10, 20);
+        state.ObserveStopped(20, allThreadsStopped: true, "breakpoint", null);
+        state.BeginResume(20, allThreadsContinued: true);
+
+        state.ObserveContinued(20, allThreadsContinued: false);
+
+        state.Status.Should().Be(DebugSessionStatus.PartiallyStopped);
+        state.Threads.Single(thread => thread.ThreadId == 20).IsStopped.Should().BeFalse();
+        state.Threads.Single(thread => thread.ThreadId == 10).IsStopped.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Semantic_step_rejection_rolls_back_the_projected_resume()
+    {
+        await using var transport = new InMemoryDebugProtocolTransport();
+        await using var manager = new DebugSessionManager(
+            new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
+        await using var reservation = manager.ReserveTree(
+            "owner", "thread", "env", 1, "tree");
+        var tree = Tree(reservation.Ownership, "root", manager, Plan());
+        var session = Session("root", "root", transport);
+        session.State.Transition(DebugSessionStatus.Initializing);
+        session.State.Transition(DebugSessionStatus.Configuring);
+        session.State.ObserveThread(10);
+        session.State.ObserveThread(20);
+        session.State.ObserveStopped(20, allThreadsStopped: true, "breakpoint", null);
+        tree.AddSession(session);
+        reservation.Commit(tree);
+        var semantics = new DebugSemanticService(manager);
+
+        var step = semantics.NextAsync(
+            Scope(manager, "owner", "thread"),
+            "tree",
+            null,
+            20,
+            singleThread: false,
+            TimeSpan.FromSeconds(2),
+            CancellationToken.None);
+        var request = await ReadWrittenMessageAsync(transport);
+        await transport.FeedProtocolAsync(DebugProtocolFramer.Encode(
+            Encoding.UTF8.GetBytes($$"""
+                {"seq":2,"type":"response","request_seq":{{request.GetProperty("seq").GetInt32()}},"success":false,"command":"next","message":"cannot step"}
+                """)));
+
+        var action = async () => await step;
+        await action.Should().ThrowAsync<DebugAdapterRequestException>();
+        session.State.Status.Should().Be(DebugSessionStatus.Stopped);
+        session.State.PrimaryStoppedThreadId.Should().Be(20);
+        session.State.Threads.Should().OnlyContain(thread => thread.IsStopped);
+    }
+
+    [Fact]
     public async Task Shared_snapshot_projects_bounded_tree_session_and_output_state()
     {
         await using var transport = new InMemoryDebugProtocolTransport();
-        await using var manager = new DebugSessionManager();
+        await using var manager = new DebugSessionManager(new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
         var ownership = new DebugTreeOwnership(manager.RuntimeId, "owner", "thread", "tree", "env", 1);
         await using var tree = Tree(ownership, "root", manager, Plan());
         var root = Session("root", "root", transport);
@@ -29,7 +150,8 @@ public sealed class DebugSessionStateTests
         snapshot.RetainedOutputBytes.Should().Be(6);
         snapshot.Sessions.Should().ContainSingle().Which.Should().Match<DebugSessionSnapshot>(
             x => x.DebugSessionId == "root" && x.ThreadCount == 1 &&
-                 x.StoppedThreadCount == 1 && x.StopReason == "breakpoint");
+                 x.StoppedThreadCount == 1 && x.PrimaryStoppedThreadId == 7 &&
+                 x.StopReason == "breakpoint");
     }
 
     [Fact]
@@ -93,7 +215,7 @@ public sealed class DebugSessionStateTests
     [Fact]
     public async Task Manager_reservations_are_non_addressable_and_rollback_cleanly()
     {
-        await using var manager = new DebugSessionManager();
+        await using var manager = new DebugSessionManager(new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
         var reservation = manager.ReserveTree("owner-session", "owner-thread", "env", 1, "tree");
         var scope = Scope(manager, "owner-session", "owner-thread");
 
@@ -107,7 +229,7 @@ public sealed class DebugSessionStateTests
     [Fact]
     public async Task Manager_commit_enforces_complete_ownership_and_runtime_disposal()
     {
-        await using var manager = new DebugSessionManager();
+        await using var manager = new DebugSessionManager(new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
         await using var reservation = manager.ReserveTree("owner-session", "owner-thread", "env", 1, "tree");
         var tree = Tree(reservation.Ownership, "root", manager, Plan());
         reservation.Commit(tree);
@@ -125,7 +247,7 @@ public sealed class DebugSessionStateTests
     {
         await using var rootTransport = new InMemoryDebugProtocolTransport();
         await using var childTransport = new InMemoryDebugProtocolTransport();
-        await using var manager = new DebugSessionManager();
+        await using var manager = new DebugSessionManager(new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
         var ownership = new DebugTreeOwnership(manager.RuntimeId, "owner", "thread", "tree", "env", 1);
         var plan = Plan();
         await using var tree = Tree(ownership, "root", manager, plan);
@@ -154,7 +276,7 @@ public sealed class DebugSessionStateTests
     {
         await using var rootTransport = new InMemoryDebugProtocolTransport();
         await using var childTransport = new InMemoryDebugProtocolTransport();
-        await using var manager = new DebugSessionManager();
+        await using var manager = new DebugSessionManager(new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
         var ownership = new DebugTreeOwnership(manager.RuntimeId, "owner", "thread", "tree", "env", 1);
         await using var tree = Tree(ownership, "root", manager, Plan());
         var root = Session("root", "root", rootTransport);
@@ -182,7 +304,7 @@ public sealed class DebugSessionStateTests
     [Fact]
     public async Task Tree_authorization_rejects_endpoint_revision_or_identity_changes()
     {
-        await using var manager = new DebugSessionManager();
+        await using var manager = new DebugSessionManager(new DebugTerminalRecordStore(new DebugTerminalRecordStoreOptions()));
         var ownership = new DebugTreeOwnership(manager.RuntimeId, "owner", "thread", "tree", "env", 1);
         var plan = Plan();
         await using var tree = Tree(ownership, "root", manager, plan);
@@ -208,6 +330,21 @@ public sealed class DebugSessionStateTests
     private static DebugTreeLookupScope Scope(DebugSessionManager manager, string session, string thread)
         => new(manager.RuntimeId, session, thread);
 
+    private static async Task<JsonElement> ReadWrittenMessageAsync(
+        InMemoryDebugProtocolTransport transport)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await foreach (var bytes in transport.ReadWrittenAsync()
+                           .WithCancellation(timeout.Token))
+        {
+            var frame = new DebugProtocolFramer().Append(bytes).Single();
+            using var document = JsonDocument.Parse(frame);
+            return document.RootElement.Clone();
+        }
+        throw new InvalidOperationException(
+            "The debug transport completed before writing a request.");
+    }
+
     private static DebugSession Session(
         string id,
         string rootId,
@@ -217,16 +354,16 @@ public sealed class DebugSessionStateTests
         SessionId = id,
         RootSessionId = rootId,
         ParentSessionId = parentId,
-        IsAttach = false,
+        AdapterStartMethod = DebugAdapterStartMethod.Launch,
         Protocol = new DebugProtocolClient(transport, new() { RequireInitializeFirst = false }),
-        LaunchPlan = Plan()
+        AdapterPlan = Plan()
     };
 
     private static DebugSessionTree Tree(
         DebugTreeOwnership ownership,
         string rootSessionId,
         DebugSessionManager manager,
-        DebugAdapterLaunchPlan plan)
+        DebugAdapterStartPlan plan)
     {
         var runtime = new DebugRuntimeBinding
         {
@@ -242,18 +379,25 @@ public sealed class DebugSessionStateTests
             Ownership = ownership,
             RootSessionId = rootSessionId,
             RuntimeBinding = runtime,
-            Authorization = DebugTreeAuthorization.Create(runtime, ownership, plan, false, new()),
+            Authorization = DebugTreeAuthorization.Create(
+                runtime,
+                ownership,
+                plan,
+                DebugSemanticStartKind.DirectLaunch,
+                "test",
+                new()),
             Artifacts = new DebugArtifactWriter(null, ContentScope.Create("debug:test"),
                 new Dictionary<string, string>()),
             EventPublisher = null
         };
     }
 
-    private static DebugAdapterLaunchPlan Plan()
+    private static DebugAdapterStartPlan Plan()
     {
         using var json = JsonDocument.Parse("{}");
         return new()
         {
+            Method = DebugAdapterStartMethod.Launch,
             AdapterId = "fixture",
             EnvironmentId = "env",
             EnvironmentRevision = 1,

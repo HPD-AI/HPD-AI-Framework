@@ -5,8 +5,10 @@ namespace HPD.Agent.ToolHarness.Coding.Debugging;
 
 internal sealed record DebugBreakpointSnapshot(
     DebugDesiredBreakpointSnapshot Desired,
-    ImmutableArray<DebugConfirmedBreakpoint> Confirmed,
-    string DebugSessionId);
+    ImmutableArray<DebugAdapterBreakpointState> AdapterStates,
+    DebugBreakpointCounts Counts,
+    string? DebugSessionId,
+    bool DetailsRetained);
 
 internal sealed class DebugBreakpointService(DebugSessionManager sessions)
 {
@@ -17,11 +19,29 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
         string treeId,
         string? sessionId = null)
     {
+        if (_sessions.TryResolveTerminal(owner, treeId, out var terminal))
+            return new DebugBreakpointSnapshot(
+                new(),
+                [],
+                terminal.Breakpoints,
+                null,
+                false);
         var (tree, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.Inspect);
+        var desired = tree.Breakpoints.Snapshot;
+        var adapterStates = session.AdapterBreakpoints.Snapshot;
+        var requested = desired.Source.Length + desired.Function.Length +
+            desired.Exception.Length + desired.Instruction.Length + desired.Data.Length;
+        var verified = adapterStates.Count(item => item.Verified);
         return new DebugBreakpointSnapshot(
-            tree.Breakpoints.Snapshot,
-            session.ConfirmedBreakpoints.Snapshot,
-            session.SessionId);
+            desired,
+            adapterStates,
+            new DebugBreakpointCounts(
+                requested,
+                adapterStates.Length,
+                verified,
+                Math.Max(0, requested - verified)),
+            session.SessionId,
+            true);
     }
 
     public ValueTask SetSourceAsync(DebugTreeLookupScope owner, string treeId, string? sessionId,
@@ -44,7 +64,7 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
                             HitCondition = x.HitCondition, LogMessage = x.LogMessage
                         }).ToList()
                     }, ct).ConfigureAwait(false);
-                session.ConfirmedBreakpoints.ReplaceSource(path, response.Breakpoints);
+                session.AdapterBreakpoints.ReplaceSource(path, response.Breakpoints);
             }
         }, cancellationToken);
     }
@@ -60,7 +80,7 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
             var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.SetFunctionBreakpointsRequest,
                 new SetFunctionBreakpointsArguments { Breakpoints = replacement.Select(x => new FunctionBreakpoint
                 { Name = x.Name, Condition = x.Condition, HitCondition = x.HitCondition }).ToList() }, ct).ConfigureAwait(false);
-            session.ConfirmedBreakpoints.Replace(DebugBreakpointKind.Function, response.Breakpoints);
+            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Function, response.Breakpoints);
         }, cancellationToken);
     }
 
@@ -70,14 +90,9 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
         var (tree, session) = Resolve(owner, treeId, sessionId, DebugTreeGrant.ExceptionBreakpoints);
         return tree.Breakpoints.ReplaceExceptionAsync(filters, async (_, replacement, ct) =>
         {
-            var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.SetExceptionBreakpointsRequest,
-                new SetExceptionBreakpointsArguments
-                {
-                    Filters = replacement.Select(x => x.FilterId).ToList(),
-                    FilterOptions = replacement.Where(x => x.Condition is not null).Select(x =>
-                        new ExceptionFilterOptions { FilterId = x.FilterId, Condition = x.Condition }).ToList()
-                }, ct).ConfigureAwait(false);
-            session.ConfirmedBreakpoints.Replace(DebugBreakpointKind.Exception, response?.Breakpoints ?? []);
+            var breakpoints = await DebugExceptionBreakpointProtocol.ApplyAsync(
+                session, replacement, ct).ConfigureAwait(false);
+            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Exception, breakpoints);
         }, cancellationToken);
     }
 
@@ -92,7 +107,7 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
             var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.SetInstructionBreakpointsRequest,
                 new SetInstructionBreakpointsArguments { Breakpoints = replacement.Select(x => new InstructionBreakpoint
                 { InstructionReference = x.InstructionReference, Offset = x.Offset, Condition = x.Condition, HitCondition = x.HitCondition }).ToList() }, ct).ConfigureAwait(false);
-            session.ConfirmedBreakpoints.Replace(DebugBreakpointKind.Instruction, response.Breakpoints);
+            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Instruction, response.Breakpoints);
         }, cancellationToken);
     }
 
@@ -127,7 +142,7 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
             var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.SetDataBreakpointsRequest,
                 new SetDataBreakpointsArguments { Breakpoints = replacement.Select(x => new DataBreakpoint
                 { DataId = x.DataId, AccessType = x.AccessType is null ? null : new(x.AccessType), Condition = x.Condition, HitCondition = x.HitCondition }).ToList() }, ct).ConfigureAwait(false);
-            session.ConfirmedBreakpoints.Replace(DebugBreakpointKind.Data, response.Breakpoints);
+            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Data, response.Breakpoints);
         }, cancellationToken);
     }
 

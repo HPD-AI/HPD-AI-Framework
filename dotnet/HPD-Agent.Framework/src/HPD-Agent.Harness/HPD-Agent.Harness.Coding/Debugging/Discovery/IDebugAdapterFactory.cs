@@ -26,6 +26,7 @@ public sealed record DebugAdapterResolutionContext
         = ImmutableDictionary<string, string?>.Empty;
     public IReadOnlyList<string>? ProbeArgumentsOverride { get; init; }
     public RuntimeProcessExecutionBinding? ProcessExecution { get; init; }
+    public AgentProcessSandboxPolicy ProcessSandbox { get; init; } = new();
     public required DebugAdapterTrustDecision TrustDecision { get; init; }
 }
 
@@ -68,23 +69,56 @@ public sealed record DebugAdapterToolProvenance
     public string? ContentDigest { get; init; }
 }
 
+/// <summary>Trusted inputs used to create one adapter launch plan.</summary>
 public sealed record DebugLaunchContext
 {
     public required DebugAdapterResolutionContext Resolution { get; init; }
     public required string Target { get; init; }
+    /// <summary>Gets the canonical directory in which the adapter process runs.</summary>
+    public required string WorkingDirectory { get; init; }
     public required JsonElement Configuration { get; init; }
 }
 
+/// <summary>Trusted inputs used to create one adapter attach plan.</summary>
 public sealed record DebugAttachContext
 {
     public required DebugAdapterResolutionContext Resolution { get; init; }
     public string? ProcessId { get; init; }
     public string? EndpointId { get; init; }
+    /// <summary>Gets the canonical directory in which the adapter process runs.</summary>
+    public required string WorkingDirectory { get; init; }
     public required JsonElement Configuration { get; init; }
 }
 
-public sealed record DebugAdapterLaunchPlan
+/// <summary>Describes the user-approved semantic reason a debug tree was started.</summary>
+public enum DebugSemanticStartKind
 {
+    /// <summary>The adapter launches the requested program directly.</summary>
+    DirectLaunch,
+
+    /// <summary>The user explicitly requested attachment to an existing target.</summary>
+    ExplicitAttach,
+
+    /// <summary>A semantic launch owns a host process and internally attaches to its debuggee.</summary>
+    HostedLaunchAttach
+}
+
+/// <summary>Describes the DAP request used to start one protocol session.</summary>
+public enum DebugAdapterStartMethod
+{
+    /// <summary>The adapter receives a DAP <c>launch</c> request.</summary>
+    Launch,
+
+    /// <summary>The adapter receives a DAP <c>attach</c> request.</summary>
+    Attach
+}
+
+/// <summary>Trusted, fully resolved input for starting one debug-adapter protocol session.</summary>
+public sealed record DebugAdapterStartPlan
+{
+    /// <summary>Gets the DAP start request represented by this plan.</summary>
+    public required DebugAdapterStartMethod Method { get; init; }
+
     public required string AdapterId { get; init; }
     public required string EnvironmentId { get; init; }
     public required long EnvironmentRevision { get; init; }
@@ -93,6 +127,7 @@ public sealed record DebugAdapterLaunchPlan
     public required DebugAdapterProvenance PackageProvenance { get; init; }
     public required DebugAdapterTrustDecision TrustDecision { get; init; }
     public RuntimeProcessExecutionBinding? ProcessExecution { get; init; }
+    public AgentProcessSandboxPolicy ProcessSandbox { get; init; } = new();
     public TargetHandle<ExecutionUnit>? ExecutionTarget { get; init; }
     public required string CanonicalWorkingDirectory { get; init; }
     public required string AuthorizationScope { get; init; }
@@ -122,12 +157,12 @@ public interface IDebugAdapterFactory
         DebugAdapterResolutionContext context,
         CancellationToken cancellationToken = default);
 
-    ValueTask<DebugAdapterLaunchPlan> CreateLaunchPlanAsync(
+    ValueTask<DebugAdapterStartPlan> CreateLaunchPlanAsync(
         DebugAdapterDescriptor descriptor,
         DebugLaunchContext context,
         CancellationToken cancellationToken = default);
 
-    ValueTask<DebugAdapterLaunchPlan> CreateAttachPlanAsync(
+    ValueTask<DebugAdapterStartPlan> CreateAttachPlanAsync(
         DebugAdapterDescriptor descriptor,
         DebugAttachContext context,
         CancellationToken cancellationToken = default);
@@ -159,15 +194,19 @@ public sealed class StandardDebugAdapterFactory : IDebugAdapterFactory
             resolution.Available ? null : descriptor.InstallGuidanceId);
     }
 
-    public ValueTask<DebugAdapterLaunchPlan> CreateLaunchPlanAsync(DebugAdapterDescriptor descriptor, DebugLaunchContext context, CancellationToken cancellationToken = default)
-        => CreatePlanAsync(descriptor, context.Resolution, context.Configuration, cancellationToken);
+    public ValueTask<DebugAdapterStartPlan> CreateLaunchPlanAsync(DebugAdapterDescriptor descriptor, DebugLaunchContext context, CancellationToken cancellationToken = default)
+        => CreatePlanAsync(
+            descriptor, context.Resolution, context.WorkingDirectory,
+            context.Configuration, DebugAdapterStartMethod.Launch, cancellationToken);
 
-    public ValueTask<DebugAdapterLaunchPlan> CreateAttachPlanAsync(DebugAdapterDescriptor descriptor, DebugAttachContext context, CancellationToken cancellationToken = default)
+    public ValueTask<DebugAdapterStartPlan> CreateAttachPlanAsync(DebugAdapterDescriptor descriptor, DebugAttachContext context, CancellationToken cancellationToken = default)
         => context.EndpointId is null
-            ? CreatePlanAsync(descriptor, context.Resolution, context.Configuration, cancellationToken)
+            ? CreatePlanAsync(
+                descriptor, context.Resolution, context.WorkingDirectory,
+                context.Configuration, DebugAdapterStartMethod.Attach, cancellationToken)
             : CreateEndpointPlanAsync(descriptor, context, cancellationToken);
 
-    private async ValueTask<DebugAdapterLaunchPlan> CreateEndpointPlanAsync(
+    private async ValueTask<DebugAdapterStartPlan> CreateEndpointPlanAsync(
         DebugAdapterDescriptor descriptor,
         DebugAttachContext context,
         CancellationToken cancellationToken)
@@ -182,6 +221,7 @@ public sealed class StandardDebugAdapterFactory : IDebugAdapterFactory
             throw new InvalidOperationException("The authorized debug endpoint binding is stale or belongs to another Environment.");
         return new()
         {
+            Method = DebugAdapterStartMethod.Attach,
             AdapterId = descriptor.Id,
             EnvironmentId = context.Resolution.EnvironmentId,
             EnvironmentRevision = context.Resolution.EnvironmentRevision,
@@ -189,7 +229,10 @@ public sealed class StandardDebugAdapterFactory : IDebugAdapterFactory
             EndpointCatalogRevision = context.Resolution.EndpointCatalogRevision,
             PackageProvenance = descriptor.Provenance,
             TrustDecision = context.Resolution.TrustDecision,
-            CanonicalWorkingDirectory = _workspaceCanonicalizer.Canonicalize(context.Resolution.WorkspaceRoot, context.Resolution.TargetPlatform),
+            ProcessSandbox = context.Resolution.ProcessSandbox,
+            CanonicalWorkingDirectory = _workspaceCanonicalizer.Canonicalize(
+                context.WorkingDirectory,
+                context.Resolution.TargetPlatform),
             AuthorizationScope = context.Resolution.AuthorizationScope,
             FilteredEnvironment = FreezeEnvironment(context.Resolution),
             Transport = new()
@@ -204,14 +247,16 @@ public sealed class StandardDebugAdapterFactory : IDebugAdapterFactory
         };
     }
 
-    private async ValueTask<DebugAdapterLaunchPlan> CreatePlanAsync(
+    private async ValueTask<DebugAdapterStartPlan> CreatePlanAsync(
         DebugAdapterDescriptor descriptor,
         DebugAdapterResolutionContext context,
+        string workingDirectory,
         JsonElement configuration,
+        DebugAdapterStartMethod method,
         CancellationToken cancellationToken)
     {
         if (context.TrustDecision.TrustLevel != DebugAdapterTrustLevel.Trusted)
-            throw new InvalidOperationException("A debug adapter launch plan requires a trusted adapter package.");
+            throw new InvalidOperationException("A debug adapter start plan requires a trusted adapter package.");
         var resolution = await _toolResolver.ResolveAsync(descriptor, context, cancellationToken).ConfigureAwait(false);
         if (!resolution.Available || string.IsNullOrWhiteSpace(resolution.Command) || resolution.SearchScope is null || string.IsNullOrWhiteSpace(resolution.ProcessProviderId))
             throw new InvalidOperationException($"Debug adapter '{descriptor.Id}' is unavailable ({resolution.SafeReasonCode ?? "UNKNOWN"}).");
@@ -220,6 +265,7 @@ public sealed class StandardDebugAdapterFactory : IDebugAdapterFactory
         var launchArguments = (resolution.LaunchArguments ?? descriptor.ArgumentHints).ToImmutableArray();
         return new()
         {
+            Method = method,
             AdapterId = descriptor.Id,
             EnvironmentId = context.EnvironmentId,
             EnvironmentRevision = context.EnvironmentRevision,
@@ -228,8 +274,11 @@ public sealed class StandardDebugAdapterFactory : IDebugAdapterFactory
             PackageProvenance = descriptor.Provenance,
             TrustDecision = context.TrustDecision,
             ProcessExecution = processExecution,
+            ProcessSandbox = context.ProcessSandbox,
             ExecutionTarget = processExecution.ExecutionTarget,
-            CanonicalWorkingDirectory = _workspaceCanonicalizer.Canonicalize(context.WorkspaceRoot, context.TargetPlatform),
+            CanonicalWorkingDirectory = _workspaceCanonicalizer.Canonicalize(
+                workingDirectory,
+                context.TargetPlatform),
             AuthorizationScope = context.AuthorizationScope,
             FilteredEnvironment = FreezeEnvironment(context),
             Transport = new()

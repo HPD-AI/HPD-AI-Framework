@@ -1,4 +1,5 @@
 using HPD.Agent;
+using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Events;
 
 namespace HPDOS.ToolHarnesses.Middleware;
@@ -19,7 +20,74 @@ public abstract record DebugLifecycleEvent : AgentEvent
 public sealed record DebugTreeStartedEvent : DebugLifecycleEvent
 {
     public required string EnvironmentId { get; init; }
-    public required bool IsAttach { get; init; }
+    public required DebugSemanticStartKind SemanticStartKind { get; init; }
+    public required DebugAdapterStartMethod AdapterStartMethod { get; init; }
+    public required string ExecutionPlannerId { get; init; }
+}
+
+/// <summary>Durable evidence that an inert semantic execution plan was selected.</summary>
+public sealed record DebugExecutionPlannedEvent : DebugLifecycleEvent
+{
+    public required DebugSemanticStartKind SemanticStartKind { get; init; }
+    public required DebugAdapterStartMethod AdapterStartMethod { get; init; }
+    public required string ExecutionPlannerId { get; init; }
+}
+
+/// <summary>Durable evidence that tree-scoped activation has begun.</summary>
+public sealed record DebugExecutionActivatingEvent : DebugLifecycleEvent
+{
+    public required DebugSemanticStartKind SemanticStartKind { get; init; }
+    public required DebugAdapterStartMethod AdapterStartMethod { get; init; }
+    public required string ExecutionPlannerId { get; init; }
+}
+
+/// <summary>Durable evidence that an HPD-owned prerequisite host started.</summary>
+public sealed record DebugHostProcessStartedEvent : DebugLifecycleEvent
+{
+    public required string SafeProcessRole { get; init; }
+}
+
+/// <summary>Durable evidence that a hosted debuggee reported trusted readiness.</summary>
+public sealed record DebugHostReadyEvent : DebugLifecycleEvent
+{
+    public required string SafeProcessRole { get; init; }
+}
+
+/// <summary>Durable evidence that an owned host exited before or after readiness.</summary>
+public sealed record DebugHostProcessExitedEvent : DebugLifecycleEvent
+{
+    public required string SafeProcessRole { get; init; }
+    public int? ExitCode { get; init; }
+}
+
+/// <summary>Durable classified failure from tree-scoped execution activation.</summary>
+public sealed record DebugExecutionActivationFailedEvent : DebugLifecycleEvent
+{
+    public DebugExecutionActivationFailedEvent() => CanInterrupt = false;
+    public required string ExecutionPlannerId { get; init; }
+    public required string SafeReasonCode { get; init; }
+}
+
+/// <summary>Durable safe diagnostic for a failed owned-resource cleanup.</summary>
+public sealed record DebugOwnedResourceCleanupFailedEvent : DebugLifecycleEvent
+{
+    public DebugOwnedResourceCleanupFailedEvent() => CanInterrupt = false;
+    public required string SafeResourceKind { get; init; }
+    public required string SafeResourceIdentity { get; init; }
+}
+
+/// <summary>Durable evidence that bounded terminal-tree state was retained.</summary>
+public sealed record DebugTerminalRecordRetainedEvent : DebugLifecycleEvent
+{
+    public DebugTerminalRecordRetainedEvent() => CanInterrupt = false;
+    public required string FinalStatus { get; init; }
+}
+
+/// <summary>Durable evidence that a bounded terminal record was evicted.</summary>
+public sealed record DebugTerminalRecordEvictedEvent : DebugLifecycleEvent
+{
+    public DebugTerminalRecordEvictedEvent() => CanInterrupt = false;
+    public required string SafeReasonCode { get; init; }
 }
 
 public sealed record DebugSessionStateChangedEvent : DebugLifecycleEvent
@@ -81,7 +149,7 @@ public sealed record DebugRestartTransitionEvent : DebugLifecycleEvent
 public sealed record DebugChildSessionStartedEvent : DebugLifecycleEvent
 {
     public required string ParentDebugSessionId { get; init; }
-    public required bool IsAttach { get; init; }
+    public required DebugAdapterStartMethod AdapterStartMethod { get; init; }
     public string? OutputPresentation { get; init; }
 }
 

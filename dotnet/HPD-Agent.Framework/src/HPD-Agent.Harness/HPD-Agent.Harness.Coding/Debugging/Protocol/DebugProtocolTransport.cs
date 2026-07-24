@@ -207,8 +207,25 @@ internal sealed class DebugEnvironmentProcessTransport : IDebugProtocolTransport
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-        _lifetime.Cancel();
         try { await StopAsync(new(Reason: "TRANSPORT_DISPOSED")).ConfigureAwait(false); } catch { }
+        // The generic process provider is allowed to return once a kill has
+        // been issued. A debugger transport owns its adapter process and must
+        // additionally observe terminal exit before releasing the next
+        // adapter, otherwise rapid session turnover can accumulate live
+        // netcoredbg processes and make later launches nondeterministic.
+        try
+        {
+            await _process.WaitAsync(CancellationToken.None)
+                .AsTask()
+                .WaitAsync(TimeSpan.FromSeconds(5))
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // Disposal remains best-effort; the provider handle is disposed
+            // below and retains final process-tree cleanup authority.
+        }
+        _lifetime.Cancel();
         try { await _pump.ConfigureAwait(false); } catch { }
         await _process.DisposeAsync().ConfigureAwait(false);
         _lifetime.Dispose();

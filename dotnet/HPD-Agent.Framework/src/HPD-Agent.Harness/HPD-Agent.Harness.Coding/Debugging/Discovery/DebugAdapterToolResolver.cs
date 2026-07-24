@@ -172,7 +172,11 @@ public sealed class EnvironmentDebugAdapterToolResolver : IDebugAdapterToolResol
             try
             {
                 var result = await context.ProcessExecution.ProcessProvider.RunAsync(
-                    CreateProbeSpec(context.ProcessExecution.ExecutionTarget, candidate, context.WorkspaceRoot),
+                    CreateProbeSpec(
+                        context.ProcessExecution.ExecutionTarget,
+                        candidate,
+                        context.WorkspaceRoot,
+                        context.ProcessSandbox),
                     cancellationToken: cancellationToken).ConfigureAwait(false);
                 if (result.Violations.Count != 0)
                     return new(false, SafeReasonCode: "ADAPTER_PROBE_DENIED_BY_ENVIRONMENT_POLICY");
@@ -205,7 +209,8 @@ public sealed class EnvironmentDebugAdapterToolResolver : IDebugAdapterToolResol
     private static ProcessInvocationSpec CreateProbeSpec(
         TargetHandle<ExecutionUnit> target,
         DebugAdapterToolCandidate candidate,
-        string workspaceRoot) => new()
+        string workspaceRoot,
+        AgentProcessSandboxPolicy processSandbox) => new()
     {
         Target = target,
         Command = new ProcessCommandSpec
@@ -220,11 +225,7 @@ public sealed class EnvironmentDebugAdapterToolResolver : IDebugAdapterToolResol
             StandardError = new ProcessOutputSpec { Capture = true, Stream = false, MaxCapturedBytes = MaxVersionBytes }
         },
         Policy = ProcessInvocationPolicy.Default with { Timeout = TimeSpan.FromSeconds(3), OutputDrainTimeout = TimeSpan.FromSeconds(1) },
-        Isolation = ProcessIsolationPolicy.Default with
-        {
-            Network = NetworkEgressPolicy.Blocked,
-            Interactive = ProcessInteractivePolicy.Default with { AllowStdin = false }
-        },
+        Isolation = processSandbox.ToProcessIsolationPolicy(workspaceRoot),
         ObservationRetention = ObservationRetentionPolicy.ResultAndDiagnostics
     };
 

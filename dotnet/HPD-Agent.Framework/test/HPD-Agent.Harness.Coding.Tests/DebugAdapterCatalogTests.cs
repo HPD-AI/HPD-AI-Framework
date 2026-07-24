@@ -21,10 +21,10 @@ internal sealed class ConstructorInjectedTestFactory(string dependency) : IDebug
     public ValueTask<DebugAdapterAvailability> ProbeAsync(DebugAdapterDescriptor descriptor, DebugAdapterResolutionContext context, CancellationToken cancellationToken = default)
         => ValueTask.FromResult(new DebugAdapterAvailability(DebugAdapterAvailabilityKind.Available));
 
-    public ValueTask<DebugAdapterLaunchPlan> CreateLaunchPlanAsync(DebugAdapterDescriptor descriptor, DebugLaunchContext context, CancellationToken cancellationToken = default)
+    public ValueTask<DebugAdapterStartPlan> CreateLaunchPlanAsync(DebugAdapterDescriptor descriptor, DebugLaunchContext context, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
 
-    public ValueTask<DebugAdapterLaunchPlan> CreateAttachPlanAsync(DebugAdapterDescriptor descriptor, DebugAttachContext context, CancellationToken cancellationToken = default)
+    public ValueTask<DebugAdapterStartPlan> CreateAttachPlanAsync(DebugAdapterDescriptor descriptor, DebugAttachContext context, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
 }
 

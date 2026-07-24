@@ -165,6 +165,113 @@ public sealed class DebugRealAdapterQualificationTests
         }
     }
 
+    [RealAdapterFact("HPD_NETCOREDBG", "HPD_DOTNET")]
+    [Trait("Category", "RealAdapter")]
+    public async Task Netcoredbg_attaches_to_the_exact_vstest_handshake_process()
+    {
+        var adapter = System.Environment.GetEnvironmentVariable("HPD_NETCOREDBG")!;
+        var dotnet = System.Environment.GetEnvironmentVariable("HPD_DOTNET")!;
+        var project = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "..",
+            "HPD-Agent.Harness.Coding.Tests.csproj"));
+        var start = new ProcessStartInfo(dotnet)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(project)!
+        };
+        foreach (var argument in new[]
+                 {
+                     "test", project,
+                     "-f", "net10.0",
+                     "--no-build",
+                     "--no-restore",
+                     "--nologo",
+                     "--verbosity", "quiet",
+                     "--filter",
+                     "FullyQualifiedName~DebugExecutionPlanningV3Tests.Public_target_union_contains_only_v3_shapes"
+                 })
+            start.ArgumentList.Add(argument);
+        start.Environment["VSTEST_HOST_DEBUG"] = "1";
+        start.Environment["DOTNET_CLI_UI_LANGUAGE"] = "en-US";
+        using var runner = Process.Start(start) ??
+            throw new InvalidOperationException("Failed to start the VSTest runner.");
+        try
+        {
+            var transcript = new List<string>();
+            int? processId = null;
+            using var readinessTimeout = new CancellationTokenSource(
+                TimeSpan.FromSeconds(20));
+            while (!readinessTimeout.IsCancellationRequested)
+            {
+                var line = await runner.StandardOutput.ReadLineAsync(
+                    readinessTimeout.Token);
+                if (line is null)
+                    break;
+                transcript.Add(line);
+                var observation = new VSTestHostDebugReadinessParser().Observe(
+                    string.Join('\n', transcript),
+                    DebugReadinessMultiplicity.ExactlyOne);
+                if (observation.Status == DebugHostReadinessStatus.Invalid)
+                    throw new InvalidOperationException(
+                        "VSTest emitted an invalid host-debug readiness transcript.");
+                if (observation.Ready is { } ready)
+                {
+                    processId = ready.SystemProcessId;
+                    break;
+                }
+            }
+            processId.Should().NotBeNull(
+                $"readiness transcript was: {string.Join(" | ", transcript)}");
+
+            await using var transport =
+                ProcessDebugProtocolTransport.Start(adapter, "--interpreter=vscode");
+            await using var client = new DebugProtocolClient(transport);
+            var initialized = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            using var events = client.OnEvent(message =>
+            {
+                if (message.Event == "initialized")
+                    initialized.TrySetResult();
+                return ValueTask.CompletedTask;
+            });
+            var capabilities = await client.InitializeAsync(
+                new DebugInitializePolicy().Create("netcoredbg", new()),
+                timeout: TimeSpan.FromSeconds(20));
+            var configuration =
+                new BuiltInDebugAdapterConfigurationComposer().ComposeAttach(
+                    NetcoredbgDescriptor(),
+                    new(Path.GetDirectoryName(project)!,
+                        processId.Value.ToString(
+                            System.Globalization.CultureInfo.InvariantCulture)));
+            var attach = client.SendAsync(
+                DebugProtocolDescriptors.AttachRequest,
+                DebugProtocolArgumentComposer.Attach(configuration),
+                timeout: TimeSpan.FromSeconds(20)).AsTask();
+            await initialized.Task.WaitAsync(TimeSpan.FromSeconds(20));
+            if (capabilities.SupportsConfigurationDoneRequest == true)
+                await client.SendAsync(
+                    DebugProtocolDescriptors.ConfigurationDoneRequest,
+                    new ConfigurationDoneArguments(),
+                    timeout: TimeSpan.FromSeconds(20));
+            await attach;
+
+            await runner.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
+            runner.ExitCode.Should().Be(0,
+                await runner.StandardError.ReadToEndAsync());
+        }
+        finally
+        {
+            if (!runner.HasExited)
+                runner.Kill(entireProcessTree: true);
+        }
+    }
+
     [RealAdapterFact("HPD_NODE", "HPD_JS_DEBUG_SERVER")]
     [Trait("Category", "RealAdapter")]
     public async Task Javascript_tcp_server_initializes()

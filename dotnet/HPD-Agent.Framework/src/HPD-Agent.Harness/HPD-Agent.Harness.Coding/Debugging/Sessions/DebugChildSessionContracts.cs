@@ -5,8 +5,8 @@ namespace HPD.Agent.ToolHarness.Coding.Debugging;
 
 internal sealed record DebugChildSessionPlan
 {
-    public required DebugAdapterLaunchPlan LaunchPlan { get; init; }
-    public required bool IsAttach { get; init; }
+    public required DebugAdapterStartPlan AdapterPlan { get; init; }
+    public required DebugAdapterStartMethod AdapterStartMethod { get; init; }
     public required DebugDesiredBreakpointSnapshot Breakpoints { get; init; }
 }
 
@@ -19,7 +19,7 @@ internal interface IDebugChildSessionPlanFactory
     ValueTask<DebugChildSessionPlan> CreateAsync(
         DebugRuntimeBinding runtime,
         DebugTreeAuthorization authorization,
-        DebugAdapterLaunchPlan parentPlan,
+        DebugAdapterStartPlan parentPlan,
         string request,
         JsonElement configuration,
         string? outputPresentation,
@@ -49,8 +49,8 @@ internal interface IDebugChildBreakpointResolver
 {
     ValueTask<DebugDesiredBreakpointSnapshot> ComposeAsync(
         DebugDesiredBreakpointSnapshot desired,
-        DebugAdapterLaunchPlan parentPlan,
-        DebugAdapterLaunchPlan childPlan,
+        DebugAdapterStartPlan parentPlan,
+        DebugAdapterStartPlan childPlan,
         CancellationToken cancellationToken);
 }
 
@@ -69,8 +69,8 @@ internal sealed class PortableDebugChildBreakpointResolver : IDebugChildBreakpoi
 
     public ValueTask<DebugDesiredBreakpointSnapshot> ComposeAsync(
         DebugDesiredBreakpointSnapshot desired,
-        DebugAdapterLaunchPlan parentPlan,
-        DebugAdapterLaunchPlan childPlan,
+        DebugAdapterStartPlan parentPlan,
+        DebugAdapterStartPlan childPlan,
         CancellationToken cancellationToken)
     {
         if (_rediscoverData is null && desired.Data.Any(x => x.CanPersist && x.Recipe is not null))
@@ -115,7 +115,7 @@ internal sealed class DebugAdapterChildSessionPlanFactory : IDebugChildSessionPl
     public async ValueTask<DebugChildSessionPlan> CreateAsync(
         DebugRuntimeBinding runtime,
         DebugTreeAuthorization authorization,
-        DebugAdapterLaunchPlan parentPlan,
+        DebugAdapterStartPlan parentPlan,
         string request,
         JsonElement configuration,
         string? outputPresentation,
@@ -144,25 +144,34 @@ internal sealed class DebugAdapterChildSessionPlanFactory : IDebugChildSessionPl
             ProcessExecution = runtime.ProcessExecution,
             TrustDecision = parentPlan.TrustDecision
         };
-        var isAttach = request == "attach";
-        var childPlan = isAttach
+        var adapterStartMethod = request == "attach"
+            ? DebugAdapterStartMethod.Attach
+            : DebugAdapterStartMethod.Launch;
+        var childPlan = adapterStartMethod == DebugAdapterStartMethod.Attach
             ? await _factory.CreateAttachPlanAsync(_descriptor, new DebugAttachContext
             {
                 Resolution = resolution,
                 ProcessId = validated.ProcessId,
                 EndpointId = validated.EndpointId,
+                WorkingDirectory = parentPlan.CanonicalWorkingDirectory,
                 Configuration = validated.Configuration
             }, cancellationToken).ConfigureAwait(false)
             : await _factory.CreateLaunchPlanAsync(_descriptor, new DebugLaunchContext
             {
                 Resolution = resolution,
                 Target = validated.Target ?? parentPlan.CanonicalWorkingDirectory,
+                WorkingDirectory = parentPlan.CanonicalWorkingDirectory,
                 Configuration = validated.Configuration
             }, cancellationToken).ConfigureAwait(false);
         authorization.ValidateCurrent(runtime, childPlan);
         var composed = await _breakpoints.ComposeAsync(
             desiredBreakpoints, parentPlan, childPlan, cancellationToken).ConfigureAwait(false);
-        return new() { LaunchPlan = childPlan, IsAttach = isAttach, Breakpoints = composed };
+        return new()
+        {
+            AdapterPlan = childPlan,
+            AdapterStartMethod = adapterStartMethod,
+            Breakpoints = composed
+        };
     }
 }
 

@@ -26,7 +26,7 @@ internal sealed record DebugSemanticHealth(
     long DroppedOutputBytes);
 
 internal sealed record DebugSemanticThread(
-    int ThreadId, string? Name, bool IsStopped, string? StopReason,
+    int ThreadId, string? Name, bool IsStopped, bool IsPrimaryStoppedThread, string? StopReason,
     long SuspensionEpoch, long ResumptionGeneration);
 
 internal sealed record DebugSemanticStackFrame(
@@ -116,13 +116,24 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
 
     public DebugTreeSnapshot GetSnapshot(DebugTreeLookupScope owner, string treeId)
     {
+        if (manager.TryResolveTerminal(owner, treeId, out var terminal))
+            return terminal.Snapshot with { Status = terminal.FinalStatus };
         var tree = manager.ResolveTree(owner, treeId);
         tree.Authorization.Demand(DebugTreeGrant.Inspect);
         return DebugSnapshotProjector.Project(tree);
     }
 
-    public DebugSessionStatus GetStatus(DebugTreeLookupScope owner, string treeId, string? sessionId)
-        => Session(owner, treeId, sessionId).State.Status;
+    public DebugSessionStatus GetStatus(
+        DebugTreeLookupScope owner,
+        string treeId,
+        string? sessionId)
+    {
+        if (manager.TryResolveTerminal(owner, treeId, out var terminal))
+            return string.Equals(terminal.FinalStatus, "Faulted", StringComparison.Ordinal)
+                ? DebugSessionStatus.Faulted
+                : DebugSessionStatus.Terminated;
+        return Session(owner, treeId, sessionId).State.Status;
+    }
 
     public DebugSemanticHealth GetHealth(DebugTreeLookupScope owner, string treeId, string? sessionId)
     {
@@ -139,7 +150,9 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         string treeId,
         string? sessionId,
         bool includeTelemetry = false)
-        => Session(owner, treeId, sessionId).Output.Snapshot(includeTelemetry);
+        => manager.TryResolveTerminal(owner, treeId, out var terminal)
+            ? terminal.Output
+            : Session(owner, treeId, sessionId).Output.Snapshot(includeTelemetry);
 
     public async ValueTask<DebugArtifactWriteResult> PersistOutputAsync(
         DebugTreeLookupScope owner,
@@ -155,14 +168,14 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         var snapshot = session.Output.Snapshot(fromSequence, toSequence, includeTelemetry);
         var text = string.Concat(snapshot.Records.Select(x => x.Text));
         var result = await tree.Artifacts.WriteTextAsync(text, "debug-output", "mixed",
-            session.LaunchPlan.AdapterId, session.SessionId,
+            session.AdapterPlan.AdapterId, session.SessionId,
             DebugOutputBuffer.DefaultMaximumRetainedBytes, cancellationToken).ConfigureAwait(false);
         if (result.Status == DebugArtifactWriteStatus.Stored && result.Address is { } address && tree.EventPublisher is not null)
         {
             tree.AddStoredArtifact(new("debug-output", session.SessionId, address.ContentId,
                 address.Scope.Value, address.Version, new Dictionary<string, string>
                 {
-                    ["adapter"] = session.LaunchPlan.AdapterId,
+                    ["adapter"] = session.AdapterPlan.AdapterId,
                     ["debugTreeId"] = tree.Ownership.DebugTreeId,
                     ["debugSessionId"] = session.SessionId
                 }));
@@ -173,7 +186,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
                 TraceId = tree.RuntimeBinding.EventScope.TraceId,
                 DebugTreeId = tree.Ownership.DebugTreeId,
                 DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId,
+                AdapterId = session.AdapterPlan.AdapterId,
                 FirstSequence = snapshot.OldestSequence,
                 LastSequence = snapshot.NewestSequence,
                 Category = "Mixed",
@@ -188,7 +201,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
             tree.AddStoredArtifact(new("debug-output", session.SessionId, storedAddress.ContentId,
                 storedAddress.Scope.Value, storedAddress.Version, new Dictionary<string, string>
                 {
-                    ["adapter"] = session.LaunchPlan.AdapterId,
+                    ["adapter"] = session.AdapterPlan.AdapterId,
                     ["debugTreeId"] = tree.Ownership.DebugTreeId,
                     ["debugSessionId"] = session.SessionId
                 }));
@@ -216,7 +229,9 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         var supportsSuspend = session.Capabilities?.SupportSuspendDebuggee == true;
         await session.Protocol.SendAsync(DebugProtocolDescriptors.DisconnectRequest, new DisconnectArguments
         {
-            TerminateDebuggee = supportsTerminate ? terminateDebuggee ?? !session.IsAttach : null,
+            TerminateDebuggee = supportsTerminate
+                ? terminateDebuggee ?? session.AdapterStartMethod != DebugAdapterStartMethod.Attach
+                : null,
             SuspendDebuggee = supportsSuspend ? suspendDebuggee : null,
             Restart = false
         }, cancellationToken, TimeSpan.FromSeconds(5)).ConfigureAwait(false);
@@ -231,7 +246,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
                 TraceId = tree.RuntimeBinding.EventScope.TraceId,
                 DebugTreeId = tree.Ownership.DebugTreeId,
                 DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId,
+                AdapterId = session.AdapterPlan.AdapterId,
                 FinalStatus = "Terminated",
                 ExitCode = session.ExitCode,
                 DurationMilliseconds = Math.Max(0, (long)(DateTimeOffset.UtcNow - session.CreatedAt).TotalMilliseconds),
@@ -248,7 +263,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
                 TraceId = tree.RuntimeBinding.EventScope.TraceId,
                 DebugTreeId = tree.Ownership.DebugTreeId,
                 DebugSessionId = session.SessionId,
-                AdapterId = session.LaunchPlan.AdapterId,
+                AdapterId = session.AdapterPlan.AdapterId,
                 SafeReasonCode = "DISCONNECTED"
             };
             if (tree.EventPublisher is not null)
@@ -291,8 +306,10 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.ThreadsRequest,
             new DapNoArguments(), cancellationToken).ConfigureAwait(false);
         session.State.ReconcileThreads(response.Threads);
+        var primaryStoppedThreadId = session.State.PrimaryStoppedThreadId;
         return session.State.Threads.Take(100).Select(thread => new DebugSemanticThread(
-            thread.ThreadId, thread.Name, thread.IsStopped, thread.StopReason,
+            thread.ThreadId, thread.Name, thread.IsStopped,
+            thread.IsStopped && thread.ThreadId == primaryStoppedThreadId, thread.StopReason,
             thread.SuspensionEpoch, thread.ResumptionGeneration)).ToArray();
     }
 
@@ -426,7 +443,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         DebugArtifactWriteResult? artifact = null;
         if (resultBytes > inlineBytes)
             artifact = await tree.Artifacts.WriteTextAsync(response.Result, "debug-evaluation", "evaluation",
-                session.LaunchPlan.AdapterId, session.SessionId, 4 * 1024 * 1024, cancellationToken).ConfigureAwait(false);
+                session.AdapterPlan.AdapterId, session.SessionId, 4 * 1024 * 1024, cancellationToken).ConfigureAwait(false);
         return new(inline, Bound(response.@Type, 1024),
             response.VariablesReference > 0 ? session.Projections.CreateSuspensionToken(
                 threadId, frameId, "variables", response.VariablesReference) : null,
@@ -515,7 +532,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
             return new(response.Content, Bound(response.MimeType, 256), byteCount, false, null, null);
         var preview = BoundUtf8(response.Content, inlineBytes);
         var artifact = await tree.Artifacts.WriteTextAsync(response.Content, "debug-source",
-            Bound(response.MimeType, 256), session.LaunchPlan.AdapterId, session.SessionId,
+            Bound(response.MimeType, 256), session.AdapterPlan.AdapterId, session.SessionId,
             maximumArtifactBytes, cancellationToken).ConfigureAwait(false);
         return new(preview, Bound(response.MimeType, 256), byteCount, true, artifact.Status, artifact.Address);
     }
@@ -893,7 +910,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
     public Task<DebugOperationResult> ContinueAsync(DebugTreeLookupScope owner, string treeId, string? sessionId, int threadId, bool singleThread, TimeSpan waitTimeout, CancellationToken cancellationToken)
     {
         var option = ExecutionSingleThread(Session(owner, treeId, sessionId), singleThread);
-        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, waitTimeout,
+        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, allThreadsResume: !singleThread, waitTimeout,
             (session, ct) => session.Protocol.SendAsync(DebugProtocolDescriptors.ContinueRequest,
                 new ContinueArguments { ThreadId = threadId, SingleThread = option }, ct).AsTask(), cancellationToken);
     }
@@ -907,7 +924,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         var session = Session(owner, treeId, sessionId);
         var singleThreadOption = ExecutionSingleThread(session, singleThread);
         var granularityOption = ExecutionGranularity(session, granularity);
-        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, waitTimeout,
+        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, allThreadsResume: !singleThread, waitTimeout,
             (current, ct) => current.Protocol.SendAsync(DebugProtocolDescriptors.NextRequest,
                 new NextArguments { ThreadId = threadId, SingleThread = singleThreadOption,
                     Granularity = granularityOption }, ct).AsTask(), cancellationToken);
@@ -935,7 +952,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
                 throw new DebugSemanticException(DebugSemanticFailureReason.ReferenceOwnerMismatch,
                     "The step-in target belongs to another debugger thread.");
         }
-        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, waitTimeout,
+        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, allThreadsResume: !singleThread, waitTimeout,
             (current, ct) => current.Protocol.SendAsync(DebugProtocolDescriptors.StepInRequest,
                 new StepInArguments { ThreadId = threadId, SingleThread = singleThreadOption,
                     TargetId = targetId, Granularity = granularityOption }, ct).AsTask(), cancellationToken);
@@ -950,7 +967,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         var session = Session(owner, treeId, sessionId);
         var singleThreadOption = ExecutionSingleThread(session, singleThread);
         var granularityOption = ExecutionGranularity(session, granularity);
-        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, waitTimeout,
+        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, allThreadsResume: !singleThread, waitTimeout,
             (current, ct) => current.Protocol.SendAsync(DebugProtocolDescriptors.StepOutRequest,
                 new StepOutArguments { ThreadId = threadId, SingleThread = singleThreadOption,
                     Granularity = granularityOption }, ct).AsTask(), cancellationToken);
@@ -966,7 +983,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         var current = Session(owner, treeId, sessionId);
         var singleThreadOption = ExecutionSingleThread(current, singleThread);
         var granularityOption = ExecutionGranularity(current, granularity);
-        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, waitTimeout,
+        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, allThreadsResume: !singleThread, waitTimeout,
             (session, ct) => session.Protocol.SendAsync(DebugProtocolDescriptors.StepBackRequest,
                 new StepBackArguments { ThreadId = threadId, SingleThread = singleThreadOption,
                     Granularity = granularityOption }, ct).AsTask(), cancellationToken);
@@ -976,7 +993,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
     {
         RequireCapability(owner, treeId, sessionId, x => x.SupportsStepBack == true, "reverse continue");
         var option = ExecutionSingleThread(Session(owner, treeId, sessionId), singleThread);
-        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, waitTimeout,
+        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, allThreadsResume: !singleThread, waitTimeout,
             (session, ct) => session.Protocol.SendAsync(DebugProtocolDescriptors.ReverseContinueRequest,
                 new ReverseContinueArguments { ThreadId = threadId, SingleThread = option }, ct).AsTask(), cancellationToken);
     }
@@ -989,7 +1006,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         if (targetThread != threadId)
             throw new DebugSemanticException(DebugSemanticFailureReason.ReferenceOwnerMismatch,
                 "The goto target belongs to another debugger thread.");
-        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, waitTimeout,
+        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, allThreadsResume: true, waitTimeout,
             (current, ct) => current.Protocol.SendAsync(DebugProtocolDescriptors.GotoRequest,
                 new GotoArguments { ThreadId = threadId, TargetId = targetId }, ct).AsTask(), cancellationToken);
     }
@@ -1003,7 +1020,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         if (session.Projections.FindStackFrame(threadId, stopped.SuspensionEpoch, frameId)?.CanRestart == false)
             throw new DebugSemanticException(DebugSemanticFailureReason.InvalidSessionState,
                 "The selected stack frame cannot be restarted.");
-        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, waitTimeout,
+        return ResumeAndWaitAsync(owner, treeId, sessionId, threadId, allThreadsResume: false, waitTimeout,
             (current, ct) => current.Protocol.SendAsync(DebugProtocolDescriptors.RestartFrameRequest,
                 new RestartFrameArguments { FrameId = frameId }, ct).AsTask(), cancellationToken);
     }
@@ -1027,7 +1044,8 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
     }
 
     private async Task<DebugOperationResult> ResumeAndWaitAsync(
-        DebugTreeLookupScope owner, string treeId, string? sessionId, int threadId, TimeSpan waitTimeout,
+        DebugTreeLookupScope owner, string treeId, string? sessionId, int threadId,
+        bool allThreadsResume, TimeSpan waitTimeout,
         Func<DebugSession, CancellationToken, Task> send, CancellationToken cancellationToken)
     {
         var tree = manager.ResolveTree(owner, treeId);
@@ -1039,12 +1057,19 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
                 "The debug operation requires routine execution-control authorization.", exception);
         }
         var session = tree.SelectSession(sessionId);
-        _ = RequireStoppedThread(session, threadId);
-        session.State.ObserveContinued(threadId, false);
-        session.Projections.InvalidateForContinue(threadId, allThreadsContinued: false);
+        var transition = session.State.BeginResume(threadId, allThreadsResume);
+        session.Projections.InvalidateForContinue(threadId, allThreadsResume);
         var generation = session.State.Threads.Single(x => x.ThreadId == threadId).ResumptionGeneration;
         using var waiter = session.State.RegisterStopWaiter(threadId, generation);
-        await send(session, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await send(session, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            session.State.TryRollbackResume(transition);
+            throw;
+        }
         return await AwaitStopAsync(treeId, session, threadId, waiter, waitTimeout, cancellationToken).ConfigureAwait(false);
     }
 
@@ -1083,7 +1108,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
                 $"The debug operation requires the '{grant}' grant.", exception);
         }
         var session = tree.SelectSession(sessionId);
-        tree.Authorization.ValidateCurrent(tree.RuntimeBinding, session.LaunchPlan);
+        tree.Authorization.ValidateCurrent(tree.RuntimeBinding, session.AdapterPlan);
         return session;
     }
 

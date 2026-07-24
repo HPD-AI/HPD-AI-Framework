@@ -83,19 +83,16 @@ public class PermissionTests : AgentTestBase
         var permissionRequest = permissionHandler.CapturedRequests[0];
         permissionRequest.FunctionName.Should().Be("SensitiveTool", "correct function should request permission");
 
-        // CURRENT BEHAVIOR: Check what actually happens with tool execution
         var toolResults = capturedEvents.OfType<ToolCallResultEvent>().ToList();
-
-        // The permission system may or may not generate a tool result event
-        // Document what actually happens
-        if (toolResults.Any())
-        {
-            // If there's a tool result, it should indicate denial or the tool was blocked
-            var result = toolResults[0].Result.Text ?? toolResults[0].Result.Json?.GetRawText() ?? string.Empty;
-            // Accept either denial message or empty result (both indicate blocking)
-            (string.IsNullOrEmpty(result) || result.Contains("denied", StringComparison.OrdinalIgnoreCase))
-                .Should().BeTrue($"tool result should be empty or contain denial message, but was: '{result}'");
-        }
+        toolResults.Should().ContainSingle(
+            "a blocked function must still produce an explicit model-facing result");
+        var result = toolResults[0].Result.Text
+            ?? toolResults[0].Result.Json?.GetRawText()
+            ?? string.Empty;
+        result.Should().Contain("<tool_permission");
+        result.Should().Contain("outcome=\"denied\"");
+        result.Should().Contain("executed=\"false\"");
+        result.Should().Contain("Denied by test");
 
         // Final response should exist
         var textDeltas = capturedEvents.OfType<TextDeltaEvent>().ToList();

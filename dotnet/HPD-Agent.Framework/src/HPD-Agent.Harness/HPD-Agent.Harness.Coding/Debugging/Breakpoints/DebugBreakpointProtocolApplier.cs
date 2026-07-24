@@ -24,7 +24,7 @@ internal static class DebugBreakpointProtocolApplier
                         LogMessage = x.LogMessage
                     }).ToList()
                 }, cancellationToken).ConfigureAwait(false);
-            session.ConfirmedBreakpoints.ReplaceSource(group.Key, response.Breakpoints);
+            session.AdapterBreakpoints.ReplaceSource(group.Key, response.Breakpoints);
         }
 
         if (!desired.Function.IsEmpty)
@@ -40,19 +40,14 @@ internal static class DebugBreakpointProtocolApplier
                         HitCondition = x.HitCondition
                     }).ToList()
                 }, cancellationToken).ConfigureAwait(false);
-            session.ConfirmedBreakpoints.Replace(DebugBreakpointKind.Function, response.Breakpoints);
+            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Function, response.Breakpoints);
         }
 
         if (!desired.Exception.IsEmpty)
         {
-            var response = await session.Protocol.SendAsync(DebugProtocolDescriptors.SetExceptionBreakpointsRequest,
-                new SetExceptionBreakpointsArguments
-                {
-                    Filters = desired.Exception.Select(x => x.FilterId).ToList(),
-                    FilterOptions = desired.Exception.Where(x => x.Condition is not null).Select(x =>
-                        new ExceptionFilterOptions { FilterId = x.FilterId, Condition = x.Condition }).ToList()
-                }, cancellationToken).ConfigureAwait(false);
-            session.ConfirmedBreakpoints.Replace(DebugBreakpointKind.Exception, response?.Breakpoints ?? []);
+            var breakpoints = await DebugExceptionBreakpointProtocol.ApplyAsync(
+                session, desired.Exception, cancellationToken).ConfigureAwait(false);
+            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Exception, breakpoints);
         }
 
         if (!desired.Instruction.IsEmpty)
@@ -69,7 +64,7 @@ internal static class DebugBreakpointProtocolApplier
                         HitCondition = x.HitCondition
                     }).ToList()
                 }, cancellationToken).ConfigureAwait(false);
-            session.ConfirmedBreakpoints.Replace(DebugBreakpointKind.Instruction, response.Breakpoints);
+            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Instruction, response.Breakpoints);
         }
 
         if (!desired.Data.IsEmpty)
@@ -92,7 +87,7 @@ internal static class DebugBreakpointProtocolApplier
                         HitCondition = x.HitCondition
                     }).ToList()
                 }, cancellationToken).ConfigureAwait(false);
-            session.ConfirmedBreakpoints.Replace(DebugBreakpointKind.Data, response.Breakpoints);
+            session.AdapterBreakpoints.Replace(DebugBreakpointKind.Data, response.Breakpoints);
         }
     }
 

@@ -21,7 +21,7 @@ public sealed class CanonicalCodingEventCodecTests
             new DebugChildSessionStartedEvent
             {
                 DebugTreeId = "tree-1", DebugSessionId = "child-1", AdapterId = "fixture",
-                ParentDebugSessionId = "root-1", IsAttach = false, OutputPresentation = "separate"
+                ParentDebugSessionId = "root-1", AdapterStartMethod = DebugAdapterStartMethod.Launch, OutputPresentation = "separate"
             },
             new DebugRunInTerminalRequestEvent
             {

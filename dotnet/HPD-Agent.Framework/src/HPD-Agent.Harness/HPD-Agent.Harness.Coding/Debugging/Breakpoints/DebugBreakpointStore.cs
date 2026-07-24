@@ -120,7 +120,8 @@ internal sealed class DebugBreakpointStore : IAsyncDisposable
     }
 }
 
-public sealed record DebugConfirmedBreakpoint(
+/// <summary>Latest adapter acknowledgement for one breakpoint in one protocol session.</summary>
+public sealed record DebugAdapterBreakpointState(
     DebugBreakpointKind Kind,
     int? AdapterId,
     bool Verified,
@@ -131,13 +132,20 @@ public sealed record DebugConfirmedBreakpoint(
     string? InstructionReference,
     long? Offset);
 
-/// <summary>Adapter-confirmed breakpoint state owned by exactly one protocol session.</summary>
-internal sealed class DebugConfirmedBreakpointStore
+/// <summary>Aggregate desired and adapter-acknowledged breakpoint counts.</summary>
+public sealed record DebugBreakpointCounts(
+    int Requested,
+    int Acknowledged,
+    int Verified,
+    int Pending);
+
+/// <summary>Adapter breakpoint state owned by exactly one protocol session.</summary>
+internal sealed class DebugAdapterBreakpointStateStore
 {
     private readonly object _gate = new();
-    private ImmutableArray<DebugConfirmedBreakpoint> _items = [];
+    private ImmutableArray<DebugAdapterBreakpointState> _items = [];
 
-    public ImmutableArray<DebugConfirmedBreakpoint> Snapshot
+    public ImmutableArray<DebugAdapterBreakpointState> Snapshot
     {
         get { lock (_gate) return _items; }
     }
@@ -173,8 +181,8 @@ internal sealed class DebugConfirmedBreakpointStore
             }
 
             var kind = index >= 0 ? _items[index].Kind : InferKind(value);
-            var confirmed = FromProtocol(kind, value);
-            _items = index >= 0 ? _items.SetItem(index, confirmed) : _items.Add(confirmed);
+            var state = FromProtocol(kind, value);
+            _items = index >= 0 ? _items.SetItem(index, state) : _items.Add(state);
         }
     }
 
@@ -192,7 +200,7 @@ internal sealed class DebugConfirmedBreakpointStore
             x.Offset == state.Offset, value);
     }
 
-    private int IndexOf<TState>(Func<DebugConfirmedBreakpoint, TState, bool> predicate, TState state)
+    private int IndexOf<TState>(Func<DebugAdapterBreakpointState, TState, bool> predicate, TState state)
     {
         for (var index = 0; index < _items.Length; index++)
             if (predicate(_items[index], state)) return index;
@@ -202,7 +210,7 @@ internal sealed class DebugConfirmedBreakpointStore
     private static DebugBreakpointKind InferKind(Breakpoint value)
         => value.InstructionReference is not null ? DebugBreakpointKind.Instruction : DebugBreakpointKind.Source;
 
-    private static DebugConfirmedBreakpoint FromProtocol(DebugBreakpointKind kind, Breakpoint value, string? fallbackSourcePath = null) => new(
+    private static DebugAdapterBreakpointState FromProtocol(DebugBreakpointKind kind, Breakpoint value, string? fallbackSourcePath = null) => new(
         kind, value.Id, value.Verified, value.Message, value.Source?.Path ?? fallbackSourcePath, value.Line, value.Column,
         value.InstructionReference, value.Offset);
 }

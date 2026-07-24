@@ -284,8 +284,8 @@ public sealed class DebugAdapterSelectorTests
             ProbeCount++;
             return ValueTask.FromResult(new DebugAdapterAvailability(availability));
         }
-        public ValueTask<DebugAdapterLaunchPlan> CreateLaunchPlanAsync(DebugAdapterDescriptor descriptor, DebugLaunchContext context, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public ValueTask<DebugAdapterLaunchPlan> CreateAttachPlanAsync(DebugAdapterDescriptor descriptor, DebugAttachContext context, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<DebugAdapterStartPlan> CreateLaunchPlanAsync(DebugAdapterDescriptor descriptor, DebugLaunchContext context, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public ValueTask<DebugAdapterStartPlan> CreateAttachPlanAsync(DebugAdapterDescriptor descriptor, DebugAttachContext context, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class FixedProvider(params DebugAdapterCatalogEntry[] entries) : IDebugAdapterCatalogProvider

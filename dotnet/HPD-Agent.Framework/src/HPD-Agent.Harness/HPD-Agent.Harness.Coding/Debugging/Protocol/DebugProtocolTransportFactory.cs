@@ -35,7 +35,7 @@ public sealed class DebugProtocolTransportFactory
     }
 
     public async ValueTask<IDebugProtocolTransport> CreateAsync(
-        DebugAdapterLaunchPlan plan,
+        DebugAdapterStartPlan plan,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -52,7 +52,7 @@ public sealed class DebugProtocolTransportFactory
     }
 
     private async ValueTask<IDebugProtocolTransport> StartEnvironmentServerAsync(
-        DebugAdapterLaunchPlan plan,
+        DebugAdapterStartPlan plan,
         CancellationToken cancellationToken)
     {
         if (_connector is null)
@@ -70,21 +70,21 @@ public sealed class DebugProtocolTransportFactory
     }
 
     private async ValueTask<IDebugProtocolTransport> StartEnvironmentProcessAsync(
-        DebugAdapterLaunchPlan plan,
+        DebugAdapterStartPlan plan,
         CancellationToken cancellationToken)
     {
         var binding = plan.ProcessExecution
             ?? throw new InvalidOperationException("An Environment transport requires the captured runtime process binding.");
         if (plan.ExecutionTarget is not { } target || target != binding.ExecutionTarget)
-            throw new InvalidOperationException("The launch plan execution target does not match its captured process binding.");
+            throw new InvalidOperationException("The adapter start plan execution target does not match its captured process binding.");
         if (!string.Equals(plan.EnvironmentId, binding.EnvironmentId, StringComparison.Ordinal) ||
             plan.EnvironmentRevision != binding.EnvironmentRevision)
-            throw new InvalidOperationException("The launch plan Environment binding is stale or mismatched.");
+            throw new InvalidOperationException("The adapter start plan Environment binding is stale or mismatched.");
         if (string.IsNullOrWhiteSpace(plan.Transport.Command))
             throw new InvalidOperationException("An Environment transport requires a direct executable.");
         if (!string.IsNullOrWhiteSpace(plan.ProcessProviderId) &&
             !string.Equals(plan.ProcessProviderId, binding.ProcessProvider.ProviderId.Value, StringComparison.Ordinal))
-            throw new InvalidOperationException("The launch plan process provider does not match its captured binding.");
+            throw new InvalidOperationException("The adapter start plan process provider does not match its captured binding.");
 
         var localBinding = plan.Transport.Kind == DebugAdapterTransportKind.EnvironmentTcpServer;
         var spec = new ProcessInvocationSpec
@@ -113,18 +113,7 @@ public sealed class DebugProtocolTransportFactory
                 StopOnRunCancellation = false,
                 OutputDrainTimeout = TimeSpan.FromSeconds(2)
             },
-            Isolation = new ProcessIsolationPolicy
-            {
-                Mode = ProcessIsolationMode.Isolated,
-                Network = NetworkEgressPolicy.Blocked,
-                Interactive = new ProcessInteractivePolicy { AllowStdin = true, AllowLocalBinding = localBinding },
-                Environment = new EnvironmentAccessPolicy
-                {
-                    AllowedVariables = plan.FilteredEnvironment.Keys.ToArray(),
-                    StripUnlistedVariables = true
-                },
-                Degradation = ProcessIsolationDegradationPolicy.FailClosed
-            },
+            Isolation = AdapterIsolation(plan, localBinding),
             PersistResource = false,
             ObservationRetention = ObservationRetentionPolicy.ResultAndDiagnostics
         };
@@ -132,8 +121,46 @@ public sealed class DebugProtocolTransportFactory
         return new DebugEnvironmentProcessTransport(handle, _limits);
     }
 
+    private static ProcessIsolationPolicy AdapterIsolation(
+        DebugAdapterStartPlan plan,
+        bool localBinding)
+    {
+        if (plan.ProcessSandbox.Mode == AgentProcessIsolationMode.Disabled)
+            return plan.ProcessSandbox.ToProcessIsolationPolicy(
+                plan.CanonicalWorkingDirectory);
+
+        // A launch adapter creates its debuggee inside the same sandbox and remains
+        // fail-closed isolated. An attach adapter must inspect an already-running
+        // process outside that sandbox. The Environment contract cannot currently
+        // express an enforceable per-PID debug grant, so attach runs unsandboxed
+        // only after the trusted planner, permission middleware, ownership checks,
+        // adapter trust policy, and activation revalidation have all succeeded.
+        if (plan.Method == DebugAdapterStartMethod.Attach)
+            return ProcessIsolationPolicy.Default with
+            {
+                Mode = ProcessIsolationMode.Disabled
+            };
+
+        return new ProcessIsolationPolicy
+        {
+            Mode = ProcessIsolationMode.Isolated,
+            Network = NetworkEgressPolicy.Blocked,
+            Interactive = new ProcessInteractivePolicy
+            {
+                AllowStdin = true,
+                AllowLocalBinding = localBinding
+            },
+            Environment = new EnvironmentAccessPolicy
+            {
+                AllowedVariables = plan.FilteredEnvironment.Keys.ToArray(),
+                StripUnlistedVariables = true
+            },
+            Degradation = ProcessIsolationDegradationPolicy.FailClosed
+        };
+    }
+
     private ValueTask<IDebugProtocolTransport> ConnectApprovedAsync(
-        DebugAdapterLaunchPlan plan,
+        DebugAdapterStartPlan plan,
         CancellationToken cancellationToken)
     {
         if (_connector is null)

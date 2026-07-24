@@ -4,14 +4,13 @@ internal sealed record DebugRuntimeServices(
     DebugSessionManager Manager,
     DebugSemanticService Semantics,
     DebugBreakpointService Breakpoints,
-    DebugLifecycleService Lifecycle,
-    DebugRestartService Restart);
+    DebugLifecycleService Lifecycle);
 
 /// <summary>
 /// Stateless DI-owned bridge that constructs debugger services around the manager captured from
 /// one agent runtime. Manager-bound services must never be registered as application singletons.
 /// </summary>
-internal sealed class DebugRuntimeServiceFactory(DebugSessionStartOrchestrator starts)
+internal sealed class DebugRuntimeServiceFactory
 {
     public DebugRuntimeServices Create(DebugRuntimeBinding runtime)
     {
@@ -27,7 +26,6 @@ internal sealed class DebugRuntimeServiceFactory(DebugSessionStartOrchestrator s
             manager,
             semantics,
             new DebugBreakpointService(manager),
-            new DebugLifecycleService(manager, semantics),
-            new DebugRestartService(manager, semantics, starts));
+            new DebugLifecycleService(manager, semantics));
     }
 }

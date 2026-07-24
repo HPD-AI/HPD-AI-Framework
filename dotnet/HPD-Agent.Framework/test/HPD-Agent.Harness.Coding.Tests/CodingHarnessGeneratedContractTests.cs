@@ -50,7 +50,19 @@ public sealed class CodingHarnessGeneratedContractTests
 
         var launch = branches.Single(branch =>
             branch.GetProperty("properties").GetProperty("action").GetProperty("const").GetString() == "launch");
-        launch.GetProperty("properties").GetProperty("target").GetProperty("oneOf").GetArrayLength().Should().Be(3);
+        var targetBranches = launch.GetProperty("properties").GetProperty("target")
+            .GetProperty("oneOf").EnumerateArray().ToArray();
+        targetBranches.Should().HaveCount(4);
+        targetBranches.Select(branch => branch.GetProperty("properties")
+                .GetProperty("targetKind").GetProperty("const").GetString())
+            .Should().BeEquivalentTo(
+                "sourceFile", "applicationProject", "executable", "test");
+        launch.GetProperty("properties").TryGetProperty("arguments", out _).Should().BeFalse();
+        targetBranches.Single(branch => branch.GetProperty("properties")
+                .GetProperty("targetKind").GetProperty("const").GetString() == "applicationProject")
+            .GetProperty("properties").EnumerateObject().Select(property => property.Name)
+            .Should().Contain("arguments");
+        launch.ToString().Should().NotContain("project" + "Directory");
 
         var attach = branches.Single(branch =>
             branch.GetProperty("properties").GetProperty("action").GetProperty("const").GetString() == "attach");

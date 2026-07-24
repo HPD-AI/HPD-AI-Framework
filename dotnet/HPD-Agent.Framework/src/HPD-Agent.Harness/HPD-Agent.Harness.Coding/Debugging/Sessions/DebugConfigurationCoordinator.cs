@@ -23,6 +23,8 @@ public sealed record DebugInitialConfiguration
     public IReadOnlyList<DebugDataBreakpoint> DataBreakpoints { get; init; } = [];
     public IReadOnlyList<DebugInstructionBreakpoint> InstructionBreakpoints { get; init; } = [];
     public bool StopOnEntry { get; init; }
+    public DebugInitialBreakpointPolicy BreakpointPolicy { get; init; } =
+        DebugInitialBreakpointPolicy.AllowPending;
 }
 
 /// <summary>

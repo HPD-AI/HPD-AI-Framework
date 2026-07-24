@@ -92,7 +92,7 @@ internal sealed class DebugAdapterExtensionRegistry : IDebugAdapterExtensionHost
             ?? throw new InvalidOperationException("The runtime debug session manager implementation is unsupported.");
         var tree = manager.ResolveTree(owner, debugTreeId);
         var session = tree.SelectSession(debugSessionId);
-        if (_extensions.TryGetValue((session.LaunchPlan.AdapterId, command), out var registration) &&
+        if (_extensions.TryGetValue((session.AdapterPlan.AdapterId, command), out var registration) &&
             registration.RequiresPrivilegedAuthorization)
             throw new DebugSemanticException(DebugSemanticFailureReason.PermissionDenied,
                 "A mutating host extension must be invoked by an approved debugger function with a narrow operation proof.");
@@ -112,7 +112,7 @@ internal sealed class DebugAdapterExtensionRegistry : IDebugAdapterExtensionHost
         var tree = manager.ResolveTree(owner, treeId);
         tree.RuntimeBinding.State.ThrowIfUnavailable();
         var session = tree.SelectSession(sessionId);
-        var key = (session.LaunchPlan.AdapterId, command);
+        var key = (session.AdapterPlan.AdapterId, command);
         if (!_extensions.TryGetValue(key, out var registration) ||
             registration is not DebugAdapterExtension<TRequest, TResponse> extension)
             throw new DebugSemanticException(DebugSemanticFailureReason.HostExtensionUnavailable,
@@ -123,7 +123,7 @@ internal sealed class DebugAdapterExtensionRegistry : IDebugAdapterExtensionHost
             throw new DebugSemanticException(DebugSemanticFailureReason.PermissionDenied,
                 "The debug tree does not authorize this host extension.", exception);
         }
-        tree.Authorization.ValidateCurrent(tree.RuntimeBinding, session.LaunchPlan);
+        tree.Authorization.ValidateCurrent(tree.RuntimeBinding, session.AdapterPlan);
         if (extension.RequiresPrivilegedAuthorization)
             (privilegedAuthorization ?? throw new DebugSemanticException(DebugSemanticFailureReason.PermissionDenied,
                 "The host extension requires privileged authorization."))
