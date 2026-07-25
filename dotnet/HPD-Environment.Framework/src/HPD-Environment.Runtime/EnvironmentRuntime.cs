@@ -498,6 +498,7 @@ public sealed class InMemoryEnvironmentRuntime(
             : TimeSpan.FromMinutes(1);
     private readonly SemaphoreSlim _reconciliationGate = new(1, 1);
     private readonly Dictionary<string, OwnedExecutionUnit> _units = new(StringComparer.Ordinal);
+    private readonly Dictionary<ExecutionUnitIdentity, string> _unitIdsByIdentity = [];
     private readonly Dictionary<EngineIdentity, OwnedEngine> _engines = [];
     private readonly Dictionary<string, OwnedAuthorityBinding> _authorities = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PendingEngineAuthorityPlan> _engineAuthorityPlans =
@@ -622,6 +623,10 @@ public sealed class InMemoryEnvironmentRuntime(
                     if (deleted)
                     {
                         _units.Remove(unit.Snapshot.Metadata.Id.Value);
+                        if (unit.Identity is { } identity)
+                        {
+                            _unitIdsByIdentity.Remove(identity);
+                        }
                     }
                 }
 
@@ -682,17 +687,84 @@ public sealed class InMemoryEnvironmentRuntime(
             ProviderId owner = HostOwner(spec.PreferredHost);
             IExecutionUnitProvider provider =
                 ProviderById(registry.ExecutionUnitProviders, owner, "execution unit");
-            ResourceMetadata<ExecutionUnit> metadata = Metadata<ExecutionUnit>("execution-unit") with
+            ExecutionUnitIdentity? identity = UnitIdentity(spec);
+            OwnedExecutionUnit? existing = null;
+            if (identity is { } stableIdentity &&
+                _unitIdsByIdentity.TryGetValue(stableIdentity, out string? existingId))
             {
-                Lifetime = ResourceLifetime.ExecutionUnit,
-                OwnerRefs = spec.PreferredHost is { } host ? [Untyped(host)] : Array.Empty<UntypedResourceRef>(),
-            };
+                if (!_units.TryGetValue(existingId, out existing))
+                {
+                    _unitIdsByIdentity.Remove(stableIdentity);
+                    throw OwnershipFailure(
+                        "hpd.environment.execution-unit.identity-corrupt",
+                        $"Execution-unit identity '{stableIdentity.Key}' refers to missing runtime ownership.");
+                }
+                if (!existing.ProviderId.Equals(owner))
+                {
+                    throw OwnershipFailure(
+                        "hpd.environment.execution-unit.provider-conflict",
+                        $"Execution-unit identity '{stableIdentity.Key}' is already owned by provider " +
+                        $"'{existing.ProviderId.Value}', not '{owner.Value}'.");
+                }
+            }
+
+            string fingerprint = Fingerprint(spec);
+            ResourceMetadata<ExecutionUnit> metadata = existing is null
+                ? Metadata<ExecutionUnit>("execution-unit") with
+                {
+                    Lifetime = ResourceLifetime.ExecutionUnit,
+                    OwnerRefs = spec.PreferredHost is { } host ? [Untyped(host)] : Array.Empty<UntypedResourceRef>(),
+                }
+                : string.Equals(existing.SpecFingerprint, fingerprint, StringComparison.Ordinal)
+                    ? existing.Snapshot.Metadata
+                    : Advance(existing.Snapshot.Metadata);
             ExecutionUnitStatus status = await provider
-                .EnsureAsync(metadata, spec, observed: null, cancellationToken)
+                .EnsureAsync(metadata, spec, existing?.Snapshot.Status, cancellationToken)
                 .ConfigureAwait(false);
             var snapshot = new ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>(metadata, spec, status);
-            _units.Add(metadata.Id.Value, new OwnedExecutionUnit(owner, snapshot));
+            if (status.ReconciliationOutcome == ResourceReconciliationOutcome.Accepted)
+            {
+                _units[metadata.Id.Value] = new OwnedExecutionUnit(owner, identity, fingerprint, snapshot);
+                if (identity is { } acceptedIdentity)
+                {
+                    _unitIdsByIdentity[acceptedIdentity] = metadata.Id.Value;
+                }
+            }
             return snapshot;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask<IReadOnlyList<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>>>
+        ListExecutionUnitsAsync(CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return _units.Values
+                .Select(unit => unit.Snapshot)
+                .OrderBy(unit => unit.Metadata.CreatedAt)
+                .ThenBy(unit => unit.Metadata.Id.Value, StringComparer.Ordinal)
+                .ToArray();
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>>
+        GetExecutionUnitAsync(
+            ResourceRef<ExecutionUnit> unit,
+            CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return FindUnit(unit).Snapshot;
         }
         finally
         {
@@ -892,6 +964,10 @@ public sealed class InMemoryEnvironmentRuntime(
             await ProviderById(registry.ExecutionUnitProviders, owned.ProviderId, "execution unit")
                 .DeleteAsync(unit, cancellationToken).ConfigureAwait(false);
             _units.Remove(unit.Id.Value);
+            if (owned.Identity is { } identity)
+            {
+                _unitIdsByIdentity.Remove(identity);
+            }
         }
         finally
         {
@@ -1269,6 +1345,10 @@ public sealed class InMemoryEnvironmentRuntime(
         foreach (OwnedExecutionUnit unit in UnitsForCurrentHost())
         {
             _units.Remove(unit.Snapshot.Metadata.Id.Value);
+            if (unit.Identity is { } identity)
+            {
+                _unitIdsByIdentity.Remove(identity);
+            }
         }
         foreach ((EngineIdentity key, _) in EnginesForCurrentHost())
         {
@@ -1447,6 +1527,31 @@ public sealed class InMemoryEnvironmentRuntime(
         return Convert.ToHexString(SHA256.HashData(payload));
     }
 
+    private static string Fingerprint(ExecutionUnitSpec spec)
+    {
+        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(
+            spec,
+            RuntimeSpecJsonContext.Default.ExecutionUnitSpec);
+        return Convert.ToHexString(SHA256.HashData(payload));
+    }
+
+    private static ExecutionUnitIdentity? UnitIdentity(ExecutionUnitSpec spec)
+    {
+        if (spec.ReconciliationKey is not { } key || string.IsNullOrWhiteSpace(key.Value))
+        {
+            return null;
+        }
+        ResourceRef<RuntimeHost> host = spec.PreferredHost ??
+            throw OwnershipFailure(
+                "hpd.environment.execution-unit.host-required",
+                "A reconciled execution unit requires an owned runtime host.");
+        return new ExecutionUnitIdentity(
+            host.Scope.Value,
+            host.Id.Value,
+            host.Generation?.Value,
+            key.Value);
+    }
+
     private static ResourceRef<TResource> Ref<TResource>(ResourceMetadata<TResource> metadata)
         where TResource : IExecutionResourceMarker =>
         new(metadata.Id, metadata.Scope, metadata.Generation);
@@ -1539,6 +1644,8 @@ public sealed class InMemoryEnvironmentRuntime(
         ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> Snapshot);
     private sealed record OwnedExecutionUnit(
         ProviderId ProviderId,
+        ExecutionUnitIdentity? Identity,
+        string SpecFingerprint,
         ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> Snapshot);
     private sealed record OwnedEngine(
         ProviderId ProviderId,
@@ -1554,6 +1661,11 @@ public sealed class InMemoryEnvironmentRuntime(
         string HostId,
         EngineControlPlaneKind Kind,
         EngineApiKind Api);
+    private readonly record struct ExecutionUnitIdentity(
+        string Scope,
+        string HostId,
+        long? HostGeneration,
+        string Key);
     private sealed record ActiveRun(CancellationTokenSource Cancellation, Task Completion);
     private sealed record PendingEngineAuthorityPlan(
         ResourceRef<EngineControlPlane> SourceEngine,
@@ -1638,6 +1750,7 @@ public sealed class RuntimeCleanupException(string step, Exception innerExceptio
 [JsonSerializable(typeof(RuntimeHostSpec))]
 [JsonSerializable(typeof(EngineControlPlaneSpec))]
 [JsonSerializable(typeof(AuthorityBindingSpec))]
+[JsonSerializable(typeof(ExecutionUnitSpec))]
 internal sealed partial class RuntimeSpecJsonContext : JsonSerializerContext;
 
 public interface IRuntimeFinalizationParticipant

@@ -330,6 +330,93 @@ public sealed class InMemoryEnvironmentRuntimeTests
     }
 
     [Fact]
+    public async Task Reconciled_execution_unit_retains_identity_and_advances_only_for_material_change()
+    {
+        EnvironmentProviderRegistry registry = CreateRegistry();
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceRef<RuntimeHost> hostRef = new(
+            host.Metadata.Id,
+            host.Metadata.Scope,
+            host.Metadata.Generation);
+        var initialSpec = new ExecutionUnitSpec
+        {
+            ReconciliationKey = new ExecutionUnitIdentityKey("workload-1"),
+            PreferredHost = hostRef,
+            Network = new ExecutionUnitNetworkSpec { Hostname = "workload-1" },
+        };
+
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> first =
+            await runtime.EnsureExecutionUnitAsync(initialSpec);
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> repeated =
+            await runtime.EnsureExecutionUnitAsync(initialSpec);
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> changed =
+            await runtime.EnsureExecutionUnitAsync(initialSpec with
+            {
+                Network = new ExecutionUnitNetworkSpec { Hostname = "workload-1-new" },
+            });
+
+        Assert.Equal(first.Metadata.Id, repeated.Metadata.Id);
+        Assert.Equal(first.Metadata.Generation, repeated.Metadata.Generation);
+        Assert.Equal(first.Metadata.Id, changed.Metadata.Id);
+        Assert.True(changed.Metadata.Generation.Value > repeated.Metadata.Generation.Value);
+        Assert.Equal("workload-1-new", changed.Spec.Network.Hostname);
+
+        IReadOnlyList<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> listed =
+            await runtime.ListExecutionUnitsAsync();
+        Assert.Single(listed);
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> observed =
+            await runtime.GetExecutionUnitAsync(new ResourceRef<ExecutionUnit>(
+                changed.Metadata.Id,
+                changed.Metadata.Scope,
+                changed.Metadata.Generation));
+        Assert.Equal(changed, observed);
+    }
+
+    [Fact]
+    public async Task Concurrent_reconciled_execution_unit_ensure_creates_one_logical_resource_and_delete_releases_key()
+    {
+        EnvironmentProviderRegistry registry = CreateRegistry();
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceRef<RuntimeHost> hostRef = new(
+            host.Metadata.Id,
+            host.Metadata.Scope,
+            host.Metadata.Generation);
+        var spec = new ExecutionUnitSpec
+        {
+            ReconciliationKey = new ExecutionUnitIdentityKey("concurrent-workload"),
+            PreferredHost = hostRef,
+        };
+
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>[] ensured =
+            await Task.WhenAll(Enumerable.Range(0, 16).Select(_ =>
+                runtime.EnsureExecutionUnitAsync(spec).AsTask()));
+
+        Assert.Single(ensured.Select(snapshot => snapshot.Metadata.Id).Distinct());
+        Assert.Single(ensured.Select(snapshot => snapshot.Metadata.Generation).Distinct());
+        Assert.Single(await runtime.ListExecutionUnitsAsync());
+
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> accepted = ensured[0];
+        await runtime.DeleteExecutionUnitAsync(new ResourceRef<ExecutionUnit>(
+            accepted.Metadata.Id,
+            accepted.Metadata.Scope,
+            accepted.Metadata.Generation));
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> recreated =
+            await runtime.EnsureExecutionUnitAsync(spec);
+
+        Assert.NotEqual(accepted.Metadata.Id, recreated.Metadata.Id);
+    }
+
+    [Fact]
     public async Task Delete_host_clears_runtime_owned_snapshot_before_recreation()
     {
         EnvironmentProviderRegistry registry = CreateRegistry();

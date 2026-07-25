@@ -805,6 +805,7 @@ public sealed record RuntimeHostResetResult(RuntimeHostResetScope Scope, Resourc
 
 public sealed record ExecutionUnitSpec
 {
+    public ExecutionUnitIdentityKey? ReconciliationKey { get; init; }
     public ResourceRef<RuntimeHost>? PreferredHost { get; init; }
     public PlacementPolicy Placement { get; init; } = PlacementPolicy.Default;
     public ResourceRef<RootFilesystemView>? Rootfs { get; init; }
@@ -818,6 +819,8 @@ public sealed record ExecutionUnitSpec
     public ProcessLogPolicy LogPolicy { get; init; } = ProcessLogPolicy.Default;
     public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>();
 }
+
+public readonly record struct ExecutionUnitIdentityKey(string Value);
 
 public sealed record ExecutionUnitStatus : ResourceStatus
 {
@@ -1417,6 +1420,8 @@ public interface IEnvironmentRuntime
     ValueTask<EngineAuthorityBindingPlan> PlanEngineAuthorityBindingAsync(EngineAuthorityBindingRequest request, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus>> EnsureEngineAuthorityBindingAsync(EngineAuthorityBindingPlan plan, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> EnsureExecutionUnitAsync(ExecutionUnitSpec spec, CancellationToken cancellationToken = default);
+    ValueTask<IReadOnlyList<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>>> ListExecutionUnitsAsync(CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> GetExecutionUnitAsync(ResourceRef<ExecutionUnit> unit, CancellationToken cancellationToken = default);
     ValueTask DeleteExecutionUnitAsync(ResourceRef<ExecutionUnit> unit, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus>> EnsureAuthorityBindingAsync(AuthorityBindingSpec spec, CancellationToken cancellationToken = default);
     ValueTask RevokeAuthorityBindingAsync(ResourceRef<AuthorityBinding> binding, CancellationToken cancellationToken = default);
