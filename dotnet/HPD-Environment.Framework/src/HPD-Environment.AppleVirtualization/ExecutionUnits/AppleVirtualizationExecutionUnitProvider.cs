@@ -49,6 +49,29 @@ public sealed class AppleVirtualizationExecutionUnitProvider : IExecutionUnitPro
         ArgumentNullException.ThrowIfNull(spec);
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (observed is not null &&
+            !observed.ObservedGeneration.Equals(metadata.Generation) &&
+            HasActiveDependents(observed))
+        {
+            return observed with
+            {
+                ReconciliationOutcome = ResourceReconciliationOutcome.ImmutableConflict,
+                Diagnostics =
+                [
+                    .. observed.Diagnostics,
+                    new Diagnostic
+                    {
+                        Severity = DiagnosticSeverity.Error,
+                        Code = new DiagnosticCode(
+                            "AppleVirtualization.ExecutionUnitReplacementDependentsActive"),
+                        Message =
+                            "The execution unit cannot be materially reconfigured while guest processes, " +
+                            "authority bindings, projections, network memberships, or published endpoints remain active.",
+                    },
+                ],
+            };
+        }
+
         ResourceRef<RuntimeHost>? assignedHost = spec.PreferredHost ?? observed?.AssignedHost;
         if (assignedHost is null)
         {
@@ -845,6 +868,15 @@ public sealed class AppleVirtualizationExecutionUnitProvider : IExecutionUnitPro
 
     private ExecutionUnitStatus Store(ResourceMetadata<ExecutionUnit> metadata, ExecutionUnitStatus status, ExecutionUnitSpec? spec = null) =>
         _ledger.UpsertExecutionUnit(metadata, status, spec).Status;
+
+    private static bool HasActiveDependents(ExecutionUnitStatus status) =>
+        status.UnitPhase is ExecutionUnitPhase.Starting or ExecutionUnitPhase.Running or
+            ExecutionUnitPhase.Stopping or ExecutionUnitPhase.Deleting ||
+        status.ActiveProcesses.Count > 0 ||
+        status.AuthorityBindings.Count > 0 ||
+        status.RealizedContentProjections.Count > 0 ||
+        status.NetworkMemberships.Count > 0 ||
+        status.PublishedEndpoints.Count > 0;
 
     private static ResourceMetadata<ExecutionUnit> ToMetadata(
         AppleVirtualizationLedgerEntry<ExecutionUnit, ExecutionUnitStatus> entry) =>

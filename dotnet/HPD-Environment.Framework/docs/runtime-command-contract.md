@@ -29,6 +29,28 @@ The runtime command surface owns reconciliation identity and cleanup:
 - protected hosts reject deletion before cleanup begins;
 - changing the provider owner requires explicit host deletion and recreation.
 
+Execution-unit reconciliation and observation follow these additional rules:
+
+- `ExecutionUnitSpec.ReconciliationKey` is an optional caller-owned logical
+  identity. A missing key requests a new ephemeral unit; the same non-empty key
+  on the same host incarnation reconciles one retained unit.
+- identical desired state retains resource ID and generation. A material change
+  advances the accepted generation only after provider acceptance.
+- material changes are rejected with a provider-neutral immutable conflict while
+  the unit has active processes, authority bindings, realized projections,
+  network memberships, published endpoints, or an uncertain/degraded observation.
+  Callers must perform ordered deletion and recreation.
+- material host changes are rejected while the runtime owns dependent units,
+  engines, or authorities. Explicit host deletion performs ordered cleanup and
+  prevents prior-generation dependents from becoming orphaned.
+- execution-unit list/get operations are observation operations, not cache reads.
+  Each unit is refreshed through its recorded provider and its observed
+  generation and assigned-host identity are validated before the cache changes.
+- each provider observation has a five-second bound. Timeout, provider failure,
+  or identity mismatch retains ownership and returns the last snapshot marked
+  degraded with a structured diagnostic. Caller cancellation remains
+  distinguishable and is propagated.
+
 These rules are part of the contract shape. A future compatibility requirement
 should be handled through normal semantic versioning rather than parallel legacy
 methods.

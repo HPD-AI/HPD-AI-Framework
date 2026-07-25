@@ -417,6 +417,194 @@ public sealed class InMemoryEnvironmentRuntimeTests
     }
 
     [Fact]
+    public async Task Execution_unit_get_and_list_refresh_provider_status()
+    {
+        var provider = new RecordingRuntimeProvider("hpd.execution.test-observation");
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                PreferredProvider = provider.ProviderId,
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        var spec = new ExecutionUnitSpec
+        {
+            ReconciliationKey = new ExecutionUnitIdentityKey("observed-workload"),
+            PreferredHost = new ResourceRef<RuntimeHost>(
+                host.Metadata.Id,
+                host.Metadata.Scope,
+                host.Metadata.Generation),
+        };
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(spec);
+        var process = new ResourceRef<ProcessInvocation>(
+            new ResourceId<ProcessInvocation>("provider-process"),
+            unit.Metadata.Scope,
+            unit.Metadata.Generation);
+        provider.UnitStatusOverride = unit.Status with
+        {
+            Phase = ResourcePhase.Ready,
+            UnitPhase = ExecutionUnitPhase.Running,
+            ActiveProcesses = [process],
+        };
+
+        ResourceRef<ExecutionUnit> reference = new(
+            unit.Metadata.Id,
+            unit.Metadata.Scope,
+            unit.Metadata.Generation);
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> observed =
+            await runtime.GetExecutionUnitAsync(reference);
+        IReadOnlyList<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> listed =
+            await runtime.ListExecutionUnitsAsync();
+
+        Assert.Equal(ExecutionUnitPhase.Running, observed.Status.UnitPhase);
+        Assert.Equal(process, Assert.Single(observed.Status.ActiveProcesses));
+        Assert.Equal(ExecutionUnitPhase.Running, Assert.Single(listed).Status.UnitPhase);
+        Assert.True(provider.Calls.Count(call => call == "unit-status") >= 2);
+    }
+
+    [Fact]
+    public async Task Execution_unit_observation_timeout_retains_degraded_owned_snapshot()
+    {
+        var provider = new RecordingRuntimeProvider("hpd.execution.test-observation-timeout")
+        {
+            BlockUnitObservation = true,
+        };
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
+        var runtime = new InMemoryEnvironmentRuntime(
+            registry,
+            executionUnitObservationTimeout: TimeSpan.FromMilliseconds(25));
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                PreferredProvider = provider.ProviderId,
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                ReconciliationKey = new ExecutionUnitIdentityKey("timeout-workload"),
+                PreferredHost = new ResourceRef<RuntimeHost>(
+                    host.Metadata.Id,
+                    host.Metadata.Scope,
+                    host.Metadata.Generation),
+            });
+
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> observed =
+            await runtime.GetExecutionUnitAsync(new ResourceRef<ExecutionUnit>(
+                unit.Metadata.Id,
+                unit.Metadata.Scope,
+                unit.Metadata.Generation));
+
+        Assert.Equal(ResourcePhase.Degraded, observed.Status.Phase);
+        Assert.Contains(
+            observed.Status.Diagnostics,
+            diagnostic => diagnostic.Code.Value == "hpd.environment.execution-unit.observe-timeout");
+        Assert.Single(await runtime.ListExecutionUnitsAsync());
+    }
+
+    [Fact]
+    public async Task Material_execution_unit_change_is_rejected_while_authority_is_active()
+    {
+        EnvironmentProviderRegistry registry = CreateRegistry();
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceRef<RuntimeHost> hostRef = new(
+            host.Metadata.Id,
+            host.Metadata.Scope,
+            host.Metadata.Generation);
+        var spec = new ExecutionUnitSpec
+        {
+            ReconciliationKey = new ExecutionUnitIdentityKey("protected-workload"),
+            PreferredHost = hostRef,
+        };
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(spec);
+        await runtime.EnsureAuthorityBindingAsync(new AuthorityBindingSpec
+        {
+            Kind = AuthorityBindingKind.GuestCapability,
+            Source = new AuthorityBindingSource
+            {
+                Kind = AuthoritySourceKind.ProviderCapability,
+                Locus = BoundaryLocus.Provider,
+            },
+            Target = new AuthorityBindingTarget(
+                AuthorityTargetKind.ExecutionUnit,
+                Unit: unit.Status.Handle),
+            Projection = new AuthorityBindingProjection
+            {
+                Kind = AuthorityProjectionKind.EnvironmentReference,
+                EnvironmentVariableName = "HPD_AUTHORITY",
+            },
+            Policy = new AuthorityBindingPolicy
+            {
+                AuthorityClass = SensitiveAuthorityClass.ProviderDefined,
+                EffectiveAuthorityClass = SensitiveAuthorityClass.ProviderDefined,
+            },
+        });
+
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> rejected =
+            await runtime.EnsureExecutionUnitAsync(spec with
+            {
+                SecurityPolicy = new SecurityPolicy
+                {
+                    AllowAuthorityBindings = true,
+                },
+            });
+
+        Assert.Equal(ResourceReconciliationOutcome.ImmutableConflict, rejected.Status.ReconciliationOutcome);
+        Assert.Equal(unit.Metadata.Generation, rejected.Metadata.Generation);
+        Assert.Equal(unit.Spec, rejected.Spec);
+        Assert.Contains(
+            rejected.Status.Diagnostics,
+            diagnostic => diagnostic.Code.Value ==
+                "hpd.environment.execution-unit.replacement-dependents-active");
+    }
+
+    [Fact]
+    public async Task Material_host_change_is_rejected_while_keyed_unit_exists_without_orphaning_it()
+    {
+        EnvironmentProviderRegistry registry = CreateRegistry();
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        var originalSpec = new RuntimeHostSpec
+        {
+            Platform = new PlatformSpec("linux", "x64"),
+            Capacity = new ResourceQuotaPolicy { CpuCores = 2 },
+        };
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(originalSpec);
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                ReconciliationKey = new ExecutionUnitIdentityKey("host-bound-workload"),
+                PreferredHost = new ResourceRef<RuntimeHost>(
+                    host.Metadata.Id,
+                    host.Metadata.Scope,
+                    host.Metadata.Generation),
+            });
+
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> rejected =
+            await runtime.EnsureHostAsync(originalSpec with
+            {
+                Capacity = new ResourceQuotaPolicy { CpuCores = 4 },
+            });
+
+        Assert.Equal(ResourceReconciliationOutcome.ImmutableConflict, rejected.Status.ReconciliationOutcome);
+        Assert.Equal(host.Metadata.Generation, rejected.Metadata.Generation);
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> retained =
+            Assert.Single(await runtime.ListExecutionUnitsAsync());
+        Assert.Equal(unit.Metadata.Id, retained.Metadata.Id);
+        Assert.Equal(host.Metadata.Generation, retained.Spec.PreferredHost?.Generation);
+    }
+
+    [Fact]
     public async Task Delete_host_clears_runtime_owned_snapshot_before_recreation()
     {
         EnvironmentProviderRegistry registry = CreateRegistry();
@@ -1592,6 +1780,8 @@ public sealed class InMemoryEnvironmentRuntimeTests
         public bool FailAuthorityRevocation { get; set; }
         public bool BlockProcessUntilCanceled { get; set; }
         public bool IgnoreProcessCancellation { get; set; }
+        public bool BlockUnitObservation { get; set; }
+        public ExecutionUnitStatus? UnitStatusOverride { get; set; }
         public TaskCompletionSource ProcessStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseIgnoredProcess { get; } =
@@ -1675,10 +1865,19 @@ public sealed class InMemoryEnvironmentRuntimeTests
             return _inner.DeleteAsync(unit, cancellationToken);
         }
 
-        public ValueTask<ExecutionUnitStatus> GetStatusAsync(
+        public async ValueTask<ExecutionUnitStatus> GetStatusAsync(
             TargetHandle<ExecutionUnit> unit,
-            CancellationToken cancellationToken = default) =>
-            _inner.GetStatusAsync(unit, cancellationToken);
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add("unit-status");
+            if (BlockUnitObservation)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            return UnitStatusOverride is { } status
+                ? status
+                : await _inner.GetStatusAsync(unit, cancellationToken);
+        }
 
         public ValueTask<IProcessInvocationHandle> StartAsync(
             ProcessInvocationSpec spec,

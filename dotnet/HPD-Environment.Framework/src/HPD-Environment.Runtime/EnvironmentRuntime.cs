@@ -488,7 +488,8 @@ public sealed class InMemoryEnvironmentRuntime(
     EnvironmentProviderRegistry registry,
     IRuntimePlanner? planner = null,
     TimeProvider? timeProvider = null,
-    TimeSpan? engineAuthorityPlanLifetime = null) : IEnvironmentRuntime
+    TimeSpan? engineAuthorityPlanLifetime = null,
+    TimeSpan? executionUnitObservationTimeout = null) : IEnvironmentRuntime
 {
     private readonly IRuntimePlanner _planner = planner ?? new DefaultRuntimePlanner(registry, registry);
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
@@ -496,6 +497,10 @@ public sealed class InMemoryEnvironmentRuntime(
         engineAuthorityPlanLifetime is { } configured && configured > TimeSpan.Zero
             ? configured
             : TimeSpan.FromMinutes(1);
+    private readonly TimeSpan _executionUnitObservationTimeout =
+        executionUnitObservationTimeout is { } observationTimeout && observationTimeout > TimeSpan.Zero
+            ? observationTimeout
+            : TimeSpan.FromSeconds(5);
     private readonly SemaphoreSlim _reconciliationGate = new(1, 1);
     private readonly Dictionary<string, OwnedExecutionUnit> _units = new(StringComparer.Ordinal);
     private readonly Dictionary<ExecutionUnitIdentity, string> _unitIdsByIdentity = [];
@@ -536,6 +541,22 @@ public sealed class InMemoryEnvironmentRuntime(
                 ? SelectProvider(registry.RuntimeHostProviders, spec.PreferredProvider, "runtime host")
                 : ProviderById(registry.RuntimeHostProviders, _host.ProviderId, "runtime host");
             string fingerprint = Fingerprint(spec);
+            if (_host is not null &&
+                !string.Equals(_host.SpecFingerprint, fingerprint, StringComparison.Ordinal) &&
+                HasCurrentHostDependents())
+            {
+                Diagnostic diagnostic = RuntimeDiagnostic(
+                    "hpd.environment.runtime-host.replacement-dependents-active",
+                    $"Runtime host '{_host.Snapshot.Metadata.Id.Value}' cannot accept a material configuration " +
+                    "change while dependent execution units, engines, or authorities remain owned. Delete the " +
+                    "host explicitly to perform ordered dependent cleanup before replacement.");
+                RuntimeHostStatus rejected = _host.Snapshot.Status with
+                {
+                    ReconciliationOutcome = ResourceReconciliationOutcome.ImmutableConflict,
+                    Diagnostics = [.. _host.Snapshot.Status.Diagnostics, diagnostic],
+                };
+                return _host.Snapshot with { Status = rejected };
+            }
             ResourceMetadata<RuntimeHost> metadata = _host is null
                 ? Metadata<RuntimeHost>("runtime-host")
                 : string.Equals(_host.SpecFingerprint, fingerprint, StringComparison.Ordinal)
@@ -709,6 +730,25 @@ public sealed class InMemoryEnvironmentRuntime(
             }
 
             string fingerprint = Fingerprint(spec);
+            if (existing is not null &&
+                !string.Equals(existing.SpecFingerprint, fingerprint, StringComparison.Ordinal))
+            {
+                existing = await RefreshUnitAsync(existing, cancellationToken).ConfigureAwait(false);
+                if (HasActiveUnitDependents(existing))
+                {
+                    Diagnostic diagnostic = RuntimeDiagnostic(
+                        "hpd.environment.execution-unit.replacement-dependents-active",
+                        $"Execution unit '{existing.Snapshot.Metadata.Id.Value}' cannot accept a material " +
+                        "configuration change while processes, authorities, projections, network memberships, " +
+                        "or published endpoints remain active. Delete and recreate the unit after ordered cleanup.");
+                    ExecutionUnitStatus rejected = existing.Snapshot.Status with
+                    {
+                        ReconciliationOutcome = ResourceReconciliationOutcome.ImmutableConflict,
+                        Diagnostics = [.. existing.Snapshot.Status.Diagnostics, diagnostic],
+                    };
+                    return existing.Snapshot with { Status = rejected };
+                }
+            }
             ResourceMetadata<ExecutionUnit> metadata = existing is null
                 ? Metadata<ExecutionUnit>("execution-unit") with
                 {
@@ -730,7 +770,17 @@ public sealed class InMemoryEnvironmentRuntime(
                     _unitIdsByIdentity[acceptedIdentity] = metadata.Id.Value;
                 }
             }
-            return snapshot;
+            if (status.ReconciliationOutcome == ResourceReconciliationOutcome.Accepted || existing is null)
+            {
+                return snapshot;
+            }
+            return existing.Snapshot with
+            {
+                Status = status with
+                {
+                    ObservedGeneration = existing.Snapshot.Metadata.Generation,
+                },
+            };
         }
         finally
         {
@@ -744,8 +794,13 @@ public sealed class InMemoryEnvironmentRuntime(
         await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return _units.Values
-                .Select(unit => unit.Snapshot)
+            var refreshed = new List<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>>(
+                _units.Count);
+            foreach (OwnedExecutionUnit unit in _units.Values.ToArray())
+            {
+                refreshed.Add((await RefreshUnitAsync(unit, cancellationToken).ConfigureAwait(false)).Snapshot);
+            }
+            return refreshed
                 .OrderBy(unit => unit.Metadata.CreatedAt)
                 .ThenBy(unit => unit.Metadata.Id.Value, StringComparer.Ordinal)
                 .ToArray();
@@ -764,7 +819,8 @@ public sealed class InMemoryEnvironmentRuntime(
         await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return FindUnit(unit).Snapshot;
+            OwnedExecutionUnit owned = FindUnit(unit);
+            return (await RefreshUnitAsync(owned, cancellationToken).ConfigureAwait(false)).Snapshot;
         }
         finally
         {
@@ -1097,7 +1153,7 @@ public sealed class InMemoryEnvironmentRuntime(
             id = Interlocked.Increment(ref _processSequence);
             linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            _activeRuns[id] = new ActiveRun(linkedCancellation, completion.Task);
+            _activeRuns[id] = new ActiveRun(spec, linkedCancellation, completion.Task);
         }
         finally
         {
@@ -1466,6 +1522,141 @@ public sealed class InMemoryEnvironmentRuntime(
                 host.Id.Equals(_host.Snapshot.Metadata.Id) &&
                 host.Scope.Equals(_host.Snapshot.Metadata.Scope)).ToArray();
 
+    private bool HasCurrentHostDependents() =>
+        UnitsForCurrentHost().Any() ||
+        EnginesForCurrentHost().Any() ||
+        AuthoritiesForCurrentHost().Any();
+
+    private bool HasActiveUnitDependents(OwnedExecutionUnit unit)
+    {
+        ExecutionUnitStatus status = unit.Snapshot.Status;
+        if (status.Phase is ResourcePhase.Degraded or ResourcePhase.Failed ||
+            status.UnitPhase is ExecutionUnitPhase.Starting or ExecutionUnitPhase.Running or
+                ExecutionUnitPhase.Stopping or ExecutionUnitPhase.Deleting ||
+            status.ActiveProcesses.Count > 0 ||
+            status.AuthorityBindings.Count > 0 ||
+            status.RealizedContentProjections.Count > 0 ||
+            status.NetworkMemberships.Count > 0 ||
+            status.PublishedEndpoints.Count > 0)
+        {
+            return true;
+        }
+
+        TargetHandle<ExecutionUnit>? handle = status.Handle;
+        return handle is not null &&
+            (_authorities.Values.Any(authority => authority.Snapshot.Spec.Target.Unit is { } target &&
+                target.Equals(handle.Value)) ||
+             _activeHandles.Values.Any(process => process.Spec.Target.Equals(handle.Value)) ||
+             _activeRuns.Values.Any(process => process.Spec.Target.Equals(handle.Value)));
+    }
+
+    private async ValueTask<OwnedExecutionUnit> RefreshUnitAsync(
+        OwnedExecutionUnit unit,
+        CancellationToken cancellationToken)
+    {
+        if (unit.Snapshot.Status.Handle is not { } handle)
+        {
+            return StoreUnitObservationFailure(
+                unit,
+                RuntimeDiagnostic(
+                    "hpd.environment.execution-unit.observe-handle-missing",
+                    $"Execution unit '{unit.Snapshot.Metadata.Id.Value}' has no provider handle and cannot be observed."));
+        }
+
+        using var observationCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        observationCancellation.CancelAfter(_executionUnitObservationTimeout);
+        try
+        {
+            ExecutionUnitStatus status = await ProviderById(
+                    registry.ExecutionUnitProviders,
+                    unit.ProviderId,
+                    "execution unit")
+                .GetStatusAsync(handle, observationCancellation.Token)
+                .ConfigureAwait(false);
+            Diagnostic? identityDiagnostic = ValidateUnitObservation(unit, status);
+            if (identityDiagnostic is not null)
+            {
+                return StoreUnitObservationFailure(unit, identityDiagnostic);
+            }
+
+            OwnedExecutionUnit refreshed = unit with
+            {
+                Snapshot = unit.Snapshot with { Status = status },
+            };
+            _units[unit.Snapshot.Metadata.Id.Value] = refreshed;
+            return refreshed;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return StoreUnitObservationFailure(
+                unit,
+                RuntimeDiagnostic(
+                    "hpd.environment.execution-unit.observe-timeout",
+                    $"Execution unit '{unit.Snapshot.Metadata.Id.Value}' could not be observed within " +
+                    $"{_executionUnitObservationTimeout.TotalMilliseconds:0} milliseconds."));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            return StoreUnitObservationFailure(
+                unit,
+                RuntimeDiagnostic(
+                    "hpd.environment.execution-unit.observe-failed",
+                    $"Execution unit '{unit.Snapshot.Metadata.Id.Value}' observation failed: {exception.Message}"));
+        }
+    }
+
+    private Diagnostic? ValidateUnitObservation(
+        OwnedExecutionUnit unit,
+        ExecutionUnitStatus status)
+    {
+        if (!status.ObservedGeneration.Equals(unit.Snapshot.Metadata.Generation))
+        {
+            return RuntimeDiagnostic(
+                "hpd.environment.execution-unit.observe-generation-mismatch",
+                $"Execution unit '{unit.Snapshot.Metadata.Id.Value}' returned observed generation " +
+                $"'{status.ObservedGeneration.Value}', expected '{unit.Snapshot.Metadata.Generation.Value}'.");
+        }
+        if (unit.Snapshot.Status.Handle is { } expectedHandle &&
+            (status.Handle is not { } actualHandle || !actualHandle.Equals(expectedHandle)))
+        {
+            return RuntimeDiagnostic(
+                "hpd.environment.execution-unit.observe-handle-mismatch",
+                $"Execution unit '{unit.Snapshot.Metadata.Id.Value}' returned a mismatched provider handle.");
+        }
+        if (unit.Snapshot.Spec.PreferredHost is { } expectedHost &&
+            (status.AssignedHost is not { } actualHost ||
+             !SameResource(expectedHost, actualHost)))
+        {
+            return RuntimeDiagnostic(
+                "hpd.environment.execution-unit.observe-host-mismatch",
+                $"Execution unit '{unit.Snapshot.Metadata.Id.Value}' returned a mismatched assigned host.");
+        }
+        return null;
+    }
+
+    private OwnedExecutionUnit StoreUnitObservationFailure(
+        OwnedExecutionUnit unit,
+        Diagnostic diagnostic)
+    {
+        ExecutionUnitStatus degraded = unit.Snapshot.Status with
+        {
+            Phase = ResourcePhase.Degraded,
+            LastTransitionAt = _timeProvider.GetUtcNow(),
+            Diagnostics = [.. unit.Snapshot.Status.Diagnostics, diagnostic],
+        };
+        OwnedExecutionUnit retained = unit with
+        {
+            Snapshot = unit.Snapshot with { Status = degraded },
+        };
+        _units[unit.Snapshot.Metadata.Id.Value] = retained;
+        return retained;
+    }
+
     private IEnumerable<OwnedAuthorityBinding> AuthoritiesForCurrentHost() =>
         _host is null
             ? []
@@ -1638,6 +1829,14 @@ public sealed class InMemoryEnvironmentRuntime(
             Message = message,
         });
 
+    private static Diagnostic RuntimeDiagnostic(string code, string message) =>
+        new()
+        {
+            Severity = DiagnosticSeverity.Error,
+            Code = new DiagnosticCode(code),
+            Message = message,
+        };
+
     private sealed record OwnedHost(
         ProviderId ProviderId,
         string SpecFingerprint,
@@ -1666,7 +1865,10 @@ public sealed class InMemoryEnvironmentRuntime(
         string HostId,
         long? HostGeneration,
         string Key);
-    private sealed record ActiveRun(CancellationTokenSource Cancellation, Task Completion);
+    private sealed record ActiveRun(
+        ProcessInvocationSpec Spec,
+        CancellationTokenSource Cancellation,
+        Task Completion);
     private sealed record PendingEngineAuthorityPlan(
         ResourceRef<EngineControlPlane> SourceEngine,
         string SpecFingerprint,
@@ -1905,8 +2107,22 @@ public sealed class InMemoryEnvironmentProvider :
         return ValueTask.FromResult(status);
     }
 
-    public ValueTask<ExecutionUnitStatus> StopAsync(TargetHandle<ExecutionUnit> unit, StopPolicy policy, CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(new ExecutionUnitStatus { Phase = ResourcePhase.Ready, UnitPhase = ExecutionUnitPhase.Stopped, Handle = unit });
+    public ValueTask<ExecutionUnitStatus> StopAsync(TargetHandle<ExecutionUnit> unit, StopPolicy policy, CancellationToken cancellationToken = default)
+    {
+        string id = unit.Route.Segments.Last().Value;
+        ExecutionUnitStatus current = _resources.TryGetValue(id, out object? value) &&
+            value is ExecutionUnitStatus status
+                ? status
+                : new ExecutionUnitStatus { Handle = unit, UnitPhase = ExecutionUnitPhase.Unknown };
+        ExecutionUnitStatus stopped = current with
+        {
+            Phase = ResourcePhase.Ready,
+            UnitPhase = ExecutionUnitPhase.Stopped,
+            Handle = unit,
+        };
+        _resources[id] = stopped;
+        return ValueTask.FromResult(stopped);
+    }
 
     public ValueTask DeleteAsync(ResourceRef<ExecutionUnit> unit, CancellationToken cancellationToken = default)
     {
@@ -1914,8 +2130,18 @@ public sealed class InMemoryEnvironmentProvider :
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask<ExecutionUnitStatus> GetStatusAsync(TargetHandle<ExecutionUnit> unit, CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(new ExecutionUnitStatus { Phase = ResourcePhase.Ready, UnitPhase = ExecutionUnitPhase.Ready, Handle = unit });
+    public ValueTask<ExecutionUnitStatus> GetStatusAsync(TargetHandle<ExecutionUnit> unit, CancellationToken cancellationToken = default)
+    {
+        string id = unit.Route.Segments.Last().Value;
+        return _resources.TryGetValue(id, out object? value) && value is ExecutionUnitStatus status
+            ? ValueTask.FromResult(status)
+            : ValueTask.FromResult(new ExecutionUnitStatus
+            {
+                Phase = ResourcePhase.Failed,
+                UnitPhase = ExecutionUnitPhase.Failed,
+                Handle = unit,
+            });
+    }
 
     public ValueTask<IProcessInvocationHandle> StartAsync(ProcessInvocationSpec spec, IProcessOutputSink? output = null, CancellationToken cancellationToken = default)
     {

@@ -83,6 +83,62 @@ public sealed class AppleVirtualizationExecutionUnitProviderTests
     }
 
     [Fact]
+    public async Task Material_reconcile_with_active_process_and_authority_returns_conflict_without_replacing_unit()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        SeedHost(ledger);
+        SeedProjectedProjection(ledger);
+        var helper = new FakeAppleVirtualizationHelperClient();
+        helper.EnqueueResponse(UnitResponse(
+            AppleVirtualizationHelperOperation.UnitEnsure,
+            ExecutionUnitPhase.Ready));
+        var provider = new AppleVirtualizationExecutionUnitProvider(ledger, helper);
+        ResourceMetadata<ExecutionUnit> metadata = Metadata("unit-1");
+        ExecutionUnitStatus ensured = await provider.EnsureAsync(
+            metadata,
+            AppleVirtualizationContractFixtures.ExecutionUnitSpec(),
+            observed: null);
+        ExecutionUnitStatus active = ensured with
+        {
+            UnitPhase = ExecutionUnitPhase.Running,
+            ActiveProcesses =
+            [
+                new ResourceRef<ProcessInvocation>(
+                    new ResourceId<ProcessInvocation>("process-1"),
+                    metadata.Scope,
+                    metadata.Generation),
+            ],
+            AuthorityBindings = [AuthorityRef()],
+        };
+        ledger.UpsertExecutionUnit(
+            metadata,
+            active,
+            AppleVirtualizationContractFixtures.ExecutionUnitSpec());
+        ResourceMetadata<ExecutionUnit> changedMetadata = metadata with
+        {
+            Generation = new ResourceGeneration(metadata.Generation.Value + 1),
+        };
+
+        ExecutionUnitStatus rejected = await provider.EnsureAsync(
+            changedMetadata,
+            AppleVirtualizationContractFixtures.ExecutionUnitSpec() with
+            {
+                SecurityPolicy = new SecurityPolicy { AllowAuthorityBindings = true },
+            },
+            active);
+
+        rejected.ReconciliationOutcome.Should().Be(ResourceReconciliationOutcome.ImmutableConflict);
+        rejected.ObservedGeneration.Should().Be(metadata.Generation);
+        rejected.ActiveProcesses.Should().ContainSingle();
+        rejected.AuthorityBindings.Should().ContainSingle();
+        helper.Requests.Should().ContainSingle();
+        ledger.TryGetExecutionUnit(new ResourceRef<ExecutionUnit>(
+            metadata.Id,
+            metadata.Scope,
+            metadata.Generation)).Entry!.Status.ActiveProcesses.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task Unit_records_projected_content_refs_and_context_extension()
     {
         var ledger = new AppleVirtualizationProviderStateLedger();
