@@ -204,6 +204,7 @@ public final class HelperService {
         operation: Operation,
         result: HostLifecycleResult
     ) -> [String: Any] {
+        let deletionCompleted = operation == .hostDelete && result.accepted && result.state == .notCreated
         let status: ResponseStatus = result.accepted
             ? (result.state == .starting || result.state == .stopping ? .accepted : .ok)
             : .error
@@ -216,8 +217,8 @@ public final class HelperService {
         .merging([
             "HostStatusResponse": [
                 "HostId": result.hostId,
-                "HostPhase": hostPhase(for: result.state),
-                "Phase": resourcePhase(for: result.state),
+                "HostPhase": deletionCompleted ? 12 : hostPhase(for: result.state),
+                "Phase": deletionCompleted ? 7 : resourcePhase(for: result.state),
                 "GuestControlReachable": false,
                 "Conditions": [],
                 "Diagnostics": result.diagnostics.map { $0.toJson() }
@@ -374,6 +375,43 @@ public final class HelperService {
     }
 
     private func engineStatusResponse(for request: HelperEnvelope) -> [String: Any] {
+        var payload = request.raw["EngineStatusRequest"] as? [String: Any] ?? [:]
+        payload["ProviderGeneration"] = VmConfigurationValidationRequest.uint64(request.raw["ProviderGeneration"]) ?? 0
+        if payload["HostId"] == nil {
+            payload["HostId"] = VmConfigurationValidationRequest.string(request.raw["ResourceId"])
+        }
+        if let guestResponse = adapter.engineStatus(payload) {
+            if let error = guestResponse["Error"] as? [String: Any] {
+                return errorResponse(
+                    for: request,
+                    operation: .engineStatus,
+                    code: VmConfigurationValidationRequest.string(error["Code"]) ?? "AppleVirtualization.EngineStatusGuestAgentFailed",
+                    message: VmConfigurationValidationRequest.string(error["Message"]) ?? "Guest agent failed engine observation.",
+                    retryable: true,
+                    failedPhase: "GuestEngine")
+            }
+            if let engine = guestResponse["EngineStatusResponse"] as? [String: Any] {
+                let normalizedEngine = EngineStatusWireNormalizer.normalize(engine)
+                return responseBase(for: request, operation: .engineStatus, status: .ok, schema: HelperProtocol.engineStatusResponseSchema)
+                    .merging([
+                        "EventKind": (VmConfigurationValidationRequest.bool(normalizedEngine["Ready"]) ?? false)
+                            ? EngineProtocolEventKind.engineObserved
+                            : EngineProtocolEventKind.engineDegraded,
+                        "EngineStatusResponse": normalizedEngine
+                    ]) { _, new in new }
+            }
+        }
+
+        if !adapter.allowsSyntheticAuthorityFallback {
+            return errorResponse(
+                for: request,
+                operation: .engineStatus,
+                code: "AppleVirtualization.EngineStatusGuestAgentUnavailable",
+                message: "Engine observation requires a running guest agent; no guest engine response was available.",
+                retryable: true,
+                failedPhase: "GuestEngine")
+        }
+
         let statusRequest = EngineStatusRequestPayload.parse(from: request)
         let statusPayload = EngineStatusPayload.fromRequest(statusRequest)
         let timestamp = Self.timestamp()

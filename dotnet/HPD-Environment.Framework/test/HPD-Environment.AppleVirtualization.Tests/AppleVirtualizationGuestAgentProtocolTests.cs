@@ -613,6 +613,7 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
                 RequiredProjectionGuestPath = "/workspace",
                 Io = ProcessIoSpec.Default with
                 {
+                    MergeStandardError = true,
                     Terminal = new TerminalSpec(100, 30),
                 },
                 ObservationRetention = ObservationRetentionPolicy.EventsAndResult,
@@ -666,6 +667,7 @@ public sealed class AppleVirtualizationGuestAgentProtocolTests
         roundTrip.ProcessStartRequest.Command.Environment["HPD_TEST"].Should().Be("1");
         roundTrip.ProcessStartRequest.Identity!.User.Should().Be("hpd");
         roundTrip.ProcessStartRequest.Limits!.ProcessCount.Should().Be(4);
+        roundTrip.ProcessStartRequest.Io.MergeStandardError.Should().BeTrue();
         roundTrip.ProcessStartRequest.RequireVerifiedProjection.Should().BeTrue();
         roundTrip.ProcessStartRequest.RequiredProjectionGuestPath.Should().Be("/workspace");
         roundTrip.ProcessStartRequest.Terminal.PtyState.Should().Be(AppleVirtualizationGuestAgentPtyState.Requested);

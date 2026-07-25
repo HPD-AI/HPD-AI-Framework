@@ -919,6 +919,8 @@ public sealed record AppleVirtualizationEngineProvisioningResponse
 public sealed record AppleVirtualizationEngineStatusRequest
 {
     public required string HostId { get; init; }
+    public ulong ProviderGeneration { get; init; }
+    public ulong HostStartGeneration { get; init; }
     public string? EngineId { get; init; }
     public EngineControlPlaneKind Kind { get; init; } = EngineControlPlaneKind.DockerCompatible;
     public EngineApiKind Api { get; init; } = EngineApiKind.DockerCompatible;
@@ -1588,6 +1590,8 @@ public sealed class FakeAppleVirtualizationHelperClient : IAppleVirtualizationHe
             AppleVirtualizationGuestAgentEngineStatus.FromRequest(new AppleVirtualizationGuestAgentEngineStatusRequest
             {
                 HostId = engine.HostId,
+                ProviderGeneration = engine.ProviderGeneration,
+                HostStartGeneration = engine.HostStartGeneration,
                 EngineId = engine.EngineId,
                 Kind = engine.Kind,
                 Api = engine.Api,

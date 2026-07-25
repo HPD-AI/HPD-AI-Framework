@@ -149,6 +149,9 @@ public sealed class AppleVirtualizationExecutionUnitConcurrencyTests
         var fixture = CreateFixture();
         fixture.Helper.EnqueueResponse(UnitResponse(ExecutionUnitPhase.Ready));
         fixture.Helper.EnqueueResponse(UnitResponse(ExecutionUnitPhase.Ready));
+        fixture.Helper.EnqueueResponse(HostResponse(
+            RuntimeHostPhase.Deleted,
+            AppleVirtualizationHelperOperation.HostDelete));
         ExecutionUnitStatus unit1 = await fixture.UnitProvider.EnsureAsync(Metadata("unit-1"), AppleVirtualizationContractFixtures.ExecutionUnitSpec(), null);
         ExecutionUnitStatus unit2 = await fixture.UnitProvider.EnsureAsync(Metadata("unit-2"), AppleVirtualizationContractFixtures.ExecutionUnitSpec(), null);
 
@@ -285,11 +288,13 @@ public sealed class AppleVirtualizationExecutionUnitConcurrencyTests
             },
         };
 
-    private static AppleVirtualizationHelperEnvelope HostResponse(RuntimeHostPhase phase) =>
+    private static AppleVirtualizationHelperEnvelope HostResponse(
+        RuntimeHostPhase phase,
+        AppleVirtualizationHelperOperation operation = AppleVirtualizationHelperOperation.HostRequestStop) =>
         new()
         {
             MessageType = AppleVirtualizationHelperMessageType.Response,
-            Operation = AppleVirtualizationHelperOperation.HostRequestStop,
+            Operation = operation,
             ResponseStatus = AppleVirtualizationHelperResponseStatus.Ok,
             SequenceNumber = 1,
             ProviderGeneration = 1,
@@ -297,7 +302,7 @@ public sealed class AppleVirtualizationExecutionUnitConcurrencyTests
             {
                 HostId = "runtime-host-1",
                 HostPhase = phase,
-                Phase = ResourcePhase.Ready,
+                Phase = phase == RuntimeHostPhase.Deleted ? ResourcePhase.Deleted : ResourcePhase.Ready,
             },
         };
 

@@ -116,6 +116,7 @@ public protocol VirtualizationAdapter {
     func networkStatus(_ request: NetworkStatusRequest) -> NetworkStatusResult
     func publishEndpoint(_ request: EndpointPublicationRequest) -> EndpointPublicationResult
     func releaseEndpoint(_ request: EndpointPublicationRequest) -> EndpointPublicationResult
+    func engineStatus(_ payload: [String: Any]) -> [String: Any]?
     func authorityBinding(_ payload: [String: Any], operation: Operation) -> [String: Any]?
     func startProcess(_ request: ProcessRequest) -> ProcessResult
     func processStatus(_ request: ProcessRequest) -> ProcessResult
@@ -568,6 +569,92 @@ public enum HostLifecycleState: Int {
     case failed = 5
 }
 
+package enum HostDeletionGenerationDecision: Equatable {
+    case current
+    case stale
+
+    package static func evaluate(recordGeneration: UInt64, requestGeneration: UInt64) -> Self {
+        recordGeneration == requestGeneration ? .current : .stale
+    }
+}
+
+public struct EngineHostRouteState {
+    public let running: Bool
+    public let providerGeneration: UInt64
+    public let socketAvailable: Bool
+
+    public init(running: Bool, providerGeneration: UInt64, socketAvailable: Bool) {
+        self.running = running
+        self.providerGeneration = providerGeneration
+        self.socketAvailable = socketAvailable
+    }
+}
+
+public enum EngineHostRouteResolution: Equatable {
+    case resolved(hostId: String)
+    case unknownHost
+    case stopped
+    case staleProviderGeneration
+    case socketMissing
+}
+
+public enum EngineHostRouter {
+    public static func resolve(
+        hostId: String,
+        providerGeneration: UInt64,
+        hosts: [String: EngineHostRouteState]
+    ) -> EngineHostRouteResolution {
+        guard let host = hosts[hostId] else {
+            return .unknownHost
+        }
+        guard host.providerGeneration == providerGeneration else {
+            return .staleProviderGeneration
+        }
+        guard host.running else {
+            return .stopped
+        }
+        guard host.socketAvailable else {
+            return .socketMissing
+        }
+        return .resolved(hostId: hostId)
+    }
+}
+
+public enum EngineResponseIdentityValidation: Equatable {
+    case valid
+    case hostMismatch
+    case engineMismatch
+    case generationMismatch
+}
+
+public enum EngineResponseIdentityValidator {
+    public static func validate(
+        response: [String: Any],
+        hostId: String,
+        engineId: String,
+        providerGeneration: UInt64,
+        hostStartGeneration: UInt64
+    ) -> EngineResponseIdentityValidation {
+        guard VmConfigurationValidationRequest.string(response["HostId"]) == hostId,
+              let engineStatus = response["EngineStatusResponse"] as? [String: Any],
+              VmConfigurationValidationRequest.string(engineStatus["HostId"]) == hostId,
+              let guestEngineStatus = engineStatus["GuestEngineStatus"] as? [String: Any],
+              VmConfigurationValidationRequest.string(guestEngineStatus["HostId"]) == hostId else {
+            return .hostMismatch
+        }
+        guard VmConfigurationValidationRequest.string(engineStatus["EngineId"]) == engineId,
+              VmConfigurationValidationRequest.string(guestEngineStatus["EngineId"]) == engineId else {
+            return .engineMismatch
+        }
+        guard let generation = guestEngineStatus["Generation"] as? [String: Any],
+              VmConfigurationValidationRequest.uint64(generation["ProviderGeneration"]) == providerGeneration,
+              VmConfigurationValidationRequest.uint64(generation["HostStartGeneration"]) == hostStartGeneration else {
+            return .generationMismatch
+        }
+        return .valid
+    }
+}
+
 public struct HostLifecycleResult {
     public let hostId: String
     public let state: HostLifecycleState
@@ -589,6 +676,7 @@ public struct HostLifecycleResult {
 
 public struct HostLifecycleRequest {
     public let hostId: String
+    public let providerGeneration: UInt64
     public let explicitRealMode: Bool
     public let reason: String?
     public let gracePeriodMilliseconds: Int?
@@ -599,6 +687,7 @@ public struct HostLifecycleRequest {
         let configurationPayload = payload["VmConfigurationValidationRequest"] as? [String: Any]
         return HostLifecycleRequest(
             hostId: VmConfigurationValidationRequest.string(payload["HostId"]) ?? "unknown",
+            providerGeneration: VmConfigurationValidationRequest.uint64(envelope.raw["ProviderGeneration"]) ?? 0,
             explicitRealMode: VmConfigurationValidationRequest.bool(payload["ExplicitRealMode"]) ?? false,
             reason: VmConfigurationValidationRequest.string(payload["Reason"]),
             gracePeriodMilliseconds: VmConfigurationValidationRequest.int(payload["GracePeriodMilliseconds"]),
@@ -1741,6 +1830,7 @@ public struct ProcessRequest {
     public let arguments: [String]
     public let workingDirectory: String?
     public let environment: [String: String]
+    public let mergeStandardError: Bool
     public let isolation: [String: Any]
     public let sandboxPlan: [String: Any]
     public let timeoutMilliseconds: Int?
@@ -1785,6 +1875,7 @@ public struct ProcessRequest {
             .flatMap { ProjectionScriptedGuestState(rawValue: $0) }
         let signalPayload = payload["Signal"] as? [String: Any]
         let command = payload["Command"] as? [String: Any] ?? [:]
+        let io = payload["Io"] as? [String: Any] ?? [:]
 
         return ProcessRequest(
             processId: VmConfigurationValidationRequest.string(payload["ProcessId"]) ?? "unknown-process",
@@ -1793,6 +1884,7 @@ public struct ProcessRequest {
             arguments: Self.stringArray(command["Arguments"]),
             workingDirectory: VmConfigurationValidationRequest.string(command["WorkingDirectory"]),
             environment: Self.stringDictionary(command["Environment"]),
+            mergeStandardError: VmConfigurationValidationRequest.bool(io["MergeStandardError"]) ?? false,
             isolation: payload["Isolation"] as? [String: Any] ?? [:],
             sandboxPlan: payload["SandboxPlan"] as? [String: Any] ?? [:],
             timeoutMilliseconds: Self.milliseconds(payload["Timeout"]),
@@ -1820,6 +1912,7 @@ public struct ProcessRequest {
             arguments: arguments,
             workingDirectory: workingDirectory,
             environment: environment,
+            mergeStandardError: mergeStandardError,
             isolation: isolation,
             sandboxPlan: sandboxPlan,
             timeoutMilliseconds: timeoutMilliseconds,
@@ -1863,6 +1956,9 @@ public struct ProcessRequest {
                 "ProcessId": processId,
                 "UnitId": unitId ?? "",
                 "Command": command,
+                "Io": [
+                    "MergeStandardError": mergeStandardError
+                ],
                 "Isolation": isolation,
                 "SandboxPlan": sandboxPlan
             ]
@@ -2134,7 +2230,7 @@ public enum ProcessStateFactory {
                     "BytesDiscarded": 0,
                     "Truncated": false
                 ],
-                "MergedStandardError": false,
+                "MergedStandardError": request.mergeStandardError,
                 "OutputDrainTimedOut": false,
                 "OutputDrainTimeout": "00:00:02"
             ],
@@ -2464,20 +2560,59 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         defer { lock.unlock() }
 
         if let existing = hosts[request.hostId] {
-            return HostLifecycleResult(hostId: request.hostId, state: existing.state, accepted: existing.state == .running || existing.state == .starting, diagnostics: existing.diagnostics)
+            guard existing.providerGeneration == request.providerGeneration else {
+                return HostLifecycleResult(
+                    hostId: request.hostId,
+                    state: .failed,
+                    accepted: false,
+                    diagnostics: [Self.lifecycleDiagnostic(
+                        code: "AppleVirtualization.HostProviderGenerationMismatch",
+                        message: "The existing VM belongs to a different provider generation.",
+                        targetPath: "host.start")])
+            }
+            switch existing.state {
+            case .running, .starting:
+                return HostLifecycleResult(
+                    hostId: request.hostId,
+                    state: existing.state,
+                    accepted: true,
+                    diagnostics: existing.diagnostics)
+            case .stopping:
+                return HostLifecycleResult(
+                    hostId: request.hostId,
+                    state: .stopping,
+                    accepted: false,
+                    diagnostics: [Self.lifecycleDiagnostic(
+                        code: "AppleVirtualization.HostStillStopping",
+                        message: "The VM cannot restart until its current stop operation completes.",
+                        targetPath: "host.start",
+                        severity: 3)])
+            case .stopped:
+                hosts.removeValue(forKey: request.hostId)
+            case .failed, .notCreated:
+                hosts.removeValue(forKey: request.hostId)
+            }
         }
 
         do {
             let configuration = try Self.buildConfiguration(vmRequest)
             try configuration.validate()
             let machine = VZVirtualMachine(configuration: configuration)
-            let delegate = HostVirtualMachineDelegate { [weak self] state, diagnostic in
-                self?.recordStop(hostId: request.hostId, state: state, diagnostic: diagnostic)
+            let delegate = HostVirtualMachineDelegate { [weak self] machine, state, diagnostic in
+                self?.recordStop(hostId: request.hostId, machine: machine, state: state, diagnostic: diagnostic)
             }
             machine.delegate = delegate
-            hosts[request.hostId] = HostRecord(machine: machine, delegate: delegate, state: .starting, diagnostics: [])
-            machine.start { [weak self] result in
-                self?.recordStartCompletion(hostId: request.hostId, result: result)
+            hosts[request.hostId] = HostRecord(
+                machine: machine,
+                delegate: delegate,
+                state: .starting,
+                diagnostics: [],
+                providerGeneration: request.providerGeneration)
+            machine.start { [weak self, weak machine] result in
+                guard let machine else {
+                    return
+                }
+                self?.recordStartCompletion(hostId: request.hostId, machine: machine, result: result)
             }
             return HostLifecycleResult(hostId: request.hostId, state: .starting, accepted: true)
         } catch {
@@ -2574,8 +2709,12 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
 
         if #available(macOS 12.0, *), existing.machine.canStop {
             existing.state = .stopping
-            existing.machine.stop { [weak self] error in
-                self?.recordStop(hostId: request.hostId, state: error == nil ? .stopped : .failed, diagnostic: error.map {
+            let machine = existing.machine
+            machine.stop { [weak self, weak machine] error in
+                guard let machine else {
+                    return
+                }
+                self?.recordStop(hostId: request.hostId, machine: machine, state: error == nil ? .stopped : .failed, diagnostic: error.map {
                     Self.lifecycleDiagnostic(code: "AppleVirtualization.HostStopFailed", message: "VZVirtualMachine.stop() failed: \($0)", targetPath: "host.stop")
                 })
             }
@@ -2593,10 +2732,79 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     }
 
     public func deleteHost(_ request: HostLifecycleRequest) -> HostLifecycleResult {
+        Self.runOnMainThread {
+            deleteHostOnMainThread(request)
+        }
+    }
+
+    private func deleteHostOnMainThread(_ request: HostLifecycleRequest) -> HostLifecycleResult {
+        #if canImport(Virtualization)
         lock.lock()
-        defer { lock.unlock() }
+        guard let existing = hosts[request.hostId] else {
+            lock.unlock()
+            return HostLifecycleResult(hostId: request.hostId, state: .notCreated, accepted: true)
+        }
+
+        guard HostDeletionGenerationDecision.evaluate(
+            recordGeneration: existing.providerGeneration,
+            requestGeneration: request.providerGeneration) == .current else {
+            let state = existing.state
+            lock.unlock()
+            return HostLifecycleResult(
+                hostId: request.hostId,
+                state: state,
+                accepted: false,
+                diagnostics: [Self.lifecycleDiagnostic(
+                    code: "AppleVirtualization.HostDeleteProviderGenerationMismatch",
+                    message: "The deletion request belongs to a stale provider generation and cannot affect the current VM incarnation.",
+                    targetPath: "host.delete.providerGeneration")])
+        }
+
+        existing.refreshStateFromMachine()
+        switch existing.state {
+        case .stopped, .failed, .notCreated:
+            hosts.removeValue(forKey: request.hostId)
+            lock.unlock()
+            return HostLifecycleResult(hostId: request.hostId, state: .notCreated, accepted: true)
+        case .stopping:
+            let diagnostics = existing.diagnostics
+            lock.unlock()
+            return HostLifecycleResult(hostId: request.hostId, state: .stopping, accepted: true, diagnostics: diagnostics)
+        case .running, .starting:
+            guard #available(macOS 12.0, *), existing.machine.canStop else {
+                let state = existing.state
+                lock.unlock()
+                return HostLifecycleResult(
+                    hostId: request.hostId,
+                    state: state,
+                    accepted: false,
+                    diagnostics: [Self.lifecycleDiagnostic(
+                        code: "AppleVirtualization.HostDeleteStopNotAvailable",
+                        message: "The live VM cannot be deleted until Virtualization.framework permits a destructive stop.",
+                        targetPath: "host.delete",
+                        severity: 3)])
+            }
+
+            existing.state = .stopping
+            let machine = existing.machine
+            machine.stop { [weak self, weak machine] error in
+                guard let machine else {
+                    return
+                }
+                self?.recordStop(hostId: request.hostId, machine: machine, state: error == nil ? .stopped : .failed, diagnostic: error.map {
+                    Self.lifecycleDiagnostic(code: "AppleVirtualization.HostDeleteStopFailed", message: "VZVirtualMachine.stop() failed during deletion: \($0)", targetPath: "host.delete")
+                })
+            }
+            let diagnostics = existing.diagnostics
+            lock.unlock()
+            return HostLifecycleResult(hostId: request.hostId, state: .stopping, accepted: true, diagnostics: diagnostics)
+        }
+        #else
+        lock.lock()
         hosts.removeValue(forKey: request.hostId)
+        lock.unlock()
         return HostLifecycleResult(hostId: request.hostId, state: .notCreated, accepted: true)
+        #endif
     }
 
     public func probeGuestAgentTransport(_ request: GuestAgentTransportProbeRequest) -> GuestAgentTransportProbeResult {
@@ -2778,20 +2986,23 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     private func resolveRunningSocketDevice(
         hostId: String,
         endpoint: GuestAgentTransportEndpoint,
-        requireVmRunning: Bool
+        requireVmRunning: Bool,
+        providerGeneration: UInt64? = nil
     ) -> (socketDevice: VZVirtioSocketDevice?, result: GuestAgentTransportProbeResult?) {
         Self.runOnMainThread {
             resolveRunningSocketDeviceOnMainThread(
                 hostId: hostId,
                 endpoint: endpoint,
-                requireVmRunning: requireVmRunning)
+                requireVmRunning: requireVmRunning,
+                providerGeneration: providerGeneration)
         }
     }
 
     private func resolveRunningSocketDeviceOnMainThread(
         hostId: String,
         endpoint: GuestAgentTransportEndpoint,
-        requireVmRunning: Bool
+        requireVmRunning: Bool,
+        providerGeneration: UInt64? = nil
     ) -> (socketDevice: VZVirtioSocketDevice?, result: GuestAgentTransportProbeResult?) {
         guard endpoint.kind == .virtioSocket else {
             return (nil, GuestAgentTransportProbeResult(
@@ -2816,6 +3027,56 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         }
 
         existing.refreshStateFromMachine()
+        let socketDevice = existing.machine.socketDevices.compactMap { $0 as? VZVirtioSocketDevice }.first
+        if let providerGeneration {
+            let route = EngineHostRouter.resolve(
+                hostId: hostId,
+                providerGeneration: providerGeneration,
+                hosts: [
+                    hostId: EngineHostRouteState(
+                        running: existing.state == .running,
+                        providerGeneration: existing.providerGeneration,
+                        socketAvailable: socketDevice != nil)
+                ])
+            switch route {
+            case .staleProviderGeneration:
+                lock.unlock()
+                return (nil, GuestAgentTransportProbeResult(
+                    hostId: hostId,
+                    state: .failed,
+                    endpoint: endpoint,
+                    vmRunning: false,
+                    reason: "ProviderGenerationStale",
+                    message: "The requested host belongs to a different provider generation.",
+                    diagnostic: Self.lifecycleDiagnostic(
+                        code: "AppleVirtualization.EngineStatusStaleProviderGeneration",
+                        message: "The requested host belongs to provider generation \(existing.providerGeneration), not \(providerGeneration).",
+                        targetPath: "ProviderGeneration",
+                        severity: 4)))
+            case .socketMissing:
+                lock.unlock()
+                return (nil, GuestAgentTransportProbeResult(
+                    hostId: hostId,
+                    state: .failed,
+                    endpoint: endpoint,
+                    vmRunning: true,
+                    reason: "SocketDeviceMissing",
+                    message: "The requested VM does not own a VZVirtioSocketDevice.",
+                    diagnostic: Self.lifecycleDiagnostic(
+                        code: "AppleVirtualization.EngineStatusSocketDeviceMissing",
+                        message: "The requested VM does not own a VZVirtioSocketDevice.",
+                        targetPath: "engine.guestAgentSocket",
+                        severity: 4)))
+            case .stopped:
+                break
+            case .resolved:
+                lock.unlock()
+                return (socketDevice, nil)
+            case .unknownHost:
+                break
+            }
+        }
+
         guard existing.state == .running else {
             lock.unlock()
             return (nil, GuestAgentTransportProbeResult(
@@ -2827,7 +3088,6 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
                 message: "Guest-agent transport probe is waiting for the VM to reach the running state."))
         }
 
-        let socketDevice = existing.machine.socketDevices.compactMap { $0 as? VZVirtioSocketDevice }.first
         lock.unlock()
         return (socketDevice, nil)
     }
@@ -3291,6 +3551,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     public func networkStatus(_ request: NetworkStatusRequest) -> NetworkStatusResult {
         let status = hostStatus(HostLifecycleRequest(
             hostId: request.hostId,
+            providerGeneration: 0,
             explicitRealMode: request.explicitRealMode,
             reason: nil,
             gracePeriodMilliseconds: nil,
@@ -3393,6 +3654,132 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
 
     public func releaseEndpoint(_ request: EndpointPublicationRequest) -> EndpointPublicationResult {
         endpointForwarders.release(request)
+    }
+
+    public func engineStatus(_ payload: [String: Any]) -> [String: Any]? {
+        #if canImport(Virtualization) && canImport(Darwin)
+        guard let hostId = VmConfigurationValidationRequest.string(payload["HostId"]),
+              !hostId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return engineStatusError(
+                code: "AppleVirtualization.EngineStatusHostMissing",
+                message: "EngineStatusRequest.HostId is required.",
+                targetPath: "EngineStatusRequest.HostId")
+        }
+        guard let providerGeneration = VmConfigurationValidationRequest.uint64(payload["ProviderGeneration"]),
+              providerGeneration > 0 else {
+            return engineStatusError(
+                code: "AppleVirtualization.EngineStatusProviderGenerationMissing",
+                message: "Engine status requires a positive provider generation.",
+                targetPath: "ProviderGeneration")
+        }
+        guard let engineId = VmConfigurationValidationRequest.string(payload["EngineId"]),
+              !engineId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return engineStatusError(
+                code: "AppleVirtualization.EngineStatusEngineMissing",
+                message: "EngineStatusRequest.EngineId is required.",
+                targetPath: "EngineStatusRequest.EngineId")
+        }
+
+        let endpoint = GuestAgentTransportEndpoint(
+            kind: .virtioSocket,
+            port: DefaultGuestAgentVirtioSocketPort,
+            address: nil,
+            name: nil)
+        let resolution = resolveRunningSocketDevice(
+            hostId: hostId,
+            endpoint: endpoint,
+            requireVmRunning: true,
+            providerGeneration: providerGeneration)
+        guard let socketDevice = resolution.socketDevice else {
+            let result = resolution.result
+            return engineStatusError(
+                code: result?.diagnostic?.code ?? "AppleVirtualization.EngineStatusHostUnavailable",
+                message: result?.diagnostic?.message ?? result?.message ?? "The requested VM is unavailable for engine observation.",
+                targetPath: result?.diagnostic?.targetPath ?? "EngineStatusRequest.HostId")
+        }
+
+        let transportRequest = GuestAgentTransportProbeRequest(
+            hostId: hostId,
+            endpoint: endpoint,
+            timeoutMilliseconds: 10_000,
+            explicitRealMode: true,
+            requireVmRunning: true,
+            scriptedStatus: nil)
+        let connection = connectGuestAgentSocket(socketDevice: socketDevice, request: transportRequest)
+        guard let socketConnection = connection.connection else {
+            return engineStatusError(
+                code: connection.result.diagnostic?.code ?? "AppleVirtualization.EngineStatusGuestAgentUnavailable",
+                message: connection.result.diagnostic?.message ?? connection.result.message,
+                targetPath: connection.result.diagnostic?.targetPath ?? "engine.guestAgentTransport")
+        }
+        defer { socketConnection.close() }
+
+        let fd = socketConnection.fileDescriptor
+        guard fd >= 0 else {
+            return engineStatusError(
+                code: "AppleVirtualization.EngineStatusGuestAgentTransportClosed",
+                message: "The requested VM guest-agent connection closed before engine observation.",
+                targetPath: "engine.guestAgentTransport")
+        }
+
+        _ = setNonBlocking(fd)
+        let request: [String: Any] = [
+            "ProtocolVersion": HelperProtocol.currentVersion,
+            "MessageType": 0,
+            "Operation": Operation.engineStatus.rawValue,
+            "RequestId": "guest-engine-status-\(UUID().uuidString)",
+            "SequenceNumber": 1,
+            "HostId": hostId,
+            "ProviderGeneration": providerGeneration,
+            "EngineStatusRequest": payload
+        ]
+        guard writeJsonLine(request, fd: fd, timeoutMilliseconds: 10_000),
+              let frame = readJsonLine(fd: fd, timeoutMilliseconds: 10_000),
+              let response = parseJsonObject(frame) else {
+            return engineStatusError(
+                code: "AppleVirtualization.EngineStatusGuestAgentMalformedResponse",
+                message: "The requested VM guest agent returned no valid engine status response.",
+                targetPath: "engine.guestAgentResponse")
+        }
+        let identityValidation = EngineResponseIdentityValidator.validate(
+            response: response,
+            hostId: hostId,
+            engineId: engineId,
+            providerGeneration: providerGeneration,
+            hostStartGeneration: VmConfigurationValidationRequest.uint64(payload["HostStartGeneration"]) ?? 0)
+        if identityValidation == .hostMismatch {
+            return engineStatusError(
+                code: "AppleVirtualization.EngineStatusHostMismatch",
+                message: "The envelope, engine status, and guest engine status must all identify the requested VM.",
+                targetPath: "engine.guestAgentResponse")
+        }
+        if identityValidation == .engineMismatch {
+            return engineStatusError(
+                code: "AppleVirtualization.EngineStatusEngineMismatch",
+                message: "The engine status and guest engine status must both identify the requested engine.",
+                targetPath: "engine.guestAgentResponse.EngineStatusResponse.EngineId")
+        }
+        if identityValidation == .generationMismatch {
+            return engineStatusError(
+                code: "AppleVirtualization.EngineStatusGenerationMismatch",
+                message: "The guest engine response provider or host-start generation did not match the request.",
+                targetPath: "engine.guestAgentResponse.GuestEngineStatus.Generation")
+        }
+        return response
+        #else
+        return nil
+        #endif
+    }
+
+    private func engineStatusError(code: String, message: String, targetPath: String) -> [String: Any] {
+        [
+            "Error": [
+                "Code": code,
+                "Message": message,
+                "TargetPath": targetPath,
+                "Retryable": false
+            ]
+        ]
     }
 
     private func guestAgentTcpProxy(targetAddress: String, targetPort: UInt16, requestBytes: [UInt8]) -> [UInt8]? {
@@ -3713,10 +4100,10 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
                 severity: 3))
     }
 
-    private func recordStartCompletion(hostId: String, result: Result<Void, Error>) {
+    private func recordStartCompletion(hostId: String, machine: VZVirtualMachine, result: Result<Void, Error>) {
         lock.lock()
         defer { lock.unlock() }
-        guard let existing = hosts[hostId] else {
+        guard let existing = hosts[hostId], existing.machine === machine else {
             return
         }
         switch result {
@@ -3729,10 +4116,10 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         }
     }
 
-    private func recordStop(hostId: String, state: HostLifecycleState, diagnostic: VmConfigurationValidationDiagnostic?) {
+    private func recordStop(hostId: String, machine: VZVirtualMachine, state: HostLifecycleState, diagnostic: VmConfigurationValidationDiagnostic?) {
         lock.lock()
         defer { lock.unlock() }
-        guard let existing = hosts[hostId] else {
+        guard let existing = hosts[hostId], existing.machine === machine else {
             return
         }
         existing.state = state
@@ -3750,13 +4137,21 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         #endif
         var state: HostLifecycleState
         var diagnostics: [VmConfigurationValidationDiagnostic]
+        let providerGeneration: UInt64
 
         #if canImport(Virtualization)
-        init(machine: VZVirtualMachine, delegate: HostVirtualMachineDelegate, state: HostLifecycleState, diagnostics: [VmConfigurationValidationDiagnostic]) {
+        init(
+            machine: VZVirtualMachine,
+            delegate: HostVirtualMachineDelegate,
+            state: HostLifecycleState,
+            diagnostics: [VmConfigurationValidationDiagnostic],
+            providerGeneration: UInt64
+        ) {
             self.machine = machine
             self.delegate = delegate
             self.state = state
             self.diagnostics = diagnostics
+            self.providerGeneration = providerGeneration
         }
 
         func refreshStateFromMachine() {
@@ -3780,18 +4175,18 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
 
     #if canImport(Virtualization)
     private final class HostVirtualMachineDelegate: NSObject, VZVirtualMachineDelegate {
-        private let onStop: (HostLifecycleState, VmConfigurationValidationDiagnostic?) -> Void
+        private let onStop: (VZVirtualMachine, HostLifecycleState, VmConfigurationValidationDiagnostic?) -> Void
 
-        init(onStop: @escaping (HostLifecycleState, VmConfigurationValidationDiagnostic?) -> Void) {
+        init(onStop: @escaping (VZVirtualMachine, HostLifecycleState, VmConfigurationValidationDiagnostic?) -> Void) {
             self.onStop = onStop
         }
 
         func guestDidStop(_ virtualMachine: VZVirtualMachine) {
-            onStop(.stopped, nil)
+            onStop(virtualMachine, .stopped, nil)
         }
 
         func virtualMachine(_ virtualMachine: VZVirtualMachine, didStopWithError error: Error) {
-            onStop(.failed, LocalVirtualizationAdapter.lifecycleDiagnostic(
+            onStop(virtualMachine, .failed, LocalVirtualizationAdapter.lifecycleDiagnostic(
                 code: "AppleVirtualization.HostStoppedWithError",
                 message: "VZVirtualMachine stopped with error: \(error)",
                 targetPath: "virtualMachine.delegate"))
@@ -4357,6 +4752,10 @@ public struct FakeVirtualizationAdapter: VirtualizationAdapter {
     }
 
     public func authorityBinding(_ payload: [String: Any], operation: Operation) -> [String: Any]? {
+        nil
+    }
+
+    public func engineStatus(_ payload: [String: Any]) -> [String: Any]? {
         nil
     }
 

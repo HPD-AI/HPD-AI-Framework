@@ -761,6 +761,8 @@ public sealed record AppleVirtualizationGuestAgentEngineGenerationStamp(ulong Pr
 public sealed record AppleVirtualizationGuestAgentEngineStatusRequest
 {
     public required string HostId { get; init; }
+    public ulong ProviderGeneration { get; init; }
+    public ulong HostStartGeneration { get; init; }
     public string? EngineId { get; init; }
     public EngineControlPlaneKind Kind { get; init; } = EngineControlPlaneKind.DockerCompatible;
     public EngineApiKind Api { get; init; } = EngineApiKind.DockerCompatible;
@@ -1285,7 +1287,7 @@ public sealed record AppleVirtualizationGuestAgentEngineStatus
         AppleVirtualizationGuestAgentEngineStatusRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return FromObservation(
+        AppleVirtualizationGuestAgentEngineStatus status = FromObservation(
             request.HostId,
             request.EngineId ?? "engine-" + request.Kind,
             request.ScriptedObservationState ?? AppleVirtualizationEngineObservationState.NotInstalled,
@@ -1305,6 +1307,14 @@ public sealed record AppleVirtualizationGuestAgentEngineStatus
             request.MaxDiagnostics,
             request.MaxVersionLength,
             request.MaxStatusLength);
+        return status with
+        {
+            Generation = status.Generation with
+            {
+                ProviderGeneration = request.ProviderGeneration,
+                HostStartGeneration = request.HostStartGeneration,
+            },
+        };
     }
 
     public static AppleVirtualizationGuestAgentEngineStatus FromObservation(
@@ -1398,7 +1408,7 @@ public sealed record AppleVirtualizationGuestAgentEngineStatus
             ],
             Diagnostics = diagnostics,
             Generation = new AppleVirtualizationGuestAgentEngineGenerationStamp(
-                GuestBootId: "guest-boot-1",
+                GuestBootId: "boot-1",
                 GuestBootGeneration: 1,
                 GuestAgentGeneration: 1,
                 EngineGeneration: ready ? 1UL : 0UL),

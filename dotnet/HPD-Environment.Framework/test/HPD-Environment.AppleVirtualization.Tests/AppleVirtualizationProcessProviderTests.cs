@@ -140,6 +140,202 @@ public sealed class AppleVirtualizationProcessProviderTests
     }
 
     [Fact]
+    public async Task Run_reapplies_capture_bounds_when_output_arrives_only_in_wait_result()
+    {
+        var fixture = CreateFixture();
+        ProcessInvocationSpec spec = fixture.Spec with
+        {
+            Io = fixture.Spec.Io with
+            {
+                StandardOutput = fixture.Spec.Io.StandardOutput with { MaxCapturedBytes = 3 },
+            },
+        };
+        fixture.Helper.EnqueueResponse(ProcessStatus(
+            AppleVirtualizationHelperOperation.ProcessStart,
+            "process-1",
+            ProcessInvocationPhase.Running));
+        fixture.Helper.EnqueueResponse(ProcessStatus(
+            AppleVirtualizationHelperOperation.ProcessReadOutput,
+            "process-1",
+            ProcessInvocationPhase.Running));
+        fixture.Helper.EnqueueResponse(ProcessResult(
+            "process-1",
+            ProcessInvocationPhase.Exited,
+            ProcessCompletionKind.Exited,
+            exitCode: 0,
+            output: new ProcessCapturedOutput
+            {
+                Stdout = new ProcessStreamOutput
+                {
+                    CapturedBytes = new byte[] { 1, 2, 3, 4, 5 },
+                    BytesObserved = 5,
+                    BytesCaptured = 5,
+                },
+                Stderr = new ProcessStreamOutput(),
+            }));
+
+        ProcessInvocationResult result = await fixture.Provider.RunAsync(spec);
+
+        result.Output.Stdout.CapturedBytes.ToArray().Should().Equal(1, 2, 3);
+        result.Output.Stdout.BytesObserved.Should().Be(5);
+        result.Output.Stdout.BytesCaptured.Should().Be(3);
+        result.Output.Stdout.BytesDiscarded.Should().Be(2);
+        result.Output.Stdout.Truncated.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Run_applies_independent_stdout_and_stderr_bounds_to_wait_result()
+    {
+        var fixture = CreateFixture();
+        ProcessInvocationSpec spec = fixture.Spec with
+        {
+            Io = fixture.Spec.Io with
+            {
+                StandardOutput = fixture.Spec.Io.StandardOutput with { MaxCapturedBytes = 2 },
+                StandardError = fixture.Spec.Io.StandardError with { MaxCapturedBytes = 3 },
+            },
+        };
+
+        ProcessInvocationResult result = await RunWithWaitOutputAsync(
+            fixture,
+            spec,
+            CapturedOutput(
+                stdout: new byte[] { 1, 2, 3, 4 },
+                stderr: new byte[] { 5, 6, 7, 8, 9 }));
+
+        result.Output.Stdout.CapturedBytes.ToArray().Should().Equal(1, 2);
+        result.Output.Stdout.BytesObserved.Should().Be(4);
+        result.Output.Stdout.BytesCaptured.Should().Be(2);
+        result.Output.Stdout.BytesDiscarded.Should().Be(2);
+        result.Output.Stdout.Truncated.Should().BeTrue();
+        result.Output.Stderr.CapturedBytes.ToArray().Should().Equal(5, 6, 7);
+        result.Output.Stderr.BytesObserved.Should().Be(5);
+        result.Output.Stderr.BytesCaptured.Should().Be(3);
+        result.Output.Stderr.BytesDiscarded.Should().Be(2);
+        result.Output.Stderr.Truncated.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Run_wait_result_capture_disabled_discards_without_introducing_truncation()
+    {
+        var fixture = CreateFixture();
+        ProcessInvocationSpec spec = fixture.Spec with
+        {
+            Io = fixture.Spec.Io with
+            {
+                StandardOutput = fixture.Spec.Io.StandardOutput with { Capture = false },
+            },
+        };
+
+        ProcessInvocationResult result = await RunWithWaitOutputAsync(
+            fixture,
+            spec,
+            CapturedOutput(stdout: new byte[] { 1, 2, 3 }, stderr: ReadOnlyMemory<byte>.Empty));
+
+        result.Output.Stdout.CapturedBytes.ToArray().Should().BeEmpty();
+        result.Output.Stdout.BytesObserved.Should().Be(3);
+        result.Output.Stdout.BytesCaptured.Should().Be(0);
+        result.Output.Stdout.BytesDiscarded.Should().Be(3);
+        result.Output.Stdout.Truncated.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Run_wait_result_zero_capture_bound_marks_observed_output_truncated()
+    {
+        var fixture = CreateFixture();
+        ProcessInvocationSpec spec = fixture.Spec with
+        {
+            Io = fixture.Spec.Io with
+            {
+                StandardOutput = fixture.Spec.Io.StandardOutput with
+                {
+                    Capture = true,
+                    MaxCapturedBytes = 0,
+                },
+            },
+        };
+
+        ProcessInvocationResult result = await RunWithWaitOutputAsync(
+            fixture,
+            spec,
+            CapturedOutput(stdout: new byte[] { 1, 2 }, stderr: ReadOnlyMemory<byte>.Empty));
+
+        result.Output.Stdout.CapturedBytes.ToArray().Should().BeEmpty();
+        result.Output.Stdout.BytesObserved.Should().Be(2);
+        result.Output.Stdout.BytesCaptured.Should().Be(0);
+        result.Output.Stdout.BytesDiscarded.Should().Be(2);
+        result.Output.Stdout.Truncated.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Run_wait_result_preserves_upstream_truncation_and_output_drain_fields()
+    {
+        var fixture = CreateFixture();
+        TimeSpan drainTimeout = TimeSpan.FromMilliseconds(735);
+        ProcessCapturedOutput output = CapturedOutput(
+            stdout: new byte[] { 1 },
+            stderr: ReadOnlyMemory<byte>.Empty,
+            stdoutTruncated: true) with
+        {
+            OutputDrainTimedOut = true,
+            OutputDrainTimeout = drainTimeout,
+        };
+
+        ProcessInvocationResult result = await RunWithWaitOutputAsync(fixture, fixture.Spec, output);
+
+        result.Output.Stdout.Truncated.Should().BeTrue();
+        result.Output.OutputDrainTimedOut.Should().BeTrue();
+        result.Output.OutputDrainTimeout.Should().Be(drainTimeout);
+    }
+
+    [Fact]
+    public async Task Run_wait_result_preserves_guest_merged_output_and_empty_stderr_accounting()
+    {
+        var fixture = CreateFixture();
+        ProcessInvocationSpec spec = fixture.Spec with
+        {
+            Io = fixture.Spec.Io with { MergeStandardError = true },
+        };
+        ProcessCapturedOutput output = CapturedOutput(
+            stdout: new byte[] { 1, 5, 2, 6 },
+            stderr: ReadOnlyMemory<byte>.Empty) with
+        {
+            MergedStandardError = true,
+        };
+
+        ProcessInvocationResult result = await RunWithWaitOutputAsync(fixture, spec, output);
+
+        result.Output.MergedStandardError.Should().BeTrue();
+        result.Output.Stdout.CapturedBytes.ToArray().Should().Equal(1, 5, 2, 6);
+        result.Output.Stdout.BytesObserved.Should().Be(4);
+        result.Output.Stderr.CapturedBytes.ToArray().Should().BeEmpty();
+        result.Output.Stderr.BytesObserved.Should().Be(0);
+        result.Output.Stderr.BytesCaptured.Should().Be(0);
+        result.Output.Stderr.BytesDiscarded.Should().Be(0);
+        result.Output.Stderr.Truncated.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Run_wait_result_never_discards_separate_stderr_when_guest_did_not_merge()
+    {
+        var fixture = CreateFixture();
+        ProcessInvocationSpec spec = fixture.Spec with
+        {
+            Io = fixture.Spec.Io with { MergeStandardError = true },
+        };
+
+        ProcessInvocationResult result = await RunWithWaitOutputAsync(
+            fixture,
+            spec,
+            CapturedOutput(stdout: new byte[] { 1 }, stderr: new byte[] { 2 }));
+
+        result.Output.MergedStandardError.Should().BeFalse();
+        result.Output.Stdout.CapturedBytes.ToArray().Should().Equal(1);
+        result.Output.Stderr.CapturedBytes.ToArray().Should().Equal(2);
+        result.Output.Stderr.BytesObserved.Should().Be(1);
+    }
+
+    [Fact]
     public async Task Run_captures_output_event_returned_directly_from_read_output_response()
     {
         var fixture = CreateFixture();
@@ -1139,12 +1335,59 @@ public sealed class AppleVirtualizationProcessProviderTests
     private static AppleVirtualizationHelperEnvelope ProcessExited(string processId, int exitCode) =>
         ProcessResult(processId, ProcessInvocationPhase.Exited, ProcessCompletionKind.Exited, exitCode);
 
+    private static async Task<ProcessInvocationResult> RunWithWaitOutputAsync(
+        ProcessFixture fixture,
+        ProcessInvocationSpec spec,
+        ProcessCapturedOutput output)
+    {
+        fixture.Helper.EnqueueResponse(ProcessStatus(
+            AppleVirtualizationHelperOperation.ProcessStart,
+            "process-1",
+            ProcessInvocationPhase.Running));
+        fixture.Helper.EnqueueResponse(ProcessStatus(
+            AppleVirtualizationHelperOperation.ProcessReadOutput,
+            "process-1",
+            ProcessInvocationPhase.Running));
+        fixture.Helper.EnqueueResponse(ProcessResult(
+            "process-1",
+            ProcessInvocationPhase.Exited,
+            ProcessCompletionKind.Exited,
+            exitCode: 0,
+            output: output));
+        return await fixture.Provider.RunAsync(spec);
+    }
+
+    private static ProcessCapturedOutput CapturedOutput(
+        ReadOnlyMemory<byte> stdout,
+        ReadOnlyMemory<byte> stderr,
+        bool stdoutTruncated = false,
+        bool stderrTruncated = false) =>
+        new()
+        {
+            Stdout = new ProcessStreamOutput
+            {
+                CapturedBytes = stdout,
+                BytesObserved = stdout.Length,
+                BytesCaptured = stdout.Length,
+                Truncated = stdoutTruncated,
+            },
+            Stderr = new ProcessStreamOutput
+            {
+                CapturedBytes = stderr,
+                BytesObserved = stderr.Length,
+                BytesCaptured = stderr.Length,
+                Truncated = stderrTruncated,
+            },
+            OutputDrainTimeout = ProcessInvocationPolicy.Default.OutputDrainTimeout,
+        };
+
     private static AppleVirtualizationHelperEnvelope ProcessResult(
         string processId,
         ProcessInvocationPhase phase,
         ProcessCompletionKind completionKind,
         int? exitCode,
-        bool outputDrainTimedOut = false) =>
+        bool outputDrainTimedOut = false,
+        ProcessCapturedOutput? output = null) =>
         new()
         {
             MessageType = AppleVirtualizationHelperMessageType.Response,
@@ -1167,7 +1410,7 @@ public sealed class AppleVirtualizationProcessProviderTests
                     StartedAt = new DateTimeOffset(2026, 5, 20, 12, 0, 0, TimeSpan.Zero),
                     ExitedAt = new DateTimeOffset(2026, 5, 20, 12, 0, 1, TimeSpan.Zero),
                     Duration = TimeSpan.FromSeconds(1),
-                    Output = new ProcessCapturedOutput
+                    Output = output ?? new ProcessCapturedOutput
                     {
                         Stdout = new ProcessStreamOutput(),
                         Stderr = new ProcessStreamOutput(),

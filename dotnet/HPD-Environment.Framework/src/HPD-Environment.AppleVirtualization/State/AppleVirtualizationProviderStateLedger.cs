@@ -1,6 +1,7 @@
 namespace HPD.Environment.AppleVirtualization.State;
 
 using System.Globalization;
+using HPD.Environment.AppleVirtualization.GuestAgent;
 using HPD.Environment.AppleVirtualization.Handles;
 using HPD.Environment.Contracts;
 
@@ -27,6 +28,10 @@ internal enum AppleVirtualizationHostEmptyPolicyAction
 }
 
 internal readonly record struct AppleVirtualizationResourceKey(ResourceScope Scope, string Id);
+internal readonly record struct AppleVirtualizationHostEngineKey(
+    ResourceScope Scope,
+    string RuntimeHostId,
+    string EngineId);
 
 internal sealed record AppleVirtualizationNetworkMembershipSnapshot(
     ResourceRef<NetworkMembership> Resource,
@@ -82,6 +87,8 @@ internal sealed class AppleVirtualizationProviderStateLedger
     private readonly Dictionary<AppleVirtualizationResourceKey, AppleVirtualizationLedgerEntry<EngineControlPlane, EngineControlPlaneStatus>> _enginesByResource = [];
     private readonly Dictionary<string, HandleIndexEntry> _handlesByToken = new(StringComparer.Ordinal);
     private readonly Dictionary<AppleVirtualizationResourceKey, AppleVirtualizationRuntimeHostPolicySnapshot> _hostPoliciesByResource = [];
+    private readonly Dictionary<AppleVirtualizationResourceKey, string> _hostConfigurationFingerprintsByResource = [];
+    private readonly Dictionary<AppleVirtualizationHostEngineKey, AppleVirtualizationGuestAgentEngineGenerationStamp> _hostEngineGenerationsByResource = [];
     private readonly Dictionary<AppleVirtualizationResourceKey, ExecutionUnitSpec> _unitSpecsByResource = [];
     private readonly Dictionary<AppleVirtualizationResourceKey, ContentProjectionSpec> _projectionSpecsByResource = [];
     private readonly Dictionary<AppleVirtualizationResourceKey, NetworkSpec> _networkSpecsByResource = [];
@@ -123,6 +130,113 @@ internal sealed class AppleVirtualizationProviderStateLedger
         lock (_gate)
         {
             return ++_providerGeneration;
+        }
+    }
+
+    public string? GetRuntimeHostConfigurationFingerprint(ResourceId<RuntimeHost> id, ResourceScope scope)
+    {
+        lock (_gate)
+        {
+            return _hostConfigurationFingerprintsByResource.GetValueOrDefault(ToKey(id, scope));
+        }
+    }
+
+    public void SetRuntimeHostConfigurationFingerprint(
+        ResourceId<RuntimeHost> id,
+        ResourceScope scope,
+        string fingerprint)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
+        lock (_gate)
+        {
+            _hostConfigurationFingerprintsByResource[ToKey(id, scope)] = fingerprint;
+        }
+    }
+
+    public bool TryAcceptRuntimeHostEngineGeneration(
+        ResourceId<RuntimeHost> id,
+        ResourceScope scope,
+        string engineId,
+        AppleVirtualizationGuestAgentEngineGenerationStamp generation,
+        ulong expectedProviderGeneration,
+        ulong expectedHostStartGeneration,
+        string? expectedGuestBootId,
+        ulong? expectedGuestBootGeneration,
+        bool requireEngineGeneration,
+        out string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(engineId);
+        ArgumentNullException.ThrowIfNull(generation);
+        lock (_gate)
+        {
+            if (expectedProviderGeneration != _providerGeneration)
+            {
+                reason = "The expected provider generation is no longer current.";
+                return false;
+            }
+            if (generation.ProviderGeneration != expectedProviderGeneration)
+            {
+                reason = "The engine response provider generation does not match the current provider.";
+                return false;
+            }
+            if (generation.HostStartGeneration != expectedHostStartGeneration)
+            {
+                reason = "The engine response host-start generation does not match the runtime host.";
+                return false;
+            }
+            if (generation.GuestBootGeneration == 0 || generation.GuestAgentGeneration == 0)
+            {
+                reason = "Guest boot and guest-agent generations must be positive.";
+                return false;
+            }
+            if (requireEngineGeneration && generation.EngineGeneration == 0)
+            {
+                reason = "A ready engine must report a positive engine generation.";
+                return false;
+            }
+            if (expectedGuestBootGeneration is { } expectedGeneration &&
+                generation.GuestBootGeneration != expectedGeneration)
+            {
+                reason = "The engine response guest-boot generation does not match the runtime host.";
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(expectedGuestBootId) &&
+                !string.Equals(generation.GuestBootId, expectedGuestBootId, StringComparison.Ordinal))
+            {
+                reason = "The engine response guest-boot identity does not match the runtime host.";
+                return false;
+            }
+
+            var key = new AppleVirtualizationHostEngineKey(scope, id.Value, engineId);
+            if (_hostEngineGenerationsByResource.TryGetValue(key, out AppleVirtualizationGuestAgentEngineGenerationStamp? previous))
+            {
+                bool sameBoot = previous.GuestBootGeneration == generation.GuestBootGeneration &&
+                    string.Equals(previous.GuestBootId, generation.GuestBootId, StringComparison.Ordinal);
+                if (!sameBoot && expectedGuestBootGeneration is null)
+                {
+                    reason = "The engine response changed guest-boot identity without a matching runtime-host observation.";
+                    return false;
+                }
+                if (sameBoot && generation.GuestAgentGeneration < previous.GuestAgentGeneration)
+                {
+                    reason = "The engine response guest-agent generation is stale.";
+                    return false;
+                }
+                if (sameBoot &&
+                    generation.EngineGeneration > 0 &&
+                    generation.EngineGeneration < previous.EngineGeneration)
+                {
+                    reason = "The engine response engine generation is stale.";
+                    return false;
+                }
+            }
+
+            if (generation.EngineGeneration > 0)
+            {
+                _hostEngineGenerationsByResource[key] = generation;
+            }
+            reason = string.Empty;
+            return true;
         }
     }
 
@@ -570,7 +684,16 @@ internal sealed class AppleVirtualizationProviderStateLedger
             bool removed = Remove(_hostsByResource, resource);
             if (removed)
             {
-                _hostPoliciesByResource.Remove(ToKey(resource));
+                AppleVirtualizationResourceKey hostKey = ToKey(resource);
+                _hostPoliciesByResource.Remove(hostKey);
+                _hostConfigurationFingerprintsByResource.Remove(hostKey);
+                foreach (AppleVirtualizationHostEngineKey engineKey in _hostEngineGenerationsByResource.Keys
+                    .Where(key => key.Scope == resource.Scope &&
+                        string.Equals(key.RuntimeHostId, resource.Id.Value, StringComparison.Ordinal))
+                    .ToArray())
+                {
+                    _hostEngineGenerationsByResource.Remove(engineKey);
+                }
             }
 
             return removed;

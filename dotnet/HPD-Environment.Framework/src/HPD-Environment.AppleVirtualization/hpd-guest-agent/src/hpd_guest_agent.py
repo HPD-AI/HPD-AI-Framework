@@ -2,6 +2,7 @@
 import argparse
 import base64
 import datetime
+import hashlib
 import json
 import os
 import selectors
@@ -52,8 +53,9 @@ class GuestAgent:
         self.agent_version = agent_version
         self.protocol_version = protocol_version
         self.guest_boot_id = guest_boot_id or self._default_boot_id()
-        self.guest_boot_generation = 1
-        self.guest_agent_generation = 1
+        self.state_root = os.environ.get("HPD_GUEST_AGENT_STATE_DIR", "/run/hpd")
+        self.guest_boot_generation = self._boot_generation(self.guest_boot_id)
+        self.guest_agent_generation, self.engine_generations = self._load_generation_state()
         self.processes = {}
 
     def _default_boot_id(self):
@@ -65,6 +67,44 @@ class GuestAgent:
         except OSError:
             pass
         return "guest-boot-" + str(uuid.uuid4())
+
+    @staticmethod
+    def _boot_generation(boot_id):
+        digest = hashlib.sha256(boot_id.encode("utf-8")).digest()
+        return int.from_bytes(digest[:8], "big") or 1
+
+    def _load_generation_state(self):
+        state = {}
+        path = os.path.join(self.state_root, "generation-state.json")
+        try:
+            with open(path, "r", encoding="utf-8") as stream:
+                loaded = json.load(stream)
+                if isinstance(loaded, dict) and loaded.get("GuestBootId") == self.guest_boot_id:
+                    state = loaded
+        except (OSError, ValueError, TypeError):
+            pass
+
+        agent_generation = max(0, self.int_value(state.get("GuestAgentGeneration"), 0)) + 1
+        engines = state.get("Engines") if isinstance(state.get("Engines"), dict) else {}
+        self._save_generation_state(agent_generation, engines)
+        return agent_generation, engines
+
+    def _save_generation_state(self, agent_generation=None, engines=None):
+        payload = {
+            "GuestBootId": self.guest_boot_id,
+            "GuestBootGeneration": self.guest_boot_generation,
+            "GuestAgentGeneration": agent_generation if agent_generation is not None else self.guest_agent_generation,
+            "Engines": engines if engines is not None else self.engine_generations,
+        }
+        try:
+            os.makedirs(self.state_root, mode=0o700, exist_ok=True)
+            path = os.path.join(self.state_root, "generation-state.json")
+            temporary = path + ".tmp"
+            with open(temporary, "w", encoding="utf-8") as stream:
+                json.dump(payload, stream, sort_keys=True, separators=(",", ":"))
+            os.replace(temporary, path)
+        except OSError:
+            pass
 
     def response_base(self, request, operation):
         return {
@@ -145,10 +185,370 @@ class GuestAgent:
         if operation in (44, 45, 46):
             return self.authority_binding(request, operation)
 
+        if operation == 47:
+            return self.engine_status(request)
+
         if operation == 49:
             return self.tcp_proxy(request)
 
         return self.error(request, operation if isinstance(operation, int) else 0, "AppleVirtualization.GuestAgentUnsupportedOperation", "Unsupported guest-agent operation.", retryable=False)
+
+    def engine_status(self, request):
+        status_request = request.get("EngineStatusRequest") or {}
+        host_id = status_request.get("HostId") or request.get("HostId")
+        engine_id = status_request.get("EngineId") or "engine-docker"
+        provider_generation = self.int_value(
+            status_request.get("ProviderGeneration", request.get("ProviderGeneration")),
+            0,
+        )
+        host_start_generation = self.int_value(status_request.get("HostStartGeneration"), 0)
+        kind = self.int_value(status_request.get("Kind"), 0)
+        api = self.int_value(status_request.get("Api"), 0)
+        authority_mode = self.int_value(status_request.get("AuthorityMode"), 1)
+        image_store = self.int_value(status_request.get("ImageStore"), 2)
+        workload_adoption = self.int_value(status_request.get("WorkloadAdoption"), 0)
+        socket_path = self.engine_socket_path(api, authority_mode)
+        engine_name = self.engine_name(kind, api)
+
+        if not host_id or provider_generation <= 0:
+            return self.error(
+                request,
+                47,
+                "AppleVirtualization.EngineGenerationMissing",
+                "Engine status requires a host identity and positive provider generation.",
+                retryable=False,
+            )
+
+        probe = self.probe_engine(api, socket_path)
+        ready = probe["state"] == "ready"
+        socket_exists = probe["socket_exists"]
+        unsupported = probe["state"] == "unsupported"
+        observation_state = 4 if ready else (7 if unsupported else (5 if socket_exists else 1))
+        engine_phase = 3 if ready else (5 if unsupported else (4 if socket_exists else 0))
+        resource_phase = 3 if ready else (6 if unsupported else (4 if socket_exists else 1))
+        message = probe["message"]
+        diagnostic_code = {
+            "missing": "AppleVirtualization.EngineSocketMissing",
+            "unavailable": "AppleVirtualization.EngineUnavailable",
+            "malformed": "AppleVirtualization.EngineProbeMalformedResponse",
+            "timeout": "AppleVirtualization.EngineProbeTimeout",
+            "unsupported": "AppleVirtualization.EngineApiUnsupported",
+        }.get(probe["state"], "AppleVirtualization.EngineProbeFailed")
+        diagnostics = [] if ready else [{
+            "Severity": 3 if not unsupported else 2,
+            "Code": diagnostic_code,
+            "Message": message,
+            "TargetPath": socket_path,
+        }]
+        engine_generation = self.observe_engine_generation(engine_id, socket_path, probe)
+        endpoints = [{
+            "Name": engine_name,
+            "Api": api,
+            "Transport": 2,
+            "SocketPath": {"Value": socket_path},
+            "AuthorityMode": authority_mode,
+            "GuestVisibleOnly": True,
+            "SensitivePolicy": {
+                "Kind": 1,
+                "AuthorityClass": 4 if authority_mode == 1 else 5,
+            },
+        }] if ready else []
+        condition = self.condition(
+            "AppleVirtualization.EngineObserved",
+            "Ready" if ready else "NotReady",
+            message,
+            severity=2 if ready else 3,
+        )
+        engine_status = {
+            "HostId": host_id,
+            "EngineId": engine_id,
+            "ObservationState": observation_state,
+            "Kind": kind,
+            "Api": api,
+            "AuthorityMode": authority_mode,
+            "ImageStore": image_store,
+            "WorkloadAdoption": workload_adoption,
+            "EnginePhase": engine_phase,
+            "Phase": resource_phase,
+            "Installed": socket_exists,
+            "Running": ready,
+            "Ready": ready,
+            "Version": probe.get("version"),
+            "Status": message,
+            "Endpoints": endpoints,
+            "Containers": [],
+            "EndpointsTruncated": False,
+            "ContainersTruncated": False,
+            "DiagnosticsTruncated": False,
+            "Conditions": [condition],
+            "Diagnostics": diagnostics,
+        }
+        guest_status = dict(engine_status)
+        guest_status["Generation"] = {
+            "ProviderGeneration": provider_generation,
+            "HostStartGeneration": host_start_generation,
+            "GuestBootId": self.guest_boot_id,
+            "GuestBootGeneration": self.guest_boot_generation,
+            "GuestAgentGeneration": self.guest_agent_generation,
+            "EngineGeneration": engine_generation,
+        }
+        payload = self.response_base(request, 47)
+        payload["EngineStatusResponse"] = dict(engine_status)
+        payload["EngineStatusResponse"]["GuestAgentReady"] = True
+        payload["EngineStatusResponse"]["GuestEngineStatus"] = guest_status
+        return payload
+
+    @staticmethod
+    def engine_name(kind, api):
+        if api == 1:
+            return "Podman"
+        if api == 2:
+            return "containerd"
+        if api == 4:
+            return "BuildKit"
+        if api == 0:
+            return "Docker-compatible"
+        return "engine API " + str(api)
+
+    def probe_engine(self, api, socket_path):
+        if not os.path.exists(socket_path):
+            return {
+                "state": "missing",
+                "socket_exists": False,
+                "message": self.engine_name(0, api) + " socket is not present.",
+            }
+        if api == 0:
+            return self.http_engine_probe(socket_path, "/_ping", "Docker-compatible", b"OK")
+        if api == 1:
+            return self.http_engine_probe(socket_path, "/libpod/_ping", "Podman", b"OK")
+        if api == 2:
+            return self.grpc_cli_probe(
+                socket_path,
+                "containerd",
+                ["ctr", "--address", socket_path, "version"],
+            )
+        if api == 4:
+            return self.grpc_cli_probe(
+                socket_path,
+                "BuildKit",
+                ["buildctl", "--addr", "unix://" + socket_path, "debug", "info"],
+            )
+        return {
+            "state": "unsupported",
+            "socket_exists": True,
+            "message": "Engine API " + str(api) + " has no supported readiness probe.",
+        }
+
+    def http_engine_probe(self, socket_path, path, engine_name, expected_body):
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                client.settimeout(2.0)
+                client.connect(socket_path)
+                request = (
+                    "GET " + path + " HTTP/1.1\r\n"
+                    "Host: localhost\r\n"
+                    "Connection: close\r\n\r\n"
+                ).encode("ascii")
+                client.sendall(request)
+                response = self.read_bounded_http_response(client)
+        except socket.timeout:
+            return {
+                "state": "timeout",
+                "socket_exists": True,
+                "message": engine_name + " API readiness probe timed out.",
+            }
+        except OSError as error:
+            return {
+                "state": "unavailable",
+                "socket_exists": True,
+                "message": engine_name + " API is unavailable: " + str(error),
+            }
+
+        header, separator, body = response.partition(b"\r\n\r\n")
+        status_line = header.split(b"\r\n", 1)[0] if header else b""
+        parts = status_line.split()
+        headers = {}
+        for line in header.split(b"\r\n")[1:]:
+            name, delimiter, value = line.partition(b":")
+            if delimiter:
+                headers[name.strip().lower()] = value.strip().lower()
+        if b"chunked" in headers.get(b"transfer-encoding", b""):
+            body = self.decode_chunked_http_body(body)
+        elif headers.get(b"content-length") is not None:
+            try:
+                content_length = int(headers[b"content-length"])
+                if content_length < 0 or content_length > 65536 or len(body) < content_length:
+                    body = None
+                else:
+                    body = body[:content_length]
+            except ValueError:
+                body = None
+        if separator and len(parts) >= 2 and parts[1] == b"200" and body is not None and body.strip() == expected_body:
+            return {
+                "state": "ready",
+                "socket_exists": True,
+                "message": engine_name + " API is ready.",
+            }
+        return {
+            "state": "malformed",
+            "socket_exists": True,
+            "message": engine_name + " API returned a malformed or unhealthy readiness response.",
+        }
+
+    @staticmethod
+    def read_bounded_http_response(client, maximum_bytes=65536):
+        response = bytearray()
+        while len(response) < maximum_bytes:
+            chunk = client.recv(min(4096, maximum_bytes - len(response)))
+            if not chunk:
+                break
+            response.extend(chunk)
+            header, separator, body = bytes(response).partition(b"\r\n\r\n")
+            if not separator:
+                continue
+
+            headers = {}
+            for line in header.split(b"\r\n")[1:]:
+                name, delimiter, value = line.partition(b":")
+                if delimiter:
+                    headers[name.strip().lower()] = value.strip().lower()
+            content_length = headers.get(b"content-length")
+            if content_length is not None:
+                try:
+                    if len(body) >= int(content_length):
+                        break
+                except ValueError:
+                    break
+            elif b"chunked" in headers.get(b"transfer-encoding", b""):
+                if GuestAgent.chunked_http_body_complete(body):
+                    break
+        return bytes(response)
+
+    @staticmethod
+    def chunked_http_body_complete(body):
+        offset = 0
+        while True:
+            line_end = body.find(b"\r\n", offset)
+            if line_end < 0:
+                return False
+            size_text = body[offset:line_end].split(b";", 1)[0].strip()
+            try:
+                size = int(size_text, 16)
+            except ValueError:
+                return True
+            offset = line_end + 2
+            if size == 0:
+                return len(body) >= offset + 2
+            if len(body) < offset + size + 2:
+                return False
+            if body[offset + size:offset + size + 2] != b"\r\n":
+                return True
+            offset += size + 2
+
+    @staticmethod
+    def decode_chunked_http_body(body):
+        output = bytearray()
+        offset = 0
+        while True:
+            line_end = body.find(b"\r\n", offset)
+            if line_end < 0:
+                return None
+            try:
+                size = int(body[offset:line_end].split(b";", 1)[0].strip(), 16)
+            except ValueError:
+                return None
+            offset = line_end + 2
+            if size == 0:
+                return bytes(output)
+            if len(body) < offset + size + 2:
+                return None
+            output.extend(body[offset:offset + size])
+            if body[offset + size:offset + size + 2] != b"\r\n":
+                return None
+            offset += size + 2
+
+    def grpc_cli_probe(self, socket_path, engine_name, command):
+        try:
+            result = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "state": "timeout",
+                "socket_exists": True,
+                "message": engine_name + " gRPC readiness probe timed out.",
+            }
+        except FileNotFoundError:
+            return {
+                "state": "unsupported",
+                "socket_exists": True,
+                "message": engine_name + " gRPC probe client is not installed in the guest.",
+            }
+        except OSError as error:
+            return {
+                "state": "unavailable",
+                "socket_exists": True,
+                "message": engine_name + " gRPC API is unavailable: " + str(error),
+            }
+
+        output = (result.stdout or "").strip()
+        if result.returncode == 0 and output:
+            return {
+                "state": "ready",
+                "socket_exists": True,
+                "message": engine_name + " gRPC API is ready.",
+                "version": output[:512],
+            }
+        if result.returncode == 0:
+            return {
+                "state": "malformed",
+                "socket_exists": True,
+                "message": engine_name + " gRPC API returned an empty observation.",
+            }
+        detail = ((result.stderr or "") or output).strip()
+        return {
+            "state": "unavailable",
+            "socket_exists": True,
+            "message": engine_name + " gRPC API is unavailable" + (": " + detail[:256] if detail else "."),
+        }
+
+    def observe_engine_generation(self, engine_id, socket_path, probe):
+        previous = self.engine_generations.get(engine_id)
+        identity = None
+        try:
+            stat = os.stat(socket_path)
+            identity = "{}:{}:{}".format(stat.st_dev, stat.st_ino, stat.st_ctime_ns)
+        except OSError:
+            pass
+
+        generation = self.int_value(previous.get("Generation"), 0) if isinstance(previous, dict) else 0
+        previous_identity = previous.get("Identity") if isinstance(previous, dict) else None
+        if identity is not None and identity != previous_identity:
+            generation += 1
+        if generation == 0 and probe["socket_exists"]:
+            generation = 1
+        self.engine_generations[engine_id] = {
+            "Generation": generation,
+            "Identity": identity,
+        }
+        self._save_generation_state()
+        return generation
+
+    def engine_socket_path(self, api, authority_mode):
+        if api == 2:
+            return os.environ.get("HPD_GUEST_AGENT_CONTAINERD_SOCKET", "/run/containerd/containerd.sock")
+        if api == 1:
+            default = "/run/podman/podman.sock" if authority_mode == 1 else "/run/user/1000/podman/podman.sock"
+            return os.environ.get("HPD_GUEST_AGENT_PODMAN_SOCKET", default)
+        if api == 4:
+            default = "/run/buildkit/buildkitd.sock" if authority_mode == 1 else "/run/user/1000/buildkit-default/buildkitd.sock"
+            return os.environ.get("HPD_GUEST_AGENT_BUILDKIT_SOCKET", default)
+        default = "/var/run/docker.sock" if authority_mode == 1 else "/run/user/1000/docker.sock"
+        return os.environ.get("HPD_GUEST_AGENT_ENGINE_SOCKET", default)
 
     def process_start(self, request):
         start = request.get("ProcessStartRequest") or {}
@@ -163,6 +563,8 @@ class GuestAgent:
             return self.error(request, 22, "AppleVirtualization.GuestAgentProcessArgumentsInvalid", "ProcessStartRequest.Command.Arguments must be a string array.", retryable=False)
 
         working_directory = command.get("WorkingDirectory") or None
+        io_spec = start.get("Io") or {}
+        merge_standard_error = bool(io_spec.get("MergeStandardError", False))
         isolation = start.get("Isolation") or {}
         sandbox_plan = start.get("SandboxPlan") or {}
         effective_isolation = self.effective_isolation(isolation, sandbox_plan)
@@ -191,7 +593,7 @@ class GuestAgent:
                 env=environment,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE)
+                stderr=subprocess.STDOUT if merge_standard_error else subprocess.PIPE)
         except Exception as exc:
             return self.error(request, 22, "AppleVirtualization.GuestAgentProcessStartFailed", "Failed to start guest process: " + str(exc), retryable=False)
 
@@ -200,6 +602,7 @@ class GuestAgent:
             "started_at": self.timestamp(),
             "stdout": b"",
             "stderr": b"",
+            "merged_standard_error": merge_standard_error,
         }
         payload = self.response_base(request, 22)
         payload["ProcessStatusResponse"] = {
@@ -601,7 +1004,7 @@ class GuestAgent:
             return self.error(request, 27, "AppleVirtualization.GuestAgentProcessWaitTimeout", "Timed out waiting for guest process.", retryable=True)
 
         state["stdout"] = stdout or b""
-        state["stderr"] = stderr or b""
+        state["stderr"] = b"" if state.get("merged_standard_error", False) else (stderr or b"")
         exited_at = self.timestamp()
         payload = self.response_base(request, 27)
         payload["ProcessStatusResponse"] = {
@@ -636,6 +1039,7 @@ class GuestAgent:
     def process_result(self, process_id, popen, state, exited_at):
         stdout = state.get("stdout", b"")
         stderr = state.get("stderr", b"")
+        merged_standard_error = state.get("merged_standard_error", False)
         return {
             "ProcessId": {"Value": process_id},
             "SystemProcessId": popen.pid,
@@ -647,8 +1051,8 @@ class GuestAgent:
             "Duration": "00:00:00",
             "Output": {
                 "Stdout": self.stream_output(stdout),
-                "Stderr": self.stream_output(stderr),
-                "MergedStandardError": False,
+                "Stderr": self.stream_output(b"" if merged_standard_error else stderr),
+                "MergedStandardError": merged_standard_error,
                 "OutputDrainTimedOut": False,
                 "OutputDrainTimeout": "00:00:02",
             },
@@ -1266,7 +1670,6 @@ def serve_stdio(agent):
 
 def serve_vsock(agent, port):
     listener = socket.socket(AF_VSOCK, socket.SOCK_STREAM)
-    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind((VMADDR_CID_ANY, port))
     listener.listen(16)
 

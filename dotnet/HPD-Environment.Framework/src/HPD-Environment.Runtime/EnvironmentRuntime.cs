@@ -4,9 +4,12 @@ namespace HPD.Environment.Runtime;
 
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using HPD.Environment.Contracts;
 
@@ -481,10 +484,29 @@ public sealed class DefaultRuntimePlanner(IProviderCatalog providers, IProviderC
     }
 }
 
-public sealed class InMemoryEnvironmentRuntime(EnvironmentProviderRegistry registry, IRuntimePlanner? planner = null) : IEnvironmentRuntime
+public sealed class InMemoryEnvironmentRuntime(
+    EnvironmentProviderRegistry registry,
+    IRuntimePlanner? planner = null,
+    TimeProvider? timeProvider = null,
+    TimeSpan? engineAuthorityPlanLifetime = null) : IEnvironmentRuntime
 {
     private readonly IRuntimePlanner _planner = planner ?? new DefaultRuntimePlanner(registry, registry);
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly TimeSpan _engineAuthorityPlanLifetime =
+        engineAuthorityPlanLifetime is { } configured && configured > TimeSpan.Zero
+            ? configured
+            : TimeSpan.FromMinutes(1);
+    private readonly SemaphoreSlim _reconciliationGate = new(1, 1);
+    private readonly Dictionary<string, OwnedExecutionUnit> _units = new(StringComparer.Ordinal);
+    private readonly Dictionary<EngineIdentity, OwnedEngine> _engines = [];
+    private readonly Dictionary<string, OwnedAuthorityBinding> _authorities = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PendingEngineAuthorityPlan> _engineAuthorityPlans =
+        new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<long, ActiveRun> _activeRuns = [];
+    private readonly ConcurrentDictionary<long, IProcessInvocationHandle> _activeHandles = [];
+    private OwnedHost? _host;
     private long _generation;
+    private long _processSequence;
 
     public ValueTask<RuntimePlan> PlanAsync(RuntimePlanRequest request, CancellationToken cancellationToken = default) =>
         _planner.PlanAsync(request, cancellationToken);
@@ -492,69 +514,583 @@ public sealed class InMemoryEnvironmentRuntime(EnvironmentProviderRegistry regis
     public ValueTask<RuntimePlanValidationResult> ValidateAsync(RuntimePlan plan, CancellationToken cancellationToken = default) =>
         _planner.ValidateAsync(plan, cancellationToken);
 
-    public async ValueTask<ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus>> EnsureHostAsync(RuntimeHostSpec spec, CancellationToken cancellationToken = default)
+    public async ValueTask<ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus>> EnsureHostAsync(
+        RuntimeHostSpec spec,
+        CancellationToken cancellationToken = default)
     {
-        ResourceMetadata<RuntimeHost> metadata = Metadata<RuntimeHost>("runtime-host");
-        RuntimeHostStatus status = await Require(registry.RuntimeHostProviders, "runtime host").EnsureAsync(metadata, spec, observed: null, cancellationToken).ConfigureAwait(false);
-        return new ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus>(metadata, spec, status);
+        ArgumentNullException.ThrowIfNull(spec);
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_host is not null &&
+                spec.PreferredProvider is { } requestedProvider &&
+                !requestedProvider.Equals(_host.ProviderId))
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.runtime-host.provider-migration-requires-replacement",
+                    $"Runtime host '{_host.Snapshot.Metadata.Id.Value}' is owned by provider " +
+                    $"'{_host.ProviderId.Value}'; migration to '{requestedProvider.Value}' requires explicit deletion and recreation.");
+            }
+            IRuntimeHostProvider provider = _host is null
+                ? SelectProvider(registry.RuntimeHostProviders, spec.PreferredProvider, "runtime host")
+                : ProviderById(registry.RuntimeHostProviders, _host.ProviderId, "runtime host");
+            string fingerprint = Fingerprint(spec);
+            ResourceMetadata<RuntimeHost> metadata = _host is null
+                ? Metadata<RuntimeHost>("runtime-host")
+                : string.Equals(_host.SpecFingerprint, fingerprint, StringComparison.Ordinal)
+                    ? _host.Snapshot.Metadata
+                    : Advance(_host.Snapshot.Metadata);
+            RuntimeHostStatus status = await provider
+                .EnsureAsync(metadata, spec, _host?.Snapshot.Status, cancellationToken)
+                .ConfigureAwait(false);
+            var proposed = new ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus>(metadata, spec, status);
+            if (status.ReconciliationOutcome == ResourceReconciliationOutcome.Accepted)
+            {
+                _host = new OwnedHost(provider.ProviderId, fingerprint, proposed);
+            }
+            return proposed;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
     }
 
-    public async ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> EnsureExecutionUnitAsync(ExecutionUnitSpec spec, CancellationToken cancellationToken = default)
+    public async ValueTask<RuntimeHostDeletionResult> DeleteHostAsync(CancellationToken cancellationToken = default)
     {
-        ResourceMetadata<ExecutionUnit> metadata = Metadata<ExecutionUnit>("execution-unit") with { Lifetime = ResourceLifetime.ExecutionUnit };
-        ExecutionUnitStatus status = await Require(registry.ExecutionUnitProviders, "execution unit").EnsureAsync(metadata, spec, observed: null, cancellationToken).ConfigureAwait(false);
-        return new ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>(metadata, spec, status);
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_host is null)
+            {
+                return new RuntimeHostDeletionResult { Deleted = true };
+            }
+            if (_host.Snapshot.Spec.HostPolicy.ProtectFromDelete)
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.runtime-host.delete-protected",
+                    $"Runtime host '{_host.Snapshot.Metadata.Id.Value}' is protected from deletion by policy.");
+            }
+
+            CleanupPolicy policy = _host.Snapshot.Spec.LifecyclePolicy.Cleanup;
+            using var overallCancellation =
+                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            overallCancellation.CancelAfter(PositiveTimeout(policy.OverallTimeout, TimeSpan.FromSeconds(30)));
+            var cleanup = new CleanupContext(policy, cancellationToken, overallCancellation.Token);
+            try
+            {
+                await StopActiveProcessesAsync(cleanup).ConfigureAwait(false);
+                if (policy.FinalizeBeforeRelease)
+                {
+                    _ = await ExecuteCleanupStepAsync(
+                        "content projection finalization",
+                        async stepToken =>
+                        {
+                            _ = await FinalizeContentAsync(
+                                new RuntimeFinalizationRequest(
+                                    _host.Snapshot.Metadata.Scope,
+                                    PromoteMemory: false,
+                                    policy),
+                                stepToken).ConfigureAwait(false);
+                        },
+                        cleanup).ConfigureAwait(false);
+                }
+
+                foreach (OwnedAuthorityBinding authority in AuthoritiesForCurrentHost())
+                {
+                    bool revoked = await ExecuteCleanupStepAsync(
+                        $"authority revocation '{authority.Snapshot.Metadata.Id.Value}'",
+                        stepToken => ProviderById(
+                                registry.AuthorityBindingProviders,
+                                authority.ProviderId,
+                                "authority binding")
+                            .RevokeAuthorityBindingAsync(Ref(authority.Snapshot.Metadata), stepToken),
+                        cleanup).ConfigureAwait(false);
+                    if (revoked)
+                    {
+                        _authorities.Remove(authority.Snapshot.Metadata.Id.Value);
+                    }
+                }
+
+                foreach (OwnedExecutionUnit unit in UnitsForCurrentHost())
+                {
+                    bool deleted = await ExecuteCleanupStepAsync(
+                        $"execution-unit deletion '{unit.Snapshot.Metadata.Id.Value}'",
+                        stepToken => ProviderById(registry.ExecutionUnitProviders, unit.ProviderId, "execution unit")
+                            .DeleteAsync(Ref(unit.Snapshot.Metadata), stepToken),
+                        cleanup).ConfigureAwait(false);
+                    if (deleted)
+                    {
+                        _units.Remove(unit.Snapshot.Metadata.Id.Value);
+                    }
+                }
+
+                foreach ((EngineIdentity key, OwnedEngine engine) in EnginesForCurrentHost())
+                {
+                    bool deleted = await ExecuteCleanupStepAsync(
+                        $"engine control-plane deletion '{engine.Snapshot.Metadata.Id.Value}'",
+                        stepToken => ProviderById(
+                                registry.EngineControlPlaneProviders,
+                                engine.ProviderId,
+                                "engine control plane")
+                            .DeleteAsync(Ref(engine.Snapshot.Metadata), stepToken),
+                        cleanup).ConfigureAwait(false);
+                    if (deleted)
+                    {
+                        _engines.Remove(key);
+                    }
+                }
+
+                IRuntimeHostProvider hostProvider =
+                    ProviderById(registry.RuntimeHostProviders, _host.ProviderId, "runtime host");
+                bool hostDeleted = await ExecuteCleanupStepAsync(
+                    $"runtime-host deletion '{_host.Snapshot.Metadata.Id.Value}'",
+                    stepToken => hostProvider.DeleteAsync(Ref(_host.Snapshot.Metadata), stepToken),
+                    cleanup).ConfigureAwait(false);
+                if (!hostDeleted)
+                {
+                    return RetainedDeletionResult(cleanup.Diagnostics);
+                }
+
+                RemoveCurrentHostDependentOwnership();
+                _host = null;
+                return new RuntimeHostDeletionResult
+                {
+                    Deleted = true,
+                    Diagnostics = cleanup.Diagnostics.ToArray(),
+                };
+            }
+            catch (CleanupRetainedException)
+            {
+                return RetainedDeletionResult(cleanup.Diagnostics);
+            }
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
     }
 
-    public ValueTask<IProcessInvocationHandle> StartProcessAsync(ProcessInvocationSpec spec, CancellationToken cancellationToken = default) =>
-        Require(registry.ProcessProviders, "process").StartAsync(spec, output: null, cancellationToken);
+    public async ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> EnsureExecutionUnitAsync(
+        ExecutionUnitSpec spec,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ProviderId owner = HostOwner(spec.PreferredHost);
+            IExecutionUnitProvider provider =
+                ProviderById(registry.ExecutionUnitProviders, owner, "execution unit");
+            ResourceMetadata<ExecutionUnit> metadata = Metadata<ExecutionUnit>("execution-unit") with
+            {
+                Lifetime = ResourceLifetime.ExecutionUnit,
+                OwnerRefs = spec.PreferredHost is { } host ? [Untyped(host)] : Array.Empty<UntypedResourceRef>(),
+            };
+            ExecutionUnitStatus status = await provider
+                .EnsureAsync(metadata, spec, observed: null, cancellationToken)
+                .ConfigureAwait(false);
+            var snapshot = new ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>(metadata, spec, status);
+            _units.Add(metadata.Id.Value, new OwnedExecutionUnit(owner, snapshot));
+            return snapshot;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
 
-    public ValueTask<ProcessInvocationResult> RunProcessAsync(ProcessInvocationSpec spec, IProcessOutputSink? output = null, CancellationToken cancellationToken = default) =>
-        Require(registry.ProcessProviders, "process").RunAsync(spec, output, cancellationToken);
+    public async ValueTask<ResourceSnapshot<EngineControlPlane, EngineControlPlaneSpec, EngineControlPlaneStatus>> EnsureEngineControlPlaneAsync(
+        EngineControlPlaneSpec spec,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ResourceRef<RuntimeHost> host = spec.Host ??
+                throw OwnershipFailure("hpd.environment.engine.host-required", "Engine control planes require an owned runtime host.");
+            ProviderId owner = HostOwner(host);
+            var identity = new EngineIdentity(host.Scope.Value, host.Id.Value, spec.Kind, spec.Api);
+            _engines.TryGetValue(identity, out OwnedEngine? existing);
+            string fingerprint = Fingerprint(spec);
+            if (existing is not null &&
+                !string.Equals(existing.SpecFingerprint, fingerprint, StringComparison.Ordinal) &&
+                _authorities.Values.Any(authority =>
+                    authority.SourceEngine is { } source &&
+                    SameResource(source, Ref(existing.Snapshot.Metadata))))
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.engine.reconfiguration-authority-active",
+                    $"Engine '{existing.Snapshot.Metadata.Id.Value}' cannot be reconfigured while authority bindings " +
+                    $"derived from generation {existing.Snapshot.Metadata.Generation.Value} remain active.");
+            }
+            ResourceMetadata<EngineControlPlane> metadata = existing is null
+                ? Metadata<EngineControlPlane>("engine-control-plane") with
+                {
+                    OwnerRefs = [Untyped(host)],
+                }
+                : string.Equals(existing.SpecFingerprint, fingerprint, StringComparison.Ordinal)
+                    ? existing.Snapshot.Metadata
+                    : Advance(existing.Snapshot.Metadata);
+            IEngineControlPlaneProvider provider =
+                ProviderById(registry.EngineControlPlaneProviders, owner, "engine control plane");
+            EngineControlPlaneStatus status = await provider
+                .EnsureEngineControlPlaneAsync(metadata, spec, existing?.Snapshot.Status, cancellationToken)
+                .ConfigureAwait(false);
+            var proposed = new ResourceSnapshot<EngineControlPlane, EngineControlPlaneSpec, EngineControlPlaneStatus>(
+                metadata,
+                spec,
+                status);
+            if (status.ReconciliationOutcome == ResourceReconciliationOutcome.Accepted)
+            {
+                if (existing is not null &&
+                    !string.Equals(existing.SpecFingerprint, fingerprint, StringComparison.Ordinal))
+                {
+                    RemovePendingPlansForEngine(Ref(existing.Snapshot.Metadata));
+                }
+                _engines[identity] = new OwnedEngine(owner, fingerprint, proposed);
+            }
+            return proposed;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask<EngineAuthorityBindingPlan> PlanEngineAuthorityBindingAsync(
+        EngineAuthorityBindingRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            OwnedEngine engine = FindEngine(request.Engine);
+            OwnedExecutionUnit unit = FindUnit(request.TargetUnit);
+            if (!engine.ProviderId.Equals(unit.ProviderId))
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.engine-authority.provider-mismatch",
+                    "The engine and target execution unit are owned by different providers.");
+            }
+            EngineAuthorityBindingPlan plan =
+                await ProviderById(registry.EngineControlPlaneProviders, engine.ProviderId, "engine control plane")
+                .PlanAuthorityBindingAsync(engine.Snapshot.Status, request, cancellationToken)
+                .ConfigureAwait(false);
+            if (!plan.Accepted)
+            {
+                return plan with { SourceEngine = request.Engine };
+            }
+            if (plan.Spec is null)
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.engine-authority.provider-plan-malformed",
+                    "The engine provider accepted an authority plan without an approved specification.");
+            }
+
+            PruneExpiredAuthorityPlans();
+            if (_engineAuthorityPlans.Count >= 256)
+            {
+                return new EngineAuthorityBindingPlan
+                {
+                    Accepted = false,
+                    SourceEngine = request.Engine,
+                    Diagnostics =
+                    [
+                        new Diagnostic
+                        {
+                            Severity = DiagnosticSeverity.Error,
+                            Code = new DiagnosticCode("hpd.environment.engine-authority.plan-capacity-exceeded"),
+                            Message = "The runtime has reached its bounded pending engine-authority approval capacity.",
+                        },
+                    ],
+                };
+            }
+            var planId = new EngineAuthorityBindingPlanId(Guid.NewGuid().ToString("N"));
+            DateTimeOffset expiresAt = _timeProvider.GetUtcNow() + _engineAuthorityPlanLifetime;
+            var approved = plan with
+            {
+                PlanId = planId,
+                ExpiresAt = expiresAt,
+                SourceEngine = request.Engine,
+            };
+            _engineAuthorityPlans.Add(
+                planId.Value,
+                new PendingEngineAuthorityPlan(
+                    request.Engine,
+                    Fingerprint(plan.Spec),
+                    expiresAt));
+            return approved;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask<ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus>>
+        EnsureEngineAuthorityBindingAsync(
+            EngineAuthorityBindingPlan plan,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!plan.Accepted ||
+                string.IsNullOrWhiteSpace(plan.PlanId.Value) ||
+                plan.Spec is null ||
+                plan.SourceEngine is not { } sourceEngine)
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.engine-authority.plan-not-accepted",
+                    "Only an accepted engine-authority plan with source-engine identity can be realized.");
+            }
+
+            if (!_engineAuthorityPlans.TryGetValue(plan.PlanId.Value, out PendingEngineAuthorityPlan? pending))
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.engine-authority.plan-unknown-or-consumed",
+                    "The engine-authority plan is unknown or has already been consumed.");
+            }
+            if (_timeProvider.GetUtcNow() >= pending.ExpiresAt)
+            {
+                _engineAuthorityPlans.Remove(plan.PlanId.Value);
+                throw OwnershipFailure(
+                    "hpd.environment.engine-authority.plan-expired",
+                    "The engine-authority plan has expired.");
+            }
+            if (!SameResource(sourceEngine, pending.SourceEngine) ||
+                !string.Equals(Fingerprint(plan.Spec), pending.SpecFingerprint, StringComparison.Ordinal))
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.engine-authority.plan-altered",
+                    "The engine-authority plan no longer matches the exact provider-approved engine and specification.");
+            }
+
+            _ = FindEngine(pending.SourceEngine);
+            _engineAuthorityPlans.Remove(plan.PlanId.Value);
+            return await EnsureAuthorityBindingCoreAsync(plan.Spec, sourceEngine, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask DeleteExecutionUnitAsync(
+        ResourceRef<ExecutionUnit> unit,
+        CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            OwnedExecutionUnit owned = FindUnit(unit);
+            await ProviderById(registry.ExecutionUnitProviders, owned.ProviderId, "execution unit")
+                .DeleteAsync(unit, cancellationToken).ConfigureAwait(false);
+            _units.Remove(unit.Id.Value);
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask<ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus>> EnsureAuthorityBindingAsync(
+        AuthorityBindingSpec spec,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (spec.Policy.EffectiveAuthorityClass is
+                SensitiveAuthorityClass.RootlessEngineControl or
+                SensitiveAuthorityClass.RootfulEngineControl)
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.engine-authority.plan-required",
+                    "Engine authority must be realized from an accepted, generation-bound engine-authority plan.");
+            }
+            return await EnsureAuthorityBindingCoreAsync(spec, sourceEngine: null, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    private async ValueTask<ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus>>
+        EnsureAuthorityBindingCoreAsync(
+            AuthorityBindingSpec spec,
+            ResourceRef<EngineControlPlane>? sourceEngine,
+            CancellationToken cancellationToken)
+    {
+        OwnedExecutionUnit unit = spec.Target.Unit is { } target
+            ? FindUnit(target)
+            : throw OwnershipFailure(
+                "hpd.environment.authority.target-required",
+                "Runtime-owned authority bindings require an owned execution-unit target.");
+        if (sourceEngine is { } source)
+        {
+            OwnedEngine engine = FindEngine(source);
+            if (!engine.ProviderId.Equals(unit.ProviderId))
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.engine-authority.provider-mismatch",
+                    "The source engine and target execution unit are owned by different providers.");
+            }
+        }
+
+        IAuthorityBindingProvider provider =
+            ProviderById(registry.AuthorityBindingProviders, unit.ProviderId, "authority binding");
+        ResourceMetadata<AuthorityBinding> metadata = Metadata<AuthorityBinding>("authority-binding") with
+        {
+            Lifetime = ResourceLifetime.ExecutionUnit,
+            OwnerRefs = [Untyped(Ref(unit.Snapshot.Metadata))],
+        };
+        AuthorityBindingStatus status = await provider
+            .EnsureAuthorityBindingAsync(metadata, spec, observed: null, cancellationToken)
+            .ConfigureAwait(false);
+        var snapshot = new ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus>(
+            metadata,
+            spec,
+            status);
+        _authorities.Add(
+            metadata.Id.Value,
+            new OwnedAuthorityBinding(unit.ProviderId, unit.Snapshot.Spec.PreferredHost, sourceEngine, snapshot));
+        return snapshot;
+    }
+
+    public async ValueTask RevokeAuthorityBindingAsync(
+        ResourceRef<AuthorityBinding> binding,
+        CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            OwnedAuthorityBinding owned = FindAuthority(binding);
+            await ProviderById(registry.AuthorityBindingProviders, owned.ProviderId, "authority binding")
+                .RevokeAuthorityBindingAsync(binding, cancellationToken).ConfigureAwait(false);
+            _authorities.Remove(binding.Id.Value);
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask<IProcessInvocationHandle> StartProcessAsync(
+        ProcessInvocationSpec spec,
+        CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            IProcessProvider provider = ProcessProvider(spec.Target);
+            IProcessInvocationHandle handle =
+                await provider.StartAsync(spec, output: null, cancellationToken).ConfigureAwait(false);
+            long id = Interlocked.Increment(ref _processSequence);
+            var owned = new RuntimeOwnedProcessHandle(handle, () => _activeHandles.TryRemove(id, out _));
+            _activeHandles[id] = owned;
+            return owned;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask<ProcessInvocationResult> RunProcessAsync(
+        ProcessInvocationSpec spec,
+        IProcessOutputSink? output = null,
+        CancellationToken cancellationToken = default)
+    {
+        IProcessProvider provider;
+        long id;
+        CancellationTokenSource linkedCancellation;
+        TaskCompletionSource completion;
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            provider = ProcessProvider(spec.Target);
+            id = Interlocked.Increment(ref _processSequence);
+            linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _activeRuns[id] = new ActiveRun(linkedCancellation, completion.Task);
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+
+        try
+        {
+            return await provider.RunAsync(spec, output, linkedCancellation.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            completion.TrySetResult();
+            _activeRuns.TryRemove(id, out _);
+            linkedCancellation.Dispose();
+        }
+    }
 
     public async ValueTask<ResourceSnapshot<FunctionSandbox, FunctionSandboxSpec, FunctionSandboxStatus>> EnsureFunctionSandboxAsync(FunctionSandboxSpec spec, CancellationToken cancellationToken = default)
     {
         ResourceMetadata<FunctionSandbox> metadata = Metadata<FunctionSandbox>("function-sandbox");
-        FunctionSandboxStatus status = await Require(registry.FunctionSandboxProviders, "function sandbox").EnsureAsync(metadata, spec, observed: null, cancellationToken).ConfigureAwait(false);
+        FunctionSandboxStatus status = await SelectProvider(registry.FunctionSandboxProviders, null, "function sandbox")
+            .EnsureAsync(metadata, spec, observed: null, cancellationToken).ConfigureAwait(false);
         return new ResourceSnapshot<FunctionSandbox, FunctionSandboxSpec, FunctionSandboxStatus>(metadata, spec, status);
     }
 
     public ValueTask<FunctionInvocationResult> InvokeFunctionAsync(FunctionInvocationSpec spec, IFunctionObservationSink? observations = null, CancellationToken cancellationToken = default) =>
-        Require(registry.FunctionSandboxProviders, "function sandbox").InvokeAsync(spec, observations, cancellationToken);
+        ProviderForRoute(registry.FunctionSandboxProviders, spec.Sandbox.Route, "function sandbox")
+            .InvokeAsync(spec, observations, cancellationToken);
 
-    public async ValueTask<RuntimeFinalizationResult> FinalizeRuntimeAsync(RuntimeFinalizationRequest request, CancellationToken cancellationToken = default)
+    public async ValueTask<RuntimeFinalizationResult> FinalizeRuntimeAsync(
+        RuntimeFinalizationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await FinalizeRuntimeCoreAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    private async ValueTask<RuntimeFinalizationResult> FinalizeRuntimeCoreAsync(
+        RuntimeFinalizationRequest request,
+        CancellationToken cancellationToken)
     {
         var contentProjections = new List<FinalizationResult>();
         var retainedResources = new List<UntypedResourceRef>();
         var conflicts = new List<WorkspaceConflict>();
         var diagnostics = new List<Diagnostic>();
 
-        foreach (IContentProjectionProvider provider in registry.ContentProjectionProviders)
+        RuntimeFinalizationResult content = await FinalizeContentAsync(request, cancellationToken).ConfigureAwait(false);
+        contentProjections.AddRange(content.ContentProjections);
+        retainedResources.AddRange(content.RetainedResources);
+        conflicts.AddRange(content.Conflicts);
+        diagnostics.AddRange(content.Diagnostics);
+
+        if (request.CleanupPolicy.RevokeAuthorityBindingsFirst)
         {
-            if (provider is not IRuntimeFinalizationParticipant participant)
+            foreach (OwnedAuthorityBinding authority in _authorities.Values.ToArray())
             {
-                continue;
+                await ProviderById(registry.AuthorityBindingProviders, authority.ProviderId, "authority binding")
+                    .RevokeAuthorityBindingAsync(Ref(authority.Snapshot.Metadata), cancellationToken)
+                    .ConfigureAwait(false);
+                _authorities.Remove(authority.Snapshot.Metadata.Id.Value);
             }
-
-            RuntimeFinalizationResult participantResult =
-                await participant.FinalizeRuntimeAsync(request, cancellationToken).ConfigureAwait(false);
-            contentProjections.AddRange(participantResult.ContentProjections);
-            retainedResources.AddRange(participantResult.RetainedResources);
-            conflicts.AddRange(participantResult.Conflicts);
-            diagnostics.AddRange(participantResult.Diagnostics);
-        }
-
-        foreach (IAuthorityBindingProvider provider in registry.AuthorityBindingProviders)
-        {
-            if (provider is not IRuntimeFinalizationParticipant participant)
-            {
-                continue;
-            }
-
-            RuntimeFinalizationResult participantResult =
-                await participant.FinalizeRuntimeAsync(request, cancellationToken).ConfigureAwait(false);
-            retainedResources.AddRange(participantResult.RetainedResources);
-            diagnostics.AddRange(participantResult.Diagnostics);
         }
 
         diagnostics.Add(new Diagnostic
@@ -576,6 +1112,294 @@ public sealed class InMemoryEnvironmentRuntime(EnvironmentProviderRegistry regis
         };
     }
 
+    private async ValueTask<RuntimeFinalizationResult> FinalizeContentAsync(
+        RuntimeFinalizationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var contentProjections = new List<FinalizationResult>();
+        var retainedResources = new List<UntypedResourceRef>();
+        var conflicts = new List<WorkspaceConflict>();
+        var diagnostics = new List<Diagnostic>();
+        foreach (IContentProjectionProvider provider in registry.ContentProjectionProviders)
+        {
+            if (_host is not null && !provider.ProviderId.Equals(_host.ProviderId))
+            {
+                continue;
+            }
+            if (provider is not IRuntimeFinalizationParticipant participant)
+            {
+                continue;
+            }
+
+            RuntimeFinalizationResult result =
+                await participant.FinalizeRuntimeAsync(request, cancellationToken).ConfigureAwait(false);
+            contentProjections.AddRange(result.ContentProjections);
+            retainedResources.AddRange(result.RetainedResources);
+            conflicts.AddRange(result.Conflicts);
+            diagnostics.AddRange(result.Diagnostics);
+        }
+
+        return new RuntimeFinalizationResult
+        {
+            RuntimeScope = request.RuntimeScope,
+            ContentProjections = contentProjections,
+            RetainedResources = retainedResources,
+            Conflicts = conflicts,
+            Diagnostics = diagnostics,
+        };
+    }
+
+    private async ValueTask StopActiveProcessesAsync(CleanupContext cleanup)
+    {
+        foreach (ActiveRun run in _activeRuns.Values)
+        {
+            run.Cancellation.Cancel();
+        }
+        foreach ((long id, IProcessInvocationHandle handle) in _activeHandles)
+        {
+            bool stopped = await ExecuteCleanupStepAsync(
+                $"active process stop '{id}'",
+                stepToken => handle.StopAsync(new ProcessStopRequest(
+                    StopKind.GracefulThenKill,
+                    "runtime host deletion",
+                    cleanup.Policy.OperationTimeout), stepToken),
+                cleanup).ConfigureAwait(false);
+            bool disposed = await ExecuteCleanupStepAsync(
+                $"active process handle disposal '{id}'",
+                _ => handle.DisposeAsync(),
+                cleanup).ConfigureAwait(false);
+            if (stopped && disposed)
+            {
+                _activeHandles.TryRemove(id, out _);
+            }
+        }
+        foreach ((long id, ActiveRun run) in _activeRuns)
+        {
+            _ = await ExecuteCleanupStepAsync(
+                $"active process completion '{id}'",
+                stepToken => new ValueTask(run.Completion.WaitAsync(stepToken)),
+                cleanup).ConfigureAwait(false);
+        }
+    }
+
+    private async ValueTask<bool> ExecuteCleanupStepAsync(
+        string step,
+        Func<CancellationToken, ValueTask> action,
+        CleanupContext cleanup)
+    {
+        using var stepCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(cleanup.OverallToken);
+        stepCancellation.CancelAfter(PositiveTimeout(cleanup.Policy.OperationTimeout, TimeSpan.FromSeconds(5)));
+        try
+        {
+            await action(stepCancellation.Token).AsTask().WaitAsync(stepCancellation.Token).ConfigureAwait(false);
+            return true;
+        }
+        catch (OperationCanceledException) when (cleanup.CallerToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            Exception failure = exception is OperationCanceledException
+                ? new TimeoutException($"Runtime cleanup exceeded its deadline during {step}.", exception)
+                : exception;
+            Diagnostic diagnostic = CleanupDiagnostic(step, failure);
+            cleanup.Diagnostics.Add(diagnostic);
+            switch (cleanup.Policy.FailureMode)
+            {
+                case CleanupFailureMode.FailOperation:
+                    throw new RuntimeCleanupException(step, failure);
+                case CleanupFailureMode.MarkDegradedAndRetain:
+                    MarkHostDegraded(diagnostic);
+                    throw new CleanupRetainedException();
+                case CleanupFailureMode.BestEffortRelease:
+                    return false;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(cleanup.Policy.FailureMode));
+            }
+        }
+    }
+
+    private RuntimeHostDeletionResult RetainedDeletionResult(IReadOnlyList<Diagnostic> diagnostics) =>
+        new()
+        {
+            Deleted = false,
+            RetainedHostStatus = _host?.Snapshot.Status,
+            Diagnostics = diagnostics.ToArray(),
+        };
+
+    private void MarkHostDegraded(Diagnostic diagnostic)
+    {
+        if (_host is null)
+        {
+            return;
+        }
+
+        RuntimeHostStatus degraded = _host.Snapshot.Status with
+        {
+            Phase = ResourcePhase.Degraded,
+            HostPhase = RuntimeHostPhase.Degraded,
+            LastTransitionAt = DateTimeOffset.UtcNow,
+            Diagnostics = [.. _host.Snapshot.Status.Diagnostics, diagnostic],
+        };
+        _host = _host with
+        {
+            Snapshot = _host.Snapshot with { Status = degraded },
+        };
+    }
+
+    private static Diagnostic CleanupDiagnostic(string step, Exception exception) =>
+        new()
+        {
+            Severity = DiagnosticSeverity.Error,
+            Code = new DiagnosticCode(exception is TimeoutException
+                ? "hpd.environment.runtime-cleanup.timeout"
+                : "hpd.environment.runtime-cleanup.failed"),
+            Message = $"Runtime cleanup failed during {step}: {exception.Message}",
+        };
+
+    private void RemoveCurrentHostDependentOwnership()
+    {
+        _engineAuthorityPlans.Clear();
+        foreach (OwnedAuthorityBinding authority in AuthoritiesForCurrentHost())
+        {
+            _authorities.Remove(authority.Snapshot.Metadata.Id.Value);
+        }
+        foreach (OwnedExecutionUnit unit in UnitsForCurrentHost())
+        {
+            _units.Remove(unit.Snapshot.Metadata.Id.Value);
+        }
+        foreach ((EngineIdentity key, _) in EnginesForCurrentHost())
+        {
+            _engines.Remove(key);
+        }
+    }
+
+    private void RemovePendingPlansForEngine(ResourceRef<EngineControlPlane> engine)
+    {
+        foreach ((string id, PendingEngineAuthorityPlan plan) in _engineAuthorityPlans.ToArray())
+        {
+            if (SameResource(plan.SourceEngine, engine))
+            {
+                _engineAuthorityPlans.Remove(id);
+            }
+        }
+    }
+
+    private void PruneExpiredAuthorityPlans()
+    {
+        DateTimeOffset now = _timeProvider.GetUtcNow();
+        foreach ((string id, PendingEngineAuthorityPlan plan) in _engineAuthorityPlans.ToArray())
+        {
+            if (now >= plan.ExpiresAt)
+            {
+                _engineAuthorityPlans.Remove(id);
+            }
+        }
+    }
+
+    private static bool SameResource<TResource>(
+        ResourceRef<TResource> left,
+        ResourceRef<TResource> right)
+        where TResource : IExecutionResourceMarker =>
+        left.Id.Equals(right.Id) &&
+        left.Scope.Equals(right.Scope) &&
+        left.Generation.Equals(right.Generation);
+
+    private static TimeSpan PositiveTimeout(TimeSpan value, TimeSpan fallback) =>
+        value > TimeSpan.Zero && value != Timeout.InfiniteTimeSpan ? value : fallback;
+
+    private IProcessProvider ProcessProvider(TargetHandle<ExecutionUnit> target)
+    {
+        OwnedExecutionUnit unit = FindUnit(target);
+        return ProviderById(registry.ProcessProviders, unit.ProviderId, "process");
+    }
+
+    private ProviderId HostOwner(ResourceRef<RuntimeHost>? host)
+    {
+        if (_host is null || host is null)
+        {
+            throw OwnershipFailure(
+                "hpd.environment.runtime-host.unknown",
+                "The requested runtime host is not owned by this runtime.");
+        }
+        ValidateRef(host.Value, _host.Snapshot.Metadata, "runtime host");
+        return _host.ProviderId;
+    }
+
+    private OwnedEngine FindEngine(ResourceRef<EngineControlPlane> reference)
+    {
+        OwnedEngine? owned = _engines.Values.FirstOrDefault(candidate =>
+            candidate.Snapshot.Metadata.Id.Equals(reference.Id) &&
+            candidate.Snapshot.Metadata.Scope.Equals(reference.Scope));
+        if (owned is null)
+        {
+            throw OwnershipFailure(
+                "hpd.environment.engine.unknown",
+                $"Engine control plane '{reference.Id.Value}' is not owned by this runtime.");
+        }
+        ValidateRef(reference, owned.Snapshot.Metadata, "engine control plane");
+        return owned;
+    }
+
+    private OwnedExecutionUnit FindUnit(ResourceRef<ExecutionUnit> reference)
+    {
+        if (!_units.TryGetValue(reference.Id.Value, out OwnedExecutionUnit? owned) ||
+            !owned.Snapshot.Metadata.Scope.Equals(reference.Scope))
+        {
+            throw OwnershipFailure(
+                "hpd.environment.execution-unit.unknown",
+                $"Execution unit '{reference.Id.Value}' is not owned by this runtime.");
+        }
+        ValidateRef(reference, owned.Snapshot.Metadata, "execution unit");
+        return owned;
+    }
+
+    private OwnedExecutionUnit FindUnit(TargetHandle<ExecutionUnit> handle)
+    {
+        OwnedExecutionUnit? unit = _units.Values.FirstOrDefault(candidate =>
+            candidate.Snapshot.Status.Handle is { } ownedHandle &&
+            ownedHandle.Equals(handle));
+        return unit ?? throw OwnershipFailure(
+            "hpd.environment.execution-unit.handle-unknown",
+            "The execution-unit handle is unknown, stale, or owned by another runtime.");
+    }
+
+    private OwnedAuthorityBinding FindAuthority(ResourceRef<AuthorityBinding> reference)
+    {
+        if (!_authorities.TryGetValue(reference.Id.Value, out OwnedAuthorityBinding? owned) ||
+            !owned.Snapshot.Metadata.Scope.Equals(reference.Scope))
+        {
+            throw OwnershipFailure(
+                "hpd.environment.authority.unknown",
+                $"Authority binding '{reference.Id.Value}' is not owned by this runtime.");
+        }
+        ValidateRef(reference, owned.Snapshot.Metadata, "authority binding");
+        return owned;
+    }
+
+    private IEnumerable<OwnedExecutionUnit> UnitsForCurrentHost() =>
+        _host is null
+            ? []
+            : _units.Values.Where(unit => unit.Snapshot.Spec.PreferredHost is { } host &&
+                host.Id.Equals(_host.Snapshot.Metadata.Id) &&
+                host.Scope.Equals(_host.Snapshot.Metadata.Scope)).ToArray();
+
+    private IEnumerable<OwnedAuthorityBinding> AuthoritiesForCurrentHost() =>
+        _host is null
+            ? []
+            : _authorities.Values.Where(authority => authority.Host is { } host &&
+                host.Id.Equals(_host.Snapshot.Metadata.Id) &&
+                host.Scope.Equals(_host.Snapshot.Metadata.Scope)).ToArray();
+
+    private IEnumerable<KeyValuePair<EngineIdentity, OwnedEngine>> EnginesForCurrentHost() =>
+        _host is null
+            ? []
+            : _engines.Where(pair =>
+                pair.Key.HostId == _host.Snapshot.Metadata.Id.Value &&
+                pair.Key.Scope == _host.Snapshot.Metadata.Scope.Value).ToArray();
+
     private ResourceMetadata<TResource> Metadata<TResource>(string kind)
         where TResource : IExecutionResourceMarker
     {
@@ -591,10 +1415,230 @@ public sealed class InMemoryEnvironmentRuntime(EnvironmentProviderRegistry regis
         };
     }
 
-    private static TProvider Require<TProvider>(IReadOnlyList<TProvider> providers, string family)
-        where TProvider : class =>
-        providers.FirstOrDefault() ?? throw new InvalidOperationException($"No {family} provider is registered.");
+    private ResourceMetadata<TResource> Advance<TResource>(ResourceMetadata<TResource> metadata)
+        where TResource : IExecutionResourceMarker =>
+        metadata with
+        {
+            Generation = new ResourceGeneration(Interlocked.Increment(ref _generation)),
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+
+    private static string Fingerprint(RuntimeHostSpec spec)
+    {
+        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(
+            spec,
+            RuntimeSpecJsonContext.Default.RuntimeHostSpec);
+        return Convert.ToHexString(SHA256.HashData(payload));
+    }
+
+    private static string Fingerprint(EngineControlPlaneSpec spec)
+    {
+        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(
+            spec,
+            RuntimeSpecJsonContext.Default.EngineControlPlaneSpec);
+        return Convert.ToHexString(SHA256.HashData(payload));
+    }
+
+    private static string Fingerprint(AuthorityBindingSpec spec)
+    {
+        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(
+            spec,
+            RuntimeSpecJsonContext.Default.AuthorityBindingSpec);
+        return Convert.ToHexString(SHA256.HashData(payload));
+    }
+
+    private static ResourceRef<TResource> Ref<TResource>(ResourceMetadata<TResource> metadata)
+        where TResource : IExecutionResourceMarker =>
+        new(metadata.Id, metadata.Scope, metadata.Generation);
+
+    private static UntypedResourceRef Untyped<TResource>(ResourceRef<TResource> reference)
+        where TResource : IExecutionResourceMarker =>
+        new(new ResourceKind(typeof(TResource).Name), reference.Id.Value, reference.Scope, reference.Generation);
+
+    private static void ValidateRef<TResource>(
+        ResourceRef<TResource> reference,
+        ResourceMetadata<TResource> metadata,
+        string family)
+        where TResource : IExecutionResourceMarker
+    {
+        if (!reference.Id.Equals(metadata.Id) ||
+            !reference.Scope.Equals(metadata.Scope) ||
+            (reference.Generation is { } generation && !generation.Equals(metadata.Generation)))
+        {
+            throw OwnershipFailure(
+                "hpd.environment.resource.stale-or-mismatched",
+                $"The {family} reference is stale or does not match runtime ownership.");
+        }
+    }
+
+    private static TProvider SelectProvider<TProvider>(
+        IReadOnlyList<TProvider> providers,
+        ProviderId? preferred,
+        string family)
+        where TProvider : class
+    {
+        if (preferred is { } providerId)
+        {
+            return ProviderById(providers, providerId, family);
+        }
+        if (providers.Count == 1)
+        {
+            return providers[0];
+        }
+        throw OwnershipFailure(
+            "hpd.environment.provider-selection-required",
+            providers.Count == 0
+                ? $"No {family} provider is registered."
+                : $"Multiple {family} providers are registered; an explicit provider selection is required.");
+    }
+
+    private static TProvider ProviderForRoute<TProvider>(
+        IReadOnlyList<TProvider> providers,
+        TargetRoute route,
+        string family)
+        where TProvider : class
+    {
+        if (route.ProviderId is not { } providerId)
+        {
+            throw OwnershipFailure(
+                "hpd.environment.target.provider-missing",
+                $"The target route does not identify its owning {family} provider.");
+        }
+        return ProviderById(providers, providerId, family);
+    }
+
+    private static TProvider ProviderById<TProvider>(
+        IReadOnlyList<TProvider> providers,
+        ProviderId providerId,
+        string family)
+        where TProvider : class
+    {
+        TProvider? provider = providers.FirstOrDefault(candidate =>
+            candidate is IRuntimeHostProvider host && host.ProviderId.Equals(providerId) ||
+            candidate is IExecutionUnitProvider unit && unit.ProviderId.Equals(providerId) ||
+            candidate is IProcessProvider process && process.ProviderId.Equals(providerId) ||
+            candidate is IFunctionSandboxProvider sandbox && sandbox.ProviderId.Equals(providerId) ||
+            candidate is IAuthorityBindingProvider authority && authority.ProviderId.Equals(providerId) ||
+            candidate is IEngineControlPlaneProvider engine && engine.ProviderId.Equals(providerId));
+        return provider ?? throw OwnershipFailure(
+            "hpd.environment.provider-owner-unavailable",
+            $"The provider '{providerId.Value}' that owns the {family} resource is not registered.");
+    }
+
+    private static RuntimeResourceOwnershipException OwnershipFailure(string code, string message) =>
+        new(new Diagnostic
+        {
+            Severity = DiagnosticSeverity.Error,
+            Code = new DiagnosticCode(code),
+            Message = message,
+        });
+
+    private sealed record OwnedHost(
+        ProviderId ProviderId,
+        string SpecFingerprint,
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> Snapshot);
+    private sealed record OwnedExecutionUnit(
+        ProviderId ProviderId,
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> Snapshot);
+    private sealed record OwnedEngine(
+        ProviderId ProviderId,
+        string SpecFingerprint,
+        ResourceSnapshot<EngineControlPlane, EngineControlPlaneSpec, EngineControlPlaneStatus> Snapshot);
+    private sealed record OwnedAuthorityBinding(
+        ProviderId ProviderId,
+        ResourceRef<RuntimeHost>? Host,
+        ResourceRef<EngineControlPlane>? SourceEngine,
+        ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus> Snapshot);
+    private readonly record struct EngineIdentity(
+        string Scope,
+        string HostId,
+        EngineControlPlaneKind Kind,
+        EngineApiKind Api);
+    private sealed record ActiveRun(CancellationTokenSource Cancellation, Task Completion);
+    private sealed record PendingEngineAuthorityPlan(
+        ResourceRef<EngineControlPlane> SourceEngine,
+        string SpecFingerprint,
+        DateTimeOffset ExpiresAt);
+    private sealed record CleanupContext(
+        CleanupPolicy Policy,
+        CancellationToken CallerToken,
+        CancellationToken OverallToken)
+    {
+        public List<Diagnostic> Diagnostics { get; } = [];
+    }
+    private sealed class CleanupRetainedException : Exception
+    {
+    }
+
+    private sealed class RuntimeOwnedProcessHandle(
+        IProcessInvocationHandle inner,
+        Action release) : IProcessInvocationHandle
+    {
+        private int _released;
+        public TargetHandle<ProcessInvocation> Handle => inner.Handle;
+        public ResourceRef<ProcessInvocation>? Resource => inner.Resource;
+        public ProcessInvocationSpec Spec => inner.Spec;
+        public ValueTask WriteStdinAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken = default) =>
+            inner.WriteStdinAsync(bytes, cancellationToken);
+        public ValueTask CloseStdinAsync(CancellationToken cancellationToken = default) =>
+            inner.CloseStdinAsync(cancellationToken);
+        public ValueTask SignalAsync(ProcessSignal signal, CancellationToken cancellationToken = default) =>
+            inner.SignalAsync(signal, cancellationToken);
+        public ValueTask StopAsync(ProcessStopRequest request, CancellationToken cancellationToken = default) =>
+            inner.StopAsync(request, cancellationToken);
+        public ValueTask ResizeTerminalAsync(TerminalSpec size, CancellationToken cancellationToken = default) =>
+            inner.ResizeTerminalAsync(size, cancellationToken);
+        public async ValueTask<ProcessInvocationResult> WaitAsync(CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                return await inner.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                Release();
+            }
+        }
+        public IAsyncEnumerable<ProcessOutputChunk> ReadOutputAsync(CancellationToken cancellationToken = default) =>
+            inner.ReadOutputAsync(cancellationToken);
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                await inner.DisposeAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                Release();
+            }
+        }
+        private void Release()
+        {
+            if (Interlocked.Exchange(ref _released, 1) == 0)
+            {
+                release();
+            }
+        }
+    }
 }
+
+public sealed class RuntimeResourceOwnershipException(Diagnostic diagnostic)
+    : InvalidOperationException(diagnostic.Message)
+{
+    public Diagnostic Diagnostic { get; } = diagnostic;
+}
+
+public sealed class RuntimeCleanupException(string step, Exception innerException)
+    : InvalidOperationException($"Runtime cleanup failed during {step}; runtime ownership was retained.", innerException)
+{
+    public string Step { get; } = step;
+}
+
+[JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Serialization)]
+[JsonSerializable(typeof(RuntimeHostSpec))]
+[JsonSerializable(typeof(EngineControlPlaneSpec))]
+[JsonSerializable(typeof(AuthorityBindingSpec))]
+internal sealed partial class RuntimeSpecJsonContext : JsonSerializerContext;
 
 public interface IRuntimeFinalizationParticipant
 {
@@ -1028,8 +2072,97 @@ public sealed class InMemoryEnvironmentProvider :
             Phase = ResourcePhase.Ready,
             ObservedGeneration = metadata.Generation,
             EnginePhase = EngineControlPlanePhase.Ready,
+            Endpoints =
+            [
+                new EngineApiEndpointStatus(
+                    spec.Api,
+                    new ProviderNamedEndpoint(
+                        "engine-api",
+                        ProviderEndpointPurpose.EngineApi,
+                        new ProviderEndpoint("unix", "guest", Path: "/run/in-memory/engine.sock"),
+                        ProviderTransportKind.UnixSocket,
+                        EndpointSensitivity.Sensitive),
+                    spec.EndpointPolicy ?? new SensitiveEndpointPolicy
+                    {
+                        Kind = SensitiveEndpointKind.EngineSocket,
+                        AuthorityClass = spec.AuthorityMode == EngineAuthorityMode.Rootless
+                            ? SensitiveAuthorityClass.RootlessEngineControl
+                            : SensitiveAuthorityClass.RootfulEngineControl,
+                    }),
+            ],
             ProviderHandle = new ProviderOpaqueHandle(ProviderId, metadata.Id.Value),
         });
+
+    public ValueTask<EngineAuthorityBindingPlan> PlanAuthorityBindingAsync(
+        EngineControlPlaneStatus engine,
+        EngineAuthorityBindingRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        EngineApiEndpointStatus? endpoint = engine.Endpoints.FirstOrDefault(candidate => candidate.Api == request.Api);
+        if (engine.Phase != ResourcePhase.Ready ||
+            engine.EnginePhase != EngineControlPlanePhase.Ready ||
+            endpoint?.SensitivePolicy is not { Kind: SensitiveEndpointKind.EngineSocket } policy ||
+            endpoint.Endpoint.Sensitivity != EndpointSensitivity.Sensitive ||
+            !string.Equals(endpoint.Endpoint.Endpoint.Address, "guest", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(endpoint.Endpoint.Endpoint.Scheme, "unix", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(endpoint.Endpoint.Endpoint.Path))
+        {
+            return ValueTask.FromResult(new EngineAuthorityBindingPlan
+            {
+                Accepted = false,
+                SourceEngine = request.Engine,
+                Diagnostics =
+                [
+                    new Diagnostic
+                    {
+                        Severity = DiagnosticSeverity.Error,
+                        Code = new DiagnosticCode("hpd.environment.engine-authority.invalid-endpoint"),
+                        Message = "Engine authority requires a ready, sensitive, guest-locus Unix socket endpoint.",
+                        ProviderId = ProviderId,
+                    },
+                ],
+            });
+        }
+
+        return ValueTask.FromResult(new EngineAuthorityBindingPlan
+        {
+            Accepted = true,
+            SourceEngine = request.Engine,
+            Spec = new AuthorityBindingSpec
+            {
+                Kind = AuthorityBindingKind.HostService,
+                Source = new AuthorityBindingSource
+                {
+                    Kind = AuthoritySourceKind.UnixSocket,
+                    Locus = BoundaryLocus.RuntimeHost,
+                    SocketPath = new UnixSocketPath(endpoint.Endpoint.Endpoint.Path),
+                },
+                Target = new AuthorityBindingTarget(
+                    AuthorityTargetKind.ExecutionUnit,
+                    Unit: request.TargetUnit,
+                    Locus: BoundaryLocus.ExecutionUnit),
+                Projection = new AuthorityBindingProjection
+                {
+                    Kind = AuthorityProjectionKind.SocketPath,
+                    TargetSocketPath = request.TargetSocketPath,
+                    ReadOnly = false,
+                },
+                Policy = new AuthorityBindingPolicy
+                {
+                    Direction = AuthorityBindingDirection.ProviderToGuest,
+                    AuthorityClass = policy.AuthorityClass,
+                    EffectiveAuthorityClass = policy.AuthorityClass,
+                    Lease = policy.Lease,
+                    Redaction = policy.Redaction,
+                    RequireAudit = policy.RequireAudit,
+                    RequireExplicitUserApproval = policy.RequireExplicitUserApproval,
+                    Provenance = request.Provenance,
+                },
+                AuditLabel = "engine-api:" + request.Api,
+            },
+        });
+    }
 
     public ValueTask<EngineControlPlaneStatus> GetStatusAsync(ResourceRef<EngineControlPlane> engine, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(new EngineControlPlaneStatus { Phase = ResourcePhase.Ready, EnginePhase = EngineControlPlanePhase.Ready });

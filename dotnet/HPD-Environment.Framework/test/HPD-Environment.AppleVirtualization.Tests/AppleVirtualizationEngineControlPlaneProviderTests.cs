@@ -2,6 +2,7 @@ namespace HPD.Environment.AppleVirtualization.Tests;
 
 using FluentAssertions;
 using HPD.Environment.AppleVirtualization.Engines;
+using HPD.Environment.AppleVirtualization.GuestAgent;
 using HPD.Environment.AppleVirtualization.Handles;
 using HPD.Environment.AppleVirtualization.Protocol;
 using HPD.Environment.AppleVirtualization.State;
@@ -64,6 +65,55 @@ public sealed class AppleVirtualizationEngineControlPlaneProviderTests
             request.Operation == AppleVirtualizationHelperOperation.EngineStatus &&
             request.EngineStatusRequest!.Kind == EngineControlPlaneKind.DockerCompatible &&
             request.EngineStatusRequest.Api == EngineApiKind.DockerCompatible);
+    }
+
+    [Fact]
+    public async Task Engine_resource_rejects_mismatched_response_engine_identity()
+    {
+        var helper = new FakeAppleVirtualizationHelperClient();
+        helper.EnqueueResponse(new AppleVirtualizationHelperEnvelope
+        {
+            MessageType = AppleVirtualizationHelperMessageType.Response,
+            Operation = AppleVirtualizationHelperOperation.EngineStatus,
+            SequenceNumber = 2,
+            ResponseStatus = AppleVirtualizationHelperResponseStatus.Ok,
+            PayloadSchema = AppleVirtualizationHelperProtocol.EngineStatusResponseSchema,
+            EngineStatusResponse = new AppleVirtualizationEngineStatusResponse
+            {
+                HostId = "runtime-host-1",
+                EngineId = "containerd",
+                Ready = true,
+                GuestEngineStatus = new AppleVirtualizationGuestAgentEngineStatus
+                {
+                    HostId = "runtime-host-1",
+                    EngineId = "containerd",
+                    Ready = true,
+                    Generation = new AppleVirtualizationGuestAgentEngineGenerationStamp(
+                        ProviderGeneration: 1,
+                        HostStartGeneration: 0,
+                        GuestBootId: "boot-a",
+                        GuestBootGeneration: 1,
+                        GuestAgentGeneration: 1,
+                        EngineGeneration: 1),
+                },
+            },
+        });
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        ResourceRef<RuntimeHost> host = SeedHost(ledger, ready: true).Resource;
+        var provider = new AppleVirtualizationEngineControlPlaneProvider(
+            ledger,
+            helper,
+            Options(engineEnabled: true, bootstrapEnabled: true));
+
+        EngineControlPlaneStatus status = await provider.EnsureEngineControlPlaneAsync(
+            Metadata("docker"),
+            Spec(host),
+            observed: null);
+
+        status.Phase.Should().Be(ResourcePhase.Degraded);
+        status.Diagnostics.Should().Contain(diagnostic =>
+            diagnostic.Code.Value == "AppleVirtualization.EngineStatusStaleGeneration" &&
+            diagnostic.Message.Contains("engine identity", StringComparison.Ordinal));
     }
 
     [Fact]

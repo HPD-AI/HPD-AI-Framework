@@ -8,6 +8,7 @@ let package = Package(
     ],
     products: [
         .executable(name: "hpd-vz", targets: ["hpd-vz"]),
+        .executable(name: "hpd-vz-routing-tests", targets: ["hpd-vz-routing-tests"]),
         .library(name: "HPDVZCore", targets: ["HPDVZCore"])
     ],
     targets: [
@@ -15,6 +16,11 @@ let package = Package(
         .executableTarget(
             name: "hpd-vz",
             dependencies: ["HPDVZCore"]
+        ),
+        .executableTarget(
+            name: "hpd-vz-routing-tests",
+            dependencies: ["HPDVZCore"],
+            path: "Tests/HPDVZCoreRoutingTests"
         )
     ]
 )

@@ -11,6 +11,7 @@ public sealed record AppleVirtualizationProviderOptions
     public string? StateRoot { get; init; }
     public TimeSpan HelperStartupTimeout { get; init; } = TimeSpan.FromSeconds(5);
     public TimeSpan HelperStopTimeout { get; init; } = TimeSpan.FromSeconds(2);
+    public TimeSpan HostDeletionTimeout { get; init; } = TimeSpan.FromSeconds(30);
     public int StartupStderrCaptureBytes { get; init; } = 4096;
     public int DefaultCpuCores { get; init; } = 4;
     public long DefaultMemoryBytes { get; init; } = 4L * 1024 * 1024 * 1024;

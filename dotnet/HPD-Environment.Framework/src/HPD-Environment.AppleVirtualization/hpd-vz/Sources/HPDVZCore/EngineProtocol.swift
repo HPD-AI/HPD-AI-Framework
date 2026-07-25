@@ -64,6 +64,57 @@ public struct EngineDiagnosticPayload: Codable, Equatable, Sendable {
     }
 }
 
+package enum EngineStatusWireNormalizer {
+    private static let maximumDiagnosticCount = 64
+
+    package static func normalize(_ payload: [String: Any]) -> [String: Any] {
+        var normalized = payload
+        normalized["Diagnostics"] = normalizeDiagnostics(payload["Diagnostics"])
+
+        if let guestStatus = payload["GuestEngineStatus"] as? [String: Any] {
+            normalized["GuestEngineStatus"] = normalize(guestStatus)
+        }
+
+        return normalized
+    }
+
+    private static func normalizeDiagnostics(_ value: Any?) -> [[String: Any]] {
+        guard let value else {
+            return []
+        }
+        guard let diagnostics = value as? [Any] else {
+            return [malformedDiagnostic("The guest engine diagnostic collection was not an array.").toJson()]
+        }
+
+        var normalized: [EngineDiagnosticPayload] = []
+        var malformedCount = max(0, diagnostics.count - maximumDiagnosticCount)
+        for diagnostic in diagnostics.prefix(maximumDiagnosticCount) {
+            if let parsed = EngineDiagnosticPayload.parse(diagnostic) {
+                normalized.append(parsed)
+            } else {
+                malformedCount += 1
+            }
+        }
+
+        if malformedCount > 0 {
+            if normalized.count == maximumDiagnosticCount {
+                normalized.removeLast()
+            }
+            normalized.append(malformedDiagnostic(
+                "\(malformedCount) malformed or excessive guest engine diagnostic(s) were rejected."))
+        }
+        return normalized.map { $0.toJson() }
+    }
+
+    private static func malformedDiagnostic(_ message: String) -> EngineDiagnosticPayload {
+        EngineDiagnosticPayload(
+            severity: 4,
+            code: "AppleVirtualization.EngineDiagnosticMalformed",
+            message: message,
+            targetPath: "engineStatus.diagnostics")
+    }
+}
+
 public struct EngineConditionPayload: Codable, Equatable, Sendable {
     public let type: String
     public let status: Int
@@ -178,6 +229,8 @@ public struct EngineApiEndpointPayload: Codable, Equatable, Sendable {
 
 public struct EngineStatusRequestPayload: Codable, Equatable, Sendable {
     public let hostId: String
+    public let providerGeneration: UInt64
+    public let hostStartGeneration: UInt64
     public let engineId: String?
     public let kind: Int
     public let api: Int
@@ -203,6 +256,10 @@ public struct EngineStatusRequestPayload: Codable, Equatable, Sendable {
         let payload = envelope.raw["EngineStatusRequest"] as? [String: Any] ?? [:]
         return EngineStatusRequestPayload(
             hostId: VmConfigurationValidationRequest.string(payload["HostId"]) ?? "unknown",
+            providerGeneration: VmConfigurationValidationRequest.uint64(payload["ProviderGeneration"])
+                ?? VmConfigurationValidationRequest.uint64(envelope.raw["ProviderGeneration"])
+                ?? 0,
+            hostStartGeneration: VmConfigurationValidationRequest.uint64(payload["HostStartGeneration"]) ?? 0,
             engineId: VmConfigurationValidationRequest.string(payload["EngineId"]),
             kind: VmConfigurationValidationRequest.int(payload["Kind"]) ?? 0,
             api: VmConfigurationValidationRequest.int(payload["Api"]) ?? 0,
@@ -228,6 +285,8 @@ public struct EngineStatusRequestPayload: Codable, Equatable, Sendable {
 
 public struct EngineStatusPayload: Codable, Equatable, Sendable {
     public let hostId: String
+    public let providerGeneration: UInt64
+    public let hostStartGeneration: UInt64
     public let engineId: String
     public let observationState: Int
     public let kind: Int
@@ -271,6 +330,8 @@ public struct EngineStatusPayload: Codable, Equatable, Sendable {
 
         return EngineStatusPayload(
             hostId: request.hostId,
+            providerGeneration: request.providerGeneration,
+            hostStartGeneration: request.hostStartGeneration,
             engineId: request.engineId ?? "engine-docker",
             observationState: state,
             kind: kind,
@@ -311,7 +372,8 @@ public struct EngineStatusPayload: Codable, Equatable, Sendable {
     public func guestStatusJson(timestamp: String) -> [String: Any] {
         var json = statusJson(timestamp: timestamp)
         json["Generation"] = [
-            "ProviderGeneration": 1,
+            "ProviderGeneration": providerGeneration,
+            "HostStartGeneration": hostStartGeneration,
             "GuestBootGeneration": 1,
             "GuestAgentGeneration": 1,
             "EngineGeneration": ready ? 1 : 0

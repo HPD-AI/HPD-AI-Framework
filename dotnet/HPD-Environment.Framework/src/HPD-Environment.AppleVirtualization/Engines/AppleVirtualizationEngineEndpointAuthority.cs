@@ -124,7 +124,11 @@ internal static class AppleVirtualizationEngineEndpointAuthority
                 Direction = AuthorityBindingDirection.ProviderToGuest,
                 AuthorityClass = sensitive.AuthorityClass,
                 EffectiveAuthorityClass = sensitive.AuthorityClass,
-                Lease = sensitive.Lease,
+                Lease = sensitive.Lease ?? new SensitiveLeasePolicy
+                {
+                    Lifetime = BindingLifetime.ExecutionUnit,
+                    RevokeOnTargetStop = true,
+                },
                 Redaction = sensitive.Redaction,
                 RequireAudit = sensitive.RequireAudit,
                 AllowProviderSideProxy = true,

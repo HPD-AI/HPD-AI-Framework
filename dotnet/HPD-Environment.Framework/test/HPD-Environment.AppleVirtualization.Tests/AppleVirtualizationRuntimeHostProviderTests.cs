@@ -321,6 +321,114 @@ public sealed class AppleVirtualizationRuntimeHostProviderTests
     }
 
     [Fact]
+    public async Task Delete_host_keeps_ledger_state_when_helper_rejects_deletion()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        RuntimeHostStatus seeded = SeedHost(ledger);
+        var helper = new FakeAppleVirtualizationHelperClient();
+        helper.EnqueueResponse(HostError(AppleVirtualizationHelperOperation.HostDelete, "AppleVirtualization.HostDeleteFailed"));
+        var provider = new AppleVirtualizationRuntimeHostProvider(helper, ledger, SupportedHost);
+        ResourceRef<RuntimeHost> host = AppleVirtualizationContractFixtures.RuntimeHostRef();
+
+        Func<Task> act = async () => await provider.DeleteAsync(host);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*HostDeleteFailed*");
+        ledger.TryGetRuntimeHost(seeded.Handle!.Value).Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Delete_host_waits_for_native_stop_before_releasing_ledger_state()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        RuntimeHostStatus seeded = SeedHost(ledger);
+        var helper = new FakeAppleVirtualizationHelperClient();
+        helper.EnqueueResponse(HostResponse(AppleVirtualizationHelperOperation.HostDelete, RuntimeHostPhase.Stopping));
+        helper.EnqueueResponse(HostResponse(AppleVirtualizationHelperOperation.HostStatus, RuntimeHostPhase.Stopped));
+        helper.EnqueueResponse(HostResponse(AppleVirtualizationHelperOperation.HostDelete, RuntimeHostPhase.Deleted));
+        var provider = new AppleVirtualizationRuntimeHostProvider(
+            helper,
+            ledger,
+            SupportedHost,
+            new AppleVirtualizationProviderOptions { HostDeletionTimeout = TimeSpan.FromSeconds(1) });
+        ResourceRef<RuntimeHost> host = AppleVirtualizationContractFixtures.RuntimeHostRef();
+
+        await provider.DeleteAsync(host);
+
+        helper.Requests.Select(request => request.Operation).Should().Equal(
+            AppleVirtualizationHelperOperation.HostDelete,
+            AppleVirtualizationHelperOperation.HostStatus,
+            AppleVirtualizationHelperOperation.HostDelete);
+        ledger.TryGetRuntimeHost(seeded.Handle!.Value).Succeeded.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Delete_host_keeps_ledger_state_for_mismatched_helper_host()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        RuntimeHostStatus seeded = SeedHost(ledger);
+        var helper = new FakeAppleVirtualizationHelperClient();
+        AppleVirtualizationHelperEnvelope mismatched =
+            HostResponse(AppleVirtualizationHelperOperation.HostDelete, RuntimeHostPhase.Deleted) with
+            {
+                HostStatusResponse = new AppleVirtualizationHostStatusResponse
+                {
+                    HostId = "runtime-host-other",
+                    HostPhase = RuntimeHostPhase.Deleted,
+                    Phase = ResourcePhase.Deleted,
+                },
+            };
+        helper.EnqueueResponse(mismatched);
+        var provider = new AppleVirtualizationRuntimeHostProvider(helper, ledger, SupportedHost);
+        ResourceRef<RuntimeHost> host = AppleVirtualizationContractFixtures.RuntimeHostRef();
+
+        Func<Task> act = async () => await provider.DeleteAsync(host);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*mismatched host identity*");
+        ledger.TryGetRuntimeHost(seeded.Handle!.Value).Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Delete_host_timeout_bounds_blocked_helper_io_and_keeps_ledger_state()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        RuntimeHostStatus seeded = SeedHost(ledger);
+        var provider = new AppleVirtualizationRuntimeHostProvider(
+            new BlockingHelperClient(),
+            ledger,
+            SupportedHost,
+            new AppleVirtualizationProviderOptions { HostDeletionTimeout = TimeSpan.FromMilliseconds(100) });
+        ResourceRef<RuntimeHost> host = AppleVirtualizationContractFixtures.RuntimeHostRef();
+
+        Func<Task> act = async () => await provider.DeleteAsync(host);
+
+        await act.Should().ThrowAsync<TimeoutException>()
+            .WithMessage("*runtime-host-1*");
+        ledger.TryGetRuntimeHost(seeded.Handle!.Value).Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Delete_host_preserves_caller_cancellation()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        RuntimeHostStatus seeded = SeedHost(ledger);
+        var provider = new AppleVirtualizationRuntimeHostProvider(
+            new BlockingHelperClient(),
+            ledger,
+            SupportedHost,
+            new AppleVirtualizationProviderOptions { HostDeletionTimeout = TimeSpan.FromSeconds(10) });
+        using var callerCancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+        Func<Task> act = async () => await provider.DeleteAsync(
+            AppleVirtualizationContractFixtures.RuntimeHostRef(),
+            callerCancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        ledger.TryGetRuntimeHost(seeded.Handle!.Value).Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Get_status_resolves_handle_and_refreshes_current_host_status()
     {
         var ledger = new AppleVirtualizationProviderStateLedger();
@@ -1091,6 +1199,275 @@ public sealed class AppleVirtualizationRuntimeHostProviderTests
         }).Status;
     }
 
+    [Fact]
+    public async Task Repeated_identical_ensure_reuses_active_vm()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        var helper = new FakeAppleVirtualizationHelperClient();
+        EnqueueRunningHost(helper);
+        var provider = new AppleVirtualizationRuntimeHostProvider(helper, ledger, SupportedHost);
+        ResourceMetadata<RuntimeHost> metadata = Metadata("runtime-host-1");
+        RuntimeHostSpec spec = Spec();
+
+        RuntimeHostStatus first = await provider.EnsureAsync(metadata, spec, observed: null);
+        int createsBeforeSecondEnsure = helper.Requests.Count(request =>
+            request.Operation is AppleVirtualizationHelperOperation.HostEnsure or AppleVirtualizationHelperOperation.HostStart);
+
+        RuntimeHostStatus second = await provider.EnsureAsync(metadata, spec, first);
+
+        second.Handle.Should().Be(first.Handle);
+        helper.Requests.Count(request =>
+            request.Operation is AppleVirtualizationHelperOperation.HostEnsure or AppleVirtualizationHelperOperation.HostStart)
+            .Should().Be(createsBeforeSecondEnsure);
+    }
+
+    [Fact]
+    public async Task Active_vm_rejects_cpu_or_memory_change()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        var helper = new FakeAppleVirtualizationHelperClient();
+        EnqueueRunningHost(helper);
+        var provider = new AppleVirtualizationRuntimeHostProvider(helper, ledger, SupportedHost);
+        ResourceMetadata<RuntimeHost> metadata = Metadata("runtime-host-1");
+        RuntimeHostStatus first = await provider.EnsureAsync(metadata, Spec(), observed: null);
+        RuntimeHostSpec changed = Spec() with
+        {
+            Capacity = Spec().Capacity with
+            {
+                CpuCores = (Spec().Capacity.CpuCores ?? 1) + 1,
+                MemoryBytes = (Spec().Capacity.MemoryBytes ?? 1024) + 1024,
+            },
+        };
+
+        RuntimeHostStatus result = await provider.EnsureAsync(metadata, changed, first);
+
+        result.Phase.Should().Be(ResourcePhase.Failed);
+        result.Diagnostics.Should().Contain(diagnostic =>
+            diagnostic.Code.Value == "AppleVirtualization.RuntimeHostImmutableConfigurationConflict");
+    }
+
+    [Fact]
+    public async Task Active_vm_rejects_storage_change()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        var helper = new FakeAppleVirtualizationHelperClient();
+        EnqueueRunningHost(helper);
+        var provider = new AppleVirtualizationRuntimeHostProvider(helper, ledger, SupportedHost);
+        ResourceMetadata<RuntimeHost> metadata = Metadata("runtime-host-1");
+        RuntimeHostStatus first = await provider.EnsureAsync(metadata, Spec(), observed: null);
+        RuntimeHostSpec changed = Spec() with
+        {
+            Capacity = Spec().Capacity with
+            {
+                StorageBytes = (Spec().Capacity.StorageBytes ?? 1024) + 1024,
+            },
+        };
+
+        RuntimeHostStatus result = await provider.EnsureAsync(metadata, changed, first);
+
+        result.Diagnostics.Should().Contain(diagnostic =>
+            diagnostic.Code.Value == "AppleVirtualization.RuntimeHostImmutableConfigurationConflict");
+    }
+
+    [Fact]
+    public async Task Active_vm_rejects_boot_image_or_engine_configuration_change()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        var helper = new FakeAppleVirtualizationHelperClient();
+        EnqueueRunningHost(helper);
+        var originalOptions = EngineBootstrapOptions(enabled: true, authorityModeConfigured: true) with
+        {
+            GuestImage = CompleteGuestImage(),
+        };
+        var provider = new AppleVirtualizationRuntimeHostProvider(helper, ledger, SupportedHost, originalOptions);
+        ResourceMetadata<RuntimeHost> metadata = Metadata("runtime-host-1");
+        RuntimeHostStatus first = await provider.EnsureAsync(metadata, EngineSpec("docker"), observed: null);
+        AppleVirtualizationProviderOptions changedOptions = originalOptions with
+        {
+            GuestImage = originalOptions.GuestImage with { DiskImagePath = "/different/root.raw" },
+            EngineBootstrap = originalOptions.EngineBootstrap with { Api = EngineApiKind.ContainerdApi },
+        };
+        var changedProvider = new AppleVirtualizationRuntimeHostProvider(helper, ledger, SupportedHost, changedOptions);
+
+        RuntimeHostStatus result = await changedProvider.EnsureAsync(metadata, EngineSpec("docker"), first);
+
+        result.Diagnostics.Should().Contain(diagnostic =>
+            diagnostic.Code.Value == "AppleVirtualization.RuntimeHostImmutableConfigurationConflict");
+    }
+
+    [Theory]
+    [InlineData(RuntimeHostPhase.Stopped)]
+    [InlineData(RuntimeHostPhase.Failed)]
+    public async Task Stopped_or_failed_observation_is_reconciled_instead_of_reused(RuntimeHostPhase phase)
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        var helper = new FakeAppleVirtualizationHelperClient();
+        EnqueueRunningHost(helper);
+        var provider = new AppleVirtualizationRuntimeHostProvider(helper, ledger, SupportedHost);
+        ResourceMetadata<RuntimeHost> metadata = Metadata("runtime-host-1");
+        RuntimeHostStatus first = await provider.EnsureAsync(metadata, Spec(), observed: null);
+        RuntimeHostStatus inactive = first with { HostPhase = phase };
+        int lifecycleRequests = helper.Requests.Count;
+
+        await provider.EnsureAsync(metadata, Spec(), inactive);
+
+        helper.Requests.Count.Should().BeGreaterThan(lifecycleRequests);
+        helper.Requests.Skip(lifecycleRequests).Should().Contain(request =>
+            request.Operation == AppleVirtualizationHelperOperation.HostEnsure);
+    }
+
+    [Fact]
+    public async Task Active_vm_rejects_stale_provider_generation()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        var helper = new FakeAppleVirtualizationHelperClient();
+        EnqueueRunningHost(helper);
+        var provider = new AppleVirtualizationRuntimeHostProvider(helper, ledger, SupportedHost);
+        ResourceMetadata<RuntimeHost> metadata = Metadata("runtime-host-1");
+        RuntimeHostStatus first = await provider.EnsureAsync(metadata, Spec(), observed: null);
+        ledger.AdvanceProviderGeneration();
+
+        RuntimeHostStatus result = await provider.EnsureAsync(metadata, Spec(), first);
+
+        result.Diagnostics.Should().Contain(diagnostic =>
+            diagnostic.Code.Value == "AppleVirtualization.RuntimeHostStaleObservedHandle");
+    }
+
+    [Fact]
+    public async Task Active_vm_fingerprint_hashes_same_length_extension_payload_bytes()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        var helper = new FakeAppleVirtualizationHelperClient();
+        EnqueueRunningHost(helper);
+        var provider = new AppleVirtualizationRuntimeHostProvider(helper, ledger, SupportedHost);
+        ResourceMetadata<RuntimeHost> metadata = Metadata("runtime-host-1");
+        ProviderExtensionData firstExtension = Extension([0x01, 0x02, 0x03, 0x04]);
+        ProviderExtensionData secondExtension = Extension([0x01, 0x02, 0x03, 0x05]);
+        RuntimeHostSpec firstSpec = Spec() with { ProviderExtensions = [firstExtension] };
+        RuntimeHostStatus first = await provider.EnsureAsync(metadata, firstSpec, observed: null);
+        RuntimeHostSpec changed = firstSpec with { ProviderExtensions = [secondExtension] };
+
+        RuntimeHostStatus result = await provider.EnsureAsync(metadata, changed, first);
+
+        result.Diagnostics.Should().Contain(diagnostic =>
+            diagnostic.Code.Value == "AppleVirtualization.RuntimeHostImmutableConfigurationConflict");
+    }
+
+    [Fact]
+    public async Task Active_vm_fingerprint_hashes_nested_same_length_extension_payload_bytes()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        var helper = new FakeAppleVirtualizationHelperClient();
+        EnqueueRunningHost(helper);
+        var provider = new AppleVirtualizationRuntimeHostProvider(helper, ledger, SupportedHost);
+        ResourceMetadata<RuntimeHost> metadata = Metadata("runtime-host-1");
+        RuntimeHostSpec firstSpec = Spec() with
+        {
+            Bootstrap = Spec().Bootstrap! with
+            {
+                GuestComponents =
+                [
+                    new GuestComponentSpec(
+                        GuestComponentKind.ProviderDefined,
+                        "extension",
+                        Data: Extension([0x10, 0x20, 0x30, 0x40])),
+                ],
+            },
+        };
+        RuntimeHostStatus first = await provider.EnsureAsync(metadata, firstSpec, observed: null);
+        RuntimeHostSpec changed = firstSpec with
+        {
+            Bootstrap = firstSpec.Bootstrap! with
+            {
+                GuestComponents =
+                [
+                    new GuestComponentSpec(
+                        GuestComponentKind.ProviderDefined,
+                        "extension",
+                        Data: Extension([0x10, 0x20, 0x30, 0x41])),
+                ],
+            },
+        };
+
+        RuntimeHostStatus result = await provider.EnsureAsync(metadata, changed, first);
+
+        result.Diagnostics.Should().Contain(diagnostic =>
+            diagnostic.Code.Value == "AppleVirtualization.RuntimeHostImmutableConfigurationConflict");
+    }
+
+    [Fact]
+    public async Task Active_vm_fingerprint_includes_all_host_and_bootstrap_policies()
+    {
+        RuntimeHostSpec baseline = Spec();
+        RuntimeHostSpec[] changedSpecs =
+        [
+            baseline with { SecurityPolicy = baseline.SecurityPolicy with { AllowHostNetwork = true } },
+            baseline with { TopologyPolicy = baseline.TopologyPolicy with { AllowHostSharing = false } },
+            baseline with { LifecyclePolicy = baseline.LifecyclePolicy with { AutoStart = true } },
+            baseline with { HostPolicy = baseline.HostPolicy with { ProtectFromDelete = true } },
+            baseline with
+            {
+                Bootstrap = baseline.Bootstrap! with
+                {
+                    Provisioning = new RuntimeHostProvisioningSpec(),
+                },
+            },
+            baseline with
+            {
+                Bootstrap = baseline.Bootstrap! with
+                {
+                    ReadinessGates =
+                    [
+                        new ReadinessGateSpec(
+                            "engine",
+                            ReadinessGateKind.EngineReady,
+                            ReadinessGateScope.Engine,
+                            new RetryPolicy()),
+                    ],
+                },
+            },
+            baseline with
+            {
+                Bootstrap = baseline.Bootstrap! with
+                {
+                    RegenerationPolicy = RuntimeHostBootstrapRegenerationPolicy.OnEveryStart,
+                },
+            },
+        ];
+
+        foreach (RuntimeHostSpec changed in changedSpecs)
+        {
+            var ledger = new AppleVirtualizationProviderStateLedger();
+            var helper = new FakeAppleVirtualizationHelperClient();
+            EnqueueRunningHost(helper);
+            var provider = new AppleVirtualizationRuntimeHostProvider(helper, ledger, SupportedHost);
+            ResourceMetadata<RuntimeHost> metadata = Metadata("runtime-host-1");
+            RuntimeHostStatus first = await provider.EnsureAsync(metadata, baseline, observed: null);
+
+            RuntimeHostStatus result = await provider.EnsureAsync(metadata, changed, first);
+
+            result.Diagnostics.Should().Contain(diagnostic =>
+                diagnostic.Code.Value == "AppleVirtualization.RuntimeHostImmutableConfigurationConflict");
+        }
+    }
+
+    private static void EnqueueRunningHost(FakeAppleVirtualizationHelperClient helper)
+    {
+        helper.EnqueueResponse(HostResponse(AppleVirtualizationHelperOperation.HostEnsure, RuntimeHostPhase.Preparing));
+        helper.EnqueueResponse(HostResponse(AppleVirtualizationHelperOperation.HostStart, RuntimeHostPhase.Starting));
+        helper.EnqueueResponse(HostResponse(AppleVirtualizationHelperOperation.HostStatus, RuntimeHostPhase.Running));
+        helper.EnqueueResponse(GuestAgentReadinessResponse(
+            AppleVirtualizationGuestAgentReadinessState.Ready,
+            verifiedReady: true));
+    }
+
+    private static ProviderExtensionData Extension(byte[] payload) =>
+        new(
+            AppleVirtualizationProviderDescriptor.ProviderId,
+            new SchemaId("hpd.test.runtime-host-extension.v1"),
+            new ContentType("application/octet-stream"),
+            payload);
+
     private static ResourceMetadata<RuntimeHost> Metadata(string id) =>
         AppleVirtualizationContractFixtures.Metadata<RuntimeHost>(id, "runtime-host");
 
@@ -1341,6 +1718,24 @@ public sealed class AppleVirtualizationRuntimeHostProviderTests
             RuntimeHostPhase.Failed => ResourcePhase.Failed,
             _ => ResourcePhase.Reconciling,
         };
+
+    private sealed class BlockingHelperClient : IAppleVirtualizationHelperClient
+    {
+        public async ValueTask<AppleVirtualizationHelperEnvelope> SendAsync(
+            AppleVirtualizationHelperEnvelope request,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("The blocking helper should only complete through cancellation.");
+        }
+
+        public async IAsyncEnumerable<AppleVirtualizationHelperEnvelope> ReadEventsAsync(
+            CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
+    }
 
     private sealed class RealBootFiles : IDisposable
     {

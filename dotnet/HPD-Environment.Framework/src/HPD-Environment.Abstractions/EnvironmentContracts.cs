@@ -161,6 +161,7 @@ public sealed record ResourceMetadata<TResource>
 public abstract record ResourceStatus
 {
     public ResourcePhase Phase { get; init; } = ResourcePhase.Unknown;
+    public ResourceReconciliationOutcome ReconciliationOutcome { get; init; } = ResourceReconciliationOutcome.Accepted;
     public ResourceGeneration ObservedGeneration { get; init; }
     public DateTimeOffset? LastTransitionAt { get; init; }
     public IReadOnlyList<Condition> Conditions { get; init; } = Array.Empty<Condition>();
@@ -169,6 +170,7 @@ public abstract record ResourceStatus
 }
 
 public enum ResourcePhase { Unknown, Pending, Reconciling, Ready, Degraded, Failed, Deleting, Deleted }
+public enum ResourceReconciliationOutcome { Accepted, ImmutableConflict, Rejected }
 public enum ResourceLifetime { Operation, Invocation, Process, ExecutionUnit, Runtime, Project, ExplicitRetain, ProviderOwned, SharedRefCounted }
 public enum ConditionStatus { Unknown, False, True }
 public enum DiagnosticSeverity { Trace, Debug, Info, Warning, Error, Fatal }
@@ -356,6 +358,8 @@ public sealed record CleanupPolicy
     public CleanupFailureMode FailureMode { get; init; } = CleanupFailureMode.MarkDegradedAndRetain;
     public bool FinalizeBeforeRelease { get; init; } = true;
     public bool RevokeAuthorityBindingsFirst { get; init; } = true;
+    public TimeSpan OverallTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    public TimeSpan OperationTimeout { get; init; } = TimeSpan.FromSeconds(5);
 }
 
 public enum CleanupFailureMode { FailOperation, MarkDegradedAndRetain, BestEffortRelease }
@@ -682,6 +686,7 @@ public sealed record ProviderComponentStatus(ProviderComponentKind Kind, string 
 public sealed record RuntimeHostSpec
 {
     public RuntimePlanId? RuntimePlan { get; init; }
+    public ProviderId? PreferredProvider { get; init; }
     public required PlatformSpec Platform { get; init; }
     public ResourceQuotaPolicy Capacity { get; init; } = ResourceQuotaPolicy.Default;
     public RuntimeHostStorageSpec? Storage { get; init; }
@@ -1372,6 +1377,24 @@ public sealed record VolumeLockStatus(VolumeLockState State, string? Holder = nu
 
 public sealed record EngineControlPlaneSpec { public required EngineControlPlaneKind Kind { get; init; } public EngineAuthorityMode AuthorityMode { get; init; } = EngineAuthorityMode.Rootless; public EngineApiKind Api { get; init; } = EngineApiKind.ProviderDefined; public EngineWorkloadAdoptionMode WorkloadAdoption { get; init; } = EngineWorkloadAdoptionMode.None; public EngineImageStoreMode ImageStore { get; init; } = EngineImageStoreMode.ProviderManaged; public ResourceRef<RuntimeHost>? Host { get; init; } public SensitiveEndpointPolicy? EndpointPolicy { get; init; } public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>(); }
 public sealed record EngineControlPlaneStatus : ResourceStatus { public EngineControlPlanePhase EnginePhase { get; init; } public IReadOnlyList<EngineApiEndpointStatus> Endpoints { get; init; } = Array.Empty<EngineApiEndpointStatus>(); public bool ExternalMutationPossible { get; init; } public ProviderOpaqueHandle? ProviderHandle { get; init; } }
+public sealed record EngineAuthorityBindingRequest
+{
+    public required ResourceRef<EngineControlPlane> Engine { get; init; }
+    public required EngineApiKind Api { get; init; }
+    public required TargetHandle<ExecutionUnit> TargetUnit { get; init; }
+    public required UnixSocketPath TargetSocketPath { get; init; }
+    public SensitiveProvenance? Provenance { get; init; }
+}
+public sealed record EngineAuthorityBindingPlan
+{
+    public required bool Accepted { get; init; }
+    public EngineAuthorityBindingPlanId PlanId { get; init; }
+    public DateTimeOffset? ExpiresAt { get; init; }
+    public ResourceRef<EngineControlPlane>? SourceEngine { get; init; }
+    public AuthorityBindingSpec? Spec { get; init; }
+    public IReadOnlyList<Diagnostic> Diagnostics { get; init; } = Array.Empty<Diagnostic>();
+}
+public readonly record struct EngineAuthorityBindingPlanId(string Value);
 public enum EngineControlPlaneKind { DockerCompatible, Podman, Containerd, Kubernetes, BuildKit, ProviderDefined }
 public enum EngineAuthorityMode { Rootless, Rootful, Mixed, ProviderDefined }
 public enum EngineApiKind { DockerCompatible, PodmanApi, ContainerdApi, KubernetesApi, BuildKitApi, ProviderDefined }
@@ -1389,12 +1412,26 @@ public interface IEnvironmentRuntime
     ValueTask<RuntimePlan> PlanAsync(RuntimePlanRequest request, CancellationToken cancellationToken = default);
     ValueTask<RuntimePlanValidationResult> ValidateAsync(RuntimePlan plan, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus>> EnsureHostAsync(RuntimeHostSpec spec, CancellationToken cancellationToken = default);
+    ValueTask<RuntimeHostDeletionResult> DeleteHostAsync(CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<EngineControlPlane, EngineControlPlaneSpec, EngineControlPlaneStatus>> EnsureEngineControlPlaneAsync(EngineControlPlaneSpec spec, CancellationToken cancellationToken = default);
+    ValueTask<EngineAuthorityBindingPlan> PlanEngineAuthorityBindingAsync(EngineAuthorityBindingRequest request, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus>> EnsureEngineAuthorityBindingAsync(EngineAuthorityBindingPlan plan, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> EnsureExecutionUnitAsync(ExecutionUnitSpec spec, CancellationToken cancellationToken = default);
+    ValueTask DeleteExecutionUnitAsync(ResourceRef<ExecutionUnit> unit, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus>> EnsureAuthorityBindingAsync(AuthorityBindingSpec spec, CancellationToken cancellationToken = default);
+    ValueTask RevokeAuthorityBindingAsync(ResourceRef<AuthorityBinding> binding, CancellationToken cancellationToken = default);
     ValueTask<IProcessInvocationHandle> StartProcessAsync(ProcessInvocationSpec spec, CancellationToken cancellationToken = default);
     ValueTask<ProcessInvocationResult> RunProcessAsync(ProcessInvocationSpec spec, IProcessOutputSink? output = null, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<FunctionSandbox, FunctionSandboxSpec, FunctionSandboxStatus>> EnsureFunctionSandboxAsync(FunctionSandboxSpec spec, CancellationToken cancellationToken = default);
     ValueTask<FunctionInvocationResult> InvokeFunctionAsync(FunctionInvocationSpec spec, IFunctionObservationSink? observations = null, CancellationToken cancellationToken = default);
     ValueTask<RuntimeFinalizationResult> FinalizeRuntimeAsync(RuntimeFinalizationRequest request, CancellationToken cancellationToken = default);
+}
+
+public sealed record RuntimeHostDeletionResult
+{
+    public required bool Deleted { get; init; }
+    public RuntimeHostStatus? RetainedHostStatus { get; init; }
+    public IReadOnlyList<Diagnostic> Diagnostics { get; init; } = Array.Empty<Diagnostic>();
 }
 
 public sealed record RuntimeFinalizationRequest(ResourceScope RuntimeScope, bool PromoteMemory, CleanupPolicy CleanupPolicy);
@@ -1427,7 +1464,15 @@ public sealed record ServiceDiscoveryQuery(ResourceRef<ServiceDiscovery> Discove
 public interface IEndpointPublicationProvider { ProviderId ProviderId { get; } ValueTask<PublishedEndpointStatus> EnsurePublishedEndpointAsync(ResourceMetadata<PublishedEndpoint> metadata, PublishedEndpointSpec spec, PublishedEndpointStatus? observed, CancellationToken cancellationToken = default); ValueTask<PublishedEndpointStatus> GetStatusAsync(ResourceRef<PublishedEndpoint> endpoint, CancellationToken cancellationToken = default); ValueTask ReleasePublishedEndpointAsync(ResourceRef<PublishedEndpoint> endpoint, CancellationToken cancellationToken = default); }
 public interface IAuthorityBindingProvider { ProviderId ProviderId { get; } ValueTask<AuthorityBindingStatus> EnsureAuthorityBindingAsync(ResourceMetadata<AuthorityBinding> metadata, AuthorityBindingSpec spec, AuthorityBindingStatus? observed, CancellationToken cancellationToken = default); ValueTask<AuthorityBindingStatus> GetStatusAsync(ResourceRef<AuthorityBinding> binding, CancellationToken cancellationToken = default); ValueTask RevokeAuthorityBindingAsync(ResourceRef<AuthorityBinding> binding, CancellationToken cancellationToken = default); }
 public interface ICredentialProvider { ProviderId ProviderId { get; } ValueTask<CredentialResolution> ResolveAsync(CredentialRequest request, CancellationToken cancellationToken = default); }
-public interface IEngineControlPlaneProvider { ProviderId ProviderId { get; } ValueTask<EngineControlPlaneStatus> EnsureEngineControlPlaneAsync(ResourceMetadata<EngineControlPlane> metadata, EngineControlPlaneSpec spec, EngineControlPlaneStatus? observed, CancellationToken cancellationToken = default); ValueTask<EngineControlPlaneStatus> GetStatusAsync(ResourceRef<EngineControlPlane> engine, CancellationToken cancellationToken = default); ValueTask<EngineControlPlaneStatus> StopAsync(TargetHandle<EngineControlPlane> engine, StopPolicy policy, CancellationToken cancellationToken = default); ValueTask DeleteAsync(ResourceRef<EngineControlPlane> engine, CancellationToken cancellationToken = default); }
+public interface IEngineControlPlaneProvider
+{
+    ProviderId ProviderId { get; }
+    ValueTask<EngineControlPlaneStatus> EnsureEngineControlPlaneAsync(ResourceMetadata<EngineControlPlane> metadata, EngineControlPlaneSpec spec, EngineControlPlaneStatus? observed, CancellationToken cancellationToken = default);
+    ValueTask<EngineAuthorityBindingPlan> PlanAuthorityBindingAsync(EngineControlPlaneStatus engine, EngineAuthorityBindingRequest request, CancellationToken cancellationToken = default);
+    ValueTask<EngineControlPlaneStatus> GetStatusAsync(ResourceRef<EngineControlPlane> engine, CancellationToken cancellationToken = default);
+    ValueTask<EngineControlPlaneStatus> StopAsync(TargetHandle<EngineControlPlane> engine, StopPolicy policy, CancellationToken cancellationToken = default);
+    ValueTask DeleteAsync(ResourceRef<EngineControlPlane> engine, CancellationToken cancellationToken = default);
+}
 public sealed record CredentialRequest(CredentialRef Credential, ResourceScope Scope, string? Purpose = null);
 public sealed record CredentialResolution(CredentialRef Credential, ProviderOpaqueHandle Handle, DateTimeOffset? ExpiresAt = null);
 

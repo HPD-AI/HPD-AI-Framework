@@ -670,6 +670,9 @@ public sealed class ExecutionContractShapeTests
         public ValueTask<EngineControlPlaneStatus> EnsureEngineControlPlaneAsync(ResourceMetadata<EngineControlPlane> metadata, EngineControlPlaneSpec spec, EngineControlPlaneStatus? observed, CancellationToken cancellationToken = default) =>
             new(new EngineControlPlaneStatus { EnginePhase = EngineControlPlanePhase.Ready });
 
+        public ValueTask<EngineAuthorityBindingPlan> PlanAuthorityBindingAsync(EngineControlPlaneStatus engine, EngineAuthorityBindingRequest request, CancellationToken cancellationToken = default) =>
+            new(new EngineAuthorityBindingPlan { Accepted = false });
+
         public ValueTask<EngineControlPlaneStatus> GetStatusAsync(ResourceRef<EngineControlPlane> engine, CancellationToken cancellationToken = default) =>
             new(new EngineControlPlaneStatus { EnginePhase = EngineControlPlanePhase.Ready });
 

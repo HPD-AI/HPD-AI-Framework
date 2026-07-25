@@ -691,6 +691,7 @@ public sealed class AppleVirtualizationCapabilityReporter : IProviderCapabilityR
 [JsonSerializable(typeof(AppleVirtualizationEngineObservationState))]
 [JsonSerializable(typeof(AppleVirtualizationEngineStatusRequest))]
 [JsonSerializable(typeof(AppleVirtualizationEngineStatusResponse))]
+[JsonSerializable(typeof(AppleVirtualizationRuntimeHostFingerprintInput))]
 [JsonSerializable(typeof(AppleVirtualizationEngineProvisioningPackageManager))]
 [JsonSerializable(typeof(AppleVirtualizationEngineProvisioningAction))]
 [JsonSerializable(typeof(AppleVirtualizationEngineProvisioningPhase))]

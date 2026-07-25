@@ -2,6 +2,7 @@ namespace HPD.Environment.AppleVirtualization.Tests;
 
 using FluentAssertions;
 using HPD.Environment.AppleVirtualization.Handles;
+using HPD.Environment.AppleVirtualization.GuestAgent;
 using HPD.Environment.AppleVirtualization.State;
 using HPD.Environment.Contracts;
 using Xunit;
@@ -144,6 +145,213 @@ public sealed class AppleVirtualizationProviderStateLedgerTests
         lookup.Entry.Should().BeNull();
         lookup.Diagnostic.Should().NotBeNull();
         lookup.Diagnostic!.Code.Should().Be(AppleVirtualizationHandleDiagnostics.WrongHandleKind);
+    }
+
+    [Fact]
+    public void Engine_generation_ledger_rejects_stale_guest_agent_and_engine_generations()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        ResourceMetadata<RuntimeHost> metadata = Metadata<RuntimeHost>("runtime-host", "host-1");
+        var accepted = new AppleVirtualizationGuestAgentEngineGenerationStamp(
+            ProviderGeneration: 1,
+            HostStartGeneration: 4,
+            GuestBootId: "boot-a",
+            GuestBootGeneration: 8,
+            GuestAgentGeneration: 6,
+            EngineGeneration: 9);
+
+        ledger.TryAcceptRuntimeHostEngineGeneration(
+            metadata.Id,
+            metadata.Scope,
+            "docker",
+            accepted,
+            1,
+            4,
+            "boot-a",
+            8,
+            requireEngineGeneration: true,
+            out _).Should().BeTrue();
+
+        ledger.TryAcceptRuntimeHostEngineGeneration(
+            metadata.Id,
+            metadata.Scope,
+            "docker",
+            accepted with { GuestAgentGeneration = 5 },
+            1,
+            4,
+            "boot-a",
+            8,
+            requireEngineGeneration: true,
+            out string staleAgentReason).Should().BeFalse();
+        staleAgentReason.Should().Contain("guest-agent generation is stale");
+
+        ledger.TryAcceptRuntimeHostEngineGeneration(
+            metadata.Id,
+            metadata.Scope,
+            "docker",
+            accepted with { EngineGeneration = 8 },
+            1,
+            4,
+            "boot-a",
+            8,
+            requireEngineGeneration: true,
+            out string staleEngineReason).Should().BeFalse();
+        staleEngineReason.Should().Contain("engine generation is stale");
+    }
+
+    [Fact]
+    public void Engine_generation_ledger_rejects_wrong_boot_and_zero_ready_engine_generation()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        ResourceMetadata<RuntimeHost> metadata = Metadata<RuntimeHost>("runtime-host", "host-1");
+        var generation = new AppleVirtualizationGuestAgentEngineGenerationStamp(
+            ProviderGeneration: 1,
+            HostStartGeneration: 4,
+            GuestBootId: "boot-old",
+            GuestBootGeneration: 7,
+            GuestAgentGeneration: 2,
+            EngineGeneration: 1);
+
+        ledger.TryAcceptRuntimeHostEngineGeneration(
+            metadata.Id,
+            metadata.Scope,
+            "docker",
+            generation,
+            1,
+            4,
+            "boot-current",
+            8,
+            requireEngineGeneration: true,
+            out _).Should().BeFalse();
+
+        ledger.TryAcceptRuntimeHostEngineGeneration(
+            metadata.Id,
+            metadata.Scope,
+            "docker",
+            generation with
+            {
+                GuestBootId = "boot-current",
+                GuestBootGeneration = 8,
+                EngineGeneration = 0,
+            },
+            1,
+            4,
+            "boot-current",
+            8,
+            requireEngineGeneration: true,
+            out string zeroEngineReason).Should().BeFalse();
+        zeroEngineReason.Should().Contain("positive engine generation");
+    }
+
+    [Fact]
+    public void Rejected_provider_generation_does_not_poison_last_accepted_engine_tuple()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        ResourceMetadata<RuntimeHost> metadata = Metadata<RuntimeHost>("runtime-host", "host-1");
+        var invalid = new AppleVirtualizationGuestAgentEngineGenerationStamp(
+            ProviderGeneration: 99,
+            HostStartGeneration: 4,
+            GuestBootId: "boot-a",
+            GuestBootGeneration: 8,
+            GuestAgentGeneration: 99,
+            EngineGeneration: 99);
+
+        ledger.TryAcceptRuntimeHostEngineGeneration(
+            metadata.Id,
+            metadata.Scope,
+            "docker",
+            invalid,
+            expectedProviderGeneration: 1,
+            expectedHostStartGeneration: 4,
+            expectedGuestBootId: "boot-a",
+            expectedGuestBootGeneration: 8,
+            requireEngineGeneration: true,
+            out string rejectedReason).Should().BeFalse();
+        rejectedReason.Should().Contain("provider generation");
+
+        ledger.TryAcceptRuntimeHostEngineGeneration(
+            metadata.Id,
+            metadata.Scope,
+            "docker",
+            invalid with
+            {
+                ProviderGeneration = 1,
+                GuestAgentGeneration = 2,
+                EngineGeneration = 2,
+            },
+            expectedProviderGeneration: 1,
+            expectedHostStartGeneration: 4,
+            expectedGuestBootId: "boot-a",
+            expectedGuestBootGeneration: 8,
+            requireEngineGeneration: true,
+            out _).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Engine_generation_sequences_are_independent_per_engine_on_the_same_host()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        ResourceMetadata<RuntimeHost> metadata = Metadata<RuntimeHost>("runtime-host", "host-1");
+        var generation = new AppleVirtualizationGuestAgentEngineGenerationStamp(
+            ProviderGeneration: 1,
+            HostStartGeneration: 4,
+            GuestBootId: "boot-a",
+            GuestBootGeneration: 8,
+            GuestAgentGeneration: 2,
+            EngineGeneration: 9);
+
+        ledger.TryAcceptRuntimeHostEngineGeneration(
+            metadata.Id, metadata.Scope, "docker", generation,
+            1, 4, "boot-a", 8, true, out _).Should().BeTrue();
+        ledger.TryAcceptRuntimeHostEngineGeneration(
+            metadata.Id, metadata.Scope, "containerd",
+            generation with { EngineGeneration = 1 },
+            1, 4, "boot-a", 8, true, out _).Should().BeTrue();
+        ledger.TryAcceptRuntimeHostEngineGeneration(
+            metadata.Id, metadata.Scope, "docker",
+            generation with { EngineGeneration = 8 },
+            1, 4, "boot-a", 8, true, out string staleReason).Should().BeFalse();
+        staleReason.Should().Contain("engine generation is stale");
+    }
+
+    [Fact]
+    public void Removing_and_recreating_host_clears_fingerprint_and_engine_generations()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        ResourceMetadata<RuntimeHost> metadata = Metadata<RuntimeHost>("runtime-host", "host-1");
+        var host = ledger.UpsertRuntimeHost(metadata, new RuntimeHostStatus
+        {
+            Phase = ResourcePhase.Ready,
+            ObservedGeneration = metadata.Generation,
+            HostPhase = RuntimeHostPhase.Running,
+        });
+        ledger.SetRuntimeHostConfigurationFingerprint(metadata.Id, metadata.Scope, "old-fingerprint");
+        var oldGeneration = new AppleVirtualizationGuestAgentEngineGenerationStamp(
+            ProviderGeneration: 1,
+            HostStartGeneration: 4,
+            GuestBootId: "boot-a",
+            GuestBootGeneration: 8,
+            GuestAgentGeneration: 9,
+            EngineGeneration: 9);
+        ledger.TryAcceptRuntimeHostEngineGeneration(
+            metadata.Id, metadata.Scope, "docker", oldGeneration,
+            1, 4, null, null, true, out _).Should().BeTrue();
+
+        ledger.RemoveRuntimeHost(host.Resource).Should().BeTrue();
+        ledger.GetRuntimeHostConfigurationFingerprint(metadata.Id, metadata.Scope).Should().BeNull();
+
+        ledger.UpsertRuntimeHost(metadata, new RuntimeHostStatus
+        {
+            Phase = ResourcePhase.Ready,
+            ObservedGeneration = metadata.Generation,
+            HostPhase = RuntimeHostPhase.Running,
+        });
+        ledger.TryAcceptRuntimeHostEngineGeneration(
+            metadata.Id,
+            metadata.Scope,
+            "docker",
+            oldGeneration with { GuestAgentGeneration = 1, EngineGeneration = 1 },
+            1, 4, null, null, true, out _).Should().BeTrue();
     }
 
     private static ResourceMetadata<TResource> Metadata<TResource>(string kind, string id)

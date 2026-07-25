@@ -220,7 +220,9 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider
             ProcessInvocationResult waited = await WaitAsync(handle.Handle, spec.Policy.Timeout, cancellationToken).ConfigureAwait(false);
             ProcessInvocationResult result = waited with
             {
-                Output = capture.HasEvents ? capture.ToOutput(waited.Output.OutputDrainTimedOut) : waited.Output,
+                Output = capture.HasEvents
+                    ? capture.ToOutput(waited.Output.OutputDrainTimedOut)
+                    : BoundStoredOutput(waited.Output, spec.Io),
             };
 
             UpdateResult(handle.Handle, result);
@@ -1021,6 +1023,47 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider
         bool Verified,
         string? ProjectionId,
         string? GuestPath);
+
+    private static ProcessCapturedOutput BoundStoredOutput(
+        ProcessCapturedOutput output,
+        ProcessIoSpec io)
+    {
+        bool mergedStandardError = output.MergedStandardError;
+        return output with
+        {
+            Stdout = BoundStoredStream(output.Stdout, io.StandardOutput),
+            Stderr = mergedStandardError
+                ? new ProcessStreamOutput()
+                : BoundStoredStream(output.Stderr, io.StandardError),
+            MergedStandardError = mergedStandardError,
+        };
+    }
+
+    private static ProcessStreamOutput BoundStoredStream(
+        ProcessStreamOutput output,
+        ProcessOutputSpec spec)
+    {
+        long observed = Math.Max(output.BytesObserved, output.CapturedBytes.Length);
+        long limit = spec.MaxCapturedBytes is null
+            ? long.MaxValue
+            : Math.Max(0, spec.MaxCapturedBytes.Value);
+        int capturedLength = !spec.Capture || limit == 0
+            ? 0
+            : (int)Math.Min(output.CapturedBytes.Length, limit);
+        ReadOnlyMemory<byte> captured = capturedLength == 0
+            ? ReadOnlyMemory<byte>.Empty
+            : output.CapturedBytes[..capturedLength].ToArray();
+        long discarded = Math.Max(output.BytesDiscarded, observed - capturedLength);
+        bool boundTruncated = spec.Capture && observed > capturedLength;
+        return output with
+        {
+            CapturedBytes = captured,
+            BytesObserved = observed,
+            BytesCaptured = capturedLength,
+            BytesDiscarded = discarded,
+            Truncated = output.Truncated || boundTruncated,
+        };
+    }
 
     private bool TryHandleHelperError(
         AppleVirtualizationLedgerEntry<ProcessInvocation, ProcessInvocationStatus> entry,
