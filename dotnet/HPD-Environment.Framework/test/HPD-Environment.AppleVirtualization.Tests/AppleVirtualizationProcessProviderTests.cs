@@ -513,6 +513,28 @@ public sealed class AppleVirtualizationProcessProviderTests
     }
 
     [Fact]
+    public async Task Retained_process_status_and_release_use_the_exact_provider_resource()
+    {
+        var fixture = CreateFixture();
+        fixture.Helper.EnqueueResponse(ProcessStatus(
+            AppleVirtualizationHelperOperation.ProcessStart,
+            "process-1",
+            ProcessInvocationPhase.Running));
+        fixture.Helper.EnqueueResponse(ProcessExited("process-1", exitCode: 0));
+        IProcessInvocationHandle handle = await fixture.Provider.StartAsync(fixture.Spec);
+        ResourceRef<ProcessInvocation> resource = handle.Resource!.Value;
+
+        ProcessInvocationStatus running = await fixture.Provider.GetStatusAsync(handle.Handle);
+        _ = await handle.WaitAsync();
+        ProcessInvocationStatus exited = await fixture.Provider.GetStatusAsync(handle.Handle);
+        await fixture.Provider.ReleaseAsync(resource);
+
+        running.ProcessPhase.Should().Be(ProcessInvocationPhase.Running);
+        exited.ProcessPhase.Should().Be(ProcessInvocationPhase.Exited);
+        fixture.Ledger.TryGetProcessInvocation(resource).Succeeded.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Signal_after_process_exited_is_structured_without_helper_dispatch()
     {
         var fixture = CreateFixture();

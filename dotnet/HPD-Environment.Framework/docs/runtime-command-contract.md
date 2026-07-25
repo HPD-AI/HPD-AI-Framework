@@ -54,6 +54,30 @@ Execution-unit reconciliation and observation follow these additional rules:
   runtime state later. Caller cancellation remains distinguishable and is
   propagated.
 
+Retained process lifecycle follows these rules:
+
+- `StartProcessAsync` creates a runtime-owned `ProcessInvocation` resource and
+  returns its snapshot. Live `IProcessInvocationHandle` objects remain internal
+  runtime/provider capabilities and are never the public runtime identity.
+- a provider must explicitly implement `IRetainedProcessProvider`; the runtime
+  fails closed instead of treating an ephemeral process handle as durable.
+- list, get, stop, wait, output, and delete commands route only through the
+  provider that created the process.
+- processes remain observable after terminal completion until explicit deletion.
+  Deleting a running process is rejected.
+- a primary retained process is projected into its owning execution unit.
+  Start adds active ownership and transitions the unit to running; terminal
+  completion removes active ownership and preserves the primary result.
+- one runtime-owned pump consumes each provider output stream. Reads replay by
+  process sequence from independently byte-bounded stdout/stderr retention, and
+  `follow` waits for that same pump rather than opening another provider reader.
+  Retained oversized chunks are tail-bounded and marked truncated.
+- process observation is wall-clock bounded even when a provider ignores its
+  cancellation token. Observation failure degrades the retained snapshot without
+  releasing ownership.
+- execution-unit and host deletion stop and release their retained processes
+  before releasing the owning unit or host.
+
 These rules are part of the contract shape. A future compatibility requirement
 should be handled through normal semantic versioning rather than parallel legacy
 methods.

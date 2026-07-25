@@ -11,7 +11,7 @@ using HPD.Environment.AppleVirtualization.Protocol;
 using HPD.Environment.AppleVirtualization.State;
 using HPD.Environment.Contracts;
 
-public sealed class AppleVirtualizationProcessProvider : IProcessProvider
+public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IRetainedProcessProvider
 {
     private const int MaxReadOutputChunksPerCall = 1024;
 
@@ -449,7 +449,15 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider
         });
     }
 
-    internal async ValueTask StopAsync(
+    public ValueTask<ProcessInvocationStatus> GetStatusAsync(
+        TargetHandle<ProcessInvocation> process,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(ResolveProcess(process).Status);
+    }
+
+    public async ValueTask StopAsync(
         TargetHandle<ProcessInvocation> process,
         ProcessStopRequest request,
         CancellationToken cancellationToken)
@@ -494,6 +502,31 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider
             ExitedAt = result?.ExitedAt ?? entry.Status.ExitedAt,
             LastTransitionAt = DateTimeOffset.UtcNow,
         });
+    }
+
+    public ValueTask ReleaseAsync(
+        ResourceRef<ProcessInvocation> process,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        AppleVirtualizationLedgerLookup<AppleVirtualizationLedgerEntry<ProcessInvocation, ProcessInvocationStatus>> lookup =
+            _ledger.TryGetProcessInvocation(process);
+        if (!lookup.Succeeded)
+        {
+            throw ProcessDiagnostics.ToException(lookup.Diagnostic, "process.release");
+        }
+        if (!IsTerminal(lookup.Entry!.Status))
+        {
+            throw ProcessDiagnostics.ToException(
+                ProcessDiagnostics.AlreadyExited(process.Id.Value, "process.release") with
+                {
+                    Code = new DiagnosticCode("AppleVirtualization.ProcessStillRunning"),
+                    Message = $"Process '{process.Id.Value}' must stop before its retained resource can be released.",
+                });
+        }
+        _lastOutputSequenceByProcess.TryRemove(process.Id.Value, out _);
+        _ledger.RemoveProcessInvocation(process);
+        return ValueTask.CompletedTask;
     }
 
     private async ValueTask SendStdinAsync(

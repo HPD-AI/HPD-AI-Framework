@@ -489,7 +489,8 @@ public sealed class InMemoryEnvironmentRuntime(
     IRuntimePlanner? planner = null,
     TimeProvider? timeProvider = null,
     TimeSpan? engineAuthorityPlanLifetime = null,
-    TimeSpan? executionUnitObservationTimeout = null) : IEnvironmentRuntime
+    TimeSpan? executionUnitObservationTimeout = null,
+    TimeSpan? processObservationTimeout = null) : IEnvironmentRuntime
 {
     private readonly IRuntimePlanner _planner = planner ?? new DefaultRuntimePlanner(registry, registry);
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
@@ -501,11 +502,16 @@ public sealed class InMemoryEnvironmentRuntime(
         executionUnitObservationTimeout is { } observationTimeout && observationTimeout > TimeSpan.Zero
             ? observationTimeout
             : TimeSpan.FromSeconds(5);
+    private readonly TimeSpan _processObservationTimeout =
+        processObservationTimeout is { } processTimeout && processTimeout > TimeSpan.Zero
+            ? processTimeout
+            : TimeSpan.FromSeconds(5);
     private readonly SemaphoreSlim _reconciliationGate = new(1, 1);
     private readonly Dictionary<string, OwnedExecutionUnit> _units = new(StringComparer.Ordinal);
     private readonly Dictionary<ExecutionUnitIdentity, string> _unitIdsByIdentity = [];
     private readonly Dictionary<EngineIdentity, OwnedEngine> _engines = [];
     private readonly Dictionary<string, OwnedAuthorityBinding> _authorities = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, OwnedProcess> _processes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PendingEngineAuthorityPlan> _engineAuthorityPlans =
         new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<long, ActiveRun> _activeRuns = [];
@@ -602,6 +608,22 @@ public sealed class InMemoryEnvironmentRuntime(
             try
             {
                 await StopActiveProcessesAsync(cleanup).ConfigureAwait(false);
+                foreach (OwnedProcess process in ProcessesForCurrentHost())
+                {
+                    bool released = await ExecuteCleanupStepAsync(
+                        $"process release '{process.Snapshot.Metadata.Id.Value}'",
+                        async stepToken =>
+                        {
+                            await ReleaseOwnedProcessAsync(process, stepToken).ConfigureAwait(false);
+                        },
+                        cleanup).ConfigureAwait(false);
+                    if (released)
+                    {
+                        _activeHandles.TryRemove(process.ActiveHandleId, out _);
+                        _processes.Remove(process.Snapshot.Metadata.Id.Value);
+                        DetachProcessFromUnit(process);
+                    }
+                }
                 if (policy.FinalizeBeforeRelease)
                 {
                     _ = await ExecuteCleanupStepAsync(
@@ -1017,6 +1039,32 @@ public sealed class InMemoryEnvironmentRuntime(
         try
         {
             OwnedExecutionUnit owned = FindUnit(unit);
+            foreach (OwnedProcess process in ProcessesForUnit(Ref(owned.Snapshot.Metadata)))
+            {
+                OwnedProcess current = process;
+                if (!IsTerminal(current.Snapshot.Status.ProcessPhase))
+                {
+                    await RetainedProcessProvider(current)
+                        .StopAsync(
+                            current.Handle.Handle,
+                            new ProcessStopRequest(
+                                StopKind.GracefulThenKill,
+                                "execution unit deletion",
+                                owned.Snapshot.Spec.LifecyclePolicy.Cleanup.OperationTimeout),
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                current = await RefreshProcessAsync(current, cancellationToken).ConfigureAwait(false);
+                if (!IsTerminal(current.Snapshot.Status.ProcessPhase))
+                {
+                    throw OwnershipFailure(
+                        "hpd.environment.process.release-nonterminal",
+                        $"Process '{current.Snapshot.Metadata.Id.Value}' did not reach a terminal state.");
+                }
+                await ReleaseOwnedProcessAsync(current, cancellationToken).ConfigureAwait(false);
+                _activeHandles.TryRemove(current.ActiveHandleId, out _);
+                _processes.Remove(current.Snapshot.Metadata.Id.Value);
+            }
             await ProviderById(registry.ExecutionUnitProviders, owned.ProviderId, "execution unit")
                 .DeleteAsync(unit, cancellationToken).ConfigureAwait(false);
             _units.Remove(unit.Id.Value);
@@ -1116,20 +1164,267 @@ public sealed class InMemoryEnvironmentRuntime(
         }
     }
 
-    public async ValueTask<IProcessInvocationHandle> StartProcessAsync(
+    public async ValueTask<ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus>>
+        StartProcessAsync(
         ProcessInvocationSpec spec,
         CancellationToken cancellationToken = default)
     {
         await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            IProcessProvider provider = ProcessProvider(spec.Target);
+            OwnedExecutionUnit unit = FindUnit(spec.Target);
+            IProcessProvider provider =
+                ProviderById(registry.ProcessProviders, unit.ProviderId, "process");
+            IRetainedProcessProvider retainedProvider = RequireRetainedProcessProvider(provider);
             IProcessInvocationHandle handle =
-                await provider.StartAsync(spec, output: null, cancellationToken).ConfigureAwait(false);
+                await provider.StartAsync(
+                    spec with
+                    {
+                        PersistResource = true,
+                        ObservationRetention = ObservationRetentionPolicy.DurableResource,
+                    },
+                    output: null,
+                    cancellationToken).ConfigureAwait(false);
+            if (handle.Resource is not { } providerResource)
+            {
+                await handle.DisposeAsync().ConfigureAwait(false);
+                throw OwnershipFailure(
+                    "hpd.environment.process.retained-resource-required",
+                    $"Provider '{provider.ProviderId.Value}' did not return a durable process resource.");
+            }
+            ProcessInvocationStatus providerStatus = await retainedProvider
+                .GetStatusAsync(handle.Handle, cancellationToken)
+                .ConfigureAwait(false);
+            ResourceMetadata<ProcessInvocation> metadata = Metadata<ProcessInvocation>("process-invocation") with
+            {
+                Lifetime = ResourceLifetime.Process,
+                OwnerRefs = [Untyped(Ref(unit.Snapshot.Metadata))],
+            };
+            ProcessInvocationStatus status = providerStatus with
+            {
+                ObservedGeneration = metadata.Generation,
+                Handle = handle.Handle,
+            };
+            var snapshot =
+                new ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus>(
+                    metadata,
+                    spec,
+                    status);
             long id = Interlocked.Increment(ref _processSequence);
-            var owned = new RuntimeOwnedProcessHandle(handle, () => _activeHandles.TryRemove(id, out _));
-            _activeHandles[id] = owned;
-            return owned;
+            _activeHandles[id] = handle;
+            var output = new ProcessOutputRetention(
+                spec.Io.LogPolicy.MaxRetainedBytesPerStream ?? 64 * 1024);
+            var outputCancellation = new CancellationTokenSource();
+            Task outputPump = PumpProcessOutputAsync(
+                provider,
+                handle.Handle,
+                output,
+                outputCancellation.Token);
+            _processes.Add(
+                metadata.Id.Value,
+                new OwnedProcess(
+                    provider.ProviderId,
+                    Ref(unit.Snapshot.Metadata),
+                    providerResource,
+                    handle,
+                    id,
+                    output,
+                    outputCancellation,
+                    outputPump,
+                    snapshot));
+            AttachProcessToUnit(unit, Ref(metadata), spec.Role);
+            return snapshot;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask<IReadOnlyList<ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus>>>
+        ListProcessesAsync(
+            ResourceRef<ExecutionUnit>? unit = null,
+            CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ResourceRef<ExecutionUnit>? owner = unit is { } requested
+                ? Ref(FindUnit(requested).Snapshot.Metadata)
+                : null;
+            var snapshots = new List<ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus>>();
+            foreach (OwnedProcess process in _processes.Values.ToArray())
+            {
+                if (owner is not null && !SameResource(owner.Value, process.Unit))
+                {
+                    continue;
+                }
+                snapshots.Add((await RefreshProcessAsync(process, cancellationToken).ConfigureAwait(false)).Snapshot);
+            }
+            return snapshots
+                .OrderBy(process => process.Metadata.CreatedAt)
+                .ThenBy(process => process.Metadata.Id.Value, StringComparer.Ordinal)
+                .ToArray();
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask<ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus>>
+        GetProcessAsync(
+            ResourceRef<ProcessInvocation> process,
+            CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return (await RefreshProcessAsync(FindProcess(process), cancellationToken).ConfigureAwait(false)).Snapshot;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask<ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus>>
+        StopProcessAsync(
+            ResourceRef<ProcessInvocation> process,
+            ProcessStopRequest request,
+            CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            OwnedProcess owned = FindProcess(process);
+            await RetainedProcessProvider(owned)
+                .StopAsync(owned.Handle.Handle, request, cancellationToken)
+                .ConfigureAwait(false);
+            OwnedProcess stopped = await RefreshProcessAsync(owned, cancellationToken).ConfigureAwait(false);
+            if (IsTerminal(stopped.Snapshot.Status.ProcessPhase))
+            {
+                DetachProcessFromUnit(stopped);
+            }
+            return stopped.Snapshot;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask<ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus>>
+        WaitProcessAsync(
+            ResourceRef<ProcessInvocation> process,
+            CancellationToken cancellationToken = default)
+    {
+        OwnedProcess owned;
+        IProcessProvider provider;
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            owned = FindProcess(process);
+            provider = ProviderById(registry.ProcessProviders, owned.ProviderId, "process");
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+
+        ProcessInvocationResult result =
+            await provider.WaitAsync(owned.Handle.Handle, cancellationToken).ConfigureAwait(false);
+
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            OwnedProcess current = FindProcess(process);
+            ProcessInvocationStatus status = current.Snapshot.Status with
+            {
+                Phase = result.CompletionKind is ProcessCompletionKind.FailedToStart or
+                    ProcessCompletionKind.Faulted
+                        ? ResourcePhase.Failed
+                        : ResourcePhase.Ready,
+                ProcessPhase = ProcessPhase(result.CompletionKind),
+                IoState = ProcessIoState.Closed,
+                Result = result,
+                StartedAt = result.StartedAt ?? current.Snapshot.Status.StartedAt,
+                ExitedAt = result.ExitedAt ?? _timeProvider.GetUtcNow(),
+                LastTransitionAt = _timeProvider.GetUtcNow(),
+            };
+            OwnedProcess completed = current with
+            {
+                Snapshot = current.Snapshot with { Status = status },
+            };
+            _processes[process.Id.Value] = completed;
+            DetachProcessFromUnit(completed);
+            return completed.Snapshot;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async IAsyncEnumerable<ProcessOutputChunk> ReadProcessOutputAsync(
+        ResourceRef<ProcessInvocation> process,
+        long? afterSequence = null,
+        int? limit = null,
+        bool follow = false,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        OwnedProcess owned;
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            owned = FindProcess(process);
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+
+        int remaining = limit is > 0 ? limit.Value : int.MaxValue;
+        long cursor = afterSequence ?? 0;
+        while (remaining > 0)
+        {
+            ProcessOutputChunk[] retained = owned.Output.Snapshot(cursor, remaining);
+            foreach (ProcessOutputChunk chunk in retained)
+            {
+                cursor = Math.Max(cursor, chunk.Sequence);
+                yield return chunk;
+                if (--remaining == 0)
+                {
+                    yield break;
+                }
+            }
+            if (!follow || owned.Output.IsComplete)
+            {
+                yield break;
+            }
+            await owned.Output.WaitForChangeAsync(cursor, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async ValueTask DeleteProcessAsync(
+        ResourceRef<ProcessInvocation> process,
+        CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            OwnedProcess owned = FindProcess(process);
+            owned = await RefreshProcessAsync(owned, cancellationToken).ConfigureAwait(false);
+            if (!IsTerminal(owned.Snapshot.Status.ProcessPhase))
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.process.delete-running",
+                    $"Process '{process.Id.Value}' must stop before deletion.");
+            }
+            await ReleaseOwnedProcessAsync(owned, cancellationToken).ConfigureAwait(false);
+            _activeHandles.TryRemove(owned.ActiveHandleId, out _);
+            _processes.Remove(process.Id.Value);
+            DetachProcessFromUnit(owned);
         }
         finally
         {
@@ -1515,6 +1810,216 @@ public sealed class InMemoryEnvironmentRuntime(
         return owned;
     }
 
+    private OwnedProcess FindProcess(ResourceRef<ProcessInvocation> reference)
+    {
+        if (!_processes.TryGetValue(reference.Id.Value, out OwnedProcess? owned) ||
+            !owned.Snapshot.Metadata.Scope.Equals(reference.Scope))
+        {
+            throw OwnershipFailure(
+                "hpd.environment.process.unknown",
+                $"Process invocation '{reference.Id.Value}' is not owned by this runtime.");
+        }
+        ValidateRef(reference, owned.Snapshot.Metadata, "process invocation");
+        return owned;
+    }
+
+    private IRetainedProcessProvider RetainedProcessProvider(OwnedProcess process) =>
+        RequireRetainedProcessProvider(
+            ProviderById(registry.ProcessProviders, process.ProviderId, "process"));
+
+    private static IRetainedProcessProvider RequireRetainedProcessProvider(IProcessProvider provider)
+    {
+        if (provider is not IRetainedProcessProvider retained ||
+            !retained.ProviderId.Equals(provider.ProviderId))
+        {
+            throw OwnershipFailure(
+                "hpd.environment.process.retention-unsupported",
+                $"Provider '{provider.ProviderId.Value}' does not implement retained process lifecycle.");
+        }
+        return retained;
+    }
+
+    private static async Task PumpProcessOutputAsync(
+        IProcessProvider provider,
+        TargetHandle<ProcessInvocation> handle,
+        ProcessOutputRetention output,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (ProcessOutputChunk chunk in provider
+                .ReadOutputAsync(handle, cancellationToken)
+                .ConfigureAwait(false))
+            {
+                _ = output.Add(chunk);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            output.Complete();
+        }
+    }
+
+    private async ValueTask ReleaseOwnedProcessAsync(
+        OwnedProcess process,
+        CancellationToken cancellationToken)
+    {
+        await RetainedProcessProvider(process)
+            .ReleaseAsync(process.ProviderResource, cancellationToken)
+            .ConfigureAwait(false);
+        process.OutputCancellation.Cancel();
+        await process.OutputPump
+            .WaitAsync(_processObservationTimeout, cancellationToken)
+            .ConfigureAwait(false);
+        process.OutputCancellation.Dispose();
+        await process.Handle.DisposeAsync().ConfigureAwait(false);
+    }
+
+    private async ValueTask<OwnedProcess> RefreshProcessAsync(
+        OwnedProcess process,
+        CancellationToken cancellationToken)
+    {
+        using var observationCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        observationCancellation.CancelAfter(_processObservationTimeout);
+        try
+        {
+            ProcessInvocationStatus observed = await RetainedProcessProvider(process)
+                .GetStatusAsync(process.Handle.Handle, observationCancellation.Token)
+                .AsTask()
+                .WaitAsync(observationCancellation.Token)
+                .ConfigureAwait(false);
+            if (observed.Handle is not { } handle || !handle.Equals(process.Handle.Handle))
+            {
+                return StoreProcessObservationFailure(
+                    process,
+                    RuntimeDiagnostic(
+                        "hpd.environment.process.observe-handle-mismatch",
+                        $"Process invocation '{process.Snapshot.Metadata.Id.Value}' returned a mismatched provider handle."));
+            }
+            ProcessInvocationStatus normalized = observed with
+            {
+                ObservedGeneration = process.Snapshot.Metadata.Generation,
+            };
+            OwnedProcess refreshed = process with
+            {
+                Snapshot = process.Snapshot with { Status = normalized },
+            };
+            _processes[process.Snapshot.Metadata.Id.Value] = refreshed;
+            if (IsTerminal(normalized.ProcessPhase))
+            {
+                DetachProcessFromUnit(refreshed);
+            }
+            return refreshed;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return StoreProcessObservationFailure(
+                process,
+                RuntimeDiagnostic(
+                    "hpd.environment.process.observe-timeout",
+                    $"Process invocation '{process.Snapshot.Metadata.Id.Value}' could not be observed within " +
+                    $"{_processObservationTimeout.TotalMilliseconds:0} milliseconds."));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            return StoreProcessObservationFailure(
+                process,
+                RuntimeDiagnostic(
+                    "hpd.environment.process.observe-failed",
+                    $"Process invocation '{process.Snapshot.Metadata.Id.Value}' observation failed: {exception.Message}"));
+        }
+    }
+
+    private OwnedProcess StoreProcessObservationFailure(OwnedProcess process, Diagnostic diagnostic)
+    {
+        ProcessInvocationStatus status = process.Snapshot.Status with
+        {
+            Phase = ResourcePhase.Degraded,
+            Diagnostics = [.. process.Snapshot.Status.Diagnostics, diagnostic],
+            LastTransitionAt = _timeProvider.GetUtcNow(),
+        };
+        OwnedProcess degraded = process with
+        {
+            Snapshot = process.Snapshot with { Status = status },
+        };
+        _processes[process.Snapshot.Metadata.Id.Value] = degraded;
+        return degraded;
+    }
+
+    private void AttachProcessToUnit(
+        OwnedExecutionUnit unit,
+        ResourceRef<ProcessInvocation> process,
+        ProcessRole role)
+    {
+        ResourceRef<ProcessInvocation>[] active =
+            [.. unit.Snapshot.Status.ActiveProcesses.Where(existing => !SameResource(existing, process)), process];
+        ExecutionUnitStatus status = unit.Snapshot.Status with
+        {
+            Phase = ResourcePhase.Ready,
+            UnitPhase = ExecutionUnitPhase.Running,
+            PrimaryProcess = role == ProcessRole.Primary
+                ? process
+                : unit.Snapshot.Status.PrimaryProcess,
+            ActiveProcesses = active,
+            LastTransitionAt = _timeProvider.GetUtcNow(),
+        };
+        _units[unit.Snapshot.Metadata.Id.Value] = unit with
+        {
+            Snapshot = unit.Snapshot with { Status = status },
+        };
+    }
+
+    private void DetachProcessFromUnit(OwnedProcess process)
+    {
+        if (!_units.TryGetValue(process.Unit.Id.Value, out OwnedExecutionUnit? unit))
+        {
+            return;
+        }
+        ResourceRef<ProcessInvocation> processRef = Ref(process.Snapshot.Metadata);
+        ResourceRef<ProcessInvocation>[] active = unit.Snapshot.Status.ActiveProcesses
+            .Where(existing => !SameResource(existing, processRef))
+            .ToArray();
+        bool primary = unit.Snapshot.Status.PrimaryProcess is { } primaryProcess &&
+            SameResource(primaryProcess, processRef);
+        ExecutionUnitStatus status = unit.Snapshot.Status with
+        {
+            UnitPhase = active.Length == 0 ? ExecutionUnitPhase.Ready : ExecutionUnitPhase.Running,
+            ActiveProcesses = active,
+            PrimaryProcessResult = primary
+                ? process.Snapshot.Status.Result
+                : unit.Snapshot.Status.PrimaryProcessResult,
+            LastTransitionAt = _timeProvider.GetUtcNow(),
+        };
+        _units[unit.Snapshot.Metadata.Id.Value] = unit with
+        {
+            Snapshot = unit.Snapshot with { Status = status },
+        };
+    }
+
+    private static ProcessInvocationPhase ProcessPhase(ProcessCompletionKind completionKind) =>
+        completionKind switch
+        {
+            ProcessCompletionKind.FailedToStart or ProcessCompletionKind.Faulted =>
+                ProcessInvocationPhase.Failed,
+            ProcessCompletionKind.Stopped or ProcessCompletionKind.Killed or
+                ProcessCompletionKind.Cancelled or ProcessCompletionKind.TimedOut =>
+                ProcessInvocationPhase.Stopped,
+            _ => ProcessInvocationPhase.Exited,
+        };
+
+    private static bool IsTerminal(ProcessInvocationPhase phase) =>
+        phase is ProcessInvocationPhase.Exited or
+            ProcessInvocationPhase.Stopped or
+            ProcessInvocationPhase.Failed;
+
     private IEnumerable<OwnedExecutionUnit> UnitsForCurrentHost() =>
         _host is null
             ? []
@@ -1582,6 +2087,32 @@ public sealed class InMemoryEnvironmentRuntime(
                 return StoreUnitObservationFailure(unit, identityDiagnostic);
             }
 
+            ResourceRef<ProcessInvocation>[] runtimeProcesses = _processes.Values
+                .Where(process => SameResource(process.Unit, Ref(unit.Snapshot.Metadata)) &&
+                    !IsTerminal(process.Snapshot.Status.ProcessPhase))
+                .Select(process => Ref(process.Snapshot.Metadata))
+                .ToArray();
+            ResourceRef<ProcessInvocation>[] providerProcesses = status.ActiveProcesses
+                .Select(providerProcess =>
+                    _processes.Values.FirstOrDefault(process =>
+                        SameResource(process.Unit, Ref(unit.Snapshot.Metadata)) &&
+                        SameResource(process.ProviderResource, providerProcess)) is { } runtimeProcess
+                            ? Ref(runtimeProcess.Snapshot.Metadata)
+                            : providerProcess)
+                .ToArray();
+            IReadOnlyList<ResourceRef<ProcessInvocation>> activeProcesses =
+                runtimeProcesses.Length == 0
+                    ? providerProcesses
+                    : providerProcesses.Concat(runtimeProcesses).Distinct().ToArray();
+            status = status with
+            {
+                UnitPhase = activeProcesses.Count > 0
+                    ? ExecutionUnitPhase.Running
+                    : status.UnitPhase,
+                ActiveProcesses = activeProcesses,
+                PrimaryProcess = unit.Snapshot.Status.PrimaryProcess,
+                PrimaryProcessResult = unit.Snapshot.Status.PrimaryProcessResult,
+            };
             OwnedExecutionUnit refreshed = unit with
             {
                 Snapshot = unit.Snapshot with { Status = status },
@@ -1672,6 +2203,18 @@ public sealed class InMemoryEnvironmentRuntime(
         _host is null
             ? []
             : _authorities.Values.Where(authority => authority.Host is { } host &&
+                host.Id.Equals(_host.Snapshot.Metadata.Id) &&
+                host.Scope.Equals(_host.Snapshot.Metadata.Scope)).ToArray();
+
+    private IEnumerable<OwnedProcess> ProcessesForUnit(ResourceRef<ExecutionUnit> unit) =>
+        _processes.Values.Where(process => SameResource(process.Unit, unit)).ToArray();
+
+    private IEnumerable<OwnedProcess> ProcessesForCurrentHost() =>
+        _host is null
+            ? []
+            : _processes.Values.Where(process =>
+                _units.TryGetValue(process.Unit.Id.Value, out OwnedExecutionUnit? unit) &&
+                unit.Snapshot.Spec.PreferredHost is { } host &&
                 host.Id.Equals(_host.Snapshot.Metadata.Id) &&
                 host.Scope.Equals(_host.Snapshot.Metadata.Scope)).ToArray();
 
@@ -1866,6 +2409,146 @@ public sealed class InMemoryEnvironmentRuntime(
         ResourceRef<RuntimeHost>? Host,
         ResourceRef<EngineControlPlane>? SourceEngine,
         ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus> Snapshot);
+    private sealed record OwnedProcess(
+        ProviderId ProviderId,
+        ResourceRef<ExecutionUnit> Unit,
+        ResourceRef<ProcessInvocation> ProviderResource,
+        IProcessInvocationHandle Handle,
+        long ActiveHandleId,
+        ProcessOutputRetention Output,
+        CancellationTokenSource OutputCancellation,
+        Task OutputPump,
+        ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus> Snapshot);
+    private sealed class ProcessOutputRetention(int maxBytesPerStream)
+    {
+        private const int MaxChunks = 1024;
+        private readonly object _gate = new();
+        private readonly List<ProcessOutputChunk> _chunks = [];
+        private readonly int _maxBytesPerStream = Math.Max(0, maxBytesPerStream);
+        private long _stdoutBytes;
+        private long _stderrBytes;
+        private bool _complete;
+        private TaskCompletionSource _changed = NewSignal();
+
+        public long HighestSequence
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _chunks.Count == 0 ? 0 : _chunks[^1].Sequence;
+                }
+            }
+        }
+
+        public bool IsComplete
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _complete;
+                }
+            }
+        }
+
+        public ProcessOutputChunk Add(ProcessOutputChunk chunk)
+        {
+            lock (_gate)
+            {
+                ProcessOutputChunk retained = BoundChunk(chunk);
+                _chunks.Add(retained);
+                AddBytes(retained.Stream, retained.Bytes.Length);
+                while (_chunks.Count > MaxChunks ||
+                    Bytes(retained.Stream) > _maxBytesPerStream)
+                {
+                    int index = _chunks.FindIndex(existing => existing.Stream == retained.Stream);
+                    if (index < 0)
+                    {
+                        break;
+                    }
+                    ProcessOutputChunk removed = _chunks[index];
+                    _chunks.RemoveAt(index);
+                    AddBytes(removed.Stream, -removed.Bytes.Length);
+                }
+                Pulse();
+                return retained;
+            }
+        }
+
+        public void Complete()
+        {
+            lock (_gate)
+            {
+                _complete = true;
+                Pulse();
+            }
+        }
+
+        public Task WaitForChangeAsync(long afterSequence, CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                if (_complete || (_chunks.Count > 0 && _chunks[^1].Sequence > afterSequence))
+                {
+                    return Task.CompletedTask;
+                }
+                return _changed.Task.WaitAsync(cancellationToken);
+            }
+        }
+
+        public ProcessOutputChunk[] Snapshot(long? afterSequence, int limit)
+        {
+            lock (_gate)
+            {
+                return _chunks
+                    .Where(chunk => chunk.Sequence > (afterSequence ?? 0))
+                    .Take(Math.Max(0, limit))
+                    .ToArray();
+            }
+        }
+
+        private ProcessOutputChunk BoundChunk(ProcessOutputChunk chunk)
+        {
+            if (chunk.Bytes.Length <= _maxBytesPerStream)
+            {
+                return chunk;
+            }
+            ReadOnlyMemory<byte> tail = _maxBytesPerStream == 0
+                ? ReadOnlyMemory<byte>.Empty
+                : chunk.Bytes[^_maxBytesPerStream..].ToArray();
+            return chunk with
+            {
+                Bytes = tail,
+                Flags = chunk.Flags | ProcessOutputChunkFlags.Truncated,
+            };
+        }
+
+        private long Bytes(ProcessOutputStream stream) =>
+            stream == ProcessOutputStream.Stdout ? _stdoutBytes : _stderrBytes;
+
+        private void AddBytes(ProcessOutputStream stream, int value)
+        {
+            if (stream == ProcessOutputStream.Stdout)
+            {
+                _stdoutBytes += value;
+            }
+            else
+            {
+                _stderrBytes += value;
+            }
+        }
+
+        private void Pulse()
+        {
+            TaskCompletionSource changed = _changed;
+            _changed = NewSignal();
+            changed.TrySetResult();
+        }
+
+        private static TaskCompletionSource NewSignal() =>
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
     private readonly record struct EngineIdentity(
         string Scope,
         string HostId,
@@ -2046,6 +2729,7 @@ public sealed class InMemoryEnvironmentProvider :
     IRuntimeHostResetProvider,
     IExecutionUnitProvider,
     IProcessProvider,
+    IRetainedProcessProvider,
     IFunctionSandboxProvider,
     IFunctionSnapshotProvider,
     IArtifactProvider,
@@ -2157,6 +2841,17 @@ public sealed class InMemoryEnvironmentProvider :
     public ValueTask<IProcessInvocationHandle> StartAsync(ProcessInvocationSpec spec, IProcessOutputSink? output = null, CancellationToken cancellationToken = default)
     {
         var handle = new InMemoryProcessInvocationHandle(spec, CreateProcessResult(spec, ProcessCompletionKind.Completed), NextSequence);
+        ResourceRef<ProcessInvocation> resource = handle.Resource!.Value;
+        _resources[resource.Id.Value] = new ProcessInvocationStatus
+        {
+            Phase = ResourcePhase.Ready,
+            ObservedGeneration = resource.Generation ?? new ResourceGeneration(1),
+            ProcessPhase = ProcessInvocationPhase.Running,
+            Handle = handle.Handle,
+            ProviderProcessId = resource.Id.Value,
+            IoState = ProcessIoState.Open,
+            StartedAt = DateTimeOffset.UtcNow,
+        };
         return ValueTask.FromResult<IProcessInvocationHandle>(handle);
     }
 
@@ -2186,8 +2881,65 @@ public sealed class InMemoryEnvironmentProvider :
     public ValueTask SignalAsync(TargetHandle<ProcessInvocation> process, ProcessSignal signal, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
     public ValueTask ResizeTerminalAsync(TargetHandle<ProcessInvocation> process, TerminalSpec size, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
-    public ValueTask<ProcessInvocationResult> WaitAsync(TargetHandle<ProcessInvocation> process, CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult(CreateProcessResult(null, ProcessCompletionKind.Completed));
+    public ValueTask<ProcessInvocationResult> WaitAsync(TargetHandle<ProcessInvocation> process, CancellationToken cancellationToken = default)
+    {
+        ProcessInvocationResult result = CreateProcessResult(null, ProcessCompletionKind.Completed);
+        string id = process.Route.Segments.Last().Value;
+        if (_resources.TryGetValue(id, out object? value) && value is ProcessInvocationStatus status)
+        {
+            _resources[id] = status with
+            {
+                ProcessPhase = ProcessInvocationPhase.Exited,
+                IoState = ProcessIoState.Closed,
+                Result = result,
+                ExitedAt = result.ExitedAt,
+            };
+        }
+        return ValueTask.FromResult(result);
+    }
+
+    public ValueTask<ProcessInvocationStatus> GetStatusAsync(
+        TargetHandle<ProcessInvocation> process,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string id = process.Route.Segments.Last().Value;
+        return _resources.TryGetValue(id, out object? value) && value is ProcessInvocationStatus status
+            ? ValueTask.FromResult(status)
+            : throw new InvalidOperationException(
+                $"Process '{id}' is not owned by the in-memory provider.");
+    }
+
+    public ValueTask StopAsync(
+        TargetHandle<ProcessInvocation> process,
+        ProcessStopRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string id = process.Route.Segments.Last().Value;
+        if (!_resources.TryGetValue(id, out object? value) || value is not ProcessInvocationStatus status)
+        {
+            throw new InvalidOperationException(
+                $"Process '{id}' is not owned by the in-memory provider.");
+        }
+        _resources[id] = status with
+        {
+            ProcessPhase = ProcessInvocationPhase.Stopped,
+            IoState = ProcessIoState.Closed,
+            Result = CreateProcessResult(null, ProcessCompletionKind.Stopped),
+            ExitedAt = DateTimeOffset.UtcNow,
+        };
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask ReleaseAsync(
+        ResourceRef<ProcessInvocation> process,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _resources.TryRemove(process.Id.Value, out _);
+        return ValueTask.CompletedTask;
+    }
 
     public async IAsyncEnumerable<ProcessOutputChunk> ReadOutputAsync(TargetHandle<ProcessInvocation> process, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {

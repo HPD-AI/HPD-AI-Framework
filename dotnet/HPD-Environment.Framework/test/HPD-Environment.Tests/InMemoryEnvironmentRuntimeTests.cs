@@ -1431,10 +1431,18 @@ public sealed class InMemoryEnvironmentRuntimeTests
         };
 
         ProcessInvocationResult result = await runtime.RunProcessAsync(spec, sink);
-        await using IProcessInvocationHandle handle = await runtime.StartProcessAsync(spec);
-        ProcessInvocationResult waited = await handle.WaitAsync();
+        ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus> process =
+            await runtime.StartProcessAsync(spec);
+        ResourceRef<ProcessInvocation> processRef = new(
+            process.Metadata.Id,
+            process.Metadata.Scope,
+            process.Metadata.Generation);
+        ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus> waited =
+            await runtime.WaitProcessAsync(processRef);
         List<ProcessOutputChunk> output = [];
-        await foreach (ProcessOutputChunk chunk in handle.ReadOutputAsync())
+        await foreach (ProcessOutputChunk chunk in runtime.ReadProcessOutputAsync(
+            processRef,
+            follow: true))
         {
             output.Add(chunk);
         }
@@ -1442,9 +1450,167 @@ public sealed class InMemoryEnvironmentRuntimeTests
         Assert.Equal(ProcessCompletionKind.TimedOut, result.CompletionKind);
         Assert.True(result.Output.OutputDrainTimedOut);
         Assert.Single(sink.Chunks);
-        Assert.Equal(ProcessCompletionKind.Completed, waited.CompletionKind);
+        Assert.Equal(ProcessCompletionKind.Completed, waited.Status.Result?.CompletionKind);
         Assert.Single(output);
         Assert.True(output[0].Flags.HasFlag(ProcessOutputChunkFlags.Final));
+    }
+
+    [Fact]
+    public async Task Retained_process_supports_status_output_stop_and_explicit_delete()
+    {
+        EnvironmentProviderRegistry registry = CreateRegistry();
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                ReconciliationKey = new ExecutionUnitIdentityKey("retained-process-unit"),
+                PreferredHost = new ResourceRef<RuntimeHost>(
+                    host.Metadata.Id,
+                    host.Metadata.Scope,
+                    host.Metadata.Generation),
+            });
+        ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus> started =
+            await runtime.StartProcessAsync(new ProcessInvocationSpec
+            {
+                Target = unit.Status.Handle!.Value,
+                Role = ProcessRole.Primary,
+                Command = new ProcessCommandSpec { FileName = "/bin/work" },
+            });
+        ResourceRef<ProcessInvocation> processRef = new(
+            started.Metadata.Id,
+            started.Metadata.Scope,
+            started.Metadata.Generation);
+
+        Assert.Equal(ProcessInvocationPhase.Running, started.Status.ProcessPhase);
+        Assert.Equal(started.Metadata.Id, Assert.Single(await runtime.ListProcessesAsync()).Metadata.Id);
+        Assert.Equal(
+            ProcessInvocationPhase.Running,
+            (await runtime.GetProcessAsync(processRef)).Status.ProcessPhase);
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> runningUnit =
+            await runtime.GetExecutionUnitAsync(new ResourceRef<ExecutionUnit>(
+                unit.Metadata.Id,
+                unit.Metadata.Scope,
+                unit.Metadata.Generation));
+        Assert.Equal(ExecutionUnitPhase.Running, runningUnit.Status.UnitPhase);
+        Assert.Equal(processRef, Assert.Single(runningUnit.Status.ActiveProcesses));
+        Assert.Equal(processRef, runningUnit.Status.PrimaryProcess);
+
+        List<ProcessOutputChunk> output = [];
+        await foreach (ProcessOutputChunk chunk in runtime.ReadProcessOutputAsync(processRef))
+        {
+            output.Add(chunk);
+        }
+        Assert.Single(output);
+        List<ProcessOutputChunk> replay = [];
+        await foreach (ProcessOutputChunk chunk in runtime.ReadProcessOutputAsync(
+            processRef,
+            afterSequence: 0,
+            limit: 1))
+        {
+            replay.Add(chunk);
+        }
+        Assert.Equal(output[0], Assert.Single(replay));
+
+        ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus> stopped =
+            await runtime.StopProcessAsync(
+                processRef,
+                new ProcessStopRequest(StopKind.GracefulThenKill, "test"));
+        Assert.Equal(ProcessInvocationPhase.Stopped, stopped.Status.ProcessPhase);
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> stoppedUnit =
+            await runtime.GetExecutionUnitAsync(new ResourceRef<ExecutionUnit>(
+                unit.Metadata.Id,
+                unit.Metadata.Scope,
+                unit.Metadata.Generation));
+        Assert.Equal(ExecutionUnitPhase.Ready, stoppedUnit.Status.UnitPhase);
+        Assert.Empty(stoppedUnit.Status.ActiveProcesses);
+        Assert.Equal(ProcessCompletionKind.Stopped, stoppedUnit.Status.PrimaryProcessResult?.CompletionKind);
+
+        await runtime.DeleteProcessAsync(processRef);
+        Assert.Empty(await runtime.ListProcessesAsync());
+        await Assert.ThrowsAsync<RuntimeResourceOwnershipException>(() =>
+            runtime.GetProcessAsync(processRef).AsTask());
+    }
+
+    [Fact]
+    public async Task Retained_process_wait_preserves_result_until_delete_and_running_delete_fails_closed()
+    {
+        EnvironmentProviderRegistry registry = CreateRegistry();
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                PreferredHost = new ResourceRef<RuntimeHost>(
+                    host.Metadata.Id,
+                    host.Metadata.Scope,
+                    host.Metadata.Generation),
+            });
+        ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus> started =
+            await runtime.StartProcessAsync(new ProcessInvocationSpec
+            {
+                Target = unit.Status.Handle!.Value,
+                Command = new ProcessCommandSpec { FileName = "/bin/work" },
+            });
+        ResourceRef<ProcessInvocation> processRef = new(
+            started.Metadata.Id,
+            started.Metadata.Scope,
+            started.Metadata.Generation);
+
+        RuntimeResourceOwnershipException runningDelete =
+            await Assert.ThrowsAsync<RuntimeResourceOwnershipException>(() =>
+                runtime.DeleteProcessAsync(processRef).AsTask());
+        Assert.Equal("hpd.environment.process.delete-running", runningDelete.Diagnostic.Code.Value);
+
+        ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus> completed =
+            await runtime.WaitProcessAsync(processRef);
+        Assert.Equal(ProcessInvocationPhase.Exited, completed.Status.ProcessPhase);
+        Assert.Equal(ProcessCompletionKind.Completed, completed.Status.Result?.CompletionKind);
+        Assert.Equal(
+            ProcessCompletionKind.Completed,
+            (await runtime.GetProcessAsync(processRef)).Status.Result?.CompletionKind);
+    }
+
+    [Fact]
+    public async Task Retained_process_requires_explicit_provider_capability()
+    {
+        var provider = new RecordingRuntimeProvider("hpd.execution.ephemeral-only");
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                PreferredProvider = provider.ProviderId,
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                PreferredHost = new ResourceRef<RuntimeHost>(
+                    host.Metadata.Id,
+                    host.Metadata.Scope,
+                    host.Metadata.Generation),
+            });
+
+        RuntimeResourceOwnershipException unsupported =
+            await Assert.ThrowsAsync<RuntimeResourceOwnershipException>(() =>
+                runtime.StartProcessAsync(new ProcessInvocationSpec
+                {
+                    Target = unit.Status.Handle!.Value,
+                    Command = new ProcessCommandSpec { FileName = "/bin/work" },
+                }).AsTask());
+
+        Assert.Equal("hpd.environment.process.retention-unsupported", unsupported.Diagnostic.Code.Value);
+        Assert.DoesNotContain("process-start", provider.Calls);
     }
 
     [Fact]
@@ -1506,10 +1672,11 @@ public sealed class InMemoryEnvironmentRuntimeTests
             },
         };
 
-        await using IProcessInvocationHandle handle = await runtime.StartProcessAsync(spec);
+        ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus> process =
+            await runtime.StartProcessAsync(spec);
 
-        Assert.Same(spec.Isolation, handle.Spec.Isolation);
-        Assert.Empty(handle.Spec.ProviderExtensions);
+        Assert.Same(spec.Isolation, process.Spec.Isolation);
+        Assert.Empty(process.Spec.ProviderExtensions);
     }
 
     [Fact]
