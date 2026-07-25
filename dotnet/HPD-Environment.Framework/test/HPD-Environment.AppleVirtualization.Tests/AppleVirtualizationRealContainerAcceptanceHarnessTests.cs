@@ -701,7 +701,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
         File.Copy(baseEfi, efiA);
         File.Copy(baseEfi, efiB);
 
-        await using var helper = await RealHelperProcess.StartAsync(helperPath);
+        RealHelperProcess helper = await RealHelperProcess.StartAsync(helperPath);
         try
         {
             await StartPhysicalEfiHostAsync(helper, hostA, diskA, efiA, serialA, 1, 10);
@@ -803,28 +803,42 @@ public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
         }
         finally
         {
-            _ = await helper.TrySendAsync(
-                RealHostLifecycleRequest(AppleVirtualizationHelperOperation.HostStop, hostA, 200, hostStartGeneration: 2),
-                RealCleanupTimeout);
-            _ = await helper.TrySendAsync(
-                RealHostLifecycleRequest(AppleVirtualizationHelperOperation.HostDelete, hostA, 201, hostStartGeneration: 2),
-                RealCleanupTimeout);
-            _ = await helper.TrySendAsync(
-                RealHostLifecycleRequest(AppleVirtualizationHelperOperation.HostStop, hostB, 202, hostStartGeneration: 1),
-                RealCleanupTimeout);
-            _ = await helper.TrySendAsync(
-                RealHostLifecycleRequest(AppleVirtualizationHelperOperation.HostDelete, hostB, 203, hostStartGeneration: 1),
-                RealCleanupTimeout);
+            var cleanupFailures = new List<string>();
+            foreach ((string HostId, ulong Generation, long Sequence) host in new[]
+            {
+                (hostA, 2UL, 200L),
+                (hostB, 1UL, 300L),
+            })
+            {
+                try
+                {
+                    await CleanupPhysicalHostAsync(
+                        helper,
+                        host.HostId,
+                        host.Generation,
+                        host.Sequence,
+                        RealCleanupTimeout);
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailures.Add(host.HostId + ": " + exception.Message);
+                }
+            }
+
+            await helper.DisposeAsync();
             try
             {
                 Directory.Delete(scratchRoot, recursive: true);
             }
-            catch (IOException)
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException)
             {
+                cleanupFailures.Add("scratch cleanup: " + exception.Message);
             }
-            catch (UnauthorizedAccessException)
-            {
-            }
+
+            cleanupFailures.Should().BeEmpty(
+                "both native VMs must prove deletion before scratch files are removed; " +
+                "the helper is terminated before fallback file cleanup");
         }
     }
 
@@ -1293,6 +1307,113 @@ public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
             RealCleanupTimeout);
         started.Error.Should().BeNull();
         _ = await PollForHostPhaseAsync(helper, hostId, RuntimeHostPhase.Running, RealBootTimeout);
+    }
+
+    private static async Task CleanupPhysicalHostAsync(
+        RealHelperProcess helper,
+        string hostId,
+        ulong hostStartGeneration,
+        long sequence,
+        TimeSpan timeout)
+    {
+        using var cancellation = new CancellationTokenSource(timeout);
+        AppleVirtualizationHelperEnvelope stop = await helper.SendAsync(
+            RealHostLifecycleRequest(
+                AppleVirtualizationHelperOperation.HostStop,
+                hostId,
+                sequence++,
+                hostStartGeneration: hostStartGeneration),
+            timeout,
+            cancellation.Token);
+        if (IsMissingPhysicalHost(stop))
+        {
+            return;
+        }
+        ThrowOnPhysicalCleanupError(stop, hostId, "stop");
+
+        RuntimeHostPhase phase = stop.HostStatusResponse?.HostPhase ?? RuntimeHostPhase.Unknown;
+        while (phase is not (RuntimeHostPhase.Stopped or RuntimeHostPhase.Failed or
+            RuntimeHostPhase.Deleted))
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(50), cancellation.Token);
+            AppleVirtualizationHelperEnvelope status = await helper.SendAsync(
+                RealHostLifecycleRequest(
+                    AppleVirtualizationHelperOperation.HostStatus,
+                    hostId,
+                    sequence++,
+                    hostStartGeneration: hostStartGeneration),
+                timeout,
+                cancellation.Token);
+            if (IsMissingPhysicalHost(status))
+            {
+                return;
+            }
+            ThrowOnPhysicalCleanupError(status, hostId, "status after stop");
+            phase = status.HostStatusResponse?.HostPhase ?? RuntimeHostPhase.Unknown;
+        }
+
+        while (phase != RuntimeHostPhase.Deleted)
+        {
+            AppleVirtualizationHelperEnvelope delete = await helper.SendAsync(
+                RealHostLifecycleRequest(
+                    AppleVirtualizationHelperOperation.HostDelete,
+                    hostId,
+                    sequence++,
+                    hostStartGeneration: hostStartGeneration),
+                timeout,
+                cancellation.Token);
+            if (IsMissingPhysicalHost(delete))
+            {
+                return;
+            }
+            ThrowOnPhysicalCleanupError(delete, hostId, "delete");
+            phase = delete.HostStatusResponse?.HostPhase ?? RuntimeHostPhase.Unknown;
+            if (phase == RuntimeHostPhase.Deleted)
+            {
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50), cancellation.Token);
+            AppleVirtualizationHelperEnvelope status = await helper.SendAsync(
+                RealHostLifecycleRequest(
+                    AppleVirtualizationHelperOperation.HostStatus,
+                    hostId,
+                    sequence++,
+                    hostStartGeneration: hostStartGeneration),
+                timeout,
+                cancellation.Token);
+            if (IsMissingPhysicalHost(status))
+            {
+                return;
+            }
+            ThrowOnPhysicalCleanupError(status, hostId, "status during delete");
+            phase = status.HostStatusResponse?.HostPhase ?? phase;
+        }
+    }
+
+    private static bool IsMissingPhysicalHost(AppleVirtualizationHelperEnvelope response) =>
+        response.ResponseStatus == AppleVirtualizationHelperResponseStatus.Error &&
+        response.Error?.Code is { } code &&
+        (code.Contains("HostUnknown", StringComparison.Ordinal) ||
+            code.Contains("HostNotFound", StringComparison.Ordinal));
+
+    private static void ThrowOnPhysicalCleanupError(
+        AppleVirtualizationHelperEnvelope response,
+        string hostId,
+        string operation)
+    {
+        if (response.ResponseStatus == AppleVirtualizationHelperResponseStatus.Error)
+        {
+            throw new InvalidOperationException(
+                $"Physical cleanup {operation} failed for '{hostId}': " +
+                $"{response.Error?.Code ?? "unknown"}: {response.Error?.Message ?? "no message"}");
+        }
+        if (response.HostStatusResponse is null ||
+            !string.Equals(response.HostStatusResponse.HostId, hostId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Physical cleanup {operation} returned a missing or mismatched host identity for '{hostId}'.");
+        }
     }
 
     private static async Task<AppleVirtualizationGuestAgentReadinessProbeResponse> ObservePhysicalGuestAsync(
@@ -2379,7 +2500,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
             TimeSpan timeout) =>
             await SendAsync(envelope, timeout, CancellationToken.None).ConfigureAwait(false);
 
-        private async Task<AppleVirtualizationHelperEnvelope> SendAsync(
+        public async Task<AppleVirtualizationHelperEnvelope> SendAsync(
             AppleVirtualizationHelperEnvelope envelope,
             TimeSpan timeout,
             CancellationToken cancellationToken)
