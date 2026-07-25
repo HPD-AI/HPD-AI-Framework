@@ -1,9 +1,13 @@
 import base64
 import importlib.util
+import json
 import os
 import pathlib
+import socket
 import subprocess
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -204,6 +208,86 @@ class ProcessExecutionTests(unittest.TestCase):
 
         self.assertTrue(result["Output"]["OutputDrainTimedOut"])
         self.assertEqual(0, state["output_chunks"][-1]["Flags"] & 1)
+
+    def test_concurrent_connections_allow_stop_to_interrupt_blocked_wait(self):
+        start = self.agent.process_start({
+            "RequestId": "start-concurrent",
+            "SequenceNumber": 1,
+            "ProcessStartRequest": {
+                "ProcessId": "process-concurrent",
+                "UnitId": "unit-1",
+                "Command": {
+                    "FileName": "/bin/sh",
+                    "Arguments": ["-c", "printf started; exec sleep 30"],
+                },
+                "Io": {"MergeStandardError": False},
+            },
+        })
+        self.assertEqual(3, start["ProcessStatusResponse"]["ProcessPhase"])
+
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(4)
+        server = MODULE.ConcurrentConnectionServer(self.agent, listener, max_workers=2)
+        server_thread = threading.Thread(target=server.serve_forever)
+        server_thread.start()
+
+        responses = {}
+
+        def exchange(name, request):
+            with socket.create_connection(listener.getsockname(), timeout=2.0) as connection:
+                connection.settimeout(5.0)
+                stream = connection.makefile("rwb", buffering=0)
+                stream.write(
+                    json.dumps(request, separators=(",", ":")).encode("utf-8") + b"\n")
+                responses[name] = json.loads(stream.readline().decode("utf-8"))
+                stream.close()
+
+        wait_thread = threading.Thread(target=exchange, args=("wait", {
+            "RequestId": "wait-concurrent",
+            "SequenceNumber": 2,
+            "Operation": 27,
+            "ProcessLifecycleRequest": {
+                "ProcessId": "process-concurrent",
+                "TimeoutMilliseconds": 10000,
+            },
+        }))
+        wait_thread.start()
+        time.sleep(0.1)
+
+        stop_thread = threading.Thread(target=exchange, args=("stop", {
+            "RequestId": "stop-concurrent",
+            "SequenceNumber": 3,
+            "Operation": 26,
+            "ProcessStopRequest": {"ProcessId": "process-concurrent"},
+        }))
+        stop_thread.start()
+
+        stop_thread.join(timeout=2.0)
+        wait_thread.join(timeout=5.0)
+        server.shutdown()
+        server_thread.join(timeout=2.0)
+
+        self.assertFalse(stop_thread.is_alive(), "stop connection remained blocked behind wait")
+        self.assertFalse(wait_thread.is_alive(), "wait did not observe the stopped process")
+        self.assertFalse(server_thread.is_alive(), "connection server did not shut down")
+        self.assertEqual(
+            "process-concurrent",
+            responses["stop"]["ProcessStatusResponse"]["ProcessId"])
+        self.assertEqual(
+            "process-concurrent",
+            responses["wait"]["ProcessStatusResponse"]["ProcessId"])
+        self.assertEqual(6, responses["wait"]["ProcessStatusResponse"]["ProcessPhase"])
+        self.assertEqual(
+            {"started"},
+            {
+                base64.b64decode(
+                    responses["wait"]["ProcessStatusResponse"]["Result"]["Output"]
+                    ["Stdout"]["CapturedBytes"]).decode("utf-8")
+            })
+        self.assertEqual(
+            1,
+            self.agent.get_process("process-concurrent")["finalization_count"])
 
 
 if __name__ == "__main__":

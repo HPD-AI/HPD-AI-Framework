@@ -5,7 +5,6 @@ import datetime
 import hashlib
 import json
 import os
-import selectors
 import signal
 import shutil
 import socket
@@ -59,6 +58,31 @@ class GuestAgent:
         self.guest_boot_generation = self._boot_generation(self.guest_boot_id)
         self.guest_agent_generation, self.engine_generations = self._load_generation_state()
         self.processes = {}
+        self.processes_lock = threading.Lock()
+
+    def get_process(self, process_id):
+        with self.processes_lock:
+            return self.processes.get(process_id)
+
+    def add_process(self, process_id, state):
+        with self.processes_lock:
+            if process_id in self.processes:
+                return False
+            self.processes[process_id] = state
+            return True
+
+    def shutdown(self):
+        with self.processes_lock:
+            states = list(self.processes.values())
+        for state in states:
+            popen = state.get("popen")
+            if popen is None:
+                continue
+            try:
+                if popen.poll() is None:
+                    popen.terminate()
+            except Exception:
+                pass
 
     def _default_boot_id(self):
         try:
@@ -631,8 +655,20 @@ class GuestAgent:
             "output_drain_timeout_seconds": self.process_output_drain_timeout(start),
             "output_drain_timed_out": False,
             "result": None,
+            "finalization_lock": threading.Lock(),
+            "finalization_count": 0,
         }
-        self.processes[process_id] = state
+        if not self.add_process(process_id, state):
+            try:
+                popen.terminate()
+            except Exception:
+                pass
+            return self.error(
+                request,
+                22,
+                "AppleVirtualization.GuestAgentProcessAlreadyExists",
+                "A guest process with this identity already exists.",
+                retryable=False)
         self.start_process_output_readers(state)
         payload = self.response_base(request, 22)
         payload["ProcessStatusResponse"] = {
@@ -694,7 +730,7 @@ class GuestAgent:
     def process_status(self, request):
         status_request = request.get("ProcessStatusRequest") or {}
         process_id = str(status_request.get("ProcessId") or request.get("ProcessId") or "")
-        state = self.processes.get(process_id)
+        state = self.get_process(process_id)
         if state is None:
             return self.error(request, 23, "AppleVirtualization.GuestAgentProcessMissing", "Guest process was not found.", retryable=False)
         return self.process_status_payload(request, process_id, state, 23)
@@ -702,7 +738,7 @@ class GuestAgent:
     def process_stdin(self, request):
         stdin_request = request.get("ProcessStdinRequest") or {}
         process_id = str(stdin_request.get("ProcessId") or request.get("ProcessId") or "")
-        state = self.processes.get(process_id)
+        state = self.get_process(process_id)
         if state is None:
             return self.error(request, 24, "AppleVirtualization.GuestAgentProcessMissing", "Guest process was not found.", retryable=False)
         pipe = getattr(state["popen"], "stdin", None)
@@ -721,7 +757,7 @@ class GuestAgent:
     def process_signal(self, request):
         signal_request = request.get("ProcessSignalRequest") or {}
         process_id = str(signal_request.get("ProcessId") or request.get("ProcessId") or "")
-        state = self.processes.get(process_id)
+        state = self.get_process(process_id)
         if state is None:
             return self.error(request, 25, "AppleVirtualization.GuestAgentProcessMissing", "Guest process was not found.", retryable=False)
         signal_name = self.case_dict(signal_request.get("Signal")).get("Name") or "SIGTERM"
@@ -734,7 +770,7 @@ class GuestAgent:
     def process_stop(self, request):
         stop_request = request.get("ProcessStopRequest") or {}
         process_id = str(stop_request.get("ProcessId") or request.get("ProcessId") or "")
-        state = self.processes.get(process_id)
+        state = self.get_process(process_id)
         if state is None:
             return self.error(request, 26, "AppleVirtualization.GuestAgentProcessMissing", "Guest process was not found.", retryable=False)
         popen = state["popen"]
@@ -764,35 +800,43 @@ class GuestAgent:
         return payload
 
     def finalize_process_output(self, process_id, state):
-        deadline = time.monotonic() + state.get("output_drain_timeout_seconds", 2.0)
-        for reader in state.get("output_readers", []):
-            reader.join(timeout=max(0.0, deadline - time.monotonic()))
-        readers_complete = bool(state.get("output_readers_complete", False))
-        state["output_drain_timed_out"] = not readers_complete
-        if not state.get("output_readers") and not state.get("legacy_output_collected", False):
-            stdout, stderr = state["popen"].communicate(timeout=0)
-            state["stdout"] = bytearray(stdout or b"")
-            state["stderr"] = bytearray(
-                b"" if state.get("merged_standard_error", False) else (stderr or b""))
-            self.capture_legacy_process_output(state, 0, stdout or b"")
-            if not state.get("merged_standard_error", False):
-                self.capture_legacy_process_output(state, 1, stderr or b"")
-            state["legacy_output_collected"] = True
-        with state["output_lock"]:
-            if readers_complete and state["output_chunks"]:
-                state["output_chunks"][-1]["Flags"] |= 1
-                state["output_chunks"][-1]["ProcessId"] = process_id
-        exited_at = self.timestamp()
-        state["result"] = self.process_result(
-            process_id, state["popen"], state, exited_at)
-        for pipe_name in (("stdin", "stdout", "stderr") if readers_complete else ("stdin",)):
-            pipe = getattr(state["popen"], pipe_name, None)
-            if pipe is not None and hasattr(pipe, "close"):
-                try:
-                    pipe.close()
-                except Exception:
-                    pass
-        return state["result"]
+        finalization_lock = state.setdefault("finalization_lock", threading.Lock())
+        with finalization_lock:
+            if state.get("result") is not None and not (
+                    state.get("output_drain_timed_out") and
+                    state.get("output_readers_complete")):
+                return state["result"]
+
+            deadline = time.monotonic() + state.get("output_drain_timeout_seconds", 2.0)
+            for reader in state.get("output_readers", []):
+                reader.join(timeout=max(0.0, deadline - time.monotonic()))
+            readers_complete = bool(state.get("output_readers_complete", False))
+            state["output_drain_timed_out"] = not readers_complete
+            if not state.get("output_readers") and not state.get("legacy_output_collected", False):
+                stdout, stderr = state["popen"].communicate(timeout=0)
+                state["stdout"] = bytearray(stdout or b"")
+                state["stderr"] = bytearray(
+                    b"" if state.get("merged_standard_error", False) else (stderr or b""))
+                self.capture_legacy_process_output(state, 0, stdout or b"")
+                if not state.get("merged_standard_error", False):
+                    self.capture_legacy_process_output(state, 1, stderr or b"")
+                state["legacy_output_collected"] = True
+            with state["output_lock"]:
+                if readers_complete and state["output_chunks"]:
+                    state["output_chunks"][-1]["Flags"] |= 1
+                    state["output_chunks"][-1]["ProcessId"] = process_id
+            exited_at = self.timestamp()
+            state["result"] = self.process_result(
+                process_id, state["popen"], state, exited_at)
+            state["finalization_count"] = state.get("finalization_count", 0) + 1
+            for pipe_name in (("stdin", "stdout", "stderr") if readers_complete else ("stdin",)):
+                pipe = getattr(state["popen"], pipe_name, None)
+                if pipe is not None and hasattr(pipe, "close"):
+                    try:
+                        pipe.close()
+                    except Exception:
+                        pass
+            return state["result"]
 
     def is_isolation_required(self, isolation):
         if not isinstance(isolation, dict):
@@ -1167,7 +1211,7 @@ class GuestAgent:
     def process_wait(self, request):
         lifecycle = request.get("ProcessLifecycleRequest") or {}
         process_id = str(lifecycle.get("ProcessId") or request.get("ProcessId") or "")
-        state = self.processes.get(process_id)
+        state = self.get_process(process_id)
         if state is None:
             return self.error(request, 27, "AppleVirtualization.GuestAgentProcessMissing", "Guest process was not found.", retryable=False)
 
@@ -1211,7 +1255,7 @@ class GuestAgent:
     def process_read_output(self, request):
         lifecycle = request.get("ProcessLifecycleRequest") or {}
         process_id = str(lifecycle.get("ProcessId") or request.get("ProcessId") or "")
-        state = self.processes.get(process_id)
+        state = self.get_process(process_id)
         if state is None:
             return self.error(request, 28, "AppleVirtualization.GuestAgentProcessMissing", "Guest process was not found.", retryable=False)
 
@@ -1947,21 +1991,107 @@ def serve_stdio(agent):
     serve_stream(agent, sys.stdin.buffer, sys.stdout.buffer)
 
 
+class ConcurrentConnectionServer:
+    def __init__(self, agent, listener, max_workers=16):
+        self.agent = agent
+        self.listener = listener
+        self.max_workers = max(1, int(max_workers))
+        self.worker_slots = threading.BoundedSemaphore(self.max_workers)
+        self.workers = set()
+        self.workers_lock = threading.Lock()
+        self.shutdown_requested = threading.Event()
+        self.shutdown_lock = threading.Lock()
+        self.agent_shutdown = False
+
+    def serve_forever(self):
+        self.listener.settimeout(1.0)
+        while not self.shutdown_requested.is_set():
+            try:
+                connection, _ = self.listener.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                if self.shutdown_requested.is_set():
+                    break
+                raise
+
+            if not self.worker_slots.acquire(blocking=False):
+                connection.close()
+                continue
+
+            worker = threading.Thread(
+                target=self._serve_connection,
+                args=(connection,),
+                daemon=False)
+            with self.workers_lock:
+                self.workers.add(worker)
+            worker.start()
+
+    def _serve_connection(self, connection):
+        try:
+            with connection:
+                reader = connection.makefile("rb", buffering=0)
+                writer = connection.makefile("wb", buffering=0)
+                try:
+                    serve_stream(self.agent, reader, writer)
+                finally:
+                    reader.close()
+                    writer.close()
+        except (BrokenPipeError, ConnectionError, OSError, ValueError, json.JSONDecodeError):
+            pass
+        finally:
+            with self.workers_lock:
+                self.workers.discard(threading.current_thread())
+            self.worker_slots.release()
+
+    def shutdown(self, timeout=5.0):
+        self.shutdown_requested.set()
+        try:
+            self.listener.close()
+        except OSError:
+            pass
+        with self.shutdown_lock:
+            if not self.agent_shutdown:
+                self.agent_shutdown = True
+                self.agent.shutdown()
+
+        deadline = time.monotonic() + max(0.0, timeout)
+        while True:
+            with self.workers_lock:
+                workers = list(self.workers)
+            if not workers:
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            for worker in workers:
+                worker.join(timeout=min(remaining, 0.1))
+
+
 def serve_vsock(agent, port):
     listener = socket.socket(AF_VSOCK, socket.SOCK_STREAM)
     listener.bind((VMADDR_CID_ANY, port))
-    listener.listen(16)
+    max_workers = max(
+        1,
+        int(os.environ.get("HPD_GUEST_AGENT_MAX_CONNECTIONS", "16")))
+    listener.listen(max_workers)
+    server = ConcurrentConnectionServer(agent, listener, max_workers)
+    previous_handlers = {}
 
-    selector = selectors.DefaultSelector()
-    selector.register(listener, selectors.EVENT_READ)
-    while True:
-        for key, _ in selector.select(timeout=1.0):
-            if key.fileobj is listener:
-                connection, _ = listener.accept()
-                with connection:
-                    reader = connection.makefile("rb", buffering=0)
-                    writer = connection.makefile("wb", buffering=0)
-                    serve_stream(agent, reader, writer)
+    def request_shutdown(_signum, _frame):
+        server.shutdown()
+
+    if threading.current_thread() is threading.main_thread():
+        for signal_number in (signal.SIGINT, signal.SIGTERM):
+            previous_handlers[signal_number] = signal.getsignal(signal_number)
+            signal.signal(signal_number, request_shutdown)
+
+    try:
+        server.serve_forever()
+    finally:
+        server.shutdown()
+        for signal_number, handler in previous_handlers.items():
+            signal.signal(signal_number, handler)
 
 
 def main():
