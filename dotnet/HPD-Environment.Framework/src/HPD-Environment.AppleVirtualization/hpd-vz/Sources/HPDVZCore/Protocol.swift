@@ -96,6 +96,7 @@ public enum Operation: Int, CaseIterable {
     case authorityRevoke = 46
     case engineStatus = 47
     case engineProvision = 48
+    case processStatus = 49
 
     public var wireName: String {
         switch self {
@@ -148,6 +149,7 @@ public enum Operation: Int, CaseIterable {
         case .authorityRevoke: "authority.revoke"
         case .engineStatus: "engine.status"
         case .engineProvision: "engine.provision"
+        case .processStatus: "process.status"
         }
     }
 

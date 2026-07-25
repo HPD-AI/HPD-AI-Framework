@@ -71,10 +71,16 @@ Retained process lifecycle follows these rules:
 - one runtime-owned pump consumes each provider output stream. Reads replay by
   process sequence from independently byte-bounded stdout/stderr retention, and
   `follow` waits for that same pump rather than opening another provider reader.
+  Providers whose transports do not support unsolicited events must repeatedly
+  poll their cursor-based output operation until terminal status and output drain.
   Retained oversized chunks are tail-bounded and marked truncated.
 - process observation is wall-clock bounded even when a provider ignores its
   cancellation token. Observation failure degrades the retained snapshot without
-  releasing ownership.
+  releasing ownership. Provider observation must query its authoritative process
+  service rather than merely return a cached runtime ledger entry.
+- start observation failure performs bounded compensating stop/wait/release before
+  returning. Explicit deletion completes bounded local pump/handle cleanup before
+  irreversibly releasing provider state, so a failed attempt remains retryable.
 - execution-unit and host deletion stop and release their retained processes
   before releasing the owning unit or host.
 

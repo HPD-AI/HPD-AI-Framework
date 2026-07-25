@@ -108,6 +108,7 @@ public enum AppleVirtualizationHelperOperation
     AuthorityRevoke,
     EngineStatus,
     EngineProvision,
+    ProcessStatus,
 }
 
 public enum AppleVirtualizationHelperEventKind
@@ -1396,6 +1397,7 @@ public static class AppleVirtualizationHelperOperationNames
             [AppleVirtualizationHelperOperation.AuthorityRevoke] = "authority.revoke",
             [AppleVirtualizationHelperOperation.EngineStatus] = "engine.status",
             [AppleVirtualizationHelperOperation.EngineProvision] = "engine.provision",
+            [AppleVirtualizationHelperOperation.ProcessStatus] = "process.status",
         };
 
     public static string ToWireName(AppleVirtualizationHelperOperation operation) => Names[operation];

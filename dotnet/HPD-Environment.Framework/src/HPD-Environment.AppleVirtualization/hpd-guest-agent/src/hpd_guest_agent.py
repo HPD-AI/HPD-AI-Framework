@@ -10,6 +10,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 import uuid
 
@@ -172,6 +173,9 @@ class GuestAgent:
 
         if operation == 22:
             return self.process_start(request)
+
+        if operation == 23:
+            return self.process_status(request)
 
         if operation == 27:
             return self.process_wait(request)
@@ -597,13 +601,21 @@ class GuestAgent:
         except Exception as exc:
             return self.error(request, 22, "AppleVirtualization.GuestAgentProcessStartFailed", "Failed to start guest process: " + str(exc), retryable=False)
 
-        self.processes[process_id] = {
+        state = {
             "popen": popen,
             "started_at": self.timestamp(),
-            "stdout": b"",
-            "stderr": b"",
+            "stdout": bytearray(),
+            "stderr": bytearray(),
             "merged_standard_error": merge_standard_error,
+            "output_lock": threading.Lock(),
+            "output_chunks": [],
+            "output_sequence": 0,
+            "output_readers": [],
+            "output_readers_complete": False,
+            "result": None,
         }
+        self.processes[process_id] = state
+        self.start_process_output_readers(state)
         payload = self.response_base(request, 22)
         payload["ProcessStatusResponse"] = {
             "ProcessId": process_id,
@@ -614,6 +626,99 @@ class GuestAgent:
             "Conditions": [],
         }
         return payload
+
+    def start_process_output_readers(self, state):
+        popen = state["popen"]
+        streams = [(getattr(popen, "stdout", None), 0)]
+        if not state.get("merged_standard_error", False):
+            streams.append((getattr(popen, "stderr", None), 1))
+        streams = [(pipe, stream) for pipe, stream in streams if pipe is not None and hasattr(pipe, "read")]
+        if not streams:
+            state["output_readers_complete"] = True
+            return
+
+        remaining = {"count": len(streams)}
+
+        def read_stream(pipe, stream):
+            try:
+                while True:
+                    chunk = pipe.read(4096)
+                    if not chunk:
+                        break
+                    with state["output_lock"]:
+                        state["output_sequence"] += 1
+                        state["output_chunks"].append({
+                            "ProcessId": "",
+                            "Stream": stream,
+                            "Sequence": state["output_sequence"],
+                            "ObservedAt": self.timestamp(),
+                            "Bytes": base64.b64encode(chunk).decode("ascii"),
+                            "Flags": 0,
+                        })
+                        target = "stdout" if stream == 0 else "stderr"
+                        state[target].extend(chunk)
+            finally:
+                with state["output_lock"]:
+                    remaining["count"] -= 1
+                    if remaining["count"] == 0:
+                        state["output_readers_complete"] = True
+
+        for pipe, stream in streams:
+            reader = threading.Thread(target=read_stream, args=(pipe, stream), daemon=True)
+            state["output_readers"].append(reader)
+            reader.start()
+
+    def process_status(self, request):
+        status_request = request.get("ProcessStatusRequest") or {}
+        process_id = str(status_request.get("ProcessId") or request.get("ProcessId") or "")
+        state = self.processes.get(process_id)
+        if state is None:
+            return self.error(request, 23, "AppleVirtualization.GuestAgentProcessMissing", "Guest process was not found.", retryable=False)
+        return self.process_status_payload(request, process_id, state, 23)
+
+    def process_status_payload(self, request, process_id, state, operation):
+        popen = state["popen"]
+        return_code = popen.poll()
+        if return_code is not None and state.get("result") is None:
+            self.finalize_process_output(process_id, state)
+        payload = self.response_base(request, operation)
+        status = {
+            "ProcessId": process_id,
+            "ProcessPhase": 3 if return_code is None else 6,
+            "IoState": 1 if return_code is None else 4,
+            "ProviderProcessId": "guest-" + process_id,
+            "SystemProcessId": popen.pid,
+            "Conditions": [],
+        }
+        if state.get("result") is not None:
+            status["Result"] = state["result"]
+        payload["ProcessStatusResponse"] = status
+        return payload
+
+    def finalize_process_output(self, process_id, state):
+        for reader in state.get("output_readers", []):
+            reader.join(timeout=1.0)
+        if not state.get("output_readers") and not state.get("legacy_output_collected", False):
+            stdout, stderr = state["popen"].communicate(timeout=0)
+            state["stdout"] = bytearray(stdout or b"")
+            state["stderr"] = bytearray(
+                b"" if state.get("merged_standard_error", False) else (stderr or b""))
+            state["legacy_output_collected"] = True
+        with state["output_lock"]:
+            if state["output_chunks"]:
+                state["output_chunks"][-1]["Flags"] |= 1
+                state["output_chunks"][-1]["ProcessId"] = process_id
+        exited_at = self.timestamp()
+        state["result"] = self.process_result(
+            process_id, state["popen"], state, exited_at)
+        for pipe_name in ("stdin", "stdout", "stderr"):
+            pipe = getattr(state["popen"], pipe_name, None)
+            if pipe is not None and hasattr(pipe, "close"):
+                try:
+                    pipe.close()
+                except Exception:
+                    pass
+        return state["result"]
 
     def is_isolation_required(self, isolation):
         if not isinstance(isolation, dict):
@@ -999,13 +1104,18 @@ class GuestAgent:
 
         popen = state["popen"]
         try:
-            stdout, stderr = popen.communicate(timeout=timeout_seconds)
+            if state.get("output_readers"):
+                popen.wait(timeout=timeout_seconds)
+            else:
+                stdout, stderr = popen.communicate(timeout=timeout_seconds)
+                state["stdout"] = bytearray(stdout or b"")
+                state["stderr"] = bytearray(
+                    b"" if state.get("merged_standard_error", False) else (stderr or b""))
+                state["legacy_output_collected"] = True
         except subprocess.TimeoutExpired:
             return self.error(request, 27, "AppleVirtualization.GuestAgentProcessWaitTimeout", "Timed out waiting for guest process.", retryable=True)
 
-        state["stdout"] = stdout or b""
-        state["stderr"] = b"" if state.get("merged_standard_error", False) else (stderr or b"")
-        exited_at = self.timestamp()
+        result = state.get("result") or self.finalize_process_output(process_id, state)
         payload = self.response_base(request, 27)
         payload["ProcessStatusResponse"] = {
             "ProcessId": process_id,
@@ -1013,7 +1123,7 @@ class GuestAgent:
             "IoState": 4,
             "ProviderProcessId": "guest-" + process_id,
             "SystemProcessId": popen.pid,
-            "Result": self.process_result(process_id, popen, state, exited_at),
+            "Result": result,
             "Conditions": [],
         }
         return payload
@@ -1025,20 +1135,22 @@ class GuestAgent:
         if state is None:
             return self.error(request, 28, "AppleVirtualization.GuestAgentProcessMissing", "Guest process was not found.", retryable=False)
 
-        payload = self.response_base(request, 28)
-        payload["ProcessStatusResponse"] = {
-            "ProcessId": process_id,
-            "ProcessPhase": 3 if state["popen"].poll() is None else 6,
-            "IoState": 1 if state["popen"].poll() is None else 4,
-            "ProviderProcessId": "guest-" + process_id,
-            "SystemProcessId": state["popen"].pid,
-            "Conditions": [],
-        }
+        payload = self.process_status_payload(request, process_id, state, 28)
+        after_sequence = lifecycle.get("AfterOutputSequence")
+        after_sequence = int(after_sequence) if isinstance(after_sequence, (int, float)) else 0
+        with state["output_lock"]:
+            chunk = next(
+                (item.copy() for item in state["output_chunks"]
+                 if item["Sequence"] > after_sequence),
+                None)
+        if chunk is not None:
+            chunk["ProcessId"] = process_id
+            payload["ProcessOutputEvent"] = chunk
         return payload
 
     def process_result(self, process_id, popen, state, exited_at):
-        stdout = state.get("stdout", b"")
-        stderr = state.get("stderr", b"")
+        stdout = bytes(state.get("stdout", b""))
+        stderr = bytes(state.get("stderr", b""))
         merged_standard_error = state.get("merged_standard_error", False)
         return {
             "ProcessId": {"Value": process_id},

@@ -1584,7 +1584,9 @@ public sealed class InMemoryEnvironmentRuntimeTests
     {
         var provider = new RecordingRuntimeProvider("hpd.execution.ephemeral-only");
         var registry = new EnvironmentProviderRegistry();
-        registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
+        registry.RegisterModule(new RecordingRuntimeProviderModule(
+            provider,
+            exposeRetainedProcess: false));
         var runtime = new InMemoryEnvironmentRuntime(registry);
         ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
             await runtime.EnsureHostAsync(new RuntimeHostSpec
@@ -1611,6 +1613,158 @@ public sealed class InMemoryEnvironmentRuntimeTests
 
         Assert.Equal("hpd.environment.process.retention-unsupported", unsupported.Diagnostic.Code.Value);
         Assert.DoesNotContain("process-start", provider.Calls);
+    }
+
+    [Fact]
+    public async Task Retained_process_start_observation_is_hard_bounded_and_compensates()
+    {
+        var provider = new RecordingRuntimeProvider("hpd.execution.process-start-timeout")
+        {
+            IgnoreRetainedStatusCancellation = true,
+        };
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
+        var runtime = new InMemoryEnvironmentRuntime(
+            registry,
+            processObservationTimeout: TimeSpan.FromMilliseconds(25));
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                PreferredProvider = provider.ProviderId,
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                PreferredHost = new ResourceRef<RuntimeHost>(
+                    host.Metadata.Id,
+                    host.Metadata.Scope,
+                    host.Metadata.Generation),
+            });
+
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            runtime.StartProcessAsync(new ProcessInvocationSpec
+            {
+                Target = unit.Status.Handle!.Value,
+                Command = new ProcessCommandSpec { FileName = "/bin/work" },
+            }).AsTask());
+
+        Assert.Contains("process-retained-stop", provider.Calls);
+        Assert.Contains("process-release", provider.Calls);
+        Assert.Empty(await runtime.ListProcessesAsync());
+        _ = await runtime.GetExecutionUnitAsync(new ResourceRef<ExecutionUnit>(
+            unit.Metadata.Id,
+            unit.Metadata.Scope,
+            unit.Metadata.Generation));
+    }
+
+    [Fact]
+    public async Task Retained_process_release_does_not_drop_provider_state_before_local_cleanup()
+    {
+        var provider = new RecordingRuntimeProvider("hpd.execution.process-release-atomic")
+        {
+            IgnoreOutputCancellation = true,
+        };
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
+        var runtime = new InMemoryEnvironmentRuntime(
+            registry,
+            processObservationTimeout: TimeSpan.FromMilliseconds(25));
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                PreferredProvider = provider.ProviderId,
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                PreferredHost = new ResourceRef<RuntimeHost>(
+                    host.Metadata.Id,
+                    host.Metadata.Scope,
+                    host.Metadata.Generation),
+            });
+        ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus> started =
+            await runtime.StartProcessAsync(new ProcessInvocationSpec
+            {
+                Target = unit.Status.Handle!.Value,
+                Command = new ProcessCommandSpec { FileName = "/bin/work" },
+            });
+        ResourceRef<ProcessInvocation> process = new(
+            started.Metadata.Id,
+            started.Metadata.Scope,
+            started.Metadata.Generation);
+        _ = await runtime.WaitProcessAsync(process);
+
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            runtime.DeleteProcessAsync(process).AsTask());
+
+        Assert.DoesNotContain("process-release", provider.Calls);
+        Assert.Equal(started.Metadata.Id, (await runtime.GetProcessAsync(process)).Metadata.Id);
+
+        provider.ReleaseIgnoredOutput.TrySetResult();
+        await runtime.DeleteProcessAsync(process);
+        Assert.Contains("process-release", provider.Calls);
+        await Assert.ThrowsAsync<RuntimeResourceOwnershipException>(() =>
+            runtime.GetProcessAsync(process).AsTask());
+    }
+
+    [Fact]
+    public async Task Retained_output_pump_repeats_cursor_reads_until_final_chunk()
+    {
+        var provider = new RecordingRuntimeProvider("hpd.execution.process-output-poll");
+        provider.CursorOutputChunks.Enqueue(new ProcessOutputChunk(
+            Handle<ProcessInvocation>(TargetRouteSegmentKind.ProcessInvocation, "provider-process-1"),
+            ProcessOutputStream.Stdout,
+            1,
+            DateTimeOffset.UtcNow,
+            new byte[] { 1 },
+            ProcessOutputChunkFlags.None));
+        provider.CursorOutputChunks.Enqueue(new ProcessOutputChunk(
+            Handle<ProcessInvocation>(TargetRouteSegmentKind.ProcessInvocation, "provider-process-1"),
+            ProcessOutputStream.Stdout,
+            2,
+            DateTimeOffset.UtcNow,
+            new byte[] { 2 },
+            ProcessOutputChunkFlags.Final));
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                PreferredProvider = provider.ProviderId,
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                PreferredHost = new ResourceRef<RuntimeHost>(
+                    host.Metadata.Id,
+                    host.Metadata.Scope,
+                    host.Metadata.Generation),
+            });
+        ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus> started =
+            await runtime.StartProcessAsync(new ProcessInvocationSpec
+            {
+                Target = unit.Status.Handle!.Value,
+                Command = new ProcessCommandSpec { FileName = "/bin/work" },
+            });
+        ResourceRef<ProcessInvocation> process = new(
+            started.Metadata.Id,
+            started.Metadata.Scope,
+            started.Metadata.Generation);
+
+        var chunks = new List<ProcessOutputChunk>();
+        await foreach (ProcessOutputChunk chunk in runtime.ReadProcessOutputAsync(
+            process,
+            follow: true))
+        {
+            chunks.Add(chunk);
+        }
+
+        Assert.Equal([1L, 2L], chunks.Select(chunk => chunk.Sequence));
+        Assert.True(provider.Calls.Count(call => call == "process-read-output") >= 2);
     }
 
     [Fact]
@@ -1994,7 +2148,9 @@ public sealed class InMemoryEnvironmentRuntimeTests
         }
     }
 
-    private sealed class RecordingRuntimeProviderModule(RecordingRuntimeProvider provider) : IProviderModule
+    private sealed class RecordingRuntimeProviderModule(
+        RecordingRuntimeProvider provider,
+        bool exposeRetainedProcess = true) : IProviderModule
     {
         public ProviderDescriptor Descriptor { get; } = new()
         {
@@ -2024,10 +2180,29 @@ public sealed class InMemoryEnvironmentRuntimeTests
         {
             builder.AddRuntimeHostProvider(provider);
             builder.AddExecutionUnitProvider(provider);
-            builder.AddProcessProvider(provider);
+            builder.AddProcessProvider(exposeRetainedProcess
+                ? provider
+                : new EphemeralProcessProvider(provider));
             builder.AddContentProjectionProvider(provider);
             builder.AddAuthorityBindingProvider(provider);
             builder.AddEngineControlPlaneProvider(provider);
+        }
+
+        private sealed class EphemeralProcessProvider(RecordingRuntimeProvider inner) : IProcessProvider
+        {
+            public ProviderId ProviderId => inner.ProviderId;
+            public ValueTask<IProcessInvocationHandle> StartAsync(ProcessInvocationSpec spec, IProcessOutputSink? output = null, CancellationToken cancellationToken = default) =>
+                inner.StartAsync(spec, output, cancellationToken);
+            public ValueTask<ProcessInvocationResult> RunAsync(ProcessInvocationSpec spec, IProcessOutputSink? output = null, CancellationToken cancellationToken = default) =>
+                inner.RunAsync(spec, output, cancellationToken);
+            public ValueTask SignalAsync(TargetHandle<ProcessInvocation> process, ProcessSignal signal, CancellationToken cancellationToken = default) =>
+                inner.SignalAsync(process, signal, cancellationToken);
+            public ValueTask ResizeTerminalAsync(TargetHandle<ProcessInvocation> process, TerminalSpec size, CancellationToken cancellationToken = default) =>
+                inner.ResizeTerminalAsync(process, size, cancellationToken);
+            public ValueTask<ProcessInvocationResult> WaitAsync(TargetHandle<ProcessInvocation> process, CancellationToken cancellationToken = default) =>
+                inner.WaitAsync(process, cancellationToken);
+            public IAsyncEnumerable<ProcessOutputChunk> ReadOutputAsync(TargetHandle<ProcessInvocation> process, CancellationToken cancellationToken = default) =>
+                inner.ReadOutputAsync(process, cancellationToken);
         }
 
         public void RegisterJsonTypes(IProviderJsonTypeRegistry registry)
@@ -2039,6 +2214,7 @@ public sealed class InMemoryEnvironmentRuntimeTests
         IRuntimeHostProvider,
         IExecutionUnitProvider,
         IProcessProvider,
+        IRetainedProcessProvider,
         IContentProjectionProvider,
         IAuthorityBindingProvider,
         IEngineControlPlaneProvider,
@@ -2053,6 +2229,8 @@ public sealed class InMemoryEnvironmentRuntimeTests
         public bool BlockProcessUntilCanceled { get; set; }
         public bool IgnoreProcessCancellation { get; set; }
         public bool IgnoreUnitObservationCancellation { get; set; }
+        public bool IgnoreRetainedStatusCancellation { get; set; }
+        public bool IgnoreOutputCancellation { get; set; }
         public ProviderOpaqueHandle? UnitNamespaceHandleOnEnsure { get; set; }
         public ExecutionUnitStatus? UnitStatusOverride { get; set; }
         private ExecutionUnitStatus? LastEnsuredUnitStatus { get; set; }
@@ -2060,6 +2238,9 @@ public sealed class InMemoryEnvironmentRuntimeTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseIgnoredProcess { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseIgnoredOutput { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Queue<ProcessOutputChunk> CursorOutputChunks { get; } = [];
         public RuntimeHostStatus? LastObservedHost { get; private set; }
         public EngineControlPlaneStatus? LastObservedEngine { get; private set; }
         public EngineControlPlaneStatus? FirstObservedEngine { get; private set; }
@@ -2218,10 +2399,59 @@ public sealed class InMemoryEnvironmentRuntimeTests
             CancellationToken cancellationToken = default) =>
             _inner.WaitAsync(process, cancellationToken);
 
-        public IAsyncEnumerable<ProcessOutputChunk> ReadOutputAsync(
+        public async IAsyncEnumerable<ProcessOutputChunk> ReadOutputAsync(
             TargetHandle<ProcessInvocation> process,
-            CancellationToken cancellationToken = default) =>
-            _inner.ReadOutputAsync(process, cancellationToken);
+            [System.Runtime.CompilerServices.EnumeratorCancellation]
+            CancellationToken cancellationToken = default)
+        {
+            if (IgnoreOutputCancellation)
+            {
+                await ReleaseIgnoredOutput.Task;
+                yield break;
+            }
+            Calls.Add("process-read-output");
+            if (CursorOutputChunks.TryDequeue(out ProcessOutputChunk scripted))
+            {
+                yield return scripted;
+                yield break;
+            }
+            await foreach (ProcessOutputChunk chunk in _inner.ReadOutputAsync(process, cancellationToken))
+            {
+                yield return chunk;
+            }
+        }
+
+        public async ValueTask<ProcessInvocationStatus> GetStatusAsync(
+            TargetHandle<ProcessInvocation> process,
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add("process-status");
+            if (IgnoreRetainedStatusCancellation)
+            {
+                return await NeverCompletingProcessObservation.Task;
+            }
+            return await ((IRetainedProcessProvider)_inner).GetStatusAsync(process, cancellationToken);
+        }
+
+        public ValueTask StopAsync(
+            TargetHandle<ProcessInvocation> process,
+            ProcessStopRequest request,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add("process-retained-stop");
+            return ((IRetainedProcessProvider)_inner).StopAsync(process, request, cancellationToken);
+        }
+
+        public ValueTask ReleaseAsync(
+            ResourceRef<ProcessInvocation> process,
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add("process-release");
+            return ((IRetainedProcessProvider)_inner).ReleaseAsync(process, cancellationToken);
+        }
+
+        private TaskCompletionSource<ProcessInvocationStatus> NeverCompletingProcessObservation { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public ValueTask<ContentProjectionStatus> ProjectAsync(
             ResourceMetadata<ContentProjection> metadata,

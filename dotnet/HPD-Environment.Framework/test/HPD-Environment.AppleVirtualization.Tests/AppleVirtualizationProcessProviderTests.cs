@@ -469,6 +469,58 @@ public sealed class AppleVirtualizationProcessProviderTests
     }
 
     [Fact]
+    public async Task Read_output_advances_cursor_across_repeated_reads_without_unsolicited_events()
+    {
+        var fixture = CreateFixture();
+        fixture.Helper.EnqueueResponse(ProcessStatus(
+            AppleVirtualizationHelperOperation.ProcessStart,
+            "process-1",
+            ProcessInvocationPhase.Running));
+        IProcessInvocationHandle handle = await fixture.Provider.StartAsync(fixture.Spec);
+        fixture.Helper.EnqueueResponse(ProcessOutput(
+            "process-1",
+            ProcessOutputStream.Stdout,
+            new byte[] { 1 },
+            sequence: 1) with
+        {
+            MessageType = AppleVirtualizationHelperMessageType.Response,
+            ProcessStatusResponse = ProcessStatus(
+                AppleVirtualizationHelperOperation.ProcessReadOutput,
+                "process-1",
+                ProcessInvocationPhase.Running).ProcessStatusResponse,
+        });
+        fixture.Helper.EnqueueResponse(ProcessOutput(
+            "process-1",
+            ProcessOutputStream.Stdout,
+            new byte[] { 2 },
+            final: true,
+            sequence: 2) with
+        {
+            MessageType = AppleVirtualizationHelperMessageType.Response,
+            ProcessStatusResponse = ProcessStatus(
+                AppleVirtualizationHelperOperation.ProcessReadOutput,
+                "process-1",
+                ProcessInvocationPhase.Exited).ProcessStatusResponse,
+        });
+
+        var chunks = new List<ProcessOutputChunk>();
+        await foreach (ProcessOutputChunk chunk in fixture.Provider.ReadOutputAsync(handle.Handle))
+        {
+            chunks.Add(chunk);
+        }
+        await foreach (ProcessOutputChunk chunk in fixture.Provider.ReadOutputAsync(handle.Handle))
+        {
+            chunks.Add(chunk);
+        }
+
+        chunks.Select(chunk => chunk.Sequence).Should().Equal(1, 2);
+        fixture.Helper.Requests
+            .Where(request => request.Operation == AppleVirtualizationHelperOperation.ProcessReadOutput)
+            .Select(request => request.ProcessLifecycleRequest!.AfterOutputSequence)
+            .Should().Equal(null, 1);
+    }
+
+    [Fact]
     public async Task Signal_sends_process_signal_request()
     {
         var fixture = CreateFixture();
@@ -520,12 +572,36 @@ public sealed class AppleVirtualizationProcessProviderTests
             AppleVirtualizationHelperOperation.ProcessStart,
             "process-1",
             ProcessInvocationPhase.Running));
-        fixture.Helper.EnqueueResponse(ProcessExited("process-1", exitCode: 0));
         IProcessInvocationHandle handle = await fixture.Provider.StartAsync(fixture.Spec);
         ResourceRef<ProcessInvocation> resource = handle.Resource!.Value;
+        ProviderOpaqueHandle providerHandle =
+            fixture.Ledger.TryGetProcessInvocation(resource).Entry!.ProviderHandle;
 
+        fixture.Helper.EnqueueResponse(ProcessStatus(
+            AppleVirtualizationHelperOperation.ProcessStatus,
+            "process-1",
+            ProcessInvocationPhase.Running) with
+        {
+            ResourceId = resource.Id.Value,
+            ResourceScope = resource.Scope,
+            ResourceGeneration = resource.Generation,
+            ProviderHandle = providerHandle,
+            ProviderGeneration = fixture.Ledger.ProviderGeneration,
+        });
         ProcessInvocationStatus running = await fixture.Provider.GetStatusAsync(handle.Handle);
+        fixture.Helper.EnqueueResponse(ProcessExited("process-1", exitCode: 0));
         _ = await handle.WaitAsync();
+        fixture.Helper.EnqueueResponse(ProcessStatus(
+            AppleVirtualizationHelperOperation.ProcessStatus,
+            "process-1",
+            ProcessInvocationPhase.Exited) with
+        {
+            ResourceId = resource.Id.Value,
+            ResourceScope = resource.Scope,
+            ResourceGeneration = resource.Generation,
+            ProviderHandle = providerHandle,
+            ProviderGeneration = fixture.Ledger.ProviderGeneration,
+        });
         ProcessInvocationStatus exited = await fixture.Provider.GetStatusAsync(handle.Handle);
         await fixture.Provider.ReleaseAsync(resource);
 

@@ -1,3 +1,4 @@
+import base64
 import importlib.util
 import os
 import pathlib
@@ -77,6 +78,55 @@ class ProcessExecutionTests(unittest.TestCase):
         self.assertEqual(0, output["Stderr"]["BytesObserved"])
         self.assertEqual(0, output["Stderr"]["BytesCaptured"])
         self.assertEqual(0, output["Stderr"]["BytesDiscarded"])
+
+    def test_status_and_cursor_output_observe_independent_process_exit(self):
+        start = self.agent.process_start({
+            "RequestId": "start-real",
+            "SequenceNumber": 1,
+            "ProcessStartRequest": {
+                "ProcessId": "process-real",
+                "UnitId": "unit-1",
+                "Command": {
+                    "FileName": "/bin/sh",
+                    "Arguments": ["-c", "printf first; sleep 0.05; printf second"],
+                },
+                "Io": {"MergeStandardError": False},
+            },
+        })
+        self.assertEqual(3, start["ProcessStatusResponse"]["ProcessPhase"])
+
+        chunks = []
+        cursor = 0
+        deadline = MODULE.time.monotonic() + 2.0
+        while MODULE.time.monotonic() < deadline:
+            response = self.agent.process_read_output({
+                "RequestId": "read-real",
+                "SequenceNumber": 2,
+                "ProcessLifecycleRequest": {
+                    "ProcessId": "process-real",
+                    "AfterOutputSequence": cursor,
+                },
+            })
+            event = response.get("ProcessOutputEvent")
+            if event is not None:
+                chunks.append(base64.b64decode(event["Bytes"]))
+                cursor = event["Sequence"]
+                if event["Flags"] & 1:
+                    break
+            MODULE.time.sleep(0.01)
+
+        status = self.agent.process_status({
+            "RequestId": "status-real",
+            "SequenceNumber": 3,
+            "ProcessStatusRequest": {
+                "ProcessId": "process-real",
+                "IncludeResult": True,
+            },
+        })
+
+        self.assertEqual(b"firstsecond", b"".join(chunks))
+        self.assertEqual(6, status["ProcessStatusResponse"]["ProcessPhase"])
+        self.assertEqual(0, status["ProcessStatusResponse"]["Result"]["ExitCode"])
 
 
 if __name__ == "__main__":

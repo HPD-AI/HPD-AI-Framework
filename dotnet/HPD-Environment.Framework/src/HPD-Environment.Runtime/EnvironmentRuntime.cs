@@ -1192,9 +1192,37 @@ public sealed class InMemoryEnvironmentRuntime(
                     "hpd.environment.process.retained-resource-required",
                     $"Provider '{provider.ProviderId.Value}' did not return a durable process resource.");
             }
-            ProcessInvocationStatus providerStatus = await retainedProvider
-                .GetStatusAsync(handle.Handle, cancellationToken)
-                .ConfigureAwait(false);
+            ProcessInvocationStatus providerStatus;
+            using var observationCancellation =
+                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            observationCancellation.CancelAfter(_processObservationTimeout);
+            try
+            {
+                providerStatus = await retainedProvider
+                    .GetStatusAsync(handle.Handle, observationCancellation.Token)
+                    .AsTask()
+                    .WaitAsync(observationCancellation.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                await CleanupUnownedProcessAsync(
+                    provider,
+                    retainedProvider,
+                    handle,
+                    providerResource).ConfigureAwait(false);
+                throw new TimeoutException(
+                    $"Process start observation exceeded {_processObservationTimeout.TotalMilliseconds:0} milliseconds.");
+            }
+            catch
+            {
+                await CleanupUnownedProcessAsync(
+                    provider,
+                    retainedProvider,
+                    handle,
+                    providerResource).ConfigureAwait(false);
+                throw;
+            }
             ResourceMetadata<ProcessInvocation> metadata = Metadata<ProcessInvocation>("process-invocation") with
             {
                 Lifetime = ResourceLifetime.Process,
@@ -1217,6 +1245,7 @@ public sealed class InMemoryEnvironmentRuntime(
             var outputCancellation = new CancellationTokenSource();
             Task outputPump = PumpProcessOutputAsync(
                 provider,
+                retainedProvider,
                 handle.Handle,
                 output,
                 outputCancellation.Token);
@@ -1841,21 +1870,46 @@ public sealed class InMemoryEnvironmentRuntime(
 
     private static async Task PumpProcessOutputAsync(
         IProcessProvider provider,
+        IRetainedProcessProvider retainedProvider,
         TargetHandle<ProcessInvocation> handle,
         ProcessOutputRetention output,
         CancellationToken cancellationToken)
     {
         try
         {
-            await foreach (ProcessOutputChunk chunk in provider
-                .ReadOutputAsync(handle, cancellationToken)
-                .ConfigureAwait(false))
+            while (true)
             {
-                _ = output.Add(chunk);
+                bool final = false;
+                await foreach (ProcessOutputChunk chunk in provider
+                    .ReadOutputAsync(handle, cancellationToken)
+                    .ConfigureAwait(false))
+                {
+                    _ = output.Add(chunk);
+                    final |= chunk.Flags.HasFlag(ProcessOutputChunkFlags.Final);
+                }
+                if (final)
+                {
+                    break;
+                }
+                ProcessInvocationStatus status = await retainedProvider
+                    .GetStatusAsync(handle, cancellationToken)
+                    .ConfigureAwait(false);
+                if (IsTerminal(status.ProcessPhase))
+                {
+                    break;
+                }
+                await Task.Delay(TimeSpan.FromMilliseconds(25), cancellationToken)
+                    .ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+        }
+        catch (Exception exception)
+        {
+            output.Fail(RuntimeDiagnostic(
+                "hpd.environment.process.output-pump-failed",
+                $"Retained process output failed: {exception.Message}"));
         }
         finally
         {
@@ -1867,15 +1921,63 @@ public sealed class InMemoryEnvironmentRuntime(
         OwnedProcess process,
         CancellationToken cancellationToken)
     {
-        await RetainedProcessProvider(process)
-            .ReleaseAsync(process.ProviderResource, cancellationToken)
-            .ConfigureAwait(false);
         process.OutputCancellation.Cancel();
         await process.OutputPump
             .WaitAsync(_processObservationTimeout, cancellationToken)
             .ConfigureAwait(false);
-        process.OutputCancellation.Dispose();
         await process.Handle.DisposeAsync().ConfigureAwait(false);
+        await RetainedProcessProvider(process)
+            .ReleaseAsync(process.ProviderResource, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async ValueTask CleanupUnownedProcessAsync(
+        IProcessProvider provider,
+        IRetainedProcessProvider retainedProvider,
+        IProcessInvocationHandle handle,
+        ResourceRef<ProcessInvocation> providerResource)
+    {
+        using var cleanupCancellation = new CancellationTokenSource(_processObservationTimeout);
+        try
+        {
+            await retainedProvider.StopAsync(
+                    handle.Handle,
+                    new ProcessStopRequest(
+                        StopKind.GracefulThenKill,
+                        "retained process start observation failed",
+                        _processObservationTimeout),
+                    cleanupCancellation.Token)
+                .AsTask()
+                .WaitAsync(cleanupCancellation.Token)
+                .ConfigureAwait(false);
+            _ = await provider.WaitAsync(handle.Handle, cleanupCancellation.Token)
+                .AsTask()
+                .WaitAsync(cleanupCancellation.Token)
+                .ConfigureAwait(false);
+            await retainedProvider.ReleaseAsync(providerResource, cleanupCancellation.Token)
+                .AsTask()
+                .WaitAsync(cleanupCancellation.Token)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // The start operation preserves its original failure; providers remain
+            // responsible for bounded cleanup of a resource they created but could
+            // not make observable.
+        }
+        finally
+        {
+            try
+            {
+                await handle.DisposeAsync()
+                    .AsTask()
+                    .WaitAsync(_processObservationTimeout)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+            }
+        }
     }
 
     private async ValueTask<OwnedProcess> RefreshProcessAsync(
@@ -1903,6 +2005,9 @@ public sealed class InMemoryEnvironmentRuntime(
             ProcessInvocationStatus normalized = observed with
             {
                 ObservedGeneration = process.Snapshot.Metadata.Generation,
+                Diagnostics = process.Output.Failure is { } outputFailure
+                    ? [.. observed.Diagnostics, outputFailure]
+                    : observed.Diagnostics,
             };
             OwnedProcess refreshed = process with
             {
@@ -2428,6 +2533,7 @@ public sealed class InMemoryEnvironmentRuntime(
         private long _stdoutBytes;
         private long _stderrBytes;
         private bool _complete;
+        private Diagnostic? _failure;
         private TaskCompletionSource _changed = NewSignal();
 
         public long HighestSequence
@@ -2448,6 +2554,17 @@ public sealed class InMemoryEnvironmentRuntime(
                 lock (_gate)
                 {
                     return _complete;
+                }
+            }
+        }
+
+        public Diagnostic? Failure
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _failure;
                 }
             }
         }
@@ -2480,6 +2597,16 @@ public sealed class InMemoryEnvironmentRuntime(
         {
             lock (_gate)
             {
+                _complete = true;
+                Pulse();
+            }
+        }
+
+        public void Fail(Diagnostic diagnostic)
+        {
+            lock (_gate)
+            {
+                _failure = diagnostic;
                 _complete = true;
                 Pulse();
             }

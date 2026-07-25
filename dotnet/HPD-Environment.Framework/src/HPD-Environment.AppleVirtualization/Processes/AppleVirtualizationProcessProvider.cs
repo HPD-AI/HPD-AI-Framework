@@ -415,13 +415,14 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
             yield return responseChunk;
         }
 
-        await foreach (AppleVirtualizationHelperEnvelope helperEvent in _helper.ReadEventsAsync(cancellationToken).ConfigureAwait(false))
+        await foreach (AppleVirtualizationHelperEnvelope helperEvent in _helper
+            .ReadEventsAsync(cancellationToken)
+            .ConfigureAwait(false))
         {
             if (!TryCreateOutputChunk(entry, helperEvent.ProcessOutputEvent, out ProcessOutputChunk outputChunk))
             {
                 continue;
             }
-
             RecordLastOutputSequence(processId, outputChunk.Sequence);
             yield return outputChunk;
         }
@@ -449,12 +450,55 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
         });
     }
 
-    public ValueTask<ProcessInvocationStatus> GetStatusAsync(
+    public async ValueTask<ProcessInvocationStatus> GetStatusAsync(
         TargetHandle<ProcessInvocation> process,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult(ResolveProcess(process).Status);
+        AppleVirtualizationLedgerEntry<ProcessInvocation, ProcessInvocationStatus> entry =
+            ResolveProcess(process);
+        AppleVirtualizationHelperEnvelope response = await _helper.SendAsync(
+            Request(AppleVirtualizationHelperOperation.ProcessStatus) with
+            {
+                ResourceKind = ProcessKind,
+                ResourceId = entry.Resource.Id.Value,
+                ResourceScope = entry.Resource.Scope,
+                ResourceGeneration = entry.Resource.Generation,
+                ProviderHandle = entry.ProviderHandle,
+                ProviderGeneration = _ledger.ProviderGeneration,
+                ProcessLifecycleRequest = new AppleVirtualizationProcessLifecycleRequest
+                {
+                    ProcessId = entry.Resource.Id.Value,
+                },
+            },
+            cancellationToken).ConfigureAwait(false);
+        ThrowIfHelperError(response, "process.status");
+        AppleVirtualizationProcessStatusResponse status = response.ProcessStatusResponse ??
+            throw ProcessDiagnostics.ToException(new Diagnostic
+            {
+                Code = new DiagnosticCode("AppleVirtualization.ProcessStatusMalformed"),
+                Message = "The helper returned no process status.",
+                Severity = DiagnosticSeverity.Error,
+            });
+        ValidateObservedIdentity(entry, response, status);
+
+        ProcessInvocationStatus observed = entry.Status with
+        {
+            Phase = status.ProcessPhase == ProcessInvocationPhase.Failed
+                ? ResourcePhase.Failed
+                : ResourcePhase.Ready,
+            ProcessPhase = status.ProcessPhase,
+            IoState = status.IoState,
+            ProviderProcessId = status.ProviderProcessId,
+            SystemProcessId = status.SystemProcessId,
+            Result = status.Result ?? entry.Status.Result,
+            Conditions = status.Conditions,
+            ExitedAt = IsTerminal(status.ProcessPhase)
+                ? status.Result?.ExitedAt ?? entry.Status.ExitedAt ?? DateTimeOffset.UtcNow
+                : entry.Status.ExitedAt,
+            LastTransitionAt = DateTimeOffset.UtcNow,
+        };
+        Update(entry, observed);
+        return observed;
     }
 
     public async ValueTask StopAsync(
@@ -898,6 +942,29 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
             AppleVirtualizationHelperProtocol.ProcessRequestSchema);
     }
 
+    private void ValidateObservedIdentity(
+        AppleVirtualizationLedgerEntry<ProcessInvocation, ProcessInvocationStatus> entry,
+        AppleVirtualizationHelperEnvelope response,
+        AppleVirtualizationProcessStatusResponse status)
+    {
+        bool valid =
+            response.ProviderGeneration == _ledger.ProviderGeneration &&
+            string.Equals(response.ResourceId, entry.Resource.Id.Value, StringComparison.Ordinal) &&
+            Nullable.Equals(response.ResourceScope, entry.Resource.Scope) &&
+            Nullable.Equals(response.ResourceGeneration, entry.Resource.Generation) &&
+            Nullable.Equals(response.ProviderHandle, entry.ProviderHandle) &&
+            string.Equals(status.ProcessId, entry.Resource.Id.Value, StringComparison.Ordinal);
+        if (!valid)
+        {
+            throw ProcessDiagnostics.ToException(new Diagnostic
+            {
+                Code = new DiagnosticCode("AppleVirtualization.ProcessStatusIdentityMismatch"),
+                Message = $"Process status for '{entry.Resource.Id.Value}' returned stale or mismatched identity.",
+                Severity = DiagnosticSeverity.Error,
+            });
+        }
+    }
+
     private static ProcessInvocationResult CompletedResult(
         AppleVirtualizationLedgerEntry<ProcessInvocation, ProcessInvocationStatus> entry,
         AppleVirtualizationProcessStatusResponse? status) =>
@@ -989,7 +1056,10 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
 
     private static bool IsTerminal(ProcessInvocationStatus status) =>
         status.Result is not null ||
-        status.ProcessPhase is ProcessInvocationPhase.Exited or ProcessInvocationPhase.Failed or ProcessInvocationPhase.Stopped;
+        IsTerminal(status.ProcessPhase);
+
+    private static bool IsTerminal(ProcessInvocationPhase phase) =>
+        phase is ProcessInvocationPhase.Exited or ProcessInvocationPhase.Failed or ProcessInvocationPhase.Stopped;
 
     private static bool ShouldStream(ProcessIoSpec io, ProcessOutputStream stream) =>
         stream == ProcessOutputStream.Stdout ? io.StandardOutput.Stream : io.StandardError.Stream;

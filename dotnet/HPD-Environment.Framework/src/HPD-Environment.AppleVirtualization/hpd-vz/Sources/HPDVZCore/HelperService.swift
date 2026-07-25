@@ -93,6 +93,8 @@ public final class HelperService {
             return unitResponse(for: request, operation: .unitDelete, phase: 9)
         case .processStart:
             return processResponse(for: request, operation: .processStart, result: adapter.startProcess(ProcessRequest.parse(from: request)))
+        case .processStatus:
+            return processResponse(for: request, operation: .processStatus, result: adapter.processStatus(ProcessRequest.parse(from: request)))
         case .processStdin:
             return processResponse(for: request, operation: .processStdin, result: adapter.writeProcessStdin(ProcessRequest.parse(from: request)))
         case .processCloseStdin:
@@ -973,6 +975,11 @@ public final class HelperService {
         if let requestId = request.requestId {
             response["RequestId"] = requestId
             response["CausationId"] = requestId
+        }
+        for field in ["ResourceKind", "ResourceId", "ResourceScope", "ResourceGeneration", "ProviderHandle"] {
+            if let value = request.raw[field] {
+                response[field] = value
+            }
         }
 
         return response

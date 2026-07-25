@@ -1863,7 +1863,7 @@ public struct ProcessRequest {
             payload = envelope.raw["ProcessSignalRequest"] as? [String: Any] ?? [:]
         case .processStop:
             payload = envelope.raw["ProcessStopRequest"] as? [String: Any] ?? [:]
-        case .processWait, .processReadOutput:
+        case .processStatus, .processWait, .processReadOutput:
             payload = envelope.raw["ProcessLifecycleRequest"] as? [String: Any] ?? [:]
         default:
             payload = [:]
@@ -1961,6 +1961,12 @@ public struct ProcessRequest {
                 ],
                 "Isolation": isolation,
                 "SandboxPlan": sandboxPlan
+            ]
+        case .processStatus:
+            payload["Operation"] = 23
+            payload["ProcessStatusRequest"] = [
+                "ProcessId": processId,
+                "IncludeResult": true
             ]
         case .processWait:
             var lifecycle: [String: Any] = ["ProcessId": processId]
@@ -2093,6 +2099,16 @@ public enum ProcessStateFactory {
 
         switch operation {
         case .processStart:
+            return ProcessResult(
+                processId: request.processId,
+                phase: 3,
+                ioState: 1,
+                providerProcessId: "guest-" + request.processId,
+                systemProcessId: 4242,
+                result: nil,
+                outputEvent: nil,
+                diagnostic: nil)
+        case .processStatus:
             return ProcessResult(
                 processId: request.processId,
                 phase: 3,
@@ -3896,7 +3912,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     }
 
     public func processStatus(_ request: ProcessRequest) -> ProcessResult {
-        guestAgentProcess(request, operation: .processStart)
+        guestAgentProcess(request, operation: .processStatus)
     }
 
     public func waitProcess(_ request: ProcessRequest) -> ProcessResult {
@@ -4764,7 +4780,7 @@ public struct FakeVirtualizationAdapter: VirtualizationAdapter {
     }
 
     public func processStatus(_ request: ProcessRequest) -> ProcessResult {
-        ProcessStateFactory.result(request, operation: .processStart)
+        ProcessStateFactory.result(request, operation: .processStatus)
     }
 
     public func waitProcess(_ request: ProcessRequest) -> ProcessResult {
