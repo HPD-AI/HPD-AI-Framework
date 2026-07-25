@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics;
 using HPD.Environment.Contracts;
 using HPD.Environment.Runtime;
 
@@ -470,7 +471,7 @@ public sealed class InMemoryEnvironmentRuntimeTests
     {
         var provider = new RecordingRuntimeProvider("hpd.execution.test-observation-timeout")
         {
-            BlockUnitObservation = true,
+            IgnoreUnitObservationCancellation = true,
         };
         var registry = new EnvironmentProviderRegistry();
         registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
@@ -493,6 +494,109 @@ public sealed class InMemoryEnvironmentRuntimeTests
                     host.Metadata.Generation),
             });
 
+        long started = Stopwatch.GetTimestamp();
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> observed =
+            await runtime.GetExecutionUnitAsync(new ResourceRef<ExecutionUnit>(
+                unit.Metadata.Id,
+                unit.Metadata.Scope,
+                unit.Metadata.Generation));
+        TimeSpan elapsed = Stopwatch.GetElapsedTime(started);
+
+        Assert.True(elapsed < TimeSpan.FromSeconds(1), $"Observation took {elapsed}.");
+        Assert.Equal(ResourcePhase.Degraded, observed.Status.Phase);
+        Assert.Contains(
+            observed.Status.Diagnostics,
+            diagnostic => diagnostic.Code.Value == "hpd.environment.execution-unit.observe-timeout");
+        provider.IgnoreUnitObservationCancellation = false;
+        Assert.Single(await runtime.ListExecutionUnitsAsync());
+    }
+
+    [Fact]
+    public async Task Execution_unit_observation_propagates_caller_cancellation_when_provider_ignores_it()
+    {
+        var provider = new RecordingRuntimeProvider("hpd.execution.test-observation-cancel")
+        {
+            IgnoreUnitObservationCancellation = true,
+        };
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
+        var runtime = new InMemoryEnvironmentRuntime(
+            registry,
+            executionUnitObservationTimeout: TimeSpan.FromSeconds(5));
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                PreferredProvider = provider.ProviderId,
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                ReconciliationKey = new ExecutionUnitIdentityKey("cancel-workload"),
+                PreferredHost = new ResourceRef<RuntimeHost>(
+                    host.Metadata.Id,
+                    host.Metadata.Scope,
+                    host.Metadata.Generation),
+            });
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(25));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            runtime.GetExecutionUnitAsync(
+                new ResourceRef<ExecutionUnit>(
+                    unit.Metadata.Id,
+                    unit.Metadata.Scope,
+                    unit.Metadata.Generation),
+                cancellation.Token).AsTask());
+
+        provider.IgnoreUnitObservationCancellation = false;
+        Assert.Single(await runtime.ListExecutionUnitsAsync());
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("provider")]
+    [InlineData("token")]
+    [InlineData("schema")]
+    [InlineData("generation")]
+    public async Task Execution_unit_observation_rejects_missing_or_mismatched_namespace_handle(
+        string mismatch)
+    {
+        var provider = new RecordingRuntimeProvider("hpd.execution.test-namespace");
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                PreferredProvider = provider.ProviderId,
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        var acceptedNamespace = new ProviderOpaqueHandle(
+            provider.ProviderId,
+            "namespace-1",
+            new SchemaId("hpd.test.namespace.v1"),
+            Generation: 7);
+        provider.UnitNamespaceHandleOnEnsure = acceptedNamespace;
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                ReconciliationKey = new ExecutionUnitIdentityKey($"namespace-{mismatch}"),
+                PreferredHost = new ResourceRef<RuntimeHost>(
+                    host.Metadata.Id,
+                    host.Metadata.Scope,
+                    host.Metadata.Generation),
+            });
+        ProviderOpaqueHandle? observedNamespace = mismatch switch
+        {
+            "missing" => null,
+            "provider" => acceptedNamespace with { ProviderId = new ProviderId("other-provider") },
+            "token" => acceptedNamespace with { Token = "namespace-2" },
+            "schema" => acceptedNamespace with { SchemaId = new SchemaId("hpd.test.namespace.v2") },
+            "generation" => acceptedNamespace with { Generation = 8 },
+            _ => throw new InvalidOperationException(),
+        };
+        provider.UnitStatusOverride = unit.Status with { NamespaceHandle = observedNamespace };
+
         ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> observed =
             await runtime.GetExecutionUnitAsync(new ResourceRef<ExecutionUnit>(
                 unit.Metadata.Id,
@@ -500,10 +604,11 @@ public sealed class InMemoryEnvironmentRuntimeTests
                 unit.Metadata.Generation));
 
         Assert.Equal(ResourcePhase.Degraded, observed.Status.Phase);
+        Assert.Equal(acceptedNamespace, observed.Status.NamespaceHandle);
         Assert.Contains(
             observed.Status.Diagnostics,
-            diagnostic => diagnostic.Code.Value == "hpd.environment.execution-unit.observe-timeout");
-        Assert.Single(await runtime.ListExecutionUnitsAsync());
+            diagnostic => diagnostic.Code.Value ==
+                "hpd.environment.execution-unit.observe-namespace-handle-mismatch");
     }
 
     [Fact]
@@ -1780,8 +1885,10 @@ public sealed class InMemoryEnvironmentRuntimeTests
         public bool FailAuthorityRevocation { get; set; }
         public bool BlockProcessUntilCanceled { get; set; }
         public bool IgnoreProcessCancellation { get; set; }
-        public bool BlockUnitObservation { get; set; }
+        public bool IgnoreUnitObservationCancellation { get; set; }
+        public ProviderOpaqueHandle? UnitNamespaceHandleOnEnsure { get; set; }
         public ExecutionUnitStatus? UnitStatusOverride { get; set; }
+        private ExecutionUnitStatus? LastEnsuredUnitStatus { get; set; }
         public TaskCompletionSource ProcessStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseIgnoredProcess { get; } =
@@ -1848,7 +1955,14 @@ public sealed class InMemoryEnvironmentRuntimeTests
             CancellationToken cancellationToken = default)
         {
             Calls.Add("unit-ensure");
-            return await _inner.EnsureAsync(metadata, spec, observed, cancellationToken);
+            ExecutionUnitStatus status =
+                await _inner.EnsureAsync(metadata, spec, observed, cancellationToken);
+            if (UnitNamespaceHandleOnEnsure is { } namespaceHandle)
+            {
+                status = status with { NamespaceHandle = namespaceHandle };
+            }
+            LastEnsuredUnitStatus = status;
+            return status;
         }
 
         public ValueTask<ExecutionUnitStatus> StopAsync(
@@ -1870,14 +1984,17 @@ public sealed class InMemoryEnvironmentRuntimeTests
             CancellationToken cancellationToken = default)
         {
             Calls.Add("unit-status");
-            if (BlockUnitObservation)
+            if (IgnoreUnitObservationCancellation)
             {
-                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return await NeverCompletingUnitObservation.Task;
             }
             return UnitStatusOverride is { } status
                 ? status
-                : await _inner.GetStatusAsync(unit, cancellationToken);
+                : LastEnsuredUnitStatus ?? await _inner.GetStatusAsync(unit, cancellationToken);
         }
+
+        private TaskCompletionSource<ExecutionUnitStatus> NeverCompletingUnitObservation { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public ValueTask<IProcessInvocationHandle> StartAsync(
             ProcessInvocationSpec spec,

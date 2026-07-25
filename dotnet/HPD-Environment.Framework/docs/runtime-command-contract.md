@@ -45,11 +45,14 @@ Execution-unit reconciliation and observation follow these additional rules:
   prevents prior-generation dependents from becoming orphaned.
 - execution-unit list/get operations are observation operations, not cache reads.
   Each unit is refreshed through its recorded provider and its observed
-  generation and assigned-host identity are validated before the cache changes.
+  generation, assigned-host identity, target handle, and namespace opaque handle
+  are validated before the cache changes.
 - each provider observation has a five-second bound. Timeout, provider failure,
   or identity mismatch retains ownership and returns the last snapshot marked
-  degraded with a structured diagnostic. Caller cancellation remains
-  distinguishable and is propagated.
+  degraded with a structured diagnostic. The wall-clock bound is enforced even
+  when a provider ignores cancellation; an abandoned provider task cannot update
+  runtime state later. Caller cancellation remains distinguishable and is
+  propagated.
 
 These rules are part of the contract shape. A future compatibility requirement
 should be handled through normal semantic versioning rather than parallel legacy

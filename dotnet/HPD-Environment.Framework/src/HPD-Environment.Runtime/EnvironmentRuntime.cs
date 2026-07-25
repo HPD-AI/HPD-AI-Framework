@@ -1573,6 +1573,8 @@ public sealed class InMemoryEnvironmentRuntime(
                     unit.ProviderId,
                     "execution unit")
                 .GetStatusAsync(handle, observationCancellation.Token)
+                .AsTask()
+                .WaitAsync(observationCancellation.Token)
                 .ConfigureAwait(false);
             Diagnostic? identityDiagnostic = ValidateUnitObservation(unit, status);
             if (identityDiagnostic is not null)
@@ -1627,6 +1629,15 @@ public sealed class InMemoryEnvironmentRuntime(
             return RuntimeDiagnostic(
                 "hpd.environment.execution-unit.observe-handle-mismatch",
                 $"Execution unit '{unit.Snapshot.Metadata.Id.Value}' returned a mismatched provider handle.");
+        }
+        if (!Nullable.Equals(
+                unit.Snapshot.Status.NamespaceHandle,
+                status.NamespaceHandle))
+        {
+            return RuntimeDiagnostic(
+                "hpd.environment.execution-unit.observe-namespace-handle-mismatch",
+                $"Execution unit '{unit.Snapshot.Metadata.Id.Value}' returned a missing or mismatched " +
+                "provider namespace handle.");
         }
         if (unit.Snapshot.Spec.PreferredHost is { } expectedHost &&
             (status.AssignedHost is not { } actualHost ||
