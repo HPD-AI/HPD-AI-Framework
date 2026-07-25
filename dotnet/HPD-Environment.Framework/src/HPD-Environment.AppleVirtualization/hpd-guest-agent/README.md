@@ -14,6 +14,7 @@ It is intentionally narrow:
 - starts and observes guest processes;
 - projects guest engine authority sockets;
 - installs `/hpd/container-smoke` as the smoke command contract.
+- installs `/hpd/container-run` as the argument-safe Docker workload boundary.
 
 The payload is still intentionally small, but it is no longer readiness-only. It
 is sufficient for the current real container and real HTTP endpoint acceptance

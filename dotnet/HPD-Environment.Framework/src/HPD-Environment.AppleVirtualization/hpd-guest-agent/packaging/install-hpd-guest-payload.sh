@@ -10,6 +10,7 @@ install -d -m 0755 /hpd
 install -m 0755 "$payload_root/../src/hpd_guest_agent.py" /usr/local/bin/hpd-guest-agent
 install -m 0644 "$payload_root/hpd-guest-agent.service" /etc/systemd/system/hpd-guest-agent.service
 install -m 0755 "$payload_root/container-smoke" /hpd/container-smoke
+install -m 0755 "$payload_root/container-run" /hpd/container-run
 
 if command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload
