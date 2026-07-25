@@ -47,15 +47,22 @@ internal sealed class DebugStoppedTuiHandler : AgentTuiEventHandler<DebugSession
     }
 }
 
-internal sealed class DebugStopSummaryTuiHandler : AgentTuiEventHandler<DebugStopSummaryAvailableEvent>
+internal sealed class DebugPrimaryStopTuiHandler : AgentTuiEventHandler<DebugPrimaryStopAvailableEvent>
 {
-    public override ValueTask HandleAsync(DebugStopSummaryAvailableEvent evt, AgentTuiEventContext context, CancellationToken cancellationToken)
+    public override ValueTask HandleAsync(DebugPrimaryStopAvailableEvent evt, AgentTuiEventContext context, CancellationToken cancellationToken)
     {
         var state = DebugStoppedTuiHandler.State(context).Session(evt.DebugTreeId, evt.DebugSessionId);
-        if (state.Status != "Stopped" || state.SuspensionEpoch != evt.SuspensionEpoch)
+        if (state.Status != "Stopped" ||
+            state.SuspensionEpoch != evt.SuspensionEpoch ||
+            state.StoppedThreadId != evt.AdapterThreadId)
             return ValueTask.CompletedTask;
         state.CurrentStop = evt;
         DebugStoppedTuiHandler.Apply(context, state, evt, final: false);
+        var debugState = DebugStoppedTuiHandler.State(context);
+        if (!debugState.BeginBreakpointProjection(evt))
+            return ValueTask.CompletedTask;
+        foreach (var selection in debugState.ObserveHits(evt))
+            DebugBreakpointSelectionTuiHandler.Render(context, selection, evt);
         return ValueTask.CompletedTask;
     }
 }

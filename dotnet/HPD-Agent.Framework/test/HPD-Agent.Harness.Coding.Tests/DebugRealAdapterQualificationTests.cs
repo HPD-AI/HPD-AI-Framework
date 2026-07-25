@@ -9,6 +9,7 @@ using HPD.Environment.Contracts;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
 
+[Collection(DebugRealAdapterCollection.Name)]
 public sealed class DebugRealAdapterQualificationTests
 {
     [RealAdapterFact("HPD_DEBUGPY_PYTHON")]

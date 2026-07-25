@@ -145,6 +145,26 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
         fixture.Activator.Resources[1].DisposeCount.Should().Be(1);
     }
 
+    [Fact]
+    public async Task Expected_transport_eof_after_disconnect_intent_does_not_fault_tree()
+    {
+        await using var fixture = new Fixture();
+        var result = await fixture.Orchestrator.StartAsync(
+            fixture.Request(),
+            CancellationToken.None);
+        var tree = fixture.Manager.ResolveTree(
+            fixture.Scope,
+            result.DebugTreeId);
+        tree.SelectSession(result.DebugSessionId).BeginDisconnect();
+
+        fixture.Starter.Transport!.Complete();
+        await Task.Delay(100);
+
+        fixture.Events.Events.Should()
+            .NotContain(@event => @event is DebugTreeFaultedEvent);
+        fixture.Manager.ListTrees(fixture.Scope).Should().ContainSingle();
+    }
+
     private sealed class Fixture : IAsyncDisposable
     {
         public Fixture(DebugTerminalRecordStoreOptions? terminalOptions = null)
@@ -325,6 +345,13 @@ public sealed class DebugExecutionStartOrchestratorV3Tests
             session.State.Transition(DebugSessionStatus.Initializing);
             session.State.Transition(DebugSessionStatus.Configuring);
             session.State.Transition(DebugSessionStatus.Running);
+            registerHandlers(
+                session,
+                tree,
+                new DebugConfigurationCoordinator(
+                    _ => Task.CompletedTask,
+                    lifetime),
+                request);
             tree.AddSession(session);
             return ValueTask.FromResult(session);
         }

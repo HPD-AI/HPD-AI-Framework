@@ -160,7 +160,13 @@ internal static class AgentRunConfigInheritance
 
         if (Has(fields, SubAgentRunConfigFields.Permissions))
         {
-            result.PermissionMode = source.PermissionMode;
+            result.Security = source.Security with { };
+            result.Sandbox = source.Sandbox with
+            {
+                Filesystem = source.Sandbox.Filesystem
+                    .Select(static grant => grant with { })
+                    .ToArray()
+            };
             result.PermissionOverrides = source.PermissionOverrides is null ? null : new(source.PermissionOverrides);
         }
 

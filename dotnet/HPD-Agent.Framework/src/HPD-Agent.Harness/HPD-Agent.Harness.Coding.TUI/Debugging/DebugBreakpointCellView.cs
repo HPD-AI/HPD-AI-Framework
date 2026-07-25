@@ -1,3 +1,4 @@
+using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Agent.ToolHarness.Coding.TUI.SourcePresentation;
 using HPD.TUI.Core;
 using HPDOS.ToolHarnesses.Middleware;
@@ -28,22 +29,45 @@ internal sealed class DebugBreakpointCellView : IComponent
     private string[] CreateRows()
     {
         return _cell.After.Select(item =>
-            $"{Marker(item)} {item.SafeDisplayName ?? item.Kind.ToString()} · {Status(item)}")
+            $"{Marker(item)} {DisplayLabel(item)} · {Status(item)}")
             .Concat(_cell.Before
                 .Where(item => _cell.Changes.Any(change =>
                     change.ClientBreakpointId == item.ClientBreakpointId &&
                     change.Kind == DebugBreakpointSelectionDeltaKind.Removed))
-                .Select(item => $"− {item.SafeDisplayName ?? item.Kind.ToString()} · removed"))
+                .Select(item => $"− {DisplayLabel(item)} · removed"))
             .Append(_cell.Truncated ? "… breakpoint details truncated" : null)
             .Where(static row => row is not null)
             .Select(static row => row!)
             .ToArray();
     }
 
+    private static string DisplayLabel(DebugBreakpointSelectionEventItem item)
+        => item.SafeDisplayName is { Length: > 0 } name
+            ? $"{KindLabel(item.Kind)}: {name}"
+            : KindLabel(item.Kind);
+
+    private static string KindLabel(DebugBreakpointKind kind)
+        => kind switch
+        {
+            DebugBreakpointKind.Source => "Source",
+            DebugBreakpointKind.Function => "Function",
+            DebugBreakpointKind.Exception => "Exception",
+            DebugBreakpointKind.Data => "Data",
+            DebugBreakpointKind.Instruction => "Instruction",
+            _ => "Breakpoint"
+        };
+
     private AnnotatedSourceDocument CreateSourceDocument()
     {
-        var items = _cell.Before.Concat(_cell.After)
-            .GroupBy(item => (item.DisplayPath, item.RequestedLine))
+        var removedIds = _cell.Changes
+            .Where(change => change.Kind == DebugBreakpointSelectionDeltaKind.Removed)
+            .Select(change => change.ClientBreakpointId)
+            .ToHashSet(StringComparer.Ordinal);
+        var items = _cell.After.Concat(_cell.Before.Where(item =>
+                removedIds.Contains(item.ClientBreakpointId)))
+            .GroupBy(item => (
+                item.DisplayPath,
+                item.ResolvedLine ?? item.RequestedLine))
             .ToDictionary(group => group.Key, group => group.Last());
         var changes = _cell.Changes.ToDictionary(
             change => change.ClientBreakpointId,
@@ -74,11 +98,12 @@ internal sealed class DebugBreakpointCellView : IComponent
             _cell.Truncated ? "breakpoint details truncated" : null);
     }
 
-    private static string Marker(DebugBreakpointSelectionEventItem item)
-        => item.Condition is not null ? "◆" :
+    private string Marker(DebugBreakpointSelectionEventItem item)
+        => _cell.HitBreakpointClientIds.Contains(item.ClientBreakpointId) ? "●" :
+            item.Condition is not null ? "◆" :
             item.HitCondition is not null ? "◈" :
             item.LogMessage is not null ? "◇" :
-            item.Verified ? "●" :
+            item.Verified ? "◆" :
             item.Acknowledged ? "○" : "!";
 
     private static SourceAnnotationTone Tone(
@@ -90,7 +115,7 @@ internal sealed class DebugBreakpointCellView : IComponent
             SourceAnnotationTone.Error;
 
     private static string Status(DebugBreakpointSelectionEventItem item)
-        => item.Verified ? "verified" :
+        => item.Verified ? "resolved" :
             item.Acknowledged ? item.SafeMessage ?? "pending" :
             item.SafeMessage ?? "not acknowledged";
 
@@ -104,6 +129,10 @@ internal sealed class DebugBreakpointCellView : IComponent
         if (item.Condition is not null) parts.Add($"when {item.Condition}");
         if (item.HitCondition is not null) parts.Add($"hit {item.HitCondition}");
         if (item.LogMessage is not null) parts.Add($"log {item.LogMessage}");
+        if (item.ResolvedLine is { } resolved &&
+            item.RequestedLine is { } requested &&
+            resolved != requested)
+            parts.Add($"resolved from requested line {requested}");
         if (!item.Verified) parts.Add(Status(item));
         return parts.Count == 0 ? null : string.Join(" · ", parts);
     }

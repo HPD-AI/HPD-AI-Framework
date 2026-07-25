@@ -2,6 +2,7 @@ using System.Text;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
+using HPD.Agent.Security;
 using HPD.Events.Core;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
@@ -508,16 +509,23 @@ public sealed class ReadFileTests : IDisposable
     }
 
     [Fact]
-    public async Task ReadFile_AbsolutePathOutsideWorkspace_ReadsWhenInvoked()
+    public async Task ReadFile_AbsolutePathOutsideWorkspace_ReadsWithSandboxDisabled()
     {
         var outside = Path.Combine(Path.GetTempPath(), $"hpd-read-outside-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(outside, "secret");
         try
         {
+            var runConfig = CreateWorkspaceRunConfig(_tempRoot);
+            runConfig.Security = new AgentSecurityProfile
+            {
+                Approval = AgentApprovalPolicy.AutoApprove,
+                Sandbox = AgentSandboxPolicy.Disabled,
+                SandboxEscape = AgentSandboxEscapePolicy.Deny
+            };
             var result = await ReadFileTextAsync(
                 new CodingToolHarness(),
                 outside,
-                runConfig: CreateWorkspaceRunConfig(_tempRoot));
+                runConfig: runConfig);
 
             result.Should().Contain("1\tsecret");
             result.Should().Contain(outside);
@@ -529,14 +537,73 @@ public sealed class ReadFileTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task ReadFile_OutsideSandboxGrant_DeniesWithoutReading()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), $"hpd-read-denied-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(outside, "secret");
+        try
+        {
+            var runConfig = CreateWorkspaceRunConfig(_tempRoot);
+            runConfig.Security = new AgentSecurityProfile
+            {
+                Approval = AgentApprovalPolicy.AutoApprove,
+                Sandbox = AgentSandboxPolicy.Enforced,
+                SandboxEscape = AgentSandboxEscapePolicy.Deny
+            };
+
+            var result = await ReadFileTextAsync(new CodingToolHarness(), outside, runConfig: runConfig);
+
+            result.Should().Contain("capability was not granted");
+            result.Should().NotContain("1\tsecret");
+        }
+        finally
+        {
+            File.Delete(outside);
+        }
+    }
+
+    [Fact]
+    public async Task ReadFile_OutsideSandboxGrant_UsesSharedCapabilityRequest()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), $"hpd-read-approved-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(outside, "approved");
+        var coordinator = new EventCoordinator();
+        using var subscription = coordinator.Subscribe<AgentCapabilityRequestEvent>(request =>
+        {
+            request.Capability.Should().Be(AgentCapabilityKind.FilesystemRead);
+            request.Resource!.Value.Should().Be(Path.GetFullPath(outside));
+            coordinator.Respond(new AgentCapabilityResponseEvent(
+                request.RequestId,
+                request.SourceName,
+                true));
+            return ValueTask.CompletedTask;
+        });
+        try
+        {
+            var result = await ReadFileTextAsync(
+                new CodingToolHarness(),
+                outside,
+                runConfig: CreateWorkspaceRunConfig(_tempRoot),
+                coordinator: coordinator);
+
+            result.Should().Contain("1\tapproved");
+        }
+        finally
+        {
+            File.Delete(outside);
+        }
+    }
+
     private static async Task<string> ReadFileTextAsync(
         CodingToolHarness toolharness,
         string? path,
         int offset = 1,
         int limit = 2000,
-        AgentRunConfig? runConfig = null)
+        AgentRunConfig? runConfig = null,
+        EventCoordinator? coordinator = null)
     {
-        var agentContext = CreateAgentContext();
+        var agentContext = CreateAgentContext(coordinator);
         var beforeContext = CreateBeforeFunctionContext(agentContext);
         runConfig ??= CreateWorkspaceRunConfig();
         var request = new FunctionRequest
@@ -617,7 +684,7 @@ public sealed class ReadFileTests : IDisposable
     private static ReadFileState? GetReadFileState(AgentContext agentContext)
         => CreateBeforeFunctionContext(agentContext).GetMiddlewareState<ReadFileState>();
 
-    private static AgentContext CreateAgentContext()
+    private static AgentContext CreateAgentContext(EventCoordinator? coordinator = null)
     {
         var state = AgentLoopState.InitialSafe(
             [],
@@ -629,7 +696,7 @@ public sealed class ReadFileTests : IDisposable
             "test-agent",
             "test-conversation",
             state,
-            new EventCoordinator(),
+            coordinator ?? new EventCoordinator(),
             new Session("test-session"),
             new Thread("test-session", "test-agent"),
             CancellationToken.None);

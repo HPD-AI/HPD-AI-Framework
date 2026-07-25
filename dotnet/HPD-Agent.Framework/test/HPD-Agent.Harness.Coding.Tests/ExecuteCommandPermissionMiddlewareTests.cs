@@ -1,5 +1,6 @@
 using HPD.Agent;
 using HPD.Agent.Middleware;
+using HPD.Agent.Security;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Environment.Contracts;
 using HPD.Events.Core;
@@ -607,7 +608,13 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         var sandboxMismatch = CreateRule(plan, ExecuteCommandPermissionBehavior.Allow, ExecuteCommandPermissionMatchKind.Prefix, "git status")
             with
             {
-                RequestedSandboxFingerprint = (plan.RequestedSandbox with { Mode = AgentProcessIsolationMode.Disabled })
+                RequestedSandboxFingerprint = (plan.RequestedSandbox with
+                {
+                    Security = plan.RequestedSandbox.Security with
+                    {
+                        Sandbox = AgentSandboxPolicy.Disabled
+                    }
+                })
                     .Canonicalize(plan.WorkingDirectory)
             };
 
@@ -982,9 +989,9 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         var externalPath = $"/private/tmp/hpd-execute-command-permission-{Guid.NewGuid():N}.txt";
         var plan = Analyze(
             $"touch {externalPath}",
-            sandboxPolicy: new AgentProcessSandboxPolicy
+            sandboxPolicy: new AgentSandboxConfiguration
             {
-                Filesystem = [new AgentProcessPathGrant { Kind = AgentProcessPathGrantKind.Write, Path = externalPath }]
+                Filesystem = [new AgentSandboxPathGrant { Access = AgentSandboxPathAccess.Write, Path = externalPath }]
             });
 
         plan.FilesystemEffects.Should().ContainSingle(effect =>
@@ -1002,9 +1009,9 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         var externalPath = Path.Combine(externalRoot, "nested", "out.txt");
         var plan = Analyze(
             $"touch {externalPath}",
-            sandboxPolicy: new AgentProcessSandboxPolicy
+            sandboxPolicy: new AgentSandboxConfiguration
             {
-                Filesystem = [new AgentProcessPathGrant { Kind = AgentProcessPathGrantKind.Write, Path = externalRoot }]
+                Filesystem = [new AgentSandboxPathGrant { Access = AgentSandboxPathAccess.Write, Path = externalRoot }]
             });
 
         plan.FilesystemEffects.Should().ContainSingle(effect =>
@@ -1057,28 +1064,6 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         match.Diagnostics.InactiveRules.Should().Contain(rule =>
             rule.RuleId == staleRule.Id &&
             rule.Reason == "rule_schema_version_mismatch");
-    }
-
-    [Fact]
-    public void Analyzer_InvalidSandboxPolicy_ReturnsInvalidRequestWithoutThrowing()
-    {
-        var act = () => ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
-            RunArguments("git status -sb"),
-            CreateWorkspaceRunConfigWithSandboxOverride(false),
-            new ExecuteCommandOptions(),
-            new ExecuteCommandShellScope
-            {
-                Executable = "zsh",
-                Family = ExecuteCommandShellFamily.Zsh
-            });
-
-        var plan = act.Should().NotThrow().Subject;
-        var untrusted = plan.Should().BeOfType<UntrustedCommandPermissionPlan>().Subject;
-        untrusted.InvalidRequest.Should().BeTrue();
-        untrusted.FailureReason.Should().Contain("sandbox policy");
-        ExecuteCommandPermissionChoiceBuilder.Build(untrusted, [])
-            .OfType<PersistRuleChoice>()
-            .Should().BeEmpty();
     }
 
     [Theory]
@@ -1263,7 +1248,10 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
         using var subscription = RespondToPermissionRequests(coordinator, requests, _ => "deny");
         var agentContext = CreateAgentContext(coordinator);
         var runConfig = CreateWorkspaceRunConfig();
-        runConfig.PermissionMode = AgentPermissionMode.FullAccess;
+        runConfig.Security = new AgentSecurityProfile
+        {
+            Approval = AgentApprovalPolicy.AutoApprove
+        };
         var context = CreateBeforeFunctionContext(
             agentContext,
             "custom-tool inspect workspace",
@@ -1446,7 +1434,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
     private ExecuteCommandPermissionPlan Analyze(
         string command,
         ExecuteCommandShellFamily shellFamily = ExecuteCommandShellFamily.Zsh,
-        AgentProcessSandboxPolicy? sandboxPolicy = null)
+        AgentSandboxConfiguration? sandboxPolicy = null)
         => ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
             RunArguments(command),
             CreateWorkspaceRunConfig(sandboxPolicy),
@@ -1588,7 +1576,7 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
             return ValueTask.CompletedTask;
         });
 
-    private AgentRunConfig CreateWorkspaceRunConfig(AgentProcessSandboxPolicy? sandboxPolicy = null)
+    private AgentRunConfig CreateWorkspaceRunConfig(AgentSandboxConfiguration? sandboxPolicy = null)
     {
         var overrides = new Dictionary<string, object>
         {
@@ -1597,18 +1585,10 @@ public sealed class ExecuteCommandPermissionMiddlewareTests : IDisposable
                 _tempRoot,
                 [new AgentWorkspaceRoot("default", _tempRoot)])
         };
-        if (sandboxPolicy is not null)
-            overrides[AgentProcessSandboxPolicy.ContextKey] = sandboxPolicy;
-        return new AgentRunConfig { ContextOverrides = overrides };
-    }
-
-    private AgentRunConfig CreateWorkspaceRunConfigWithSandboxOverride(object sandboxOverride)
-    {
-        var config = CreateWorkspaceRunConfig();
-        var overrides = new Dictionary<string, object>(config.ContextOverrides!)
+        return new AgentRunConfig
         {
-            [AgentProcessSandboxPolicy.ContextKey] = sandboxOverride
+            ContextOverrides = overrides,
+            Sandbox = sandboxPolicy ?? new AgentSandboxConfiguration()
         };
-        return new AgentRunConfig { ContextOverrides = overrides };
     }
 }

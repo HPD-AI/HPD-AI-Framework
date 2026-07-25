@@ -1,5 +1,6 @@
 using System.Text;
 using HPD.Agent;
+using HPD.Agent.Security;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Interactions;
 using HPD.TUI.Controllers;
@@ -7,52 +8,51 @@ using HPD.TUI.Core;
 using HPD.TUI.Models;
 using HPD.TUI.Utilities;
 using HPD.TUI.Views;
-using HPDOS.ToolHarnesses.Middleware;
 
 namespace HPD.Agent.ToolHarness.Coding.TUI.Commands.Handlers;
 
-public sealed class ExecuteCommandSandboxCapabilityRequestTuiHandler :
-    AgentTuiInteractionHandler<ExecuteCommandSandboxCapabilityRequestEvent>
+public sealed class AgentCapabilityRequestTuiHandler :
+    AgentTuiInteractionHandler<AgentCapabilityRequestEvent>
 {
     private readonly CodingHarnessTuiTheme _theme;
 
-    public ExecuteCommandSandboxCapabilityRequestTuiHandler(CodingHarnessTuiTheme theme)
+    public AgentCapabilityRequestTuiHandler(CodingHarnessTuiTheme theme)
     {
         _theme = theme ?? throw new ArgumentNullException(nameof(theme));
     }
 
     protected override async Task<AgentTuiInteractionResult> HandleAsync(
-        AgentTuiInteractionContext<ExecuteCommandSandboxCapabilityRequestEvent> context,
+        AgentTuiInteractionContext<AgentCapabilityRequestEvent> context,
         CancellationToken cancellationToken)
     {
         var request = context.Request;
-        var response = await context.Dialogs.ShowAsync<ExecuteCommandSandboxCapabilityResponseEvent>(
-            $"execute-command-sandbox-capability:{request.RequestId}",
-            dialog => new ExecuteCommandSandboxCapabilityDialogComponent(request, dialog, _theme),
+        var response = await context.Dialogs.ShowAsync<AgentCapabilityResponseEvent>(
+            $"agent-capability:{request.RequestId}",
+            dialog => new AgentCapabilityDialogComponent(request, dialog, _theme),
             cancellationToken).ConfigureAwait(false);
 
         return AgentTuiInteractionResult.AnswerRequest(
             response.IsSubmitted && response.Value is not null
                 ? response.Value
-                : new ExecuteCommandSandboxCapabilityResponseEvent(
+                : new AgentCapabilityResponseEvent(
                     request.RequestId,
                     request.SourceName,
                     false));
     }
 }
 
-internal sealed class ExecuteCommandSandboxCapabilityDialogComponent : IFocusable
+internal sealed class AgentCapabilityDialogComponent : IFocusable
 {
-    private readonly ExecuteCommandSandboxCapabilityRequestEvent _request;
-    private readonly AgentTuiDialogContext<ExecuteCommandSandboxCapabilityResponseEvent> _dialog;
+    private readonly AgentCapabilityRequestEvent _request;
+    private readonly AgentTuiDialogContext<AgentCapabilityResponseEvent> _dialog;
     private readonly SelectionModel<SandboxCapabilityChoice> _choices = new();
     private readonly SelectionController<SandboxCapabilityChoice> _controller;
     private readonly SelectionView<SandboxCapabilityChoice> _view;
     private readonly CodingHarnessTuiTheme _theme;
 
-    public ExecuteCommandSandboxCapabilityDialogComponent(
-        ExecuteCommandSandboxCapabilityRequestEvent request,
-        AgentTuiDialogContext<ExecuteCommandSandboxCapabilityResponseEvent> dialog,
+    public AgentCapabilityDialogComponent(
+        AgentCapabilityRequestEvent request,
+        AgentTuiDialogContext<AgentCapabilityResponseEvent> dialog,
         CodingHarnessTuiTheme theme)
     {
         _request = request;
@@ -88,9 +88,10 @@ internal sealed class ExecuteCommandSandboxCapabilityDialogComponent : IFocusabl
     {
         WriteLine(ref output, BuildTitle(_request.Capability), _theme.ResolvePermissionTitle(context.Theme), maxWidth);
         output.WriteLineBreak();
-        WriteLine(ref output, $"$ {_request.Command}", _theme.ResolvePermissionCommand(context.Theme), maxWidth);
-        WriteLine(ref output, $"cwd: {_request.WorkingDirectory}", _theme.ResolvePermissionDetail(context.Theme), maxWidth);
-        WriteLine(ref output, $"reason: {_request.FailureSummary}", _theme.ResolvePermissionDetail(context.Theme), maxWidth);
+        WriteLine(ref output, $"operation: {_request.OperationId}", _theme.ResolvePermissionCommand(context.Theme), maxWidth);
+        if (_request.Resource is not null)
+            WriteLine(ref output, $"resource: {_request.Resource.Value}", _theme.ResolvePermissionDetail(context.Theme), maxWidth);
+        WriteLine(ref output, $"reason: {_request.Reason}", _theme.ResolvePermissionDetail(context.Theme), maxWidth);
         output.WriteLineBreak();
         _view.Render(in context, maxWidth, ref output);
         output.WriteLineBreak();
@@ -110,30 +111,32 @@ internal sealed class ExecuteCommandSandboxCapabilityDialogComponent : IFocusabl
     }
 
     private void Submit(SandboxCapabilityChoice choice)
-        => _dialog.Submit(new ExecuteCommandSandboxCapabilityResponseEvent(
+        => _dialog.Submit(new AgentCapabilityResponseEvent(
             _request.RequestId,
             _request.SourceName,
             choice.Approved));
 
-    private static string BuildTitle(ExecuteCommandSandboxCapabilityKind capability)
+    private static string BuildTitle(AgentCapabilityKind capability)
         => capability switch
         {
-            ExecuteCommandSandboxCapabilityKind.LocalBinding => "Sandbox blocked local server binding",
-            ExecuteCommandSandboxCapabilityKind.NetworkEgress => "Sandbox blocked network access",
-            ExecuteCommandSandboxCapabilityKind.FilesystemRead => "Sandbox blocked file read access",
-            ExecuteCommandSandboxCapabilityKind.FilesystemWrite => "Sandbox blocked file write access",
-            ExecuteCommandSandboxCapabilityKind.Unsandboxed => "Command needs sandbox bypass",
-            _ => "Sandbox blocked command"
+            AgentCapabilityKind.LocalBinding => "Sandbox blocked local server binding",
+            AgentCapabilityKind.NetworkEgress => "Sandbox blocked network access",
+            AgentCapabilityKind.FilesystemRead => "Sandbox blocked file read access",
+            AgentCapabilityKind.FilesystemWrite => "Sandbox blocked file write access",
+            AgentCapabilityKind.InteractiveTerminal => "Sandbox blocked interactive terminal access",
+            AgentCapabilityKind.UnsandboxedExecution => "Operation needs sandbox bypass",
+            _ => "Sandbox blocked operation"
         };
 
-    private static string BuildAllowDescription(ExecuteCommandSandboxCapabilityRequestEvent request)
+    private static string BuildAllowDescription(AgentCapabilityRequestEvent request)
         => request.Capability switch
         {
-            ExecuteCommandSandboxCapabilityKind.LocalBinding => "Allow this command to bind localhost ports once.",
-            ExecuteCommandSandboxCapabilityKind.NetworkEgress => "Allow this command network egress once.",
-            ExecuteCommandSandboxCapabilityKind.FilesystemRead => "Allow this command the requested file read once.",
-            ExecuteCommandSandboxCapabilityKind.FilesystemWrite => "Allow this command the requested file write once.",
-            ExecuteCommandSandboxCapabilityKind.Unsandboxed => "Run this command without process isolation once.",
+            AgentCapabilityKind.LocalBinding => "Allow this operation to bind localhost ports once.",
+            AgentCapabilityKind.NetworkEgress => "Allow this operation network egress once.",
+            AgentCapabilityKind.FilesystemRead => "Allow this operation the requested file read once.",
+            AgentCapabilityKind.FilesystemWrite => "Allow this operation the requested file write once.",
+            AgentCapabilityKind.InteractiveTerminal => "Allow this operation to use an interactive terminal once.",
+            AgentCapabilityKind.UnsandboxedExecution => "Run this operation without process isolation once.",
             _ => "Allow the requested sandbox capability once."
         };
 

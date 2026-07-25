@@ -19,6 +19,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace HPD.Agent.ToolHarness.Coding.Tests;
 
+[Collection(DebugRealAdapterCollection.Name)]
 public sealed class DebugPublicHostedRealAdapterTests
 {
     [RealAdapterFact("HPD_NETCOREDBG", "HPD_DOTNET")]
@@ -205,8 +206,12 @@ public sealed class DebugPublicHostedRealAdapterTests
             CancellationToken.None);
         var installSourceRoot = XDocument.Parse(installSourceXml).Root!;
         installSourceRoot.Attribute("success")!.Value.Should().Be("true", installSourceXml);
-        installSourceRoot.Attribute("verification_meaning")!.Value
-            .Should().Be("resolved_not_hit");
+        installSourceRoot.Attribute("resolved_count")!.Value
+            .Should().Be("2");
+        installSourceRoot.Attribute("hit_count")!.Value
+            .Should().Be("0");
+        installSourceRoot.Attribute("unknown_hit_count")!.Value
+            .Should().Be("1");
         var entryContinue = await new CodingToolHarness().Debug(
             new ContinueDebugOperation(
                 treeId,
@@ -1106,6 +1111,10 @@ public sealed class DebugPublicHostedRealAdapterTests
             await Manager.DisposeAsync();
             await _services.DisposeAsync();
             await _isolation.DisposeAsync();
+            // dotnet test may reap its detached testhost shortly after the
+            // owning runner exits. Keep independent real-adapter cases from
+            // racing that bounded operating-system teardown.
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
             _events.Dispose();
         }
     }

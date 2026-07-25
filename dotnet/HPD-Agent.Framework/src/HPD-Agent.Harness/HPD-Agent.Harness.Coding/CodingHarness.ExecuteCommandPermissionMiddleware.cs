@@ -4,7 +4,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using HPD.Agent;
 using HPD.Agent.Middleware;
+using HPD.Agent.Security;
 using HPD.Agent.ToolHarness.Coding;
+using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Environment.Contracts;
 using HPD.Events;
 using Microsoft.Extensions.AI;
@@ -25,7 +27,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
 
     public async Task BeforeParallelBatchAsync(BeforeParallelBatchContext context, CancellationToken cancellationToken)
     {
-        if (context.RunConfig.PermissionMode == AgentPermissionMode.FullAccess)
+        if (context.RunConfig.Security.Approval == AgentApprovalPolicy.AutoApprove)
             return;
 
         foreach (var call in context.ParallelFunctions)
@@ -51,7 +53,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
         if (!IsExecuteCommand(context.Function?.Name))
             return;
 
-        if (context.RunConfig.PermissionMode == AgentPermissionMode.FullAccess)
+        if (context.RunConfig.Security.Approval == AgentApprovalPolicy.AutoApprove)
             return;
 
         var plan = ExecuteCommandPermissionAnalyzer.Analyze(context.Arguments, context.RunConfig, DefaultOptions);
@@ -382,7 +384,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
 
             var request = normalized.Request!;
             var shell = shellOverride ?? GetShellScope();
-            var sandbox = AgentProcessSandboxPolicy.FromRunConfig(runConfig);
+            var sandbox = CodingSandboxRuntime.Capture(runConfig);
             var workspace = ExecuteCommandPermissionWorkspaceScope.From(runConfig, request.WorkingDirectory);
             if (request.Action != ExecuteCommandAction.Run)
             {
@@ -415,10 +417,10 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
             var risk = analysis.Risk;
             if (request.StartsInBackground)
                 risk |= ExecuteCommandPermissionRisk.BackgroundProcess;
-            if (sandbox.Mode == AgentProcessIsolationMode.Disabled)
+            if (!sandbox.IsEnforced)
                 risk |= ExecuteCommandPermissionRisk.Unsandboxed;
             if (sandbox.Filesystem.Count > 0 ||
-                sandbox.Network.Mode != ExecuteCommandNetworkMode.Blocked ||
+                sandbox.Network.Mode != NetworkEgressMode.Blocked ||
                 sandbox.Interactive.AllowPty ||
                 sandbox.Interactive.AllowLocalBinding ||
                 sandbox.Interactive.AllowedMachLookups.Count > 0)
@@ -553,7 +555,7 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
             ExecuteCommandPermissionMatchKind matchKind,
             string pattern,
             ExecuteCommandShellScope shell,
-            AgentProcessSandboxPolicy sandbox,
+            AgentSandboxRuntime sandbox,
             string workingDirectory,
             ExecuteCommandPermissionWorkspaceScope workspace,
             ExecuteCommandAnalysisTrustLevel trustLevel,
@@ -602,15 +604,15 @@ public sealed class ExecuteCommandPermissionMiddleware : IToolHarnessMiddleware
             };
         }
 
-        private static AgentProcessSandboxPolicy TryGetRequestedSandbox(AgentRunConfig runConfig)
+        private static AgentSandboxRuntime TryGetRequestedSandbox(AgentRunConfig runConfig)
         {
             try
             {
-                return AgentProcessSandboxPolicy.FromRunConfig(runConfig);
+                return CodingSandboxRuntime.Capture(runConfig);
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or JsonException)
             {
-                return new AgentProcessSandboxPolicy();
+                return AgentSandboxRuntime.Capture(new AgentRunConfig());
             }
         }
 
@@ -1105,7 +1107,6 @@ internal static class ExecuteCommandPermissionRuleLifecycle
                     rule.Workspace.RootId,
                     rule.Workspace.RootPath,
                     [new AgentWorkspaceRoot(rule.Workspace.RootId, rule.Workspace.RootPath)]),
-                [AgentProcessSandboxPolicy.ContextKey] = new AgentProcessSandboxPolicy()
             }
         };
 
@@ -1186,7 +1187,7 @@ public abstract record ExecuteCommandPermissionPlan
     public required ExecuteCommandShellScope Shell { get; init; }
     public required string WorkingDirectory { get; init; }
     public required ExecuteCommandPermissionWorkspaceScope Workspace { get; init; }
-    public required AgentProcessSandboxPolicy RequestedSandbox { get; init; }
+    public required AgentSandboxRuntime RequestedSandbox { get; init; }
     public required IReadOnlyList<ExecuteCommandFilesystemEffect> FilesystemEffects { get; init; }
     public required IReadOnlyList<ExecuteCommandNetworkEffect> NetworkEffects { get; init; }
     public required bool StartsInBackground { get; init; }
@@ -1245,7 +1246,7 @@ internal sealed record ExecuteCommandPlanBase
     public required ExecuteCommandShellScope Shell { get; init; }
     public required string WorkingDirectory { get; init; }
     public required ExecuteCommandPermissionWorkspaceScope Workspace { get; init; }
-    public required AgentProcessSandboxPolicy RequestedSandbox { get; init; }
+    public required AgentSandboxRuntime RequestedSandbox { get; init; }
     public required IReadOnlyList<ExecuteCommandFilesystemEffect> FilesystemEffects { get; init; }
     public required IReadOnlyList<ExecuteCommandNetworkEffect> NetworkEffects { get; init; }
     public required bool StartsInBackground { get; init; }
@@ -1647,24 +1648,6 @@ public sealed record ExecuteCommandPermissionWorkspaceScope
     }
 }
 
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "amendmentKind")]
-[JsonDerivedType(typeof(AllowReadPathAmendment), "readPath")]
-[JsonDerivedType(typeof(AllowWritePathAmendment), "writePath")]
-[JsonDerivedType(typeof(AllowNetworkDomainAmendment), "networkDomain")]
-[JsonDerivedType(typeof(AllowNetworkModeAmendment), "networkMode")]
-[JsonDerivedType(typeof(AllowPtyAmendment), "pty")]
-[JsonDerivedType(typeof(AllowLocalBindingAmendment), "localBinding")]
-[JsonDerivedType(typeof(DisableIsolationAmendment), "disableIsolation")]
-public abstract record ExecuteCommandSandboxAmendment;
-
-public sealed record AllowReadPathAmendment(string Path) : ExecuteCommandSandboxAmendment;
-public sealed record AllowWritePathAmendment(string Path) : ExecuteCommandSandboxAmendment;
-public sealed record AllowNetworkDomainAmendment(string Domain) : ExecuteCommandSandboxAmendment;
-public sealed record AllowNetworkModeAmendment(ExecuteCommandNetworkMode Mode) : ExecuteCommandSandboxAmendment;
-public sealed record AllowPtyAmendment : ExecuteCommandSandboxAmendment;
-public sealed record AllowLocalBindingAmendment : ExecuteCommandSandboxAmendment;
-public sealed record DisableIsolationAmendment : ExecuteCommandSandboxAmendment;
-
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "proposalKind")]
 [JsonDerivedType(typeof(ExactAllowRuleProposal), "exactAllow")]
 [JsonDerivedType(typeof(PrefixAllowRuleProposal), "prefixAllow")]
@@ -1735,42 +1718,6 @@ public sealed record ExecuteCommandPermissionResponseEvent(
     public override EventKind Kind { get; init; } = EventKind.Control;
     public override EventDirection Direction { get; init; } = EventDirection.Upstream;
     string IRequestCorrelatedEvent.RequestId => PermissionId;
-}
-
-public enum ExecuteCommandSandboxCapabilityKind
-{
-    LocalBinding,
-    NetworkEgress,
-    FilesystemRead,
-    FilesystemWrite,
-    Unsandboxed
-}
-
-public sealed record ExecuteCommandSandboxCapabilityRequestEvent(
-    string RequestId,
-    string SourceName,
-    string CallId,
-    string CommandId,
-    string Command,
-    string WorkingDirectory,
-    ExecuteCommandSandboxCapabilityKind Capability,
-    ExecuteCommandSandboxAmendment Amendment,
-    string FailureSummary) : AgentEvent, IAgentRequestEvent
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override EventKind Kind { get; init; } = EventKind.Control;
-    string IRequestCorrelatedEvent.RequestId => RequestId;
-}
-
-public sealed record ExecuteCommandSandboxCapabilityResponseEvent(
-    string RequestId,
-    string SourceName,
-    bool Approved) : AgentEvent, IAgentResponseEvent
-{
-    public override EventChannel Channel { get; init; } = EventChannel.Interactive;
-    public override EventKind Kind { get; init; } = EventKind.Control;
-    public override EventDirection Direction { get; init; } = EventDirection.Upstream;
-    string IRequestCorrelatedEvent.RequestId => RequestId;
 }
 
 public sealed record ExecuteCommandPermissionRulePersistedEvent(
@@ -4013,7 +3960,7 @@ internal static class ExecuteCommandPathAnalyzer
         ExecuteCommandShellAnalysis analysis,
         string workingDirectory,
         string workspaceRoot,
-        AgentProcessSandboxPolicy sandbox)
+        AgentSandboxRuntime sandbox)
     {
         var effects = new List<ExecuteCommandFilesystemEffect>();
         foreach (var segment in analysis.Segments)
@@ -4042,7 +3989,7 @@ internal static class ExecuteCommandPathAnalyzer
         ExecuteCommandSubcommandPlan segment,
         string workingDirectory,
         string workspaceRoot,
-        AgentProcessSandboxPolicy sandbox)
+        AgentSandboxRuntime sandbox)
     {
         if (segment.Argv.Count < 2)
             yield break;
@@ -4073,9 +4020,9 @@ internal static class ExecuteCommandPathAnalyzer
         ExecuteCommandFilesystemOperation operation,
         string workspaceRoot,
         string workingDirectory,
-        AgentProcessSandboxPolicy sandbox)
+        AgentSandboxRuntime sandbox)
     {
-        if (sandbox.Mode == AgentProcessIsolationMode.Disabled)
+        if (!sandbox.IsEnforced)
             return true;
 
         if (IsWithinWorkspace(path, workspaceRoot))
@@ -4084,10 +4031,10 @@ internal static class ExecuteCommandPathAnalyzer
         return sandbox.Filesystem.Any(grant =>
         {
             var grantPath = ResolvePath(grant.Path, workingDirectory);
-            var operationCovered = grant.Kind switch
+            var operationCovered = grant.Access switch
             {
-                AgentProcessPathGrantKind.Read => operation == ExecuteCommandFilesystemOperation.Read,
-                AgentProcessPathGrantKind.Write => operation is ExecuteCommandFilesystemOperation.Create
+                AgentSandboxPathAccess.Read => operation == ExecuteCommandFilesystemOperation.Read,
+                AgentSandboxPathAccess.Write => operation is ExecuteCommandFilesystemOperation.Create
                     or ExecuteCommandFilesystemOperation.Write
                     or ExecuteCommandFilesystemOperation.Delete,
                 _ => false
@@ -4098,20 +4045,20 @@ internal static class ExecuteCommandPathAnalyzer
 
     public static IReadOnlyList<ExecuteCommandNetworkEffect> GetNetworkEffects(
         ExecuteCommandShellAnalysis analysis,
-        AgentProcessSandboxPolicy sandbox)
+        AgentSandboxRuntime sandbox)
         => analysis.Segments.Any(segment => Policy.HasNetworkEffect(segment.Argv))
             ? [new ExecuteCommandNetworkEffect
             {
                 Operation = ExecuteCommandNetworkOperation.LikelyEgress,
-                CoveredBySandbox = sandbox.Mode == AgentProcessIsolationMode.Disabled ||
-                    sandbox.Network.Mode != ExecuteCommandNetworkMode.Blocked
+                CoveredBySandbox = !sandbox.IsEnforced ||
+                    sandbox.Network.Mode != NetworkEgressMode.Blocked
             }]
             : [];
 }
 
-internal static class AgentProcessSandboxPolicyExtensions
+internal static class AgentSandboxRuntimeExtensions
 {
-    public static string Canonicalize(this AgentProcessSandboxPolicy policy, string workingDirectory)
+    public static string Canonicalize(this AgentSandboxRuntime policy, string workingDirectory)
     {
         var filesystem = policy.Filesystem
             .Select(grant =>
@@ -4119,14 +4066,18 @@ internal static class AgentProcessSandboxPolicyExtensions
                 var path = Path.IsPathFullyQualified(grant.Path)
                     ? Path.GetFullPath(grant.Path)
                     : Path.GetFullPath(Path.Combine(workingDirectory, grant.Path));
-                return $"{grant.Kind}:{path}";
+                return $"{grant.Access}:{path}";
             })
             .Order(StringComparer.Ordinal);
-        var allowed = policy.Network.AllowedDomains.Order(StringComparer.Ordinal);
-        var denied = policy.Network.DeniedDomains.Order(StringComparer.Ordinal);
+        var allowed = policy.Network.AllowedDomains
+            .Select(static rule => rule.Pattern)
+            .Order(StringComparer.Ordinal);
+        var denied = policy.Network.DeniedDomains
+            .Select(static rule => rule.Pattern)
+            .Order(StringComparer.Ordinal);
         return string.Join("|", [
-            $"v:{policy.Version}",
-            $"mode:{policy.Mode}",
+            "v:1",
+            $"mode:{policy.Security.Sandbox}",
             $"fs:{string.Join(",", filesystem)}",
             $"net:{policy.Network.Mode}:{string.Join(",", allowed)}:{string.Join(",", denied)}",
             $"pty:{policy.Interactive.AllowPty}",

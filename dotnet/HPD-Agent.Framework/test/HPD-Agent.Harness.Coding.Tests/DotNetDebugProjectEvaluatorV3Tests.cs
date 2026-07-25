@@ -1,6 +1,8 @@
 using System.Text;
 using FluentAssertions;
+using HPD.Agent;
 using HPD.Agent.Middleware;
+using HPD.Agent.Security;
 using HPD.Agent.Sandbox;
 using HPD.Agent.Sandbox.Local;
 using HPD.Agent.Sandbox.ProcessIsolation;
@@ -67,9 +69,12 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
         await new DotNetDebugProjectEvaluator().EvaluateAsync(
             fixture.Request(provider) with
             {
-                ProcessSandbox = new AgentProcessSandboxPolicy
+                ProcessSandbox = new AgentSandboxRuntime
                 {
-                    Mode = AgentProcessIsolationMode.Disabled
+                    Security = new AgentSecurityProfile
+                    {
+                        Sandbox = AgentSandboxPolicy.Disabled
+                    }
                 }
             },
             CancellationToken.None);
@@ -114,7 +119,7 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
     }
 
     [Fact]
-    public async Task Evaluation_rejects_projects_outside_the_workspace()
+    public async Task Evaluation_does_not_treat_workspace_membership_as_authorization()
     {
         using var fixture = new EvaluationFixture();
         var outsideWorkspace = Path.Combine(fixture.Root, "authorized");
@@ -122,16 +127,15 @@ public sealed class DotNetDebugProjectEvaluatorV3Tests
         var provider = new EvaluationProcessProvider(_ =>
             fixture.Json("Exe", false, false, "net10.0"));
 
-        var action = () => new DotNetDebugProjectEvaluator().EvaluateAsync(
+        var result = await new DotNetDebugProjectEvaluator().EvaluateAsync(
             fixture.Request(provider) with
             {
                 Workspace = Workspace(outsideWorkspace)
             },
-            CancellationToken.None).AsTask();
+            CancellationToken.None);
 
-        var exception = await action.Should().ThrowAsync<DebugStartPlanningException>();
-        exception.Which.Kind.Should().Be("debug_project_outside_workspace");
-        provider.Specifications.Should().BeEmpty();
+        result.ProjectPath.Should().Be(fixture.ProjectPath);
+        provider.Specifications.Should().NotBeEmpty();
     }
 
     [Fact]

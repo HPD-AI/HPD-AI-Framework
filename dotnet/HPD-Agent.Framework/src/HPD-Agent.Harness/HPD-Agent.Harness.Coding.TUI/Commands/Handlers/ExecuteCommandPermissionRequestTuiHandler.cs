@@ -369,11 +369,11 @@ internal sealed class ExecuteCommandPermissionDialogComponent : IFocusable
                 : $"{request.MatchingRules.Count} saved rules matched";
 
     private static string FormatSandbox(ExecuteCommandPermissionPlan plan)
-        => plan.RequestedSandbox.Mode == AgentProcessIsolationMode.Disabled
+        => !plan.RequestedSandbox.IsEnforced
             ? "disabled"
             : plan.Risk.HasFlag(ExecuteCommandPermissionRisk.AdditionalSandboxPermissions)
-                ? $"{plan.RequestedSandbox.Mode} plus requested access"
-                : plan.RequestedSandbox.Mode.ToString();
+                ? "enforced plus requested access"
+                : "enforced";
 
     private static string FormatRisk(ExecuteCommandPermissionRisk risk)
         => risk == ExecuteCommandPermissionRisk.None

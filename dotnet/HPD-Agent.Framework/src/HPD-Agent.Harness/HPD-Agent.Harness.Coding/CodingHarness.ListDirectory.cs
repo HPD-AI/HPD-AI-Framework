@@ -6,6 +6,7 @@ using System.Xml;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
+using HPD.Agent.ToolHarness.Coding.Security;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -48,6 +49,11 @@ public partial class CodingToolHarness
                 return FormatListDirectoryError(path, "Cannot list blocked system path.");
 
             var resolvedPath = ResolveDirectoryPath(path, context);
+            _ = await AgentFilesystemAccess.AuthorizeReadAsync(
+                resolvedPath.FullPath,
+                nameof(ListDirectory),
+                context,
+                CancellationToken.None).ConfigureAwait(false);
             if (IsBlockedDirectoryPath(resolvedPath.FullPath))
                 return FormatListDirectoryError(resolvedPath.FullPath, "Cannot list blocked system path.");
 
@@ -76,6 +82,10 @@ public partial class CodingToolHarness
 
             var result = await ListLocalDirectoryAsync(request, CancellationToken.None).ConfigureAwait(false);
             return FormatDirectoryResult(result);
+        }
+        catch (AgentCapabilityDeniedException ex)
+        {
+            return FormatListDirectoryError(path ?? string.Empty, ex.Message);
         }
         catch (UnauthorizedAccessException ex)
         {

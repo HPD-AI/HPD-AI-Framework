@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using HPD.Agent;
 using HPD.Agent.Middleware;
+using HPD.Agent.ToolHarness.Coding.Security;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -32,6 +33,11 @@ public partial class CodingToolHarness
 
             resolvedPath = ResolveMutationPath(path);
             ValidateMutationPath(resolvedPath);
+            _ = await AgentFilesystemAccess.AuthorizeWriteAsync(
+                resolvedPath.FullPath,
+                nameof(EditFile),
+                context,
+                CancellationToken.None).ConfigureAwait(false);
 
             var allowMissing = IsCreateEdit(edits);
             var current = await ReadMutationContentAsync(resolvedPath.FullPath, allowMissing).ConfigureAwait(false);
@@ -71,6 +77,13 @@ public partial class CodingToolHarness
                     EventFactory: request => BuildFileEditAppliedEvent(request, application))).ConfigureAwait(false);
 
             return FormatEditResult(result, application);
+        }
+        catch (AgentCapabilityDeniedException exception)
+        {
+            return FormatEditError(
+                EditFileErrorKind.InvalidArguments,
+                resolvedPath?.FullPath ?? path,
+                exception.Message);
         }
         catch (FileMutationException exception) when (exception.Kind == FileMutationErrorKind.StaleFile)
         {

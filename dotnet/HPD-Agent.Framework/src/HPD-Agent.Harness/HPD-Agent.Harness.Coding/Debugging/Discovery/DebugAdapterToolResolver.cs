@@ -2,6 +2,7 @@ using System.Text;
 using System.Collections.Frozen;
 using System.Collections.Immutable;
 using HPD.Environment.Contracts;
+using HPD.Agent.Security;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
 
@@ -210,7 +211,7 @@ public sealed class EnvironmentDebugAdapterToolResolver : IDebugAdapterToolResol
         TargetHandle<ExecutionUnit> target,
         DebugAdapterToolCandidate candidate,
         string workspaceRoot,
-        AgentProcessSandboxPolicy processSandbox) => new()
+        AgentSandboxRuntime processSandbox) => new()
     {
         Target = target,
         Command = new ProcessCommandSpec

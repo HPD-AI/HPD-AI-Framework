@@ -57,7 +57,7 @@ public sealed class AgentWorkspaceTests : IDisposable
     {
         var workspace = CreateWorkspace();
 
-        workspace.ResolvePath("src/app.cs")
+        workspace.ResolveWorkspacePath("src/app.cs")
             .Should().Be(Path.GetFullPath(Path.Combine(_root, "src", "app.cs")));
     }
 
@@ -66,7 +66,7 @@ public sealed class AgentWorkspaceTests : IDisposable
     {
         var workspace = CreateWorkspace();
 
-        workspace.ResolvePath("@docs/readme.md")
+        workspace.ResolveWorkspacePath("@docs/readme.md")
             .Should().Be(Path.GetFullPath(Path.Combine(_docs, "readme.md")));
     }
 
@@ -76,7 +76,7 @@ public sealed class AgentWorkspaceTests : IDisposable
         var workspace = CreateWorkspace();
         var outside = Path.Combine(Path.GetTempPath(), $"outside-{Guid.NewGuid():N}.txt");
 
-        var act = () => workspace.ResolvePath(outside);
+        var act = () => workspace.ResolveWorkspacePath(outside);
 
         act.Should().Throw<AgentWorkspaceException>()
             .Where(ex => ex.Kind == AgentWorkspaceErrorKind.PathOutsideWorkspace);
@@ -87,7 +87,7 @@ public sealed class AgentWorkspaceTests : IDisposable
     {
         var workspace = CreateWorkspace();
 
-        var act = () => workspace.ResolvePath("@docs/../outside.txt");
+        var act = () => workspace.ResolveWorkspacePath("@docs/../outside.txt");
 
         act.Should().Throw<AgentWorkspaceException>()
             .Where(ex => ex.Kind == AgentWorkspaceErrorKind.PathOutsideWorkspace);

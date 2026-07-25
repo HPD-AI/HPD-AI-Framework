@@ -46,7 +46,7 @@ internal sealed class DebugStartResultProjector(DebugResultFormatter formatter)
             new("status", result.Status),
             new("requestedBreakpoints", result.Breakpoints.Requested),
             new("acknowledgedBreakpoints", result.Breakpoints.Acknowledged),
-            new("verifiedBreakpoints", result.Breakpoints.Verified),
+            new("resolvedBreakpoints", result.Breakpoints.Verified),
             new("pendingBreakpoints", result.Breakpoints.Pending),
             new("backgroundHandleId", result.Handle.HandleId)
         };

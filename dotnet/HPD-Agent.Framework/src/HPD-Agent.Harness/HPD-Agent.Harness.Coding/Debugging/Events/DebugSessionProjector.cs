@@ -19,12 +19,11 @@ public sealed record DebugProjectedSession
     public int? StoppedThreadId { get; set; }
     public string? StopReason { get; set; }
     public bool RestartRequested { get; set; }
-    public DebugSessionSummaryEvent? FinalSummary { get; set; }
     public List<DebugProjectedBreakpoint> BreakpointHistory { get; } = [];
 }
 
 public sealed record DebugProjectedBreakpoint(
-    string Reason, int? BreakpointId, bool Verified, string? DisplayPath, long? Line,
+    string ClientBreakpointId, DebugBreakpointChangeKind Change, bool Verified, string? DisplayPath, long? Line,
     long? Column, string? InstructionReferenceToken);
 
 public sealed record DebugProjectedTree
@@ -32,6 +31,7 @@ public sealed record DebugProjectedTree
     public required string DebugTreeId { get; init; }
     public string? EnvironmentId { get; set; }
     public string Status { get; set; } = "Started";
+    public DebugTreeCompletedEvent? Completion { get; set; }
     public Dictionary<string, DebugProjectedSession> Sessions { get; } = new(StringComparer.Ordinal);
     public List<DebugProjectedArtifact> Artifacts { get; } = [];
 }
@@ -91,14 +91,15 @@ public static class DebugSessionProjector
                 session.Status = "Faulted";
                 break;
             case DebugBreakpointChangedEvent breakpoint:
-                session.BreakpointHistory.Add(new(breakpoint.Reason, breakpoint.BreakpointId,
-                    breakpoint.Verified, breakpoint.DisplayPath, breakpoint.Line, breakpoint.Column,
+                session.BreakpointHistory.Add(new(breakpoint.ClientBreakpointId, breakpoint.Change,
+                    breakpoint.Verified, breakpoint.DisplayPath, breakpoint.ResolvedLine, breakpoint.ResolvedColumn,
                     breakpoint.InstructionReferenceToken));
                 break;
-            case DebugSessionSummaryEvent summary:
-                session.FinalSummary = summary;
-                session.Status = summary.FinalStatus;
-                session.ExitCode = summary.ExitCode;
+            case DebugTreeCompletedEvent completed:
+                tree.Completion = completed;
+                tree.Status = completed.FinalStatus;
+                session.Status = completed.FinalStatus;
+                session.ExitCode = completed.ExitCode;
                 break;
             case DebugTreeFaultedEvent:
                 tree.Status = "Faulted";

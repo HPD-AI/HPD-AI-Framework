@@ -235,6 +235,7 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
     {
         var tree = manager.ResolveTree(owner, treeId);
         var session = tree.SelectSession(sessionId);
+        session.BeginDisconnect();
         session.State.Transition(DebugSessionStatus.Terminating);
         var supportsTerminate = session.Capabilities?.SupportTerminateDebuggee == true;
         var supportsSuspend = session.Capabilities?.SupportSuspendDebuggee == true;
@@ -249,24 +250,6 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
         session.State.Transition(DebugSessionStatus.Terminated);
         if (session.SessionId == tree.RootSessionId)
         {
-            var output = session.Output.Snapshot(includeTelemetry: true);
-            var summary = new DebugSessionSummaryEvent
-            {
-                SessionId = tree.Ownership.SessionId,
-                ThreadId = tree.Ownership.ThreadId,
-                TraceId = tree.RuntimeBinding.EventScope.TraceId,
-                DebugTreeId = tree.Ownership.DebugTreeId,
-                DebugSessionId = session.SessionId,
-                AdapterId = session.AdapterPlan.AdapterId,
-                FinalStatus = "Terminated",
-                ExitCode = session.ExitCode,
-                DurationMilliseconds = Math.Max(0, (long)(DateTimeOffset.UtcNow - session.CreatedAt).TotalMilliseconds),
-                ChildSessionCount = session.ChildSessionIds.Count,
-                RetainedOutputBytes = output.RetainedBytes,
-                DroppedOutputRecords = output.DroppedRecords,
-                DroppedOutputBytes = output.DroppedBytes,
-                ProjectionFailures = session.Projections.FollowUpFailures
-            };
             var terminatedEvent = new DebugTreeTerminatedEvent
             {
                 SessionId = tree.Ownership.SessionId,
@@ -277,9 +260,8 @@ internal sealed class DebugSemanticService(DebugSessionManager manager)
                 AdapterId = session.AdapterPlan.AdapterId,
                 SafeReasonCode = "DISCONNECTED"
             };
-            if (tree.EventPublisher is not null)
-                await tree.EventPublisher.PublishAsync(summary, durable: true, CancellationToken.None).ConfigureAwait(false);
-            await manager.RemoveAndDisposeAsync(owner, treeId).ConfigureAwait(false);
+            await manager.RetainAndDisposeAsync(
+                owner, treeId, "Terminated", "DISCONNECTED").ConfigureAwait(false);
             if (tree.EventPublisher is not null)
                 await tree.EventPublisher.PublishAsync(terminatedEvent, durable: true, CancellationToken.None).ConfigureAwait(false);
         }

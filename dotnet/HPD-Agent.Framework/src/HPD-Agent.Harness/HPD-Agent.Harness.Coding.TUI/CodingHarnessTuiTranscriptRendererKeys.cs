@@ -10,4 +10,5 @@ public static class CodingHarnessTuiTranscriptRendererKeys
     public const string SubAgent = "hpd.coding.subagent";
     public const string DebugBreakpoint = "hpd.coding.debug.breakpoint";
     public const string DebugStopped = "hpd.coding.debug.stopped";
+    public const string DebugActivity = "hpd.coding.debug.activity";
 }

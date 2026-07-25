@@ -125,7 +125,7 @@ public sealed class DebugProtocolTransportFactory
         DebugAdapterStartPlan plan,
         bool localBinding)
     {
-        if (plan.ProcessSandbox.Mode == AgentProcessIsolationMode.Disabled)
+        if (!plan.ProcessSandbox.IsEnforced)
             return plan.ProcessSandbox.ToProcessIsolationPolicy(
                 plan.CanonicalWorkingDirectory);
 

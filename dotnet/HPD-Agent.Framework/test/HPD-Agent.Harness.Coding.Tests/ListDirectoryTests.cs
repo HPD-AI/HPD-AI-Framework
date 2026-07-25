@@ -85,15 +85,22 @@ public sealed class ListDirectoryTests : IDisposable
     }
 
     [Fact]
-    public async Task ListDirectory_AbsolutePathOutsideWorkspace_ListsWhenInvoked()
+    public async Task ListDirectory_AbsolutePathOutsideWorkspace_ListsWithSandboxDisabled()
     {
         var outside = Path.Combine(Path.GetTempPath(), $"hpd-list-outside-{Guid.NewGuid():N}");
         Directory.CreateDirectory(outside);
         try
         {
+            var runConfig = CreateWorkspaceRunConfig(_tempRoot);
+            runConfig.Security = new AgentSecurityProfile
+            {
+                Approval = AgentApprovalPolicy.AutoApprove,
+                Sandbox = AgentSandboxPolicy.Disabled,
+                SandboxEscape = AgentSandboxEscapePolicy.Deny
+            };
             var result = await new CodingToolHarness().ListDirectory(
                 outside,
-                context: CreateFunctionContext(CreateWorkspaceRunConfig(_tempRoot)));
+                context: CreateFunctionContext(runConfig));
 
             result.Should().Contain("<empty_directory");
             result.Should().Contain(outside);

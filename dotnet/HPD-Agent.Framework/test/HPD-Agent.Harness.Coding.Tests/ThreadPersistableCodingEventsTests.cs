@@ -36,8 +36,9 @@ public sealed class CanonicalCodingEventCodecTests
             new DebugBreakpointChangedEvent
             {
                 DebugTreeId = "tree-1", DebugSessionId = "child-1", AdapterId = "fixture",
-                Reason = "changed", BreakpointId = 7, Verified = true,
-                DisplayPath = "a.cs", Line = 12
+                ClientBreakpointId = "client-7", BreakpointKind = DebugBreakpointKind.Source,
+                Change = DebugBreakpointChangeKind.Changed, Acknowledged = true, Verified = true,
+                DisplayPath = "a.cs", ResolvedLine = 12
             }
         ];
 
@@ -115,7 +116,7 @@ public sealed class CanonicalCodingEventCodecTests
             new DebugProgressStartedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", ProgressId = "p", Title = "work" },
             new DebugProgressUpdatedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", ProgressId = "p", Percentage = 50 },
             new DebugProgressCompletedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", ProgressId = "p" },
-            new DebugSessionSummaryEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", FinalStatus = "Terminated", DurationMilliseconds = 1, ChildSessionCount = 0, RetainedOutputBytes = 0, DroppedOutputRecords = 0, DroppedOutputBytes = 0, ProjectionFailures = 0 }
+            new DebugTreeCompletedEvent { DebugTreeId = "t", DebugSessionId = "s", AdapterId = "a", FinalStatus = "Terminated", DurationMilliseconds = 1, SessionCount = 1, ChildSessionCount = 0, Breakpoints = new(0, 0, 0, 0), BreakpointStopCount = 0, RetainedOutputBytes = 0, DroppedOutputRecords = 0, DroppedOutputBytes = 0, ProjectionFailures = 0 }
         ];
 
         foreach (var proposed in events)

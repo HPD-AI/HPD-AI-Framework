@@ -113,7 +113,9 @@ internal sealed class AnnotatedSourceView : IComponent
         var primaryTone = ResolvePrimaryTone(line.Annotations);
         var background = ResolveBackground(line.Emphasis, primaryTone);
         var textStyle = ResolveTextStyle(line.Emphasis, primaryTone, context.Theme, background);
-        var gutterStyle = _theme.ResolveSourceGutter(context.Theme, background);
+        var gutterStyle = WithBackground(
+            _theme.ResolveSourceGutter(context.Theme, background),
+            background);
         var trailingStyle = ResolveTrailingStyle(primaryTone, context.Theme, background);
         var prefix = string.Concat(
             line.LineNumber.ToString().PadLeft(gutter.LineNumberWidth),

@@ -60,7 +60,7 @@ internal sealed class DebugSourcePreviewProvider(
         string fullPath;
         try
         {
-            fullPath = request.Workspace.ResolvePath(request.Path);
+            fullPath = request.Workspace.ResolveWorkspacePath(request.Path);
         }
         catch (AgentWorkspaceException)
         {

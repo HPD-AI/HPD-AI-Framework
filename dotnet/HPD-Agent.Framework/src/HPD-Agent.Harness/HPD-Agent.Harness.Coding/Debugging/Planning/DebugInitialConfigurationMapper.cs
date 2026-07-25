@@ -18,23 +18,23 @@ internal static class DebugInitialConfigurationMapper
         {
             SourceBreakpoints = input?.SourceBreakpoints?
                 .Select(item => new DebugSourceBreakpoint(
-                    workspace.ResolvePath(item.Path),
+                    workspace.CanonicalizeExplicitPath(item.Path),
                     item.Line,
                     item.Column,
-                    item.Condition,
-                    item.HitCondition,
-                    item.LogMessage))
+                    Normalize(item.Condition),
+                    Normalize(item.HitCondition),
+                    Normalize(item.LogMessage)))
                 .ToArray() ?? [],
             FunctionBreakpoints = input?.FunctionBreakpoints?
                 .Select(item => new DebugFunctionBreakpoint(
                     item.Name,
-                    item.Condition,
-                    item.HitCondition))
+                    Normalize(item.Condition),
+                    Normalize(item.HitCondition)))
                 .ToArray() ?? [],
             ExceptionFilters = input?.ExceptionBreakpoints?
                 .Select(item => new DebugExceptionFilter(
                     item.FilterId,
-                    item.Condition))
+                    Normalize(item.Condition)))
                 .ToArray() ?? [],
             StopOnEntry = stopOnEntry,
             BreakpointPolicy = input?.BreakpointPolicy ??
@@ -44,4 +44,7 @@ internal static class DebugInitialConfigurationMapper
             configuration.ExceptionFilters);
         return configuration;
     }
+
+    private static string? Normalize(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value;
 }

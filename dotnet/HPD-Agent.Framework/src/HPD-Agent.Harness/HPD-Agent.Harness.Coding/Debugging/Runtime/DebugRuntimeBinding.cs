@@ -1,4 +1,6 @@
 using HPD.Agent.Middleware;
+using HPD.Agent.Security;
+using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Environment.Contracts;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
@@ -7,6 +9,7 @@ public sealed record DebugEventScope(
     string? TraceId,
     string SessionId,
     string ThreadId,
+    string? ToolCallId = null,
     string? DebugTreeId = null,
     string? DebugSessionId = null,
     string? AdapterId = null);
@@ -77,7 +80,7 @@ public sealed record DebugRuntimeBinding
     public required IDebugSessionManager SessionManager { get; init; }
     public RuntimeProcessExecutionBinding? ProcessExecution { get; init; }
     /// <summary>Gets the invocation-wide process sandbox policy selected by the host.</summary>
-    public AgentProcessSandboxPolicy ProcessSandbox { get; init; } = new();
+    public AgentSandboxRuntime ProcessSandbox { get; init; } = AgentSandboxRuntime.Default;
     public IEnvironmentRuntime? EnvironmentRuntime => ProcessExecution?.EnvironmentRuntime;
     public required DebugEventScope EventScope { get; init; }
     public required DebugRuntimeBindingState State { get; init; }
@@ -109,8 +112,12 @@ public sealed record DebugRuntimeBinding
             ThreadId = threadId,
             SessionManager = manager,
             ProcessExecution = processExecution,
-            ProcessSandbox = AgentProcessSandboxPolicy.FromRunConfig(context.RunConfig),
-            EventScope = new DebugEventScope(context.TraceId, sessionId, threadId),
+            ProcessSandbox = CodingSandboxRuntime.Capture(context.RunConfig),
+            EventScope = new DebugEventScope(
+                context.TraceId,
+                sessionId,
+                threadId,
+                context.FunctionCallId),
             State = bindingState
         };
     }

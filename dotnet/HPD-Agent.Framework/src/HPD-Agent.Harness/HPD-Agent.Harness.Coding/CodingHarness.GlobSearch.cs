@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Text;
 using System.Xml;
 using HPD.Agent.Middleware;
+using HPD.Agent.ToolHarness.Coding.Security;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.FileSystemGlobbing;
@@ -47,6 +48,11 @@ public partial class CodingToolHarness
             var resolved = hostResolved is null
                 ? ResolveGlobSearch(path, pattern, baseDirectory)
                 : hostResolved;
+            _ = await AgentFilesystemAccess.AuthorizeReadAsync(
+                resolved.EffectiveFullPath,
+                nameof(GlobSearch),
+                context,
+                CancellationToken.None).ConfigureAwait(false);
 
             if (IsBlockedSearchPath(resolved.InputPath) ||
                 IsBlockedSearchPath(resolved.OriginalPattern) ||
@@ -83,6 +89,10 @@ public partial class CodingToolHarness
 
             var result = await ExecuteGlobSearchAsync(request, CancellationToken.None).ConfigureAwait(false);
             return FormatGlobSearchResult(result);
+        }
+        catch (AgentCapabilityDeniedException ex)
+        {
+            return FormatGlobSearchError(path ?? string.Empty, ex.Message);
         }
         catch (UnauthorizedAccessException ex)
         {

@@ -4,6 +4,7 @@ using System.Xml.Linq;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
+using HPD.Agent.Security;
 using HPD.Environment.Contracts;
 using HPD.Events;
 using HPD.Events.Core;
@@ -99,7 +100,7 @@ public sealed class ExecuteCommandTests : IDisposable
     [Fact]
     public void CodingToolHarnessJsonContext_RoundTripsExecuteCommandPermissionRequestEvent()
     {
-        var sandbox = new AgentProcessSandboxPolicy();
+        var sandbox = AgentSandboxRuntime.Capture(CreateWorkspaceRunConfig());
         var workspace = new ExecuteCommandPermissionWorkspaceScope
         {
             RootId = "default",
@@ -299,9 +300,11 @@ public sealed class ExecuteCommandTests : IDisposable
     {
         var runner = new FakeProcessProvider();
         var runConfig = CreateWorkspaceRunConfig();
-        runConfig.ContextOverrides![AgentProcessSandboxPolicy.ContextKey] = new AgentProcessSandboxPolicy
+        runConfig.Security = new AgentSecurityProfile
         {
-            Mode = AgentProcessIsolationMode.Disabled
+            Approval = AgentApprovalPolicy.AutoApprove,
+            Sandbox = AgentSandboxPolicy.Disabled,
+            SandboxEscape = AgentSandboxEscapePolicy.Deny
         };
 
         await new CodingToolHarness().ExecuteCommandCore(
@@ -313,40 +316,24 @@ public sealed class ExecuteCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteCommand_RunConfigSandboxBooleanFalse_ReturnsValidationError()
-    {
-        var runner = new FakeProcessProvider();
-        var runConfig = CreateWorkspaceRunConfig();
-        runConfig.ContextOverrides![AgentProcessSandboxPolicy.ContextKey] = false;
-
-        var result = await new CodingToolHarness().ExecuteCommandCore(
-            context: CreateContext(runner, runConfig: runConfig),
-            command: "dotnet test");
-
-        result.ToString().Should().Contain("kind=\"invalid_arguments\"");
-        result.ToString().Should().Contain("Process sandbox policy must be an AgentProcessSandboxPolicy object.");
-        runner.LastSpec.Should().BeNull();
-    }
-
-    [Fact]
     public async Task ExecuteCommand_RunConfigSandboxPolicy_CompilesGrantsIntoProcessIsolationPolicy()
     {
         var runner = new FakeProcessProvider();
         var runConfig = CreateWorkspaceRunConfig();
-        runConfig.ContextOverrides![AgentProcessSandboxPolicy.ContextKey] = new AgentProcessSandboxPolicy
+        runConfig.Sandbox = new AgentSandboxConfiguration
         {
             Filesystem =
             [
-                new AgentProcessPathGrant { Kind = AgentProcessPathGrantKind.Read, Path = "readonly" },
-                new AgentProcessPathGrant { Kind = AgentProcessPathGrantKind.Write, Path = "/tmp/hpd-write" }
+                new AgentSandboxPathGrant { Access = AgentSandboxPathAccess.Read, Path = "readonly" },
+                new AgentSandboxPathGrant { Access = AgentSandboxPathAccess.Write, Path = "/tmp/hpd-write" }
             ],
-            Network = new AgentProcessNetworkGrant
+            Network = new NetworkEgressPolicy
             {
-                Mode = ExecuteCommandNetworkMode.Filtered,
-                AllowedDomains = ["registry.npmjs.org"],
-                DeniedDomains = ["169.254.169.254"]
+                Mode = NetworkEgressMode.Filtered,
+                AllowedDomains = [new DomainRule { Pattern = "registry.npmjs.org" }],
+                DeniedDomains = [new DomainRule { Pattern = "169.254.169.254" }]
             },
-            Interactive = new AgentProcessInteractiveGrant
+            Interactive = new ProcessInteractivePolicy
             {
                 AllowPty = true,
                 AllowLocalBinding = true,
@@ -422,11 +409,11 @@ public sealed class ExecuteCommandTests : IDisposable
 
         var coordinator = new EventCoordinator();
         using var permissionSubscription = RespondToPermissionRequests(coordinator, _ => "allow_once");
-        using var sandboxSubscription = coordinator.Subscribe<ExecuteCommandSandboxCapabilityRequestEvent>(request =>
+        using var sandboxSubscription = coordinator.Subscribe<AgentCapabilityRequestEvent>(request =>
         {
-            request.Capability.Should().Be(ExecuteCommandSandboxCapabilityKind.LocalBinding);
-            request.Amendment.Should().BeOfType<AllowLocalBindingAmendment>();
-            var result = coordinator.Respond(new ExecuteCommandSandboxCapabilityResponseEvent(
+            request.Capability.Should().Be(AgentCapabilityKind.LocalBinding);
+            request.Resource.Should().BeNull();
+            var result = coordinator.Respond(new AgentCapabilityResponseEvent(
                 request.RequestId,
                 request.SourceName,
                 true));
@@ -484,6 +471,55 @@ public sealed class ExecuteCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task ExecuteCommand_StructuredFilesystemViolation_RequestsNarrowGrantAndRetries()
+    {
+        var outsidePath = Path.GetFullPath(Path.Combine(_tempRoot, "..", "outside", "result.txt"));
+        var runner = new FakeProcessProvider
+        {
+            Results =
+            [
+                CreateResult(
+                    stderr: "sandbox denied",
+                    exitCode: 1,
+                    violations:
+                    [
+                        new ProcessViolation(
+                            "filesystem_write",
+                            "Write access was denied.",
+                            outsidePath)
+                    ]),
+                CreateResult(stdout: "written")
+            ]
+        };
+        var coordinator = new EventCoordinator();
+        using var subscription = coordinator.Subscribe<AgentCapabilityRequestEvent>(request =>
+        {
+            request.Capability.Should().Be(AgentCapabilityKind.FilesystemWrite);
+            request.Resource.Should().NotBeNull();
+            request.Resource!.Value.Should().Be(outsidePath);
+            coordinator.Respond(new AgentCapabilityResponseEvent(
+                request.RequestId,
+                request.SourceName,
+                true)).Accepted.Should().BeTrue();
+            return ValueTask.CompletedTask;
+        });
+        var context = CreateContext(
+            runner,
+            eventCoordinator: coordinator,
+            runConfig: CreateWorkspaceRunConfig());
+
+        var result = await new CodingToolHarness().ExecuteCommandCore(
+            context: context,
+            command: "write-result");
+
+        result.ToString().Should().Contain("written");
+        runner.StartCalls.Should().Be(2);
+        runner.LastSpec!.Isolation.Filesystem.Rules.Should().Contain(rule =>
+            rule.Kind == PathAccessRuleKind.AllowWrite &&
+            rule.Path.Value == outsidePath);
+    }
+
+    [Fact]
     public void ExecuteCommandPermissionBoundary_SandboxModeChangesPermissionFingerprint()
     {
         var sandboxed = ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
@@ -492,9 +528,9 @@ public sealed class ExecuteCommandTests : IDisposable
             new ExecuteCommandOptions(),
             new ExecuteCommandShellScope { Executable = "zsh", Family = ExecuteCommandShellFamily.Zsh });
         var unsandboxedConfig = CreateWorkspaceRunConfig();
-        unsandboxedConfig.ContextOverrides![AgentProcessSandboxPolicy.ContextKey] = new AgentProcessSandboxPolicy
+        unsandboxedConfig.Security = new AgentSecurityProfile
         {
-            Mode = AgentProcessIsolationMode.Disabled
+            Sandbox = AgentSandboxPolicy.Disabled
         };
         var unsandboxed = ExecuteCommandPermissionMiddleware.ExecuteCommandPermissionAnalyzer.Analyze(
             RunArguments("npm install"),
@@ -505,23 +541,6 @@ public sealed class ExecuteCommandTests : IDisposable
         sandboxed.Fingerprint.Should().NotBe(unsandboxed.Fingerprint);
         sandboxed.Risk.Should().NotHaveFlag(ExecuteCommandPermissionRisk.Unsandboxed);
         unsandboxed.Risk.Should().HaveFlag(ExecuteCommandPermissionRisk.Unsandboxed);
-    }
-
-    [Fact]
-    public async Task ExecuteCommand_RunConfigSandboxDictionary_ReturnsValidationError()
-    {
-        var runConfig = CreateWorkspaceRunConfig();
-        runConfig.ContextOverrides![AgentProcessSandboxPolicy.ContextKey] = new Dictionary<string, object?>
-        {
-            ["mode"] = "disabled"
-        };
-
-        var result = await new CodingToolHarness().ExecuteCommandCore(
-            context: CreateContext(new FakeProcessProvider(), runConfig: runConfig),
-            command: "dotnet test");
-
-        result.ToString().Should().Contain("kind=\"invalid_arguments\"");
-        result.ToString().Should().Contain("Process sandbox policy must be an AgentProcessSandboxPolicy object.");
     }
 
     [Fact]
@@ -541,22 +560,29 @@ public sealed class ExecuteCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteCommand_WorkingDirectoryOutsideWorkspace_Rejects()
+    public async Task ExecuteCommand_WorkingDirectoryOutsideWorkspace_RunsWithSandboxDisabled()
     {
         var outside = Path.Combine(Path.GetTempPath(), $"hpd-outside-{Guid.NewGuid():N}");
         Directory.CreateDirectory(outside);
         try
         {
             var runner = new FakeProcessProvider();
+            var runConfig = CreateWorkspaceRunConfig(_tempRoot);
+            runConfig.Security = new AgentSecurityProfile
+            {
+                Approval = AgentApprovalPolicy.AutoApprove,
+                Sandbox = AgentSandboxPolicy.Disabled,
+                SandboxEscape = AgentSandboxEscapePolicy.Deny
+            };
 
-            var result = await new CodingToolHarness().ExecuteCommandCore(
-                context: CreateContext(runner, runConfig: CreateWorkspaceRunConfig(_tempRoot)),
+            _ = await new CodingToolHarness().ExecuteCommandCore(
+                context: CreateContext(runner, runConfig: runConfig),
                 command: "pwd",
                 workingDirectory: outside);
 
-            result.ToString().Should().Contain("kind=\"working_directory_not_found\"");
-            result.ToString().Should().Contain("outside the configured workspace");
-            runner.StartCalls.Should().Be(0);
+            runner.StartCalls.Should().Be(1);
+            runner.LastSpec!.Command.WorkingDirectory.Should().Be(Path.GetFullPath(outside));
+            runner.LastSpec.Isolation.Mode.Should().Be(ProcessIsolationMode.Disabled);
         }
         finally
         {
@@ -1010,10 +1036,10 @@ public sealed class ExecuteCommandTests : IDisposable
         };
         var registry = new TestBackgroundTaskRegistry();
         var coordinator = new EventCoordinator();
-        using var sandboxSubscription = coordinator.Subscribe<ExecuteCommandSandboxCapabilityRequestEvent>(request =>
+        using var sandboxSubscription = coordinator.Subscribe<AgentCapabilityRequestEvent>(request =>
         {
-            request.Capability.Should().Be(ExecuteCommandSandboxCapabilityKind.LocalBinding);
-            var result = coordinator.Respond(new ExecuteCommandSandboxCapabilityResponseEvent(
+            request.Capability.Should().Be(AgentCapabilityKind.LocalBinding);
+            var result = coordinator.Respond(new AgentCapabilityResponseEvent(
                 request.RequestId,
                 request.SourceName,
                 true));
@@ -1445,8 +1471,7 @@ public sealed class ExecuteCommandTests : IDisposable
             "requiresApproval",
             "safe",
             "dangerous",
-            "sandbox",
-            "permissionMode"
+            "sandbox"
         ]);
     }
 
@@ -1678,20 +1703,28 @@ public sealed class ExecuteCommandTests : IDisposable
         string stdout = "",
         string stderr = "",
         int? exitCode = 0,
-        ProcessCompletionKind completionKind = ProcessCompletionKind.Completed)
-        => CreateResult(CreateStream(stdout), CreateStream(stderr), exitCode, completionKind);
+        ProcessCompletionKind completionKind = ProcessCompletionKind.Completed,
+        IReadOnlyList<ProcessViolation>? violations = null)
+        => CreateResult(
+            CreateStream(stdout),
+            CreateStream(stderr),
+            exitCode,
+            completionKind,
+            violations);
 
     private static ProcessInvocationResult CreateResult(
         ProcessStreamOutput? stdout = null,
         ProcessStreamOutput? stderr = null,
         int? exitCode = 0,
-        ProcessCompletionKind completionKind = ProcessCompletionKind.Completed)
+        ProcessCompletionKind completionKind = ProcessCompletionKind.Completed,
+        IReadOnlyList<ProcessViolation>? violations = null)
     {
         return new ProcessInvocationResult
         {
             SystemProcessId = 123,
             ExitCode = exitCode,
             CompletionKind = completionKind,
+            Violations = violations ?? [],
             Output = new ProcessCapturedOutput
             {
                 Stdout = stdout ?? CreateStream(""),

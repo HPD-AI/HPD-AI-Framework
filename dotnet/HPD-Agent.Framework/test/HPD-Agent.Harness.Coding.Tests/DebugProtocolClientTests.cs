@@ -276,7 +276,7 @@ public sealed class DebugProtocolClientTests
         var ordinaryTypes = new[]
         {
             typeof(DebugSemanticHealth), typeof(DebugOutputSnapshot),
-            typeof(DebugOutputAvailableEvent), typeof(DebugSessionSummaryEvent)
+            typeof(DebugOutputAvailableEvent), typeof(DebugTreeCompletedEvent)
         };
 
         foreach (var type in ordinaryTypes)

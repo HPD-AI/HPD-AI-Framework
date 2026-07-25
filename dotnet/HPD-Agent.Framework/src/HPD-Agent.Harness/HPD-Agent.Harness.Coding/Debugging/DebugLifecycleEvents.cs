@@ -15,6 +15,11 @@ public abstract record DebugLifecycleEvent : AgentEvent
     public required string DebugTreeId { get; init; }
     public required string DebugSessionId { get; init; }
     public required string AdapterId { get; init; }
+    /// <summary>
+    /// Model-facing tool call that causally originated this semantic fact, when one exists.
+    /// Tree-owned background events retain the originating start call.
+    /// </summary>
+    public string? ToolCallId { get; init; }
 }
 
 public sealed record DebugTreeStartedEvent : DebugLifecycleEvent
@@ -128,17 +133,21 @@ public sealed record DebugTreeTerminatedEvent : DebugLifecycleEvent
     public required string SafeReasonCode { get; init; }
 }
 
-public sealed record DebugSessionSummaryEvent : DebugLifecycleEvent
+public sealed record DebugTreeCompletedEvent : DebugLifecycleEvent
 {
-    public DebugSessionSummaryEvent() => CanInterrupt = false;
+    public DebugTreeCompletedEvent() => CanInterrupt = false;
     public required string FinalStatus { get; init; }
     public int? ExitCode { get; init; }
     public required long DurationMilliseconds { get; init; }
+    public required int SessionCount { get; init; }
     public required int ChildSessionCount { get; init; }
+    public required DebugBreakpointCounts Breakpoints { get; init; }
+    public required int BreakpointStopCount { get; init; }
     public required long RetainedOutputBytes { get; init; }
     public required long DroppedOutputRecords { get; init; }
     public required long DroppedOutputBytes { get; init; }
     public required long ProjectionFailures { get; init; }
+    public string? SafeReasonCode { get; init; }
 }
 
 public sealed record DebugRestartTransitionEvent : DebugLifecycleEvent
@@ -155,13 +164,15 @@ public sealed record DebugChildSessionStartedEvent : DebugLifecycleEvent
 
 public sealed record DebugBreakpointChangedEvent : DebugLifecycleEvent
 {
-    public required string Reason { get; init; }
-    public int? BreakpointId { get; init; }
+    public required string ClientBreakpointId { get; init; }
+    public required DebugBreakpointKind BreakpointKind { get; init; }
+    public required DebugBreakpointChangeKind Change { get; init; }
+    public required bool Acknowledged { get; init; }
     public required bool Verified { get; init; }
     public string? SafeMessage { get; init; }
     public string? DisplayPath { get; init; }
-    public long? Line { get; init; }
-    public long? Column { get; init; }
+    public long? ResolvedLine { get; init; }
+    public long? ResolvedColumn { get; init; }
     public string? InstructionReferenceToken { get; init; }
 }
 
@@ -245,32 +256,65 @@ public sealed record DebugSessionStoppedEvent : DebugLifecycleEvent
     public long? SuspensionEpoch { get; init; }
 }
 
-/// <summary>Bounded presentation enrichment for one still-current stop.</summary>
-public sealed record DebugStopSummaryAvailableEvent : DebugLifecycleEvent
+/// <summary>Bounded semantic projection of the one primary stop for a suspension.</summary>
+public sealed record DebugPrimaryStopAvailableEvent : DebugLifecycleEvent
 {
     public required int AdapterThreadId { get; init; }
     public required long SuspensionEpoch { get; init; }
     public required string Reason { get; init; }
+    public string? Description { get; init; }
     public string? FrameName { get; init; }
     public string? DisplayPath { get; init; }
     public long? Line { get; init; }
     public long? Column { get; init; }
     public DebugSourcePreview? SourcePreview { get; init; }
-    public IReadOnlyList<DebugStopValuePreview> Values { get; init; } = [];
     public required bool InspectionSucceeded { get; init; }
     public string? SafeFailureCode { get; init; }
+    public IReadOnlyList<string> HitBreakpointClientIds { get; init; } = [];
+    public required bool HitBreakpointIdentityUnknown { get; init; }
 }
-
-/// <summary>A bounded, adapter-safe value captured while presenting a stop.</summary>
-public sealed record DebugStopValuePreview(
-    string Name,
-    string Value,
-    string? Type);
 
 public sealed record DebugSessionContinuedEvent : DebugLifecycleEvent
 {
     public required int AdapterThreadId { get; init; }
     public bool AllThreadsContinued { get; init; }
+}
+
+/// <summary>One successfully applied model-facing execution command.</summary>
+public sealed record DebugExecutionCommandAppliedEvent : DebugLifecycleEvent
+{
+    public required DebugExecutionCommand Command { get; init; }
+    public int? AdapterThreadId { get; init; }
+}
+
+public enum DebugExecutionCommand
+{
+    Continue,
+    Pause,
+    StepOver,
+    StepIn,
+    StepOut,
+    StepBack,
+    ReverseContinue,
+    RestartFrame,
+    Goto,
+    TerminateThreads
+}
+
+/// <summary>One successfully applied model-facing mutation of debuggee state.</summary>
+public sealed record DebugStateMutationAppliedEvent : DebugLifecycleEvent
+{
+    public required DebugStateMutationKind MutationKind { get; init; }
+    public string? SafeTargetName { get; init; }
+    public string? SafeNewValue { get; init; }
+    public long? ByteCount { get; init; }
+}
+
+public enum DebugStateMutationKind
+{
+    Variable,
+    Expression,
+    Memory
 }
 
 public abstract record DebugProjectionEvent : DebugLifecycleEvent

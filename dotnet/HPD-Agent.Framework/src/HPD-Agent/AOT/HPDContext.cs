@@ -101,7 +101,13 @@ using Microsoft.Extensions.AI;
 
 // --- Per-invocation run options (AgentRunConfig) ---
 [JsonSerializable(typeof(AgentRunConfig))]
-[JsonSerializable(typeof(AgentPermissionMode))]
+[JsonSerializable(typeof(AgentSecurityProfile))]
+[JsonSerializable(typeof(AgentApprovalPolicy))]
+[JsonSerializable(typeof(AgentSandboxPolicy))]
+[JsonSerializable(typeof(AgentSandboxEscapePolicy))]
+[JsonSerializable(typeof(HPD.Agent.Security.AgentSandboxConfiguration))]
+[JsonSerializable(typeof(HPD.Agent.Security.AgentSandboxPathGrant))]
+[JsonSerializable(typeof(HPD.Agent.Security.AgentSandboxPathAccess))]
 [JsonSerializable(typeof(ThreadHistoryCompactionCheckpointEvent))]
 [JsonSerializable(typeof(CompactionPointDescriptor))]
 [JsonSerializable(typeof(CompactionPreservationDescriptor))]

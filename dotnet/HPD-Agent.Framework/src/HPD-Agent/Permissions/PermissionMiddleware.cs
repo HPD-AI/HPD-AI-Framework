@@ -90,7 +90,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         BeforeParallelBatchContext context,
         CancellationToken cancellationToken)
     {
-        if (context.RunConfig.PermissionMode == AgentPermissionMode.FullAccess)
+        if (context.RunConfig.Security.Approval == AgentApprovalPolicy.AutoApprove)
             return;
 
         var parallelFunctions = context.ParallelFunctions;
@@ -163,7 +163,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         BeforeFunctionContext context,
         CancellationToken cancellationToken)
     {
-        if (context.RunConfig.PermissionMode == AgentPermissionMode.FullAccess)
+        if (context.RunConfig.Security.Approval == AgentApprovalPolicy.AutoApprove)
             return;
 
         var function = context.Function;

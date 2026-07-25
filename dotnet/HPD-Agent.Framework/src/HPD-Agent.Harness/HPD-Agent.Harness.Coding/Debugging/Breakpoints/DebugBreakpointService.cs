@@ -42,6 +42,7 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
             desired.Exception.Length + desired.Instruction.Length + desired.Data.Length;
         var acknowledged = adapterStates.Count(item => item.Acknowledged);
         var verified = adapterStates.Count(item => item.Verified);
+        var hits = session.AdapterBreakpoints.HitCounts;
         return new DebugBreakpointSnapshot(
             desired,
             adapterStates,
@@ -49,7 +50,9 @@ internal sealed class DebugBreakpointService(DebugSessionManager sessions)
                 requested,
                 acknowledged,
                 verified,
-                Math.Max(0, requested - verified)),
+                Math.Max(0, requested - verified),
+                hits.Hit,
+                hits.Unknown),
             session.SessionId,
             true);
     }

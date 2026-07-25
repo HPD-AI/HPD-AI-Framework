@@ -12,5 +12,6 @@ public sealed record DebugBreakpointCell(
     IReadOnlyList<DebugBreakpointSelectionEventItem> After,
     IReadOnlyList<DebugBreakpointSelectionDelta> Changes,
     DebugBreakpointCounts Counts,
+    IReadOnlySet<string> HitBreakpointClientIds,
     IReadOnlyList<DebugSourcePreview> SourcePreviews,
     bool Truncated) : TranscriptCell;

@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
+using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Agent.Middleware;
 using HPDOS.ToolHarnesses.Middleware;
 using Microsoft.Extensions.AI;
@@ -37,6 +38,11 @@ public partial class CodingToolHarness
                 return FormatError(path, "Cannot read blocked device path.");
 
             var resolvedPath = ResolveReadPath(path, context);
+            _ = await AgentFilesystemAccess.AuthorizeReadAsync(
+                resolvedPath.FullPath,
+                nameof(ReadFile),
+                context,
+                CancellationToken.None).ConfigureAwait(false);
             if (IsBlockedDevicePath(resolvedPath.FullPath))
                 return FormatError(resolvedPath.FullPath, "Cannot read blocked device path.");
 
@@ -122,6 +128,10 @@ public partial class CodingToolHarness
         catch (DecoderFallbackException)
         {
             return FormatError(path ?? string.Empty, "Unable to decode file as text.");
+        }
+        catch (AgentCapabilityDeniedException ex)
+        {
+            return FormatError(path ?? string.Empty, ex.Message);
         }
         catch (UnauthorizedAccessException ex)
         {

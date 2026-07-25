@@ -161,7 +161,7 @@ public sealed class DebugPresentationEventTests : IDisposable
     public void New_debug_presentation_events_round_trip_through_registered_serializer()
     {
         CodingHarnessEventSerialization.RegisterEvents();
-        var original = new DebugStopSummaryAvailableEvent
+        var original = new DebugPrimaryStopAvailableEvent
         {
             DebugTreeId = "tree",
             DebugSessionId = "debug-session",
@@ -173,16 +173,53 @@ public sealed class DebugPresentationEventTests : IDisposable
             DisplayPath = "Program.cs",
             Line = 12,
             Column = 5,
-            Values = [new("total", "42", "int")],
-            InspectionSucceeded = true
+            InspectionSucceeded = true,
+            HitBreakpointIdentityUnknown = false
         };
 
         var json = AgentEventSerializer.ToJson(original);
         var roundTrip = AgentEventSerializer.FromJson(json)
-            .Should().BeOfType<DebugStopSummaryAvailableEvent>().Subject;
+            .Should().BeOfType<DebugPrimaryStopAvailableEvent>().Subject;
 
         roundTrip.SuspensionEpoch.Should().Be(8);
-        roundTrip.Values.Should().ContainSingle().Which.Name.Should().Be("total");
+        roundTrip.FrameName.Should().Be("Calculate");
+    }
+
+    [Fact]
+    public void Activity_and_breakpoint_hit_evidence_round_trip_through_registered_serializer()
+    {
+        CodingHarnessEventSerialization.RegisterEvents();
+        var execution = AgentEventSerializer.FromJson(AgentEventSerializer.ToJson(
+                new DebugExecutionCommandAppliedEvent
+                {
+                    DebugTreeId = "tree",
+                    DebugSessionId = "debug-session",
+                    AdapterId = "adapter",
+                    ToolCallId = "step-call",
+                    Command = DebugExecutionCommand.StepOver,
+                    AdapterThreadId = 7
+                }))
+            .Should().BeOfType<DebugExecutionCommandAppliedEvent>().Subject;
+        execution.ToolCallId.Should().Be("step-call");
+        execution.Command.Should().Be(DebugExecutionCommand.StepOver);
+        execution.AdapterThreadId.Should().Be(7);
+        var stopped = AgentEventSerializer.FromJson(AgentEventSerializer.ToJson(
+                new DebugPrimaryStopAvailableEvent
+                {
+                    DebugTreeId = "tree",
+                    DebugSessionId = "debug-session",
+                    AdapterId = "adapter",
+                    ToolCallId = "launch-call",
+                    AdapterThreadId = 7,
+                    Reason = "breakpoint",
+                    SuspensionEpoch = 4,
+                    InspectionSucceeded = true,
+                    HitBreakpointClientIds = ["client-breakpoint"],
+                    HitBreakpointIdentityUnknown = false
+                }))
+            .Should().BeOfType<DebugPrimaryStopAvailableEvent>().Subject;
+        stopped.ToolCallId.Should().Be("launch-call");
+        stopped.HitBreakpointClientIds.Should().Equal("client-breakpoint");
     }
 
     private AgentWorkspace Workspace()

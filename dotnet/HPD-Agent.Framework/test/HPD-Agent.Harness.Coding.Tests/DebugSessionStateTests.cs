@@ -608,4 +608,20 @@ public sealed class DebugSessionStateTests
             Arguments = json.RootElement.Clone()
         };
     }
+
+    [Fact]
+    public void Primary_selector_prefers_valid_adapter_thread_and_falls_back_deterministically()
+    {
+        var state = new DebugSessionState();
+        state.ObserveThread(30);
+        state.ObserveThread(10);
+        state.ObserveThread(20);
+        state.ObserveStopped(20, allThreadsStopped: true, "breakpoint", null);
+
+        DebugPrimaryStoppedThreadSelector.Select(state, 20)!.ThreadId.Should().Be(20);
+        DebugPrimaryStoppedThreadSelector.Select(state, 999)!.ThreadId.Should().Be(20);
+
+        state.ObserveStopped(null, allThreadsStopped: true, "pause", null);
+        DebugPrimaryStoppedThreadSelector.Select(state, 999)!.ThreadId.Should().Be(10);
+    }
 }

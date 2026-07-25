@@ -9,4 +9,4 @@ public sealed record DebugStoppedCell(
     int? ThreadId,
     long SuspensionEpoch,
     string Reason,
-    DebugStopSummaryAvailableEvent? Summary) : TranscriptCell;
+    DebugPrimaryStopAvailableEvent? Summary) : TranscriptCell;

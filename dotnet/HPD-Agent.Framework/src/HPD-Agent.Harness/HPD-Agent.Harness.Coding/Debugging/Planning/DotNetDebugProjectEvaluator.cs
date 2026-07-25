@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using HPD.Agent.Middleware;
+using HPD.Agent.Security;
 using HPD.Environment.Contracts;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
@@ -46,9 +47,16 @@ internal sealed record DotNetDebugProjectEvaluationRequest
     public required string Configuration { get; init; }
     public string? TargetFramework { get; init; }
     public required RuntimeProcessExecutionBinding ProcessExecution { get; init; }
-    public AgentProcessSandboxPolicy ProcessSandbox { get; init; } = new();
+    public AgentSandboxRuntime ProcessSandbox { get; init; } = AgentSandboxRuntime.Default;
     public required AgentWorkspace Workspace { get; init; }
+    public DebugPathCapabilityAuthorizer? AuthorizePath { get; init; }
 }
+
+internal delegate ValueTask<AgentSandboxRuntime> DebugPathCapabilityAuthorizer(
+    string path,
+    AgentSandboxPathAccess access,
+    AgentSandboxRuntime current,
+    CancellationToken cancellationToken);
 
 /// <summary>Evaluated project shape and exact output identity.</summary>
 internal sealed record DotNetDebugProjectEvaluation
@@ -69,6 +77,7 @@ internal sealed record DotNetDebugProjectEvaluation
     public required IReadOnlyList<DotNetPackageEvidence> Packages { get; init; }
     public required string EvaluationFingerprint { get; init; }
     public required bool ArtifactIsCurrent { get; init; }
+    public AgentSandboxRuntime EffectiveSandbox { get; init; } = AgentSandboxRuntime.Default;
 }
 
 /// <summary>Evaluates .NET projects through a fixed, bounded MSBuild query.</summary>
@@ -107,10 +116,7 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
         var directProjectReferences = evaluated.ProjectReferences
             .Select(reference => reference with
             {
-                ProjectPath = CanonicalContained(
-                    reference.ProjectPath,
-                    request.Workspace,
-                    "debug_project_outside_workspace")
+                ProjectPath = CanonicalPath(reference.ProjectPath)
             })
             .GroupBy(reference => reference.ProjectPath, StringComparer.Ordinal)
             .Select(group => new DotNetEvaluatedProjectReference(
@@ -126,6 +132,7 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
             .ToArray();
         var referenceOutputs = new Dictionary<string, DotNetProjectReferenceOutput>(
             StringComparer.Ordinal);
+        var activeSandbox = request.ProcessSandbox;
         var pendingReferences = new Queue<(string ProjectPath, bool RequiresRuntimeCopy)>(
             directProjectReferences.Select(reference => (
                 reference.ProjectPath,
@@ -142,9 +149,24 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
                 throw new DebugStartPlanningException(
                     "debug_build_required",
                     "The transitive project-reference graph exceeds the trusted bound.");
+            var referenceDirectory = Path.GetDirectoryName(pending.ProjectPath)!;
+            if (request.AuthorizePath is not null)
+            {
+                activeSandbox = await request.AuthorizePath(
+                    referenceDirectory,
+                    AgentSandboxPathAccess.Read,
+                    activeSandbox,
+                    cancellationToken).ConfigureAwait(false);
+                activeSandbox = await request.AuthorizePath(
+                    referenceDirectory,
+                    AgentSandboxPathAccess.Write,
+                    activeSandbox,
+                    cancellationToken).ConfigureAwait(false);
+            }
             var referenceRequest = request with
             {
-                CanonicalProjectPath = pending.ProjectPath
+                CanonicalProjectPath = pending.ProjectPath,
+                ProcessSandbox = activeSandbox
             };
             var referenceBaseline = await QueryAsync(
                 referenceRequest,
@@ -178,10 +200,7 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
             foreach (var transitive in referenceEvaluation.ProjectReferences
                          .Select(item => item with
                          {
-                             ProjectPath = CanonicalContained(
-                                 item.ProjectPath,
-                                 request.Workspace,
-                                 "debug_project_outside_workspace")
+                             ProjectPath = CanonicalPath(item.ProjectPath)
                          })
                          .OrderBy(item => item.ProjectPath, StringComparer.Ordinal))
                 pendingReferences.Enqueue((
@@ -269,7 +288,8 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
                 referenceOutputs.Values.ToArray(),
                 kind,
                 FindAppHost(targetPath, Boolean(properties, "UseAppHost")),
-                request.Workspace)
+                request.Workspace),
+            EffectiveSandbox = activeSandbox
         };
     }
 
@@ -495,10 +515,7 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
             throw new DebugStartPlanningException(
                 "debug_project_not_found",
                 "No supported .NET project was selected.");
-        CanonicalContained(
-            request.CanonicalProjectPath,
-            request.Workspace,
-            "debug_project_outside_workspace");
+        _ = CanonicalPath(request.CanonicalProjectPath);
         if (request.Configuration.Length is < 1 or > 64 ||
             request.Configuration.Any(character =>
                 !char.IsLetterOrDigit(character) && character is not ('-' or '_' or '.')))
@@ -518,24 +535,10 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
         var canonical = Path.GetFullPath(
             path,
             Path.GetDirectoryName(request.CanonicalProjectPath)!);
-        return CanonicalContained(
-            canonical,
-            request.Workspace,
-            "debug_project_outside_workspace");
+        return CanonicalPath(canonical);
     }
 
-    internal static string CanonicalContained(
-        string path,
-        AgentWorkspace workspace,
-        string kind)
-    {
-        var canonical = Path.GetFullPath(path);
-        if (!workspace.IsAllowedPath(canonical))
-            throw new DebugStartPlanningException(
-                kind,
-                "The selected project or output is outside the authorized workspace.");
-        return canonical;
-    }
+    internal static string CanonicalPath(string path) => Path.GetFullPath(path);
 
     private static bool Boolean(IReadOnlyDictionary<string, string?> properties, string name)
         => bool.TryParse(properties.GetValueOrDefault(name), out var value) && value;
@@ -634,7 +637,9 @@ internal sealed class DotNetDebugProjectEvaluator : IDotNetDebugProjectEvaluator
         foreach (var input in inputs)
             if (File.GetLastWriteTimeUtc(input) > outputTime)
                 return false;
-        var owningRoot = workspace.GetOwningRoot(project).Path;
+        var owningRoot = workspace.IsAllowedPath(project)
+            ? workspace.GetOwningRoot(project).Path
+            : directory;
         for (var ancestor = directory;
              !string.IsNullOrEmpty(ancestor);)
         {

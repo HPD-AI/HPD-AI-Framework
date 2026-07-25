@@ -303,6 +303,10 @@ internal sealed class DebugExecutionStartOrchestrator
     {
         session.HandlerRegistrations.Add(session.Protocol.OnFault(fault =>
         {
+            // Closing the DAP transport is part of a successful disconnect. The
+            // semantic disconnect path owns terminal publication and disposal.
+            if (session.DisconnectRequested)
+                return;
             try { session.State.Transition(DebugSessionStatus.Faulted); } catch { }
             if (session.SessionId != tree.RootSessionId)
             {
@@ -328,8 +332,6 @@ internal sealed class DebugExecutionStartOrchestrator
                 return;
             tree.TryScheduleTerminal(async () =>
             {
-                await PublishAsync(tree, CreateSummary(tree, session, "Faulted"), durable: true)
-                    .ConfigureAwait(false);
                 await publishedManager.RetainAndDisposeAsync(
                     scope,
                     tree.Ownership.DebugTreeId,
@@ -361,19 +363,38 @@ internal sealed class DebugExecutionStartOrchestrator
             session.State.ObserveStopped(body.ThreadId, body.AllThreadsStopped == true, body.Reason, body.Description ?? body.Text);
             session.Projections.ObserveStopped(body.ThreadId, body.AllThreadsStopped == true);
             tree.Continuations.Revoke(session.SessionId);
-            foreach (var stopped in session.State.Threads.Where(x => x.IsStopped &&
-                         (body.AllThreadsStopped == true || x.ThreadId == body.ThreadId)))
-                session.ScheduleFollowUp(() => FetchTopFrameSummaryAsync(
-                    tree, session, stopped.ThreadId, stopped.SuspensionEpoch, body.Reason,
-                    request.Workspace, _sourcePreviews));
             if (tree.Sessions.ContainsKey(session.SessionId)) tree.ObserveStopped(session.SessionId);
-            var thread = body.ThreadId is { } id ? session.State.Threads.SingleOrDefault(x => x.ThreadId == id) : null;
+            var thread = DebugPrimaryStoppedThreadSelector.Select(session.State, body.ThreadId);
+            var hitObservation = session.AdapterBreakpoints.ObserveHits(
+                body.HitBreakpointIds,
+                thread?.SuspensionEpoch ?? 0,
+                string.Equals(body.Reason, "breakpoint", StringComparison.Ordinal));
+            if (thread is not null)
+                session.ScheduleFollowUp(() => FetchPrimaryStopAsync(
+                    tree, session, thread.ThreadId, thread.SuspensionEpoch, body.Reason,
+                    body.Description ?? body.Text, hitObservation,
+                    request.Workspace, _sourcePreviews));
+            else
+                session.ScheduleFollowUp(() => PublishAsync(tree, new DebugPrimaryStopAvailableEvent
+                {
+                    DebugTreeId = tree.Ownership.DebugTreeId,
+                    DebugSessionId = session.SessionId,
+                    AdapterId = session.AdapterPlan.AdapterId,
+                    AdapterThreadId = 0,
+                    SuspensionEpoch = 0,
+                    Reason = body.Reason,
+                    Description = body.Description ?? body.Text,
+                    InspectionSucceeded = false,
+                    SafeFailureCode = "top_frame_unavailable",
+                    HitBreakpointIdentityUnknown =
+                        string.Equals(body.Reason, "breakpoint", StringComparison.Ordinal)
+                }, durable: true).AsTask());
             return PublishAsync(tree, new DebugSessionStoppedEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId, DebugSessionId = session.SessionId,
-                AdapterId = session.AdapterPlan.AdapterId, AdapterThreadId = body.ThreadId,
+                AdapterId = session.AdapterPlan.AdapterId, AdapterThreadId = thread?.ThreadId ?? 0,
                 Reason = body.Reason, Description = body.Description ?? body.Text,
-                SuspensionEpoch = thread?.SuspensionEpoch
+                SuspensionEpoch = thread?.SuspensionEpoch ?? 0
             }, durable: true);
         }));
         session.HandlerRegistrations.Add(session.Protocol.OnEvent(DebugProtocolDescriptors.ContinuedEvent, body =>
@@ -510,24 +531,24 @@ internal sealed class DebugExecutionStartOrchestrator
         }));
         session.HandlerRegistrations.Add(session.Protocol.OnEvent(DebugProtocolDescriptors.BreakpointEvent, body =>
         {
-            session.AdapterBreakpoints.Reconcile(body.Reason, body.Breakpoint);
+            var reconciliation = session.AdapterBreakpoints.Reconcile(body.Reason, body.Breakpoint);
             return PublishAsync(tree, new DebugBreakpointChangedEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId,
                 DebugSessionId = session.SessionId,
                 AdapterId = session.AdapterPlan.AdapterId,
-                Reason = body.Reason,
-                BreakpointId = body.Breakpoint.Id,
-                Verified = body.Breakpoint.Verified,
-                SafeMessage = body.Breakpoint.Message is { Length: > 512 } message
-                    ? message[..512]
-                    : body.Breakpoint.Message,
-                DisplayPath = body.Breakpoint.Source?.Path is { } path
+                ClientBreakpointId = reconciliation.ClientBreakpointId,
+                BreakpointKind = reconciliation.Kind,
+                Change = reconciliation.Change,
+                Acknowledged = reconciliation.Acknowledged,
+                Verified = reconciliation.Verified,
+                SafeMessage = reconciliation.SafeMessage,
+                DisplayPath = reconciliation.ResolvedPath is { } path
                     ? Path.GetFileName(path)
                     : body.Breakpoint.Source?.Name,
-                Line = body.Breakpoint.Line,
-                Column = body.Breakpoint.Column,
-                InstructionReferenceToken = body.Breakpoint.InstructionReference is { } reference
+                ResolvedLine = reconciliation.ResolvedLine,
+                ResolvedColumn = reconciliation.ResolvedColumn,
+                InstructionReferenceToken = reconciliation.ResolvedInstructionReference is { } reference
                     ? SafeOpaqueToken(reference)
                     : null
             }, durable: true);
@@ -601,14 +622,14 @@ internal sealed class DebugExecutionStartOrchestrator
                 DebugTreeId = tree.Ownership.DebugTreeId, DebugSessionId = session.SessionId,
                 AdapterId = session.AdapterPlan.AdapterId, RestartRequested = body.Restart is not null
             }, durable: true).ConfigureAwait(false);
-            if (body.Restart is null && session.SessionId == tree.RootSessionId)
+            if (body.Restart is null &&
+                session.SessionId == tree.RootSessionId &&
+                !session.DisconnectRequested)
             {
                 var scope = new DebugTreeLookupScope(tree.Ownership.AgentRuntimeRegistrationId,
                     tree.Ownership.SessionId, tree.Ownership.ThreadId);
                 tree.TryScheduleTerminal(async () =>
                 {
-                    await PublishAsync(tree, CreateSummary(tree, session, "Terminated"), durable: true)
-                        .ConfigureAwait(false);
                     var terminatedEvent = new DebugTreeTerminatedEvent
                     {
                         DebugTreeId = tree.Ownership.DebugTreeId,
@@ -640,26 +661,6 @@ internal sealed class DebugExecutionStartOrchestrator
     {
         if (tree.EventPublisher is null) return ValueTask.CompletedTask;
         return tree.EventPublisher.PublishAsync(@event, durable, CancellationToken.None);
-    }
-
-    private static DebugSessionSummaryEvent CreateSummary(
-        DebugSessionTree tree, DebugSession session, string finalStatus)
-    {
-        var output = session.Output.Snapshot(includeTelemetry: true);
-        return new DebugSessionSummaryEvent
-        {
-            DebugTreeId = tree.Ownership.DebugTreeId,
-            DebugSessionId = session.SessionId,
-            AdapterId = session.AdapterPlan.AdapterId,
-            FinalStatus = finalStatus,
-            ExitCode = session.ExitCode,
-            DurationMilliseconds = Math.Max(0, (long)(DateTimeOffset.UtcNow - session.CreatedAt).TotalMilliseconds),
-            ChildSessionCount = session.ChildSessionIds.Count,
-            RetainedOutputBytes = output.RetainedBytes,
-            DroppedOutputRecords = output.DroppedRecords,
-            DroppedOutputBytes = output.DroppedBytes,
-            ProjectionFailures = session.Projections.FollowUpFailures
-        };
     }
 
     private static async Task PersistOversizedOutputAsync(
@@ -803,12 +804,14 @@ internal sealed class DebugExecutionStartOrchestrator
         }, durable: true).ConfigureAwait(false);
     }
 
-    private static async Task FetchTopFrameSummaryAsync(
+    private static async Task FetchPrimaryStopAsync(
         DebugSessionTree tree,
         DebugSession session,
         int threadId,
         long suspensionEpoch,
         string reason,
+        string? description,
+        DebugBreakpointHitObservation adapterHitObservation,
         AgentWorkspace workspace,
         IDebugSourcePreviewProvider sourcePreviews)
     {
@@ -850,7 +853,17 @@ internal sealed class DebugExecutionStartOrchestrator
                         adapterContent),
                     CancellationToken.None).ConfigureAwait(false);
             }
-            await PublishAsync(tree, new DebugStopSummaryAvailableEvent
+            var hitObservation = adapterHitObservation;
+            if (string.Equals(reason, "breakpoint", StringComparison.Ordinal) &&
+                hitObservation.ClientBreakpointIds.Count == 0 &&
+                !hitObservation.IdentityUnknown)
+            {
+                hitObservation = frame?.Source?.Path is { Length: > 0 } sourcePath && frame.Line > 0
+                    ? session.AdapterBreakpoints.ObserveSourceStop(
+                        sourcePath, frame.Line, frame.Column, suspensionEpoch)
+                    : session.AdapterBreakpoints.CompleteUnknownStop(suspensionEpoch);
+            }
+            await PublishAsync(tree, new DebugPrimaryStopAvailableEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId,
                 DebugSessionId = session.SessionId,
@@ -858,13 +871,16 @@ internal sealed class DebugExecutionStartOrchestrator
                 AdapterThreadId = threadId,
                 SuspensionEpoch = suspensionEpoch,
                 Reason = reason,
+                Description = description,
                 FrameName = frame?.Name,
                 DisplayPath = frame?.Source?.Path is { } path ? Path.GetFileName(path) : frame?.Source?.Name,
                 Line = frame?.Line,
                 Column = frame?.Column,
                 SourcePreview = preview,
                 InspectionSucceeded = frame is not null,
-                SafeFailureCode = frame is null ? "top_frame_unavailable" : null
+                SafeFailureCode = frame is null ? "top_frame_unavailable" : null,
+                HitBreakpointClientIds = hitObservation.ClientBreakpointIds,
+                HitBreakpointIdentityUnknown = hitObservation.IdentityUnknown
             }, durable: true).ConfigureAwait(false);
         }
         catch
@@ -872,7 +888,12 @@ internal sealed class DebugExecutionStartOrchestrator
             var current = session.State.Threads.SingleOrDefault(x => x.ThreadId == threadId);
             if (current is not { IsStopped: true } || current.SuspensionEpoch != suspensionEpoch)
                 return;
-            await PublishAsync(tree, new DebugStopSummaryAvailableEvent
+            var hitObservation = adapterHitObservation;
+            if (string.Equals(reason, "breakpoint", StringComparison.Ordinal) &&
+                hitObservation.ClientBreakpointIds.Count == 0 &&
+                !hitObservation.IdentityUnknown)
+                hitObservation = session.AdapterBreakpoints.CompleteUnknownStop(suspensionEpoch);
+            await PublishAsync(tree, new DebugPrimaryStopAvailableEvent
             {
                 DebugTreeId = tree.Ownership.DebugTreeId,
                 DebugSessionId = session.SessionId,
@@ -880,8 +901,11 @@ internal sealed class DebugExecutionStartOrchestrator
                 AdapterThreadId = threadId,
                 SuspensionEpoch = suspensionEpoch,
                 Reason = reason,
+                Description = description,
                 InspectionSucceeded = false,
-                SafeFailureCode = "top_frame_request_failed"
+                SafeFailureCode = "top_frame_request_failed",
+                HitBreakpointClientIds = hitObservation.ClientBreakpointIds,
+                HitBreakpointIdentityUnknown = hitObservation.IdentityUnknown
             }, durable: true).ConfigureAwait(false);
         }
     }

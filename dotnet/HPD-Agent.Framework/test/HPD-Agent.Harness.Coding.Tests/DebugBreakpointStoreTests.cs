@@ -169,6 +169,20 @@ public sealed class DebugBreakpointStoreTests
     }
 
     [Fact]
+    public void Successful_exception_configuration_is_acknowledged_when_response_omits_breakpoints()
+    {
+        var store = new DebugAdapterBreakpointStateStore();
+
+        store.ReplaceException([new("all")], []);
+
+        var binding = store.Snapshot.Should().ContainSingle().Subject;
+        binding.Kind.Should().Be(DebugBreakpointKind.Exception);
+        binding.RequestedName.Should().Be("all");
+        binding.Acknowledged.Should().BeTrue();
+        binding.Verified.Should().BeTrue();
+    }
+
+    [Fact]
     public void Output_snapshot_ranges_are_exact_and_reject_dropped_prefixes()
     {
         var buffer = new DebugOutputBuffer(maximumRetainedBytes: 8, maximumRecordBytes: 4, maximumRecords: 2);
@@ -270,7 +284,7 @@ public sealed class DebugBreakpointStoreTests
             [new DebugSourceBreakpoint("/workspace/a.cs", 10)],
             [new Breakpoint { Id = 7, Verified = false, Source = new Source { Path = "/workspace/a.cs" }, Line = 10 }]);
 
-        root.Reconcile("changed", new Breakpoint
+        var changed = root.Reconcile("changed", new Breakpoint
         {
             Id = 7,
             Verified = true,
@@ -287,8 +301,12 @@ public sealed class DebugBreakpointStoreTests
             x.ResolvedLine == 12 &&
             x.Message == "moved");
         child.Snapshot.Should().BeEmpty();
+        changed.ClientBreakpointId.Should().Be(root.Snapshot.Single().ClientBreakpointId);
+        changed.ResolvedLine.Should().Be(12);
 
-        root.Reconcile("removed", new Breakpoint { Id = 7, Verified = false });
+        var removed = root.Reconcile("removed", new Breakpoint { Id = 7, Verified = false });
+        removed.ClientBreakpointId.Should().Be(changed.ClientBreakpointId);
+        removed.Change.Should().Be(DebugBreakpointChangeKind.Removed);
         root.Snapshot.Should().BeEmpty();
     }
 
@@ -371,6 +389,48 @@ public sealed class DebugBreakpointStoreTests
     }
 
     [Fact]
+    public void Adapter_hit_ids_are_correlated_to_stable_client_identities_once_per_epoch()
+    {
+        var store = new DebugAdapterBreakpointStateStore();
+        store.ReplaceSource(
+            "/workspace/a.cs",
+            [new DebugSourceBreakpoint("/workspace/a.cs", 10)],
+            [new Breakpoint { Id = 7, Verified = true, Line = 10 }]);
+
+        var first = store.ObserveHits([7], suspensionEpoch: 3, stoppedForBreakpoint: true);
+        var duplicate = store.ObserveHits([7], suspensionEpoch: 3, stoppedForBreakpoint: true);
+        store.ObserveHits([7], suspensionEpoch: 4, stoppedForBreakpoint: true);
+
+        first.ClientBreakpointIds.Should().ContainSingle()
+            .Which.Should().Be(store.Snapshot.Single().ClientBreakpointId);
+        duplicate.ClientBreakpointIds.Should().ContainSingle();
+        store.RuntimeEvidence.Should().ContainSingle().Which.Should()
+            .Match<DebugBreakpointRuntimeEvidence>(item =>
+                item.HitCount == 2 && item.LastHitSuspensionEpoch == 4);
+        store.HitCounts.Should().Be(new DebugBreakpointHitCounts(1, 0));
+    }
+
+    [Fact]
+    public void Missing_adapter_hit_ids_remain_pending_until_primary_inspection_completes()
+    {
+        var store = new DebugAdapterBreakpointStateStore();
+        store.ReplaceFunction(
+            [new DebugFunctionBreakpoint("Run")],
+            [new Breakpoint { Id = 4, Verified = true }]);
+
+        var observation = store.ObserveHits(
+            adapterBreakpointIds: null,
+            suspensionEpoch: 8,
+            stoppedForBreakpoint: true);
+        var completed = store.CompleteUnknownStop(suspensionEpoch: 8);
+
+        observation.IdentityUnknown.Should().BeFalse();
+        completed.IdentityUnknown.Should().BeTrue();
+        store.RuntimeEvidence.Should().BeEmpty();
+        store.HitCounts.Should().Be(new DebugBreakpointHitCounts(0, 1));
+    }
+
+    [Fact]
     public async Task Child_composition_copies_only_portable_intentions_and_rediscovers_persistent_data()
     {
         var desired = new DebugDesiredBreakpointSnapshot
@@ -412,5 +472,76 @@ public sealed class DebugBreakpointStoreTests
         var compose = async () => await resolver.ComposeAsync(desired, null!, null!, CancellationToken.None);
         await compose.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*no child-session rediscovery provider*");
+    }
+
+    [Fact]
+    public void Source_stop_correlates_unique_resolved_location_after_relocation()
+    {
+        var store = new DebugAdapterBreakpointStateStore();
+        store.ReplaceSource(
+            "/workspace/Program.cs",
+            [new DebugSourceBreakpoint("/workspace/Program.cs", 32)],
+            [new Breakpoint
+            {
+                Id = 7,
+                Verified = true,
+                Source = new Source { Path = "/workspace/Program.cs" },
+                Line = 34
+            }]);
+
+        var observation = store.ObserveSourceStop(
+            "/workspace/Program.cs", 34, column: null, suspensionEpoch: 5);
+
+        observation.IdentityUnknown.Should().BeFalse();
+        observation.ClientBreakpointIds.Should().ContainSingle()
+            .Which.Should().Be(store.Snapshot.Single().ClientBreakpointId);
+        store.HitCounts.Should().Be(new DebugBreakpointHitCounts(1, 0));
+        store.BreakpointStopCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void Source_stop_column_does_not_reject_unique_line_breakpoint_without_column_constraint()
+    {
+        var store = new DebugAdapterBreakpointStateStore();
+        store.ReplaceSource(
+            "/workspace/Program.cs",
+            [new DebugSourceBreakpoint("/workspace/Program.cs", 21)],
+            [new Breakpoint
+            {
+                Id = 7,
+                Verified = true,
+                Source = new Source { Path = "/workspace/Program.cs" },
+                Line = 21
+            }]);
+
+        var observation = store.ObserveSourceStop(
+            "/workspace/Program.cs", 21, column: 9, suspensionEpoch: 5);
+
+        observation.IdentityUnknown.Should().BeFalse();
+        observation.ClientBreakpointIds.Should().ContainSingle()
+            .Which.Should().Be(store.Snapshot.Single().ClientBreakpointId);
+        store.HitCounts.Should().Be(new DebugBreakpointHitCounts(1, 0));
+    }
+
+    [Fact]
+    public void Ambiguous_source_stop_remains_unidentified()
+    {
+        var store = new DebugAdapterBreakpointStateStore();
+        store.ReplaceSource(
+            "/workspace/Program.cs",
+            [
+                new DebugSourceBreakpoint("/workspace/Program.cs", 32, 1),
+                new DebugSourceBreakpoint("/workspace/Program.cs", 32, 5)
+            ],
+            [
+                new Breakpoint { Id = 7, Verified = true, Source = new Source { Path = "/workspace/Program.cs" }, Line = 34 },
+                new Breakpoint { Id = 8, Verified = true, Source = new Source { Path = "/workspace/Program.cs" }, Line = 34 }
+            ]);
+
+        var observation = store.ObserveSourceStop(
+            "/workspace/Program.cs", 34, column: null, suspensionEpoch: 6);
+
+        observation.IdentityUnknown.Should().BeTrue();
+        store.HitCounts.Should().Be(new DebugBreakpointHitCounts(0, 1));
     }
 }

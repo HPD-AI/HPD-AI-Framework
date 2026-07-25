@@ -24,7 +24,8 @@ public sealed record AgentWorkspace(
     private readonly IReadOnlyList<AgentWorkspaceRoot> _rootsByPathDescending =
         Roots.OrderByDescending(root => root.Path.Length).ToArray();
 
-    public string ResolvePath(string path)
+    /// <summary>Resolves a path and requires it to belong to a configured workspace root.</summary>
+    public string ResolveWorkspacePath(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
             throw new AgentWorkspaceException(AgentWorkspaceErrorKind.InvalidWorkspaceShape, "Path is required.");
@@ -41,7 +42,21 @@ public sealed record AgentWorkspace(
     }
 
     public string ResolveDirectory(string? path)
-        => string.IsNullOrWhiteSpace(path) ? DefaultRootPath : ResolvePath(path);
+        => string.IsNullOrWhiteSpace(path) ? DefaultRootPath : ResolveWorkspacePath(path);
+
+    /// <summary>
+    /// Canonicalizes an explicitly selected path without treating workspace membership as
+    /// filesystem authorization.
+    /// </summary>
+    public string CanonicalizeExplicitPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            throw new AgentWorkspaceException(
+                AgentWorkspaceErrorKind.InvalidWorkspaceShape,
+                "Path is required.");
+
+        return ResolvePathUnchecked(path.Trim());
+    }
 
     public AgentWorkspaceRoot GetOwningRoot(string fullPath)
     {
@@ -71,6 +86,29 @@ public sealed record AgentWorkspace(
                 AgentWorkspaceErrorKind.PathOutsideWorkspace,
                 "Path is outside the configured workspace.");
         }
+    }
+
+    /// <summary>
+    /// Creates a bounded discovery scope for an explicitly authorized path outside the
+    /// host-selected workspace.
+    /// </summary>
+    internal AgentWorkspace WithExplicitDiscoveryRoot(string fullPath)
+    {
+        var canonical = Path.GetFullPath(fullPath);
+        if (IsAllowedPath(canonical))
+            return this;
+
+        var rootPath = Directory.Exists(canonical)
+            ? canonical
+            : Path.GetDirectoryName(canonical)
+                ?? throw new AgentWorkspaceException(
+                    AgentWorkspaceErrorKind.InvalidWorkspaceShape,
+                    "The explicit path has no containing directory.");
+        var root = new AgentWorkspaceRoot(
+            $"explicit-{Roots.Count}",
+            rootPath,
+            Path.GetFileName(rootPath));
+        return new AgentWorkspace(DefaultRootId, DefaultRootPath, [.. Roots, root]);
     }
 
     public static AgentWorkspace From(AgentRunConfig runConfig)

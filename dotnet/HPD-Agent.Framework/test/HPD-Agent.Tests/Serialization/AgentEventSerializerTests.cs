@@ -3,6 +3,7 @@ using HPD.Agent;
 using HPD.Agent.Audio;
 using HPD.Agent.Middleware;
 using HPD.Agent.Serialization;
+using HPD.Agent.Security;
 using Microsoft.Extensions.AI;
 using Xunit;
 
@@ -813,6 +814,32 @@ public class AgentEventSerializerTests
     }
 
     #endregion
+
+    [Fact]
+    public void CapabilityEvents_RoundTripThroughTheGeneralEventSerializer()
+    {
+        var original = new AgentCapabilityRequestEvent(
+            "request-1",
+            "test-harness",
+            "call-1",
+            "read",
+            AgentCapabilityKind.FilesystemRead,
+            new AgentCapabilityResource
+            {
+                Value = "/outside/file.txt",
+                DisplayName = "file.txt"
+            },
+            "Read the selected file.");
+
+        var json = AgentEventSerializer.ToJson(original);
+        var rehydrated = Assert.IsType<AgentCapabilityRequestEvent>(
+            AgentEventSerializer.FromJson(json));
+
+        Assert.Equal(original.RequestId, rehydrated.RequestId);
+        Assert.Equal(original.Capability, rehydrated.Capability);
+        Assert.Equal(original.Resource, rehydrated.Resource);
+        Assert.Equal("AGENT_CAPABILITY_REQUEST", AgentEventSerializer.GetEventTypeName(original));
+    }
 
     private static FunctionInvocationSnapshot CreateInvocationSnapshot()
         => new()

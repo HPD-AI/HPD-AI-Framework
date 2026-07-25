@@ -260,7 +260,7 @@ var breakpointSelectionEvent = new DebugBreakpointSelectionAppliedEvent
     ],
     DetailsTruncated = false
 };
-var stopSummaryEvent = new DebugStopSummaryAvailableEvent
+var stopSummaryEvent = new DebugPrimaryStopAvailableEvent
 {
     DebugTreeId = "tree_1",
     DebugSessionId = "session_1",
@@ -271,7 +271,25 @@ var stopSummaryEvent = new DebugStopSummaryAvailableEvent
     FrameName = "Main",
     DisplayPath = "Program.cs",
     Line = 10,
-    InspectionSucceeded = true
+    InspectionSucceeded = true,
+    HitBreakpointIdentityUnknown = false
+};
+var treeCompletedEvent = new DebugTreeCompletedEvent
+{
+    DebugTreeId = "tree_1",
+    DebugSessionId = "session_1",
+    AdapterId = "netcoredbg",
+    FinalStatus = "Terminated",
+    ExitCode = 0,
+    DurationMilliseconds = 100,
+    SessionCount = 1,
+    ChildSessionCount = 0,
+    Breakpoints = new(1, 1, 1, 0, 1, 0),
+    BreakpointStopCount = 1,
+    RetainedOutputBytes = 0,
+    DroppedOutputRecords = 0,
+    DroppedOutputBytes = 0,
+    ProjectionFailures = 0
 };
 if (JsonSerializer.Deserialize(
         JsonSerializer.SerializeToUtf8Bytes(
@@ -282,9 +300,15 @@ if (JsonSerializer.Deserialize(
     JsonSerializer.Deserialize(
         JsonSerializer.SerializeToUtf8Bytes(
             stopSummaryEvent,
-            CodingToolHarnessJsonContext.Default.DebugStopSummaryAvailableEvent),
-        CodingToolHarnessJsonContext.Default.DebugStopSummaryAvailableEvent)
-        is not { SuspensionEpoch: 2 })
+            CodingToolHarnessJsonContext.Default.DebugPrimaryStopAvailableEvent),
+        CodingToolHarnessJsonContext.Default.DebugPrimaryStopAvailableEvent)
+        is not { SuspensionEpoch: 2 } ||
+    JsonSerializer.Deserialize(
+        JsonSerializer.SerializeToUtf8Bytes(
+            treeCompletedEvent,
+            CodingToolHarnessJsonContext.Default.DebugTreeCompletedEvent),
+        CodingToolHarnessJsonContext.Default.DebugTreeCompletedEvent)
+        is not { BreakpointStopCount: 1 })
     return 22;
 var activatingEvent = new DebugExecutionActivatingEvent
 {

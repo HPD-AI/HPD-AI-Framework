@@ -116,6 +116,28 @@ public sealed class AnnotatedSourceViewTests
     }
 
     [Fact]
+    public void Render_HighlightBandIncludesLineNumberAndMarkerGutter()
+    {
+        var row = RenderAnsi(new(
+            "Program.cs",
+            "csharp",
+            [
+                new([
+                    Line(
+                        21,
+                        "        var value = 42;",
+                        [new("●", SourceAnnotationTone.Success)],
+                        emphasis: SourceLineEmphasis.Subtle)
+                ])
+            ])).Split('\n')[0];
+
+        var background = row.IndexOf("48;2;32;34;40", StringComparison.Ordinal);
+        var lineNumber = row.IndexOf("21", StringComparison.Ordinal);
+        background.Should().BeGreaterThanOrEqualTo(0);
+        lineNumber.Should().BeGreaterThan(background);
+    }
+
+    [Fact]
     public void Render_TruncationIsExplicit()
     {
         var rendered = Render(new(

@@ -37,14 +37,6 @@ public static class CodingHarnessEventSerialization
             "EXECUTE_COMMAND_PERMISSION_RESPONSE",
             CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionResponseEvent);
         AgentEventSerializer.RegisterEventType(
-            typeof(ExecuteCommandSandboxCapabilityRequestEvent),
-            "EXECUTE_COMMAND_SANDBOX_CAPABILITY_REQUEST",
-            CodingToolHarnessJsonContext.Default.ExecuteCommandSandboxCapabilityRequestEvent);
-        AgentEventSerializer.RegisterEventType(
-            typeof(ExecuteCommandSandboxCapabilityResponseEvent),
-            "EXECUTE_COMMAND_SANDBOX_CAPABILITY_RESPONSE",
-            CodingToolHarnessJsonContext.Default.ExecuteCommandSandboxCapabilityResponseEvent);
-        AgentEventSerializer.RegisterEventType(
             typeof(ExecuteCommandPermissionRulePersistedEvent),
             "EXECUTE_COMMAND_PERMISSION_RULE_PERSISTED",
             CodingToolHarnessJsonContext.Default.ExecuteCommandPermissionRulePersistedEvent);
@@ -102,7 +94,7 @@ public static class CodingHarnessEventSerialization
         AgentEventSerializer.RegisterEventType(typeof(DebugTreeFaultedEvent), "DEBUG_TREE_FAULTED", CodingToolHarnessJsonContext.Default.DebugTreeFaultedEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugSessionFailedEvent), "DEBUG_SESSION_FAILED", CodingToolHarnessJsonContext.Default.DebugSessionFailedEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugTreeTerminatedEvent), "DEBUG_TREE_TERMINATED", CodingToolHarnessJsonContext.Default.DebugTreeTerminatedEvent);
-        AgentEventSerializer.RegisterEventType(typeof(DebugSessionSummaryEvent), "DEBUG_SESSION_SUMMARY", CodingToolHarnessJsonContext.Default.DebugSessionSummaryEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugTreeCompletedEvent), "DEBUG_TREE_COMPLETED", CodingToolHarnessJsonContext.Default.DebugTreeCompletedEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugRestartTransitionEvent), "DEBUG_RESTART_TRANSITION", CodingToolHarnessJsonContext.Default.DebugRestartTransitionEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugChildSessionStartedEvent), "DEBUG_CHILD_SESSION_STARTED", CodingToolHarnessJsonContext.Default.DebugChildSessionStartedEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugBreakpointChangedEvent), "DEBUG_BREAKPOINT_CHANGED", CodingToolHarnessJsonContext.Default.DebugBreakpointChangedEvent);
@@ -110,8 +102,10 @@ public static class CodingHarnessEventSerialization
         AgentEventSerializer.RegisterEventType(typeof(DebugRunInTerminalRequestEvent), "DEBUG_RUN_IN_TERMINAL_REQUEST", CodingToolHarnessJsonContext.Default.DebugRunInTerminalRequestEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugRunInTerminalResponseEvent), "DEBUG_RUN_IN_TERMINAL_RESPONSE", CodingToolHarnessJsonContext.Default.DebugRunInTerminalResponseEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugSessionStoppedEvent), "DEBUG_SESSION_STOPPED", CodingToolHarnessJsonContext.Default.DebugSessionStoppedEvent);
-        AgentEventSerializer.RegisterEventType(typeof(DebugStopSummaryAvailableEvent), "DEBUG_STOP_SUMMARY_AVAILABLE", CodingToolHarnessJsonContext.Default.DebugStopSummaryAvailableEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugPrimaryStopAvailableEvent), "DEBUG_PRIMARY_STOP_AVAILABLE", CodingToolHarnessJsonContext.Default.DebugPrimaryStopAvailableEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugSessionContinuedEvent), "DEBUG_SESSION_CONTINUED", CodingToolHarnessJsonContext.Default.DebugSessionContinuedEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugExecutionCommandAppliedEvent), "DEBUG_EXECUTION_COMMAND_APPLIED", CodingToolHarnessJsonContext.Default.DebugExecutionCommandAppliedEvent);
+        AgentEventSerializer.RegisterEventType(typeof(DebugStateMutationAppliedEvent), "DEBUG_STATE_MUTATION_APPLIED", CodingToolHarnessJsonContext.Default.DebugStateMutationAppliedEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugProcessChangedEvent), "DEBUG_PROCESS_CHANGED", CodingToolHarnessJsonContext.Default.DebugProcessChangedEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugThreadChangedEvent), "DEBUG_THREAD_CHANGED", CodingToolHarnessJsonContext.Default.DebugThreadChangedEvent);
         AgentEventSerializer.RegisterEventType(typeof(DebugModuleChangedEvent), "DEBUG_MODULE_CHANGED", CodingToolHarnessJsonContext.Default.DebugModuleChangedEvent);

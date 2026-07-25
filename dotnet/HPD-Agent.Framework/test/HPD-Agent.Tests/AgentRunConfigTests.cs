@@ -6,23 +6,33 @@ namespace HPD.Agent.Tests;
 public class AgentRunConfigTests
 {
     [Fact]
-    public void PermissionMode_DefaultsToAsk()
+    public void Security_DefaultsToReviewAndSandbox()
     {
         var runConfig = new AgentRunConfig();
 
-        Assert.Equal(AgentPermissionMode.Ask, runConfig.PermissionMode);
+        Assert.Equal(AgentApprovalPolicy.ReviewProtectedActions, runConfig.Security.Approval);
+        Assert.Equal(AgentSandboxPolicy.Enforced, runConfig.Security.Sandbox);
+        Assert.Equal(AgentSandboxEscapePolicy.Ask, runConfig.Security.SandboxEscape);
     }
 
     [Fact]
-    public void PermissionMode_RoundTripsThroughSourceGeneratedJson()
+    public void Security_RoundTripsThroughSourceGeneratedJson()
     {
-        var runConfig = new AgentRunConfig { PermissionMode = AgentPermissionMode.FullAccess };
+        var runConfig = new AgentRunConfig
+        {
+            Security = new AgentSecurityProfile
+            {
+                Approval = AgentApprovalPolicy.AutoApprove,
+                Sandbox = AgentSandboxPolicy.Disabled,
+                SandboxEscape = AgentSandboxEscapePolicy.Deny
+            }
+        };
 
         var json = JsonSerializer.Serialize(runConfig, HPDJsonContext.Default.AgentRunConfig);
         var deserialized = JsonSerializer.Deserialize(json, HPDJsonContext.Default.AgentRunConfig);
 
         Assert.NotNull(deserialized);
-        Assert.Equal(AgentPermissionMode.FullAccess, deserialized.PermissionMode);
+        Assert.Equal(runConfig.Security, deserialized.Security);
     }
 
     [Fact]

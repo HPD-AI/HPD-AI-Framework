@@ -266,7 +266,8 @@ internal sealed class DotNetApplicationDebugExecutionTargetPlanner(
             TargetFramework = target.TargetFramework,
             ProcessExecution = context.Runtime.ProcessExecution!,
             ProcessSandbox = context.Runtime.ProcessSandbox,
-            Workspace = context.Workspace
+            Workspace = context.Workspace,
+            AuthorizePath = context.AuthorizePath
         }, cancellationToken).ConfigureAwait(false);
         switch (evaluation.ProjectKind)
         {
@@ -287,8 +288,15 @@ internal sealed class DotNetApplicationDebugExecutionTargetPlanner(
             throw new DebugStartPlanningException(
                 "debug_build_required",
                 "The exact evaluated application artifact is missing or stale.");
+        var effectiveContext = context with
+        {
+            Runtime = context.Runtime with
+            {
+                ProcessSandbox = evaluation.EffectiveSandbox
+            }
+        };
         var selected = await services.SelectAsync(
-            context,
+            effectiveContext,
             DebugAdapterSelectionOperation.Launch,
             DebugTargetKind.Executable,
             evaluation.ProjectPath.EndsWith(".fsproj", StringComparison.OrdinalIgnoreCase)
@@ -306,7 +314,7 @@ internal sealed class DotNetApplicationDebugExecutionTargetPlanner(
                 DebugTargetKind.Executable,
                 DebugAdapterProgramKind.ExecutableFile,
                 target.Arguments,
-                context.Operation.StopOnEntry),
+                effectiveContext.Operation.StopOnEntry),
             cancellationToken).ConfigureAwait(false);
         return DebugExecutionPlanningResult.Applicable(new DirectAdapterDebugExecutionPlan
         {
@@ -316,9 +324,9 @@ internal sealed class DotNetApplicationDebugExecutionTargetPlanner(
             EnvironmentRevision = adapter.EnvironmentRevision,
             CanonicalWorkingDirectory = Path.GetDirectoryName(project)!,
             InitialConfiguration = DebugInitialConfigurationMapper.Map(
-                context.Operation.InitialConfiguration,
-                context.Operation.StopOnEntry,
-                context.Workspace),
+                effectiveContext.Operation.InitialConfiguration,
+                effectiveContext.Operation.StopOnEntry,
+                effectiveContext.Workspace),
             ProjectEvaluation = DotNetEvaluationMetadata.Project(evaluation),
             Adapter = adapter
         });
@@ -349,7 +357,8 @@ internal sealed class DotNetTestDebugExecutionTargetPlanner(
             TargetFramework = target.TargetFramework,
             ProcessExecution = context.Runtime.ProcessExecution!,
             ProcessSandbox = context.Runtime.ProcessSandbox,
-            Workspace = context.Workspace
+            Workspace = context.Workspace,
+            AuthorizePath = context.AuthorizePath
         }, cancellationToken).ConfigureAwait(false);
         if (evaluation.ProjectKind != DotNetDebugProjectKind.Test)
             throw new DebugStartPlanningException(
@@ -362,13 +371,20 @@ internal sealed class DotNetTestDebugExecutionTargetPlanner(
                 "debug_build_required",
                 "The exact evaluated test output is missing or stale.");
 
+        var effectiveContext = context with
+        {
+            Runtime = context.Runtime with
+            {
+                ProcessSandbox = evaluation.EffectiveSandbox
+            }
+        };
         return evaluation.TestPlatform switch
         {
             DotNetTestPlatformKind.VSTest =>
-                await HostedVSTestAsync(context, target, project, evaluation, cancellationToken)
+                await HostedVSTestAsync(effectiveContext, target, project, evaluation, cancellationToken)
                     .ConfigureAwait(false),
             DotNetTestPlatformKind.MicrosoftTestingPlatform when evaluation.IsDirectlyExecutable =>
-                await DirectMtpAsync(context, target, project, evaluation, cancellationToken)
+                await DirectMtpAsync(effectiveContext, target, project, evaluation, cancellationToken)
                     .ConfigureAwait(false),
             _ => throw new DebugStartPlanningException(
                 "debug_test_platform_unsupported",
@@ -581,14 +597,11 @@ internal static class DotNetProjectSelection
             var selectionRoot = Directory.Exists(context.CanonicalTargetPath)
                 ? context.CanonicalTargetPath
                 : Path.GetDirectoryName(context.CanonicalTargetPath)!;
-            var candidate = context.Workspace.ResolvePath(
+            var candidate = context.Workspace.CanonicalizeExplicitPath(
                 Path.IsPathRooted(explicitProjectPath)
                     ? explicitProjectPath
                     : Path.Combine(selectionRoot, explicitProjectPath));
-            DotNetDebugProjectEvaluator.CanonicalContained(
-                candidate,
-                context.Workspace,
-                "debug_project_outside_workspace");
+            candidate = DotNetDebugProjectEvaluator.CanonicalPath(candidate);
             if (!DotNetDebugProjectEvaluator.IsProject(candidate) || !File.Exists(candidate))
                 throw new DebugStartPlanningException(
                     "debug_project_not_found",
@@ -712,8 +725,7 @@ internal static class DotNetProjectSelection
             {
                 var candidate = Path.GetFullPath(
                     Path.Combine(Path.GetDirectoryName(solution)!, relative));
-                DotNetDebugProjectEvaluator.CanonicalContained(
-                    candidate, workspace, "debug_project_outside_workspace");
+                candidate = DotNetDebugProjectEvaluator.CanonicalPath(candidate);
                 if (File.Exists(candidate) && DotNetDebugProjectEvaluator.IsProject(candidate))
                     yield return candidate;
             }

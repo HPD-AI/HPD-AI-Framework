@@ -41,7 +41,12 @@ public sealed class SubAgentRunConfigTests
         {
             ProviderKey = "openrouter",
             ModelId = "parent-model",
-            PermissionMode = AgentPermissionMode.FullAccess,
+            Security = new AgentSecurityProfile
+            {
+                Approval = AgentApprovalPolicy.AutoApprove,
+                Sandbox = AgentSandboxPolicy.Disabled,
+                SandboxEscape = AgentSandboxEscapePolicy.Deny
+            },
             Chat = new ChatRunConfig { Temperature = 0.25 },
             CoalesceDeltas = true,
             SystemInstructions = "Parent persona",
@@ -53,7 +58,8 @@ public sealed class SubAgentRunConfigTests
 
         child.ProviderKey.Should().Be("openrouter");
         child.ModelId.Should().Be("parent-model");
-        child.PermissionMode.Should().Be(AgentPermissionMode.FullAccess);
+        child.Security.Should().Be(parent.Security);
+        child.Security.Should().NotBeSameAs(parent.Security);
         child.Chat!.Temperature.Should().Be(0.25);
         child.CoalesceDeltas.Should().BeTrue();
         child.SystemInstructions.Should().BeNull();

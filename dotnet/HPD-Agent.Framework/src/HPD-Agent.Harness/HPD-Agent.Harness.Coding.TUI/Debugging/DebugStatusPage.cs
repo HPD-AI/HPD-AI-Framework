@@ -67,7 +67,7 @@ internal static class DebugStatusPage
                 }
                 foreach (var selection in debug.BreakpointSelections.Values
                     .Where(selection => selection.DebugTreeId == tree.DebugTreeId)
-                    .OrderBy(selection => selection.BreakpointKind)
+                    .OrderBy(selection => selection.Kind)
                     .ThenBy(selection => selection.ToolCallId, StringComparer.Ordinal))
                 {
                     foreach (var breakpoint in selection.After.Take(12))

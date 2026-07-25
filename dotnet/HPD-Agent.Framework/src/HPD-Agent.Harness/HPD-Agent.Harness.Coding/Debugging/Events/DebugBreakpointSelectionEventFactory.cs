@@ -166,7 +166,7 @@ internal sealed class DebugBreakpointSelectionEventFactory(
     {
         try
         {
-            var fullPath = workspace.ResolvePath(path);
+            var fullPath = workspace.ResolveWorkspacePath(path);
             var owner = workspace.GetOwningRoot(fullPath);
             var relative = Path.GetRelativePath(owner.Path, fullPath);
             var ambiguous = workspace.Roots.Count(root =>
@@ -180,8 +180,10 @@ internal sealed class DebugBreakpointSelectionEventFactory(
     }
 
     private static string? SafeText(string? value)
-        => value is null || value.Length <= MaximumTextLength
-            ? value
+        => string.IsNullOrWhiteSpace(value)
+            ? null
+            : value.Length <= MaximumTextLength
+                ? value
             : value[..MaximumTextLength];
 
     private sealed record SemanticBreakpointItem(

@@ -101,6 +101,8 @@ public static partial class AgentEventSerializer
         [typeof(PermissionResponseEvent)] = EventTypes.Permission.PERMISSION_RESPONSE,
         [typeof(ContinuationRequestEvent)] = EventTypes.Permission.CONTINUATION_REQUEST,
         [typeof(ContinuationResponseEvent)] = EventTypes.Permission.CONTINUATION_RESPONSE,
+        [typeof(Security.AgentCapabilityRequestEvent)] = "AGENT_CAPABILITY_REQUEST",
+        [typeof(Security.AgentCapabilityResponseEvent)] = "AGENT_CAPABILITY_RESPONSE",
 
         // Clarification Events
         [typeof(ClarificationRequestEvent)] = EventTypes.Clarification.CLARIFICATION_REQUEST,

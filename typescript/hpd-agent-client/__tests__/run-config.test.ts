@@ -10,7 +10,10 @@
 import { describe, it, expect } from 'vitest';
 import type { RunConfig, ChatRunConfig } from '../src/types/run-config.js';
 import {
-  AgentPermissionModes,
+  AgentApprovalPolicies,
+  AgentSandboxEscapePolicies,
+  AgentSandboxPathAccesses,
+  AgentSandboxPolicies,
   CompactionCommitModes,
   CompactionContinuations,
 } from '../src/types/run-config.js';
@@ -22,7 +25,16 @@ import {
 describe('RunConfig — wire format (camelCase)', () => {
   it('serializes all top-level fields to camelCase keys matching StreamRunConfigDto', () => {
     const rc: RunConfig = {
-      permissionMode: AgentPermissionModes.FullAccess,
+      security: {
+        approval: AgentApprovalPolicies.AutoApprove,
+        sandbox: AgentSandboxPolicies.Disabled,
+        sandboxEscape: AgentSandboxEscapePolicies.Deny,
+      },
+      sandbox: {
+        filesystem: [
+          { access: AgentSandboxPathAccesses.Read, path: '/workspace' },
+        ],
+      },
       providerKey: 'anthropic',
       modelId: 'claude-sonnet-4-6',
       additionalSystemInstructions: 'Be concise.',
@@ -37,7 +49,14 @@ describe('RunConfig — wire format (camelCase)', () => {
 
     // Top-level keys must match StreamRunConfigDto field names exactly
     expect(parsed).toHaveProperty('providerKey', 'anthropic');
-    expect(parsed).toHaveProperty('permissionMode', AgentPermissionModes.FullAccess);
+    expect(parsed.security).toEqual({
+      approval: AgentApprovalPolicies.AutoApprove,
+      sandbox: AgentSandboxPolicies.Disabled,
+      sandboxEscape: AgentSandboxEscapePolicies.Deny,
+    });
+    expect(parsed.sandbox.filesystem).toEqual([
+      { access: AgentSandboxPathAccesses.Read, path: '/workspace' },
+    ]);
     expect(parsed).toHaveProperty('modelId', 'claude-sonnet-4-6');
     expect(parsed).toHaveProperty('additionalSystemInstructions', 'Be concise.');
     expect(parsed).toHaveProperty('coalesceDeltas', true);

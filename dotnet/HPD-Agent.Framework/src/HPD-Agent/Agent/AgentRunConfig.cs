@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HPD.Agent.Security;
 using HPD.Agent.Audio;
 using HPD.Agent.Audio.Output;
 using Microsoft.Extensions.AI;
@@ -34,21 +35,49 @@ public enum AgentModelTransportMode
     Realtime = 2
 }
 
-/// <summary>
-/// Selects the permission enforcement profile for an agent run.
-/// </summary>
-public enum AgentPermissionMode
+/// <summary>Controls approval middleware for an agent run.</summary>
+public enum AgentApprovalPolicy
 {
-    /// <summary>
-    /// Enforce registered permission middleware and request approval when required.
-    /// </summary>
+    /// <summary>Request approval for operations classified as protected.</summary>
+    ReviewProtectedActions = 0,
+
+    /// <summary>Approve protected operations without prompting.</summary>
+    AutoApprove = 1
+}
+
+/// <summary>Controls host isolation for agent-initiated operations.</summary>
+public enum AgentSandboxPolicy
+{
+    /// <summary>Enforce the host sandbox and its effective capability grants.</summary>
+    Enforced = 0,
+
+    /// <summary>Run without host sandbox isolation.</summary>
+    Disabled = 1
+}
+
+/// <summary>Controls attempts to exceed the active sandbox grants.</summary>
+public enum AgentSandboxEscapePolicy
+{
+    /// <summary>Request a user decision for a narrow additional capability.</summary>
     Ask = 0,
 
-    /// <summary>
-    /// Bypass registered permission prompts for this run.
-    /// Hosts are responsible for pairing this with any required sandbox policy changes.
-    /// </summary>
-    FullAccess = 1
+    /// <summary>Deny capabilities outside the active grants.</summary>
+    Deny = 1
+}
+
+/// <summary>
+/// Independent security controls applied to one agent run.
+/// </summary>
+public sealed record AgentSecurityProfile
+{
+    /// <summary>Gets the protected-operation approval policy.</summary>
+    public AgentApprovalPolicy Approval { get; init; } = AgentApprovalPolicy.ReviewProtectedActions;
+
+    /// <summary>Gets the host sandbox policy.</summary>
+    public AgentSandboxPolicy Sandbox { get; init; } = AgentSandboxPolicy.Enforced;
+
+    /// <summary>Gets the behavior for capabilities outside enforced sandbox grants.</summary>
+    public AgentSandboxEscapePolicy SandboxEscape { get; init; } = AgentSandboxEscapePolicy.Ask;
 }
 
 /// <summary>
@@ -77,10 +106,12 @@ public enum AgentPermissionMode
 public class AgentRunConfig
 {
     /// <summary>
-    /// Permission enforcement profile for this run.
-    /// The secure default is <see cref="AgentPermissionMode.Ask"/>.
+    /// Security controls for this run.
     /// </summary>
-    public AgentPermissionMode PermissionMode { get; set; } = AgentPermissionMode.Ask;
+    public AgentSecurityProfile Security { get; set; } = new();
+
+    /// <summary>Capabilities granted to the enforced sandbox for this run.</summary>
+    public AgentSandboxConfiguration Sandbox { get; set; } = new();
 
     /// <summary>
     /// Chat parameters (temperature, tokens, etc.)
@@ -268,7 +299,7 @@ public class AgentRunConfig
     /// Key = function/tool name, Value = whether permission is required.
     /// Overrides the generic <c>PermissionMiddleware</c> requirement temporarily.
     /// Command-specific permission middleware may apply additional policy.
-    /// Ignored when <see cref="PermissionMode"/> is <see cref="AgentPermissionMode.FullAccess"/>.
+    /// Ignored when <see cref="Security"/> uses <see cref="AgentApprovalPolicy.AutoApprove"/>.
     /// Unknown function names are ignored because overrides are only read when
     /// that function is invoked.
     /// Example: { "ReadFile": false, "ExecuteCommand": true }

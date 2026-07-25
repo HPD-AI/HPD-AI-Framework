@@ -11,13 +11,19 @@ namespace HPD.Agent.Tests.Middleware;
 public class PermissionMiddlewareRunConfigTests
 {
     [Fact]
-    public async Task BeforeFunction_FullAccess_BypassesRequiredPermission()
+    public async Task BeforeFunction_AutoApprove_BypassesRequiredPermission()
     {
         var middleware = new PermissionMiddleware();
         var function = CreateFunction("SensitiveTool", requiresPermission: true);
         var context = CreateBeforeFunctionContext(
             function,
-            new AgentRunConfig { PermissionMode = AgentPermissionMode.FullAccess });
+            new AgentRunConfig
+            {
+                Security = new AgentSecurityProfile
+                {
+                    Approval = AgentApprovalPolicy.AutoApprove
+                }
+            });
 
         await middleware.BeforeFunctionAsync(context, CancellationToken.None);
 

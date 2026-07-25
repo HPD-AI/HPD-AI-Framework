@@ -40,6 +40,7 @@ public sealed class DebugOperationDispatcher
         {
             var permission = _authorization.DemandApproved(context, action);
             var result = await ExecuteCoreAsync(operation, permission, context, cancellationToken).ConfigureAwait(false);
+            await PublishPresentationEventAsync(operation, context).ConfigureAwait(false);
             if (!context.ResultMetadata.TryGet<DebugOperationMetadata>(
                     CodingToolMetadataKeys.DebugOperation,
                     out _))
@@ -126,6 +127,123 @@ public sealed class DebugOperationDispatcher
         {
             return Failure(context, action, operation, "internal_failure", "The debugger operation failed.");
         }
+    }
+
+    private async ValueTask PublishPresentationEventAsync(
+        DebugOperation operation,
+        FunctionExecutionContext context)
+    {
+        if (operation is not DebugTreeOperation treeOperation ||
+            context.FunctionCallId is not { Length: > 0 } toolCallId)
+            return;
+        var presentation = PresentationEvent(operation, toolCallId);
+        if (presentation is null) return;
+        try
+        {
+            var runtime = DebugRuntimeBinding.Capture(context, requireProcessExecution: false);
+            var services = _runtimeServices.Create(runtime);
+            var owner = new DebugTreeLookupScope(
+                runtime.AgentRuntimeRegistrationId,
+                runtime.SessionId,
+                runtime.ThreadId);
+            var tree = services.Manager.ResolveTree(owner, treeOperation.DebugTreeId);
+            var session = tree.SelectSession(treeOperation.DebugSessionId);
+            if (tree.EventPublisher is null) return;
+            presentation = presentation with
+            {
+                DebugTreeId = tree.Ownership.DebugTreeId,
+                DebugSessionId = session.SessionId,
+                AdapterId = session.AdapterPlan.AdapterId,
+                ToolCallId = toolCallId
+            };
+            _ = await tree.EventPublisher.PublishDurableAsync(
+                presentation,
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Presentation evidence is observer-only and must not change a successful operation.
+        }
+    }
+
+    private static DebugLifecycleEvent? PresentationEvent(
+        DebugOperation operation,
+        string toolCallId)
+        => operation switch
+        {
+            ContinueDebugOperation request => Execution(
+                DebugExecutionCommand.Continue, request.ThreadId, toolCallId),
+            PauseDebugOperation request => Execution(
+                DebugExecutionCommand.Pause, request.ThreadId, toolCallId),
+            StepOverDebugOperation request => Execution(
+                DebugExecutionCommand.StepOver, request.ThreadId, toolCallId),
+            StepInDebugOperation request => Execution(
+                DebugExecutionCommand.StepIn, request.ThreadId, toolCallId),
+            StepOutDebugOperation request => Execution(
+                DebugExecutionCommand.StepOut, request.ThreadId, toolCallId),
+            StepBackDebugOperation request => Execution(
+                DebugExecutionCommand.StepBack, request.ThreadId, toolCallId),
+            ReverseContinueDebugOperation request => Execution(
+                DebugExecutionCommand.ReverseContinue, request.ThreadId, toolCallId),
+            RestartFrameDebugOperation => Execution(
+                DebugExecutionCommand.RestartFrame, null, toolCallId),
+            GotoDebugOperation request => Execution(
+                DebugExecutionCommand.Goto, request.ThreadId, toolCallId),
+            TerminateThreadsDebugOperation => Execution(
+                DebugExecutionCommand.TerminateThreads, null, toolCallId),
+            SetDebugVariableOperation request => new DebugStateMutationAppliedEvent
+            {
+                DebugTreeId = "",
+                DebugSessionId = "",
+                AdapterId = "",
+                ToolCallId = toolCallId,
+                MutationKind = DebugStateMutationKind.Variable,
+                SafeTargetName = BoundPresentationValue(request.Name),
+                SafeNewValue = BoundPresentationValue(request.Value)
+            },
+            SetDebugExpressionOperation request => new DebugStateMutationAppliedEvent
+            {
+                DebugTreeId = "",
+                DebugSessionId = "",
+                AdapterId = "",
+                ToolCallId = toolCallId,
+                MutationKind = DebugStateMutationKind.Expression,
+                SafeTargetName = BoundPresentationValue(request.Expression),
+                SafeNewValue = BoundPresentationValue(request.Value)
+            },
+            WriteDebugMemoryOperation request => new DebugStateMutationAppliedEvent
+            {
+                DebugTreeId = "",
+                DebugSessionId = "",
+                AdapterId = "",
+                ToolCallId = toolCallId,
+                MutationKind = DebugStateMutationKind.Memory,
+                ByteCount = Base64ByteCount(request.Base64Data)
+            },
+            _ => null
+        };
+
+    private static DebugExecutionCommandAppliedEvent Execution(
+        DebugExecutionCommand command,
+        int? threadId,
+        string toolCallId)
+        => new()
+        {
+            DebugTreeId = "",
+            DebugSessionId = "",
+            AdapterId = "",
+            ToolCallId = toolCallId,
+            Command = command,
+            AdapterThreadId = threadId
+        };
+
+    private static string BoundPresentationValue(string value)
+        => value.Length <= 160 ? value : value[..157] + "…";
+
+    private static long? Base64ByteCount(string value)
+    {
+        try { return Convert.FromBase64String(value).LongLength; }
+        catch (FormatException) { return null; }
     }
 
     private async Task<string> ExecuteCoreAsync(
@@ -296,8 +414,9 @@ public sealed class DebugOperationDispatcher
                 ("childSessionCount", snapshot.ChildSessionCount),
                 ("requestedBreakpoints", breakpoints.Counts.Requested),
                 ("acknowledgedBreakpoints", breakpoints.Counts.Acknowledged),
-                ("verifiedBreakpoints", breakpoints.Counts.Verified),
-                ("breakpointVerification", "resolved_not_hit"),
+                ("resolvedBreakpoints", breakpoints.Counts.Verified),
+                ("hitBreakpoints", breakpoints.Counts.Hit),
+                ("unknownHitBreakpoints", breakpoints.Counts.UnknownHit),
                 ("pendingBreakpoints", breakpoints.Counts.Pending),
                 ("retainedOutputBytes", output.RetainedBytes)),
                 BoundOutput(output, request.MaximumOutputBytes));
@@ -326,8 +445,9 @@ public sealed class DebugOperationDispatcher
             ("childSessionCount", snapshot.ChildSessionCount),
             ("requestedBreakpoints", breakpoints.Counts.Requested),
             ("acknowledgedBreakpoints", breakpoints.Counts.Acknowledged),
-            ("verifiedBreakpoints", breakpoints.Counts.Verified),
-            ("breakpointVerification", "resolved_not_hit"),
+            ("resolvedBreakpoints", breakpoints.Counts.Verified),
+            ("hitBreakpoints", breakpoints.Counts.Hit),
+            ("unknownHitBreakpoints", breakpoints.Counts.UnknownHit),
             ("pendingBreakpoints", breakpoints.Counts.Pending),
             ("retainedOutputBytes", output.RetainedBytes),
             ("supportedOptionalActions", Join(capabilities?.SupportedOptionalActions)),
@@ -354,9 +474,10 @@ public sealed class DebugOperationDispatcher
             .SelectSession(request.DebugSessionId);
         var selected = request.ThreadId is { } requested
             ? threads.SingleOrDefault(item => item.ThreadId == requested && item.IsStopped)
-            : session.State.PrimaryStoppedThreadId is { } primary
-                ? threads.SingleOrDefault(item => item.ThreadId == primary && item.IsStopped)
-                : threads.FirstOrDefault(item => item.IsStopped);
+            : DebugPrimaryStoppedThreadSelector.Select(session.State, adapterReportedThreadId: null)
+                is { } primary
+                    ? threads.SingleOrDefault(item => item.ThreadId == primary.ThreadId && item.IsStopped)
+                    : null;
         if (selected is null)
             throw new DebugSemanticException(DebugSemanticFailureReason.InvalidSessionState, "No stopped thread is available.");
         var stack = await services.Semantics.StackTraceAsync(
@@ -511,7 +632,7 @@ public sealed class DebugOperationDispatcher
     private async Task<string> SetSourceBreakpointsAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, SetSourceBreakpointsOperation request, FunctionExecutionContext context, CancellationToken cancellationToken)
     {
         var mutation = await services.Breakpoints.SetSourceAsync(owner, request.DebugTreeId, request.DebugSessionId,
-            request.Breakpoints.Select(item => new DebugSourceBreakpoint(item.Path, item.Line, item.Column, item.Condition, item.HitCondition, item.LogMessage)).ToArray(),
+            request.Breakpoints.Select(item => new DebugSourceBreakpoint(item.Path, item.Line, item.Column, Normalize(item.Condition), Normalize(item.HitCondition), Normalize(item.LogMessage))).ToArray(),
             cancellationToken).ConfigureAwait(false);
         await PublishBreakpointSelectionAsync(services, owner, mutation, request.DebugTreeId,
             "setSourceBreakpoints", context).ConfigureAwait(false);
@@ -521,7 +642,7 @@ public sealed class DebugOperationDispatcher
     private async Task<string> SetFunctionBreakpointsAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, SetFunctionBreakpointsOperation request, FunctionExecutionContext context, CancellationToken cancellationToken)
     {
         var mutation = await services.Breakpoints.SetFunctionAsync(owner, request.DebugTreeId, request.DebugSessionId,
-            request.Breakpoints.Select(item => new DebugFunctionBreakpoint(item.Name, item.Condition, item.HitCondition)).ToArray(),
+            request.Breakpoints.Select(item => new DebugFunctionBreakpoint(item.Name, Normalize(item.Condition), Normalize(item.HitCondition))).ToArray(),
             cancellationToken).ConfigureAwait(false);
         await PublishBreakpointSelectionAsync(services, owner, mutation, request.DebugTreeId,
             "setFunctionBreakpoints", context).ConfigureAwait(false);
@@ -531,7 +652,7 @@ public sealed class DebugOperationDispatcher
     private async Task<string> SetExceptionBreakpointsAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, SetExceptionBreakpointsOperation request, FunctionExecutionContext context, CancellationToken cancellationToken)
     {
         var mutation = await services.Breakpoints.SetExceptionAsync(owner, request.DebugTreeId, request.DebugSessionId,
-            request.Breakpoints.Select(item => new DebugExceptionFilter(item.FilterId, item.Condition)).ToArray(),
+            request.Breakpoints.Select(item => new DebugExceptionFilter(item.FilterId, Normalize(item.Condition))).ToArray(),
             cancellationToken).ConfigureAwait(false);
         await PublishBreakpointSelectionAsync(services, owner, mutation, request.DebugTreeId,
             "setExceptionBreakpoints", context).ConfigureAwait(false);
@@ -541,7 +662,7 @@ public sealed class DebugOperationDispatcher
     private async Task<string> SetInstructionBreakpointsAsync(DebugRuntimeServices services, DebugTreeLookupScope owner, SetInstructionBreakpointsOperation request, FunctionExecutionContext context, CancellationToken cancellationToken)
     {
         var mutation = await services.Breakpoints.SetInstructionTokensAsync(owner, request.DebugTreeId, request.DebugSessionId,
-            request.Breakpoints.Select(item => (item.InstructionReferenceToken, item.Offset, item.Condition, item.HitCondition)).ToArray(),
+            request.Breakpoints.Select(item => (item.InstructionReferenceToken, item.Offset, Normalize(item.Condition), Normalize(item.HitCondition))).ToArray(),
             cancellationToken).ConfigureAwait(false);
         await PublishBreakpointSelectionAsync(services, owner, mutation, request.DebugTreeId,
             "setInstructionBreakpoints", context).ConfigureAwait(false);
@@ -575,8 +696,8 @@ public sealed class DebugOperationDispatcher
                     null => null,
                     _ => throw new ArgumentOutOfRangeException()
                 },
-                item.Condition,
-                item.HitCondition)).ToArray(),
+                Normalize(item.Condition),
+                Normalize(item.HitCondition))).ToArray(),
             cancellationToken).ConfigureAwait(false);
         await PublishBreakpointSelectionAsync(services, owner, mutation, request.DebugTreeId,
             "setDataBreakpoints", context).ConfigureAwait(false);
@@ -624,8 +745,9 @@ public sealed class DebugOperationDispatcher
             KeyValuePair.Create<string, object?>("detailsRetained", snapshot.DetailsRetained),
             KeyValuePair.Create<string, object?>("requestedCount", snapshot.Counts.Requested),
             KeyValuePair.Create<string, object?>("acknowledgedCount", snapshot.Counts.Acknowledged),
-            KeyValuePair.Create<string, object?>("verifiedCount", snapshot.Counts.Verified),
-            KeyValuePair.Create<string, object?>("verificationMeaning", "resolved_not_hit"),
+            KeyValuePair.Create<string, object?>("resolvedCount", snapshot.Counts.Verified),
+            KeyValuePair.Create<string, object?>("hitCount", snapshot.Counts.Hit),
+            KeyValuePair.Create<string, object?>("unknownHitCount", snapshot.Counts.UnknownHit),
             KeyValuePair.Create<string, object?>("pendingCount", snapshot.Counts.Pending)
         };
         if (snapshot.DetailsRetained)
@@ -649,8 +771,9 @@ public sealed class DebugOperationDispatcher
             ("debugTreeId", treeId), ("debugSessionId", snapshot.DebugSessionId),
             ("requestedCount", snapshot.Counts.Requested),
             ("acknowledgedCount", snapshot.Counts.Acknowledged),
-            ("verifiedCount", snapshot.Counts.Verified),
-            ("verificationMeaning", "resolved_not_hit"),
+            ("resolvedCount", snapshot.Counts.Verified),
+            ("hitCount", snapshot.Counts.Hit),
+            ("unknownHitCount", snapshot.Counts.UnknownHit),
             ("pendingCount", snapshot.Counts.Pending)));
     }
 
@@ -1158,6 +1281,9 @@ public sealed class DebugOperationDispatcher
         DebugSemanticFailureReason.ContentStoreUnavailable => "content_store_unavailable",
         _ => "internal_failure"
     };
+
+    private static string? Normalize(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value;
 
     private static string SafeMessage(DebugSemanticFailureReason reason) => reason switch
     {

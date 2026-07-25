@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Xml;
 using HPD.Agent.ToolHarness.Coding.Ripgrep;
+using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Agent.Middleware;
 using Microsoft.Extensions.AI;
 
@@ -57,7 +58,8 @@ public partial class CodingToolHarness
         [Description("Optional recursive directory depth cap. Maps to ripgrep --max-depth.")] int? maxDepth = null,
         [Description("Whether to enable multiline search with dot matching newlines.")] bool multiline = false,
         [Description("Whether to include hidden files and directories.")] bool includeHidden = false,
-        [Description("Whether to respect ignore files such as .gitignore.")] bool respectIgnoreFiles = true)
+        [Description("Whether to respect ignore files such as .gitignore.")] bool respectIgnoreFiles = true,
+        FunctionExecutionContext context = null!)
     {
         try
         {
@@ -77,6 +79,11 @@ public partial class CodingToolHarness
                 return FormatGrepError(path ?? string.Empty, argumentError);
 
             var resolved = ResolveGrepPath(path);
+            _ = await AgentFilesystemAccess.AuthorizeReadAsync(
+                resolved.FullPath,
+                nameof(Grep),
+                context,
+                CancellationToken.None).ConfigureAwait(false);
             if (IsBlockedSearchPath(resolved.FullPath))
                 return FormatGrepError(resolved.FullPath, "Cannot search blocked system path.");
 
@@ -175,6 +182,10 @@ public partial class CodingToolHarness
 
                 _ => FormatGrepError(resolved.FullPath, "OutputMode must be a valid GrepOutputMode value.")
             };
+        }
+        catch (AgentCapabilityDeniedException ex)
+        {
+            return FormatGrepError(path ?? string.Empty, ex.Message);
         }
         catch (InvalidOperationException ex)
         {

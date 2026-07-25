@@ -371,6 +371,7 @@ public sealed class DebugSessionEndedException(DebugSessionStatus status)
 internal sealed class DebugSession : IAsyncDisposable
 {
     private int _disposed;
+    private int _disconnectRequested;
     private long _nextFollowUpId;
     public required string SessionId { get; init; }
     public required string RootSessionId { get; init; }
@@ -392,6 +393,10 @@ internal sealed class DebugSession : IAsyncDisposable
     public List<IDisposable> HandlerRegistrations { get; } = [];
     public ConcurrentDictionary<long, Task> FollowUpTasks { get; } = [];
     public DateTimeOffset CreatedAt { get; } = DateTimeOffset.UtcNow;
+    public bool DisconnectRequested => Volatile.Read(ref _disconnectRequested) != 0;
+
+    public void BeginDisconnect()
+        => Interlocked.Exchange(ref _disconnectRequested, 1);
 
     public void ScheduleFollowUp(Func<Task> operation)
     {

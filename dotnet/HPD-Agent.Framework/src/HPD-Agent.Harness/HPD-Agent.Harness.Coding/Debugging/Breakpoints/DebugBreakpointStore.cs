@@ -14,6 +14,13 @@ public enum DebugBreakpointKind
     Data
 }
 
+public enum DebugBreakpointChangeKind
+{
+    New,
+    Changed,
+    Removed
+}
+
 public sealed record DebugDataBreakpointRecipe(
     string Name,
     int? VariablesReference = null,
@@ -166,7 +173,9 @@ public sealed record DebugBreakpointCounts(
     int Requested,
     int Acknowledged,
     int Verified,
-    int Pending);
+    int Pending,
+    int Hit = 0,
+    int UnknownHit = 0);
 
 /// <summary>Adapter breakpoint state owned by exactly one protocol session.</summary>
 internal sealed class DebugAdapterBreakpointStateStore
@@ -174,6 +183,10 @@ internal sealed class DebugAdapterBreakpointStateStore
     private readonly object _gate = new();
     private ImmutableArray<DebugBreakpointBindingState> _items = [];
     private ImmutableArray<DebugUnmatchedAdapterBreakpointDiagnostic> _unmatched = [];
+    private readonly Dictionary<string, DebugBreakpointRuntimeEvidence> _runtimeEvidence =
+        new(StringComparer.Ordinal);
+    private readonly HashSet<long> _unknownHitEpochs = [];
+    private readonly HashSet<long> _breakpointStopEpochs = [];
 
     public ImmutableArray<DebugBreakpointBindingState> Snapshot
     {
@@ -183,6 +196,116 @@ internal sealed class DebugAdapterBreakpointStateStore
     public ImmutableArray<DebugUnmatchedAdapterBreakpointDiagnostic> UnmatchedResponses
     {
         get { lock (_gate) return _unmatched; }
+    }
+
+    public ImmutableArray<DebugBreakpointRuntimeEvidence> RuntimeEvidence
+    {
+        get
+        {
+            lock (_gate)
+                return _runtimeEvidence.Values
+                    .OrderBy(item => item.ClientBreakpointId, StringComparer.Ordinal)
+                    .ToImmutableArray();
+        }
+    }
+
+    public DebugBreakpointHitObservation ObserveHits(
+        IReadOnlyList<int>? adapterBreakpointIds,
+        long suspensionEpoch,
+        bool stoppedForBreakpoint)
+    {
+        lock (_gate)
+        {
+            if (adapterBreakpointIds is not { Count: > 0 })
+                return new([], false, suspensionEpoch);
+            if (stoppedForBreakpoint) _breakpointStopEpochs.Add(suspensionEpoch);
+            var identities = _items
+                .Where(item => item.AdapterId is { } adapterId &&
+                    adapterBreakpointIds.Contains(adapterId))
+                .Select(item => item.ClientBreakpointId)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            foreach (var identity in identities)
+            {
+                if (_runtimeEvidence.TryGetValue(identity, out var existing) &&
+                    existing.LastHitSuspensionEpoch == suspensionEpoch)
+                    continue;
+                _runtimeEvidence[identity] = new DebugBreakpointRuntimeEvidence(
+                    identity,
+                    (_runtimeEvidence.TryGetValue(identity, out existing) ? existing.HitCount : 0) + 1,
+                    suspensionEpoch);
+            }
+            var unknown = identities.Length == 0 && stoppedForBreakpoint;
+            if (unknown) _unknownHitEpochs.Add(suspensionEpoch);
+            return new(identities, unknown, suspensionEpoch);
+        }
+    }
+
+    public DebugBreakpointHitObservation ObserveSourceStop(
+        string canonicalPath,
+        long line,
+        long? column,
+        long suspensionEpoch)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(canonicalPath);
+        lock (_gate)
+        {
+            _breakpointStopEpochs.Add(suspensionEpoch);
+            var candidates = _items.Where(item =>
+                item.Kind == DebugBreakpointKind.Source &&
+                item.Verified &&
+                string.Equals(
+                    CanonicalPath(item.ResolvedPath ?? item.RequestedPath),
+                    CanonicalPath(canonicalPath),
+                    StringComparison.Ordinal) &&
+                (item.ResolvedLine ?? item.RequestedLine) == line).ToArray();
+            if (column is { } sourceColumn)
+            {
+                var exact = candidates.Where(item =>
+                    (item.ResolvedColumn ?? item.RequestedColumn) == sourceColumn).ToArray();
+                if (exact.Length > 0)
+                {
+                    candidates = exact;
+                }
+                else
+                {
+                    candidates = candidates.Where(item =>
+                        item.ResolvedColumn is null &&
+                        item.RequestedColumn is null).ToArray();
+                }
+            }
+            if (candidates.Length != 1)
+            {
+                _unknownHitEpochs.Add(suspensionEpoch);
+                return new([], true, suspensionEpoch);
+            }
+            RecordHit(candidates[0].ClientBreakpointId, suspensionEpoch);
+            return new([candidates[0].ClientBreakpointId], false, suspensionEpoch);
+        }
+    }
+
+    public DebugBreakpointHitObservation CompleteUnknownStop(long suspensionEpoch)
+    {
+        lock (_gate)
+        {
+            _breakpointStopEpochs.Add(suspensionEpoch);
+            _unknownHitEpochs.Add(suspensionEpoch);
+            return new([], true, suspensionEpoch);
+        }
+    }
+
+    public int BreakpointStopCount
+    {
+        get { lock (_gate) return _breakpointStopEpochs.Count; }
+    }
+
+    public DebugBreakpointHitCounts HitCounts
+    {
+        get
+        {
+            lock (_gate)
+                return new(_runtimeEvidence.Count, _unknownHitEpochs.Count);
+        }
     }
 
     public void ReplaceFunction(
@@ -207,20 +330,47 @@ internal sealed class DebugAdapterBreakpointStateStore
     public void ReplaceException(
         IReadOnlyList<DebugExceptionFilter> requested,
         IReadOnlyList<Breakpoint> breakpoints)
-        => Replace(
-            DebugBreakpointKind.Exception,
-            requested,
-            breakpoints,
-            static value => BreakpointIdentity.Exception(value),
-            static value => new DebugBreakpointBindingState
+    {
+        ArgumentNullException.ThrowIfNull(requested);
+        ArgumentNullException.ThrowIfNull(breakpoints);
+        var replacement =
+            ImmutableArray.CreateBuilder<DebugBreakpointBindingState>(requested.Count);
+        var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var index = 0; index < requested.Count; index++)
+        {
+            var request = requested[index];
+            var baseIdentity = BreakpointIdentity.Exception(request);
+            occurrences.TryGetValue(baseIdentity, out var occurrence);
+            occurrences[baseIdentity] = occurrence + 1;
+            var state = new DebugBreakpointBindingState
             {
                 Kind = DebugBreakpointKind.Exception,
-                ClientBreakpointId = BreakpointIdentity.Exception(value),
-                RequestedName = value.FilterId,
-                Condition = value.Condition,
-                Acknowledged = false,
-                Verified = false
-            });
+                ClientBreakpointId =
+                    BreakpointIdentity.Occurrence(baseIdentity, occurrence),
+                RequestedName = request.FilterId,
+                Condition = request.Condition,
+                // A successful setExceptionBreakpoints response acknowledges
+                // every requested filter. Its optional breakpoint array is
+                // additional verification detail, not the acknowledgement.
+                Acknowledged = true,
+                Verified = true
+            };
+            replacement.Add(index < breakpoints.Count
+                ? ApplyProtocol(state, breakpoints[index])
+                : state);
+        }
+
+        lock (_gate)
+        {
+            _items = _items
+                .Where(x => x.Kind != DebugBreakpointKind.Exception)
+                .Concat(replacement)
+                .ToImmutableArray();
+            RetainUnmatched(
+                DebugBreakpointKind.Exception,
+                breakpoints.Skip(requested.Count));
+        }
+    }
 
     public void ReplaceInstruction(
         IReadOnlyList<DebugInstructionBreakpoint> requested,
@@ -338,7 +488,7 @@ internal sealed class DebugAdapterBreakpointStateStore
         }
     }
 
-    public void Reconcile(string reason, Breakpoint value)
+    public DebugBreakpointReconciliationResult Reconcile(string reason, Breakpoint value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
         ArgumentNullException.ThrowIfNull(value);
@@ -347,8 +497,11 @@ internal sealed class DebugAdapterBreakpointStateStore
             var index = FindIndex(value);
             if (string.Equals(reason, "removed", StringComparison.Ordinal))
             {
-                if (index >= 0) _items = _items.RemoveAt(index);
-                return;
+                if (index < 0)
+                    return Unmatched(reason, value);
+                var removed = _items[index];
+                _items = _items.RemoveAt(index);
+                return Result(removed, DebugBreakpointChangeKind.Removed);
             }
 
             var kind = index >= 0 ? _items[index].Kind : InferKind(value);
@@ -356,8 +509,65 @@ internal sealed class DebugAdapterBreakpointStateStore
                 ? ApplyProtocol(_items[index], value)
                 : ApplyProtocol(CreateUnmatched(kind, value), value);
             _items = index >= 0 ? _items.SetItem(index, state) : _items.Add(state);
+            return Result(
+                state,
+                string.Equals(reason, "new", StringComparison.Ordinal)
+                    ? DebugBreakpointChangeKind.New
+                    : DebugBreakpointChangeKind.Changed);
         }
     }
+
+    private DebugBreakpointReconciliationResult Unmatched(string reason, Breakpoint value)
+    {
+        var kind = InferKind(value);
+        RetainUnmatched(kind, [value]);
+        return new()
+        {
+            Kind = kind,
+            ClientBreakpointId = BreakpointIdentity.Unmatched(value),
+            Change = string.Equals(reason, "removed", StringComparison.Ordinal)
+                ? DebugBreakpointChangeKind.Removed
+                : DebugBreakpointChangeKind.Changed,
+            Acknowledged = false,
+            Verified = false,
+            SafeMessage = Bound(value.Message, 512)
+        };
+    }
+
+    private static DebugBreakpointReconciliationResult Result(
+        DebugBreakpointBindingState state,
+        DebugBreakpointChangeKind change)
+        => new()
+        {
+            Kind = state.Kind,
+            ClientBreakpointId = state.ClientBreakpointId,
+            Change = change,
+            Acknowledged = state.Acknowledged,
+            Verified = state.Verified,
+            SafeMessage = Bound(state.Message, 512),
+            ResolvedPath = state.ResolvedPath,
+            ResolvedLine = state.ResolvedLine,
+            ResolvedColumn = state.ResolvedColumn,
+            ResolvedInstructionReference = state.ResolvedInstructionReference,
+            ResolvedOffset = state.ResolvedOffset
+        };
+
+    private void RecordHit(string identity, long suspensionEpoch)
+    {
+        if (_runtimeEvidence.TryGetValue(identity, out var existing) &&
+            existing.LastHitSuspensionEpoch == suspensionEpoch)
+            return;
+        _runtimeEvidence[identity] = new(
+            identity,
+            (_runtimeEvidence.TryGetValue(identity, out existing) ? existing.HitCount : 0) + 1,
+            suspensionEpoch);
+    }
+
+    private static string? CanonicalPath(string? path)
+        => string.IsNullOrWhiteSpace(path) ? null : Path.GetFullPath(path);
+
+    private static string? Bound(string? value, int maximum)
+        => value is null ? null : value[..Math.Min(value.Length, maximum)];
 
     private int FindIndex(Breakpoint value)
     {
@@ -425,6 +635,34 @@ internal sealed class DebugAdapterBreakpointStateStore
             if (_unmatched.Length > 32) _unmatched = _unmatched.RemoveAt(0);
         }
     }
+}
+
+/// <summary>Stable runtime hit evidence for one semantic breakpoint.</summary>
+public sealed record DebugBreakpointRuntimeEvidence(
+    string ClientBreakpointId,
+    int HitCount,
+    long? LastHitSuspensionEpoch);
+
+internal sealed record DebugBreakpointHitObservation(
+    IReadOnlyList<string> ClientBreakpointIds,
+    bool IdentityUnknown,
+    long SuspensionEpoch);
+
+internal sealed record DebugBreakpointHitCounts(int Hit, int Unknown);
+
+internal sealed record DebugBreakpointReconciliationResult
+{
+    public required DebugBreakpointKind Kind { get; init; }
+    public required string ClientBreakpointId { get; init; }
+    public required DebugBreakpointChangeKind Change { get; init; }
+    public required bool Acknowledged { get; init; }
+    public required bool Verified { get; init; }
+    public string? SafeMessage { get; init; }
+    public string? ResolvedPath { get; init; }
+    public long? ResolvedLine { get; init; }
+    public long? ResolvedColumn { get; init; }
+    public string? ResolvedInstructionReference { get; init; }
+    public long? ResolvedOffset { get; init; }
 }
 
 internal sealed record DebugUnmatchedAdapterBreakpointDiagnostic(

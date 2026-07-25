@@ -15,26 +15,11 @@ internal sealed class DebugBreakpointChangedTuiHandler
         var state = context.State.GetOrCreate(
             DebugTuiState.StateKey,
             static () => new DebugTuiState());
+        if (!state.BeginBreakpointProjection(evt))
+            return ValueTask.CompletedTask;
         var selection = state.Reconcile(evt);
         if (selection is null) return ValueTask.CompletedTask;
-        var key = DebugTuiState.EntryKey(selection);
-        var cell = new DebugBreakpointCell(
-            key,
-            $"• Breakpoints · {selection.Counts.Verified}/{selection.Counts.Requested} verified",
-            selection.BreakpointKind,
-            selection.Before,
-            selection.After,
-            selection.Changes,
-            selection.Counts,
-            selection.SourcePreviews,
-            selection.DetailsTruncated);
-        context.Shell.Transcript.FinalizeLive(
-            key,
-            new TranscriptEntry(
-                Id: $"debug-breakpoints-{Math.Abs(key.GetHashCode(StringComparison.Ordinal))}",
-                EntryKey: key,
-                Cell: cell,
-                Metadata: TranscriptEntryMetadata.FromEvent(evt)).AsFinal());
+        DebugBreakpointSelectionTuiHandler.Render(context, selection, evt);
         return ValueTask.CompletedTask;
     }
 }

@@ -67,12 +67,18 @@ internal sealed class DebugScopedEventPublisher(
     private static async ValueTask IgnoreResult(ValueTask<AgentEvent> publication)
         => _ = await publication.ConfigureAwait(false);
 
-    private AgentEvent ApplyScope(AgentEvent @event) => @event with
+    private AgentEvent ApplyScope(AgentEvent @event)
     {
-        SessionId = Scope.SessionId,
-        ThreadId = Scope.ThreadId,
-        TraceId = Scope.TraceId
-    };
+        var scoped = @event with
+        {
+            SessionId = Scope.SessionId,
+            ThreadId = Scope.ThreadId,
+            TraceId = Scope.TraceId
+        };
+        return scoped is DebugLifecycleEvent debug
+            ? debug with { ToolCallId = debug.ToolCallId ?? Scope.ToolCallId }
+            : scoped;
+    }
 }
 
 /// <summary>Background-safe debugger publisher retaining no invocation or event-flow state.</summary>
@@ -121,17 +127,27 @@ public sealed class DebugEventPublisher : IDebugEventPublisher
         ArgumentNullException.ThrowIfNull(@event);
         if (string.IsNullOrWhiteSpace(@event.SessionId) || string.IsNullOrWhiteSpace(@event.ThreadId))
             throw new InvalidOperationException("A debugger event requires HPD session and thread scope.");
-        var scope = new DebugEventScope(@event.TraceId, @event.SessionId, @event.ThreadId);
+        var scope = new DebugEventScope(
+            @event.TraceId,
+            @event.SessionId,
+            @event.ThreadId,
+            @event is DebugLifecycleEvent debug ? debug.ToolCallId : null);
         if (durable)
             _ = await PublishDurableAsync(scope, @event, cancellationToken).ConfigureAwait(false);
         else
             await PublishLiveAsync(scope, @event, cancellationToken).ConfigureAwait(false);
     }
 
-    private static AgentEvent Scope(DebugEventScope scope, AgentEvent @event) => @event with
+    private static AgentEvent Scope(DebugEventScope scope, AgentEvent @event)
     {
-        SessionId = scope.SessionId,
-        ThreadId = scope.ThreadId,
-        TraceId = scope.TraceId
-    };
+        var scoped = @event with
+        {
+            SessionId = scope.SessionId,
+            ThreadId = scope.ThreadId,
+            TraceId = scope.TraceId
+        };
+        return scoped is DebugLifecycleEvent debug
+            ? debug with { ToolCallId = debug.ToolCallId ?? scope.ToolCallId }
+            : scoped;
+    }
 }

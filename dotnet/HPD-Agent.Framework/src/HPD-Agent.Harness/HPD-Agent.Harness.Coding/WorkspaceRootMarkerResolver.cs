@@ -38,7 +38,7 @@ public sealed class WorkspaceRootMarkerResolver : IWorkspaceRootMarkerResolver
             throw new ArgumentOutOfRangeException(nameof(markers));
 
         var canonicalStart = File.Exists(startingPath)
-            ? workspace.ResolvePath(startingPath)
+            ? workspace.ResolveWorkspacePath(startingPath)
             : workspace.ResolveDirectory(startingPath);
         var owningRoot = workspace.GetOwningRoot(canonicalStart)
             ?? throw new InvalidOperationException("The marker start path is outside the workspace.");

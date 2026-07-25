@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using HPD.Agent;
 using HPD.Agent.Middleware;
+using HPD.Agent.Security;
 using HPD.Agent.ToolHarness.Coding.Debugging;
 using HPD.Agent.ToolHarness.Coding.Debugging.Adapters;
 using HPD.Agent.ToolHarness.Coding.Debugging.Protocol;
@@ -48,12 +49,9 @@ public sealed class DebugRuntimeBindingTests
     {
         var runConfig = new AgentRunConfig
         {
-            ContextOverrides = new Dictionary<string, object?>
+            Security = new AgentSecurityProfile
             {
-                [AgentProcessSandboxPolicy.ContextKey] = new AgentProcessSandboxPolicy
-                {
-                    Mode = AgentProcessIsolationMode.Disabled
-                }
+                Sandbox = AgentSandboxPolicy.Disabled
             }
         };
         var context = CreateContext(
@@ -64,7 +62,47 @@ public sealed class DebugRuntimeBindingTests
 
         var binding = DebugRuntimeBinding.Capture(context, requireProcessExecution: true);
 
-        binding.ProcessSandbox.Mode.Should().Be(AgentProcessIsolationMode.Disabled);
+        binding.ProcessSandbox.IsEnforced.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Capture_translates_every_workspace_root_into_explicit_sandbox_grants()
+    {
+        var container = Path.Combine(
+            Path.GetTempPath(),
+            "hpd-runtime-roots-" + Guid.NewGuid().ToString("N"));
+        var first = Path.Combine(container, "a");
+        var second = Path.Combine(container, "b");
+        Directory.CreateDirectory(first);
+        Directory.CreateDirectory(second);
+        var runConfig = new AgentRunConfig
+        {
+            ContextOverrides = new Dictionary<string, object>
+            {
+                [AgentWorkspace.ContextKey] = new AgentWorkspace(
+                    "a",
+                    first,
+                    [
+                        new AgentWorkspaceRoot("a", first),
+                        new AgentWorkspaceRoot("b", second)
+                    ])
+            }
+        };
+        var context = CreateContext(
+            new DebugSessionManager(new DebugTerminalRecordStore(
+                new DebugTerminalRecordStoreOptions())),
+            Execution(new ProbeProcessProvider()),
+            runConfig);
+
+        var binding = DebugRuntimeBinding.Capture(context, requireProcessExecution: true);
+
+        foreach (var root in new[] { first, second })
+        {
+            binding.ProcessSandbox.Filesystem.Should().Contain(grant =>
+                grant.Path == root && grant.Access == AgentSandboxPathAccess.Read);
+            binding.ProcessSandbox.Filesystem.Should().Contain(grant =>
+                grant.Path == root && grant.Access == AgentSandboxPathAccess.Write);
+        }
     }
 
     [Fact]
@@ -230,9 +268,12 @@ public sealed class DebugRuntimeBindingTests
         var process = new ProbeProcessProvider();
         var resolution = Resolution(Execution(process), DebugAdapterTrustLevel.Trusted) with
         {
-            ProcessSandbox = new AgentProcessSandboxPolicy
+            ProcessSandbox = new AgentSandboxRuntime
             {
-                Mode = AgentProcessIsolationMode.Disabled
+                Security = new AgentSecurityProfile
+                {
+                    Sandbox = AgentSandboxPolicy.Disabled
+                }
             }
         };
         using var document = JsonDocument.Parse("{}");

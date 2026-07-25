@@ -43,7 +43,7 @@ public static class CodingHarnessTuiExtensions
             .AddCodingLanguageServerTui(theme);
     }
 
-    /// <summary>Adds live language-server status, footer presentation, and the inspect-only <c>/lsp</c> page.</summary>
+    /// <summary>Adds live language-server status and the inspect-only <c>/lsp</c> page.</summary>
     public static HpdAgentTuiBuilder AddCodingLanguageServerTui(
         this HpdAgentTuiBuilder tui,
         CodingHarnessTuiTheme? theme = null)
@@ -54,9 +54,6 @@ public static class CodingHarnessTuiExtensions
         return tui
             .TryAddEventHandler<LanguageServerStatusSnapshotEvent, LanguageServerStatusTuiHandler>(
                 "hpd.coding.language-server.status")
-            .TryAddFooterItem(
-                "hpd.coding.language-servers",
-                new LanguageServerStatusFooterItem(theme))
             .TryAddPage(LanguageServerStatusPage.Create(theme))
             .TryAddSlashCommand(new HpdAgentTuiCommandDescriptor(
                 "lsp",
@@ -151,9 +148,9 @@ public static class CodingHarnessTuiExtensions
                 "hpd.coding.command.permission",
                 new ExecuteCommandPermissionRequestTuiHandler(theme),
                 permissionScope)
-            .TryAddInteractionHandler<ExecuteCommandSandboxCapabilityRequestEvent>(
+            .TryAddInteractionHandler<HPD.Agent.Security.AgentCapabilityRequestEvent>(
                 "hpd.coding.command.sandbox-capability",
-                new ExecuteCommandSandboxCapabilityRequestTuiHandler(theme),
+                new AgentCapabilityRequestTuiHandler(theme),
                 permissionScope)
             .TryAddTranscriptRenderer<CodingCommandCell>(
                 CodingHarnessTuiTranscriptRendererKeys.Command,
@@ -197,7 +194,6 @@ public static class CodingHarnessTuiExtensions
                 new CodingDiagnosticsFooterItem(theme));
     }
 
-    /// <summary>Adds replayable semantic debugger presentation.</summary>
     /// <summary>
     /// Adds replayable debugger lifecycle presentation, transcript cells, status, and the
     /// inspect-only <c>/debug</c> page.
@@ -212,14 +208,23 @@ public static class CodingHarnessTuiExtensions
             .TryAddEventHandler(
                 "hpd.coding.debug.reducer",
                 new DebugLifecycleTuiReducer())
+            .TryAddEventHandler(
+                "hpd.coding.debug.tool-calls",
+                new DebugToolCallTuiCoordinator())
+            .TryAddEventHandler<DebugLifecycleEvent, DebugLifecycleTuiHandler>(
+                "hpd.coding.debug.lifecycle-presentation")
+            .TryAddEventHandler<DebugExecutionCommandAppliedEvent, DebugExecutionCommandTuiHandler>(
+                "hpd.coding.debug.execution")
+            .TryAddEventHandler<DebugStateMutationAppliedEvent, DebugStateMutationTuiHandler>(
+                "hpd.coding.debug.mutation")
             .TryAddEventHandler<DebugBreakpointSelectionAppliedEvent, DebugBreakpointSelectionTuiHandler>(
                 "hpd.coding.debug.breakpoint-selection")
             .TryAddEventHandler<DebugBreakpointChangedEvent, DebugBreakpointChangedTuiHandler>(
                 "hpd.coding.debug.breakpoint-changed")
             .TryAddEventHandler<DebugSessionStoppedEvent, DebugStoppedTuiHandler>(
                 "hpd.coding.debug.stopped")
-            .TryAddEventHandler<DebugStopSummaryAvailableEvent, DebugStopSummaryTuiHandler>(
-                "hpd.coding.debug.stop-summary")
+            .TryAddEventHandler<DebugPrimaryStopAvailableEvent, DebugPrimaryStopTuiHandler>(
+                "hpd.coding.debug.primary-stop")
             .TryAddEventHandler<DebugSessionContinuedEvent, DebugContinuedTuiHandler>(
                 "hpd.coding.debug.continued")
             .TryAddTranscriptRenderer<DebugBreakpointCell>(
@@ -228,9 +233,9 @@ public static class CodingHarnessTuiExtensions
             .TryAddTranscriptRenderer<DebugStoppedCell>(
                 CodingHarnessTuiTranscriptRendererKeys.DebugStopped,
                 new DebugStoppedCellRenderer(theme))
-            .TryAddFooterItem(
-                "hpd.coding.debug",
-                new DebugStatusFooterItem(theme))
+            .TryAddTranscriptRenderer<DebugActivityCell>(
+                CodingHarnessTuiTranscriptRendererKeys.DebugActivity,
+                new DebugActivityCellRenderer(theme))
             .TryAddPage(DebugStatusPage.Create(theme))
             .TryAddSlashCommand(new HpdAgentTuiCommandDescriptor(
                 "debug",

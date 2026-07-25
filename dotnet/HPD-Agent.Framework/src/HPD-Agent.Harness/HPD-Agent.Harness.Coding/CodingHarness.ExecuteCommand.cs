@@ -9,6 +9,8 @@ using System.Xml;
 using HPD.Agent;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Agent.Middleware;
+using HPD.Agent.Security;
+using HPD.Agent.ToolHarness.Coding.Security;
 using HPD.Environment.Contracts;
 using HPD.Events;
 using HPD.Events.Core;
@@ -269,12 +271,12 @@ public partial class CodingToolHarness
             {
                 var result = await completionTask.ConfigureAwait(false);
                 if (allowSandboxCapabilityRetry &&
-                    TryClassifySandboxCapabilityDenial(request, result, out var capability, out var amendment, out var failureSummary) &&
+                    TryClassifySandboxCapabilityDenial(request, result, out var capability, out var resource, out var failureSummary) &&
                     await RequestSandboxCapabilityAsync(
                         request,
                         context,
                         capability,
-                        amendment,
+                        resource,
                         failureSummary,
                         cancellationToken).ConfigureAwait(false))
                 {
@@ -284,7 +286,7 @@ public partial class CodingToolHarness
                     var amended = request with
                     {
                         CommandId = $"cmd_{Guid.NewGuid():N}",
-                        Isolation = ApplySandboxAmendment(request.Isolation, amendment)
+                        Isolation = ApplySandboxAmendment(request.Isolation, capability, resource)
                     };
                     return await RunExecuteCommandBackgroundAsync(
                         amended,
@@ -477,19 +479,19 @@ public partial class CodingToolHarness
             var result = await handle.WaitAsync(cancellationToken).ConfigureAwait(false);
             stopwatch.Stop();
             if (allowSandboxCapabilityRetry &&
-                TryClassifySandboxCapabilityDenial(request, result, out var capability, out var amendment, out var failureSummary) &&
+                TryClassifySandboxCapabilityDenial(request, result, out var capability, out var resource, out var failureSummary) &&
                 await RequestSandboxCapabilityAsync(
                     request,
                     context,
                     capability,
-                    amendment,
+                    resource,
                     failureSummary,
                     cancellationToken).ConfigureAwait(false))
             {
                 var amended = request with
                 {
                     CommandId = $"cmd_{Guid.NewGuid():N}",
-                    Isolation = ApplySandboxAmendment(request.Isolation, amendment)
+                    Isolation = ApplySandboxAmendment(request.Isolation, capability, resource)
                 };
                 return await RunExecuteCommandForegroundAsync(
                     amended,
@@ -563,16 +565,53 @@ public partial class CodingToolHarness
     private static bool TryClassifySandboxCapabilityDenial(
         ExecuteCommandRequest request,
         ProcessInvocationResult result,
-        out ExecuteCommandSandboxCapabilityKind capability,
-        out ExecuteCommandSandboxAmendment amendment,
+        out AgentCapabilityKind capability,
+        out AgentCapabilityResource? resource,
         out string failureSummary)
     {
         capability = default;
-        amendment = null!;
+        resource = null;
         failureSummary = "";
 
         if (request.Isolation.Mode != ProcessIsolationMode.Isolated)
             return false;
+
+        var violation = result.Violations.FirstOrDefault();
+        if (violation is not null)
+        {
+            var normalizedType = violation.Type.Replace("_", "", StringComparison.Ordinal)
+                .Replace("-", "", StringComparison.Ordinal)
+                .ToLowerInvariant();
+            AgentCapabilityKind? classified = normalizedType switch
+            {
+                var type when type.Contains("filesystemread", StringComparison.Ordinal) =>
+                    AgentCapabilityKind.FilesystemRead,
+                var type when type.Contains("filesystemwrite", StringComparison.Ordinal) =>
+                    AgentCapabilityKind.FilesystemWrite,
+                var type when type.Contains("network", StringComparison.Ordinal) =>
+                    AgentCapabilityKind.NetworkEgress,
+                var type when type.Contains("localbind", StringComparison.Ordinal) =>
+                    AgentCapabilityKind.LocalBinding,
+                _ => null
+            };
+            if (classified is { } recognized)
+            {
+                capability = recognized;
+                if (!string.IsNullOrWhiteSpace(violation.Path))
+                {
+                    var canonical = Path.GetFullPath(violation.Path);
+                    resource = new AgentCapabilityResource
+                    {
+                        Value = canonical,
+                        DisplayName = Path.GetFileName(canonical)
+                    };
+                }
+                failureSummary = string.IsNullOrWhiteSpace(violation.Message)
+                    ? "The operation exceeded its sandbox capabilities."
+                    : violation.Message;
+                return true;
+            }
+        }
 
         if (request.Isolation.Interactive.AllowLocalBinding)
             return false;
@@ -595,8 +634,7 @@ public partial class CodingToolHarness
         if (!hasPermissionDenial || !hasBindSignal)
             return false;
 
-        capability = ExecuteCommandSandboxCapabilityKind.LocalBinding;
-        amendment = new AllowLocalBindingAmendment();
+        capability = AgentCapabilityKind.LocalBinding;
         failureSummary = "The command failed while trying to bind a local port under the sandbox.";
         return true;
     }
@@ -614,24 +652,25 @@ public partial class CodingToolHarness
     private static async Task<bool> RequestSandboxCapabilityAsync(
         ExecuteCommandRequest request,
         FunctionExecutionContext context,
-        ExecuteCommandSandboxCapabilityKind capability,
-        ExecuteCommandSandboxAmendment amendment,
+        AgentCapabilityKind capability,
+        AgentCapabilityResource? resource,
         string failureSummary,
         CancellationToken cancellationToken)
     {
+        if (context.RunConfig.Security.SandboxEscape == AgentSandboxEscapePolicy.Deny)
+            return false;
+
         var requestId = Guid.NewGuid().ToString("N");
         try
         {
-            var response = await context.RequestAsync<ExecuteCommandSandboxCapabilityRequestEvent, ExecuteCommandSandboxCapabilityResponseEvent>(
-                    new ExecuteCommandSandboxCapabilityRequestEvent(
+            var response = await context.RequestAsync<AgentCapabilityRequestEvent, AgentCapabilityResponseEvent>(
+                    new AgentCapabilityRequestEvent(
                         requestId,
-                        nameof(ExecuteCommandPermissionMiddleware),
+                        nameof(ExecuteCommand),
                         context.FunctionCallId,
                         request.CommandId,
-                        request.Command,
-                        request.WorkingDirectory,
                         capability,
-                        amendment,
+                        resource,
                         failureSummary),
                     timeout: null)
                 .WaitAsync(cancellationToken)
@@ -650,27 +689,58 @@ public partial class CodingToolHarness
 
     private static ProcessIsolationPolicy ApplySandboxAmendment(
         ProcessIsolationPolicy policy,
-        ExecuteCommandSandboxAmendment amendment)
-        => amendment switch
+        AgentCapabilityKind capability,
+        AgentCapabilityResource? resource)
+        => capability switch
         {
-            AllowLocalBindingAmendment => policy with
+            AgentCapabilityKind.LocalBinding => policy with
             {
                 Interactive = policy.Interactive with { AllowLocalBinding = true }
             },
-            AllowNetworkModeAmendment network => policy with
+            AgentCapabilityKind.NetworkEgress => policy with
             {
-                Network = policy.Network with
+                Network = policy.Network with { Mode = NetworkEgressMode.Unrestricted }
+            },
+            AgentCapabilityKind.InteractiveTerminal => policy with
+            {
+                Interactive = policy.Interactive with { AllowPty = true }
+            },
+            AgentCapabilityKind.UnsandboxedExecution => policy with
+            {
+                Mode = ProcessIsolationMode.Disabled
+            },
+            AgentCapabilityKind.FilesystemRead when resource is not null => policy with
+            {
+                Filesystem = policy.Filesystem with
                 {
-                    Mode = network.Mode switch
-                    {
-                        ExecuteCommandNetworkMode.Blocked => NetworkEgressMode.Blocked,
-                        ExecuteCommandNetworkMode.Filtered => NetworkEgressMode.Filtered,
-                        ExecuteCommandNetworkMode.Unrestricted => NetworkEgressMode.Unrestricted,
-                        _ => policy.Network.Mode
-                    }
+                    Rules =
+                    [
+                        .. policy.Filesystem.Rules,
+                        new PathAccessRule
+                        {
+                            Kind = PathAccessRuleKind.AllowRead,
+                            Path = new HostPath(resource.Value),
+                            Reason = "Approved agent capability"
+                        }
+                    ]
                 }
             },
-            DisableIsolationAmendment => policy with { Mode = ProcessIsolationMode.Disabled },
+            AgentCapabilityKind.FilesystemWrite when resource is not null => policy with
+            {
+                Filesystem = policy.Filesystem with
+                {
+                    Rules =
+                    [
+                        .. policy.Filesystem.Rules,
+                        new PathAccessRule
+                        {
+                            Kind = PathAccessRuleKind.AllowWrite,
+                            Path = new HostPath(resource.Value),
+                            Reason = "Approved agent capability"
+                        }
+                    ]
+                }
+            },
             _ => policy
         };
 
@@ -758,10 +828,10 @@ public partial class CodingToolHarness
             });
         }
 
-        AgentProcessSandboxPolicy sandbox;
+        AgentSandboxRuntime sandbox;
         try
         {
-            sandbox = AgentProcessSandboxPolicy.FromRunConfig(runConfig);
+            sandbox = CodingSandboxRuntime.Capture(runConfig);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or JsonException)
         {
@@ -843,7 +913,9 @@ public partial class CodingToolHarness
         try
         {
             var workspace = AgentWorkspace.From(runConfig);
-            fullPath = workspace.ResolveDirectory(workingDirectory);
+            fullPath = string.IsNullOrWhiteSpace(workingDirectory)
+                ? workspace.DefaultRootPath
+                : workspace.CanonicalizeExplicitPath(workingDirectory);
         }
         catch (AgentWorkspaceException ex)
         {
@@ -1853,405 +1925,6 @@ internal sealed record ExecuteCommandRequest(
     TimeSpan Delay,
     IReadOnlyDictionary<string, string?> Environment,
     ProcessIsolationPolicy Isolation);
-
-/// <summary>
-/// Invocation-wide process isolation policy shared by every process-based coding tool.
-/// </summary>
-/// <remarks>
-/// Semantic authorization, workspace containment, ownership, and tool-specific validation
-/// remain active when <see cref="Mode"/> is <see cref="AgentProcessIsolationMode.Disabled"/>.
-/// </remarks>
-public sealed record AgentProcessSandboxPolicy
-{
-    /// <summary>Run-config context key containing the versioned process policy.</summary>
-    public const string ContextKey = "processSandbox";
-
-    /// <summary>Gets the serialized policy-contract version.</summary>
-    public int Version { get; init; } = 1;
-
-    /// <summary>Gets the process isolation mode selected by the host.</summary>
-    public AgentProcessIsolationMode Mode { get; init; } = AgentProcessIsolationMode.Isolated;
-
-    /// <summary>Gets filesystem grants resolved relative to each process working directory.</summary>
-    public IReadOnlyList<AgentProcessPathGrant> Filesystem { get; init; } = [];
-
-    /// <summary>Gets the process network-egress grant.</summary>
-    public AgentProcessNetworkGrant Network { get; init; } = AgentProcessNetworkGrant.Blocked;
-
-    /// <summary>Gets the process interactive-I/O grant.</summary>
-    public AgentProcessInteractiveGrant Interactive { get; init; } = new();
-
-    /// <summary>Creates the environment-runtime isolation contract for one process.</summary>
-    public ProcessIsolationPolicy ToProcessIsolationPolicy(string workingDirectory)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
-
-        return ProcessIsolationPolicy.Default with
-        {
-            Mode = Mode switch
-            {
-                AgentProcessIsolationMode.Isolated => ProcessIsolationMode.Isolated,
-                AgentProcessIsolationMode.Disabled => ProcessIsolationMode.Disabled,
-                _ => throw new InvalidOperationException($"Process sandbox mode '{Mode}' is not supported.")
-            },
-            Filesystem = new FilesystemAccessPolicy
-            {
-                Rules = Filesystem.Select(grant => grant.ToPathAccessRule(workingDirectory)).ToArray()
-            },
-            Network = Network.ToNetworkEgressPolicy(),
-            Interactive = Interactive.ToProcessInteractivePolicy()
-        };
-    }
-
-    /// <summary>Reads and validates the invocation-wide policy from a run configuration.</summary>
-    public static AgentProcessSandboxPolicy FromRunConfig(AgentRunConfig runConfig)
-    {
-        ArgumentNullException.ThrowIfNull(runConfig);
-
-        if (runConfig.ContextOverrides is null ||
-            !runConfig.ContextOverrides.TryGetValue(ContextKey, out var raw) ||
-            raw is null)
-        {
-            return new AgentProcessSandboxPolicy();
-        }
-
-        return raw switch
-        {
-            AgentProcessSandboxPolicy typed => typed.Validate(),
-            JsonElement element => ParseJsonElement(element),
-            _ => throw new InvalidOperationException("Process sandbox policy must be an AgentProcessSandboxPolicy object.")
-        };
-    }
-
-    private static AgentProcessSandboxPolicy ParseJsonElement(JsonElement element)
-        => element.ValueKind == JsonValueKind.Object
-            ? ParseJsonObject(element)
-            : throw new InvalidOperationException("Process sandbox policy must be an object.");
-
-    private static AgentProcessSandboxPolicy ParseJsonObject(JsonElement element)
-    {
-        if (element.TryGetProperty("version", out var versionElement) &&
-            versionElement.ValueKind != JsonValueKind.Undefined &&
-            versionElement.GetInt32() != 1)
-        {
-            throw new InvalidOperationException($"Process sandbox policy version '{versionElement.GetInt32()}' is not supported.");
-        }
-
-        var policy = new AgentProcessSandboxPolicy();
-
-        if (element.TryGetProperty("mode", out var modeElement))
-            policy = policy with { Mode = ParseIsolationMode(modeElement) };
-
-        if (element.TryGetProperty("filesystem", out var filesystemElement))
-            policy = policy with { Filesystem = ParseFilesystem(filesystemElement) };
-
-        if (element.TryGetProperty("network", out var networkElement))
-            policy = policy with { Network = AgentProcessNetworkGrant.ParseJsonElement(networkElement) };
-
-        if (element.TryGetProperty("interactive", out var interactiveElement))
-            policy = policy with { Interactive = AgentProcessInteractiveGrant.ParseJsonElement(interactiveElement) };
-
-        return policy.Validate();
-    }
-
-    private AgentProcessSandboxPolicy Validate()
-    {
-        if (Version != 1)
-            throw new InvalidOperationException($"Process sandbox policy version '{Version}' is not supported.");
-
-        if (!Enum.IsDefined(Mode))
-            throw new InvalidOperationException($"Process sandbox mode '{Mode}' is not supported.");
-
-        foreach (var grant in Filesystem)
-            grant.Validate();
-
-        Network.Validate();
-        Interactive.Validate();
-        return this;
-    }
-
-    private static AgentProcessIsolationMode ParseIsolationMode(JsonElement element)
-    {
-        if (element.ValueKind != JsonValueKind.String)
-            throw new InvalidOperationException("Process sandbox policy mode must be a string.");
-
-        return element.GetString() switch
-        {
-            "isolated" or "Isolated" => AgentProcessIsolationMode.Isolated,
-            "disabled" or "Disabled" => AgentProcessIsolationMode.Disabled,
-            var mode => throw new InvalidOperationException($"Process sandbox mode '{mode}' is not supported.")
-        };
-    }
-
-    private static IReadOnlyList<AgentProcessPathGrant> ParseFilesystem(JsonElement element)
-    {
-        if (element.ValueKind != JsonValueKind.Array)
-            throw new InvalidOperationException("Process sandbox policy filesystem must be an array.");
-
-        var grants = new List<AgentProcessPathGrant>();
-        foreach (var item in element.EnumerateArray())
-            grants.Add(AgentProcessPathGrant.ParseJsonElement(item));
-
-        return grants;
-    }
-}
-
-/// <summary>Controls whether host process isolation is enforced.</summary>
-public enum AgentProcessIsolationMode
-{
-    /// <summary>Enforce the declared process isolation policy.</summary>
-    Isolated,
-
-    /// <summary>Run without host process isolation.</summary>
-    Disabled
-}
-
-/// <summary>Declares one filesystem grant for isolated tool processes.</summary>
-public sealed record AgentProcessPathGrant
-{
-    public required AgentProcessPathGrantKind Kind { get; init; }
-
-    public required string Path { get; init; }
-
-    internal PathAccessRule ToPathAccessRule(string workingDirectory)
-    {
-        Validate();
-        var path = System.IO.Path.IsPathFullyQualified(Path)
-            ? System.IO.Path.GetFullPath(Path)
-            : System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDirectory, Path));
-
-        return new PathAccessRule
-        {
-            Kind = Kind switch
-            {
-                AgentProcessPathGrantKind.Read => PathAccessRuleKind.AllowRead,
-                AgentProcessPathGrantKind.Write => PathAccessRuleKind.AllowWrite,
-                _ => throw new InvalidOperationException($"Process filesystem grant kind '{Kind}' is not supported.")
-            },
-            Path = new HostPath(path),
-            Reason = "Process sandbox policy"
-        };
-    }
-
-    internal void Validate()
-    {
-        if (!Enum.IsDefined(Kind))
-            throw new InvalidOperationException($"Process filesystem grant kind '{Kind}' is not supported.");
-
-        if (string.IsNullOrWhiteSpace(Path))
-            throw new InvalidOperationException("Process filesystem grant path must not be empty.");
-    }
-
-    internal static AgentProcessPathGrant ParseJsonElement(JsonElement element)
-    {
-        if (element.ValueKind != JsonValueKind.Object)
-            throw new InvalidOperationException("Process filesystem grant must be an object.");
-
-        if (!element.TryGetProperty("kind", out var kindElement) || kindElement.ValueKind != JsonValueKind.String)
-            throw new InvalidOperationException("Process filesystem grant kind must be a string.");
-
-        if (!element.TryGetProperty("path", out var pathElement) || pathElement.ValueKind != JsonValueKind.String)
-            throw new InvalidOperationException("Process filesystem grant path must be a string.");
-
-        var kind = kindElement.GetString() switch
-        {
-            "read" or "Read" => AgentProcessPathGrantKind.Read,
-            "write" or "Write" => AgentProcessPathGrantKind.Write,
-            var raw => throw new InvalidOperationException($"Process filesystem grant kind '{raw}' is not supported.")
-        };
-
-        return new AgentProcessPathGrant
-        {
-            Kind = kind,
-            Path = pathElement.GetString()!
-        };
-    }
-}
-
-/// <summary>Identifies the access supplied by a process filesystem grant.</summary>
-public enum AgentProcessPathGrantKind
-{
-    Read,
-    Write
-}
-
-public sealed record AgentProcessNetworkGrant
-{
-    public static AgentProcessNetworkGrant Blocked { get; } = new();
-
-    public ExecuteCommandNetworkMode Mode { get; init; } = ExecuteCommandNetworkMode.Blocked;
-
-    public IReadOnlyList<string> AllowedDomains { get; init; } = [];
-
-    public IReadOnlyList<string> DeniedDomains { get; init; } = [];
-
-    internal NetworkEgressPolicy ToNetworkEgressPolicy()
-    {
-        Validate();
-        return new NetworkEgressPolicy
-        {
-            Mode = Mode switch
-            {
-                ExecuteCommandNetworkMode.Blocked => NetworkEgressMode.Blocked,
-                ExecuteCommandNetworkMode.Filtered => NetworkEgressMode.Filtered,
-                ExecuteCommandNetworkMode.Unrestricted => NetworkEgressMode.Unrestricted,
-                _ => throw new InvalidOperationException($"ExecuteCommand network mode '{Mode}' is not supported.")
-            },
-            AllowedDomains = AllowedDomains.Select(ToDomainRule).ToArray(),
-            DeniedDomains = DeniedDomains.Select(ToDomainRule).ToArray()
-        };
-    }
-
-    internal void Validate()
-    {
-        if (!Enum.IsDefined(Mode))
-            throw new InvalidOperationException($"ExecuteCommand network mode '{Mode}' is not supported.");
-
-        foreach (var domain in AllowedDomains.Concat(DeniedDomains))
-        {
-            if (string.IsNullOrWhiteSpace(domain))
-                throw new InvalidOperationException("ExecuteCommand network domain must not be empty.");
-        }
-    }
-
-    internal static AgentProcessNetworkGrant ParseJsonElement(JsonElement element)
-    {
-        if (element.ValueKind != JsonValueKind.Object)
-            throw new InvalidOperationException("ExecuteCommand network grant must be an object.");
-
-        var grant = new AgentProcessNetworkGrant();
-
-        if (element.TryGetProperty("mode", out var modeElement))
-            grant = grant with { Mode = ParseNetworkMode(modeElement) };
-
-        if (element.TryGetProperty("allowedDomains", out var allowedDomainsElement))
-            grant = grant with { AllowedDomains = ParseStringArray(allowedDomainsElement, "allowedDomains") };
-
-        if (element.TryGetProperty("deniedDomains", out var deniedDomainsElement))
-            grant = grant with { DeniedDomains = ParseStringArray(deniedDomainsElement, "deniedDomains") };
-
-        return grant;
-    }
-
-    private static ExecuteCommandNetworkMode ParseNetworkMode(JsonElement element)
-    {
-        if (element.ValueKind != JsonValueKind.String)
-            throw new InvalidOperationException("ExecuteCommand network mode must be a string.");
-
-        return element.GetString() switch
-        {
-            "blocked" or "Blocked" => ExecuteCommandNetworkMode.Blocked,
-            "filtered" or "Filtered" => ExecuteCommandNetworkMode.Filtered,
-            "unrestricted" or "Unrestricted" => ExecuteCommandNetworkMode.Unrestricted,
-            var mode => throw new InvalidOperationException($"ExecuteCommand network mode '{mode}' is not supported.")
-        };
-    }
-
-    private static IReadOnlyList<string> ParseStringArray(JsonElement element, string propertyName)
-    {
-        if (element.ValueKind != JsonValueKind.Array)
-            throw new InvalidOperationException($"ExecuteCommand network {propertyName} must be an array.");
-
-        var values = new List<string>();
-        foreach (var item in element.EnumerateArray())
-        {
-            if (item.ValueKind != JsonValueKind.String)
-                throw new InvalidOperationException($"ExecuteCommand network {propertyName} entries must be strings.");
-
-            values.Add(item.GetString()!);
-        }
-
-        return values;
-    }
-
-    private static DomainRule ToDomainRule(string pattern)
-        => new()
-        {
-            Pattern = pattern,
-            Kind = DomainRuleKind.ProviderValidate,
-            Reason = "Process sandbox policy"
-        };
-}
-
-public enum ExecuteCommandNetworkMode
-{
-    Blocked,
-    Filtered,
-    Unrestricted
-}
-
-public sealed record AgentProcessInteractiveGrant
-{
-    public bool AllowPty { get; init; }
-
-    public bool AllowLocalBinding { get; init; }
-
-    public IReadOnlyList<string> AllowedMachLookups { get; init; } = [];
-
-    internal ProcessInteractivePolicy ToProcessInteractivePolicy()
-    {
-        Validate();
-        return new ProcessInteractivePolicy
-        {
-            AllowPty = AllowPty,
-            AllowLocalBinding = AllowLocalBinding,
-            AllowedMachLookups = AllowedMachLookups.ToArray()
-        };
-    }
-
-    internal void Validate()
-    {
-        foreach (var lookup in AllowedMachLookups)
-        {
-            if (string.IsNullOrWhiteSpace(lookup))
-                throw new InvalidOperationException("ExecuteCommand interactive mach lookup must not be empty.");
-        }
-    }
-
-    internal static AgentProcessInteractiveGrant ParseJsonElement(JsonElement element)
-    {
-        if (element.ValueKind != JsonValueKind.Object)
-            throw new InvalidOperationException("ExecuteCommand interactive grant must be an object.");
-
-        var grant = new AgentProcessInteractiveGrant();
-
-        if (element.TryGetProperty("allowPty", out var allowPtyElement))
-            grant = grant with { AllowPty = ParseBoolean(allowPtyElement, "allowPty") };
-
-        if (element.TryGetProperty("allowLocalBinding", out var allowLocalBindingElement))
-            grant = grant with { AllowLocalBinding = ParseBoolean(allowLocalBindingElement, "allowLocalBinding") };
-
-        if (element.TryGetProperty("allowedMachLookups", out var allowedMachLookupsElement))
-            grant = grant with { AllowedMachLookups = ParseStringArray(allowedMachLookupsElement) };
-
-        return grant;
-    }
-
-    private static bool ParseBoolean(JsonElement element, string propertyName)
-        => element.ValueKind switch
-        {
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            _ => throw new InvalidOperationException($"ExecuteCommand interactive {propertyName} must be a boolean.")
-        };
-
-    private static IReadOnlyList<string> ParseStringArray(JsonElement element)
-    {
-        if (element.ValueKind != JsonValueKind.Array)
-            throw new InvalidOperationException("ExecuteCommand interactive allowedMachLookups must be an array.");
-
-        var values = new List<string>();
-        foreach (var item in element.EnumerateArray())
-        {
-            if (item.ValueKind != JsonValueKind.String)
-                throw new InvalidOperationException("ExecuteCommand interactive allowedMachLookups entries must be strings.");
-
-            values.Add(item.GetString()!);
-        }
-
-        return values;
-    }
-}
 
 internal sealed record ExecuteCommandNormalizationResult(
     ExecuteCommandRequest? Request,

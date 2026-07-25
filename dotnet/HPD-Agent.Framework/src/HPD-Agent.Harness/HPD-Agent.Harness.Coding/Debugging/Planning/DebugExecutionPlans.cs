@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text;
 using HPD.Agent.Middleware;
+using HPD.Agent.Security;
 using HPD.Agent.ToolHarness.Coding;
 using HPD.Environment.Contracts;
 
@@ -18,6 +19,7 @@ internal sealed record DebugExecutionPlanningContext
     public required WorkspaceRootMarkerResolution Evidence { get; init; }
     public string? ExplicitAdapterId { get; init; }
     public string? LanguageHint { get; init; }
+    public DebugPathCapabilityAuthorizer? AuthorizePath { get; init; }
 }
 
 /// <summary>Indicates whether an execution planner owns a semantic target.</summary>

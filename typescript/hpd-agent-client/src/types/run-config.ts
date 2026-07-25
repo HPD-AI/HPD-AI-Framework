@@ -26,7 +26,10 @@ export interface ChatRunConfig {
 }
 
 export type AgentModelTransportMode = 0 | 1 | 2;
-export type AgentPermissionMode = 0 | 1;
+export type AgentApprovalPolicy = 0 | 1;
+export type AgentSandboxPolicy = 0 | 1;
+export type AgentSandboxEscapePolicy = 0 | 1;
+export type AgentSandboxPathAccess = 0 | 1;
 export type UploadStrategy = 0 | 1 | 2;
 export type CompactionContinuation = 0 | 1;
 
@@ -35,10 +38,42 @@ export const CompactionContinuations = {
   StopAfterCompaction: 1,
 } as const satisfies Record<string, CompactionContinuation>;
 
-export const AgentPermissionModes = {
+export const AgentApprovalPolicies = {
+  ReviewProtectedActions: 0,
+  AutoApprove: 1,
+} as const satisfies Record<string, AgentApprovalPolicy>;
+
+export const AgentSandboxPolicies = {
+  Enforced: 0,
+  Disabled: 1,
+} as const satisfies Record<string, AgentSandboxPolicy>;
+
+export const AgentSandboxEscapePolicies = {
   Ask: 0,
-  FullAccess: 1,
-} as const satisfies Record<string, AgentPermissionMode>;
+  Deny: 1,
+} as const satisfies Record<string, AgentSandboxEscapePolicy>;
+
+export const AgentSandboxPathAccesses = {
+  Read: 0,
+  Write: 1,
+} as const satisfies Record<string, AgentSandboxPathAccess>;
+
+export interface AgentSecurityProfile {
+  approval?: AgentApprovalPolicy;
+  sandbox?: AgentSandboxPolicy;
+  sandboxEscape?: AgentSandboxEscapePolicy;
+}
+
+export interface AgentSandboxPathGrant {
+  access: AgentSandboxPathAccess;
+  path: string;
+}
+
+export interface AgentSandboxConfiguration {
+  filesystem?: AgentSandboxPathGrant[];
+  network?: Record<string, unknown>;
+  interactive?: Record<string, unknown>;
+}
 
 export interface ClientProviderConfig {
   providerKey?: string;
@@ -216,8 +251,10 @@ export type ThreadForkCompaction =
  * Maps to AgentRunConfig on the server.
  */
 export interface RunConfig {
-  /** Permission enforcement profile: ask for approval or bypass prompts for full access */
-  permissionMode?: AgentPermissionMode;
+  /** Independent approval, sandbox, and sandbox-escape controls. */
+  security?: AgentSecurityProfile;
+  /** Capabilities available while host sandbox isolation is enforced. */
+  sandbox?: AgentSandboxConfiguration;
   /** Model transport override: auto, chat, or realtime */
   modelTransport?: AgentModelTransportMode;
   /** Provider-created client-family overrides for this run */

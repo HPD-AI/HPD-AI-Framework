@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Collections.Immutable;
 using HPD.Agent.Middleware;
+using HPD.Agent.Security;
 using HPD.Environment.Contracts;
 
 namespace HPD.Agent.ToolHarness.Coding.Debugging;
@@ -26,7 +27,7 @@ public sealed record DebugAdapterResolutionContext
         = ImmutableDictionary<string, string?>.Empty;
     public IReadOnlyList<string>? ProbeArgumentsOverride { get; init; }
     public RuntimeProcessExecutionBinding? ProcessExecution { get; init; }
-    public AgentProcessSandboxPolicy ProcessSandbox { get; init; } = new();
+    public AgentSandboxRuntime ProcessSandbox { get; init; } = AgentSandboxRuntime.Default;
     public required DebugAdapterTrustDecision TrustDecision { get; init; }
 }
 
@@ -127,7 +128,7 @@ public sealed record DebugAdapterStartPlan
     public required DebugAdapterProvenance PackageProvenance { get; init; }
     public required DebugAdapterTrustDecision TrustDecision { get; init; }
     public RuntimeProcessExecutionBinding? ProcessExecution { get; init; }
-    public AgentProcessSandboxPolicy ProcessSandbox { get; init; } = new();
+    public AgentSandboxRuntime ProcessSandbox { get; init; } = AgentSandboxRuntime.Default;
     public TargetHandle<ExecutionUnit>? ExecutionTarget { get; init; }
     public required string CanonicalWorkingDirectory { get; init; }
     public required string AuthorizationScope { get; init; }

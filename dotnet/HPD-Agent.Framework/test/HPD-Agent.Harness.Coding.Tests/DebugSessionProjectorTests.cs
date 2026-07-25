@@ -45,15 +45,20 @@ public sealed class DebugSessionProjectorTests
             new DebugBreakpointChangedEvent
             {
                 DebugTreeId = "tree", DebugSessionId = "child", AdapterId = "adapter",
-                Reason = "changed", BreakpointId = 3, Verified = true, DisplayPath = "a.cs",
-                Line = 10, ThreadSequenceNumber = 7
+                ClientBreakpointId = "client-3", BreakpointKind = DebugBreakpointKind.Source,
+                Change = DebugBreakpointChangeKind.Changed, Acknowledged = true,
+                Verified = true, DisplayPath = "a.cs",
+                ResolvedLine = 10, ThreadSequenceNumber = 7
             },
-            new DebugSessionSummaryEvent
+            new DebugTreeCompletedEvent
             {
                 DebugTreeId = "tree", DebugSessionId = "child", AdapterId = "adapter",
                 FinalStatus = "Terminated", ExitCode = 9, DurationMilliseconds = 100,
+                SessionCount = 2,
                 ChildSessionCount = 0, RetainedOutputBytes = 12, DroppedOutputRecords = 0,
-                DroppedOutputBytes = 0, ProjectionFailures = 0, ThreadSequenceNumber = 8
+                DroppedOutputBytes = 0, ProjectionFailures = 0,
+                Breakpoints = new(0, 0, 0, 0), BreakpointStopCount = 0,
+                ThreadSequenceNumber = 8
             }
         ];
 
@@ -64,7 +69,7 @@ public sealed class DebugSessionProjectorTests
         tree.Sessions["child"].Status.Should().Be("Terminated");
         tree.Sessions["child"].ExitCode.Should().Be(9);
         tree.Sessions["child"].BreakpointHistory.Should().ContainSingle();
-        tree.Sessions["child"].FinalSummary.Should().NotBeNull();
+        tree.Completion.Should().NotBeNull();
         tree.Artifacts.Should().ContainSingle().Which.ContentId.Should().Be("content");
     }
 

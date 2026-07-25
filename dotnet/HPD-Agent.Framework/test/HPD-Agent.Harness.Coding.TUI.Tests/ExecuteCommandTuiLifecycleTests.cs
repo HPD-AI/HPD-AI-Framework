@@ -1,4 +1,5 @@
 using HPD.Agent.TUI;
+using HPD.Agent.Security;
 using HPD.Agent.TUI.Application;
 using HPD.Agent.TUI.Composition;
 using HPD.Agent.TUI.Interactions;
@@ -345,18 +346,16 @@ public sealed class ExecuteCommandTuiLifecycleTests
     [Fact]
     public async Task CustomCodingTheme_StylesSandboxCapabilityDialog()
     {
-        var request = new ExecuteCommandSandboxCapabilityRequestEvent(
+        var request = new AgentCapabilityRequestEvent(
             "sandbox-1",
-            "ExecuteCommandPermissionMiddleware",
+            "ExecuteCommand",
             "call-1",
             "cmd-1",
-            "npm run dev",
-            "/repo",
-            ExecuteCommandSandboxCapabilityKind.NetworkEgress,
-            new AllowNetworkModeAmendment(ExecuteCommandNetworkMode.Filtered),
+            AgentCapabilityKind.NetworkEgress,
+            new AgentCapabilityResource { Value = "registry.npmjs.org", DisplayName = "registry.npmjs.org" },
             "network is blocked");
         var dialogs = new TestDialogService();
-        var handler = new ExecuteCommandSandboxCapabilityRequestTuiHandler(new CodingHarnessTuiTheme
+        var handler = new AgentCapabilityRequestTuiHandler(new CodingHarnessTuiTheme
         {
             PermissionTitle = new Style(new Color(100, 210, 255), Color.Default),
             PermissionDetail = new Style(new Color(110, 120, 135), Color.Default),
@@ -808,7 +807,7 @@ public sealed class ExecuteCommandTuiLifecycleTests
 
     private static ExecuteCommandPermissionRequestEvent CreatePermissionRequest()
     {
-        var sandbox = new AgentProcessSandboxPolicy();
+        var sandbox = AgentSandboxRuntime.Default;
         var workspace = new ExecuteCommandPermissionWorkspaceScope
         {
             RootId = "default",

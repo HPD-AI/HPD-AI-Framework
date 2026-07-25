@@ -220,6 +220,22 @@ internal sealed class DebugSessionManager : IDebugSessionManager
         var publisher = current.LiveTree.EventPublisher;
         await current.LiveTree.StopAndDrainOwnedResourcesAsync()
             .ConfigureAwait(false);
+        var root = current.LiveTree.Sessions.TryGetValue(
+            current.LiveTree.RootSessionId,
+            out var rootSession)
+            ? rootSession
+            : current.LiveTree.Sessions.Values
+                .OrderBy(session => session.CreatedAt)
+                .FirstOrDefault();
+        if (publisher is not null && root is not null)
+            await publisher.PublishAsync(
+                DebugTreeCompletionEventFactory.Create(
+                    current.LiveTree,
+                    root,
+                    finalStatus,
+                    safeReasonCode),
+                durable: true,
+                CancellationToken.None).ConfigureAwait(false);
         var terminal = DebugTerminalRecordFactory.Create(
             current.LiveTree,
             finalStatus,
@@ -354,6 +370,7 @@ internal static class DebugTerminalRecordFactory
         var requested = desired.Source.Length + desired.Function.Length +
             desired.Exception.Length + desired.Instruction.Length + desired.Data.Length;
         var verified = states.Count(state => state.Verified);
+        var hits = session?.AdapterBreakpoints.HitCounts ?? new DebugBreakpointHitCounts(0, 0);
         var output = session?.Output.Snapshot(includeTelemetry: false) ??
             new DebugOutputSnapshot([], 0, 0, 0, 0, 0);
         var sessionId = session?.SessionId ?? tree.RootSessionId;
@@ -432,7 +449,9 @@ internal static class DebugTerminalRecordFactory
                 requested,
                 states.Length,
                 verified,
-                Math.Max(0, requested - verified)),
+                Math.Max(0, requested - verified),
+                hits.Hit,
+                hits.Unknown),
             Snapshot = DebugSnapshotProjector.Project(tree),
             Output = output with
             {

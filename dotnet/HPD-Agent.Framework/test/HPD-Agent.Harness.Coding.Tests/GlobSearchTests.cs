@@ -125,7 +125,7 @@ public sealed class GlobSearchTests : IDisposable
 
         var result = await new CodingToolHarness().GlobSearch(
             "**/*.cs",
-            context: CreateFunctionContext(CreateWorkspaceRunConfig(workspaceRoot)));
+            context: CreateFunctionContext(CreateFullAccessWorkspaceRunConfig(workspaceRoot)));
 
         result.Should().Contain($"path=\"{Directory.GetCurrentDirectory()}");
         result.Should().Contain("path=\"Cwd.cs\"");
@@ -143,14 +143,14 @@ public sealed class GlobSearchTests : IDisposable
         var result = await new CodingToolHarness().GlobSearch(
             "**/*.cs",
             path: "src",
-            context: CreateFunctionContext(CreateWorkspaceRunConfig(workspaceRoot)));
+            context: CreateFunctionContext(CreateFullAccessWorkspaceRunConfig(workspaceRoot)));
 
         result.Should().Contain("Directory does not exist");
         result.Should().Contain(Path.Combine(_tempRoot, "src"));
     }
 
     [Fact]
-    public async Task GlobSearch_AllowsAbsolutePatternOutsideRunConfigWorkspace()
+    public async Task GlobSearch_FullAccessAllowsAbsolutePatternOutsideRunConfigWorkspace()
     {
         var workspaceRoot = Path.Combine(_tempRoot, "workspace-root");
         var outsideRoot = Path.Combine(_tempRoot, "outside-root");
@@ -161,7 +161,7 @@ public sealed class GlobSearchTests : IDisposable
 
         var result = await new CodingToolHarness().GlobSearch(
             outsidePattern,
-            context: CreateFunctionContext(CreateWorkspaceRunConfig(workspaceRoot)));
+            context: CreateFunctionContext(CreateFullAccessWorkspaceRunConfig(workspaceRoot)));
 
         result.Should().Contain("path=\"Outside.cs\"");
         result.Should().Contain(outsideRoot);
@@ -804,7 +804,8 @@ public sealed class GlobSearchTests : IDisposable
             CallId = "call-1",
             Arguments = new Dictionary<string, object?>(),
             State = state,
-            RunConfig = runConfig
+            RunConfig = runConfig,
+            EventCoordinator = agentContext.EventCoordinator
         };
 
         return new FunctionExecutionContext(beforeContext, request);
@@ -823,6 +824,18 @@ public sealed class GlobSearchTests : IDisposable
                     [new AgentWorkspaceRoot("default", fullRoot)])
             }
         };
+    }
+
+    private static AgentRunConfig CreateFullAccessWorkspaceRunConfig(string defaultRoot)
+    {
+        var runConfig = CreateWorkspaceRunConfig(defaultRoot);
+        runConfig.Security = new AgentSecurityProfile
+        {
+            Approval = AgentApprovalPolicy.AutoApprove,
+            Sandbox = AgentSandboxPolicy.Disabled,
+            SandboxEscape = AgentSandboxEscapePolicy.Deny
+        };
+        return runConfig;
     }
 
     private sealed class FakeGlobSearchPathResolver(ResolvedGlobSearch resolved) : IGlobSearchPathResolver

@@ -689,7 +689,13 @@ public static class RunEvals
 
         return new AgentRunConfig
         {
-            PermissionMode = source.PermissionMode,
+            Security = source.Security with { },
+            Sandbox = source.Sandbox with
+            {
+                Filesystem = source.Sandbox.Filesystem
+                    .Select(static grant => grant with { })
+                    .ToArray()
+            },
             Chat = source.Chat,
             ProviderKey = source.ProviderKey,
             ModelId = source.ModelId,

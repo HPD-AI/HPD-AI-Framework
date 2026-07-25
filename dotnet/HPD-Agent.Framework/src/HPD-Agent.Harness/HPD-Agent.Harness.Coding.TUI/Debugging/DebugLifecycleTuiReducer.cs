@@ -53,11 +53,12 @@ internal sealed class DebugLifecycleTuiReducer : IAgentTuiEventHandler
                 }
                 tree.DroppedOutputRecords += output.DroppedRecords;
                 break;
-            case DebugSessionSummaryEvent summary:
-                tree.Status = summary.FinalStatus;
+            case DebugTreeCompletedEvent completed:
+                tree.Status = completed.FinalStatus;
+                tree.Breakpoints = completed.Breakpoints;
                 tree.DroppedOutputRecords = Math.Max(
                     tree.DroppedOutputRecords,
-                    summary.DroppedOutputRecords);
+                    completed.DroppedOutputRecords);
                 break;
             case DebugTreeTerminatedEvent:
                 tree.Status = "Terminated";
