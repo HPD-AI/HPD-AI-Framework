@@ -358,6 +358,96 @@ public sealed class InMemoryEnvironmentRuntimeTests
     }
 
     [Fact]
+    public async Task Runtime_owned_stop_rejects_all_owned_dependents_before_provider_invocation()
+    {
+        var provider = new RecordingRuntimeProvider("hpd.execution.test-host-stop-dependents");
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                PreferredProvider = provider.ProviderId,
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceRef<RuntimeHost> hostRef = new(
+            host.Metadata.Id,
+            host.Metadata.Scope,
+            host.Metadata.Generation);
+        ResourceSnapshot<EngineControlPlane, EngineControlPlaneSpec, EngineControlPlaneStatus> engine =
+            await runtime.EnsureEngineControlPlaneAsync(new EngineControlPlaneSpec
+            {
+                Kind = EngineControlPlaneKind.DockerCompatible,
+                Api = EngineApiKind.DockerCompatible,
+                Host = hostRef,
+            });
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                PreferredHost = hostRef,
+            });
+        EngineAuthorityBindingPlan plan = await runtime.PlanEngineAuthorityBindingAsync(
+            new EngineAuthorityBindingRequest
+            {
+                Engine = new ResourceRef<EngineControlPlane>(
+                    engine.Metadata.Id,
+                    engine.Metadata.Scope,
+                    engine.Metadata.Generation),
+                Api = EngineApiKind.DockerCompatible,
+                TargetUnit = unit.Status.Handle!.Value,
+                TargetSocketPath = new UnixSocketPath("/run/hpd/engine.sock"),
+            });
+        ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus> authority =
+            await runtime.EnsureEngineAuthorityBindingAsync(plan);
+        ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus> process =
+            await runtime.StartProcessAsync(new ProcessInvocationSpec
+        {
+            Target = unit.Status.Handle.Value,
+            Command = new ProcessCommandSpec
+            {
+                FileName = "/bin/echo",
+                Arguments = ["retained"],
+            },
+            PersistResource = true,
+            ObservationRetention = ObservationRetentionPolicy.DurableResource,
+        });
+
+        RuntimeResourceOwnershipException failure = await Assert.ThrowsAsync<RuntimeResourceOwnershipException>(
+            () => runtime.StopHostAsync(StopPolicy.Default).AsTask());
+
+        Assert.Equal(
+            "hpd.environment.runtime-host.dependents-active",
+            failure.Diagnostic.Code.Value);
+        Assert.DoesNotContain("host-stop", provider.Calls);
+        Assert.Single(await runtime.ListExecutionUnitsAsync());
+        Assert.Single(await runtime.ListProcessesAsync());
+
+        ResourceRef<ProcessInvocation> processRef = new(
+            process.Metadata.Id,
+            process.Metadata.Scope,
+            process.Metadata.Generation);
+        _ = await runtime.WaitProcessAsync(processRef);
+        await runtime.DeleteProcessAsync(processRef);
+        await runtime.RevokeAuthorityBindingAsync(new ResourceRef<AuthorityBinding>(
+            authority.Metadata.Id,
+            authority.Metadata.Scope,
+            authority.Metadata.Generation));
+        await runtime.DeleteExecutionUnitAsync(new ResourceRef<ExecutionUnit>(
+            unit.Metadata.Id,
+            unit.Metadata.Scope,
+            unit.Metadata.Generation));
+        await runtime.DeleteEngineControlPlaneAsync(new ResourceRef<EngineControlPlane>(
+            engine.Metadata.Id,
+            engine.Metadata.Scope,
+            engine.Metadata.Generation));
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> stopped =
+            await runtime.StopHostAsync(StopPolicy.Default);
+
+        Assert.Equal(RuntimeHostPhase.Stopped, stopped.Status.HostPhase);
+        Assert.Contains("host-stop", provider.Calls);
+    }
+
+    [Fact]
     public async Task Reconciled_execution_unit_retains_identity_and_advances_only_for_material_change()
     {
         EnvironmentProviderRegistry registry = CreateRegistry();
@@ -2376,8 +2466,11 @@ public sealed class InMemoryEnvironmentRuntimeTests
         public ValueTask<RuntimeHostStatus> StopAsync(
             TargetHandle<RuntimeHost> host,
             StopPolicy policy,
-            CancellationToken cancellationToken = default) =>
-            _inner.StopAsync(host, policy, cancellationToken);
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add("host-stop");
+            return _inner.StopAsync(host, policy, cancellationToken);
+        }
 
         public ValueTask DeleteAsync(
             ResourceRef<RuntimeHost> host,

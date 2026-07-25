@@ -597,6 +597,14 @@ public sealed class InMemoryEnvironmentRuntime(
                     "hpd.environment.runtime-host.not-owned",
                     "The runtime does not own a host to stop.");
             }
+            if (HasCurrentHostDependents())
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.runtime-host.dependents-active",
+                    $"Runtime host '{_host.Snapshot.Metadata.Id.Value}' cannot stop while the runtime owns " +
+                    "dependent execution units, processes, authority bindings, engines, projections, or " +
+                    "network resources. Delete those dependents first, or delete the host to run ordered cleanup.");
+            }
 
             IRuntimeHostProvider provider =
                 ProviderById(registry.RuntimeHostProviders, _host.ProviderId, "runtime host");
@@ -944,6 +952,41 @@ public sealed class InMemoryEnvironmentRuntime(
                 _engines[identity] = new OwnedEngine(owner, fingerprint, proposed);
             }
             return proposed;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask DeleteEngineControlPlaneAsync(
+        ResourceRef<EngineControlPlane> engine,
+        CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            OwnedEngine owned = FindEngine(engine);
+            if (_authorities.Values.Any(authority =>
+                authority.SourceEngine is { } source &&
+                SameResource(source, engine)))
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.engine.authority-active",
+                    $"Engine control plane '{engine.Id.Value}' cannot be deleted while derived authority bindings remain owned.");
+            }
+
+            await ProviderById(
+                    registry.EngineControlPlaneProviders,
+                    owned.ProviderId,
+                    "engine control plane")
+                .DeleteAsync(engine, cancellationToken)
+                .ConfigureAwait(false);
+            EngineIdentity key = _engines.Single(pair =>
+                pair.Value.Snapshot.Metadata.Id.Equals(engine.Id) &&
+                pair.Value.Snapshot.Metadata.Scope.Equals(engine.Scope)).Key;
+            _engines.Remove(key);
+            RemovePendingPlansForEngine(engine);
         }
         finally
         {

@@ -1418,6 +1418,7 @@ public interface IEnvironmentRuntime
     ValueTask<ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus>> StopHostAsync(StopPolicy policy, CancellationToken cancellationToken = default);
     ValueTask<RuntimeHostDeletionResult> DeleteHostAsync(CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<EngineControlPlane, EngineControlPlaneSpec, EngineControlPlaneStatus>> EnsureEngineControlPlaneAsync(EngineControlPlaneSpec spec, CancellationToken cancellationToken = default);
+    ValueTask DeleteEngineControlPlaneAsync(ResourceRef<EngineControlPlane> engine, CancellationToken cancellationToken = default);
     ValueTask<EngineAuthorityBindingPlan> PlanEngineAuthorityBindingAsync(EngineAuthorityBindingRequest request, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus>> EnsureEngineAuthorityBindingAsync(EngineAuthorityBindingPlan plan, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> EnsureExecutionUnitAsync(ExecutionUnitSpec spec, CancellationToken cancellationToken = default);

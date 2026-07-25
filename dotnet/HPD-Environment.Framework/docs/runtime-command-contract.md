@@ -1,7 +1,7 @@
 # Runtime command contract
 
-`IEnvironmentRuntime` is a pre-release public contract. The engine-control-plane,
-authority-binding, execution-unit cleanup, and host-deletion commands are an
+`IEnvironmentRuntime` is a pre-release public contract. The engine-control-plane
+creation/deletion, authority-binding, execution-unit cleanup, and host-deletion commands are an
 intentional breaking expansion made before external adoption. No compatibility
 adapter is provided.
 
@@ -24,6 +24,13 @@ The runtime command surface owns reconciliation identity and cleanup:
   deletes units and engines, and only then deletes the host;
 - host deletion has overall and per-operation deadlines and returns
   `RuntimeHostDeletionResult` with truthful diagnostics;
+- host stop retains the logical host but rejects with
+  `hpd.environment.runtime-host.dependents-active` before invoking a provider
+  while any execution unit, process, authority, engine, projection, or network
+  dependency remains owned. Callers must explicitly remove dependents first;
+  host deletion remains the command that performs ordered destructive cleanup;
+- explicit engine deletion routes to the recorded provider owner, rejects while
+  derived authority remains active, and clears stable runtime engine identity;
 - `FailOperation`, `MarkDegradedAndRetain`, and `BestEffortRelease` have distinct
   behavior; degraded retention updates the cached host status;
 - protected hosts reject deletion before cleanup begins;
