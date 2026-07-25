@@ -670,6 +670,165 @@ public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
         };
 
     [SkippableFact]
+    public async Task Real_two_vm_process_routes_are_isolated_and_stale_incarnations_are_rejected()
+    {
+        Skip.IfNot(
+            string.Equals(System.Environment.GetEnvironmentVariable("HPD_APPLEVZ_REAL_MULTI_VM"), "1", StringComparison.Ordinal),
+            "Set HPD_APPLEVZ_REAL_MULTI_VM=1 to opt into the destructive two-VM physical routing test.");
+        string helperPath = System.Environment.GetEnvironmentVariable("HPD_APPLEVZ_REAL_HELPER_PATH") ?? string.Empty;
+        string baseDisk = System.Environment.GetEnvironmentVariable("HPD_APPLEVZ_GUEST_DISK") ?? string.Empty;
+        string baseEfi = System.Environment.GetEnvironmentVariable("HPD_APPLEVZ_GUEST_EFI_VARIABLE_STORE") ?? string.Empty;
+        Skip.IfNot(
+            RuntimeInformation.IsOSPlatform(OSPlatform.OSX) &&
+            File.Exists(helperPath) &&
+            File.Exists(baseDisk) &&
+            File.Exists(baseEfi),
+            "The signed helper, EFI guest disk, and EFI variable store must exist.");
+
+        string runId = Guid.NewGuid().ToString("N");
+        string scratchRoot = Path.Combine(Path.GetDirectoryName(baseDisk)!, ".hpd-real-multi-vm-" + runId);
+        Directory.CreateDirectory(scratchRoot);
+        string hostA = "hpd-real-route-a-" + runId;
+        string hostB = "hpd-real-route-b-" + runId;
+        string diskA = Path.Combine(scratchRoot, "a.raw");
+        string diskB = Path.Combine(scratchRoot, "b.raw");
+        string efiA = Path.Combine(scratchRoot, "a.efi");
+        string efiB = Path.Combine(scratchRoot, "b.efi");
+        string serialA = Path.Combine(scratchRoot, "a.log");
+        string serialB = Path.Combine(scratchRoot, "b.log");
+        File.Copy(baseDisk, diskA);
+        File.Copy(baseDisk, diskB);
+        File.Copy(baseEfi, efiA);
+        File.Copy(baseEfi, efiB);
+
+        await using var helper = await RealHelperProcess.StartAsync(helperPath);
+        try
+        {
+            await StartPhysicalEfiHostAsync(helper, hostA, diskA, efiA, serialA, 1, 10);
+            await StartPhysicalEfiHostAsync(helper, hostB, diskB, efiB, serialB, 1, 20);
+            AppleVirtualizationGuestAgentReadinessProbeResponse readyA =
+                await ObservePhysicalGuestAsync(helper, hostA, 30);
+            AppleVirtualizationGuestAgentReadinessProbeResponse readyB =
+                await ObservePhysicalGuestAsync(helper, hostB, 40);
+            await helper.SendAsync(RealUnitEnsureRequest(hostA, "unit-a-" + runId, 50), RealCleanupTimeout);
+            await helper.SendAsync(RealUnitEnsureRequest(hostB, "unit-b-" + runId, 51), RealCleanupTimeout);
+
+            ProcessInvocationResult markA = await RunPhysicalProcessAsync(
+                helper,
+                hostA,
+                1,
+                readyA,
+                "unit-a-" + runId,
+                "process-mark-a-" + runId,
+                new ProcessCommandSpec
+                {
+                    FileName = "/bin/sh",
+                    Arguments = ["-c", "printf host-a > /tmp/hpd-route-owner"],
+                },
+                60);
+            markA.ExitCode.Should().Be(0);
+            ProcessInvocationResult verifyB = await RunPhysicalProcessAsync(
+                helper,
+                hostB,
+                1,
+                readyB,
+                "unit-b-" + runId,
+                "process-verify-b-" + runId,
+                new ProcessCommandSpec
+                {
+                    FileName = "/bin/sh",
+                    Arguments = ["-c", "test ! -e /tmp/hpd-route-owner"],
+                },
+                70);
+            verifyB.ExitCode.Should().Be(0, "host B must not execute against host A's guest filesystem");
+
+            ProcessInvocationResult boundedOutput = await RunPhysicalProcessAsync(
+                helper,
+                hostB,
+                1,
+                readyB,
+                "unit-b-" + runId,
+                "process-bounded-output-" + runId,
+                new ProcessCommandSpec
+                {
+                    FileName = "/bin/sh",
+                    Arguments = ["-c", "yes x | head -c 8388608"],
+                },
+                75,
+                maxCapturedBytes: 16 * 1024);
+            boundedOutput.ExitCode.Should().Be(0);
+            boundedOutput.Output.Stdout.BytesObserved.Should().Be(8 * 1024 * 1024);
+            boundedOutput.Output.Stdout.BytesCaptured.Should().Be(16 * 1024);
+            boundedOutput.Output.Stdout.BytesDiscarded.Should().Be((8 * 1024 * 1024) - (16 * 1024));
+            boundedOutput.Output.Stdout.Truncated.Should().BeTrue();
+            boundedOutput.Output.OutputDrainTimedOut.Should().BeFalse();
+
+            await helper.SendAsync(
+                RealHostLifecycleRequest(
+                    AppleVirtualizationHelperOperation.HostStop,
+                    hostA,
+                    80,
+                    hostStartGeneration: 1),
+                RealCleanupTimeout);
+            _ = await PollForHostPhaseAsync(helper, hostA, RuntimeHostPhase.Stopped, RealCleanupTimeout);
+            await StartPhysicalEfiHostAsync(helper, hostA, diskA, efiA, serialA, 2, 90);
+            _ = await ObservePhysicalGuestAsync(helper, hostA, 100);
+
+            AppleVirtualizationHelperEnvelope stale = await helper.SendAsync(
+                PhysicalProcessLifecycleRequest(
+                    AppleVirtualizationHelperOperation.ProcessStatus,
+                    hostA,
+                    1,
+                    readyA,
+                    "process-mark-a-" + runId,
+                    110),
+                RealCleanupTimeout);
+            stale.ResponseStatus.Should().Be(AppleVirtualizationHelperResponseStatus.Error);
+            stale.Error!.Code.Should().Be("AppleVirtualization.ProcessHostStartGenerationStale");
+
+            ProcessInvocationResult stillB = await RunPhysicalProcessAsync(
+                helper,
+                hostB,
+                1,
+                readyB,
+                "unit-b-" + runId,
+                "process-still-b-" + runId,
+                new ProcessCommandSpec
+                {
+                    FileName = "/bin/sh",
+                    Arguments = ["-c", "printf unaffected"],
+                },
+                120);
+            Encoding.UTF8.GetString(stillB.Output.Stdout.CapturedBytes.Span).Should().Be("unaffected");
+        }
+        finally
+        {
+            _ = await helper.TrySendAsync(
+                RealHostLifecycleRequest(AppleVirtualizationHelperOperation.HostStop, hostA, 200, hostStartGeneration: 2),
+                RealCleanupTimeout);
+            _ = await helper.TrySendAsync(
+                RealHostLifecycleRequest(AppleVirtualizationHelperOperation.HostDelete, hostA, 201, hostStartGeneration: 2),
+                RealCleanupTimeout);
+            _ = await helper.TrySendAsync(
+                RealHostLifecycleRequest(AppleVirtualizationHelperOperation.HostStop, hostB, 202, hostStartGeneration: 1),
+                RealCleanupTimeout);
+            _ = await helper.TrySendAsync(
+                RealHostLifecycleRequest(AppleVirtualizationHelperOperation.HostDelete, hostB, 203, hostStartGeneration: 1),
+                RealCleanupTimeout);
+            try
+            {
+                Directory.Delete(scratchRoot, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    [SkippableFact]
     public async Task Real_container_smoke_acceptance_observes_real_engine_status_only_with_explicit_env()
     {
         RealContainerAcceptanceEnvironment environment =
@@ -1095,21 +1254,187 @@ public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
             },
         };
 
+    private static async Task StartPhysicalEfiHostAsync(
+        RealHelperProcess helper,
+        string hostId,
+        string diskPath,
+        string efiVariableStorePath,
+        string serialLogPath,
+        ulong hostStartGeneration,
+        long sequence)
+    {
+        var guestImage = new AppleVirtualizationGuestImageOptions
+        {
+            BundleRoot = Path.GetDirectoryName(diskPath),
+            BootLoader = AppleVirtualizationGuestBootLoaderKind.Efi,
+            DiskImagePath = diskPath,
+            EfiVariableStorePath = efiVariableStorePath,
+            SerialLogPath = serialLogPath,
+            Architecture = AppleVirtualizationGuestArchitectureExpectation.Arm64,
+            ExpectedGuestAgentVersion = "0.1.0",
+        };
+        var configuration = new AppleVirtualizationVmConfigurationValidationRequest
+        {
+            HostId = hostId,
+            CpuCount = 2,
+            MemorySizeBytes = 2L * 1024 * 1024 * 1024,
+            GuestImage = guestImage,
+            SharedDirectories = Array.Empty<AppleVirtualizationVmConfigurationSharedDirectory>(),
+            IncludeSerialConsole = true,
+            IncludeVirtioSocketPlaceholder = true,
+        };
+        AppleVirtualizationHelperEnvelope started = await helper.SendAsync(
+            RealHostLifecycleRequest(
+                AppleVirtualizationHelperOperation.HostStart,
+                hostId,
+                sequence,
+                configuration,
+                hostStartGeneration: hostStartGeneration),
+            RealCleanupTimeout);
+        started.Error.Should().BeNull();
+        _ = await PollForHostPhaseAsync(helper, hostId, RuntimeHostPhase.Running, RealBootTimeout);
+    }
+
+    private static async Task<AppleVirtualizationGuestAgentReadinessProbeResponse> ObservePhysicalGuestAsync(
+        RealHelperProcess helper,
+        string hostId,
+        long sequence)
+    {
+        AppleVirtualizationHelperEnvelope response = await helper.SendAsync(
+            AppleVirtualizationHelperEnvelope.Request(
+                AppleVirtualizationHelperOperation.GuestAgentReadinessProbe,
+                "real-multi-vm-readiness-" + sequence,
+                sequence,
+                AppleVirtualizationHelperProtocol.GuestAgentReadinessRequestSchema) with
+            {
+                ProviderGeneration = 1,
+                GuestAgentReadinessProbeRequest = new AppleVirtualizationGuestAgentReadinessProbeRequest
+                {
+                    HostId = hostId,
+                    ExplicitRealMode = true,
+                    TimeoutMilliseconds = (int)RealGuestReadyTimeout.TotalMilliseconds,
+                    ExpectedAgentVersion = "0.1.0",
+                    RequiredCapabilities = ["process.start", "process.readOutput"],
+                },
+            },
+            RealGuestReadyTimeout);
+        response.Error.Should().BeNull();
+        response.GuestAgentReadinessProbeResponse!.VerifiedReady.Should().BeTrue(
+            response.GuestAgentReadinessProbeResponse.Message);
+        return response.GuestAgentReadinessProbeResponse;
+    }
+
+    private static async Task<ProcessInvocationResult> RunPhysicalProcessAsync(
+        RealHelperProcess helper,
+        string hostId,
+        ulong hostStartGeneration,
+        AppleVirtualizationGuestAgentReadinessProbeResponse guest,
+        string unitId,
+        string processId,
+        ProcessCommandSpec command,
+        long sequence,
+        int maxCapturedBytes = 64 * 1024)
+    {
+        AppleVirtualizationProcessHostRoute route = PhysicalProcessRoute(
+            hostId,
+            hostStartGeneration,
+            guest);
+        AppleVirtualizationHelperEnvelope started = await helper.SendAsync(
+            AppleVirtualizationHelperEnvelope.Request(
+                AppleVirtualizationHelperOperation.ProcessStart,
+                "real-multi-vm-process-start-" + sequence,
+                sequence,
+                AppleVirtualizationHelperProtocol.ProcessRequestSchema) with
+            {
+                ProviderGeneration = 1,
+                ProcessHost = route,
+                ProcessStartRequest = new AppleVirtualizationProcessStartRequest
+                {
+                    ProcessId = processId,
+                    UnitId = unitId,
+                    Command = command,
+                    Io = new ProcessIoSpec
+                    {
+                        StandardOutput = ProcessOutputSpec.CaptureAndStream with
+                        {
+                            MaxCapturedBytes = maxCapturedBytes,
+                        },
+                        StandardError = ProcessOutputSpec.CaptureAndStream with
+                        {
+                            MaxCapturedBytes = maxCapturedBytes,
+                        },
+                    },
+                },
+            },
+            RealCleanupTimeout);
+        started.Error.Should().BeNull();
+
+        AppleVirtualizationHelperEnvelope waited = await helper.SendAsync(
+            PhysicalProcessLifecycleRequest(
+                AppleVirtualizationHelperOperation.ProcessWait,
+                hostId,
+                hostStartGeneration,
+                guest,
+                processId,
+                sequence + 1),
+            RealCleanupTimeout);
+        waited.Error.Should().BeNull();
+        return waited.ProcessStatusResponse!.Result!;
+    }
+
+    private static AppleVirtualizationHelperEnvelope PhysicalProcessLifecycleRequest(
+        AppleVirtualizationHelperOperation operation,
+        string hostId,
+        ulong hostStartGeneration,
+        AppleVirtualizationGuestAgentReadinessProbeResponse guest,
+        string processId,
+        long sequence) =>
+        AppleVirtualizationHelperEnvelope.Request(
+            operation,
+            "real-multi-vm-process-" + sequence,
+            sequence,
+            AppleVirtualizationHelperProtocol.ProcessRequestSchema) with
+        {
+            ProviderGeneration = 1,
+            ProcessHost = PhysicalProcessRoute(hostId, hostStartGeneration, guest),
+            ProcessLifecycleRequest = new AppleVirtualizationProcessLifecycleRequest
+            {
+                ProcessId = processId,
+                Timeout = RealCleanupTimeout,
+            },
+        };
+
+    private static AppleVirtualizationProcessHostRoute PhysicalProcessRoute(
+        string hostId,
+        ulong hostStartGeneration,
+        AppleVirtualizationGuestAgentReadinessProbeResponse guest) =>
+        new()
+        {
+            HostId = hostId,
+            HostStartGeneration = hostStartGeneration,
+            GuestBootId = guest.GuestBootId,
+            GuestBootGeneration = guest.GuestBootGeneration,
+            GuestAgentGeneration = guest.GuestAgentGeneration,
+        };
+
     private static AppleVirtualizationHelperEnvelope RealHostLifecycleRequest(
         AppleVirtualizationHelperOperation operation,
         string hostId,
         long sequenceNumber,
         AppleVirtualizationVmConfigurationValidationRequest? vmConfiguration = null,
-        int? gracePeriodMilliseconds = null) =>
+        int? gracePeriodMilliseconds = null,
+        ulong hostStartGeneration = 0) =>
         AppleVirtualizationHelperEnvelope.Request(
             operation,
             "real-container-host-" + sequenceNumber.ToString(System.Globalization.CultureInfo.InvariantCulture),
             sequenceNumber,
             AppleVirtualizationHelperProtocol.HostRequestSchema) with
         {
+            ProviderGeneration = 1,
             HostLifecycleRequest = new AppleVirtualizationHostLifecycleRequest
             {
                 HostId = hostId,
+                HostStartGeneration = hostStartGeneration,
                 ExplicitRealMode = true,
                 VmConfigurationValidationRequest = vmConfiguration,
                 GracePeriodMilliseconds = gracePeriodMilliseconds,
