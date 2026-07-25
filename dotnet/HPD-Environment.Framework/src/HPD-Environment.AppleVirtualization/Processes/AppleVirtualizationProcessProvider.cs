@@ -22,6 +22,7 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
     private readonly IAppleVirtualizationHelperClient _helper;
     private readonly ISandboxPlanner _sandboxPlanner;
     private readonly ConcurrentDictionary<string, long> _lastOutputSequenceByProcess = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, AppleVirtualizationProcessHostRoute> _hostRouteByProcess = new(StringComparer.Ordinal);
     private long _processSequence;
     private long _requestSequence;
     private long _stdinSequence;
@@ -77,7 +78,11 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
         AppleVirtualizationLedgerEntry<ProcessInvocation, ProcessInvocationStatus> entry =
             _ledger.UpsertProcessInvocation(metadata, starting);
 
-        Diagnostic? precondition = ValidateStartPreconditions(unit, spec, out ProcessProjectionRequirement projection);
+        Diagnostic? precondition = ValidateStartPreconditions(
+            unit,
+            spec,
+            out ProcessProjectionRequirement projection,
+            out AppleVirtualizationProcessHostRoute? hostRoute);
         if (precondition is not null)
         {
             ProcessInvocationResult result = FailedResult(entry, spec, ProcessCompletionKind.FailedToStart, precondition);
@@ -96,6 +101,7 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
         }
 
         SandboxPlanEnvelope? sandboxPlan = await CreateSandboxPlanAsync(spec, cancellationToken).ConfigureAwait(false);
+        _hostRouteByProcess[processId] = hostRoute!;
 
         AppleVirtualizationHelperEnvelope response = await _helper.SendAsync(
             Request(AppleVirtualizationHelperOperation.ProcessStart) with
@@ -106,6 +112,7 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
                 ResourceGeneration = metadata.Generation,
                 ProviderHandle = entry.ProviderHandle,
                 ProviderGeneration = _ledger.ProviderGeneration,
+                ProcessHost = hostRoute,
                 ProcessStartRequest = new AppleVirtualizationProcessStartRequest
                 {
                     ProcessId = processId,
@@ -278,6 +285,7 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
                 ResourceGeneration = entry.Resource.Generation,
                 ProviderHandle = entry.ProviderHandle,
                 ProviderGeneration = _ledger.ProviderGeneration,
+                ProcessHost = Route(entry),
                 ProcessSignalRequest = new AppleVirtualizationProcessSignalRequest(entry.Resource.Id.Value, signal),
             },
             cancellationToken).ConfigureAwait(false);
@@ -326,6 +334,7 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
                 ResourceGeneration = entry.Resource.Generation,
                 ProviderHandle = entry.ProviderHandle,
                 ProviderGeneration = _ledger.ProviderGeneration,
+                ProcessHost = Route(entry),
                 ProcessLifecycleRequest = new AppleVirtualizationProcessLifecycleRequest
                 {
                     ProcessId = entry.Resource.Id.Value,
@@ -398,6 +407,7 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
                 ResourceGeneration = entry.Resource.Generation,
                 ProviderHandle = entry.ProviderHandle,
                 ProviderGeneration = _ledger.ProviderGeneration,
+                ProcessHost = Route(entry),
                 ProcessLifecycleRequest = new AppleVirtualizationProcessLifecycleRequest
                 {
                     ProcessId = processId,
@@ -465,6 +475,7 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
                 ResourceGeneration = entry.Resource.Generation,
                 ProviderHandle = entry.ProviderHandle,
                 ProviderGeneration = _ledger.ProviderGeneration,
+                ProcessHost = Route(entry),
                 ProcessLifecycleRequest = new AppleVirtualizationProcessLifecycleRequest
                 {
                     ProcessId = entry.Resource.Id.Value,
@@ -521,6 +532,7 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
                 ResourceGeneration = entry.Resource.Generation,
                 ProviderHandle = entry.ProviderHandle,
                 ProviderGeneration = _ledger.ProviderGeneration,
+                ProcessHost = Route(entry),
                 ProcessStopRequest = new AppleVirtualizationProcessStopRequest(
                     entry.Resource.Id.Value,
                     request.Kind,
@@ -569,6 +581,7 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
                 });
         }
         _lastOutputSequenceByProcess.TryRemove(process.Id.Value, out _);
+        _hostRouteByProcess.TryRemove(process.Id.Value, out _);
         _ledger.RemoveProcessInvocation(process);
         return ValueTask.CompletedTask;
     }
@@ -596,6 +609,7 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
                 ResourceGeneration = entry.Resource.Generation,
                 ProviderHandle = entry.ProviderHandle,
                 ProviderGeneration = _ledger.ProviderGeneration,
+                ProcessHost = Route(entry),
                 ProcessStdinRequest = new AppleVirtualizationProcessStdinRequest
                 {
                     ProcessId = entry.Resource.Id.Value,
@@ -637,6 +651,7 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
                     ResourceGeneration = entry.Resource.Generation,
                     ProviderHandle = entry.ProviderHandle,
                     ProviderGeneration = _ledger.ProviderGeneration,
+                    ProcessHost = Route(entry),
                     ProcessStopRequest = new AppleVirtualizationProcessStopRequest(
                         entry.Resource.Id.Value,
                         policy.Kind,
@@ -695,9 +710,11 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
     private Diagnostic? ValidateStartPreconditions(
         AppleVirtualizationLedgerEntry<ExecutionUnit, ExecutionUnitStatus> unit,
         ProcessInvocationSpec spec,
-        out ProcessProjectionRequirement projection)
+        out ProcessProjectionRequirement projection,
+        out AppleVirtualizationProcessHostRoute? hostRoute)
     {
         projection = ResolveProjectionRequirement(unit, spec.Command.WorkingDirectory);
+        hostRoute = null;
 
         if (unit.Status.Phase != ResourcePhase.Ready ||
             (unit.Status.UnitPhase != ExecutionUnitPhase.Ready && unit.Status.UnitPhase != ExecutionUnitPhase.Running))
@@ -705,7 +722,11 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
             return ProcessDiagnostics.GuestNotReady(unit.Resource.Id.Value, spec.Command.FileName);
         }
 
-        if (unit.Status.AssignedHost is { } assignedHost)
+        if (unit.Status.AssignedHost is not { } assignedHost)
+        {
+            return ProcessDiagnostics.GuestNotReady(unit.Resource.Id.Value, spec.Command.FileName);
+        }
+        else
         {
             AppleVirtualizationLedgerLookup<AppleVirtualizationLedgerEntry<RuntimeHost, RuntimeHostStatus>> hostLookup =
                 _ledger.TryGetRuntimeHost(assignedHost);
@@ -719,6 +740,16 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
             {
                 return ProcessDiagnostics.GuestNotReady(unit.Resource.Id.Value, spec.Command.FileName);
             }
+            (string? guestBootId, ulong guestBootGeneration) =
+                ParseGuestBootGeneration(host.Generations.GuestBootGeneration);
+            hostRoute = new AppleVirtualizationProcessHostRoute
+            {
+                HostId = assignedHost.Id.Value,
+                HostStartGeneration = checked((ulong)(host.Generations.HostStartGeneration?.Value ?? 0)),
+                GuestBootId = guestBootId,
+                GuestBootGeneration = guestBootGeneration,
+                GuestAgentGeneration = ParseGuestAgentGeneration(host.Conditions),
+            };
         }
 
         if (projection.Required && !projection.Verified)
@@ -735,6 +766,48 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
         }
 
         return null;
+    }
+
+    private AppleVirtualizationProcessHostRoute Route(
+        AppleVirtualizationLedgerEntry<ProcessInvocation, ProcessInvocationStatus> entry) =>
+        _hostRouteByProcess.TryGetValue(entry.Resource.Id.Value, out AppleVirtualizationProcessHostRoute? route)
+            ? route
+            : throw ProcessDiagnostics.ToException(new Diagnostic
+            {
+                Code = new DiagnosticCode("AppleVirtualization.ProcessHostRouteMissing"),
+                Message = $"Process '{entry.Resource.Id.Value}' has no accepted runtime-host route.",
+                Severity = DiagnosticSeverity.Error,
+            });
+
+    private static (string? GuestBootId, ulong Generation) ParseGuestBootGeneration(
+        GuestBootGeneration? generation)
+    {
+        string? value = generation?.Value;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return (null, 0);
+        }
+        int separator = value.LastIndexOf(':');
+        string numeric = separator >= 0 ? value[(separator + 1)..] : value;
+        return ulong.TryParse(numeric, NumberStyles.None, CultureInfo.InvariantCulture, out ulong parsed)
+            ? (separator > 0 ? value[..separator] : null, parsed)
+            : (null, 0);
+    }
+
+    private static ulong ParseGuestAgentGeneration(IReadOnlyList<Condition> conditions)
+    {
+        foreach (Condition condition in conditions)
+        {
+            if (string.Equals(
+                    condition.Type,
+                    "AppleVirtualization.GuestAgentGeneration",
+                    StringComparison.Ordinal) &&
+                ulong.TryParse(condition.Message, NumberStyles.None, CultureInfo.InvariantCulture, out ulong parsed))
+            {
+                return parsed;
+            }
+        }
+        return 0;
     }
 
     private Diagnostic? ValidateAuthorityBindings(

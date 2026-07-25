@@ -145,6 +145,41 @@ precondition(
         requestGeneration: 8) == .current,
     "A deletion request from the current provider generation must be eligible for lifecycle handling.")
 
+precondition(
+    HostStartGenerationDecision.evaluate(
+        recordGeneration: 2,
+        requestGeneration: 1) == .stale,
+    "A process route from the VM incarnation before stop/restart must be rejected.")
+precondition(
+    HostStartGenerationDecision.evaluate(
+        recordGeneration: 2,
+        requestGeneration: 2) == .current,
+    "A process route for the current restarted VM incarnation must be accepted.")
+
+precondition(
+    HostStartLifecycleDecision.evaluate(
+        state: .running,
+        recordGeneration: 4,
+        requestGeneration: 4) == .reuse,
+    "Starting an already-running VM must be idempotent only for its current generation.")
+precondition(
+    HostStartLifecycleDecision.evaluate(
+        state: .stopped,
+        recordGeneration: 4,
+        requestGeneration: 5) == .replace,
+    "A stopped VM must accept exactly the next generation and create a replacement incarnation.")
+precondition(
+    HostStartLifecycleDecision.evaluate(
+        state: .stopped,
+        recordGeneration: 4,
+        requestGeneration: 4) == .reject,
+    "A stopped VM must reject reuse of its completed incarnation.")
+precondition(
+    HostStartGenerationDecision.evaluate(
+        recordGeneration: 5,
+        requestGeneration: 4) == .stale,
+    "After stopped generation 4 restarts as generation 5, process routes for generation 4 must be rejected.")
+
 let normalizedEngineStatus = EngineStatusWireNormalizer.normalize([
     "Ready": false,
     "Diagnostics": [

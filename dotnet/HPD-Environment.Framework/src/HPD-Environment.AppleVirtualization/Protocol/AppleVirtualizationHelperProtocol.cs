@@ -233,6 +233,7 @@ public sealed record AppleVirtualizationHelperEnvelope
     public AppleVirtualizationUnitEnsureRequest? UnitEnsureRequest { get; init; }
     public AppleVirtualizationUnitLifecycleRequest? UnitLifecycleRequest { get; init; }
     public AppleVirtualizationUnitStatusResponse? UnitStatusResponse { get; init; }
+    public AppleVirtualizationProcessHostRoute? ProcessHost { get; init; }
     public AppleVirtualizationProcessStartRequest? ProcessStartRequest { get; init; }
     public AppleVirtualizationProcessStdinRequest? ProcessStdinRequest { get; init; }
     public AppleVirtualizationProcessSignalRequest? ProcessSignalRequest { get; init; }
@@ -287,6 +288,15 @@ public sealed record AppleVirtualizationHelperEnvelope
             PayloadSchema = AppleVirtualizationHelperProtocol.ErrorSchema,
             Error = error,
         };
+}
+
+public sealed record AppleVirtualizationProcessHostRoute
+{
+    public required string HostId { get; init; }
+    public ulong HostStartGeneration { get; init; }
+    public string? GuestBootId { get; init; }
+    public ulong GuestBootGeneration { get; init; }
+    public ulong GuestAgentGeneration { get; init; }
 }
 
 public sealed record AppleVirtualizationHelperError
@@ -394,6 +404,7 @@ public sealed record AppleVirtualizationHostEnsureRequest
 public sealed record AppleVirtualizationHostLifecycleRequest
 {
     public required string HostId { get; init; }
+    public ulong HostStartGeneration { get; init; }
     public bool ExplicitRealMode { get; init; }
     public AppleVirtualizationVmConfigurationValidationRequest? VmConfigurationValidationRequest { get; init; }
     public StopKind? StopKind { get; init; }

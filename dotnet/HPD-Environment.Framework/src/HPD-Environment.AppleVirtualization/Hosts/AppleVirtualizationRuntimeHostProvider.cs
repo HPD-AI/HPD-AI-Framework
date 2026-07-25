@@ -154,6 +154,56 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
             return Store(metadata, existing, spec);
         }
 
+        if (observed?.Handle is { } retainedHandle &&
+            observed.HostPhase is RuntimeHostPhase.Stopping or RuntimeHostPhase.Stopped or RuntimeHostPhase.Failed)
+        {
+            if (retainedHandle.ProviderGeneration != _ledger.ProviderGeneration)
+            {
+                return observed with
+                {
+                    Phase = ResourcePhase.Failed,
+                    ReconciliationOutcome = ResourceReconciliationOutcome.ImmutableConflict,
+                    HostPhase = RuntimeHostPhase.Failed,
+                    LastTransitionAt = DateTimeOffset.UtcNow,
+                    Diagnostics = AppendDiagnostic(observed.Diagnostics, new Diagnostic
+                    {
+                        Severity = DiagnosticSeverity.Error,
+                        Code = StaleObservedHandleCode,
+                        Message = "The observed runtime-host handle belongs to a stale provider generation and cannot be restarted.",
+                        ProviderId = AppleVirtualizationProviderDescriptor.ProviderId,
+                        TargetPath = "runtimeHost.handle.providerGeneration",
+                    }),
+                };
+            }
+
+            string? retainedFingerprint =
+                _ledger.GetRuntimeHostConfigurationFingerprint(metadata.Id, metadata.Scope);
+            if (!string.Equals(retainedFingerprint, requestedFingerprint, StringComparison.Ordinal))
+            {
+                return observed with
+                {
+                    Phase = ResourcePhase.Failed,
+                    ReconciliationOutcome = ResourceReconciliationOutcome.ImmutableConflict,
+                    HostPhase = RuntimeHostPhase.Failed,
+                    LastTransitionAt = DateTimeOffset.UtcNow,
+                    Diagnostics = AppendDiagnostic(observed.Diagnostics, new Diagnostic
+                    {
+                        Severity = DiagnosticSeverity.Error,
+                        Code = ImmutableConfigurationConflictCode,
+                        Message = "The retained VM configuration differs from the requested configuration; delete and recreate the host.",
+                        ProviderId = AppleVirtualizationProviderDescriptor.ProviderId,
+                        TargetPath = "runtimeHost.spec",
+                    }),
+                };
+            }
+
+            return await EnsureRealVmLifecycleAsync(
+                metadata,
+                spec,
+                observed,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         RuntimeHostStatus status = Store(metadata, CreateStatus(metadata, spec, RuntimeHostPhase.Preparing, ResourcePhase.Reconciling), spec);
 
         if (ShouldValidateVmConfiguration())
@@ -213,6 +263,7 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                 HostLifecycleRequest = new AppleVirtualizationHostLifecycleRequest
                 {
                     HostId = metadata.Id.Value,
+                    HostStartGeneration = checked((ulong)NextHostStartGeneration(status).Value),
                     Reason = "ensure",
                 },
             },
@@ -879,6 +930,7 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                 HostLifecycleRequest = new AppleVirtualizationHostLifecycleRequest
                 {
                     HostId = metadata.Id.Value,
+                    HostStartGeneration = checked((ulong)NextHostStartGeneration(previous).Value),
                     ExplicitRealMode = true,
                     Reason = "ensure-real-vm",
                     VmConfigurationValidationRequest = CreateVmConfigurationValidationRequest(metadata.Id.Value, spec),

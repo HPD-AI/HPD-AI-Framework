@@ -38,6 +38,30 @@ public sealed class AppleVirtualizationProcessProviderTests
     }
 
     [Fact]
+    public async Task Process_requests_retain_the_execution_units_exact_host_route()
+    {
+        var fixture = CreateFixture();
+        fixture.Ledger.UpsertRuntimeHost(
+            AppleVirtualizationContractFixtures.Metadata<RuntimeHost>("runtime-host-2", "runtime-host"),
+            new RuntimeHostStatus
+            {
+                Phase = ResourcePhase.Ready,
+                ObservedGeneration = new ResourceGeneration(1),
+                HostPhase = RuntimeHostPhase.Ready,
+                Readiness = new RuntimeHostReadinessStatus(Ready: true),
+            });
+        fixture.Helper.EnqueueResponse(ProcessStatus(
+            AppleVirtualizationHelperOperation.ProcessStart,
+            "process-1",
+            ProcessInvocationPhase.Running));
+
+        _ = await fixture.Provider.StartAsync(fixture.Spec);
+
+        fixture.Helper.Requests.Should().ContainSingle();
+        fixture.Helper.Requests[0].ProcessHost!.HostId.Should().Be("runtime-host-1");
+    }
+
+    [Fact]
     public async Task Run_streams_stderr_and_preserves_stream_identity()
     {
         var fixture = CreateFixture();

@@ -331,6 +331,33 @@ public sealed class InMemoryEnvironmentRuntimeTests
     }
 
     [Fact]
+    public async Task Runtime_owned_stop_is_observed_by_the_next_host_reconciliation()
+    {
+        var provider = new RecordingRuntimeProvider("hpd.execution.test-host-stop");
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        var spec = new RuntimeHostSpec
+        {
+            PreferredProvider = provider.ProviderId,
+            Platform = new PlatformSpec("linux", "x64"),
+        };
+
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> started =
+            await runtime.EnsureHostAsync(spec);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> stopped =
+            await runtime.StopHostAsync(StopPolicy.Default);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> restarted =
+            await runtime.EnsureHostAsync(spec);
+
+        Assert.Equal(started.Metadata.Id, stopped.Metadata.Id);
+        Assert.Equal(RuntimeHostPhase.Stopped, stopped.Status.HostPhase);
+        Assert.Equal(RuntimeHostPhase.Stopped, provider.LastObservedHost?.HostPhase);
+        Assert.Equal(started.Metadata.Id, restarted.Metadata.Id);
+        Assert.Equal(RuntimeHostPhase.Ready, restarted.Status.HostPhase);
+    }
+
+    [Fact]
     public async Task Reconciled_execution_unit_retains_identity_and_advances_only_for_material_change()
     {
         EnvironmentProviderRegistry registry = CreateRegistry();
@@ -1659,6 +1686,71 @@ public sealed class InMemoryEnvironmentRuntimeTests
     }
 
     [Fact]
+    public async Task Failed_start_compensation_retains_recoverable_process_ownership()
+    {
+        var provider = new RecordingRuntimeProvider("hpd.execution.process-start-cleanup-retained")
+        {
+            IgnoreRetainedStatusCancellation = true,
+            FailProcessRelease = true,
+            UseNonIdempotentProcessHandle = true,
+        };
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
+        var runtime = new InMemoryEnvironmentRuntime(
+            registry,
+            processObservationTimeout: TimeSpan.FromMilliseconds(25));
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                PreferredProvider = provider.ProviderId,
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                PreferredHost = Ref(host.Metadata),
+            });
+
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            runtime.StartProcessAsync(new ProcessInvocationSpec
+            {
+                Target = unit.Status.Handle!.Value,
+                Command = new ProcessCommandSpec { FileName = "/bin/work" },
+            }).AsTask());
+
+        ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus> retained =
+            Assert.Single(await runtime.ListProcessesAsync());
+        Assert.Equal(ResourcePhase.Degraded, retained.Status.Phase);
+        Assert.Equal(ProcessInvocationPhase.Stopping, retained.Status.ProcessPhase);
+        Assert.Contains(
+            retained.Status.Diagnostics,
+            diagnostic => diagnostic.Code.Value == "hpd.environment.process.start-cleanup-retained");
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> observedUnit =
+            await runtime.GetExecutionUnitAsync(Ref(unit.Metadata));
+        Assert.DoesNotContain(Ref(retained.Metadata), observedUnit.Status.ActiveProcesses);
+        Assert.NotEqual(ExecutionUnitPhase.Running, observedUnit.Status.UnitPhase);
+
+        provider.IgnoreRetainedStatusCancellation = false;
+        provider.FailProcessRelease = false;
+        provider.BlockProcessRelease = true;
+        int stopCalls = provider.Calls.Count(call => call == "process-retained-stop");
+        using (var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(25)))
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                runtime.DeleteProcessAsync(Ref(retained.Metadata), cancellation.Token).AsTask());
+        }
+        Assert.Single(await runtime.ListProcessesAsync());
+
+        provider.BlockProcessRelease = false;
+        await runtime.DeleteProcessAsync(Ref(retained.Metadata));
+        Assert.Equal(
+            stopCalls,
+            provider.Calls.Count(call => call == "process-retained-stop"));
+        Assert.Equal(1, provider.ProcessHandleDisposeCalls);
+        Assert.Empty(await runtime.ListProcessesAsync());
+    }
+
+    [Fact]
     public async Task Retained_process_release_does_not_drop_provider_state_before_local_cleanup()
     {
         var provider = new RecordingRuntimeProvider("hpd.execution.process-release-atomic")
@@ -2230,6 +2322,10 @@ public sealed class InMemoryEnvironmentRuntimeTests
         public bool IgnoreProcessCancellation { get; set; }
         public bool IgnoreUnitObservationCancellation { get; set; }
         public bool IgnoreRetainedStatusCancellation { get; set; }
+        public bool FailProcessRelease { get; set; }
+        public bool UseNonIdempotentProcessHandle { get; set; }
+        public bool BlockProcessRelease { get; set; }
+        public int ProcessHandleDisposeCalls { get; private set; }
         public bool IgnoreOutputCancellation { get; set; }
         public ProviderOpaqueHandle? UnitNamespaceHandleOnEnsure { get; set; }
         public ExecutionUnitStatus? UnitStatusOverride { get; set; }
@@ -2344,11 +2440,17 @@ public sealed class InMemoryEnvironmentRuntimeTests
         private TaskCompletionSource<ExecutionUnitStatus> NeverCompletingUnitObservation { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public ValueTask<IProcessInvocationHandle> StartAsync(
+        public async ValueTask<IProcessInvocationHandle> StartAsync(
             ProcessInvocationSpec spec,
             IProcessOutputSink? output = null,
-            CancellationToken cancellationToken = default) =>
-            _inner.StartAsync(spec, output, cancellationToken);
+            CancellationToken cancellationToken = default)
+        {
+            IProcessInvocationHandle handle =
+                await _inner.StartAsync(spec, output, cancellationToken);
+            return UseNonIdempotentProcessHandle
+                ? new NonIdempotentProcessHandle(handle, this)
+                : handle;
+        }
 
         public async ValueTask<ProcessInvocationResult> RunAsync(
             ProcessInvocationSpec spec,
@@ -2442,12 +2544,54 @@ public sealed class InMemoryEnvironmentRuntimeTests
             return ((IRetainedProcessProvider)_inner).StopAsync(process, request, cancellationToken);
         }
 
-        public ValueTask ReleaseAsync(
+        public async ValueTask ReleaseAsync(
             ResourceRef<ProcessInvocation> process,
             CancellationToken cancellationToken = default)
         {
             Calls.Add("process-release");
-            return ((IRetainedProcessProvider)_inner).ReleaseAsync(process, cancellationToken);
+            if (BlockProcessRelease)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            if (FailProcessRelease)
+            {
+                throw new InvalidOperationException("scripted process release failure");
+            }
+            await ((IRetainedProcessProvider)_inner).ReleaseAsync(process, cancellationToken);
+        }
+
+        private sealed class NonIdempotentProcessHandle(
+            IProcessInvocationHandle inner,
+            RecordingRuntimeProvider owner) : IProcessInvocationHandle
+        {
+            private bool _disposed;
+            public TargetHandle<ProcessInvocation> Handle => inner.Handle;
+            public ResourceRef<ProcessInvocation>? Resource => inner.Resource;
+            public ProcessInvocationSpec Spec => inner.Spec;
+            public ValueTask WriteStdinAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken = default) =>
+                inner.WriteStdinAsync(bytes, cancellationToken);
+            public ValueTask CloseStdinAsync(CancellationToken cancellationToken = default) =>
+                inner.CloseStdinAsync(cancellationToken);
+            public ValueTask SignalAsync(ProcessSignal signal, CancellationToken cancellationToken = default) =>
+                inner.SignalAsync(signal, cancellationToken);
+            public ValueTask StopAsync(ProcessStopRequest request, CancellationToken cancellationToken = default) =>
+                inner.StopAsync(request, cancellationToken);
+            public ValueTask ResizeTerminalAsync(TerminalSpec size, CancellationToken cancellationToken = default) =>
+                inner.ResizeTerminalAsync(size, cancellationToken);
+            public ValueTask<ProcessInvocationResult> WaitAsync(CancellationToken cancellationToken = default) =>
+                inner.WaitAsync(cancellationToken);
+            public IAsyncEnumerable<ProcessOutputChunk> ReadOutputAsync(CancellationToken cancellationToken = default) =>
+                inner.ReadOutputAsync(cancellationToken);
+            public async ValueTask DisposeAsync()
+            {
+                owner.ProcessHandleDisposeCalls++;
+                if (_disposed)
+                {
+                    throw new InvalidOperationException("process handle disposal is not idempotent");
+                }
+                _disposed = true;
+                await inner.DisposeAsync();
+            }
         }
 
         private TaskCompletionSource<ProcessInvocationStatus> NeverCompletingProcessObservation { get; } =

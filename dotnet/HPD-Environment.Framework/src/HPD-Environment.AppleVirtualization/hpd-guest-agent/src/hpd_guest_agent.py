@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import selectors
+import signal
 import shutil
 import socket
 import subprocess
@@ -117,6 +118,8 @@ class GuestAgent:
             "SequenceNumber": int(request.get("SequenceNumber", 0)) + 1,
             "Timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "HostId": request.get("HostId"),
+            "ProviderGeneration": request.get("ProviderGeneration"),
+            "HostStartGeneration": request.get("HostStartGeneration"),
             "GuestBootId": self.guest_boot_id,
             "GuestBootGeneration": self.guest_boot_generation,
             "GuestAgentGeneration": self.guest_agent_generation,
@@ -176,6 +179,15 @@ class GuestAgent:
 
         if operation == 23:
             return self.process_status(request)
+
+        if operation in (24, 50):
+            return self.process_stdin(request)
+
+        if operation == 25:
+            return self.process_signal(request)
+
+        if operation == 26:
+            return self.process_stop(request)
 
         if operation == 27:
             return self.process_wait(request)
@@ -606,12 +618,18 @@ class GuestAgent:
             "started_at": self.timestamp(),
             "stdout": bytearray(),
             "stderr": bytearray(),
+            "output_accounting": self.process_output_accounting(start),
             "merged_standard_error": merge_standard_error,
             "output_lock": threading.Lock(),
             "output_chunks": [],
+            "output_replay_bytes": {0: 0, 1: 0},
+            "output_replay_limit": self.process_replay_limit(start),
+            "output_history_truncated": False,
             "output_sequence": 0,
             "output_readers": [],
             "output_readers_complete": False,
+            "output_drain_timeout_seconds": self.process_output_drain_timeout(start),
+            "output_drain_timed_out": False,
             "result": None,
         }
         self.processes[process_id] = state
@@ -646,17 +664,22 @@ class GuestAgent:
                     if not chunk:
                         break
                     with state["output_lock"]:
+                        accounting = state["output_accounting"][stream]
+                        accounting["observed"] += len(chunk)
+                        remaining_capture = max(0, accounting["limit"] - len(accounting["captured"]))
+                        if accounting["capture"] and remaining_capture:
+                            accounting["captured"].extend(chunk[:remaining_capture])
                         state["output_sequence"] += 1
                         state["output_chunks"].append({
                             "ProcessId": "",
                             "Stream": stream,
                             "Sequence": state["output_sequence"],
                             "ObservedAt": self.timestamp(),
-                            "Bytes": base64.b64encode(chunk).decode("ascii"),
+                            "_bytes": bytes(chunk),
                             "Flags": 0,
                         })
-                        target = "stdout" if stream == 0 else "stderr"
-                        state[target].extend(chunk)
+                        state["output_replay_bytes"][stream] += len(chunk)
+                        self.prune_process_output_replay(state, stream)
             finally:
                 with state["output_lock"]:
                     remaining["count"] -= 1
@@ -676,10 +699,55 @@ class GuestAgent:
             return self.error(request, 23, "AppleVirtualization.GuestAgentProcessMissing", "Guest process was not found.", retryable=False)
         return self.process_status_payload(request, process_id, state, 23)
 
+    def process_stdin(self, request):
+        stdin_request = request.get("ProcessStdinRequest") or {}
+        process_id = str(stdin_request.get("ProcessId") or request.get("ProcessId") or "")
+        state = self.processes.get(process_id)
+        if state is None:
+            return self.error(request, 24, "AppleVirtualization.GuestAgentProcessMissing", "Guest process was not found.", retryable=False)
+        pipe = getattr(state["popen"], "stdin", None)
+        try:
+            encoded = stdin_request.get("Bytes") or ""
+            value = base64.b64decode(encoded) if encoded else b""
+            if value and pipe is not None:
+                pipe.write(value)
+                pipe.flush()
+            if stdin_request.get("CloseAfterWrite") and pipe is not None:
+                pipe.close()
+        except (OSError, ValueError, TypeError) as exc:
+            return self.error(request, 24, "AppleVirtualization.GuestAgentProcessStdinFailed", str(exc), retryable=False)
+        return self.process_status_payload(request, process_id, state, 24)
+
+    def process_signal(self, request):
+        signal_request = request.get("ProcessSignalRequest") or {}
+        process_id = str(signal_request.get("ProcessId") or request.get("ProcessId") or "")
+        state = self.processes.get(process_id)
+        if state is None:
+            return self.error(request, 25, "AppleVirtualization.GuestAgentProcessMissing", "Guest process was not found.", retryable=False)
+        signal_name = self.case_dict(signal_request.get("Signal")).get("Name") or "SIGTERM"
+        signal_value = getattr(signal, str(signal_name), None)
+        if not isinstance(signal_value, int):
+            return self.error(request, 25, "AppleVirtualization.GuestAgentProcessSignalUnsupported", "Unsupported process signal.", retryable=False)
+        state["popen"].send_signal(signal_value)
+        return self.process_status_payload(request, process_id, state, 25)
+
+    def process_stop(self, request):
+        stop_request = request.get("ProcessStopRequest") or {}
+        process_id = str(stop_request.get("ProcessId") or request.get("ProcessId") or "")
+        state = self.processes.get(process_id)
+        if state is None:
+            return self.error(request, 26, "AppleVirtualization.GuestAgentProcessMissing", "Guest process was not found.", retryable=False)
+        popen = state["popen"]
+        if popen.poll() is None:
+            popen.terminate()
+        return self.process_status_payload(request, process_id, state, 26)
+
     def process_status_payload(self, request, process_id, state, operation):
         popen = state["popen"]
         return_code = popen.poll()
-        if return_code is not None and state.get("result") is None:
+        if return_code is not None and (
+                state.get("result") is None or
+                (state.get("output_drain_timed_out") and state.get("output_readers_complete"))):
             self.finalize_process_output(process_id, state)
         payload = self.response_base(request, operation)
         status = {
@@ -696,22 +764,28 @@ class GuestAgent:
         return payload
 
     def finalize_process_output(self, process_id, state):
+        deadline = time.monotonic() + state.get("output_drain_timeout_seconds", 2.0)
         for reader in state.get("output_readers", []):
-            reader.join(timeout=1.0)
+            reader.join(timeout=max(0.0, deadline - time.monotonic()))
+        readers_complete = bool(state.get("output_readers_complete", False))
+        state["output_drain_timed_out"] = not readers_complete
         if not state.get("output_readers") and not state.get("legacy_output_collected", False):
             stdout, stderr = state["popen"].communicate(timeout=0)
             state["stdout"] = bytearray(stdout or b"")
             state["stderr"] = bytearray(
                 b"" if state.get("merged_standard_error", False) else (stderr or b""))
+            self.capture_legacy_process_output(state, 0, stdout or b"")
+            if not state.get("merged_standard_error", False):
+                self.capture_legacy_process_output(state, 1, stderr or b"")
             state["legacy_output_collected"] = True
         with state["output_lock"]:
-            if state["output_chunks"]:
+            if readers_complete and state["output_chunks"]:
                 state["output_chunks"][-1]["Flags"] |= 1
                 state["output_chunks"][-1]["ProcessId"] = process_id
         exited_at = self.timestamp()
         state["result"] = self.process_result(
             process_id, state["popen"], state, exited_at)
-        for pipe_name in ("stdin", "stdout", "stderr"):
+        for pipe_name in (("stdin", "stdout", "stderr") if readers_complete else ("stdin",)):
             pipe = getattr(state["popen"], pipe_name, None)
             if pipe is not None and hasattr(pipe, "close"):
                 try:
@@ -1111,11 +1185,17 @@ class GuestAgent:
                 state["stdout"] = bytearray(stdout or b"")
                 state["stderr"] = bytearray(
                     b"" if state.get("merged_standard_error", False) else (stderr or b""))
+                self.capture_legacy_process_output(state, 0, stdout or b"")
+                if not state.get("merged_standard_error", False):
+                    self.capture_legacy_process_output(state, 1, stderr or b"")
                 state["legacy_output_collected"] = True
         except subprocess.TimeoutExpired:
             return self.error(request, 27, "AppleVirtualization.GuestAgentProcessWaitTimeout", "Timed out waiting for guest process.", retryable=True)
 
-        result = state.get("result") or self.finalize_process_output(process_id, state)
+        result = state.get("result")
+        if result is None or (
+                state.get("output_drain_timed_out") and state.get("output_readers_complete")):
+            result = self.finalize_process_output(process_id, state)
         payload = self.response_base(request, 27)
         payload["ProcessStatusResponse"] = {
             "ProcessId": process_id,
@@ -1139,18 +1219,35 @@ class GuestAgent:
         after_sequence = lifecycle.get("AfterOutputSequence")
         after_sequence = int(after_sequence) if isinstance(after_sequence, (int, float)) else 0
         with state["output_lock"]:
+            retained = state["output_chunks"]
+            if retained:
+                earliest = retained[0]["Sequence"]
+                if after_sequence >= earliest:
+                    acknowledged = [item for item in retained if item["Sequence"] <= after_sequence]
+                    for item in acknowledged:
+                        stream = item["Stream"]
+                        state["output_replay_bytes"][stream] -= len(item.get("_bytes", b""))
+                    state["output_chunks"] = [
+                        item for item in retained if item["Sequence"] > after_sequence]
+                    retained = state["output_chunks"]
+                gap = after_sequence < earliest - 1
+            else:
+                gap = state.get("output_history_truncated", False)
             chunk = next(
-                (item.copy() for item in state["output_chunks"]
+                (item.copy() for item in retained
                  if item["Sequence"] > after_sequence),
                 None)
         if chunk is not None:
             chunk["ProcessId"] = process_id
+            chunk["Bytes"] = base64.b64encode(chunk.pop("_bytes", b"")).decode("ascii")
+            if gap:
+                chunk["Flags"] |= 2
             payload["ProcessOutputEvent"] = chunk
         return payload
 
     def process_result(self, process_id, popen, state, exited_at):
-        stdout = bytes(state.get("stdout", b""))
-        stderr = bytes(state.get("stderr", b""))
+        stdout = state["output_accounting"][0]
+        stderr = state["output_accounting"][1]
         merged_standard_error = state.get("merged_standard_error", False)
         return {
             "ProcessId": {"Value": process_id},
@@ -1163,23 +1260,93 @@ class GuestAgent:
             "Duration": "00:00:00",
             "Output": {
                 "Stdout": self.stream_output(stdout),
-                "Stderr": self.stream_output(b"" if merged_standard_error else stderr),
+                "Stderr": self.stream_output(
+                    {"capture": True, "captured": bytearray(), "observed": 0, "limit": 0}
+                    if merged_standard_error else stderr),
                 "MergedStandardError": merged_standard_error,
-                "OutputDrainTimedOut": False,
-                "OutputDrainTimeout": "00:00:02",
+                "OutputDrainTimedOut": state.get("output_drain_timed_out", False),
+                "OutputDrainTimeout": self.format_duration(
+                    state.get("output_drain_timeout_seconds", 2.0)),
             },
             "Violations": [],
             "Diagnostics": [],
         }
 
-    def stream_output(self, value):
+    def stream_output(self, accounting):
+        value = bytes(accounting.get("captured", b""))
+        observed = int(accounting.get("observed", len(value)))
+        capture = bool(accounting.get("capture", True))
         return {
             "CapturedBytes": base64.b64encode(value).decode("ascii"),
-            "BytesObserved": len(value),
+            "BytesObserved": observed,
             "BytesCaptured": len(value),
-            "BytesDiscarded": 0,
-            "Truncated": False,
+            "BytesDiscarded": max(0, observed - len(value)),
+            "Truncated": capture and observed > len(value),
         }
+
+    def process_output_accounting(self, start_request):
+        io = self.case_dict(start_request.get("Io"))
+        return {
+            0: self.process_stream_accounting(io.get("StandardOutput")),
+            1: self.process_stream_accounting(io.get("StandardError")),
+        }
+
+    def capture_legacy_process_output(self, state, stream, value):
+        accounting = state["output_accounting"][stream]
+        accounting["observed"] += len(value)
+        if accounting["capture"]:
+            remaining = max(0, accounting["limit"] - len(accounting["captured"]))
+            accounting["captured"].extend(value[:remaining])
+
+    def process_stream_accounting(self, value):
+        spec = self.case_dict(value)
+        capture = bool(spec.get("Capture", True))
+        limit = spec.get("MaxCapturedBytes")
+        limit = int(limit) if isinstance(limit, (int, float)) and limit >= 0 else 65536
+        return {"capture": capture, "limit": limit if capture else 0,
+                "captured": bytearray(), "observed": 0}
+
+    def process_replay_limit(self, start_request):
+        policy = self.case_dict(self.case_dict(start_request.get("Io")).get("LogPolicy"))
+        value = policy.get("MaxRetainedBytesPerStream")
+        return int(value) if isinstance(value, (int, float)) and value >= 0 else 65536
+
+    def prune_process_output_replay(self, state, stream):
+        limit = state["output_replay_limit"]
+        while state["output_replay_bytes"][stream] > limit:
+            index = next(
+                (index for index, item in enumerate(state["output_chunks"])
+                 if item["Stream"] == stream),
+                None)
+            if index is None:
+                break
+            oldest = state["output_chunks"][index]
+            value = oldest.get("_bytes", b"")
+            excess = state["output_replay_bytes"][stream] - limit
+            if limit > 0 and excess < len(value):
+                oldest["_bytes"] = value[excess:]
+                oldest["Flags"] |= 2
+                state["output_replay_bytes"][stream] -= excess
+            else:
+                state["output_chunks"].pop(index)
+                state["output_replay_bytes"][stream] -= len(value)
+            state["output_history_truncated"] = True
+
+    def process_output_drain_timeout(self, start_request):
+        value = self.case_dict(start_request.get("Policy")).get("OutputDrainTimeout")
+        if isinstance(value, (int, float)):
+            return max(0.0, float(value) / 1000.0)
+        if isinstance(value, str):
+            try:
+                parts = value.split(":")
+                if len(parts) == 3:
+                    return max(0.0, int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2]))
+            except (TypeError, ValueError):
+                pass
+        return 2.0
+
+    def format_duration(self, seconds):
+        return "00:00:{:06.3f}".format(max(0.0, float(seconds)))
 
     def network_status(self, request):
         status = request.get("NetworkStatusRequest") or {}

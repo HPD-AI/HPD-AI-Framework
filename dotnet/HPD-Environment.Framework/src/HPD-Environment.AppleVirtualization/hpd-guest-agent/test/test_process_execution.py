@@ -24,6 +24,11 @@ class FakeProcess:
         return b"out-err-out", None
 
 
+class IncompleteReader:
+    def join(self, timeout=None):
+        del timeout
+
+
 class ProcessExecutionTests(unittest.TestCase):
     def setUp(self):
         self.state_directory = tempfile.TemporaryDirectory()
@@ -127,6 +132,78 @@ class ProcessExecutionTests(unittest.TestCase):
         self.assertEqual(b"firstsecond", b"".join(chunks))
         self.assertEqual(6, status["ProcessStatusResponse"]["ProcessPhase"])
         self.assertEqual(0, status["ProcessStatusResponse"]["Result"]["ExitCode"])
+
+    def test_capture_and_replay_are_bounded_with_cursor_gap(self):
+        self.agent.process_start({
+            "RequestId": "start-bounded",
+            "SequenceNumber": 1,
+            "ProcessStartRequest": {
+                "ProcessId": "process-bounded",
+                "UnitId": "unit-1",
+                "Command": {
+                    "FileName": "/bin/sh",
+                    "Arguments": ["-c", "head -c 20000 /dev/zero"],
+                },
+                "Io": {
+                    "StandardOutput": {"Capture": True, "MaxCapturedBytes": 32},
+                    "StandardError": {"Capture": False},
+                    "LogPolicy": {"MaxRetainedBytesPerStream": 4096},
+                },
+            },
+        })
+        wait = self.agent.process_wait({
+            "RequestId": "wait-bounded",
+            "SequenceNumber": 2,
+            "ProcessLifecycleRequest": {"ProcessId": "process-bounded"},
+        })
+        output = wait["ProcessStatusResponse"]["Result"]["Output"]["Stdout"]
+        state = self.agent.processes["process-bounded"]
+
+        self.assertEqual(20000, output["BytesObserved"])
+        self.assertEqual(32, output["BytesCaptured"])
+        self.assertEqual(19968, output["BytesDiscarded"])
+        self.assertTrue(output["Truncated"])
+        self.assertLessEqual(state["output_replay_bytes"][0], 4096)
+
+        read = self.agent.process_read_output({
+            "RequestId": "read-gap",
+            "SequenceNumber": 3,
+            "ProcessLifecycleRequest": {
+                "ProcessId": "process-bounded",
+                "AfterOutputSequence": 0,
+            },
+        })
+        self.assertTrue(read["ProcessOutputEvent"]["Flags"] & 2)
+
+    def test_incomplete_reader_reports_drain_timeout_without_final_chunk(self):
+        process = FakeProcess()
+        state = {
+            "popen": process,
+            "started_at": self.agent.timestamp(),
+            "merged_standard_error": False,
+            "output_lock": MODULE.threading.Lock(),
+            "output_chunks": [{
+                "ProcessId": "",
+                "Stream": 0,
+                "Sequence": 1,
+                "ObservedAt": self.agent.timestamp(),
+                "_bytes": b"x",
+                "Flags": 0,
+            }],
+            "output_accounting": {
+                0: {"capture": True, "limit": 8, "captured": bytearray(b"x"), "observed": 1},
+                1: {"capture": True, "limit": 8, "captured": bytearray(), "observed": 0},
+            },
+            "output_readers": [IncompleteReader()],
+            "output_readers_complete": False,
+            "output_drain_timeout_seconds": 0.0,
+            "output_drain_timed_out": False,
+        }
+
+        result = self.agent.finalize_process_output("process-timeout", state)
+
+        self.assertTrue(result["Output"]["OutputDrainTimedOut"])
+        self.assertEqual(0, state["output_chunks"][-1]["Flags"] & 1)
 
 
 if __name__ == "__main__":
