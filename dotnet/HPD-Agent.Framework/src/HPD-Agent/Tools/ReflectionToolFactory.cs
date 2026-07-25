@@ -111,14 +111,15 @@ internal static class ReflectionToolFactory
                     $"Collapse middleware '{middlewareType.FullName}' must implement {nameof(IAgentMiddleware)}.");
             }
 
-            if (middlewareType.GetConstructor(Type.EmptyTypes) is null)
+            ConstructorInfo? constructor = middlewareType.GetConstructor(Type.EmptyTypes);
+            if (constructor is null)
             {
                 throw new InvalidOperationException(
                     $"Reflection-registered collapse middleware '{middlewareType.FullName}' must have a public parameterless constructor. " +
                     "Use builder middleware configuration or the source generator for configured constructors.");
             }
 
-            factories.Add(() => (IAgentMiddleware)(Activator.CreateInstance(middlewareType)
+            factories.Add(() => (IAgentMiddleware)(constructor.Invoke(parameters: null)
                 ?? throw new InvalidOperationException($"Could not create collapse middleware '{middlewareType.FullName}'.")));
         }
 

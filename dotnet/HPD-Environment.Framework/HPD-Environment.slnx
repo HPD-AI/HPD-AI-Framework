@@ -7,5 +7,6 @@
   <Folder Name="/test/">
     <Project Path="test/HPD-Environment.Tests/HPD-Environment.Tests.csproj" />
     <Project Path="test/HPD-Environment.AppleVirtualization.Tests/HPD-Environment.AppleVirtualization.Tests.csproj" />
+    <Project Path="test/HPD-Environment.NativeAotSmoke/HPD-Environment.NativeAotSmoke.csproj" />
   </Folder>
 </Solution>
