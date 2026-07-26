@@ -170,7 +170,7 @@ public enum ClientToolProviderBindingLeaseStatus
 public sealed record ClientToolProviderManifest
 {
     /// <summary>Gets the provider protocol version.</summary>
-    public string ProtocolVersion { get; init; } = "1";
+    public string ProtocolVersion { get; init; } = "2";
 
     /// <summary>Gets the provider instance identity.</summary>
     public required ClientToolProviderIdentity Identity { get; init; }

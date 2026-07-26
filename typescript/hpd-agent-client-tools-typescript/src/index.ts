@@ -8,6 +8,8 @@ export type {
   ClientToolProviderOptions,
   ClientToolProviderHarnessBuilder,
   ClientToolProviderHarnessOptions,
+  ClientToolProviderOperationToolHandler,
+  ClientToolProviderOperationToolOptions,
   ClientToolProviderToolContext,
   ClientToolProviderToolHandler,
   ClientToolProviderToolOptions,

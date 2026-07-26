@@ -125,7 +125,10 @@ describe('ClientToolProvider', () => {
       isInvokeOutcomeMessage(message) && message.invocationId === 'inv_3',
     )).toMatchObject({
       outcome: 'Rejected',
-      errorMessage: 'Provider invocation queue is full.',
+      error: {
+        kind: 'provider_not_ready',
+        message: 'Provider invocation queue is full.',
+      },
     });
 
     releaseFirst();
@@ -138,7 +141,7 @@ describe('ClientToolProvider', () => {
       .tool('export_selection', {
         description: 'Exports selection.',
         parametersSchema: { type: 'object', properties: {} },
-        invocationModePolicy: 'ModelChoice',
+        policy: { invocationModePolicy: 'ModelChoice' },
         handler: (_args, context) => {
           context.acceptBackground('op_1', {
             content: 'Export started.',
@@ -172,7 +175,7 @@ describe('ClientToolProvider', () => {
       .tool('export_selection', {
         description: 'Exports selection.',
         parametersSchema: { type: 'object', properties: {} },
-        invocationModePolicy: 'ModelChoice',
+        policy: { invocationModePolicy: 'ModelChoice' },
         handler: (_args, context) => {
           context.acceptBackground('op_1', {
             content: 'Export started.',
@@ -199,10 +202,153 @@ describe('ClientToolProvider', () => {
       state: 'Completed',
       content: [{ type: 'json', value: { artifactId: 'file_1' } }],
       augmentation: undefined,
-      errorMessage: undefined,
-      errorType: undefined,
+      error: undefined,
       cancellationReason: undefined,
       metadata: { artifactId: 'file_1' },
+    });
+  });
+
+  it('validates and dispatches a typed compound operation', async () => {
+    const { provider, socket } = await connectProvider();
+    provider.harness('design')
+      .operationTool<{ action: 'inspect'; nodeId: string }>('penpot', {
+        description: 'Operates on the active design.',
+        discriminator: 'action',
+        parametersSchema: {
+          type: 'object',
+          oneOf: [{
+            type: 'object',
+            properties: {
+              action: { const: 'inspect' },
+              nodeId: { type: 'string' },
+            },
+            required: ['action', 'nodeId'],
+            additionalProperties: false,
+          }],
+        },
+        actions: {
+          inspect: {
+            requiresPermission: false,
+            requiresFreshContext: false,
+          },
+        },
+        parse: value => {
+          const request = value as { action?: unknown; nodeId?: unknown };
+          if (request.action !== 'inspect' || typeof request.nodeId !== 'string') {
+            throw new Error('nodeId is required.');
+          }
+          return { action: request.action, nodeId: request.nodeId };
+        },
+        handlers: {
+          inspect: request => ({ type: 'json', value: { nodeId: request.nodeId } }),
+        },
+      });
+    await provider.updateManifest();
+
+    socket.receive(createInvocation({
+      toolName: 'penpot',
+      arguments: { action: 'inspect', nodeId: 'node-1' },
+      operation: {
+        discriminator: 'action',
+        action: 'inspect',
+        policy: {
+          requiresPermission: false,
+          mutatesState: false,
+          requiresFreshContext: false,
+          destructive: false,
+          idempotent: false,
+          invocationModePolicy: 'SynchronousOnly',
+        },
+      },
+    }));
+    await nextTick();
+
+    expect(socket.sent.find(isInvokeOutcomeMessage)).toMatchObject({
+      outcome: 'Completed',
+      content: [{ type: 'json', value: { nodeId: 'node-1' } }],
+    });
+    expect(socket.sent.find(isManifestMessage)?.clientToolHarnesses?.[0]?.tools[0])
+      .toMatchObject({
+        operationContract: {
+          discriminator: 'action',
+          actions: { inspect: { requiresPermission: false } },
+        },
+      });
+  });
+
+  it('rejects stale context before a mutating operation handler runs', async () => {
+    let invoked = false;
+    const socket = new FakeWebSocket();
+    const provider = createClientToolProvider({
+      url: 'ws://localhost/provider',
+      identity: { providerName: 'test', appKind: 'test' },
+      appProvider: { name: 'test' },
+      contextSnapshot: () => ({ documentId: 'doc-2', appStateVersion: '2' }),
+      webSocketFactory: () => socket.asWebSocket(),
+    });
+    provider.harness('design').operationTool<{ action: 'update' }>('penpot', {
+      description: 'Updates a design.',
+      discriminator: 'action',
+      parametersSchema: {
+        type: 'object',
+        oneOf: [{
+          type: 'object',
+          properties: { action: { const: 'update' } },
+          required: ['action'],
+          additionalProperties: false,
+        }],
+      },
+      actions: {
+        update: {
+          requiresPermission: true,
+          permissionScope: 'penpot.write.update',
+          mutatesState: true,
+          requiresFreshContext: true,
+        },
+      },
+      parse: value => value as { action: 'update' },
+      handler: () => {
+        invoked = true;
+      },
+    });
+    const connected = provider.connect();
+    socket.open();
+    socket.receive({
+      type: 'provider.welcome',
+      clientRuntimeId: 'crt_1',
+      connectionId: 'cpc_1',
+      heartbeatIntervalMs: 60_000,
+    });
+    await connected;
+    socket.clear();
+
+    socket.receive(createInvocation({
+      toolName: 'penpot',
+      arguments: { action: 'update' },
+      operation: {
+        discriminator: 'action',
+        action: 'update',
+        policy: {
+          requiresPermission: true,
+          permissionScope: 'penpot.write.update',
+          mutatesState: true,
+          requiresFreshContext: true,
+          destructive: false,
+          idempotent: false,
+          invocationModePolicy: 'SynchronousOnly',
+        },
+      },
+      expectedContext: { documentId: 'doc-1', appStateVersion: '1' },
+    }));
+    await nextTick();
+
+    expect(invoked).toBe(false);
+    expect(socket.sent.find(isInvokeOutcomeMessage)).toMatchObject({
+      outcome: 'Rejected',
+      error: {
+        kind: 'stale_context',
+        currentContext: { documentId: 'doc-2', appStateVersion: '2' },
+      },
     });
   });
 });
@@ -245,6 +391,7 @@ function createInvocation(
 ): ClientToolProviderInvokeToolMessage {
   return {
     type: 'provider.invoke',
+    protocolVersion: '2',
     clientRuntimeId: 'crt_1',
     connectionId: 'cpc_1',
     bindingId: 'bind_1',

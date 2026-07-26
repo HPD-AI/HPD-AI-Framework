@@ -47,6 +47,12 @@ public sealed record ClientToolProviderInvocationRequest
     /// <summary>Gets sanitized tool arguments.</summary>
     public required IReadOnlyDictionary<string, object?> Arguments { get; init; }
 
+    /// <summary>Gets the resolved compound operation, if applicable.</summary>
+    public ClientToolResolvedOperation? Operation { get; init; }
+
+    /// <summary>Gets whether HPD must include its provider-context snapshot.</summary>
+    public bool RequiresFreshContext { get; init; }
+
     /// <summary>Gets the requested invocation mode, if the model supplied one.</summary>
     public AgentInvocationMode? RequestedInvocationMode { get; init; }
 

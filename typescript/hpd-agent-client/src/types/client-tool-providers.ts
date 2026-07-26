@@ -4,6 +4,7 @@ import type {
   ClientToolAugmentation,
   ClientToolBackgroundOperationState,
   ClientToolHarnessDefinition,
+  ClientToolPolicy,
   ClientToolInvokeOutcomeKind,
   ToolResultContent,
 } from './client-tools.js';
@@ -143,7 +144,7 @@ export interface ClientToolProviderQuery {
 }
 
 export interface ClientToolProviderManifest {
-  protocolVersion?: '1' | string;
+  protocolVersion: '2';
   identity: ClientToolProviderIdentity;
   appProvider: ClientAppProviderDescriptor;
   context?: ClientToolProviderContext;
@@ -154,7 +155,7 @@ export interface ClientToolProviderManifest {
 
 export interface ClientToolProviderHelloMessage {
   type: 'provider.hello';
-  protocolVersion?: '1' | string;
+  protocolVersion: '2';
   identity: ClientToolProviderIdentity;
 }
 
@@ -167,7 +168,7 @@ export interface ClientToolProviderWelcomeMessage {
 
 export interface ClientToolProviderManifestMessage {
   type: 'provider.manifest';
-  protocolVersion?: '1' | string;
+  protocolVersion: '2';
   appProvider: ClientAppProviderDescriptor;
   context?: ClientToolProviderContext;
   readiness?: ClientToolProviderReadiness;
@@ -187,6 +188,7 @@ export interface ClientToolProviderReleaseMessage {
 
 export interface ClientToolProviderInvokeToolMessage {
   type: 'provider.invoke';
+  protocolVersion: '2';
   clientRuntimeId: string;
   connectionId: string;
   bindingId: string;
@@ -196,8 +198,25 @@ export interface ClientToolProviderInvokeToolMessage {
   visibleToolName: string;
   callId: string;
   arguments: Record<string, unknown>;
+  operation?: ClientToolResolvedOperation;
+  expectedContext?: ClientToolProviderContext;
   requestedInvocationMode?: 'Synchronous' | 'Background' | string;
   deadline?: string;
+}
+
+export interface ClientToolResolvedOperation {
+  discriminator: string;
+  action: string;
+  policy: ClientToolPolicy;
+}
+
+export interface ClientToolError {
+  kind: string;
+  message: string;
+  retryable?: boolean;
+  details?: ToolResultContent[];
+  currentContext?: ClientToolProviderContext;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ClientToolProviderInvokeOutcomeMessage {
@@ -207,7 +226,7 @@ export interface ClientToolProviderInvokeOutcomeMessage {
   requestId: string;
   outcome: ClientToolInvokeOutcomeKind;
   content?: ToolResultContent[];
-  errorMessage?: string;
+  error?: ClientToolError;
   clientOperationId?: string;
   handleKind?: BackgroundHandleKind;
   supportedOperations?: BackgroundHandleOperation;
@@ -221,8 +240,7 @@ export interface ClientToolProviderBackgroundOperationOutcomeMessage {
   state: ClientToolBackgroundOperationState;
   content?: ToolResultContent[];
   augmentation?: ClientToolAugmentation;
-  errorMessage?: string | null;
-  errorType?: string | null;
+  error?: ClientToolError | null;
   cancellationReason?: string | null;
   metadata?: Record<string, string> | null;
 }

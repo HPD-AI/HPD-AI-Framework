@@ -42,6 +42,7 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
     private readonly AgentConfig? _config;
     private readonly string _middlewareName;
     private readonly PermissionOverrideRegistry? _overrideRegistry;
+    private readonly IReadOnlyList<IFunctionPermissionScopeResolver> _scopeResolvers;
 
     /// <summary>
     /// Creates a new permission middleware.
@@ -57,11 +58,17 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
     public PermissionMiddleware(
         AgentConfig? config = null,
         string? middlewareName = null,
-        PermissionOverrideRegistry? overrideRegistry = null)
+        PermissionOverrideRegistry? overrideRegistry = null,
+        IEnumerable<IFunctionPermissionScopeResolver>? scopeResolvers = null)
     {
         _config = config;
         _middlewareName = middlewareName ?? "PermissionMiddleware";
         _overrideRegistry = overrideRegistry;
+        _scopeResolvers = scopeResolvers?.ToArray() ??
+        [
+            new BoundActionScopedPermissionResolver(),
+            new ClientToolOperationPermissionScopeResolver()
+        ];
     }
 
     /// <summary>
@@ -107,15 +114,17 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         {
             var function = funcInfo.Function;
             var functionName = funcInfo.FunctionName;
-            var permissionKey = GetPermissionKey(functionName, funcInfo.Arguments);
+            var permissionKey = GetPermissionKey(function, functionName, funcInfo.Arguments);
 
             // Check if permission is required (run config + builder override + attribute)
-            var attributeRequiresPermission = function is HPDAIFunctionFactory.HPDAIFunction hpdFunction
-                && hpdFunction.HPDOptions.RequiresPermission;
+            var attributeRequiresPermission = GetDeclaredPermissionRequirement(
+                function,
+                funcInfo.Arguments);
 
             var effectiveRequiresPermission = GetEffectivePermissionRequirement(
                 context.RunConfig,
                 functionName,
+                permissionKey,
                 attributeRequiresPermission);
 
             // No permission required - auto-approve
@@ -173,15 +182,17 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             return;
         
         var functionName = function.Name;
-        var permissionKey = GetPermissionKey(functionName, context.Arguments);
+        var permissionKey = GetPermissionKey(function, functionName, context.Arguments);
 
         // Check if permission is required (run config + builder override + attribute)
-        var attributeRequiresPermission = function is HPDAIFunctionFactory.HPDAIFunction hpdFunction
-            && hpdFunction.HPDOptions.RequiresPermission;
+        var attributeRequiresPermission = GetDeclaredPermissionRequirement(
+            function,
+            context.Arguments);
 
         var effectiveRequiresPermission = GetEffectivePermissionRequirement(
             context.RunConfig,
             functionName,
+            permissionKey,
             attributeRequiresPermission);
 
         // No permission required - allow execution
@@ -486,10 +497,18 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
     private bool GetEffectivePermissionRequirement(
         AgentRunConfig runConfig,
         string functionName,
+        string permissionKey,
         bool attributeRequiresPermission)
     {
+        if (runConfig.PermissionOverrides?.TryGetValue(permissionKey, out var scopedRunOverride) == true)
+            return scopedRunOverride;
+
         if (runConfig.PermissionOverrides?.TryGetValue(functionName, out var runOverride) == true)
             return runOverride;
+
+        var scopedBuilderOverride = _overrideRegistry?.TryGetOverride(permissionKey);
+        if (scopedBuilderOverride is not null)
+            return scopedBuilderOverride.Value;
 
         return _overrideRegistry?.GetEffectivePermissionRequirement(
             functionName,
@@ -497,22 +516,39 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             ?? attributeRequiresPermission;
     }
 
-    private static string GetPermissionKey(
+    private string GetPermissionKey(
+        AIFunction function,
         string functionName,
         IReadOnlyDictionary<string, object?>? arguments)
     {
         if (arguments is null)
             return functionName;
 
-        foreach (var argument in arguments.Values)
+        foreach (var resolver in _scopeResolvers)
         {
-            if (argument is not IActionScopedPermission scoped ||
-                string.IsNullOrWhiteSpace(scoped.PermissionScope))
-                continue;
-
-            return $"{functionName}:{scoped.PermissionScope}";
+            if (resolver.TryResolveScope(function, arguments, out var scope) &&
+                !string.IsNullOrWhiteSpace(scope))
+                return $"{functionName}:{scope}";
         }
 
         return functionName;
+    }
+
+    private static bool GetDeclaredPermissionRequirement(
+        AIFunction function,
+        IReadOnlyDictionary<string, object?> arguments)
+    {
+        if (function.AdditionalProperties?.TryGetValue(
+                "ClientToolDefinition",
+                out var value) == true &&
+            value is HPD.Agent.ClientTools.ClientToolDefinition definition)
+        {
+            return definition.ResolveOperation(arguments)?.Policy.RequiresPermission ??
+                HPD.Agent.ClientTools.ClientToolPolicy.Resolve(
+                    definition.DefaultPolicy).RequiresPermission!.Value;
+        }
+
+        return function is HPDAIFunctionFactory.HPDAIFunction hpdFunction &&
+            hpdFunction.HPDOptions.RequiresPermission;
     }
 }

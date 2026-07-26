@@ -542,13 +542,19 @@ public class ClientToolMiddleware : IAgentMiddleware
         string toolName,
         ClientToolProviderToolBinding? providerBinding)
     {
+        var defaultPolicy = ClientToolPolicy.Resolve(tool.DefaultPolicy);
+        var modelInvocationPolicy = tool.OperationContract?.Actions.Values
+            .Select(policy => ClientToolPolicy.Resolve(tool.DefaultPolicy, policy).InvocationModePolicy)
+            .Any(policy => policy != AgentInvocationModePolicy.SynchronousOnly) == true
+                ? AgentInvocationModePolicy.ModelChoice
+                : defaultPolicy.InvocationModePolicy!.Value;
         var additionalProperties = new Dictionary<string, object?>
         {
             ["IsClientTool"] = true,
             ["clientToolHarnessName"] = toolName,
             ["SourceType"] = providerBinding is null ? "clientToolHarness" : "clientToolProvider",
             ["ClientToolDefinition"] = tool,
-            ["InvocationModePolicy"] = tool.InvocationModePolicy
+            ["InvocationModePolicy"] = modelInvocationPolicy
         };
         if (providerBinding is not null)
             additionalProperties["ClientToolProviderBinding"] = providerBinding;
@@ -565,11 +571,11 @@ public class ClientToolMiddleware : IAgentMiddleware
             {
                 Name = tool.Name,
                 Description = tool.Description,
-                RequiresPermission = tool.RequiresPermission,
+                RequiresPermission = defaultPolicy.RequiresPermission!.Value,
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => AgentInvocationModes.CreateSchema(
                     tool.ParametersSchema,
-                    tool.InvocationModePolicy),
+                    modelInvocationPolicy),
                 AdditionalProperties = additionalProperties
             });
     }
@@ -677,8 +683,20 @@ public class ClientToolMiddleware : IAgentMiddleware
         var requestId = Guid.NewGuid().ToString();
         var toolName = context.Function.Name;
         var tool = ReadClientToolDefinition(context);
-        var invocationModePolicy = tool?.InvocationModePolicy ?? AgentInvocationModePolicy.SynchronousOnly;
         var sanitizedArguments = CreateSanitizedArgumentDictionary(context.Arguments, out var requestedMode);
+        ClientToolResolvedOperation? operation;
+        try
+        {
+            operation = tool?.ResolveOperation(sanitizedArguments);
+        }
+        catch (ArgumentException exception)
+        {
+            context.BlockExecution = true;
+            context.OverrideResult = $"Client tool request rejected: {exception.Message}";
+            return;
+        }
+        var effectivePolicy = operation?.Policy ?? ClientToolPolicy.Resolve(tool?.DefaultPolicy);
+        var invocationModePolicy = effectivePolicy.InvocationModePolicy!.Value;
         var resolvedMode = AgentInvocationModes.Resolve(invocationModePolicy, requestedMode);
 
         ClientToolInvokeOutcomeEvent outcome;
@@ -691,6 +709,8 @@ public class ClientToolMiddleware : IAgentMiddleware
                 requestId,
                 toolName,
                 sanitizedArguments,
+                operation,
+                effectivePolicy.RequiresFreshContext is true,
                 requestedMode,
                 ct).ConfigureAwait(false);
         }
@@ -735,6 +755,7 @@ public class ClientToolMiddleware : IAgentMiddleware
                 requestId,
                 resolvedMode,
                 invocationModePolicy,
+                effectivePolicy,
                 outcome,
                 ct).ConfigureAwait(false);
             return;
@@ -779,6 +800,8 @@ public class ClientToolMiddleware : IAgentMiddleware
         string requestId,
         string toolName,
         IReadOnlyDictionary<string, object?> sanitizedArguments,
+        ClientToolResolvedOperation? operation,
+        bool requiresFreshContext,
         AgentInvocationMode? requestedMode,
         CancellationToken ct)
     {
@@ -800,6 +823,8 @@ public class ClientToolMiddleware : IAgentMiddleware
                 RequestId = requestId,
                 CallId = context.FunctionCallId ?? string.Empty,
                 Arguments = sanitizedArguments,
+                Operation = operation,
+                RequiresFreshContext = requiresFreshContext,
                 RequestedInvocationMode = requestedMode,
                 Description = context.Function.Description
             },
@@ -871,6 +896,7 @@ public class ClientToolMiddleware : IAgentMiddleware
         string requestId,
         AgentInvocationMode resolvedMode,
         AgentInvocationModePolicy invocationModePolicy,
+        ClientToolPolicy effectivePolicy,
         ClientToolInvokeOutcomeEvent outcome,
         CancellationToken cancellationToken)
     {
@@ -962,7 +988,7 @@ public class ClientToolMiddleware : IAgentMiddleware
                 SourceId = clientOperationId,
                 SessionId = context.SessionId,
                 ThreadId = context.ThreadId,
-                Notification = tool?.BackgroundNotification ??
+                Notification = effectivePolicy.BackgroundNotification ??
                     new BackgroundTaskNotificationRule.OnFinalStateRule(
                         Completed: true,
                         Faulted: true),

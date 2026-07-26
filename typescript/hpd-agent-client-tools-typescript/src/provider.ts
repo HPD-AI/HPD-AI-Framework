@@ -5,6 +5,9 @@ import type {
   ClientToolAugmentation,
   ClientToolBackgroundOperationState,
   ClientToolDefinition,
+  ClientToolError,
+  ClientToolOperationContract,
+  ClientToolPolicy,
   ClientToolHarnessDefinition,
   ClientToolProviderContext,
   ClientToolProviderErrorMessage,
@@ -36,16 +39,12 @@ export type ProviderConnectionStatus =
 export type ProviderWebSocketFactory = (url: string) => WebSocket;
 
 export interface ProviderContextSnapshot {
-  providerContextVersion?: string;
-  documentId?: string;
-  documentRevision?: string;
-  pageId?: string;
-  fileId?: string;
-  selectionIds?: string[];
-  activeView?: string;
-  cursor?: unknown;
   workspaceId?: string;
+  documentId?: string;
+  fileId?: string;
+  pageId?: string;
   sceneId?: string;
+  appStateVersion?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -76,23 +75,32 @@ export interface ClientToolProviderHarnessOptions {
 export interface ClientToolProviderToolOptions {
   description: string;
   parametersSchema: Record<string, unknown>;
-  requiresPermission?: boolean;
-  invocationModePolicy?: ClientToolDefinition['invocationModePolicy'];
-  backgroundNotification?: ClientToolDefinition['backgroundNotification'];
-  mutatesState?: boolean;
-  requiresFreshContext?: boolean;
-  permissions?: string[];
+  policy?: ClientToolPolicy;
   metadata?: Record<string, unknown>;
   handler: ClientToolProviderToolHandler;
+}
+
+export interface ClientToolProviderOperationToolOptions<TRequest, TResult = ClientToolProviderToolResult> {
+  description: string;
+  discriminator: string;
+  parametersSchema: Record<string, unknown>;
+  defaultPolicy?: ClientToolPolicy;
+  actions: Record<string, ClientToolPolicy>;
+  metadata?: Record<string, unknown>;
+  parse: (value: unknown) => TRequest;
+  handler?: ClientToolProviderOperationToolHandler<TRequest, TResult>;
+  handlers?: Record<string, ClientToolProviderOperationToolHandler<TRequest, TResult>>;
 }
 
 export interface ClientToolProviderToolContext {
   invocation: ClientToolProviderInvokeToolMessage;
   requestedInvocationMode?: string;
-  contextSnapshot?: ProviderContextSnapshot;
+  expectedContext?: ProviderContextSnapshot;
+  currentContext?: ProviderContextSnapshot;
+  policy: ClientToolPolicy;
   complete: (content?: ClientToolProviderToolResult, augmentation?: ClientToolAugmentation) => void;
-  reject: (message: string) => void;
-  fail: (message: string) => void;
+  reject: (error: ClientToolError) => void;
+  fail: (error: ClientToolError) => void;
   acceptBackground: (
     clientOperationId: string,
     options?: {
@@ -116,9 +124,19 @@ export type ClientToolProviderToolHandler = (
   context: ClientToolProviderToolContext,
 ) => ClientToolProviderToolResult | Promise<ClientToolProviderToolResult>;
 
+export type ClientToolProviderOperationToolHandler<TRequest, TResult = ClientToolProviderToolResult> = (
+  request: TRequest,
+  context: ClientToolProviderToolContext & {
+    request: TRequest;
+    action: string;
+  },
+) => TResult | Promise<TResult>;
+
 interface RegisteredTool {
   definition: ClientToolDefinition;
   handler: ClientToolProviderToolHandler;
+  parse?: (value: unknown) => unknown;
+  handlers?: Record<string, ClientToolProviderOperationToolHandler<unknown>>;
 }
 
 interface RegisteredHarness {
@@ -133,6 +151,10 @@ interface QueuedInvocation {
 
 export interface ClientToolProviderHarnessBuilder {
   tool(name: string, options: ClientToolProviderToolOptions): ClientToolProviderHarnessBuilder;
+  operationTool<TRequest, TResult = ClientToolProviderToolResult>(
+    name: string,
+    options: ClientToolProviderOperationToolOptions<TRequest, TResult>,
+  ): ClientToolProviderHarnessBuilder;
 }
 
 export function createClientToolProvider(options: ClientToolProviderOptions): ClientToolProvider {
@@ -153,7 +175,10 @@ export class ClientToolProvider {
   private statusValue: ProviderConnectionStatus = 'idle';
   private activeInvocation = false;
   private readonly queue: QueuedInvocation[] = [];
-  private readonly backgroundOperations = new Map<string, { bindingId: string }>();
+  private readonly backgroundOperations = new Map<string, {
+    bindingId: string;
+    policy: ClientToolPolicy;
+  }>();
 
   public constructor(private readonly options: ClientToolProviderOptions) {
     this.maxQueueDepth = Math.max(0, options.concurrency?.maxQueueDepth ?? 1);
@@ -224,7 +249,7 @@ export class ClientToolProvider {
       socket.onopen = () => {
         this.send({
           type: 'provider.hello',
-          protocolVersion: '1',
+          protocolVersion: '2',
           identity: this.options.identity,
         } satisfies ClientToolProviderHelloMessage);
         resolve();
@@ -256,8 +281,7 @@ export class ClientToolProvider {
     options: {
       content?: ClientToolProviderToolResult;
       augmentation?: ClientToolAugmentation;
-      errorMessage?: string | null;
-      errorType?: string | null;
+      error?: ClientToolError | null;
       cancellationReason?: string | null;
       metadata?: Record<string, string> | null;
     } = {},
@@ -275,8 +299,7 @@ export class ClientToolProvider {
       state,
       content: normalizeContent(options.content),
       augmentation: options.augmentation,
-      errorMessage: options.errorMessage,
-      errorType: options.errorType,
+      error: options.error,
       cancellationReason: options.cancellationReason,
       metadata: options.metadata,
     });
@@ -299,15 +322,13 @@ export class ClientToolProvider {
 
   public failBackgroundOperation(
     clientOperationId: string,
-    errorMessage: string,
+    error: ClientToolError,
     options: {
-      errorType?: string | null;
       metadata?: Record<string, string> | null;
     } = {},
   ): void {
     this.finishBackgroundOperation(clientOperationId, 'Faulted', {
-      errorMessage,
-      errorType: options.errorType,
+      error,
       metadata: options.metadata,
     });
   }
@@ -404,7 +425,7 @@ export class ClientToolProvider {
     if (this.queue.length >= this.maxQueueDepth && this.activeInvocation) {
       this.sendOutcome(message, {
         outcome: 'Rejected',
-        errorMessage: 'Provider invocation queue is full.',
+        error: toolError('provider_not_ready', 'Provider invocation queue is full.', true),
       });
       return;
     }
@@ -442,13 +463,58 @@ export class ClientToolProvider {
     if (tool === undefined) {
       this.sendOutcome(message, {
         outcome: 'Rejected',
-        errorMessage: `Provider tool '${message.toolName}' is not registered.`,
+        error: toolError('unsupported_operation', `Provider tool '${message.toolName}' is not registered.`),
       });
       return;
     }
 
     let responded = false;
-    const contextSnapshot = await this.options.contextSnapshot?.();
+    const currentContext = await this.options.contextSnapshot?.();
+    let operation: ReturnType<typeof resolveLocalOperation>;
+    try {
+      operation = resolveLocalOperation(tool.definition, message.arguments);
+    } catch (error) {
+      this.sendOutcome(message, {
+        outcome: 'Rejected',
+        error: toolError('unknown_action', errorMessage(error)),
+      });
+      return;
+    }
+    if ((message.operation === undefined) !== (operation === undefined) ||
+        (message.operation !== undefined &&
+          !resolvedOperationsEqual(message.operation, operation))) {
+      this.sendOutcome(message, {
+        outcome: 'Rejected',
+        error: toolError('unsupported_operation', 'Server and provider operation policies do not match.'),
+      });
+      return;
+    }
+
+    const policy = operation?.policy ?? resolvePolicy(tool.definition.defaultPolicy);
+    try {
+      validateInvocationMode(policy, message.requestedInvocationMode);
+    } catch (error) {
+      this.sendOutcome(message, {
+        outcome: 'Rejected',
+        error: toolError('unsupported_operation', errorMessage(error)),
+      });
+      return;
+    }
+
+    if (policy.requiresFreshContext === true &&
+        !contextsMatch(message.expectedContext, currentContext)) {
+      this.sendOutcome(message, {
+        outcome: 'Rejected',
+        error: {
+          kind: 'stale_context',
+          message: 'Provider context changed before the operation could execute.',
+          retryable: true,
+          currentContext,
+        },
+      });
+      return;
+    }
+
     const reply = (outcome: Omit<ClientToolProviderInvokeOutcomeMessage, 'type' | 'bindingId' | 'invocationId' | 'requestId'>) => {
       if (responded) {
         throw new Error(`Provider tool '${message.toolName}' attempted to send multiple immediate outcomes.`);
@@ -461,19 +527,21 @@ export class ClientToolProvider {
     const context: ClientToolProviderToolContext = {
       invocation: message,
       requestedInvocationMode: message.requestedInvocationMode,
-      contextSnapshot,
+      expectedContext: message.expectedContext,
+      currentContext,
+      policy,
       complete: (content, augmentation) => reply({
         outcome: 'Completed',
         content: normalizeContent(content),
         augmentation,
       }),
-      reject: messageText => reply({
+      reject: error => reply({
         outcome: 'Rejected',
-        errorMessage: messageText,
+        error,
       }),
-      fail: messageText => reply({
+      fail: error => reply({
         outcome: 'Failed',
-        errorMessage: messageText,
+        error,
       }),
       acceptBackground: (clientOperationId, options) => reply({
         outcome: 'AcceptedBackground',
@@ -486,8 +554,29 @@ export class ClientToolProvider {
     };
 
     try {
+      let request: unknown = message.arguments;
+      if (tool.parse !== undefined) {
+        try {
+          request = tool.parse(message.arguments);
+        } catch (error) {
+          reply({
+            outcome: 'Rejected',
+            error: toolError('invalid_arguments', errorMessage(error)),
+          });
+          return;
+        }
+      }
+
+      const action = operation?.action;
+      const handler = action === undefined
+        ? tool.handler
+        : tool.handlers?.[action] ?? tool.handler;
       const result = await withTimeout(
-        tool.handler(message.arguments, context),
+        handler(request as Record<string, unknown>, {
+          ...context,
+          request,
+          action: action ?? '',
+        }),
         this.invocationTimeoutMs,
         `Provider tool '${message.toolName}' timed out.`,
       );
@@ -504,7 +593,7 @@ export class ClientToolProvider {
       if (!responded) {
         reply({
           outcome: 'Failed',
-          errorMessage: error instanceof Error ? error.message : String(error),
+          error: toolError('provider_failure', errorMessage(error)),
         });
       }
     }
@@ -525,6 +614,7 @@ export class ClientToolProvider {
     if (outcome.outcome === 'AcceptedBackground' && outcome.clientOperationId !== undefined) {
       this.backgroundOperations.set(outcome.clientOperationId, {
         bindingId: invocation.bindingId,
+        policy: invocation.operation?.policy ?? {},
       });
     }
   }
@@ -544,7 +634,7 @@ export class ClientToolProvider {
 
   private async createManifest(): Promise<ClientToolProviderManifest> {
     return {
-      protocolVersion: '1',
+      protocolVersion: '2',
       identity: this.options.identity,
       appProvider: this.options.appProvider,
       context: await resolveValue(this.options.context),
@@ -606,14 +696,234 @@ class HarnessBuilder implements ClientToolProviderHarnessBuilder {
         name,
         description: options.description,
         parametersSchema: options.parametersSchema,
-        requiresPermission: options.requiresPermission,
-        invocationModePolicy: options.invocationModePolicy,
-        backgroundNotification: options.backgroundNotification,
+        defaultPolicy: options.policy,
+        metadata: options.metadata,
       },
       handler: options.handler,
     });
     return this;
   }
+
+  public operationTool<TRequest, TResult = ClientToolProviderToolResult>(
+    name: string,
+    options: ClientToolProviderOperationToolOptions<TRequest, TResult>,
+  ): ClientToolProviderHarnessBuilder {
+    const operationContract: ClientToolOperationContract = {
+      discriminator: options.discriminator,
+      actions: options.actions,
+    };
+    validateCompoundDefinition(options.parametersSchema, operationContract, options.handlers);
+    if (options.handler === undefined && options.handlers === undefined) {
+      throw new Error(`Compound tool '${name}' requires either handler or handlers.`);
+    }
+
+    this.harness.tools.set(name, {
+      definition: {
+        name,
+        description: options.description,
+        parametersSchema: options.parametersSchema,
+        defaultPolicy: options.defaultPolicy,
+        operationContract,
+        metadata: options.metadata,
+      },
+      parse: options.parse as (value: unknown) => unknown,
+      handler: (options.handler ?? (() => {
+        throw new Error(`No handler is registered for compound tool '${name}'.`);
+      })) as unknown as ClientToolProviderToolHandler,
+      handlers: options.handlers as Record<string, ClientToolProviderOperationToolHandler<unknown>> | undefined,
+    });
+    return this;
+  }
+}
+
+const defaultPolicy: Required<Pick<ClientToolPolicy,
+  'requiresPermission' | 'mutatesState' | 'requiresFreshContext' |
+  'destructive' | 'idempotent' | 'invocationModePolicy' |
+  'backgroundNotification'>> = {
+  requiresPermission: false,
+  mutatesState: false,
+  requiresFreshContext: false,
+  destructive: false,
+  idempotent: false,
+  invocationModePolicy: 'SynchronousOnly',
+  backgroundNotification: {
+    kind: 'on_final_state',
+    completed: true,
+    faulted: true,
+    cancelled: false,
+  },
+};
+
+function resolvePolicy(
+  base?: ClientToolPolicy,
+  override?: ClientToolPolicy,
+): ClientToolPolicy {
+  const policy = {
+    ...defaultPolicy,
+    ...base,
+    ...override,
+  };
+  return {
+    ...policy,
+    invocationModePolicy: normalizeInvocationModePolicy(policy.invocationModePolicy),
+  };
+}
+
+function resolveLocalOperation(
+  definition: ClientToolDefinition,
+  args: Record<string, unknown>,
+): { discriminator: string; action: string; policy: ClientToolPolicy } | undefined {
+  const contract = definition.operationContract;
+  if (contract === undefined) {
+    return undefined;
+  }
+
+  const value = args[contract.discriminator];
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`Compound tool requires string discriminator '${contract.discriminator}'.`);
+  }
+
+  const actionPolicy = contract.actions[value];
+  if (actionPolicy === undefined) {
+    throw new Error(`Unknown compound tool action '${value}'.`);
+  }
+
+  return {
+    discriminator: contract.discriminator,
+    action: value,
+    policy: resolvePolicy(definition.defaultPolicy, actionPolicy),
+  };
+}
+
+function resolvedOperationsEqual(
+  server: { discriminator: string; action: string; policy: ClientToolPolicy },
+  local: { discriminator: string; action: string; policy: ClientToolPolicy } | undefined,
+): boolean {
+  return local !== undefined &&
+    server.discriminator === local.discriminator &&
+    server.action === local.action &&
+    JSON.stringify(resolvePolicy(server.policy)) === JSON.stringify(resolvePolicy(local.policy));
+}
+
+function validateInvocationMode(policy: ClientToolPolicy, requested?: string): void {
+  const mode = normalizeInvocationModePolicy(policy.invocationModePolicy);
+  if (mode === 'SynchronousOnly' && requested === 'Background') {
+    throw new Error('This operation only supports synchronous invocation.');
+  }
+  if (mode === 'BackgroundOnly' && requested !== 'Background') {
+    throw new Error('This operation requires background invocation.');
+  }
+}
+
+function normalizeInvocationModePolicy(
+  value?: ClientToolPolicy['invocationModePolicy'],
+): ClientToolPolicy['invocationModePolicy'] {
+  switch (value?.toLowerCase()) {
+    case 'backgroundonly':
+      return 'BackgroundOnly';
+    case 'modelchoice':
+      return 'ModelChoice';
+    default:
+      return 'SynchronousOnly';
+  }
+}
+
+function contextsMatch(
+  expected?: ProviderContextSnapshot,
+  current?: ProviderContextSnapshot,
+): boolean {
+  if (expected === undefined || current === undefined) {
+    return false;
+  }
+
+  const keys: (keyof ProviderContextSnapshot)[] = [
+    'workspaceId',
+    'documentId',
+    'fileId',
+    'pageId',
+    'sceneId',
+    'appStateVersion',
+  ];
+  return keys.every(key => expected[key] === current[key]);
+}
+
+function validateCompoundDefinition(
+  schema: Record<string, unknown>,
+  contract: ClientToolOperationContract,
+  handlers?: Record<string, unknown>,
+): void {
+  if (contract.discriminator.trim().length === 0) {
+    throw new Error('Compound tool discriminator is required.');
+  }
+
+  const branches = schema['oneOf'];
+  if (!Array.isArray(branches) || branches.length === 0) {
+    throw new Error('Compound tool schema must contain a non-empty oneOf.');
+  }
+
+  const schemaActions = new Set<string>();
+  for (const branch of branches) {
+    if (!isRecord(branch)) {
+      throw new Error('Every compound tool oneOf branch must be an object schema.');
+    }
+    const properties = branch['properties'];
+    const required = branch['required'];
+    const discriminatorSchema = isRecord(properties)
+      ? properties[contract.discriminator]
+      : undefined;
+    const action = isRecord(discriminatorSchema)
+      ? discriminatorSchema['const']
+      : undefined;
+    if (!Array.isArray(required) || !required.includes(contract.discriminator) ||
+        typeof action !== 'string' || action.length === 0) {
+      throw new Error(
+        `Every compound tool branch must require '${contract.discriminator}' with one string const value.`,
+      );
+    }
+    if (schemaActions.has(action)) {
+      throw new Error(`Duplicate compound tool action '${action}'.`);
+    }
+    schemaActions.add(action);
+  }
+
+  const policyActions = new Set(Object.keys(contract.actions));
+  if (!setsEqual(schemaActions, policyActions)) {
+    throw new Error('Compound schema action set must exactly match the operation policy action set.');
+  }
+  if (handlers !== undefined && !setsEqual(schemaActions, new Set(Object.keys(handlers)))) {
+    throw new Error('Compound handler action set must exactly match the schema action set.');
+  }
+
+  for (const [action, policy] of Object.entries(contract.actions)) {
+    if (policy.destructive === true && policy.requiresPermission !== true) {
+      throw new Error(`Destructive action '${action}' must require permission.`);
+    }
+    if (policy.requiresPermission === true && !policy.permissionScope?.trim()) {
+      throw new Error(`Permissioned action '${action}' requires permissionScope.`);
+    }
+    if (policy.mutatesState === true &&
+        (policy.requiresPermission === undefined || policy.requiresFreshContext === undefined)) {
+      throw new Error(
+        `Mutating action '${action}' must explicitly declare requiresPermission and requiresFreshContext.`,
+      );
+    }
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function setsEqual(left: Set<string>, right: Set<string>): boolean {
+  return left.size === right.size && [...left].every(value => right.has(value));
+}
+
+function toolError(kind: string, message: string, retryable?: boolean): ClientToolError {
+  return { kind, message, retryable };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function normalizeResult(result: ClientToolProviderToolResult): {

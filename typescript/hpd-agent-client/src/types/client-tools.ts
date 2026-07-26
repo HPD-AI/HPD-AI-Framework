@@ -24,13 +24,29 @@ export interface ClientToolDefinition {
   /** JSON Schema for the tool's parameters */
   parametersSchema: Record<string, unknown>;
 
-  /** Whether this tool requires user permission before execution */
+  /** Policy used by simple tools and as the base policy for compound operations. */
+  defaultPolicy?: ClientToolPolicy;
+
+  /** Closed discriminated operation contract for a compound tool. */
+  operationContract?: ClientToolOperationContract;
+
+  /** Application-defined metadata published with the tool contract. */
+  metadata?: Record<string, unknown>;
+}
+
+export interface ClientToolOperationContract {
+  discriminator: string;
+  actions: Record<string, ClientToolPolicy>;
+}
+
+export interface ClientToolPolicy {
   requiresPermission?: boolean;
-
-  /** How this tool may be invoked by the model. Defaults to synchronous-only. */
+  permissionScope?: string;
+  mutatesState?: boolean;
+  requiresFreshContext?: boolean;
+  destructive?: boolean;
+  idempotent?: boolean;
   invocationModePolicy?: AgentInvocationModePolicy;
-
-  /** Notification rule used when this client tool accepts background work. */
   backgroundNotification?: BackgroundTaskNotificationRule;
 }
 

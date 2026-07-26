@@ -110,6 +110,19 @@ internal static class ClientToolProviderEndpoints
                 return TypedResults.Ok();
             }
 
+            if (!string.Equals(hello.ProtocolVersion, "2", StringComparison.Ordinal))
+            {
+                await SendJsonAsync(
+                    webSocket,
+                    new ClientToolProviderErrorMessage
+                    {
+                        Code = "unsupported_protocol",
+                        Message = $"Provider protocol '{hello.ProtocolVersion}' is unsupported. Expected '2'."
+                    },
+                    ct).ConfigureAwait(false);
+                return TypedResults.Ok();
+            }
+
             var connection = new WebSocketClientToolProviderConnection(webSocket);
             var registration = await registry.RegisterConnectionAsync(hello.Identity, connection, ct)
                 .ConfigureAwait(false);

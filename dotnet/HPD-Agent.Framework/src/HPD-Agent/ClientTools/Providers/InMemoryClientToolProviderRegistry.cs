@@ -90,6 +90,17 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
         ArgumentNullException.ThrowIfNull(manifest);
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (!string.Equals(manifest.ProtocolVersion, "2", StringComparison.Ordinal))
+            throw new ArgumentException(
+                $"Unsupported client tool provider protocol '{manifest.ProtocolVersion}'. Expected '2'.",
+                nameof(manifest));
+
+        foreach (var harness in manifest.ClientToolHarnesses)
+        {
+            foreach (var tool in harness.Tools)
+                tool.Validate();
+        }
+
         _providers.AddOrUpdate(
             clientRuntimeId,
             _ => new ProviderEntry(new ClientToolProviderSnapshot
@@ -358,6 +369,10 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
                     VisibleToolName = request.Binding.VisibleToolName,
                     CallId = request.CallId,
                     Arguments = request.Arguments,
+                    Operation = request.Operation,
+                    ExpectedContext = request.RequiresFreshContext
+                        ? entry.Snapshot.Manifest.Context
+                        : null,
                     RequestedInvocationMode = request.RequestedInvocationMode,
                     Deadline = DateTimeOffset.UtcNow.Add(timeout)
                 },
@@ -470,8 +485,8 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
             State = outcome.State,
             Content = outcome.Content,
             Augmentation = outcome.Augmentation,
-            ErrorMessage = outcome.ErrorMessage,
-            ErrorType = outcome.ErrorType,
+            ErrorMessage = outcome.Error?.Message,
+            ErrorType = outcome.Error?.Kind,
             CancellationReason = outcome.CancellationReason,
             Metadata = outcome.Metadata
         });
@@ -790,7 +805,7 @@ public sealed class InMemoryClientToolProviderRegistry : IClientToolProviderRegi
                 RequestId = outcome.RequestId,
                 Outcome = outcome.Outcome,
                 Content = outcome.Content,
-                ErrorMessage = outcome.ErrorMessage,
+                ErrorMessage = outcome.Error?.Message,
                 ClientOperationId = outcome.ClientOperationId,
                 HandleKind = outcome.HandleKind,
                 SupportedOperations = outcome.SupportedOperations,
