@@ -139,6 +139,55 @@ public sealed class AppleVirtualizationExecutionUnitProviderTests
     }
 
     [Fact]
+    public async Task Identical_reconcile_preserves_attached_process_and_authority()
+    {
+        var ledger = new AppleVirtualizationProviderStateLedger();
+        SeedHost(ledger);
+        SeedProjectedProjection(ledger);
+        var helper = new FakeAppleVirtualizationHelperClient();
+        helper.EnqueueResponse(UnitResponse(
+            AppleVirtualizationHelperOperation.UnitEnsure,
+            ExecutionUnitPhase.Ready));
+        helper.EnqueueResponse(UnitResponse(
+            AppleVirtualizationHelperOperation.UnitEnsure,
+            ExecutionUnitPhase.Ready));
+        var provider = new AppleVirtualizationExecutionUnitProvider(ledger, helper);
+        ResourceMetadata<ExecutionUnit> metadata = Metadata("unit-1");
+        ExecutionUnitSpec spec =
+            AppleVirtualizationContractFixtures.ExecutionUnitSpec();
+        ExecutionUnitStatus ensured = await provider.EnsureAsync(
+            metadata,
+            spec,
+            observed: null);
+        ExecutionUnitStatus active = ensured with
+        {
+            UnitPhase = ExecutionUnitPhase.Running,
+            ActiveProcesses =
+            [
+                new ResourceRef<ProcessInvocation>(
+                    new ResourceId<ProcessInvocation>("process-1"),
+                    metadata.Scope,
+                    metadata.Generation),
+            ],
+            AuthorityBindings = [AuthorityRef()],
+        };
+        ledger.UpsertExecutionUnit(metadata, active, spec);
+
+        ExecutionUnitStatus reconciled = await provider.EnsureAsync(
+            metadata,
+            spec,
+            ensured);
+
+        reconciled.ActiveProcesses.Should().Equal(active.ActiveProcesses);
+        reconciled.AuthorityBindings.Should().Equal(active.AuthorityBindings);
+        ledger.TryGetExecutionUnit(new ResourceRef<ExecutionUnit>(
+            metadata.Id,
+            metadata.Scope,
+            metadata.Generation)).Entry!.Status.AuthorityBindings
+            .Should().Equal(active.AuthorityBindings);
+    }
+
+    [Fact]
     public async Task Unit_records_projected_content_refs_and_context_extension()
     {
         var ledger = new AppleVirtualizationProviderStateLedger();

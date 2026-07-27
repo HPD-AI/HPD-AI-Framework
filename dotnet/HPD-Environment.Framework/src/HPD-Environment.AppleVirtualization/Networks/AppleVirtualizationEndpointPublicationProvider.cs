@@ -262,8 +262,42 @@ public sealed class AppleVirtualizationEndpointPublicationProvider : IEndpointPu
             EndpointTargetKind.ProcessPort => ResolveProcessRoute(spec.Target.Process, spec.Target.Port),
             EndpointTargetKind.ServiceName => ResolveServiceRoute(spec.RoutingNetwork, spec.Target.ServiceName, spec.Target.Port, spec.Target.Transport),
             EndpointTargetKind.UnixSocket => ResolveUnixSocketRoute(spec.Target.SocketPath),
+            EndpointTargetKind.NetworkAddress => ResolveAddressRoute(spec.Target.Address, spec.Target.Port),
             _ => RouteFailure("AppleVirtualization.EndpointTargetUnsupported", "The endpoint target kind is not implemented by the L12 endpoint bridge.", "endpoint.target.kind"),
         };
+
+    private static RouteResolution ResolveAddressRoute(
+        IpAddressValue? address,
+        NetworkPort? port)
+    {
+        if (address is null)
+        {
+            return RouteFailure(
+                "AppleVirtualization.EndpointTargetAddressMissing",
+                "Network-address endpoint targets require an address.",
+                "endpoint.target.address");
+        }
+        if (port is null)
+        {
+            return RouteFailure(
+                "AppleVirtualization.EndpointTargetPortMissing",
+                "Network-address endpoint targets require a port.",
+                "endpoint.target.port");
+        }
+        if (address.Value.Family != NetworkAddressFamily.IPv4)
+        {
+            return RouteFailure(
+                "AppleVirtualization.EndpointTargetAddressFamilyUnsupported",
+                "The Apple Virtualization endpoint tunnel currently supports IPv4 targets.",
+                "endpoint.target.address");
+        }
+        return new RouteResolution(
+            TargetResourceId: null,
+            ToAddressString(address.Value),
+            port.Value.Value,
+            TargetSocketPath: null,
+            Diagnostic: null);
+    }
 
     private RouteResolution ResolveMembershipRoute(ResourceRef<NetworkMembership>? membership, NetworkPort? port)
     {

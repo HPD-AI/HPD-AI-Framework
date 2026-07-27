@@ -49,6 +49,7 @@ public readonly record struct ResourceId<TResource>(string Value)
 public readonly record struct ResourceKind(string Value);
 public readonly record struct ResourceScope(string Value);
 public readonly record struct ResourceGeneration(long Value);
+public readonly record struct EngineIncarnationGeneration(long Value);
 public readonly record struct SchemaVersion(string Value);
 public readonly record struct ProviderId(string Value);
 public readonly record struct SchemaId(string Value);
@@ -770,6 +771,7 @@ public sealed record RuntimeHostGenerationStatus
 {
     public RuntimeHostStartGeneration? HostStartGeneration { get; init; }
     public GuestBootGeneration? GuestBootGeneration { get; init; }
+    public ResourceGeneration? GuestAgentGeneration { get; init; }
     public ResourceGeneration? BootstrapGeneration { get; init; }
     public DateTimeOffset? StartedAt { get; init; }
 }
@@ -1319,11 +1321,11 @@ public sealed record PublishedEndpointStatus : ResourceStatus { public required 
 public enum PublishedEndpointPhase { Pending, Binding, Bound, Degraded, Failed, Releasing, Released, Suppressed }
 public enum EndpointPublicationOrigin { Explicit, StaticConfigured, AutomaticObserved, ProviderDefault, SuppressedByPolicy }
 public enum EndpointListenerKind { HostAddress, RuntimeGateway, NetworkGateway, UnixSocket, NamedPipe, ProviderDefined }
-public enum EndpointTargetKind { NetworkMembership, UnitPort, ProcessPort, ServiceName, UnixSocket, ProviderDefined }
+public enum EndpointTargetKind { NetworkMembership, UnitPort, ProcessPort, ServiceName, UnixSocket, NetworkAddress, ProviderDefined }
 public enum EndpointExposureScope { HostLocal, HostLan, RuntimeOnly, NetworkOnly, External }
 public readonly record struct EndpointListenerSpec(EndpointListenerKind Kind, NetworkTransport Transport, IpAddressValue? Address, PortRange? Ports, SocketEndpoint? Socket);
 public readonly record struct BoundEndpoint(EndpointListenerKind Kind, NetworkTransport Transport, IpAddressValue? Address, PortRange? Ports, SocketEndpoint? Socket);
-public readonly record struct EndpointRouteTarget(EndpointTargetKind Kind, ResourceRef<NetworkMembership>? Membership, ResourceRef<ExecutionUnit>? Unit, ResourceRef<ProcessInvocation>? Process, ServiceName? ServiceName, NetworkTransport Transport, NetworkPort? Port, UnixSocketPath? SocketPath);
+public readonly record struct EndpointRouteTarget(EndpointTargetKind Kind, ResourceRef<NetworkMembership>? Membership, ResourceRef<ExecutionUnit>? Unit, ResourceRef<ProcessInvocation>? Process, ServiceName? ServiceName, NetworkTransport Transport, NetworkPort? Port, UnixSocketPath? SocketPath, IpAddressValue? Address = null);
 public readonly record struct EndpointRouteStatus(EndpointRouteTarget Target, NetworkEndpointHandle? ResolvedEndpoint, IpAddressValue? ResolvedAddress, NetworkPort? ResolvedPort, UnixSocketPath? ResolvedSocketPath);
 public sealed record EndpointExposurePolicy { public EndpointExposureScope Scope { get; init; } = EndpointExposureScope.HostLocal; public bool RequireStableListener { get; init; } public bool AllowEphemeralPort { get; init; } }
 public sealed record EndpointAuthorizationPolicy { public static EndpointAuthorizationPolicy None { get; } = new(); public bool RequireLoopbackClient { get; init; } public string? TokenAudience { get; init; } public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>(); }
@@ -1379,7 +1381,7 @@ public enum VolumeAttachmentPhase { Pending, Attached, Degraded, Detached, Faile
 public sealed record VolumeLockStatus(VolumeLockState State, string? Holder = null, DateTimeOffset? Since = null);
 
 public sealed record EngineControlPlaneSpec { public required EngineControlPlaneKind Kind { get; init; } public EngineAuthorityMode AuthorityMode { get; init; } = EngineAuthorityMode.Rootless; public EngineApiKind Api { get; init; } = EngineApiKind.ProviderDefined; public EngineWorkloadAdoptionMode WorkloadAdoption { get; init; } = EngineWorkloadAdoptionMode.None; public EngineImageStoreMode ImageStore { get; init; } = EngineImageStoreMode.ProviderManaged; public ResourceRef<RuntimeHost>? Host { get; init; } public SensitiveEndpointPolicy? EndpointPolicy { get; init; } public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>(); }
-public sealed record EngineControlPlaneStatus : ResourceStatus { public EngineControlPlanePhase EnginePhase { get; init; } public IReadOnlyList<EngineApiEndpointStatus> Endpoints { get; init; } = Array.Empty<EngineApiEndpointStatus>(); public bool ExternalMutationPossible { get; init; } public ProviderOpaqueHandle? ProviderHandle { get; init; } }
+public sealed record EngineControlPlaneStatus : ResourceStatus { public EngineControlPlanePhase EnginePhase { get; init; } public EngineIncarnationGeneration? EngineGeneration { get; init; } public IReadOnlyList<EngineApiEndpointStatus> Endpoints { get; init; } = Array.Empty<EngineApiEndpointStatus>(); public bool ExternalMutationPossible { get; init; } public ProviderOpaqueHandle? ProviderHandle { get; init; } }
 public sealed record EngineAuthorityBindingRequest
 {
     public required ResourceRef<EngineControlPlane> Engine { get; init; }
@@ -1425,6 +1427,8 @@ public interface IEnvironmentRuntime
     ValueTask<IReadOnlyList<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>>> ListExecutionUnitsAsync(CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> GetExecutionUnitAsync(ResourceRef<ExecutionUnit> unit, CancellationToken cancellationToken = default);
     ValueTask DeleteExecutionUnitAsync(ResourceRef<ExecutionUnit> unit, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<PublishedEndpoint, PublishedEndpointSpec, PublishedEndpointStatus>> EnsurePublishedEndpointAsync(PublishedEndpointSpec spec, CancellationToken cancellationToken = default);
+    ValueTask ReleasePublishedEndpointAsync(ResourceRef<PublishedEndpoint> endpoint, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus>> EnsureAuthorityBindingAsync(AuthorityBindingSpec spec, CancellationToken cancellationToken = default);
     ValueTask RevokeAuthorityBindingAsync(ResourceRef<AuthorityBinding> binding, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<ProcessInvocation, ProcessInvocationSpec, ProcessInvocationStatus>> StartProcessAsync(ProcessInvocationSpec spec, CancellationToken cancellationToken = default);

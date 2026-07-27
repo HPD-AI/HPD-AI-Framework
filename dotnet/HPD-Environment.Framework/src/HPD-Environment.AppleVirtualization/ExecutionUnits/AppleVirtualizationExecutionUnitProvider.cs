@@ -152,6 +152,17 @@ public sealed class AppleVirtualizationExecutionUnitProvider : IExecutionUnitPro
             metadata.Generation,
             hostReady: true,
             projectionsReady: true);
+        bool sameIncarnation =
+            observed is not null &&
+            observed.ObservedGeneration.Equals(metadata.Generation);
+        ExecutionUnitStatus? storedStatus = sameIncarnation
+            ? _ledger.TryGetExecutionUnit(
+                    new ResourceRef<ExecutionUnit>(
+                        metadata.Id,
+                        metadata.Scope,
+                        metadata.Generation))
+                .Entry?.Status
+            : null;
 
         ExecutionUnitStatus status = new()
         {
@@ -163,8 +174,14 @@ public sealed class AppleVirtualizationExecutionUnitProvider : IExecutionUnitPro
             AssignedHost = assignedHost,
             RealizedContentProjections = projectionReadiness.ProjectedRefs,
             NetworkMemberships = spec.Network.Memberships,
-            AuthorityBindings = Array.Empty<ResourceRef<AuthorityBinding>>(),
-            ActiveProcesses = Array.Empty<ResourceRef<ProcessInvocation>>(),
+            AuthorityBindings = sameIncarnation
+                ? storedStatus?.AuthorityBindings ??
+                    observed!.AuthorityBindings
+                : Array.Empty<ResourceRef<AuthorityBinding>>(),
+            ActiveProcesses = sameIncarnation
+                ? storedStatus?.ActiveProcesses ??
+                    observed!.ActiveProcesses
+                : Array.Empty<ResourceRef<ProcessInvocation>>(),
             Extensions =
             [
                 CreateContextExtension(

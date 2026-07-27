@@ -219,7 +219,9 @@ public sealed class AppleVirtualizationEngineControlPlaneProvider : IEngineContr
                 expectedGuestBoot.ExpectedGuestBootGeneration,
                 requireEngineGeneration: engine.Ready,
                 out generationFailure);
-        if (generation is null || !generationAccepted)
+        if (generation is null ||
+            generation.EngineGeneration > long.MaxValue ||
+            !generationAccepted)
         {
             Diagnostic diagnostic = Diagnostic(
                 DiagnosticSeverity.Error,
@@ -244,6 +246,8 @@ public sealed class AppleVirtualizationEngineControlPlaneProvider : IEngineContr
             ObservedGeneration = metadata.Generation,
             LastTransitionAt = DateTimeOffset.UtcNow,
             EnginePhase = engine.EnginePhase,
+            EngineGeneration = new EngineIncarnationGeneration(
+                checked((long)generation.EngineGeneration)),
             Endpoints = endpoints,
             ExternalMutationPossible = spec.WorkloadAdoption != EngineWorkloadAdoptionMode.None ||
                 spec.ImageStore is EngineImageStoreMode.EngineLocal or EngineImageStoreMode.Remote,

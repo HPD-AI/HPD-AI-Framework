@@ -2492,8 +2492,8 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     public let allowsSyntheticAuthorityFallback = false
 
     private var hosts: [String: HostRecord] = [:]
-    private lazy var endpointForwarders = EndpointForwarderManager { [weak self] targetAddress, targetPort, requestBytes in
-        self?.guestAgentTcpProxy(targetAddress: targetAddress, targetPort: targetPort, requestBytes: requestBytes)
+    private lazy var endpointForwarders = EndpointForwarderManager { [weak self] targetAddress, targetPort in
+        self?.guestAgentTcpTunnel(targetAddress: targetAddress, targetPort: targetPort)
     }
     private let lock = NSLock()
 
@@ -3911,64 +3911,64 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         ]
     }
 
-    private func guestAgentTcpProxy(targetAddress: String, targetPort: UInt16, requestBytes: [UInt8]) -> [UInt8]? {
+    private func guestAgentTcpTunnel(
+        targetAddress: String,
+        targetPort: UInt16
+    ) -> Int32? {
         #if canImport(Virtualization) && canImport(Darwin)
         let resolution = resolveAnyRunningSocketDevice()
         guard let socketDevice = resolution.socketDevice else {
             return nil
         }
-
-        let hostId = resolution.hostId ?? "unknown-host"
         let endpoint = GuestAgentTransportEndpoint(
             kind: .virtioSocket,
             port: DefaultGuestAgentVirtioSocketPort,
             address: nil,
             name: nil)
         let transportRequest = GuestAgentTransportProbeRequest(
-            hostId: hostId,
+            hostId: resolution.hostId ?? "unknown-host",
             endpoint: endpoint,
             timeoutMilliseconds: 10_000,
             explicitRealMode: true,
             requireVmRunning: true,
             scriptedStatus: nil)
-        let connection = connectGuestAgentSocket(socketDevice: socketDevice, request: transportRequest)
+        let connection = connectGuestAgentSocket(
+            socketDevice: socketDevice,
+            request: transportRequest)
         guard let socketConnection = connection.connection else {
             return nil
         }
-        defer {
-            socketConnection.close()
-        }
-
+        defer { socketConnection.close() }
         let fd = socketConnection.fileDescriptor
         guard fd >= 0 else {
             return nil
         }
-        _ = setNonBlocking(fd)
-        let proxyRequest: [String: Any] = [
+        let request: [String: Any] = [
             "ProtocolVersion": HelperProtocol.currentVersion,
             "MessageType": 0,
-            "Operation": 49,
-            "RequestId": "guest-tcp-proxy-\(UUID().uuidString)",
+            "Operation": 51,
+            "RequestId": "guest-tcp-tunnel-\(UUID().uuidString)",
             "SequenceNumber": 1,
-            "HostId": hostId,
-            "TcpProxyRequest": [
+            "HostId": resolution.hostId ?? "unknown-host",
+            "TcpTunnelRequest": [
                 "TargetAddress": targetAddress,
-                "TargetPort": Int(targetPort),
-                "RequestBytes": Data(requestBytes).base64EncodedString()
+                "TargetPort": Int(targetPort)
             ]
         ]
-
-        guard writeJsonLine(proxyRequest, fd: fd, timeoutMilliseconds: 10_000),
-              let frame = readJsonLine(fd: fd, timeoutMilliseconds: 10_000),
+        guard writeJsonLine(
+                  request,
+                  fd: fd,
+                  timeoutMilliseconds: 10_000),
+              let frame = readJsonLine(
+                  fd: fd,
+                  timeoutMilliseconds: 10_000),
               let response = parseJsonObject(frame),
               response["Error"] == nil,
-              let payload = response["TcpProxyResponse"] as? [String: Any],
-              let responseBase64 = string(payload["ResponseBytes"]),
-              let responseData = Data(base64Encoded: responseBase64) else {
+              response["TcpTunnelReady"] != nil else {
             return nil
         }
-
-        return Array(responseData)
+        let tunnelFd = Darwin.dup(fd)
+        return tunnelFd >= 0 ? tunnelFd : nil
         #else
         return nil
         #endif

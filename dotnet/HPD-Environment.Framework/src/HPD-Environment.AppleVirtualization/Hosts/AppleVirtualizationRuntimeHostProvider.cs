@@ -416,6 +416,10 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                 GuestBootGeneration = readiness.GuestBootGeneration == 0
                     ? previous.Generations.GuestBootGeneration
                     : new GuestBootGeneration(GuestBootGenerationValue(readiness)),
+                GuestAgentGeneration = readiness.GuestAgentGeneration == 0
+                    ? previous.Generations.GuestAgentGeneration
+                    : new ResourceGeneration(checked(
+                        (long)readiness.GuestAgentGeneration)),
             },
             Storage = previous.Storage is null
                 ? null

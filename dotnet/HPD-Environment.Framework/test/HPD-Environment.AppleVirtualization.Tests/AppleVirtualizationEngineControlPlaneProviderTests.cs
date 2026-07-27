@@ -55,6 +55,8 @@ public sealed class AppleVirtualizationEngineControlPlaneProviderTests
 
         status.Phase.Should().Be(ResourcePhase.Ready);
         status.EnginePhase.Should().Be(EngineControlPlanePhase.Ready);
+        status.EngineGeneration.Should().Be(
+            new EngineIncarnationGeneration(1));
         status.ProviderHandle.Should().NotBeNull();
         status.Endpoints.Should().ContainSingle(endpoint =>
             endpoint.Api == EngineApiKind.DockerCompatible &&

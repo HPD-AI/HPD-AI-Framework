@@ -511,6 +511,8 @@ public sealed class InMemoryEnvironmentRuntime(
     private readonly Dictionary<ExecutionUnitIdentity, string> _unitIdsByIdentity = [];
     private readonly Dictionary<EngineIdentity, OwnedEngine> _engines = [];
     private readonly Dictionary<string, OwnedAuthorityBinding> _authorities = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, OwnedPublishedEndpoint> _publishedEndpoints =
+        new(StringComparer.Ordinal);
     private readonly Dictionary<string, OwnedProcess> _processes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PendingEngineAuthorityPlan> _engineAuthorityPlans =
         new(StringComparer.Ordinal);
@@ -688,6 +690,26 @@ public sealed class InMemoryEnvironmentRuntime(
                                 stepToken).ConfigureAwait(false);
                         },
                         cleanup).ConfigureAwait(false);
+                }
+
+                foreach (OwnedPublishedEndpoint endpoint in
+                         _publishedEndpoints.Values.ToArray())
+                {
+                    bool released = await ExecuteCleanupStepAsync(
+                        $"endpoint release '{endpoint.Snapshot.Metadata.Id.Value}'",
+                        stepToken => ProviderById(
+                                registry.EndpointPublicationProviders,
+                                endpoint.ProviderId,
+                                "endpoint publication")
+                            .ReleasePublishedEndpointAsync(
+                                Ref(endpoint.Snapshot.Metadata),
+                                stepToken),
+                        cleanup).ConfigureAwait(false);
+                    if (released)
+                    {
+                        _publishedEndpoints.Remove(
+                            endpoint.Snapshot.Metadata.Id.Value);
+                    }
                 }
 
                 foreach (OwnedAuthorityBinding authority in AuthoritiesForCurrentHost())
@@ -1157,6 +1179,81 @@ public sealed class InMemoryEnvironmentRuntime(
             {
                 _unitIdsByIdentity.Remove(identity);
             }
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask<ResourceSnapshot<PublishedEndpoint, PublishedEndpointSpec, PublishedEndpointStatus>>
+        EnsurePublishedEndpointAsync(
+        PublishedEndpointSpec spec,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            OwnedHost host = _host ?? throw OwnershipFailure(
+                "hpd.environment.published-endpoint.host-required",
+                "A runtime host must be owned before publishing an endpoint.");
+            IEndpointPublicationProvider provider = ProviderById(
+                registry.EndpointPublicationProviders,
+                host.ProviderId,
+                "endpoint publication");
+            ResourceMetadata<PublishedEndpoint> metadata =
+                Metadata<PublishedEndpoint>("published-endpoint") with
+                {
+                    Lifetime = ResourceLifetime.Runtime,
+                    OwnerRefs = [Untyped(Ref(host.Snapshot.Metadata))],
+                };
+            PublishedEndpointStatus status = await provider
+                .EnsurePublishedEndpointAsync(
+                    metadata,
+                    spec,
+                    observed: null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            var snapshot =
+                new ResourceSnapshot<PublishedEndpoint, PublishedEndpointSpec, PublishedEndpointStatus>(
+                    metadata,
+                    spec,
+                    status);
+            _publishedEndpoints.Add(
+                metadata.Id.Value,
+                new OwnedPublishedEndpoint(host.ProviderId, snapshot));
+            return snapshot;
+        }
+        finally
+        {
+            _reconciliationGate.Release();
+        }
+    }
+
+    public async ValueTask ReleasePublishedEndpointAsync(
+        ResourceRef<PublishedEndpoint> endpoint,
+        CancellationToken cancellationToken = default)
+    {
+        await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!_publishedEndpoints.TryGetValue(
+                    endpoint.Id.Value,
+                    out OwnedPublishedEndpoint? owned) ||
+                !Ref(owned.Snapshot.Metadata).Equals(endpoint))
+            {
+                throw OwnershipFailure(
+                    "hpd.environment.published-endpoint.unknown",
+                    $"Published endpoint '{endpoint.Id.Value}' is not owned by this runtime.");
+            }
+            await ProviderById(
+                    registry.EndpointPublicationProviders,
+                    owned.ProviderId,
+                    "endpoint publication")
+                .ReleasePublishedEndpointAsync(endpoint, cancellationToken)
+                .ConfigureAwait(false);
+            _publishedEndpoints.Remove(endpoint.Id.Value);
         }
         finally
         {
@@ -2356,7 +2453,8 @@ public sealed class InMemoryEnvironmentRuntime(
     private bool HasCurrentHostDependents() =>
         UnitsForCurrentHost().Any() ||
         EnginesForCurrentHost().Any() ||
-        AuthoritiesForCurrentHost().Any();
+        AuthoritiesForCurrentHost().Any() ||
+        _publishedEndpoints.Count > 0;
 
     private bool HasActiveUnitDependents(OwnedExecutionUnit unit)
     {
@@ -2748,6 +2846,9 @@ public sealed class InMemoryEnvironmentRuntime(
         ResourceRef<RuntimeHost>? Host,
         ResourceRef<EngineControlPlane>? SourceEngine,
         ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus> Snapshot);
+    private sealed record OwnedPublishedEndpoint(
+        ProviderId ProviderId,
+        ResourceSnapshot<PublishedEndpoint, PublishedEndpointSpec, PublishedEndpointStatus> Snapshot);
     private sealed record OwnedProcess(
         ProviderId ProviderId,
         ResourceRef<ExecutionUnit> Unit,

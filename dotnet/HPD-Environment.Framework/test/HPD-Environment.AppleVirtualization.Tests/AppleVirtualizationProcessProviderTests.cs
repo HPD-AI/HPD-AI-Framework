@@ -1031,8 +1031,12 @@ public sealed class AppleVirtualizationProcessProviderTests
         var fixture = CreateFixture(seedProjection: ProjectionSeed.Projecting);
 
         IProcessInvocationHandle handle = await fixture.Provider.StartAsync(fixture.Spec);
+        ProcessInvocationStatus status =
+            await fixture.Provider.GetStatusAsync(handle.Handle);
         ProcessInvocationResult result = await handle.WaitAsync();
 
+        status.ProcessPhase.Should().Be(ProcessInvocationPhase.Failed);
+        status.Result.Should().NotBeNull();
         result.CompletionKind.Should().Be(ProcessCompletionKind.FailedToStart);
         result.Diagnostics.Should().ContainSingle()
             .Which.Reason.Should().Be("AppleVirtualization.ProcessProjectionNotReady");

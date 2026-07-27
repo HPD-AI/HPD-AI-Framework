@@ -466,6 +466,11 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
     {
         AppleVirtualizationLedgerEntry<ProcessInvocation, ProcessInvocationStatus> entry =
             ResolveProcess(process);
+        if (entry.Status.Result is not null &&
+            IsTerminal(entry.Status.ProcessPhase))
+        {
+            return entry.Status;
+        }
         AppleVirtualizationHelperEnvelope response = await _helper.SendAsync(
             Request(AppleVirtualizationHelperOperation.ProcessStatus) with
             {

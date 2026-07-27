@@ -8,6 +8,59 @@ namespace HPD.Environment.Runtime.Tests;
 public sealed class InMemoryEnvironmentRuntimeTests
 {
     [Fact]
+    public async Task Runtime_owns_and_releases_published_endpoints()
+    {
+        EnvironmentProviderRegistry registry = CreateRegistry();
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        _ = await runtime.EnsureHostAsync(new RuntimeHostSpec
+        {
+            Platform = new PlatformSpec("linux", "x64"),
+            PreferredProvider =
+                InMemoryEnvironmentProvider.InMemoryProviderId
+        });
+        var spec = new PublishedEndpointSpec
+        {
+            Listener = new EndpointListenerSpec(
+                EndpointListenerKind.HostAddress,
+                NetworkTransport.Tcp,
+                new IpAddressValue(
+                    NetworkAddressFamily.IPv4,
+                    0,
+                    0x7f000001),
+                new PortRange(new NetworkPort(0), 1),
+                Socket: null),
+            Target = new EndpointRouteTarget(
+                EndpointTargetKind.NetworkAddress,
+                Membership: null,
+                Unit: null,
+                Process: null,
+                ServiceName: null,
+                NetworkTransport.Tcp,
+                new NetworkPort(8080),
+                SocketPath: null,
+                new IpAddressValue(
+                    NetworkAddressFamily.IPv4,
+                    0,
+                    0xac120002))
+        };
+
+        ResourceSnapshot<
+            PublishedEndpoint,
+            PublishedEndpointSpec,
+            PublishedEndpointStatus> endpoint =
+            await runtime.EnsurePublishedEndpointAsync(spec);
+
+        Assert.Equal(
+            PublishedEndpointPhase.Bound,
+            endpoint.Status.EndpointPhase);
+        await runtime.ReleasePublishedEndpointAsync(
+            new ResourceRef<PublishedEndpoint>(
+                endpoint.Metadata.Id,
+                endpoint.Metadata.Scope,
+                endpoint.Metadata.Generation));
+    }
+
+    [Fact]
     public async Task Registry_registers_provider_families_and_reports_capabilities()
     {
         EnvironmentProviderRegistry registry = CreateRegistry();

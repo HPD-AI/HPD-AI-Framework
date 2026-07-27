@@ -18,7 +18,6 @@ DEFAULT_PROTOCOL_VERSION = "1.0"
 DEFAULT_AGENT_VERSION = "0.1.0"
 DEFAULT_PORT = 7777
 MAX_FRAME_BYTES = 1048576
-MAX_TCP_PROXY_BYTES = 1048576
 
 AF_VSOCK = getattr(socket, "AF_VSOCK", 40)
 VMADDR_CID_ANY = getattr(socket, "VMADDR_CID_ANY", 0xFFFFFFFF)
@@ -227,9 +226,6 @@ class GuestAgent:
 
         if operation == 47:
             return self.engine_status(request)
-
-        if operation == 49:
-            return self.tcp_proxy(request)
 
         return self.error(request, operation if isinstance(operation, int) else 0, "AppleVirtualization.GuestAgentUnsupportedOperation", "Unsupported guest-agent operation.", retryable=False)
 
@@ -1425,61 +1421,75 @@ class GuestAgent:
         }
         return payload
 
-    def tcp_proxy(self, request):
-        proxy = request.get("TcpProxyRequest") or {}
-        target_address = str(proxy.get("TargetAddress") or "127.0.0.1")
-        target_port = self.positive_int(proxy.get("TargetPort"), 0)
-        request_bytes = proxy.get("RequestBytes") or ""
-        if target_port <= 0:
-            return self.error(request, 49, "AppleVirtualization.GuestAgentTcpProxyPortInvalid", "TcpProxyRequest.TargetPort is required.", retryable=False)
-
+    def tcp_tunnel(self, request, reader, writer):
+        tunnel = request.get("TcpTunnelRequest") or {}
+        target_address = str(tunnel.get("TargetAddress") or "")
+        target_port = self.positive_int(tunnel.get("TargetPort"), 0)
+        if not target_address or target_port <= 0:
+            write_frame(
+                writer,
+                self.error(
+                    request,
+                    51,
+                    "AppleVirtualization.GuestAgentTcpTunnelTargetInvalid",
+                    "TcpTunnelRequest requires a target address and port.",
+                    retryable=False))
+            return
         try:
-            outbound = base64.b64decode(request_bytes, validate=True)
-        except Exception:
-            return self.error(request, 49, "AppleVirtualization.GuestAgentTcpProxyRequestInvalid", "TcpProxyRequest.RequestBytes must be base64.", retryable=False)
-
-        if len(outbound) > MAX_TCP_PROXY_BYTES:
-            return self.error(request, 49, "AppleVirtualization.GuestAgentTcpProxyRequestTooLarge", "TcpProxyRequest.RequestBytes exceeds the bounded proxy limit.", retryable=False)
-
-        try:
-            response = self.tcp_proxy_roundtrip(target_address, target_port, outbound)
+            target = socket.create_connection(
+                (target_address, target_port),
+                timeout=5)
         except OSError as exc:
-            if target_address not in ("127.0.0.1", "localhost"):
-                try:
-                    target_address = "127.0.0.1"
-                    response = self.tcp_proxy_roundtrip(target_address, target_port, outbound)
-                except OSError as fallback_exc:
-                    return self.error(request, 49, "AppleVirtualization.GuestAgentTcpProxyFailed", "Guest TCP proxy failed: " + str(fallback_exc), retryable=True)
-            else:
-                return self.error(request, 49, "AppleVirtualization.GuestAgentTcpProxyFailed", "Guest TCP proxy failed: " + str(exc), retryable=True)
+            write_frame(
+                writer,
+                self.error(
+                    request,
+                    51,
+                    "AppleVirtualization.GuestAgentTcpTunnelFailed",
+                    "Guest TCP tunnel failed: " + str(exc),
+                    retryable=True))
+            return
 
-        payload = self.response_base(request, 49)
-        payload["TcpProxyResponse"] = {
+        payload = self.response_base(request, 51)
+        payload["TcpTunnelReady"] = {
             "TargetAddress": target_address,
             "TargetPort": target_port,
-            "ResponseBytes": base64.b64encode(response).decode("ascii"),
-            "BytesObserved": len(response),
-            "Truncated": len(response) >= MAX_TCP_PROXY_BYTES,
         }
-        return payload
+        write_frame(writer, payload)
 
-    def tcp_proxy_roundtrip(self, target_address, target_port, outbound):
-        with socket.create_connection((target_address, target_port), timeout=3) as target:
-            target.settimeout(3)
-            if outbound:
-                target.sendall(outbound)
-            chunks = []
-            total = 0
-            while total < MAX_TCP_PROXY_BYTES:
+        def copy_to_target():
+            try:
+                while True:
+                    chunk = reader.read(65536)
+                    if not chunk:
+                        break
+                    target.sendall(chunk)
+            except (BrokenPipeError, ConnectionError, OSError):
+                pass
+            finally:
                 try:
-                    chunk = target.recv(min(65536, MAX_TCP_PROXY_BYTES - total))
-                except socket.timeout:
-                    break
+                    target.shutdown(socket.SHUT_WR)
+                except OSError:
+                    pass
+
+        upstream = threading.Thread(target=copy_to_target, daemon=True)
+        upstream.start()
+        try:
+            while True:
+                chunk = target.recv(65536)
                 if not chunk:
                     break
-                chunks.append(chunk)
-                total += len(chunk)
-        return b"".join(chunks)
+                writer.write(chunk)
+                writer.flush()
+        except (BrokenPipeError, ConnectionError, OSError):
+            pass
+        finally:
+            try:
+                target.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            target.close()
+            upstream.join(timeout=1.0)
 
     def network_interfaces(self):
         data = self.json_command(["ip", "-j", "address", "show"])
@@ -1983,6 +1993,9 @@ def serve_stream(agent, reader, writer):
     while True:
         request = read_frame(reader)
         if request is None:
+            return
+        if request.get("Operation") == 51:
+            agent.tcp_tunnel(request, reader, writer)
             return
         write_frame(writer, agent.handle(request))
 
