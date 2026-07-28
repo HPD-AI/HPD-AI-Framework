@@ -70,7 +70,28 @@ public sealed class EventDispatcherTests
         var snapshot = await provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();
 
         Assert.False(snapshot.Validation.Succeeded);
-        Assert.Contains(snapshot.Validation.Issues!, issue => issue.Code == "base.runtime.events.requireEnqueueUnsupported");
+        Assert.Contains(snapshot.Validation.Issues!, issue => issue.Code == "base.runtime.events.transactionalJournalRequired");
+    }
+
+    [Fact]
+    public async Task RequireEnqueueRejectsNonJournalStoreBeforeMutation()
+    {
+        var store = new FakeRecordStore("primary");
+        using var provider = Provider(
+            store,
+            configureRuntime: options =>
+                options.Events.PublishFailureMode = BaseEventPublishFailureMode.RequireEnqueue);
+
+        var result = await provider.GetRequiredService<IBaseRecordRuntime>().CreateAsync(
+            "items",
+            CreateRequest(),
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Create),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.CapabilityUnavailable, result.Status);
+        Assert.Equal(0, store.CreateCalls);
+        Assert.Equal("base.runtime.events.transactionalJournalRequired", result.Error!.Code);
     }
 
     private static ServiceProvider Provider(

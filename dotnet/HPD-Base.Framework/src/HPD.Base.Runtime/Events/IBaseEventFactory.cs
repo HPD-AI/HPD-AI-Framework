@@ -18,5 +18,6 @@ public interface IBaseEventFactory
         CollectionDefinition collection,
         RecordEnvelope? before,
         RecordEnvelope? after,
-        string[]? changedFields);
+        string[]? changedFields,
+        string? committedEventId);
 }

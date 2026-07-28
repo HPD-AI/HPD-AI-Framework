@@ -42,7 +42,7 @@ public sealed class SqliteSchemaInitializationTests
             await using var reader = await list.ExecuteReaderAsync();
             while (await reader.ReadAsync()) names.Add(reader.GetString(0));
 
-            names.Should().Contain(["host_table", "l21_records", "l21_collections", "l21_provider_state"]);
+            names.Should().Contain(["host_table", "l21_records", "l21_collections", "l21_provider_state", "l21_mutation_journal"]);
         }
         finally
         {
@@ -101,6 +101,61 @@ public sealed class SqliteSchemaInitializationTests
         finally
         {
             foreach (var candidate in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(candidate)) File.Delete(candidate);
+        }
+    }
+
+    [Fact]
+    public async Task ExistingMutationJournalWithMissingColumnFailsValidation()
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            "hpd-base-sqlite-badjournal-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            await using (var initialized = SqliteTestFactory.Create(
+                new HPDBaseSqliteOptions { DataSource = path }))
+            {
+                var created = await initialized.CreateAsync(
+                    Collection(),
+                    new RecordCreateRequest
+                    {
+                        RequestedId = new RecordId("seed"),
+                        Payload = Payload()
+                    },
+                    Operation(BaseOperationKind.Create));
+                created.Status.Should().Be(OperationStatus.Created);
+            }
+
+            await using (var connection = new SqliteConnection(
+                new SqliteConnectionStringBuilder { DataSource = path }.ToString()))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText = "ALTER TABLE hpd_base_mutation_journal DROP COLUMN visibility;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await using var store = SqliteTestFactory.Create(
+                new HPDBaseSqliteOptions { DataSource = path });
+            var result = await store.CreateAsync(
+                Collection(),
+                new RecordCreateRequest
+                {
+                    RequestedId = new RecordId("after-corruption"),
+                    Payload = Payload()
+                },
+                Operation(BaseOperationKind.Create));
+
+            result.Status.Should().Be(OperationStatus.StoreError);
+            result.Error!.Code.Should().Be("sqlite.schema.missing");
+        }
+        finally
+        {
+            foreach (var candidate in new[] { path, path + "-wal", path + "-shm" })
+            {
+                if (File.Exists(candidate))
+                    File.Delete(candidate);
+            }
         }
     }
 

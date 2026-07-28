@@ -21,6 +21,17 @@ internal static class BaseRealtimeOptionsValidator
         Positive(limits.ReceiveIdleTimeoutSeconds, nameof(limits.ReceiveIdleTimeoutSeconds));
         Positive(limits.SendTimeoutSeconds, nameof(limits.SendTimeoutSeconds));
         Positive(limits.MaxJoinsPerSecond, nameof(limits.MaxJoinsPerSecond));
+        Positive(limits.ReplayBatchSize, nameof(limits.ReplayBatchSize));
+        Positive(limits.CursorLifetimeSeconds, nameof(limits.CursorLifetimeSeconds));
+        Positive(limits.DurablePollIntervalMilliseconds, nameof(limits.DurablePollIntervalMilliseconds));
+
+        if (options.CursorSigningKey is not null
+            && System.Text.Encoding.UTF8.GetByteCount(options.CursorSigningKey) < 32)
+        {
+            throw new ArgumentException(
+                "Realtime cursor signing key must contain at least 32 UTF-8 bytes.",
+                nameof(options));
+        }
 
         if (options.Backpressure is not (
             AsyncStreamBackpressureMode.DropOldest

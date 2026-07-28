@@ -1,9 +1,14 @@
 using System.Runtime.CompilerServices;
 using HPD.Base.Events;
 using HPD.Base.Realtime.Configuration;
+using HPD.Base.Realtime.Durability;
 using HPD.Base.Realtime.Observability;
 using HPD.Base.Realtime.Observability.Logging;
 using HPD.Base.Realtime.Projection;
+using HPD.Base.Policy;
+using HPD.Base.Runtime.Schema;
+using HPD.Base.Runtime.Stores;
+using HPD.Base.Stores;
 using HPD.Events;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -19,18 +24,30 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
     private readonly BaseRealtimeOptions _options;
     private readonly BaseRealtimeStats _stats;
     private readonly ILogger<DefaultBaseRealtimeFeedSource> _logger;
+    private readonly IBaseSchemaProvider _schema;
+    private readonly IRecordStoreResolver _stores;
+    private readonly BaseRealtimeCursorProtector _cursors;
+    private readonly TimeProvider _timeProvider;
 
     public DefaultBaseRealtimeFeedSource(
         IEventStreamSource<BaseRecordMutationEvent> events,
         IBaseRealtimeProjectionService projection,
         IOptions<BaseRealtimeOptions> options,
         BaseRealtimeStats stats,
+        IBaseSchemaProvider schema,
+        IRecordStoreResolver stores,
+        BaseRealtimeCursorProtector cursors,
+        TimeProvider timeProvider,
         ILogger<DefaultBaseRealtimeFeedSource> logger)
     {
         _events = events;
         _projection = projection;
         _options = options.Value;
         _stats = stats;
+        _schema = schema;
+        _stores = stores;
+        _cursors = cursors;
+        _timeProvider = timeProvider;
         _logger = logger;
     }
 
@@ -75,6 +92,18 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
                 });
         }
 
+        if (request.Join.Durable)
+            return await OpenDurableAsync(request, cancellationToken).ConfigureAwait(false);
+
+        if (!string.IsNullOrWhiteSpace(request.Join.ResumeCursor))
+        {
+            return Failure(
+                AsyncStreamOpenStatus.ValidationFailed,
+                BaseRealtimeErrorCodes.CursorInvalid,
+                "A resume cursor requires a durable realtime channel.",
+                AsyncStreamErrorCategory.Validation);
+        }
+
         var opened = await _events.OpenAsync(new EventStreamRequest<BaseRecordMutationEvent>
         {
             StreamId = RecordChangesStreamId,
@@ -106,6 +135,255 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
             Items = ProjectAsync(request, opened.Value.Items, cancellationToken)
         });
     }
+
+    private async ValueTask<AsyncStreamOpenResult<AsyncStream<BaseRealtimeEvent>>> OpenDurableAsync(
+        BaseRealtimeFeedRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!_cursors.Enabled)
+        {
+            return Failure(
+                AsyncStreamOpenStatus.CapabilityUnavailable,
+                BaseRealtimeErrorCodes.CapabilityUnavailable,
+                "Durable realtime cursors are not configured.",
+                AsyncStreamErrorCategory.Capability);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Join.CollectionId))
+        {
+            return Failure(
+                AsyncStreamOpenStatus.ValidationFailed,
+                BaseRealtimeErrorCodes.DurableCollectionRequired,
+                "Durable realtime channels require one collection filter.",
+                AsyncStreamErrorCategory.Validation);
+        }
+
+        var collection = await _schema.GetCollectionAsync(
+            request.Join.CollectionId,
+            request.Principal,
+            request.Operation,
+            VisibilityLevel.Internal,
+            cancellationToken).ConfigureAwait(false);
+        if (collection.Value is null)
+        {
+            return Failure(
+                AsyncStreamOpenStatus.NotFound,
+                BaseRealtimeErrorCodes.ChannelUnauthorized,
+                "The durable realtime collection is unavailable.",
+                AsyncStreamErrorCategory.NotFound);
+        }
+
+        var resolved = _stores.Resolve(collection.Value, request.Operation);
+        if (resolved.Value is not ITransactionalMutationJournalStore journal)
+        {
+            return Failure(
+                AsyncStreamOpenStatus.CapabilityUnavailable,
+                BaseRealtimeErrorCodes.CapabilityUnavailable,
+                "The selected collection does not support durable realtime replay.",
+                AsyncStreamErrorCategory.Capability);
+        }
+
+        var bounds = await journal.GetMutationJournalBoundsAsync(cancellationToken).ConfigureAwait(false);
+        var position = bounds.HighWatermark;
+        var cursorScope = CursorScope(request);
+        if (!string.IsNullOrWhiteSpace(request.Join.ResumeCursor))
+        {
+            var cursor = _cursors.Unprotect(
+                request.Join.ResumeCursor,
+                resolved.Value.Capabilities.StoreId,
+                cursorScope);
+            if (cursor.Status != BaseRealtimeCursorStatus.Valid)
+                return CursorFailure(cursor.Status);
+
+            position = cursor.Position;
+            if (bounds.Earliest.Value > 0 && position.Value < bounds.Earliest.Value - 1)
+            {
+                _stats.RecordDurableCursorRejection();
+                return Failure(
+                    AsyncStreamOpenStatus.ValidationFailed,
+                    BaseRealtimeErrorCodes.CursorExpired,
+                    "The resume cursor is older than the retained mutation journal.",
+                    AsyncStreamErrorCategory.Validation);
+            }
+            if (position.Value > bounds.HighWatermark.Value)
+            {
+                _stats.RecordDurableCursorRejection();
+                return Failure(
+                    AsyncStreamOpenStatus.ValidationFailed,
+                    BaseRealtimeErrorCodes.CursorInvalid,
+                    "The resume cursor is ahead of the committed mutation journal.",
+                    AsyncStreamErrorCategory.Validation);
+            }
+        }
+
+        return AsyncStreamOpenResult<AsyncStream<BaseRealtimeEvent>>.Opened(
+            new AsyncStream<BaseRealtimeEvent>
+            {
+                Descriptor = new AsyncStreamDescriptor
+                {
+                    StreamId = RecordChangesStreamId,
+                    Cursor = _cursors.Protect(
+                        position,
+                        resolved.Value.Capabilities.StoreId,
+                        cursorScope),
+                    Replayable = true,
+                    Resumable = true,
+                    Backpressure = AsyncStreamBackpressureMode.Wait,
+                    DeliveryGuarantee = AsyncStreamDeliveryGuarantee.AtLeastOnce
+                },
+                Items = ProjectDurableAsync(
+                    request,
+                    journal,
+                    resolved.Value.Capabilities.StoreId,
+                    cursorScope,
+                    position,
+                    cancellationToken)
+            });
+    }
+
+    private async IAsyncEnumerable<BaseRealtimeEvent> ProjectDurableAsync(
+        BaseRealtimeFeedRequest request,
+        ITransactionalMutationJournalStore journal,
+        string storeId,
+        BaseRealtimeChannelJoinRequest cursorScope,
+        BaseMutationJournalPosition startingPosition,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        _stats.RecordChannelOpened();
+        var position = startingPosition;
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var page = await journal.ReadMutationJournalAsync(
+                    new BaseMutationJournalReadRequest
+                    {
+                        After = position,
+                        Limit = _options.Limits.ReplayBatchSize
+                    },
+                    cancellationToken).ConfigureAwait(false);
+                _stats.RecordDurableJournalRead();
+
+                if (page.Earliest.Value > 0 && position.Value < page.Earliest.Value - 1)
+                    yield break;
+
+                foreach (var entry in page.Entries)
+                {
+                    position = entry.Position;
+                    var evt = JournalEvent(entry);
+                    if (!Matches(request.Join, evt))
+                        continue;
+
+                    BaseRealtimeEvent? projected;
+                    try
+                    {
+                        projected = await _projection.ProjectAsync(new BaseRealtimeProjectionRequest
+                        {
+                            Event = evt,
+                            Join = request.Join,
+                            Principal = request.Principal,
+                            Operation = request.Operation
+                        }, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        HPDBaseRealtimeLog.EventProjectionFailed(
+                            _logger,
+                            "unexpected",
+                            BaseRealtimeErrorCodes.CapabilityUnavailable);
+                        yield break;
+                    }
+
+                    if (projected is null)
+                    {
+                        _stats.RecordPolicySkip();
+                        continue;
+                    }
+
+                    HPDBaseRealtimeTelemetry.RecordEventProjected();
+                    _stats.RecordDurableEventProjected();
+                    yield return projected with
+                    {
+                        Cursor = _cursors.Protect(position, storeId, cursorScope)
+                    };
+                }
+
+                if (page.HasMore)
+                    continue;
+
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(_options.Limits.DurablePollIntervalMilliseconds),
+                    _timeProvider,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _stats.RecordChannelClosed();
+        }
+    }
+
+    private static BaseRecordMutationEvent JournalEvent(BaseMutationJournalEntry entry) => new()
+    {
+        EventId = entry.EventId,
+        Type = entry.Type,
+        SchemaVersion = entry.SchemaVersion,
+        Timestamp = entry.OccurredAt,
+        TenantId = entry.TenantId,
+        Visibility = entry.Visibility,
+        Operation = entry.Operation,
+        Resource = new EventResource
+        {
+            Kind = EventResourceKind.Record,
+            CollectionId = entry.CollectionId,
+            RecordId = entry.RecordId
+        },
+        Before = entry.Before,
+        After = entry.After
+    };
+
+    private AsyncStreamOpenResult<AsyncStream<BaseRealtimeEvent>> CursorFailure(
+        BaseRealtimeCursorStatus status)
+    {
+        _stats.RecordDurableCursorRejection();
+        return status switch
+        {
+        BaseRealtimeCursorStatus.ScopeMismatch => Failure(
+            AsyncStreamOpenStatus.ValidationFailed,
+            BaseRealtimeErrorCodes.CursorScopeMismatch,
+            "The resume cursor does not match the requested durable channel.",
+            AsyncStreamErrorCategory.Validation),
+        BaseRealtimeCursorStatus.Expired => Failure(
+            AsyncStreamOpenStatus.ValidationFailed,
+            BaseRealtimeErrorCodes.CursorExpired,
+            "The resume cursor has expired.",
+            AsyncStreamErrorCategory.Validation),
+        BaseRealtimeCursorStatus.VersionUnsupported => Failure(
+            AsyncStreamOpenStatus.Unsupported,
+            BaseRealtimeErrorCodes.CursorVersionUnsupported,
+            "The resume cursor version is not supported.",
+            AsyncStreamErrorCategory.Unsupported),
+        _ => Failure(
+            AsyncStreamOpenStatus.ValidationFailed,
+            BaseRealtimeErrorCodes.CursorInvalid,
+            "The resume cursor is invalid.",
+            AsyncStreamErrorCategory.Validation)
+        };
+    }
+
+    private static AsyncStreamOpenResult<AsyncStream<BaseRealtimeEvent>> Failure(
+        AsyncStreamOpenStatus status,
+        string code,
+        string message,
+        AsyncStreamErrorCategory category) =>
+        AsyncStreamOpenResult<AsyncStream<BaseRealtimeEvent>>.Failed(
+            status,
+            new AsyncStreamError
+            {
+                Code = code,
+                Message = message,
+                Category = category
+            });
 
     private async IAsyncEnumerable<BaseRealtimeEvent> ProjectAsync(
         BaseRealtimeFeedRequest request,
@@ -178,6 +456,15 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
 
         return true;
     }
+
+    private static BaseRealtimeChannelJoinRequest CursorScope(BaseRealtimeFeedRequest request) =>
+        request.Join with
+        {
+            ResumeCursor = null,
+            TenantId = request.Join.TenantId
+                ?? request.Operation.TenantId
+                ?? request.Principal.CurrentTenantId
+        };
 
     private static string ChannelKindValue(string value) => value switch
     {

@@ -11,5 +11,6 @@ public interface IBaseEventDispatcher
     /// <summary>Dispatches a committed mutation event and returns result references.</summary>
     ValueTask<OperationResult<EventReference[]>> DispatchMutationAsync(
         BaseEvent @event,
+        EventDeliveryGuarantee committedGuarantee,
         CancellationToken cancellationToken = default);
 }

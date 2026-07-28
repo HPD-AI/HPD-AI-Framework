@@ -47,4 +47,27 @@ public sealed class RealtimeDescriptorTests
                 "base.realtime.connectionDescriptor",
                 "base.realtime.channelDescriptor");
     }
+
+    [Fact]
+    public async Task DescriptorAdvertisesConfiguredDurabilityAsProviderConditional()
+    {
+        await using var provider = await TestServices.CreateAsync(
+            configureRealtime: options =>
+                options.CursorSigningKey = "test-only-cursor-signing-key-32-bytes-minimum");
+        var snapshot = provider.GetRequiredService<IBaseDescriptorRegistry>().Current;
+        var family = snapshot.Capabilities.Families
+            .Single(item => item.FamilyId == "base.realtime");
+        var durable = family.Features!
+            .Single(item => item.FeatureId == BaseRealtimeFeatureIds.DurableReplay);
+        var extensions = durable.Constraints!.Realtime!.Extensions!;
+
+        durable.Status.Should().Be(CapabilityStatus.Available);
+        extensions["durable"].GetBoolean().Should().BeTrue();
+        extensions["replayable"].GetBoolean().Should().BeTrue();
+        extensions["resumable"].GetBoolean().Should().BeTrue();
+        extensions["durableRequiresTransactionalJournal"].GetBoolean().Should().BeTrue();
+        family.Limits!.Select(limit => limit.Name).Should().Contain(
+            "replayBatchSize",
+            "cursorLifetimeSeconds");
+    }
 }

@@ -14,6 +14,9 @@ public sealed class BaseRealtimeStats
     private long _joinRateRejections;
     private long _slowConsumerTerminations;
     private long _payloadLimitDrops;
+    private long _durableJournalReads;
+    private long _durableEventsProjected;
+    private long _durableCursorRejections;
 
     public long ActiveConnections => Volatile.Read(ref _activeConnections);
     public long ActiveChannels => Volatile.Read(ref _activeChannels);
@@ -27,6 +30,9 @@ public sealed class BaseRealtimeStats
     /// <summary>Gets the number of channels terminated because their consumers were too slow.</summary>
     public long SlowConsumerTerminations => Volatile.Read(ref _slowConsumerTerminations);
     public long PayloadLimitDrops => Volatile.Read(ref _payloadLimitDrops);
+    public long DurableJournalReads => Volatile.Read(ref _durableJournalReads);
+    public long DurableEventsProjected => Volatile.Read(ref _durableEventsProjected);
+    public long DurableCursorRejections => Volatile.Read(ref _durableCursorRejections);
 
     public BaseRealtimeStats()
     {
@@ -117,6 +123,24 @@ public sealed class BaseRealtimeStats
     {
         Interlocked.Increment(ref _payloadLimitDrops);
         HPDBaseRealtimeTelemetry.RecordPayloadDrop();
+    }
+
+    public void RecordDurableJournalRead()
+    {
+        Interlocked.Increment(ref _durableJournalReads);
+        HPDBaseRealtimeTelemetry.RecordDurableJournalRead();
+    }
+
+    public void RecordDurableEventProjected()
+    {
+        Interlocked.Increment(ref _durableEventsProjected);
+        HPDBaseRealtimeTelemetry.RecordDurableEventProjected();
+    }
+
+    public void RecordDurableCursorRejection()
+    {
+        Interlocked.Increment(ref _durableCursorRejections);
+        HPDBaseRealtimeTelemetry.RecordDurableCursorRejection();
     }
 
     private static void DecrementActive(ref long value, string kind)

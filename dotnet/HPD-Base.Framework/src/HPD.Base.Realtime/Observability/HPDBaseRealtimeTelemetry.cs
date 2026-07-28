@@ -70,6 +70,21 @@ internal static class HPDBaseRealtimeTelemetry
         unit: "{message}",
         description: "Counts HPD.BASE realtime payload drops.");
 
+    private static readonly Counter<long> DurableJournalReads = HPDBaseRealtimeObservability.Meter.CreateCounter<long>(
+        HPDBaseTelemetryInstruments.RealtimeDurableJournalReads,
+        unit: "{read}",
+        description: "Counts bounded HPD.BASE durable journal reads.");
+
+    private static readonly Counter<long> DurableEventsProjected = HPDBaseRealtimeObservability.Meter.CreateCounter<long>(
+        HPDBaseTelemetryInstruments.RealtimeDurableEventsProjected,
+        unit: "{event}",
+        description: "Counts policy-safe HPD.BASE durable event projections.");
+
+    private static readonly Counter<long> DurableCursorRejections = HPDBaseRealtimeObservability.Meter.CreateCounter<long>(
+        HPDBaseTelemetryInstruments.RealtimeDurableCursorRejections,
+        unit: "{cursor}",
+        description: "Counts rejected HPD.BASE durable cursors.");
+
     private static readonly Histogram<double> JoinDuration = HPDBaseRealtimeObservability.Meter.CreateHistogram<double>(
         HPDBaseTelemetryInstruments.RealtimeJoinDuration,
         unit: "s",
@@ -119,6 +134,9 @@ internal static class HPDBaseRealtimeTelemetry
     public static void RecordJoinRateRejection() => JoinRateRejections.Add(1, ErrorTags("joinRateLimited"));
     public static void RecordSlowConsumerTermination() => SlowConsumerTerminations.Add(1, ErrorTags("slowConsumer"));
     public static void RecordPayloadDrop() => PayloadDrops.Add(1, MessageTags("dropped"));
+    public static void RecordDurableJournalRead() => DurableJournalReads.Add(1, ChannelTags("recordChanges"));
+    public static void RecordDurableEventProjected() => DurableEventsProjected.Add(1, ChannelTags("recordChanges"));
+    public static void RecordDurableCursorRejection() => DurableCursorRejections.Add(1, ErrorTags("cursorRejected"));
 
     private static Activity? Start(string spanName, string channelKind)
     {

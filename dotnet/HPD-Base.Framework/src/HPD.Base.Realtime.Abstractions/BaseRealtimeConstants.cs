@@ -13,6 +13,7 @@ public static class BaseRealtimeFeatureIds
     public const string PrivateChannels = "base.realtime.privateChannels";
     public const string PolicyPerEvent = "base.realtime.policyPerEvent";
     public const string RedactedProjection = "base.realtime.redactedProjection";
+    public const string DurableReplay = "base.realtime.durableReplay";
 }
 
 public static class BaseRealtimeDtoIds
@@ -73,4 +74,9 @@ public static class BaseRealtimeErrorCodes
     public const string ConnectionIdleTimeout = "base.realtime.connection.idleTimeout";
     public const string CapabilityUnavailable = "base.realtime.capabilityUnavailable";
     public const string Disabled = "base.realtime.disabled";
+    public const string CursorInvalid = "base.realtime.cursor.invalid";
+    public const string CursorScopeMismatch = "base.realtime.cursor.scopeMismatch";
+    public const string CursorExpired = "base.realtime.cursor.expired";
+    public const string CursorVersionUnsupported = "base.realtime.cursor.versionUnsupported";
+    public const string DurableCollectionRequired = "base.realtime.durable.collectionRequired";
 }

@@ -2,6 +2,8 @@ using HPD.Base.Descriptors;
 using HPD.Base.Health;
 using HPD.Base.Runtime.Configuration;
 using HPD.Base.Schema;
+using HPD.Base.Runtime.Stores;
+using HPD.Base.Stores;
 using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Runtime.Descriptors;
@@ -12,18 +14,21 @@ internal sealed class DefaultBaseDescriptorRegistry : IBaseDescriptorRegistry
     private readonly IEnumerable<IBaseDescriptorContributor> _contributors;
     private readonly IEnumerable<IBaseDescriptorValidator> _validators;
     private readonly HPD.Base.Runtime.Capabilities.IBaseCapabilityValidator _capabilityValidator;
+    private readonly IRecordStoreRegistry _stores;
     private BaseDescriptorSnapshot? _current;
 
     public DefaultBaseDescriptorRegistry(
         IOptions<HPDBaseRuntimeOptions> options,
         IEnumerable<IBaseDescriptorContributor> contributors,
         IEnumerable<IBaseDescriptorValidator> validators,
-        HPD.Base.Runtime.Capabilities.IBaseCapabilityValidator capabilityValidator)
+        HPD.Base.Runtime.Capabilities.IBaseCapabilityValidator capabilityValidator,
+        IRecordStoreRegistry stores)
     {
         _options = options.Value;
         _contributors = contributors;
         _validators = validators;
         _capabilityValidator = capabilityValidator;
+        _stores = stores;
     }
 
     public BaseDescriptorSnapshot Current => _current ??= CreateSnapshot();
@@ -116,6 +121,13 @@ internal sealed class DefaultBaseDescriptorRegistry : IBaseDescriptorRegistry
             return BaseRuntimeValidationResult.Success;
         }
 
+        var registrations = _stores.GetRegistrations();
+        if (registrations.Length > 0
+            && registrations.All(registration => registration.Store is ITransactionalMutationJournalStore))
+        {
+            return BaseRuntimeValidationResult.Success;
+        }
+
         return new BaseRuntimeValidationResult
         {
             Succeeded = false,
@@ -125,8 +137,8 @@ internal sealed class DefaultBaseDescriptorRegistry : IBaseDescriptorRegistry
                 {
                     Severity = BaseRuntimeValidationSeverity.Fatal,
                     Kind = BaseRuntimeValidationFailureKind.InvalidConfiguration,
-                    Code = "base.runtime.events.requireEnqueueUnsupported",
-                    Message = "RequireEnqueue event publishing requires a durable enqueue capability that is not provided by HPD.Base.Runtime.",
+                    Code = "base.runtime.events.transactionalJournalRequired",
+                    Message = "RequireEnqueue requires every registered mutation store to support transactional mutation journaling.",
                     TargetPath = "events.publishFailureMode"
                 }
             ]

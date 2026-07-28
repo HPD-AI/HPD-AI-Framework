@@ -31,6 +31,12 @@ public sealed record BaseRealtimeChannelJoinRequest
 
     /// <summary>Gets whether an authorized redacted prior snapshot is requested.</summary>
     public bool IncludeBefore { get; init; }
+
+    /// <summary>Gets whether this channel must use the durable mutation journal.</summary>
+    public bool Durable { get; init; }
+
+    /// <summary>Gets an opaque durable cursor from a previously delivered event.</summary>
+    public string? ResumeCursor { get; init; }
 }
 
 public sealed record BaseRealtimeChannelJoinResult
@@ -40,6 +46,7 @@ public sealed record BaseRealtimeChannelJoinResult
     public bool Replayable { get; init; }
     public bool Resumable { get; init; }
     public string? StreamId { get; init; }
+    public string? Cursor { get; init; }
 }
 
 public sealed record BaseRealtimeError
@@ -78,4 +85,13 @@ public sealed record BaseRealtimeLimits
 
     /// <summary>Gets the maximum channel join attempts allowed per connection per second.</summary>
     public int MaxJoinsPerSecond { get; init; } = 8;
+
+    /// <summary>Gets the maximum journal entries read per durable poll.</summary>
+    public int ReplayBatchSize { get; init; } = 256;
+
+    /// <summary>Gets the lifetime of an issued resume cursor in seconds.</summary>
+    public int CursorLifetimeSeconds { get; init; } = 7 * 24 * 60 * 60;
+
+    /// <summary>Gets the durable journal polling interval in milliseconds.</summary>
+    public int DurablePollIntervalMilliseconds { get; init; } = 250;
 }

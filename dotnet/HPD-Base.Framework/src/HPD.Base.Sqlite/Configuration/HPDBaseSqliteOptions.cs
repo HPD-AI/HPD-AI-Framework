@@ -48,6 +48,9 @@ public sealed class HPDBaseSqliteOptions
     public bool ContributeDiagnostics { get; set; } = true;
     public bool ContributeRelationalDescriptors { get; set; } = true;
     public bool InitializeSQLitePCLRaw { get; set; } = true;
+    public TimeSpan MutationJournalRetention { get; set; } = TimeSpan.FromDays(7);
+    public int MutationJournalMaxEntries { get; set; } = 100_000;
+    public int MutationJournalMaxReadSize { get; set; } = 1_000;
     public string HealthRefId { get; set; } = HPDBaseSqliteDefaults.DefaultHealthRefId;
     public string DiagnosticRefId { get; set; } = HPDBaseSqliteDefaults.DefaultDiagnosticRefId;
     public string[] CollectionIds { get; set; } = [];

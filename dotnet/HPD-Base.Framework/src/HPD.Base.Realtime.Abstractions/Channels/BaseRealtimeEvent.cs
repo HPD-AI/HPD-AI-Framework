@@ -28,6 +28,9 @@ public sealed record BaseRealtimeEvent
 
     /// <summary>Gets the independently redacted resulting snapshot when requested and authorized.</summary>
     public BaseRealtimeRecordSnapshot? After { get; init; }
+
+    /// <summary>Gets the opaque continuation cursor for a durable channel event.</summary>
+    public string? Cursor { get; init; }
 }
 
 /// <summary>Identifies the record affected by a realtime mutation event.</summary>

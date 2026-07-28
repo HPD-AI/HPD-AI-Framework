@@ -63,7 +63,7 @@ public sealed class RealtimeJsonContextTests
     }
 
     [Fact]
-    public void RealtimeEventContractDoesNotExposeOrderingOrResumeTokens()
+    public void RealtimeEventContractDoesNotExposeProviderOrderingTokens()
     {
         typeof(BaseRealtimeEvent).GetProperty("SequenceNumber").Should().BeNull();
 
@@ -87,8 +87,8 @@ public sealed class RealtimeJsonContextTests
         var normalizedJson = json.ToLowerInvariant();
 
         normalizedJson.Should().NotContain("sequence");
-        normalizedJson.Should().NotContain("cursor");
-        normalizedJson.Should().NotContain("resume");
+        normalizedJson.Should().NotContain("position");
+        normalizedJson.Should().NotContain("sequence");
     }
 
     [Fact]
@@ -102,7 +102,8 @@ public sealed class RealtimeJsonContextTests
             "Resource",
             "Operation",
             "Before",
-            "After");
+            "After",
+            "Cursor");
         AssertProperties<BaseRealtimeRecordResource>("CollectionId", "RecordId");
         AssertProperties<BaseRealtimeRecordSnapshot>("Payload");
 

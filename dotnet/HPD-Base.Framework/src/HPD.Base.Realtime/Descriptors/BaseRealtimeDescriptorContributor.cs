@@ -114,7 +114,8 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
                         Feature(BaseRealtimeFeatureIds.WebSocketTransport),
                         Feature(BaseRealtimeFeatureIds.PrivateChannels),
                         Feature(BaseRealtimeFeatureIds.PolicyPerEvent),
-                        Feature(BaseRealtimeFeatureIds.RedactedProjection)
+                        Feature(BaseRealtimeFeatureIds.RedactedProjection),
+                        Feature(BaseRealtimeFeatureIds.DurableReplay)
                     ],
                     Limits =
                     [
@@ -127,6 +128,8 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
                         Limit("receiveIdleTimeoutSeconds", _options.Limits.ReceiveIdleTimeoutSeconds),
                         Limit("sendTimeoutSeconds", _options.Limits.SendTimeoutSeconds),
                         Limit("maxJoinsPerSecond", _options.Limits.MaxJoinsPerSecond),
+                        Limit("replayBatchSize", _options.Limits.ReplayBatchSize),
+                        Limit("cursorLifetimeSeconds", _options.Limits.CursorLifetimeSeconds),
                     ]
                 }
             ]
@@ -137,7 +140,7 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
     {
         FeatureId = featureId,
         Version = "1.0",
-        Status = _options.Enabled ? CapabilityStatus.Available : CapabilityStatus.Disabled,
+        Status = FeatureAvailable(featureId) ? CapabilityStatus.Available : CapabilityStatus.Disabled,
         SupportLevel = SupportLevel.Optional,
         Scope = CapabilityScope.Runtime,
         Constraints = new CapabilityConstraintSet
@@ -167,9 +170,10 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
     {
         ["transport"] = JsonString("websocket"),
         ["route"] = JsonString(BaseRealtimeRoutes.WebSocket),
-        ["replayable"] = JsonFalse(),
-        ["resumable"] = JsonFalse(),
-        ["durable"] = JsonFalse(),
+        ["replayable"] = JsonBoolean(DurableConfigured),
+        ["resumable"] = JsonBoolean(DurableConfigured),
+        ["durable"] = JsonBoolean(DurableConfigured),
+        ["durableRequiresTransactionalJournal"] = JsonTrue(),
         ["liveQuery"] = JsonFalse()
     };
 
@@ -182,6 +186,14 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
 
     private static JsonElement JsonFalse() => JsonDocument.Parse("false").RootElement.Clone();
     private static JsonElement JsonTrue() => JsonDocument.Parse("true").RootElement.Clone();
+    private static JsonElement JsonBoolean(bool value) => value ? JsonTrue() : JsonFalse();
+
+    private bool DurableConfigured =>
+        _options.Enabled && !string.IsNullOrWhiteSpace(_options.CursorSigningKey);
+
+    private bool FeatureAvailable(string featureId) =>
+        _options.Enabled
+        && (featureId != BaseRealtimeFeatureIds.DurableReplay || DurableConfigured);
 
     private static JsonElement JsonString(string value)
     {
@@ -229,7 +241,8 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
         BaseRealtimeFeatureIds.WebSocketTransport,
         BaseRealtimeFeatureIds.PrivateChannels,
         BaseRealtimeFeatureIds.PolicyPerEvent,
-        BaseRealtimeFeatureIds.RedactedProjection
+        BaseRealtimeFeatureIds.RedactedProjection,
+        BaseRealtimeFeatureIds.DurableReplay
     ];
 
     private static readonly string[] DtoIds =

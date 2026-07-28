@@ -15,7 +15,8 @@ internal sealed class DefaultBaseEventFactory : IBaseEventFactory
         CollectionDefinition collection,
         RecordEnvelope? before,
         RecordEnvelope? after,
-        string[]? changedFields)
+        string[]? changedFields,
+        string? committedEventId)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(principal);
@@ -24,7 +25,7 @@ internal sealed class DefaultBaseEventFactory : IBaseEventFactory
         var record = after ?? before;
         return new BaseRecordMutationEvent
         {
-            EventId = $"evt_{Guid.NewGuid():N}",
+            EventId = committedEventId ?? $"evt_{Guid.NewGuid():N}",
             Type = operation switch
             {
                 BaseOperationKind.Create => BaseEventTypes.RecordCreated,

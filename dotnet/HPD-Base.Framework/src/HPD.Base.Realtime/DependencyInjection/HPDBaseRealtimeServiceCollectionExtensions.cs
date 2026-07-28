@@ -1,5 +1,6 @@
 using HPD.Base.Realtime.Configuration;
 using HPD.Base.Realtime.Descriptors;
+using HPD.Base.Realtime.Durability;
 using HPD.Base.Realtime.Feeds;
 using HPD.Base.Realtime.Health;
 using HPD.Base.Realtime.Policy;
@@ -32,6 +33,7 @@ public static class HPDBaseRealtimeServiceCollectionExtensions
         services.TryAddSingleton<IOptions<BaseRealtimeOptions>>(Options.Create(options));
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<BaseRealtimeStats>();
+        services.TryAddSingleton<BaseRealtimeCursorProtector>();
         services.TryAddSingleton<IBaseRealtimePolicy, DefaultBaseRealtimePolicy>();
         services.TryAddSingleton<IBaseRealtimeProjectionService, DefaultBaseRealtimeProjectionService>();
         services.TryAddSingleton<IBaseRealtimeFeedSource, DefaultBaseRealtimeFeedSource>();

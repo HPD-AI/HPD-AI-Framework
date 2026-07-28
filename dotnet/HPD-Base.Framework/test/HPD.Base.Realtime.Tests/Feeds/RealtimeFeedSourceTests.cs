@@ -2,6 +2,8 @@ namespace HPD.Base.Realtime.Tests.Feeds;
 
 public sealed class RealtimeFeedSourceTests
 {
+    private const string CursorKey = "test-only-cursor-signing-key-32-bytes-minimum";
+
     [Fact]
     public async Task DefaultInboxNeverBlocksAsyncMutationPublication()
     {
@@ -308,6 +310,281 @@ public sealed class RealtimeFeedSourceTests
 
         json.Should().NotContain("forbidden");
     }
+
+    [Fact]
+    public async Task DurableChannelResumesAfterOpaqueCursorAndRedactsJournalPayload()
+    {
+        await using var provider = await TestServices.CreateAsync(
+            configureRealtime: options =>
+            {
+                options.CursorSigningKey = CursorKey;
+                options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
+            },
+            journalEntries:
+            [
+                TestServices.JournalEntry(1, "one", "first"),
+                TestServices.JournalEntry(2, "two", "second")
+            ]);
+        var feed = provider.GetRequiredService<IBaseRealtimeFeedSource>();
+        var join = new BaseRealtimeChannelJoinRequest
+        {
+            Kind = BaseRealtimeChannelKinds.RecordChanges,
+            CollectionId = "items",
+            Durable = true,
+            IncludeSnapshots = true
+        };
+
+        var initial = await feed.OpenAsync(new BaseRealtimeFeedRequest
+        {
+            Channel = "durable-items",
+            Principal = TestServices.Principal(),
+            Operation = TestServices.Operation(),
+            Join = join
+        });
+        initial.Succeeded.Should().BeTrue();
+        initial.Value!.Descriptor.Replayable.Should().BeTrue();
+        initial.Value.Descriptor.Resumable.Should().BeTrue();
+        initial.Value.Descriptor.DeliveryGuarantee.Should().Be(AsyncStreamDeliveryGuarantee.AtLeastOnce);
+        initial.Value.Descriptor.Cursor.Should().NotBeNullOrWhiteSpace();
+
+        var journal = (TestMutationJournalStore)provider
+            .GetRequiredService<HPD.Base.Runtime.Stores.IRecordStoreRegistry>()
+            .GetStoreForCollection("items")!;
+        journal.Add(TestServices.JournalEntry(3, "three", "third"));
+
+        var resumed = await feed.OpenAsync(new BaseRealtimeFeedRequest
+        {
+            Channel = "durable-items",
+            Principal = TestServices.Principal(),
+            Operation = TestServices.Operation(),
+            Join = join with { ResumeCursor = initial.Value.Descriptor.Cursor }
+        });
+        var replayed = await ReadOneAsync(resumed.Value!.Items);
+
+        replayed.EventId.Should().Be("event-3");
+        replayed.Cursor.Should().NotBeNullOrWhiteSpace();
+        replayed.After!.Payload!.Json.EnumerateObject().Select(property => property.Name)
+            .Should().Equal("title");
+    }
+
+    [Fact]
+    public async Task DurableCursorCannotMoveToAnotherScopeOrAcceptTampering()
+    {
+        await using var provider = await TestServices.CreateAsync(
+            configureRealtime: options => options.CursorSigningKey = CursorKey,
+            journalEntries: [TestServices.JournalEntry(1, "one", "first")]);
+        var feed = provider.GetRequiredService<IBaseRealtimeFeedSource>();
+        var join = new BaseRealtimeChannelJoinRequest
+        {
+            Kind = BaseRealtimeChannelKinds.RecordChanges,
+            CollectionId = "items",
+            Durable = true
+        };
+        var request = new BaseRealtimeFeedRequest
+        {
+            Channel = "durable-items",
+            Principal = TestServices.Principal(),
+            Operation = TestServices.Operation(),
+            Join = join
+        };
+        var opened = await feed.OpenAsync(request);
+        var cursor = opened.Value!.Descriptor.Cursor!;
+
+        var mismatched = await feed.OpenAsync(request with
+        {
+            Join = join with { RecordId = "one", ResumeCursor = cursor }
+        });
+        mismatched.Succeeded.Should().BeFalse();
+        mismatched.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CursorScopeMismatch);
+
+        var tamperedCursor = cursor[..^1] + (cursor[^1] == 'A' ? "B" : "A");
+        var tampered = await feed.OpenAsync(request with
+        {
+            Join = join with { ResumeCursor = tamperedCursor }
+        });
+        tampered.Succeeded.Should().BeFalse();
+        tampered.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CursorInvalid);
+
+        var otherTenant = await feed.OpenAsync(request with
+        {
+            Principal = TestServices.Principal("tenant-b"),
+            Operation = TestServices.Operation(tenantId: "tenant-b"),
+            Join = join with { ResumeCursor = cursor }
+        });
+        otherTenant.Succeeded.Should().BeFalse();
+        otherTenant.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CursorScopeMismatch);
+    }
+
+    [Fact]
+    public async Task DurableCursorOlderThanRetainedJournalReturnsExpiredError()
+    {
+        var join = new BaseRealtimeChannelJoinRequest
+        {
+            Kind = BaseRealtimeChannelKinds.RecordChanges,
+            CollectionId = "items",
+            Durable = true
+        };
+        await using var originalProvider = await TestServices.CreateAsync(
+            configureRealtime: options => options.CursorSigningKey = CursorKey,
+            journalEntries: [TestServices.JournalEntry(1, "one", "first")]);
+        var original = await originalProvider.GetRequiredService<IBaseRealtimeFeedSource>()
+            .OpenAsync(Request(join));
+        var cursor = original.Value!.Descriptor.Cursor!;
+
+        await using var retainedProvider = await TestServices.CreateAsync(
+            configureRealtime: options => options.CursorSigningKey = CursorKey,
+            journalEntries: [TestServices.JournalEntry(3, "three", "third")]);
+        var resumed = await retainedProvider.GetRequiredService<IBaseRealtimeFeedSource>()
+            .OpenAsync(Request(join with { ResumeCursor = cursor }));
+
+        resumed.Succeeded.Should().BeFalse();
+        resumed.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CursorExpired);
+    }
+
+    [Fact]
+    public async Task DurableRequestDoesNotSilentlyDowngradeWhenCapabilityIsIncomplete()
+    {
+        var join = new BaseRealtimeChannelJoinRequest
+        {
+            Kind = BaseRealtimeChannelKinds.RecordChanges,
+            CollectionId = "items",
+            Durable = true
+        };
+        await using var noKeyProvider = await TestServices.CreateAsync(
+            journalEntries: [TestServices.JournalEntry(1, "one", "first")]);
+        var noKey = await noKeyProvider.GetRequiredService<IBaseRealtimeFeedSource>()
+            .OpenAsync(Request(join));
+        noKey.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CapabilityUnavailable);
+
+        await using var noJournalProvider = await TestServices.CreateAsync(
+            configureRealtime: options => options.CursorSigningKey = CursorKey);
+        var noJournal = await noJournalProvider.GetRequiredService<IBaseRealtimeFeedSource>()
+            .OpenAsync(Request(join));
+        noJournal.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CapabilityUnavailable);
+
+        var noCollection = await noJournalProvider.GetRequiredService<IBaseRealtimeFeedSource>()
+            .OpenAsync(Request(join with { CollectionId = null }));
+        noCollection.Error!.Code.Should().Be(BaseRealtimeErrorCodes.DurableCollectionRequired);
+    }
+
+    [Fact]
+    public async Task DurableReplaySkipsOtherTenantsAndRedactsSnapshots()
+    {
+        await using var provider = await TestServices.CreateAsync(
+            configureRealtime: options =>
+            {
+                options.CursorSigningKey = CursorKey;
+                options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
+            },
+            journalEntries: [TestServices.JournalEntry(1, "initial", "initial", "tenant-a")]);
+        var feed = provider.GetRequiredService<IBaseRealtimeFeedSource>();
+        var join = new BaseRealtimeChannelJoinRequest
+        {
+            Kind = BaseRealtimeChannelKinds.RecordChanges,
+            CollectionId = "items",
+            Durable = true,
+            IncludeSnapshots = true
+        };
+        var initial = await feed.OpenAsync(Request(join, PrincipalAuthenticationState.Authenticated, "tenant-a"));
+        var journal = (TestMutationJournalStore)provider
+            .GetRequiredService<HPD.Base.Runtime.Stores.IRecordStoreRegistry>()
+            .GetStoreForCollection("items")!;
+        journal.Add(TestServices.JournalEntry(2, "hidden", "other-tenant", "tenant-b"));
+        journal.Add(TestServices.JournalEntry(3, "visible", "after-safe", "tenant-a") with
+        {
+            After = new RecordSnapshot
+            {
+                CollectionId = "items",
+                Id = new RecordId("visible"),
+                Payload = TestServices.Payload(("title", "after-safe"), ("writeOnly", "after-forbidden")),
+                Metadata = new RecordMetadata()
+            }
+        });
+
+        var resumed = await feed.OpenAsync(Request(
+            join with { ResumeCursor = initial.Value!.Descriptor.Cursor },
+            PrincipalAuthenticationState.Authenticated,
+            "tenant-a"));
+        var replayed = await ReadOneAsync(resumed.Value!.Items);
+
+        replayed.EventId.Should().Be("event-3");
+        replayed.Before.Should().BeNull();
+        replayed.After!.Payload.Json.ToString().Should().Contain("after-safe");
+        replayed.After.Payload.Json.ToString().Should().NotContain("after-forbidden");
+        provider.GetRequiredService<BaseRealtimeStats>().PolicySkips.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(PrincipalAuthenticationState.Admin)]
+    [InlineData(PrincipalAuthenticationState.System)]
+    public async Task DurableReplayIncludesBeforeOnlyForPrivilegedPrincipals(
+        PrincipalAuthenticationState state)
+    {
+        await using var provider = await TestServices.CreateAsync(
+            configureRealtime: options =>
+            {
+                options.CursorSigningKey = CursorKey;
+                options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
+            },
+            journalEntries: [TestServices.JournalEntry(1, "initial", "initial")]);
+        var feed = provider.GetRequiredService<IBaseRealtimeFeedSource>();
+        var join = new BaseRealtimeChannelJoinRequest
+        {
+            Kind = BaseRealtimeChannelKinds.RecordChanges,
+            CollectionId = "items",
+            Durable = true,
+            IncludeSnapshots = true,
+            IncludeBefore = true
+        };
+        var initial = await feed.OpenAsync(Request(join, state));
+        var journal = (TestMutationJournalStore)provider
+            .GetRequiredService<HPD.Base.Runtime.Stores.IRecordStoreRegistry>()
+            .GetStoreForCollection("items")!;
+        journal.Add(TestServices.JournalEntry(2, "updated", "after-safe") with
+        {
+            Operation = BaseOperationKind.Patch,
+            Type = BaseEventTypes.RecordPatched,
+            Before = new RecordSnapshot
+            {
+                CollectionId = "items",
+                Id = new RecordId("updated"),
+                Payload = TestServices.Payload(
+                    ("title", "before-safe"),
+                    ("writeOnly", "before-forbidden")),
+                Metadata = new RecordMetadata()
+            },
+            After = new RecordSnapshot
+            {
+                CollectionId = "items",
+                Id = new RecordId("updated"),
+                Payload = TestServices.Payload(
+                    ("title", "after-safe"),
+                    ("writeOnly", "after-forbidden")),
+                Metadata = new RecordMetadata()
+            }
+        });
+
+        var resumed = await feed.OpenAsync(Request(
+            join with { ResumeCursor = initial.Value!.Descriptor.Cursor },
+            state));
+        var replayed = await ReadOneAsync(resumed.Value!.Items);
+
+        replayed.Before!.Payload.Json.ToString().Should().Contain("before-safe");
+        replayed.Before.Payload.Json.ToString().Should().NotContain("before-forbidden");
+        replayed.After!.Payload.Json.ToString().Should().Contain("after-safe");
+        replayed.After.Payload.Json.ToString().Should().NotContain("after-forbidden");
+    }
+
+    private static BaseRealtimeFeedRequest Request(
+        BaseRealtimeChannelJoinRequest join,
+        PrincipalAuthenticationState state = PrincipalAuthenticationState.Anonymous,
+        string? tenantId = null) => new()
+        {
+            Channel = "durable-items",
+            Principal = TestServices.Principal(tenantId, state),
+            Operation = TestServices.Operation(tenantId: tenantId),
+            Join = join
+        };
 
     private static async Task<BaseRealtimeEvent> ReadOneAsync(IAsyncEnumerable<BaseRealtimeEvent> items)
     {

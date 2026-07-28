@@ -10,6 +10,9 @@ internal sealed class TrackingRealtimeFeedSource : IBaseRealtimeFeedSource
     private int _openCount;
 
     public int OpenCount => Volatile.Read(ref _openCount);
+    public bool Replayable { get; init; }
+    public bool Resumable { get; init; }
+    public string? Cursor { get; init; }
 
     public TaskCompletionSource EnumerationStarted { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -34,7 +37,12 @@ internal sealed class TrackingRealtimeFeedSource : IBaseRealtimeFeedSource
                 Descriptor = new AsyncStreamDescriptor
                 {
                     StreamId = "test",
-                    DeliveryGuarantee = AsyncStreamDeliveryGuarantee.AtMostOnce
+                    Replayable = Replayable,
+                    Resumable = Resumable,
+                    Cursor = Cursor,
+                    DeliveryGuarantee = Replayable
+                        ? AsyncStreamDeliveryGuarantee.AtLeastOnce
+                        : AsyncStreamDeliveryGuarantee.AtMostOnce
                 },
                 Items = ReadAsync(cancellationToken)
             }));

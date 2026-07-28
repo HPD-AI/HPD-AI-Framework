@@ -97,6 +97,12 @@ public static class HPDBaseTelemetryInstruments
     public const string RealtimeSlowConsumerTerminations = "hpd.base.realtime.consumer.slow_terminations";
     /// <summary>Realtime payload drop counter.</summary>
     public const string RealtimePayloadDrops = "hpd.base.realtime.payload.drops";
+    /// <summary>Realtime durable journal read counter.</summary>
+    public const string RealtimeDurableJournalReads = "hpd.base.realtime.durable.journal_reads";
+    /// <summary>Realtime durable projected event counter.</summary>
+    public const string RealtimeDurableEventsProjected = "hpd.base.realtime.durable.events_projected";
+    /// <summary>Realtime durable cursor rejection counter.</summary>
+    public const string RealtimeDurableCursorRejections = "hpd.base.realtime.durable.cursor_rejections";
     /// <summary>Realtime message bytes histogram.</summary>
     public const string RealtimeMessageBytes = "hpd.base.realtime.message.bytes";
     /// <summary>Realtime channel join duration histogram.</summary>

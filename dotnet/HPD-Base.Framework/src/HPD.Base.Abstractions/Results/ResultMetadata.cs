@@ -1,4 +1,5 @@
 using HPD.Base.Descriptors;
+using HPD.Base.Events;
 
 namespace HPD.Base.Results;
 
@@ -32,4 +33,5 @@ public sealed record EventReference
     public string? Stream { get; init; }
     public string? Resource { get; init; }
     public DateTimeOffset? PublishedAt { get; init; }
+    public EventDeliveryGuarantee Guarantee { get; init; }
 }

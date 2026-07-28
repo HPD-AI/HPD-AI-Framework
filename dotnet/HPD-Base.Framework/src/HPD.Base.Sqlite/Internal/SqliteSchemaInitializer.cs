@@ -68,6 +68,28 @@ CREATE TABLE IF NOT EXISTS {_names.ProviderState} (
 );
 """, cancellationToken).ConfigureAwait(false);
 
+        await ExecuteAsync(connection, $"""
+CREATE TABLE IF NOT EXISTS {_names.MutationJournal} (
+  position INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE,
+  event_type TEXT NOT NULL,
+  schema_version TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  tenant_id TEXT NULL,
+  operation INTEGER NOT NULL,
+  visibility INTEGER NOT NULL,
+  collection_id TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  before_json TEXT NULL,
+  after_json TEXT NULL
+);
+""", cancellationToken).ConfigureAwait(false);
+
+        await ExecuteAsync(connection, $"""
+CREATE INDEX IF NOT EXISTS {_names.MutationJournalScopeIndex}
+  ON {_names.MutationJournal}(tenant_id, collection_id, record_id, position);
+""", cancellationToken).ConfigureAwait(false);
+
         foreach (var collectionId in _options.CollectionIds.Concat((_options.Collections ?? []).Select(c => c.Id)).Distinct(StringComparer.Ordinal))
         {
             if (!SqliteValidation.IsValidIdText(collectionId))
@@ -105,7 +127,7 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
     public async ValueTask<string[]> GetMissingSchemaPartsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
         var missing = new List<string>();
-        foreach (var table in new[] { _names.Records, _names.Collections, _names.ProviderState })
+        foreach (var table in new[] { _names.Records, _names.Collections, _names.ProviderState, _names.MutationJournal })
         {
             if (!await ObjectExistsAsync(connection, "table", table, cancellationToken).ConfigureAwait(false))
             {
@@ -116,10 +138,16 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
         if (missing.Count == 0)
         {
             missing.AddRange(await GetMissingRecordColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
+            missing.AddRange(await GetMissingMutationJournalColumnsAsync(connection, cancellationToken).ConfigureAwait(false));
 
             if (!await ObjectExistsAsync(connection, "index", _names.RecordsUpdatedIndex, cancellationToken).ConfigureAwait(false))
             {
                 missing.Add("index:" + _names.RecordsUpdatedIndex);
+            }
+
+            if (!await ObjectExistsAsync(connection, "index", _names.MutationJournalScopeIndex, cancellationToken).ConfigureAwait(false))
+            {
+                missing.Add("index:" + _names.MutationJournalScopeIndex);
             }
         }
 
@@ -174,6 +202,34 @@ ON CONFLICT(collection_id) DO UPDATE SET native_name = excluded.native_name;
             {
                 missing.Add("column:" + _names.Records + "." + column);
             }
+        }
+
+        return missing.ToArray();
+    }
+
+    private async ValueTask<string[]> GetMissingMutationJournalColumnsAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var missing = new List<string>();
+        foreach (var column in new[]
+        {
+            "position",
+            "event_id",
+            "event_type",
+            "schema_version",
+            "occurred_at",
+            "tenant_id",
+            "operation",
+            "visibility",
+            "collection_id",
+            "record_id",
+            "before_json",
+            "after_json"
+        })
+        {
+            if (!await ColumnExistsAsync(connection, _names.MutationJournal, column, cancellationToken).ConfigureAwait(false))
+                missing.Add("column:" + _names.MutationJournal + "." + column);
         }
 
         return missing.ToArray();

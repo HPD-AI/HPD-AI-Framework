@@ -6,6 +6,7 @@ using HPD.Base.Records;
 using HPD.Base.Results;
 using HPD.Base.Observability;
 using HPD.Base.Runtime.Events;
+using HPD.Base.Runtime.Configuration;
 using HPD.Base.Runtime.Observability;
 using HPD.Base.Runtime.Observability.Logging;
 using HPD.Base.Runtime.Policy;
@@ -16,6 +17,7 @@ using HPD.Base.Runtime.Stores;
 using HPD.Base.Schema;
 using HPD.Base.Stores;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Runtime.Operations;
 
@@ -31,6 +33,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
     private readonly IBaseOperationalFailureMapper _failureMapper;
     private readonly IBaseEventFactory _eventFactory;
     private readonly IBaseEventDispatcher _eventDispatcher;
+    private readonly HPDBaseRuntimeEventOptions _eventOptions;
     private readonly ILogger<DefaultBaseRecordRuntime> _logger;
 
     public DefaultBaseRecordRuntime(
@@ -44,6 +47,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         IBaseOperationalFailureMapper failureMapper,
         IBaseEventFactory eventFactory,
         IBaseEventDispatcher eventDispatcher,
+        IOptions<HPDBaseRuntimeOptions> options,
         ILogger<DefaultBaseRecordRuntime> logger)
     {
         _schema = schema;
@@ -56,6 +60,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         _failureMapper = failureMapper;
         _eventFactory = eventFactory;
         _eventDispatcher = eventDispatcher;
+        _eventOptions = options.Value.Events;
         _logger = logger;
     }
 
@@ -524,11 +529,16 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             prepared.Collection!,
             eventPrevious,
             null,
-            null);
-        var events = await DispatchMutationEventAsync(@event, context, cancellationToken).ConfigureAwait(false);
+            null,
+            CommittedEventId(result.Events));
+        var events = await DispatchMutationEventAsync(
+            @event,
+            CommittedGuarantee(result.Events),
+            context,
+            cancellationToken).ConfigureAwait(false);
         result = result with
         {
-            Events = events.Value,
+            Events = MergeEventReferences(result.Events, events.Value),
             Warnings = Combine(result.Warnings, events.Warnings),
             Diagnostics = result.Diagnostics ?? events.Diagnostics
         };
@@ -693,6 +703,22 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             return new PreparedStore<T>(storeGate.As<T>(), null, null);
         }
 
+        if (_eventOptions.PublishFailureMode == BaseEventPublishFailureMode.RequireEnqueue
+            && context.Operation is BaseOperationKind.Create or BaseOperationKind.Patch or BaseOperationKind.Replace or BaseOperationKind.Delete
+            && storeResult.Value is not ITransactionalMutationJournalStore)
+        {
+            return new PreparedStore<T>(
+                OperationResults.CapabilityUnavailable<T>(new BaseError
+                {
+                    Code = "base.runtime.events.transactionalJournalRequired",
+                    Message = "The selected record store does not support transactional mutation journaling.",
+                    Category = ErrorCategory.Capability,
+                    Target = collectionId
+                }),
+                null,
+                null);
+        }
+
         return new PreparedStore<T>(null, collection, storeResult.Value);
     }
 
@@ -833,14 +859,40 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
             collection,
             before,
             after,
-            changedFields);
-        var events = await DispatchMutationEventAsync(@event, context, cancellationToken).ConfigureAwait(false);
+            changedFields,
+            CommittedEventId(result.Events));
+        var events = await DispatchMutationEventAsync(
+            @event,
+            CommittedGuarantee(result.Events),
+            context,
+            cancellationToken).ConfigureAwait(false);
         return result with
         {
-            Events = events.Value,
+            Events = MergeEventReferences(result.Events, events.Value),
             Warnings = Combine(result.Warnings, events.Warnings),
             Diagnostics = result.Diagnostics ?? events.Diagnostics
         };
+    }
+
+    private static string? CommittedEventId(EventReference[]? references) =>
+        references?
+            .FirstOrDefault(reference => reference.Guarantee == EventDeliveryGuarantee.Transactional)
+            ?.EventId;
+
+    private static EventReference[]? MergeEventReferences(
+        EventReference[]? committed,
+        EventReference[]? published)
+    {
+        if (committed is null or { Length: 0 })
+            return published;
+        if (published is null or { Length: 0 })
+            return committed;
+
+        return committed
+            .Concat(published)
+            .GroupBy(reference => reference.EventId, StringComparer.Ordinal)
+            .Select(group => group.OrderByDescending(reference => reference.Guarantee).First())
+            .ToArray();
     }
 
     private async ValueTask<OperationResult<BasePolicyEvaluation>> EvaluateReadPolicyAsync(
@@ -865,14 +917,23 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
 
     private async ValueTask<OperationResult<EventReference[]>> DispatchMutationEventAsync(
         BaseRecordMutationEvent @event,
+        EventDeliveryGuarantee committedGuarantee,
         OperationContext context,
         CancellationToken cancellationToken)
     {
         using var activity = HPDBaseRuntimeTelemetry.StartEventDispatch(context, @event.Type);
         var startedAt = Stopwatch.GetTimestamp();
-        var result = await _eventDispatcher.DispatchMutationAsync(@event, cancellationToken).ConfigureAwait(false);
+        var result = await _eventDispatcher.DispatchMutationAsync(
+            @event,
+            committedGuarantee,
+            cancellationToken).ConfigureAwait(false);
         return HPDBaseRuntimeTelemetry.FinishEventDispatch(activity, result, context, startedAt);
     }
+
+    private static EventDeliveryGuarantee CommittedGuarantee(EventReference[]? references) =>
+        references is null or { Length: 0 }
+            ? EventDeliveryGuarantee.BestEffort
+            : references.Max(reference => reference.Guarantee);
 
     private static OperationResult<T> Finish<T>(
         Activity? activity,

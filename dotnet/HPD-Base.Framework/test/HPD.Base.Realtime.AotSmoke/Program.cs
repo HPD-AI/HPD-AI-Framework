@@ -17,6 +17,7 @@ _ = provider.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>();
 RoundTrip(Event(), HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeEvent);
 RoundTrip(ClientJoin(), HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeClientMessage);
 RoundTrip(ServerEvent(), HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeServerMessage);
+RoundTrip(ServerJoined(), HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeServerMessage);
 
 var serialized = JsonSerializer.Serialize(ClientJoin(), HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeClientMessage);
 if (!serialized.Contains("\"type\":\"join\"", StringComparison.Ordinal) ||
@@ -43,7 +44,9 @@ static BaseRealtimeClientMessage ClientJoin() => new()
         Kind = BaseRealtimeChannelKinds.RecordChanges,
         CollectionId = "items",
         Operations = [BaseOperationKind.Create],
-        IncludeSnapshots = true
+        IncludeSnapshots = true,
+        Durable = true,
+        ResumeCursor = "opaque-resume-cursor"
     }
 };
 
@@ -52,6 +55,21 @@ static BaseRealtimeServerMessage ServerEvent() => new()
     Type = BaseRealtimeProtocolTypes.Event,
     Channel = "base:records:items",
     Event = Event()
+};
+
+static BaseRealtimeServerMessage ServerJoined() => new()
+{
+    Type = BaseRealtimeProtocolTypes.Joined,
+    Channel = "base:records:items",
+    Join = new BaseRealtimeChannelJoinResult
+    {
+        Channel = "base:records:items",
+        Kind = BaseRealtimeChannelKinds.RecordChanges,
+        Replayable = true,
+        Resumable = true,
+        StreamId = "base.realtime.record_changes",
+        Cursor = "opaque-join-cursor"
+    }
 };
 
 static BaseRealtimeEvent Event() => new()
@@ -66,6 +84,7 @@ static BaseRealtimeEvent Event() => new()
         RecordId = new RecordId("rec_1")
     },
     Operation = BaseOperationKind.Create,
+    Cursor = "opaque-event-cursor",
     After = new BaseRealtimeRecordSnapshot
     {
         Payload = new RecordPayload

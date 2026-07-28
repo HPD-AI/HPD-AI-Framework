@@ -2,13 +2,16 @@ namespace HPD.Base.Realtime.Tests;
 
 internal static class TestServices
 {
-    public static async Task<ServiceProvider> CreateAsync(IPolicyEvaluator? evaluator = null)
+    public static async Task<ServiceProvider> CreateAsync(
+        IPolicyEvaluator? evaluator = null,
+        Action<HPD.Base.Realtime.Configuration.BaseRealtimeOptions>? configureRealtime = null,
+        IEnumerable<BaseMutationJournalEntry>? journalEntries = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(evaluator ?? new AllowPolicyEvaluator());
         services.AddHPDBaseRuntime()
-            .AddHPDBaseRealtime()
+            .AddHPDBaseRealtime(configureRealtime)
             .AddHPDBaseInMemoryStore(options =>
             {
                 options.StoreId = "primary";
@@ -56,7 +59,20 @@ internal static class TestServices
             });
 
         var provider = services.BuildServiceProvider();
-        provider.GetRequiredService<HPD.Base.Runtime.Stores.IRecordStoreRegistry>().AddHPDBaseInMemoryStore(provider);
+        var registry = provider.GetRequiredService<HPD.Base.Runtime.Stores.IRecordStoreRegistry>();
+        registry.AddHPDBaseInMemoryStore(provider);
+        if (journalEntries is not null)
+        {
+            var journal = new TestMutationJournalStore(
+                provider.GetRequiredService<HPD.Base.Stores.IRecordStore>(),
+                journalEntries);
+            registry.Add(new HPD.Base.Runtime.Stores.RecordStoreRegistration
+            {
+                StoreId = journal.Capabilities.StoreId,
+                Store = journal,
+                CollectionIds = ["items", "other"]
+            });
+        }
         await provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();
         return provider;
     }
@@ -105,6 +121,31 @@ internal static class TestServices
                 Metadata = new RecordMetadata(),
                 IncludedFields = ["title"],
                 Redacted = false
+            }
+        };
+
+    public static BaseMutationJournalEntry JournalEntry(
+        long position,
+        string recordId,
+        string title,
+        string? tenantId = null) => new()
+        {
+            Position = new BaseMutationJournalPosition(position),
+            EventId = $"event-{position}",
+            Type = BaseEventTypes.RecordCreated,
+            SchemaVersion = BaseEventSchemaVersions.V1,
+            OccurredAt = DateTimeOffset.UnixEpoch.AddSeconds(position),
+            TenantId = tenantId,
+            Operation = BaseOperationKind.Create,
+            Visibility = VisibilityLevel.Public,
+            CollectionId = "items",
+            RecordId = new RecordId(recordId),
+            After = new RecordSnapshot
+            {
+                CollectionId = "items",
+                Id = new RecordId(recordId),
+                Payload = Payload(("title", title), ("secret", "hidden")),
+                Metadata = new RecordMetadata()
             }
         };
 

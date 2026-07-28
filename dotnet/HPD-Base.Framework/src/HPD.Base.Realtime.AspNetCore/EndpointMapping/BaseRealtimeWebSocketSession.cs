@@ -243,7 +243,8 @@ internal sealed class BaseRealtimeWebSocketSession
                     Kind = message.Config.Kind,
                     Replayable = opened.Value.Descriptor.Replayable,
                     Resumable = opened.Value.Descriptor.Resumable,
-                    StreamId = opened.Value.Descriptor.StreamId
+                    StreamId = opened.Value.Descriptor.StreamId,
+                    Cursor = opened.Value.Descriptor.Cursor
                 }
             }, cancellationToken).ConfigureAwait(false);
             owner.Activate();

@@ -1,4 +1,6 @@
 using HPD.Base;
+using HPD.Base.Events;
+using HPD.Base.Policy;
 using HPD.Base.Query;
 using HPD.Base.Records;
 using HPD.Base.Results;
@@ -6,6 +8,7 @@ using HPD.Base.Observability;
 using HPD.Base.Runtime;
 using HPD.Base.Runtime.Results;
 using HPD.Base.Schema;
+using HPD.Base.Serialization;
 using HPD.Base.Sqlite.Configuration;
 using HPD.Base.Sqlite.Internal;
 using HPD.Base.Sqlite.Observability;
@@ -15,11 +18,12 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace HPD.Base.Sqlite;
 
 /// <summary>Durable SQLite implementation of the HPD.BASE record store contract.</summary>
-public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
+public sealed class SqliteRecordStore : IRevisionedRecordStore, ITransactionalMutationJournalStore, IAsyncDisposable
 {
     private readonly HPDBaseSqliteOptions _options;
     private readonly SqliteConnectionFactory _connections;
@@ -48,6 +52,86 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
     }
 
     public StoreCapabilityDescriptor Capabilities { get; }
+
+    /// <inheritdoc />
+    public async ValueTask<BaseMutationJournalBounds> GetMutationJournalBoundsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
+        return await GetBoundsAsync(connection, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<BaseMutationJournalPage> ReadMutationJournalAsync(
+        BaseMutationJournalReadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.After.Value < 0)
+            throw new ArgumentOutOfRangeException(nameof(request), "Journal position cannot be negative.");
+        if (request.Through is { } through && through.Value < 0)
+            throw new ArgumentOutOfRangeException(nameof(request), "Journal boundary cannot be negative.");
+        if (request.Limit <= 0)
+            throw new ArgumentOutOfRangeException(nameof(request), "Journal read limit must be positive.");
+        if (request.Limit > _options.MutationJournalMaxReadSize)
+            throw new ArgumentOutOfRangeException(nameof(request), "Journal read limit exceeds the configured maximum.");
+
+        await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
+        var bounds = await GetBoundsAsync(connection, cancellationToken).ConfigureAwait(false);
+        var highWatermark = request.Through ?? bounds.HighWatermark;
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"""
+SELECT position, event_id, event_type, schema_version, occurred_at, tenant_id,
+       operation, visibility, collection_id, record_id, before_json, after_json
+FROM {_names.MutationJournal}
+WHERE position > $after AND position <= $through
+ORDER BY position
+LIMIT $limit;
+""";
+        command.CommandTimeout = TimeoutSeconds();
+        command.Parameters.AddWithValue("$after", request.After.Value);
+        command.Parameters.AddWithValue("$through", highWatermark.Value);
+        command.Parameters.AddWithValue("$limit", checked(request.Limit + 1));
+
+        var entries = new List<BaseMutationJournalEntry>(request.Limit + 1);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            entries.Add(ReadJournalEntry(reader));
+
+        var hasMore = entries.Count > request.Limit;
+        if (hasMore)
+            entries.RemoveAt(entries.Count - 1);
+
+        return new BaseMutationJournalPage
+        {
+            Entries = entries.ToArray(),
+            HighWatermark = highWatermark,
+            Earliest = bounds.Earliest,
+            HasMore = hasMore
+        };
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<BaseMutationJournalEntry?> FindMutationJournalEntryAsync(
+        string eventId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(eventId);
+        await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"""
+SELECT position, event_id, event_type, schema_version, occurred_at, tenant_id,
+       operation, visibility, collection_id, record_id, before_json, after_json
+FROM {_names.MutationJournal}
+WHERE event_id = $eventId;
+""";
+        command.CommandTimeout = TimeoutSeconds();
+        command.Parameters.AddWithValue("$eventId", eventId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+            ? ReadJournalEntry(reader)
+            : null;
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -209,11 +293,17 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
             command.Parameters.AddWithValue("$updated", now.ToString("O"));
             command.Parameters.AddWithValue("$payload", payloadJson);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-
             var metadata = SqliteRecordMapper.Metadata(1, now, now, _options.StoreId);
             var envelope = new RecordEnvelope { CollectionId = collection.Id, Id = id, Payload = SqliteRecordSerializer.Deserialize(payloadJson), Metadata = metadata };
-            return SqliteResultFactory.WithRevision(OperationResults.Created(envelope), metadata);
+            var journal = await AppendMutationJournalAsync(
+                connection, transaction, BaseOperationKind.Create, context,
+                collection.Id, id, collection.Visibility?.Visibility ?? VisibilityLevel.Public,
+                null, envelope, cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+            return SqliteResultFactory.WithRevision(
+                OperationResults.Created(envelope) with { Events = [journal] },
+                metadata);
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
         {
@@ -300,8 +390,13 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
             command.Parameters.AddWithValue("$id", id.Value);
             command.CommandTimeout = TimeoutSeconds();
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            var journal = await AppendMutationJournalAsync(
+                connection, transaction, BaseOperationKind.Delete, context,
+                collection.Id, id, collection.Visibility?.Visibility ?? VisibilityLevel.Public,
+                existing, null, cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return OperationResults.Deleted(new DeleteResult { Id = id, Deleted = true, Previous = request.ReturnPrevious ? existing : null });
+            return OperationResults.Deleted(new DeleteResult { Id = id, Deleted = true, Previous = request.ReturnPrevious ? existing : null })
+                with { Events = [journal] };
         }
         catch (SqliteException ex)
         {
@@ -364,11 +459,17 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
             command.Parameters.AddWithValue("$collection", collection.Id);
             command.Parameters.AddWithValue("$id", id.Value);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-
             var metadata = SqliteRecordMapper.Metadata(nextRevision, existing.Metadata.CreatedAt!.Value, now, _options.StoreId);
             var envelope = existing with { Payload = SqliteRecordSerializer.Deserialize(payloadJson), Metadata = metadata };
-            return SqliteResultFactory.WithRevision(OperationResults.Updated(envelope), metadata);
+            var journal = await AppendMutationJournalAsync(
+                connection, transaction, context.Operation, context,
+                collection.Id, id, collection.Visibility?.Visibility ?? VisibilityLevel.Public,
+                existing, envelope, cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+            return SqliteResultFactory.WithRevision(
+                OperationResults.Updated(envelope) with { Events = [journal] },
+                metadata);
         }
         catch (SqliteException ex)
         {
@@ -395,6 +496,146 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? SqliteRecordMapper.ReadEnvelope(reader, _options.StoreId) : null;
     }
+
+    private async ValueTask<EventReference> AppendMutationJournalAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        BaseOperationKind operation,
+        OperationContext context,
+        string collectionId,
+        RecordId recordId,
+        VisibilityLevel visibility,
+        RecordEnvelope? before,
+        RecordEnvelope? after,
+        CancellationToken cancellationToken)
+    {
+        var eventId = $"evt_{Guid.NewGuid():N}";
+        var occurredAt = Now(context);
+        var type = EventType(operation);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"""
+INSERT INTO {_names.MutationJournal}(
+  event_id, event_type, schema_version, occurred_at, tenant_id, operation, visibility,
+  collection_id, record_id, before_json, after_json)
+VALUES(
+  $eventId, $eventType, $schemaVersion, $occurredAt, $tenantId, $operation, $visibility,
+  $collectionId, $recordId, $beforeJson, $afterJson);
+""";
+        command.CommandTimeout = TimeoutSeconds();
+        command.Parameters.AddWithValue("$eventId", eventId);
+        command.Parameters.AddWithValue("$eventType", type);
+        command.Parameters.AddWithValue("$schemaVersion", BaseEventSchemaVersions.V1);
+        command.Parameters.AddWithValue("$occurredAt", occurredAt.ToString("O"));
+        command.Parameters.AddWithValue("$tenantId", (object?)context.TenantId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$operation", (int)operation);
+        command.Parameters.AddWithValue("$visibility", (int)visibility);
+        command.Parameters.AddWithValue("$collectionId", collectionId);
+        command.Parameters.AddWithValue("$recordId", recordId.Value);
+        command.Parameters.AddWithValue("$beforeJson", SerializeSnapshot(before));
+        command.Parameters.AddWithValue("$afterJson", SerializeSnapshot(after));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await PruneMutationJournalAsync(connection, transaction, occurredAt, cancellationToken).ConfigureAwait(false);
+
+        return new EventReference
+        {
+            EventId = eventId,
+            Type = type,
+            Stream = "base.mutations",
+            PublishedAt = occurredAt,
+            Guarantee = EventDeliveryGuarantee.Transactional
+        };
+    }
+
+    private async ValueTask PruneMutationJournalAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"""
+DELETE FROM {_names.MutationJournal}
+WHERE occurred_at < $cutoff;
+
+DELETE FROM {_names.MutationJournal}
+WHERE position <= (
+  SELECT CASE
+    WHEN COALESCE(MAX(position), 0) > $maxEntries
+    THEN COALESCE(MAX(position), 0) - $maxEntries
+    ELSE 0
+  END
+  FROM {_names.MutationJournal}
+);
+""";
+        command.CommandTimeout = TimeoutSeconds();
+        command.Parameters.AddWithValue("$cutoff", now.Subtract(_options.MutationJournalRetention).ToString("O"));
+        command.Parameters.AddWithValue("$maxEntries", _options.MutationJournalMaxEntries);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static object SerializeSnapshot(RecordEnvelope? record)
+    {
+        if (record is null)
+            return DBNull.Value;
+
+        var snapshot = new RecordSnapshot
+        {
+            CollectionId = record.CollectionId,
+            Id = record.Id,
+            Payload = record.Payload,
+            Metadata = record.Metadata,
+            Redacted = false
+        };
+        return JsonSerializer.Serialize(snapshot, HPDBaseJsonSerializerContext.Default.RecordSnapshot);
+    }
+
+    private static BaseMutationJournalEntry ReadJournalEntry(SqliteDataReader reader) => new()
+    {
+        Position = new BaseMutationJournalPosition(reader.GetInt64(0)),
+        EventId = reader.GetString(1),
+        Type = reader.GetString(2),
+        SchemaVersion = reader.GetString(3),
+        OccurredAt = DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        TenantId = reader.IsDBNull(5) ? null : reader.GetString(5),
+        Operation = (BaseOperationKind)reader.GetInt32(6),
+        Visibility = (VisibilityLevel)reader.GetInt32(7),
+        CollectionId = reader.GetString(8),
+        RecordId = new RecordId(reader.GetString(9)),
+        Before = DeserializeSnapshot(reader, 10),
+        After = DeserializeSnapshot(reader, 11)
+    };
+
+    private static RecordSnapshot? DeserializeSnapshot(SqliteDataReader reader, int ordinal) =>
+        reader.IsDBNull(ordinal)
+            ? null
+            : JsonSerializer.Deserialize(
+                reader.GetString(ordinal),
+                HPDBaseJsonSerializerContext.Default.RecordSnapshot);
+
+    private async ValueTask<BaseMutationJournalBounds> GetBoundsAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT COALESCE(MIN(position), 0), COALESCE(MAX(position), 0) FROM {_names.MutationJournal};";
+        command.CommandTimeout = TimeoutSeconds();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        return new BaseMutationJournalBounds(
+            new BaseMutationJournalPosition(reader.GetInt64(0)),
+            new BaseMutationJournalPosition(reader.GetInt64(1)));
+    }
+
+    private static string EventType(BaseOperationKind operation) => operation switch
+    {
+        BaseOperationKind.Create => BaseEventTypes.RecordCreated,
+        BaseOperationKind.Patch => BaseEventTypes.RecordPatched,
+        BaseOperationKind.Replace => BaseEventTypes.RecordUpdated,
+        BaseOperationKind.Delete => BaseEventTypes.RecordDeleted,
+        _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, "Only record mutations can be journaled.")
+    };
 
     private async ValueTask<SqliteConnection> OpenInitializedAsync(CancellationToken cancellationToken)
     {
@@ -507,6 +748,9 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
     {
         if (!SqliteValidation.IsValidSchemaPrefix(options.SchemaPrefix)) throw new ArgumentException("SQLite schema prefix must contain only ASCII letters, digits, and underscores.", nameof(options));
         if (options.DefaultPageSize <= 0 || options.MaxPageSize <= 0 || options.DefaultPageSize > options.MaxPageSize) throw new ArgumentException("SQLite page size options are invalid.", nameof(options));
+        if (options.MutationJournalRetention <= TimeSpan.Zero) throw new ArgumentException("SQLite mutation journal retention must be positive.", nameof(options));
+        if (options.MutationJournalMaxEntries <= 0) throw new ArgumentException("SQLite mutation journal maximum entries must be positive.", nameof(options));
+        if (options.MutationJournalMaxReadSize <= 0) throw new ArgumentException("SQLite mutation journal maximum read size must be positive.", nameof(options));
     }
 
     private static StoreCapabilityDescriptor CreateCapabilities(HPDBaseSqliteOptions options) => new()

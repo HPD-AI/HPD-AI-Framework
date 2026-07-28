@@ -29,6 +29,7 @@ public static class HPDBaseSqliteServiceCollectionExtensions
             provider.GetRequiredService<ILoggerFactory>()));
         services.TryAddSingleton<IRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<IRevisionedRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<ITransactionalMutationJournalStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         if (options.ContributeRelationalDescriptors)
         {
             services.TryAddSingleton<SqliteRelationalDescriptorProvider>();

@@ -26,6 +26,7 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
 
     public async ValueTask<OperationResult<EventReference[]>> DispatchMutationAsync(
         BaseEvent @event,
+        EventDeliveryGuarantee committedGuarantee,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -46,6 +47,7 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
         }
 
         if (_options.PublishFailureMode == BaseEventPublishFailureMode.RequireEnqueue
+            && committedGuarantee < EventDeliveryGuarantee.DurableEnqueued
             && result.Value.Guarantee == EventDeliveryGuarantee.BestEffort)
         {
             LogDispatchFailure(@event, "capability", "base.runtime.events.enqueueRequired");
@@ -64,7 +66,8 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
                 Resource = @event is BaseRecordMutationEvent mutation
                     ? mutation.Resource.ResourcePath
                     : null,
-                PublishedAt = result.Value.PublishedAt
+                PublishedAt = result.Value.PublishedAt,
+                Guarantee = result.Value.Guarantee
             }
         });
     }

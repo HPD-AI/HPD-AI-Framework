@@ -194,6 +194,50 @@ public sealed class WebSocketEndpointTests
     }
 
     [Fact]
+    public async Task DurableDescriptorAndEventCursorReachTheWireContract()
+    {
+        var feed = new TrackingRealtimeFeedSource
+        {
+            Replayable = true,
+            Resumable = true,
+            Cursor = "opaque-join-cursor"
+        };
+        await using var app = await TestRealtimeApp.CreateAsync(
+            configureServices: services =>
+                Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.Replace(
+                    services,
+                    ServiceDescriptor.Singleton<HPD.Base.Realtime.Feeds.IBaseRealtimeFeedSource>(feed)));
+        using var socket = await app.GetTestServer().CreateWebSocketClient()
+            .ConnectAsync(new Uri("ws://localhost" + BaseRealtimeRoutes.WebSocket), CancellationToken.None);
+        _ = await ReceiveAsync(socket);
+
+        await SendJoinAsync(socket, "durable", "base:records:items");
+        var joined = await ReceiveAsync(socket);
+
+        joined.Join!.Replayable.Should().BeTrue();
+        joined.Join.Resumable.Should().BeTrue();
+        joined.Join.Cursor.Should().Be("opaque-join-cursor");
+
+        feed.Emit(new BaseRealtimeEvent
+        {
+            EventId = "event-one",
+            Type = BaseEventTypes.RecordCreated,
+            SchemaVersion = BaseEventSchemaVersions.V1,
+            OccurredAt = DateTimeOffset.UnixEpoch,
+            Resource = new BaseRealtimeRecordResource
+            {
+                CollectionId = "items",
+                RecordId = new RecordId("one")
+            },
+            Operation = BaseOperationKind.Create,
+            Cursor = "opaque-event-cursor"
+        });
+        var evt = await ReceiveAsync(socket);
+
+        evt.Event!.Cursor.Should().Be("opaque-event-cursor");
+    }
+
+    [Fact]
     public async Task UnsupportedChannelKindReturnsProtocolError()
     {
         await using var app = await TestRealtimeApp.CreateAsync();

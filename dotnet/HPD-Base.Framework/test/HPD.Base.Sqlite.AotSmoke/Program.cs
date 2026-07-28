@@ -1,4 +1,5 @@
 using HPD.Base;
+using HPD.Base.Events;
 using HPD.Base.Policy;
 using HPD.Base.Query;
 using HPD.Base.Records;
@@ -11,6 +12,7 @@ using HPD.Base.Schema;
 using HPD.Base.Relational.Providers;
 using HPD.Base.Sqlite.DependencyInjection;
 using HPD.Base.Sqlite.Serialization;
+using HPD.Base.Stores;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -48,6 +50,15 @@ try
     var principal = new PrincipalContext { AuthenticationState = PrincipalAuthenticationState.Anonymous };
     var create = await runtime.CreateAsync("items", new RecordCreateRequest { Payload = Payload("hello") }, principal, Operation(BaseOperationKind.Create));
     Require(create.Status == OperationStatus.Created, "Create failed.");
+    var journal = (ITransactionalMutationJournalStore)provider
+        .GetRequiredService<IRecordStoreRegistry>()
+        .GetStoreForCollection("items")!;
+    var journalPage = await journal.ReadMutationJournalAsync(
+        new BaseMutationJournalReadRequest { Limit = 10 });
+    Require(journalPage.Entries.Length == 1, "Mutation journal append/read failed.");
+    _ = JsonSerializer.Serialize(
+        journalPage,
+        HPD.Base.Serialization.HPDBaseJsonSerializerContext.Default.BaseMutationJournalPage);
 
     var list = await runtime.ListAsync("items", new RecordQuery { Count = QueryCountMode.Exact }, principal, Operation(BaseOperationKind.List));
     Require(list.Status == OperationStatus.Ok && list.Value!.Count!.Total == 1, "List/count failed.");
