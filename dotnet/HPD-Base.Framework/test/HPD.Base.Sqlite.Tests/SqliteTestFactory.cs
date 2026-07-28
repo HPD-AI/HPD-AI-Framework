@@ -5,6 +5,13 @@ namespace HPD.Base.Sqlite.Tests;
 
 internal static class SqliteTestFactory
 {
-    public static SqliteRecordStore Create(HPDBaseSqliteOptions? options = null) =>
-        new(options ?? new HPDBaseSqliteOptions(), NullLoggerFactory.Instance);
+    public static SqliteRecordStore Create(
+        HPDBaseSqliteOptions? options = null,
+        TimeProvider? timeProvider = null)
+    {
+        options ??= new HPDBaseSqliteOptions();
+        return timeProvider is null
+            ? new SqliteRecordStore(options, NullLoggerFactory.Instance)
+            : new SqliteRecordStore(options, NullLoggerFactory.Instance, timeProvider);
+    }
 }

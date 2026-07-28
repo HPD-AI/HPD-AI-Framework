@@ -92,7 +92,7 @@ internal sealed class BaseRealtimeHealthContributor : IBaseHealthContributor, IB
         [
             Diagnostic(
                 BaseRealtimeDescriptorContributor.DiagnosticIds.Options,
-                _options.CursorSigningKey is null
+                _options.CursorProtectionKey is null
                     ? "Realtime options are registered; durable replay/resume is not configured."
                     : "Realtime options are registered; durable replay/resume requires a transactional journal store per collection.",
                 now),

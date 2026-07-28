@@ -20,8 +20,9 @@ internal sealed class TrackingRealtimeFeedSource : IBaseRealtimeFeedSource
     public TaskCompletionSource EnumerationStopped { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public void Fail() =>
-        _events.Writer.TryComplete(new InvalidOperationException("adversarial-feed-failure"));
+    public void Fail(Exception? exception = null) =>
+        _events.Writer.TryComplete(
+            exception ?? new InvalidOperationException("adversarial-feed-failure"));
 
     public bool Emit(BaseRealtimeEvent realtimeEvent) =>
         _events.Writer.TryWrite(realtimeEvent);

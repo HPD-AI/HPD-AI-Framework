@@ -30,6 +30,7 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, ITransactionalMu
     private readonly SqliteSchemaInitializer _schema;
     private readonly SqliteNames _names;
     private readonly ILogger<SqliteRecordStore> _logger;
+    private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _keepAliveGate = new(1, 1);
     private SqliteConnection? _keepAliveConnection;
 
@@ -38,13 +39,25 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, ITransactionalMu
     /// </summary>
     /// <param name="options">SQLite provider options.</param>
     /// <param name="loggerFactory">The host-owned logger factory.</param>
-    public SqliteRecordStore(HPDBaseSqliteOptions options, ILoggerFactory loggerFactory)
+    public SqliteRecordStore(
+        HPDBaseSqliteOptions options,
+        ILoggerFactory loggerFactory)
+        : this(options, loggerFactory, TimeProvider.System)
+    {
+    }
+
+    internal SqliteRecordStore(
+        HPDBaseSqliteOptions options,
+        ILoggerFactory loggerFactory,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loggerFactory);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         _options = options;
         ValidateOptions(_options);
         _logger = loggerFactory.CreateLogger<SqliteRecordStore>();
+        _timeProvider = timeProvider;
         _connections = new SqliteConnectionFactory(_options);
         _schema = new SqliteSchemaInitializer(_options);
         _names = new SqliteNames(_options);
@@ -58,6 +71,7 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, ITransactionalMu
         CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await EnforceMutationJournalRetentionAsync(connection, cancellationToken).ConfigureAwait(false);
         return await GetBoundsAsync(connection, cancellationToken).ConfigureAwait(false);
     }
 
@@ -77,6 +91,7 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, ITransactionalMu
             throw new ArgumentOutOfRangeException(nameof(request), "Journal read limit exceeds the configured maximum.");
 
         await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await EnforceMutationJournalRetentionAsync(connection, cancellationToken).ConfigureAwait(false);
         var bounds = await GetBoundsAsync(connection, cancellationToken).ConfigureAwait(false);
         var highWatermark = request.Through ?? bounds.HighWatermark;
         await using var command = connection.CreateCommand();
@@ -118,6 +133,7 @@ LIMIT $limit;
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(eventId);
         await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await EnforceMutationJournalRetentionAsync(connection, cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
 SELECT position, event_id, event_type, schema_version, occurred_at, tenant_id,
@@ -535,7 +551,11 @@ VALUES(
         command.Parameters.AddWithValue("$beforeJson", SerializeSnapshot(before));
         command.Parameters.AddWithValue("$afterJson", SerializeSnapshot(after));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        await PruneMutationJournalAsync(connection, transaction, occurredAt, cancellationToken).ConfigureAwait(false);
+        await PruneMutationJournalAsync(
+            connection,
+            transaction,
+            _timeProvider.GetUtcNow(),
+            cancellationToken).ConfigureAwait(false);
 
         return new EventReference
         {
@@ -549,7 +569,7 @@ VALUES(
 
     private async ValueTask PruneMutationJournalAsync(
         SqliteConnection connection,
-        SqliteTransaction transaction,
+        SqliteTransaction? transaction,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
@@ -557,7 +577,7 @@ VALUES(
         command.Transaction = transaction;
         command.CommandText = $"""
 DELETE FROM {_names.MutationJournal}
-WHERE occurred_at < $cutoff;
+WHERE julianday(occurred_at) < julianday($cutoff);
 
 DELETE FROM {_names.MutationJournal}
 WHERE position <= (
@@ -574,6 +594,15 @@ WHERE position <= (
         command.Parameters.AddWithValue("$maxEntries", _options.MutationJournalMaxEntries);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    private ValueTask EnforceMutationJournalRetentionAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken) =>
+        PruneMutationJournalAsync(
+            connection,
+            transaction: null,
+            _timeProvider.GetUtcNow(),
+            cancellationToken);
 
     private static object SerializeSnapshot(RecordEnvelope? record)
     {
@@ -619,13 +648,26 @@ WHERE position <= (
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = $"SELECT COALESCE(MIN(position), 0), COALESCE(MAX(position), 0) FROM {_names.MutationJournal};";
+        command.CommandText = $"""
+SELECT
+  MIN(position),
+  COALESCE(
+    MAX(position),
+    (SELECT seq FROM sqlite_sequence WHERE name = $journal),
+    0)
+FROM {_names.MutationJournal};
+""";
         command.CommandTimeout = TimeoutSeconds();
+        command.Parameters.AddWithValue("$journal", _names.MutationJournal);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var highWatermark = reader.GetInt64(1);
+        var earliest = reader.IsDBNull(0)
+            ? highWatermark == 0 ? 0 : checked(highWatermark + 1)
+            : reader.GetInt64(0);
         return new BaseMutationJournalBounds(
-            new BaseMutationJournalPosition(reader.GetInt64(0)),
-            new BaseMutationJournalPosition(reader.GetInt64(1)));
+            new BaseMutationJournalPosition(earliest),
+            new BaseMutationJournalPosition(highWatermark));
     }
 
     private static string EventType(BaseOperationKind operation) => operation switch

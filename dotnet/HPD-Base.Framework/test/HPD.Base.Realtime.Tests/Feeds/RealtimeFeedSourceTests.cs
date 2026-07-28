@@ -317,7 +317,7 @@ public sealed class RealtimeFeedSourceTests
         await using var provider = await TestServices.CreateAsync(
             configureRealtime: options =>
             {
-                options.CursorSigningKey = CursorKey;
+                options.CursorProtectionKey = CursorKey;
                 options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
             },
             journalEntries:
@@ -371,7 +371,7 @@ public sealed class RealtimeFeedSourceTests
     public async Task DurableCursorCannotMoveToAnotherScopeOrAcceptTampering()
     {
         await using var provider = await TestServices.CreateAsync(
-            configureRealtime: options => options.CursorSigningKey = CursorKey,
+            configureRealtime: options => options.CursorProtectionKey = CursorKey,
             journalEntries: [TestServices.JournalEntry(1, "one", "first")]);
         var feed = provider.GetRequiredService<IBaseRealtimeFeedSource>();
         var join = new BaseRealtimeChannelJoinRequest
@@ -397,7 +397,10 @@ public sealed class RealtimeFeedSourceTests
         mismatched.Succeeded.Should().BeFalse();
         mismatched.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CursorScopeMismatch);
 
-        var tamperedCursor = cursor[..^1] + (cursor[^1] == 'A' ? "B" : "A");
+        var tamperIndex = cursor.Length / 2;
+        var tamperedCursor = cursor[..tamperIndex]
+            + (cursor[tamperIndex] == 'A' ? "B" : "A")
+            + cursor[(tamperIndex + 1)..];
         var tampered = await feed.OpenAsync(request with
         {
             Join = join with { ResumeCursor = tamperedCursor }
@@ -425,20 +428,50 @@ public sealed class RealtimeFeedSourceTests
             Durable = true
         };
         await using var originalProvider = await TestServices.CreateAsync(
-            configureRealtime: options => options.CursorSigningKey = CursorKey,
+            configureRealtime: options => options.CursorProtectionKey = CursorKey,
             journalEntries: [TestServices.JournalEntry(1, "one", "first")]);
         var original = await originalProvider.GetRequiredService<IBaseRealtimeFeedSource>()
             .OpenAsync(Request(join));
         var cursor = original.Value!.Descriptor.Cursor!;
 
         await using var retainedProvider = await TestServices.CreateAsync(
-            configureRealtime: options => options.CursorSigningKey = CursorKey,
+            configureRealtime: options => options.CursorProtectionKey = CursorKey,
             journalEntries: [TestServices.JournalEntry(3, "three", "third")]);
         var resumed = await retainedProvider.GetRequiredService<IBaseRealtimeFeedSource>()
             .OpenAsync(Request(join with { ResumeCursor = cursor }));
 
         resumed.Succeeded.Should().BeFalse();
         resumed.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CursorExpired);
+    }
+
+    [Fact]
+    public async Task ActiveDurableReaderThrowsCursorExpiredWhenRetentionOvertakesIt()
+    {
+        await using var provider = await TestServices.CreateAsync(
+            configureRealtime: options =>
+            {
+                options.CursorProtectionKey = CursorKey;
+                options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
+            },
+            journalEntries: []);
+        var feed = provider.GetRequiredService<IBaseRealtimeFeedSource>();
+        var join = new BaseRealtimeChannelJoinRequest
+        {
+            Kind = BaseRealtimeChannelKinds.RecordChanges,
+            CollectionId = "items",
+            Durable = true
+        };
+        var opened = await feed.OpenAsync(Request(join));
+        var journal = (TestMutationJournalStore)provider
+            .GetRequiredService<HPD.Base.Runtime.Stores.IRecordStoreRegistry>()
+            .GetStoreForCollection("items")!;
+        journal.Add(TestServices.JournalEntry(2, "after-retention", "value"));
+
+        await using var enumerator = opened.Value!.Items.GetAsyncEnumerator();
+        var act = () => enumerator.MoveNextAsync().AsTask();
+
+        var failure = await act.Should().ThrowAsync<BaseRealtimeFeedException>();
+        failure.Which.Code.Should().Be(BaseRealtimeErrorCodes.CursorExpired);
     }
 
     [Fact]
@@ -457,7 +490,7 @@ public sealed class RealtimeFeedSourceTests
         noKey.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CapabilityUnavailable);
 
         await using var noJournalProvider = await TestServices.CreateAsync(
-            configureRealtime: options => options.CursorSigningKey = CursorKey);
+            configureRealtime: options => options.CursorProtectionKey = CursorKey);
         var noJournal = await noJournalProvider.GetRequiredService<IBaseRealtimeFeedSource>()
             .OpenAsync(Request(join));
         noJournal.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CapabilityUnavailable);
@@ -473,7 +506,7 @@ public sealed class RealtimeFeedSourceTests
         await using var provider = await TestServices.CreateAsync(
             configureRealtime: options =>
             {
-                options.CursorSigningKey = CursorKey;
+                options.CursorProtectionKey = CursorKey;
                 options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
             },
             journalEntries: [TestServices.JournalEntry(1, "initial", "initial", "tenant-a")]);
@@ -523,7 +556,7 @@ public sealed class RealtimeFeedSourceTests
         await using var provider = await TestServices.CreateAsync(
             configureRealtime: options =>
             {
-                options.CursorSigningKey = CursorKey;
+                options.CursorProtectionKey = CursorKey;
                 options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
             },
             journalEntries: [TestServices.JournalEntry(1, "initial", "initial")]);

@@ -23,8 +23,10 @@ internal readonly record struct BaseRealtimeCursorReadResult(
 internal sealed class BaseRealtimeCursorProtector
 {
     private const byte Version = 1;
-    private const int PayloadLength = 81;
-    private const int SignatureLength = 32;
+    private const int PlaintextLength = 80;
+    private const int NonceLength = 12;
+    private const int TagLength = 16;
+    private const int TokenLength = 1 + NonceLength + PlaintextLength + TagLength;
     private readonly byte[]? _key;
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _lifetime;
@@ -35,9 +37,10 @@ internal sealed class BaseRealtimeCursorProtector
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
-        _key = options.Value.CursorSigningKey is null
+        _key = options.Value.CursorProtectionKey is null
             ? null
-            : Encoding.UTF8.GetBytes(options.Value.CursorSigningKey);
+            : SHA256.HashData(Encoding.UTF8.GetBytes(
+                "HPD.BASE realtime cursor encryption v1\0" + options.Value.CursorProtectionKey));
         _timeProvider = timeProvider;
         _lifetime = TimeSpan.FromSeconds(options.Value.Limits.CursorLifetimeSeconds);
     }
@@ -54,21 +57,23 @@ internal sealed class BaseRealtimeCursorProtector
         if (position.Value < 0)
             throw new ArgumentOutOfRangeException(nameof(position));
 
-        Span<byte> payload = stackalloc byte[PayloadLength];
-        payload[0] = Version;
-        BinaryPrimitives.WriteInt64BigEndian(payload[1..9], position.Value);
+        Span<byte> plaintext = stackalloc byte[PlaintextLength];
+        BinaryPrimitives.WriteInt64BigEndian(plaintext[..8], position.Value);
         BinaryPrimitives.WriteInt64BigEndian(
-            payload[9..17],
+            plaintext[8..16],
             _timeProvider.GetUtcNow().ToUnixTimeSeconds());
-        SHA256.HashData(Encoding.UTF8.GetBytes(storeId), payload[17..49]);
-        ScopeHash(join, payload[49..81]);
+        SHA256.HashData(Encoding.UTF8.GetBytes(storeId), plaintext[16..48]);
+        ScopeHash(join, plaintext[48..80]);
 
-        Span<byte> signature = stackalloc byte[SignatureLength];
-        HMACSHA256.HashData(_key, payload, signature);
-
-        Span<byte> token = stackalloc byte[PayloadLength + SignatureLength];
-        payload.CopyTo(token);
-        signature.CopyTo(token[PayloadLength..]);
+        Span<byte> token = stackalloc byte[TokenLength];
+        token[0] = Version;
+        var nonce = token.Slice(1, NonceLength);
+        RandomNumberGenerator.Fill(nonce);
+        var ciphertext = token.Slice(1 + NonceLength, PlaintextLength);
+        var tag = token.Slice(1 + NonceLength + PlaintextLength, TagLength);
+        using var aes = new AesGcm(_key, TagLength);
+        aes.Encrypt(nonce, plaintext, ciphertext, tag, token[..1]);
+        CryptographicOperations.ZeroMemory(plaintext);
         return Base64UrlEncode(token);
     }
 
@@ -90,34 +95,55 @@ internal sealed class BaseRealtimeCursorProtector
             return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.Invalid, default);
         }
 
-        if (token.Length != PayloadLength + SignatureLength)
+        if (token.Length != TokenLength)
             return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.Invalid, default);
 
-        var payload = token.AsSpan(0, PayloadLength);
-        var providedSignature = token.AsSpan(PayloadLength, SignatureLength);
-        Span<byte> expectedSignature = stackalloc byte[SignatureLength];
-        HMACSHA256.HashData(_key, payload, expectedSignature);
-        if (!CryptographicOperations.FixedTimeEquals(providedSignature, expectedSignature))
-            return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.Invalid, default);
-
-        if (payload[0] != Version)
+        if (token[0] != Version)
             return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.VersionUnsupported, default);
+
+        Span<byte> plaintext = stackalloc byte[PlaintextLength];
+        try
+        {
+            using var aes = new AesGcm(_key, TagLength);
+            aes.Decrypt(
+                token.AsSpan(1, NonceLength),
+                token.AsSpan(1 + NonceLength, PlaintextLength),
+                token.AsSpan(1 + NonceLength + PlaintextLength, TagLength),
+                plaintext,
+                token.AsSpan(0, 1));
+        }
+        catch (CryptographicException)
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
+            return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.Invalid, default);
+        }
 
         Span<byte> expectedStore = stackalloc byte[32];
         SHA256.HashData(Encoding.UTF8.GetBytes(storeId), expectedStore);
         Span<byte> expectedScope = stackalloc byte[32];
         ScopeHash(join, expectedScope);
-        if (!CryptographicOperations.FixedTimeEquals(payload[17..49], expectedStore)
-            || !CryptographicOperations.FixedTimeEquals(payload[49..81], expectedScope))
+        if (!CryptographicOperations.FixedTimeEquals(plaintext[16..48], expectedStore)
+            || !CryptographicOperations.FixedTimeEquals(plaintext[48..80], expectedScope))
         {
+            CryptographicOperations.ZeroMemory(plaintext);
             return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.ScopeMismatch, default);
         }
 
-        var issuedAt = DateTimeOffset.FromUnixTimeSeconds(BinaryPrimitives.ReadInt64BigEndian(payload[9..17]));
-        if (_timeProvider.GetUtcNow() - issuedAt > _lifetime)
+        var issuedAt = DateTimeOffset.FromUnixTimeSeconds(BinaryPrimitives.ReadInt64BigEndian(plaintext[8..16]));
+        var age = _timeProvider.GetUtcNow() - issuedAt;
+        if (age < TimeSpan.Zero)
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
+            return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.Invalid, default);
+        }
+        if (age > _lifetime)
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
             return new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.Expired, default);
+        }
 
-        var position = BinaryPrimitives.ReadInt64BigEndian(payload[1..9]);
+        var position = BinaryPrimitives.ReadInt64BigEndian(plaintext[..8]);
+        CryptographicOperations.ZeroMemory(plaintext);
         return position < 0
             ? new BaseRealtimeCursorReadResult(BaseRealtimeCursorStatus.Invalid, default)
             : new BaseRealtimeCursorReadResult(

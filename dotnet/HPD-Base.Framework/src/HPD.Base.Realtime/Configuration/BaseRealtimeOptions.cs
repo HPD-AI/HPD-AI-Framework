@@ -23,8 +23,8 @@ public sealed class BaseRealtimeOptions
     public bool RequireAuthenticatedPrivateChannels { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets the host secret used to authenticate opaque durable cursors.
+    /// Gets or sets the host secret used to encrypt and authenticate opaque durable cursors.
     /// A value of at least 32 UTF-8 bytes enables durable channel requests.
     /// </summary>
-    public string? CursorSigningKey { get; set; }
+    public string? CursorProtectionKey { get; set; }
 }

@@ -83,7 +83,7 @@ finally
     }
 }
 
-static OperationContext Operation(BaseOperationKind kind) => new() { Operation = kind, CollectionId = "items", Now = DateTimeOffset.UnixEpoch };
+static OperationContext Operation(BaseOperationKind kind) => new() { Operation = kind, CollectionId = "items", Now = DateTimeOffset.UtcNow };
 
 static RecordPayload Payload(string title)
 {

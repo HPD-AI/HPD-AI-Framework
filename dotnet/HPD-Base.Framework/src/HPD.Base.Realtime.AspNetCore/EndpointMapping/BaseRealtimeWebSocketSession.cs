@@ -227,7 +227,7 @@ internal sealed class BaseRealtimeWebSocketSession
             _options.Limits.OutboundCapacity,
             cancellationToken,
             SendEventAsync,
-            RecordPumpFailure,
+            HandleChannelFailureAsync,
             TerminateSlowConsumerAsync);
         _channels.Add(message.Channel, owner);
         try
@@ -298,9 +298,35 @@ internal sealed class BaseRealtimeWebSocketSession
         await Task.WhenAll(stops).ConfigureAwait(false);
     }
 
-    private void RecordPumpFailure() =>
+    private async Task HandleChannelFailureAsync(
+        string channel,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        if (exception is BaseRealtimeFeedException terminal)
+        {
+            try
+            {
+                await SendErrorAsync(
+                    null,
+                    channel,
+                    terminal.Code,
+                    terminal.SafeMessage,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (BaseRealtimeSendTimeoutException)
+            {
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+
+            return;
+        }
+
         HPDBaseRealtimeAspNetCoreLog.WebSocketReceiveFailed(
             _logger, "unexpected", BaseRealtimeErrorCodes.CapabilityUnavailable);
+    }
 
     private async Task TerminateSlowConsumerAsync(
         string channel,
@@ -459,6 +485,14 @@ internal sealed class BaseRealtimeWebSocketSession
             _logger,
             BaseRealtimeErrorCodes.PayloadTooLarge,
             HPDBaseTelemetryBuckets.PayloadSize(serializedLength));
+        if (evt.Cursor is not null)
+        {
+            HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "error");
+            throw new BaseRealtimeFeedException(
+                BaseRealtimeErrorCodes.PayloadTooLarge,
+                "The durable realtime event exceeded the configured payload limit.");
+        }
+
         HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "dropped");
     }
 

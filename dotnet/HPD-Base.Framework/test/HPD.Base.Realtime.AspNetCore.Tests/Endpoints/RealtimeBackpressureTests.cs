@@ -81,7 +81,11 @@ public sealed class RealtimeBackpressureTests
             1,
             cancellation.Token,
             SendSlowAsync,
-            () => Interlocked.Increment(ref pumpFailures),
+            (_, _, _) =>
+            {
+                Interlocked.Increment(ref pumpFailures);
+                return Task.CompletedTask;
+            },
             (_, _) =>
             {
                 Interlocked.Increment(ref slowTerminations);
@@ -94,7 +98,11 @@ public sealed class RealtimeBackpressureTests
             1,
             cancellation.Token,
             SendHealthyAsync,
-            () => Interlocked.Increment(ref pumpFailures),
+            (_, _, _) =>
+            {
+                Interlocked.Increment(ref pumpFailures);
+                return Task.CompletedTask;
+            },
             (_, _) => Task.CompletedTask);
 
         slow.Activate();

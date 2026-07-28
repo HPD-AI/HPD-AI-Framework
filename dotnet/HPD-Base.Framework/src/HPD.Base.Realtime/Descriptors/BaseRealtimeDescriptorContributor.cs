@@ -189,7 +189,7 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
     private static JsonElement JsonBoolean(bool value) => value ? JsonTrue() : JsonFalse();
 
     private bool DurableConfigured =>
-        _options.Enabled && !string.IsNullOrWhiteSpace(_options.CursorSigningKey);
+        _options.Enabled && !string.IsNullOrWhiteSpace(_options.CursorProtectionKey);
 
     private bool FeatureAvailable(string featureId) =>
         _options.Enabled

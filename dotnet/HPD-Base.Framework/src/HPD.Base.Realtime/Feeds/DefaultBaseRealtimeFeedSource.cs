@@ -265,7 +265,12 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
                 _stats.RecordDurableJournalRead();
 
                 if (page.Earliest.Value > 0 && position.Value < page.Earliest.Value - 1)
-                    yield break;
+                {
+                    _stats.RecordDurableCursorRejection();
+                    throw new BaseRealtimeFeedException(
+                        BaseRealtimeErrorCodes.CursorExpired,
+                        "The durable realtime cursor is older than the retained mutation journal.");
+                }
 
                 foreach (var entry in page.Entries)
                 {

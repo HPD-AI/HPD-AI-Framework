@@ -161,10 +161,12 @@ public sealed class SqliteMutationJournalTests
     }
 
     [Fact]
-    public async Task AgeRetentionPrunesEntriesAtTheNextCommittedMutation()
+    public async Task AgeRetentionExpiresEntriesDuringAnIdleRead()
     {
-        await using var store = CreateStore(options =>
-            options.MutationJournalRetention = TimeSpan.FromSeconds(5));
+        var time = new ManualTimeProvider(DateTimeOffset.UnixEpoch.AddSeconds(1));
+        await using var store = CreateStore(
+            options => options.MutationJournalRetention = TimeSpan.FromSeconds(5),
+            time);
         var collection = Collection();
         await store.CreateAsync(
             collection,
@@ -174,20 +176,13 @@ public sealed class SqliteMutationJournalTests
                 Payload = Payload("old")
             },
             Operation(BaseOperationKind.Create, 1));
-        await store.CreateAsync(
-            collection,
-            new RecordCreateRequest
-            {
-                RequestedId = new RecordId("current"),
-                Payload = Payload("current")
-            },
-            Operation(BaseOperationKind.Create, 10));
+        time.Advance(TimeSpan.FromSeconds(9));
 
         var page = await store.ReadMutationJournalAsync(new BaseMutationJournalReadRequest { Limit = 10 });
 
         page.Earliest.Value.Should().Be(2);
-        page.Entries.Should().ContainSingle()
-            .Which.RecordId.Value.Should().Be("current");
+        page.HighWatermark.Value.Should().Be(1);
+        page.Entries.Should().BeEmpty();
     }
 
     [Fact]
@@ -361,14 +356,18 @@ public sealed class SqliteMutationJournalTests
         UnknownFields = UnknownFieldPolicy.Preserve
     };
 
-    private static SqliteRecordStore CreateStore(Action<HPDBaseSqliteOptions>? configure = null)
+    private static SqliteRecordStore CreateStore(
+        Action<HPDBaseSqliteOptions>? configure = null,
+        TimeProvider? timeProvider = null)
     {
         var options = new HPDBaseSqliteOptions
         {
             StoreId = $"journal_{Guid.NewGuid():N}"
         };
         configure?.Invoke(options);
-        return SqliteTestFactory.Create(options);
+        return SqliteTestFactory.Create(
+            options,
+            timeProvider ?? new ManualTimeProvider(DateTimeOffset.UnixEpoch));
     }
 
     private static OperationContext Operation(BaseOperationKind operation, int second) => new()
@@ -387,6 +386,13 @@ public sealed class SqliteMutationJournalTests
             Kind = RecordPayloadKind.Json,
             Json = document.RootElement.Clone()
         };
+    }
+
+    private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+
+        public void Advance(TimeSpan value) => utcNow += value;
     }
 
 }

@@ -238,6 +238,95 @@ public sealed class WebSocketEndpointTests
     }
 
     [Fact]
+    public async Task DurableOversizeEventTerminatesChannelBeforeAdvancingCursor()
+    {
+        var feed = new TrackingRealtimeFeedSource
+        {
+            Replayable = true,
+            Resumable = true,
+            Cursor = "opaque-join-cursor"
+        };
+        await using var app = await TestRealtimeApp.CreateAsync(
+            options => options.Limits = options.Limits with { MaxPayloadBytes = 256 },
+            configureServices: services =>
+                Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.Replace(
+                    services,
+                    ServiceDescriptor.Singleton<HPD.Base.Realtime.Feeds.IBaseRealtimeFeedSource>(feed)));
+        using var socket = await app.GetTestServer().CreateWebSocketClient()
+            .ConnectAsync(new Uri("ws://localhost" + BaseRealtimeRoutes.WebSocket), CancellationToken.None);
+        _ = await ReceiveAsync(socket);
+        await SendJoinAsync(socket, "durable", "base:records:items");
+        _ = await ReceiveAsync(socket);
+        await feed.EnumerationStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        feed.Emit(new BaseRealtimeEvent
+        {
+            EventId = new string('e', 512),
+            Type = BaseEventTypes.RecordCreated,
+            SchemaVersion = BaseEventSchemaVersions.V1,
+            OccurredAt = DateTimeOffset.UnixEpoch,
+            Resource = new BaseRealtimeRecordResource
+            {
+                CollectionId = "items",
+                RecordId = new RecordId("oversize")
+            },
+            Operation = BaseOperationKind.Create,
+            Cursor = "cursor-for-oversize-event"
+        });
+        feed.Emit(new BaseRealtimeEvent
+        {
+            EventId = "later-event",
+            Type = BaseEventTypes.RecordCreated,
+            SchemaVersion = BaseEventSchemaVersions.V1,
+            OccurredAt = DateTimeOffset.UnixEpoch.AddSeconds(1),
+            Resource = new BaseRealtimeRecordResource
+            {
+                CollectionId = "items",
+                RecordId = new RecordId("later")
+            },
+            Operation = BaseOperationKind.Create,
+            Cursor = "cursor-that-must-not-advance"
+        });
+        var terminal = await ReceiveAsync(socket);
+
+        terminal.Type.Should().Be(BaseRealtimeProtocolTypes.Error);
+        terminal.Error!.Code.Should().Be(BaseRealtimeErrorCodes.PayloadTooLarge);
+        terminal.Channel.Should().Be("base:records:items");
+        await feed.EnumerationStopped.Task.WaitAsync(TimeSpan.FromSeconds(3));
+    }
+
+    [Fact]
+    public async Task RetentionOvertakeSendsStableCursorExpiredError()
+    {
+        var feed = new TrackingRealtimeFeedSource
+        {
+            Replayable = true,
+            Resumable = true,
+            Cursor = "opaque-join-cursor"
+        };
+        await using var app = await TestRealtimeApp.CreateAsync(
+            configureServices: services =>
+                Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.Replace(
+                    services,
+                    ServiceDescriptor.Singleton<HPD.Base.Realtime.Feeds.IBaseRealtimeFeedSource>(feed)));
+        using var socket = await app.GetTestServer().CreateWebSocketClient()
+            .ConnectAsync(new Uri("ws://localhost" + BaseRealtimeRoutes.WebSocket), CancellationToken.None);
+        _ = await ReceiveAsync(socket);
+        await SendJoinAsync(socket, "durable", "base:records:items");
+        _ = await ReceiveAsync(socket);
+        await feed.EnumerationStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        feed.Fail(new BaseRealtimeFeedException(
+            BaseRealtimeErrorCodes.CursorExpired,
+            "The durable realtime cursor is older than the retained mutation journal."));
+        var terminal = await ReceiveAsync(socket);
+
+        terminal.Type.Should().Be(BaseRealtimeProtocolTypes.Error);
+        terminal.Error!.Code.Should().Be(BaseRealtimeErrorCodes.CursorExpired);
+        terminal.Channel.Should().Be("base:records:items");
+    }
+
+    [Fact]
     public async Task UnsupportedChannelKindReturnsProtocolError()
     {
         await using var app = await TestRealtimeApp.CreateAsync();

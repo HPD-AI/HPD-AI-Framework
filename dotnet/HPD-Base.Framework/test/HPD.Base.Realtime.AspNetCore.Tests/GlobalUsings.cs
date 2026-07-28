@@ -9,6 +9,7 @@ global using HPD.Base.Realtime;
 global using HPD.Base.Realtime.AspNetCore.DependencyInjection;
 global using HPD.Base.Realtime.AspNetCore.EndpointMapping;
 global using HPD.Base.Realtime.DependencyInjection;
+global using HPD.Base.Realtime.Feeds;
 global using HPD.Base.Realtime.Serialization;
 global using HPD.Base.Runtime.DependencyInjection;
 global using HPD.Base.Runtime.Descriptors;

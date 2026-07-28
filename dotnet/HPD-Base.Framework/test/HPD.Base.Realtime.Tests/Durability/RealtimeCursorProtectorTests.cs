@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using HPD.Base.Events;
@@ -9,7 +10,7 @@ namespace HPD.Base.Realtime.Tests.Durability;
 
 public sealed class RealtimeCursorProtectorTests
 {
-    private const string SigningKey = "test-only-cursor-signing-key-32-bytes-minimum";
+    private const string ProtectionKey = "test-only-cursor-protection-key-32-bytes-minimum";
     private static readonly DateTimeOffset Now = new(2026, 7, 28, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
@@ -32,6 +33,31 @@ public sealed class RealtimeCursorProtectorTests
         cursor.Should().NotContain("tenant-a");
         cursor.Should().NotContain("items");
         cursor.Should().NotContain("42");
+    }
+
+    [Fact]
+    public void DecodedWireTokenDoesNotContainRecoverableCursorMetadata()
+    {
+        var protector = Create(new ManualTimeProvider(Now));
+        var cursor = protector.Protect(
+            new BaseMutationJournalPosition(0x0102030405060708),
+            "private-store-marker",
+            Join());
+        var token = Decode(cursor);
+        Span<byte> position = stackalloc byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(position, 0x0102030405060708);
+        Span<byte> timestamp = stackalloc byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(timestamp, Now.ToUnixTimeSeconds());
+        var storeHash = SHA256.HashData(Encoding.UTF8.GetBytes("private-store-marker"));
+
+        ContainsSequence(token, position).Should().BeFalse();
+        ContainsSequence(token, timestamp).Should().BeFalse();
+        ContainsSequence(token, storeHash).Should().BeFalse();
+        protector.Protect(
+                new BaseMutationJournalPosition(0x0102030405060708),
+                "private-store-marker",
+                Join())
+            .Should().NotBe(cursor);
     }
 
     [Fact]
@@ -60,7 +86,7 @@ public sealed class RealtimeCursorProtectorTests
         new(
             Options.Create(new BaseRealtimeOptions
             {
-                CursorSigningKey = SigningKey,
+                CursorProtectionKey = ProtectionKey,
                 Limits = new BaseRealtimeLimits
                 {
                     CursorLifetimeSeconds = lifetimeSeconds
@@ -81,11 +107,18 @@ public sealed class RealtimeCursorProtectorTests
     {
         var token = Decode(cursor);
         token[0] = version;
-        var signature = HMACSHA256.HashData(
-            Encoding.UTF8.GetBytes(SigningKey),
-            token.AsSpan(0, 81));
-        signature.CopyTo(token, 81);
         return Encode(token);
+    }
+
+    private static bool ContainsSequence(ReadOnlySpan<byte> haystack, ReadOnlySpan<byte> needle)
+    {
+        for (var index = 0; index <= haystack.Length - needle.Length; index++)
+        {
+            if (haystack.Slice(index, needle.Length).SequenceEqual(needle))
+                return true;
+        }
+
+        return false;
     }
 
     private static byte[] Decode(string value)

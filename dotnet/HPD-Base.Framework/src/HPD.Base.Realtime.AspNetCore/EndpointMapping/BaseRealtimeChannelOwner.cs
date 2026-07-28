@@ -8,7 +8,7 @@ internal sealed class BaseRealtimeChannelOwner : IAsyncDisposable
     private readonly IAsyncEnumerator<BaseRealtimeEvent> _events;
     private readonly Channel<BaseRealtimeEvent> _outbound;
     private readonly Func<string, BaseRealtimeEvent, CancellationToken, Task> _send;
-    private readonly Action _producerFailed;
+    private readonly Func<string, Exception, CancellationToken, Task> _channelFailed;
     private readonly Func<string, CancellationToken, Task> _slowConsumer;
     private readonly TaskCompletionSource _activation = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly object _stopSync = new();
@@ -23,7 +23,7 @@ internal sealed class BaseRealtimeChannelOwner : IAsyncDisposable
         int outboundCapacity,
         CancellationToken sessionCancellation,
         Func<string, BaseRealtimeEvent, CancellationToken, Task> send,
-        Action producerFailed,
+        Func<string, Exception, CancellationToken, Task> channelFailed,
         Func<string, CancellationToken, Task> slowConsumer)
     {
         Channel = channel;
@@ -38,7 +38,7 @@ internal sealed class BaseRealtimeChannelOwner : IAsyncDisposable
                 AllowSynchronousContinuations = false
             });
         _send = send;
-        _producerFailed = producerFailed;
+        _channelFailed = channelFailed;
         _slowConsumer = slowConsumer;
         _producer = ProduceAsync();
         _sender = SendAsync();
@@ -105,7 +105,7 @@ internal sealed class BaseRealtimeChannelOwner : IAsyncDisposable
 
     private async Task ObserveAsync()
     {
-        Exception? producerFailure = null;
+        Exception? channelFailure = null;
         var first = await Task.WhenAny(_producer, _sender).ConfigureAwait(false);
         if (ReferenceEquals(first, _sender) && !_producer.IsCompleted)
             await _cancellation.CancelAsync().ConfigureAwait(false);
@@ -119,7 +119,7 @@ internal sealed class BaseRealtimeChannelOwner : IAsyncDisposable
         }
         catch (Exception exception)
         {
-            producerFailure = exception;
+            channelFailure = exception;
             await _cancellation.CancelAsync().ConfigureAwait(false);
         }
 
@@ -134,13 +134,14 @@ internal sealed class BaseRealtimeChannelOwner : IAsyncDisposable
         {
             await TerminateSlowConsumerAsync().ConfigureAwait(false);
         }
-        catch (Exception)
+        catch (Exception exception)
         {
+            channelFailure ??= exception;
             await _cancellation.CancelAsync().ConfigureAwait(false);
         }
 
-        if (producerFailure is not null)
-            _producerFailed();
+        if (channelFailure is not null)
+            await _channelFailed(Channel, channelFailure, CancellationToken.None).ConfigureAwait(false);
     }
 
     private async Task TerminateSlowConsumerAsync()

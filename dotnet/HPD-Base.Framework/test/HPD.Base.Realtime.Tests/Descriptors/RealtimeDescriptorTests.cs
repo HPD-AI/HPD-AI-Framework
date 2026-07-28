@@ -53,7 +53,7 @@ public sealed class RealtimeDescriptorTests
     {
         await using var provider = await TestServices.CreateAsync(
             configureRealtime: options =>
-                options.CursorSigningKey = "test-only-cursor-signing-key-32-bytes-minimum");
+                options.CursorProtectionKey = "test-only-cursor-signing-key-32-bytes-minimum");
         var snapshot = provider.GetRequiredService<IBaseDescriptorRegistry>().Current;
         var family = snapshot.Capabilities.Families
             .Single(item => item.FamilyId == "base.realtime");
