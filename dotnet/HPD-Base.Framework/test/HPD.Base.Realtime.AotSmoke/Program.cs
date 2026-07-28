@@ -1,6 +1,9 @@
 using System.Text.Json;
 using HPD.Base;
 using HPD.Base.Events;
+using HPD.Base.Dependencies;
+using HPD.Base.Dependencies.DependencyInjection;
+using HPD.Base.Dependencies.Serialization;
 using HPD.Base.Records;
 using HPD.Base.Realtime;
 using HPD.Base.Realtime.DependencyInjection;
@@ -10,11 +13,13 @@ using Microsoft.Extensions.DependencyInjection;
 
 var services = new ServiceCollection();
 services.AddLogging();
+services.AddHPDBaseDependencies(options => options.ProtectionKey = Enumerable.Repeat((byte)0x44, 32).ToArray());
 services.AddHPDBaseRealtime();
 using var provider = services.BuildServiceProvider();
 _ = provider.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>();
 
 RoundTrip(Event(), HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeEvent);
+RoundTrip(Invalidation(), HPDBaseDependenciesJsonSerializerContext.Default.BaseDependencyInvalidation);
 RoundTrip(ClientJoin(), HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeClientMessage);
 RoundTrip(ServerEvent(), HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeServerMessage);
 RoundTrip(ServerJoined(), HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeServerMessage);
@@ -85,6 +90,7 @@ static BaseRealtimeEvent Event() => new()
     },
     Operation = BaseOperationKind.Create,
     Cursor = "opaque-event-cursor",
+    Invalidation = Invalidation(),
     After = new BaseRealtimeRecordSnapshot
     {
         Payload = new RecordPayload
@@ -96,6 +102,21 @@ static BaseRealtimeEvent Event() => new()
             }
         }
     }
+};
+
+static BaseDependencyInvalidation Invalidation() => new()
+{
+    EventId = "evt_1",
+    OccurredAt = DateTimeOffset.UnixEpoch,
+    Reason = BaseDependencyInvalidationReasons.RecordMutation,
+    References =
+    [
+        new BaseDependencyReference
+        {
+            TemplateId = BaseDependencyIds.Collection,
+            Value = "d1.opaque"
+        }
+    ]
 };
 
 static JsonElement Json(string value)

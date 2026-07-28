@@ -146,7 +146,6 @@ internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApi
                 AddParameter(operation, "select", ParameterLocation.Query, required: false, "Comma-separated field projection.");
                 AddParameter(operation, "include", ParameterLocation.Query, required: false, "Comma-separated include paths.");
                 AddParameter(operation, "count", ParameterLocation.Query, required: false, "Count mode: none, ifAvailable, exact, estimated, or limited.");
-                AddParameter(operation, "dependencyToken", ParameterLocation.Query, required: false, "Set to true to request a dependency token.");
                 AddParameter(operation, "ext[module.name]", ParameterLocation.Query, required: false, "Extension query arguments keyed by module and name.");
                 break;
         }

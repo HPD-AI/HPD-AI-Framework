@@ -84,7 +84,6 @@ internal sealed class BaseHttpQueryBinder : IBaseHttpQueryBinder
             Select = select,
             Include = include?.Select(static path => new QueryInclude { Path = path }).ToArray(),
             Count = BindCount(query, out var countValidation),
-            RequestDependencyToken = BindBoolean(query, "dependencyToken") ?? false,
             Extensions = BindExtensions(query, _options.Limits, out var extensionValidation)
         };
 

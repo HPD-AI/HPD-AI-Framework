@@ -70,6 +70,10 @@ public static class BaseRealtimeErrorCodes
     public const string TooManyChannels = "base.realtime.tooManyChannels";
     public const string TooManyConnections = "base.realtime.tooManyConnections";
     public const string PayloadTooLarge = "base.realtime.payloadTooLarge";
+    /// <summary>Identifies a channel terminated because safe dependency invalidation could not be produced.</summary>
+    public const string DependencyInvalidationFailed = "base.realtime.dependencyInvalidationFailed";
+    /// <summary>Identifies a channel terminated because an event could not be projected safely.</summary>
+    public const string ProjectionFailed = "base.realtime.projectionFailed";
     /// <summary>Identifies a connection closed after its receive-idle limit elapsed.</summary>
     public const string ConnectionIdleTimeout = "base.realtime.connection.idleTimeout";
     public const string CapabilityUnavailable = "base.realtime.capabilityUnavailable";

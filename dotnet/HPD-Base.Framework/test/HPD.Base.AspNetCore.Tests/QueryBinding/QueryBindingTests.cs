@@ -11,7 +11,7 @@ public sealed class QueryBindingTests
     [InlineData("?page=2&perPage=5")]
     [InlineData("?offset=1&limit=5")]
     [InlineData("?cursor=abc&cursorDir=before&limit=5")]
-    [InlineData("?select=title&include=owner&count=exact&dependencyToken=true&ext[module.arg]=value")]
+    [InlineData("?select=title&include=owner&count=exact&ext[module.arg]=value")]
     public async Task SupportedQueryGrammarBinds(string query)
     {
         await using var app = await TestBaseApp.CreateAsync();

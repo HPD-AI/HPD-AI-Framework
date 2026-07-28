@@ -219,12 +219,6 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
             Operation(BaseOperationKind.List));
         RecordStoreConformanceAssertions.Failure(extension, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable, OperationStatus.ValidationFailed);
 
-        var dependency = await store.ListAsync(
-            Collection,
-            new RecordQuery { RequestDependencyToken = true },
-            Operation(BaseOperationKind.List));
-        RecordStoreConformanceAssertions.Failure(dependency, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable, OperationStatus.ValidationFailed);
-
         if (Capabilities.Query.Filter.Operators?.Contains(FilterOperator.Like) != true)
         {
             var unsupportedOperator = await store.ListAsync(

@@ -28,7 +28,6 @@ internal sealed class SqliteQueryPlanner
 
         if (query.Include is { Length: > 0 }) _unsupported.Add("include");
         if (query.Extensions is { Length: > 0 }) _unsupported.Add("extensions");
-        if (query.RequestDependencyToken) _unsupported.Add("dependencyToken");
         if (query.Page?.Mode == QueryPaginationMode.Cursor) _unsupported.Add("cursor");
         if (query.Count is QueryCountMode.Estimated or QueryCountMode.Limited) _unsupported.Add("count." + query.Count);
         if (query.Select is { Length: > 0 } && query.Select.Length > _options.MaxSelectFields) _unsupported.Add("select.tooManyFields");

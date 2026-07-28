@@ -1,4 +1,5 @@
 using HPD.Base.Events;
+using HPD.Base.Dependencies;
 using HPD.Base.Records;
 using HPD.Base.Runtime.Policy;
 using HPD.Base.Realtime.Policy;
@@ -9,13 +10,16 @@ internal sealed class DefaultBaseRealtimeProjectionService : IBaseRealtimeProjec
 {
     private readonly IBaseRealtimePolicy _policy;
     private readonly IBaseRecordRedactor _redactor;
+    private readonly IBaseDependencyInvalidationMapper? _invalidations;
 
     public DefaultBaseRealtimeProjectionService(
         IBaseRealtimePolicy policy,
-        IBaseRecordRedactor redactor)
+        IBaseRecordRedactor redactor,
+        IBaseDependencyInvalidationMapper? invalidations = null)
     {
         _policy = policy;
         _redactor = redactor;
+        _invalidations = invalidations;
     }
 
     public async ValueTask<BaseRealtimeEvent?> ProjectAsync(
@@ -34,6 +38,30 @@ internal sealed class DefaultBaseRealtimeProjectionService : IBaseRealtimeProjec
         if (string.IsNullOrWhiteSpace(collectionId) || recordId is null)
             return null;
 
+        BaseDependencyInvalidation? invalidation = null;
+        if (_invalidations is not null)
+        {
+            try
+            {
+                invalidation = await _invalidations
+                    .MapAsync(request.Event, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (BaseDependencyInvalidationException)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                throw new BaseDependencyInvalidationException(
+                    "Dependency invalidation mapping failed.");
+            }
+        }
+
         return new BaseRealtimeEvent
         {
             EventId = request.Event.EventId,
@@ -47,7 +75,8 @@ internal sealed class DefaultBaseRealtimeProjectionService : IBaseRealtimeProjec
             },
             Operation = request.Event.Operation,
             Before = decision.IncludeBefore ? Redact(request.Event.Before, decision) : null,
-            After = decision.IncludeAfter ? Redact(request.Event.After, decision) : null
+            After = decision.IncludeAfter ? Redact(request.Event.After, decision) : null,
+            Invalidation = invalidation
         };
     }
 

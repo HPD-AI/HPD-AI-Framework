@@ -3,6 +3,33 @@ namespace HPD.Base.Realtime.AspNetCore.Tests.Endpoints;
 public sealed class WebSocketEndpointTests
 {
     [Fact]
+    public async Task DependencyInvalidationFailureProducesTerminalProtocolError()
+    {
+        await using var app = await TestRealtimeApp.CreateAsync(
+            configureServices: services =>
+            {
+                services.AddSingleton<IBaseMutationDependencyRule, WebSocketAdditionalDependencyRule>();
+                services.AddHPDBaseDependencies(options =>
+                {
+                    options.ProtectionKey = Enumerable.Repeat((byte)0x6B, 32).ToArray();
+                    options.MaxReferencesPerInvalidation = 2;
+                });
+            });
+        using var socket = await app.GetTestServer().CreateWebSocketClient()
+            .ConnectAsync(new Uri("ws://localhost" + BaseRealtimeRoutes.WebSocket), CancellationToken.None);
+        _ = await ReceiveAsync(socket);
+        await SendJoinAsync(socket, "join", "base:records:items");
+        (await ReceiveAsync(socket)).Type.Should().Be(BaseRealtimeProtocolTypes.Joined);
+
+        await app.Services.GetRequiredService<IEventPublisher>().EmitAsync(TestRealtimeApp.Event());
+        var terminal = await ReceiveAsync(socket);
+
+        terminal.Type.Should().Be(BaseRealtimeProtocolTypes.Error);
+        terminal.Error!.Code.Should().Be(BaseRealtimeErrorCodes.DependencyInvalidationFailed);
+        terminal.Channel.Should().Be("base:records:items");
+    }
+
+    [Fact]
     public async Task PumpFailureIsObservedExactlyOnce()
     {
         var feed = new TrackingRealtimeFeedSource();
@@ -536,4 +563,23 @@ public sealed class WebSocketEndpointTests
         public void Advance(TimeSpan elapsed) =>
             Interlocked.Add(ref _timestamp, elapsed.Ticks);
     }
+}
+
+internal sealed class WebSocketAdditionalDependencyRule : IBaseMutationDependencyRule
+{
+    public ValueTask<IReadOnlyList<BaseDependencyInput>> ResolveAsync(
+        BaseRecordMutationEvent mutation,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult<IReadOnlyList<BaseDependencyInput>>(
+        [
+            new BaseDependencyInput
+            {
+                TemplateId = BaseDependencyIds.Collection,
+                Parameters =
+                [
+                    new BaseDependencyParameter("tenant", mutation.TenantId),
+                    new BaseDependencyParameter("collection", "additional")
+                ]
+            }
+        ]);
 }

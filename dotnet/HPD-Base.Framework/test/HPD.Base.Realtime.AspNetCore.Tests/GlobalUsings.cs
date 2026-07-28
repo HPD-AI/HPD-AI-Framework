@@ -2,6 +2,8 @@ global using FluentAssertions;
 global using HPD.Base;
 global using HPD.Base.AspNetCore.DependencyInjection;
 global using HPD.Base.Events;
+global using HPD.Base.Dependencies;
+global using HPD.Base.Dependencies.DependencyInjection;
 global using HPD.Base.InMemory.DependencyInjection;
 global using HPD.Base.Policy;
 global using HPD.Base.Records;

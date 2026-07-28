@@ -2,23 +2,21 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <TargetFrameworks></TargetFrameworks>
-    <RootNamespace>HPD.Base.Realtime</RootNamespace>
-    <AssemblyName>HPD.Base.Realtime.Abstractions</AssemblyName>
+    <RootNamespace>HPD.Base.Dependencies</RootNamespace>
+    <AssemblyName>HPD.Base.Dependencies.Abstractions</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPackable>true</IsPackable>
-    <PackageId>HPD.Base.Realtime.Abstractions</PackageId>
-    <Description>Stable DTOs and protocol contracts for HPD.BASE realtime event feeds.</Description>
-    <PackageTags>hpd;base;realtime;events;websocket;aot</PackageTags>
+    <PackageId>HPD.Base.Dependencies.Abstractions</PackageId>
+    <Description>Stable dependency-reference and invalidation contracts for HPD.BASE.</Description>
+    <PackageTags>hpd;base;dependencies;invalidation;cache;aot</PackageTags>
     <IsAotCompatible>true</IsAotCompatible>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
   </PropertyGroup>
-
   <ItemGroup>
     <ProjectReference Include="../HPD.Base.Abstractions/HPD.Base.Abstractions.csproj" />
-    <ProjectReference Include="../HPD.Base.Dependencies.Abstractions/HPD.Base.Dependencies.Abstractions.csproj" />
   </ItemGroup>
 </Project>

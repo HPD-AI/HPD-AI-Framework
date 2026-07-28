@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using HPD.Base.Events;
+using HPD.Base.Dependencies;
 using HPD.Base.Realtime.Configuration;
 using HPD.Base.Realtime.Durability;
 using HPD.Base.Realtime.Observability;
@@ -290,13 +291,29 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
                             Operation = request.Operation
                         }, cancellationToken).ConfigureAwait(false);
                     }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (BaseDependencyInvalidationException)
+                    {
+                        HPDBaseRealtimeLog.EventProjectionFailed(
+                            _logger,
+                            "dependencyInvalidation",
+                            BaseRealtimeErrorCodes.DependencyInvalidationFailed);
+                        throw new BaseRealtimeFeedException(
+                            BaseRealtimeErrorCodes.DependencyInvalidationFailed,
+                            "Realtime dependency invalidation could not be produced safely.");
+                    }
                     catch (Exception) when (!cancellationToken.IsCancellationRequested)
                     {
                         HPDBaseRealtimeLog.EventProjectionFailed(
                             _logger,
                             "unexpected",
-                            BaseRealtimeErrorCodes.CapabilityUnavailable);
-                        yield break;
+                            BaseRealtimeErrorCodes.ProjectionFailed);
+                        throw new BaseRealtimeFeedException(
+                            BaseRealtimeErrorCodes.ProjectionFailed,
+                            "Realtime event projection failed.");
                     }
 
                     if (projected is null)
@@ -414,13 +431,29 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
                         Operation = request.Operation
                     }, cancellationToken).ConfigureAwait(false);
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (BaseDependencyInvalidationException)
+                {
+                    HPDBaseRealtimeLog.EventProjectionFailed(
+                        _logger,
+                        "dependencyInvalidation",
+                        BaseRealtimeErrorCodes.DependencyInvalidationFailed);
+                    throw new BaseRealtimeFeedException(
+                        BaseRealtimeErrorCodes.DependencyInvalidationFailed,
+                        "Realtime dependency invalidation could not be produced safely.");
+                }
                 catch (Exception) when (!cancellationToken.IsCancellationRequested)
                 {
                     HPDBaseRealtimeLog.EventProjectionFailed(
                         _logger,
                         "unexpected",
-                        BaseRealtimeErrorCodes.CapabilityUnavailable);
-                    yield break;
+                        BaseRealtimeErrorCodes.ProjectionFailed);
+                    throw new BaseRealtimeFeedException(
+                        BaseRealtimeErrorCodes.ProjectionFailed,
+                        "Realtime event projection failed.");
                 }
 
                 if (projected is null)

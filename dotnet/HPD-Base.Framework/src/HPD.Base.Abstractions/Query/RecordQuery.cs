@@ -8,7 +8,6 @@ public sealed record RecordQuery
     public string[]? Select { get; init; }
     public QueryInclude[]? Include { get; init; }
     public QueryCountMode Count { get; init; } = QueryCountMode.IfAvailable;
-    public bool RequestDependencyToken { get; init; }
     public QueryExtension[]? Extensions { get; init; }
 }
 

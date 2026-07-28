@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using HPD.Base.Serialization;
+using HPD.Base.Dependencies;
 
 namespace HPD.Base.Realtime.Serialization;
 
@@ -23,4 +24,7 @@ namespace HPD.Base.Realtime.Serialization;
 [JsonSerializable(typeof(BaseRealtimeServerMessage))]
 [JsonSerializable(typeof(BaseRealtimeEvent[]))]
 [JsonSerializable(typeof(BaseRealtimeServerMessage[]))]
+[JsonSerializable(typeof(BaseDependencyInvalidation))]
+[JsonSerializable(typeof(BaseDependencyReference))]
+[JsonSerializable(typeof(BaseDependencyReference[]))]
 public partial class HPDBaseRealtimeJsonSerializerContext : JsonSerializerContext;

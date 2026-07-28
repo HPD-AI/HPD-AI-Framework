@@ -103,7 +103,8 @@ public sealed class RealtimeJsonContextTests
             "Operation",
             "Before",
             "After",
-            "Cursor");
+            "Cursor",
+            "Invalidation");
         AssertProperties<BaseRealtimeRecordResource>("CollectionId", "RecordId");
         AssertProperties<BaseRealtimeRecordSnapshot>("Payload");
 

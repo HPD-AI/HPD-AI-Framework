@@ -2,6 +2,306 @@ namespace HPD.Base.Realtime.Tests.Feeds;
 
 public sealed class RealtimeFeedSourceTests
 {
+    [Fact]
+    public async Task LiveDependencyFailureTerminatesWithStableError()
+    {
+        await using var provider = await TestServices.CreateAsync(
+            enableDependencies: true,
+            configureDependencies: options => options.MaxReferencesPerInvalidation = 2,
+            configureServices: services =>
+                services.AddSingleton<IBaseMutationDependencyRule, AdditionalCollectionDependencyRule>());
+        var opened = await provider.GetRequiredService<IBaseRealtimeFeedSource>().OpenAsync(
+            new BaseRealtimeFeedRequest
+            {
+                Channel = "base:records:items",
+                Principal = TestServices.Principal(),
+                Operation = TestServices.Operation(),
+                Join = new BaseRealtimeChannelJoinRequest
+                {
+                    Kind = BaseRealtimeChannelKinds.RecordChanges,
+                    CollectionId = "items"
+                }
+            });
+        await using var enumerator = opened.Value!.Items.GetAsyncEnumerator();
+        var move = enumerator.MoveNextAsync().AsTask();
+        await provider.GetRequiredService<IEventPublisher>().EmitAsync(TestServices.Event());
+
+        var failure = await Assert.ThrowsAsync<BaseRealtimeFeedException>(() => move);
+
+        failure.Code.Should().Be(BaseRealtimeErrorCodes.DependencyInvalidationFailed);
+    }
+
+    [Fact]
+    public async Task ThrowingDependencyRuleUsesDependencyErrorForLiveFeed()
+    {
+        await using var provider = await TestServices.CreateAsync(
+            enableDependencies: true,
+            configureServices: services =>
+                services.AddSingleton<IBaseMutationDependencyRule, ThrowingDependencyRule>());
+        var opened = await provider.GetRequiredService<IBaseRealtimeFeedSource>().OpenAsync(
+            new BaseRealtimeFeedRequest
+            {
+                Channel = "base:records:items",
+                Principal = TestServices.Principal(),
+                Operation = TestServices.Operation(),
+                Join = new BaseRealtimeChannelJoinRequest
+                {
+                    Kind = BaseRealtimeChannelKinds.RecordChanges,
+                    CollectionId = "items"
+                }
+            });
+        await using var enumerator = opened.Value!.Items.GetAsyncEnumerator();
+        var move = enumerator.MoveNextAsync().AsTask();
+        await provider.GetRequiredService<IEventPublisher>().EmitAsync(TestServices.Event());
+
+        var failure = await Assert.ThrowsAsync<BaseRealtimeFeedException>(() => move);
+
+        failure.Code.Should().Be(BaseRealtimeErrorCodes.DependencyInvalidationFailed);
+        failure.SafeMessage.Should().NotContain("sensitive");
+    }
+
+    [Fact]
+    public async Task DependencyMapperCancellationRemainsCancellation()
+    {
+        await using var provider = await TestServices.CreateAsync(
+            enableDependencies: true,
+            configureServices: services =>
+                services.AddSingleton<IBaseMutationDependencyRule, CancellingDependencyRule>());
+        var opened = await provider.GetRequiredService<IBaseRealtimeFeedSource>().OpenAsync(
+            new BaseRealtimeFeedRequest
+            {
+                Channel = "base:records:items",
+                Principal = TestServices.Principal(),
+                Operation = TestServices.Operation(),
+                Join = new BaseRealtimeChannelJoinRequest
+                {
+                    Kind = BaseRealtimeChannelKinds.RecordChanges,
+                    CollectionId = "items"
+                }
+            });
+        await using var enumerator = opened.Value!.Items.GetAsyncEnumerator();
+        var move = enumerator.MoveNextAsync().AsTask();
+        await provider.GetRequiredService<IEventPublisher>().EmitAsync(TestServices.Event());
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => move);
+    }
+
+    [Fact]
+    public async Task DurableDependencyFailureDeliversNoCursorAndRepeatsFromLastSafeCursor()
+    {
+        await using var provider = await TestServices.CreateAsync(
+            configureRealtime: options =>
+            {
+                options.CursorProtectionKey = "l27-dependency-failure-cursor-key";
+                options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
+            },
+            journalEntries: [TestServices.JournalEntry(1, "initial", "initial")],
+            enableDependencies: true,
+            configureDependencies: options => options.MaxReferencesPerInvalidation = 2,
+            configureServices: services =>
+                services.AddSingleton<IBaseMutationDependencyRule, AdditionalCollectionDependencyRule>());
+        var feed = provider.GetRequiredService<IBaseRealtimeFeedSource>();
+        var join = new BaseRealtimeChannelJoinRequest
+        {
+            Kind = BaseRealtimeChannelKinds.RecordChanges,
+            CollectionId = "items",
+            Durable = true
+        };
+        var request = Request(join);
+        var initial = await feed.OpenAsync(request);
+        var lastSafeCursor = initial.Value!.Descriptor.Cursor;
+        var journal = (TestMutationJournalStore)provider
+            .GetRequiredService<HPD.Base.Runtime.Stores.IRecordStoreRegistry>()
+            .GetStoreForCollection("items")!;
+        journal.Add(TestServices.JournalEntry(2, "failed", "failed"));
+        journal.Add(TestServices.JournalEntry(3, "subsequent", "subsequent"));
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var resumed = await feed.OpenAsync(
+                request with { Join = join with { ResumeCursor = lastSafeCursor } });
+            await using var enumerator = resumed.Value!.Items.GetAsyncEnumerator();
+            var failure = await Assert.ThrowsAsync<BaseRealtimeFeedException>(
+                async () => await enumerator.MoveNextAsync());
+            failure.Code.Should().Be(BaseRealtimeErrorCodes.DependencyInvalidationFailed);
+        }
+    }
+
+    [Fact]
+    public async Task ThrowingDependencyRuleUsesDependencyErrorForDurableFeed()
+    {
+        await using var provider = await TestServices.CreateAsync(
+            configureRealtime: options =>
+            {
+                options.CursorProtectionKey = "l27-throwing-rule-durable-cursor-key";
+                options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
+            },
+            journalEntries: [TestServices.JournalEntry(1, "initial", "initial")],
+            enableDependencies: true,
+            configureServices: services =>
+                services.AddSingleton<IBaseMutationDependencyRule, ThrowingDependencyRule>());
+        var feed = provider.GetRequiredService<IBaseRealtimeFeedSource>();
+        var join = new BaseRealtimeChannelJoinRequest
+        {
+            Kind = BaseRealtimeChannelKinds.RecordChanges,
+            CollectionId = "items",
+            Durable = true
+        };
+        var request = Request(join);
+        var initial = await feed.OpenAsync(request);
+        ((TestMutationJournalStore)provider
+            .GetRequiredService<HPD.Base.Runtime.Stores.IRecordStoreRegistry>()
+            .GetStoreForCollection("items")!)
+            .Add(TestServices.JournalEntry(2, "failed", "failed"));
+        var resumed = await feed.OpenAsync(
+            request with { Join = join with { ResumeCursor = initial.Value!.Descriptor.Cursor } });
+        await using var enumerator = resumed.Value!.Items.GetAsyncEnumerator();
+
+        var failure = await Assert.ThrowsAsync<BaseRealtimeFeedException>(
+            async () => await enumerator.MoveNextAsync());
+
+        failure.Code.Should().Be(BaseRealtimeErrorCodes.DependencyInvalidationFailed);
+        failure.SafeMessage.Should().NotContain("sensitive");
+    }
+
+    [Fact]
+    public async Task PolicyDeniedMutationNeverRunsDependencyMapping()
+    {
+        var rule = new CountingDependencyRule();
+        await using var provider = await TestServices.CreateAsync(
+            enableDependencies: true,
+            configureServices: services => services.AddSingleton<IBaseMutationDependencyRule>(rule));
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        var opened = await provider.GetRequiredService<IBaseRealtimeFeedSource>().OpenAsync(
+            new BaseRealtimeFeedRequest
+            {
+                Channel = "base:records:items",
+                Principal = TestServices.Principal(),
+                Operation = TestServices.Operation(),
+                Join = new BaseRealtimeChannelJoinRequest
+                {
+                    Kind = BaseRealtimeChannelKinds.RecordChanges,
+                    CollectionId = "items"
+                }
+            },
+            cts.Token);
+        await provider.GetRequiredService<IEventPublisher>().EmitAsync(
+            TestServices.Event() with { Visibility = VisibilityLevel.Admin });
+
+        await using var enumerator = opened.Value!.Items.GetAsyncEnumerator(cts.Token);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await enumerator.MoveNextAsync());
+        rule.CallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task UnexpectedProjectionFailureTerminatesWithStableError()
+    {
+        await using var provider = await TestServices.CreateAsync(
+            configureServices: services =>
+                Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions.Replace(
+                    services,
+                    ServiceDescriptor.Singleton<IBaseRealtimeProjectionService, ThrowingProjectionService>()));
+        var opened = await provider.GetRequiredService<IBaseRealtimeFeedSource>().OpenAsync(
+            new BaseRealtimeFeedRequest
+            {
+                Channel = "base:records:items",
+                Principal = TestServices.Principal(),
+                Operation = TestServices.Operation(),
+                Join = new BaseRealtimeChannelJoinRequest
+                {
+                    Kind = BaseRealtimeChannelKinds.RecordChanges,
+                    CollectionId = "items"
+                }
+            });
+        await using var enumerator = opened.Value!.Items.GetAsyncEnumerator();
+        var move = enumerator.MoveNextAsync().AsTask();
+        await provider.GetRequiredService<IEventPublisher>().EmitAsync(TestServices.Event());
+
+        var failure = await Assert.ThrowsAsync<BaseRealtimeFeedException>(() => move);
+
+        failure.Code.Should().Be(BaseRealtimeErrorCodes.ProjectionFailed);
+    }
+
+    [Fact]
+    public async Task EnabledDependenciesProjectOpaqueInvalidationsForLiveEvents()
+    {
+        await using var provider = await TestServices.CreateAsync(enableDependencies: true);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var opened = await provider.GetRequiredService<IBaseRealtimeFeedSource>().OpenAsync(
+            new BaseRealtimeFeedRequest
+            {
+                Channel = "base:records:items",
+                Principal = TestServices.Principal("tenant-secret"),
+                Operation = TestServices.Operation(tenantId: "tenant-secret"),
+                Join = new BaseRealtimeChannelJoinRequest
+                {
+                    Kind = BaseRealtimeChannelKinds.RecordChanges,
+                    CollectionId = "items"
+                }
+            },
+            cts.Token);
+
+        await provider.GetRequiredService<IEventPublisher>().EmitAsync(
+            TestServices.Event(recordId: "record-secret", tenantId: "tenant-secret"));
+        var projected = await ReadOneAsync(opened.Value!.Items);
+
+        projected.Invalidation.Should().NotBeNull();
+        projected.Invalidation!.EventId.Should().Be(projected.EventId);
+        projected.Invalidation.References.Select(reference => reference.TemplateId)
+            .Should().Equal(BaseDependencyIds.Collection, BaseDependencyIds.Record);
+        var json = JsonSerializer.Serialize(
+            projected.Invalidation,
+            HPD.Base.Dependencies.Serialization.HPDBaseDependenciesJsonSerializerContext.Default.BaseDependencyInvalidation);
+        json.Should().NotContain("tenant-secret").And.NotContain("record-secret");
+    }
+
+    [Fact]
+    public async Task DurableReplayProjectsTheSameDependencyReferencesAsLiveMapping()
+    {
+        var journal = TestServices.JournalEntry(1, "initial", "value", "tenant-secret");
+        await using var provider = await TestServices.CreateAsync(
+            configureRealtime: options =>
+            {
+                options.CursorProtectionKey = "l27-durable-cursor-protection-key";
+                options.Limits = options.Limits with { DurablePollIntervalMilliseconds = 1 };
+            },
+            journalEntries: [journal],
+            enableDependencies: true);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var feed = provider.GetRequiredService<IBaseRealtimeFeedSource>();
+        var request = new BaseRealtimeFeedRequest
+        {
+            Channel = "base:records:items",
+            Principal = TestServices.Principal("tenant-secret"),
+            Operation = TestServices.Operation(tenantId: "tenant-secret"),
+            Join = new BaseRealtimeChannelJoinRequest
+            {
+                Kind = BaseRealtimeChannelKinds.RecordChanges,
+                CollectionId = "items",
+                Durable = true
+            }
+        };
+        var initial = await feed.OpenAsync(request, cts.Token);
+        var replayEntry = TestServices.JournalEntry(2, "record-secret", "next", "tenant-secret");
+        ((TestMutationJournalStore)provider
+            .GetRequiredService<HPD.Base.Runtime.Stores.IRecordStoreRegistry>()
+            .GetStoreForCollection("items")!).Add(replayEntry);
+        var resumed = await feed.OpenAsync(
+            request with { Join = request.Join with { ResumeCursor = initial.Value!.Descriptor.Cursor } },
+            cts.Token);
+
+        var replayed = await ReadOneAsync(resumed.Value!.Items);
+        var mutation = TestServices.Event(recordId: "record-secret", tenantId: "tenant-secret") with
+        {
+            EventId = replayEntry.EventId
+        };
+        var expected = await provider.GetRequiredService<IBaseDependencyInvalidationMapper>().MapAsync(mutation);
+
+        replayed.Cursor.Should().NotBeNull();
+        replayed.Invalidation!.References.Should().Equal(expected.References);
+    }
+
     private const string CursorKey = "test-only-cursor-signing-key-32-bytes-minimum";
 
     [Fact]
@@ -626,4 +926,61 @@ public sealed class RealtimeFeedSourceTests
         (await enumerator.MoveNextAsync()).Should().BeTrue();
         return enumerator.Current;
     }
+}
+
+internal sealed class AdditionalCollectionDependencyRule : IBaseMutationDependencyRule
+{
+    public ValueTask<IReadOnlyList<BaseDependencyInput>> ResolveAsync(
+        BaseRecordMutationEvent mutation,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult<IReadOnlyList<BaseDependencyInput>>(
+        [
+            new BaseDependencyInput
+            {
+                TemplateId = BaseDependencyIds.Collection,
+                Parameters =
+                [
+                    new BaseDependencyParameter("tenant", mutation.TenantId),
+                    new BaseDependencyParameter("collection", "additional")
+                ]
+            }
+        ]);
+}
+
+internal sealed class CountingDependencyRule : IBaseMutationDependencyRule
+{
+    private int _callCount;
+    public int CallCount => Volatile.Read(ref _callCount);
+
+    public ValueTask<IReadOnlyList<BaseDependencyInput>> ResolveAsync(
+        BaseRecordMutationEvent mutation,
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _callCount);
+        return ValueTask.FromResult<IReadOnlyList<BaseDependencyInput>>([]);
+    }
+}
+
+internal sealed class ThrowingProjectionService : IBaseRealtimeProjectionService
+{
+    public ValueTask<BaseRealtimeEvent?> ProjectAsync(
+        BaseRealtimeProjectionRequest request,
+        CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException("sensitive projection failure");
+}
+
+internal sealed class ThrowingDependencyRule : IBaseMutationDependencyRule
+{
+    public ValueTask<IReadOnlyList<BaseDependencyInput>> ResolveAsync(
+        BaseRecordMutationEvent mutation,
+        CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException("sensitive custom dependency failure");
+}
+
+internal sealed class CancellingDependencyRule : IBaseMutationDependencyRule
+{
+    public ValueTask<IReadOnlyList<BaseDependencyInput>> ResolveAsync(
+        BaseRecordMutationEvent mutation,
+        CancellationToken cancellationToken = default) =>
+        throw new OperationCanceledException(cancellationToken);
 }

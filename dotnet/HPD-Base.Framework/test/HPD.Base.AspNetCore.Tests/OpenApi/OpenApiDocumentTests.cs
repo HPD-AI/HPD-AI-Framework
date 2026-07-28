@@ -89,7 +89,7 @@ public sealed class OpenApiDocumentTests
         var list = Operation(publicDoc, "/base/collections/{collectionId}/records", "get");
         list.GetProperty("parameters").EnumerateArray()
             .Select(parameter => parameter.GetProperty("name").GetString())
-            .Should().Contain(["collectionId", "filter", "where[field]", "sort", "nulls[field]", "page", "perPage", "offset", "limit", "cursor", "cursorDir", "select", "include", "count", "dependencyToken", "ext[module.name]"]);
+            .Should().Contain(["collectionId", "filter", "where[field]", "sort", "nulls[field]", "page", "perPage", "offset", "limit", "cursor", "cursorDir", "select", "include", "count", "ext[module.name]"]);
 
         var responses = create.GetProperty("responses");
         responses.TryGetProperty("201", out var created).Should().BeTrue();

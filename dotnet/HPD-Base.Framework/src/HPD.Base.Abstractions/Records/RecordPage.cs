@@ -7,7 +7,6 @@ public sealed record RecordPage
     public required RecordEnvelope[] Items { get; init; }
     public required PageInfo Page { get; init; }
     public CountInfo? Count { get; init; }
-    public string? DependencyToken { get; init; }
 }
 
 public sealed record PageInfo

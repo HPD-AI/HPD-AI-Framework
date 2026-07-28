@@ -1064,11 +1064,6 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
             return InMemoryResultFactory.Unsupported<T>(InMemoryErrorCodes.UnsupportedQuery, "Query extensions are not supported by HPD.BASE InMemory.");
         }
 
-        if (query.RequestDependencyToken)
-        {
-            return InMemoryResultFactory.Unsupported<T>(InMemoryErrorCodes.UnsupportedQuery, "Dependency tokens are not supported by HPD.BASE InMemory.");
-        }
-
         if (!allowCount && query.Count != QueryCountMode.None)
         {
             return InMemoryResultFactory.Unsupported<T>(InMemoryErrorCodes.UnsupportedQuery, "Streaming does not support count modes.");

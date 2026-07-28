@@ -5,10 +5,19 @@ internal static class TestServices
     public static async Task<ServiceProvider> CreateAsync(
         IPolicyEvaluator? evaluator = null,
         Action<HPD.Base.Realtime.Configuration.BaseRealtimeOptions>? configureRealtime = null,
-        IEnumerable<BaseMutationJournalEntry>? journalEntries = null)
+        IEnumerable<BaseMutationJournalEntry>? journalEntries = null,
+        bool enableDependencies = false,
+        Action<HPD.Base.Dependencies.Configuration.BaseDependencyOptions>? configureDependencies = null,
+        Action<IServiceCollection>? configureServices = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        if (enableDependencies)
+            services.AddHPDBaseDependencies(options =>
+            {
+                options.ProtectionKey = Enumerable.Repeat((byte)0x5A, 32).ToArray();
+                configureDependencies?.Invoke(options);
+            });
         services.AddSingleton(evaluator ?? new AllowPolicyEvaluator());
         services.AddHPDBaseRuntime()
             .AddHPDBaseRealtime(configureRealtime)
@@ -57,6 +66,7 @@ internal static class TestServices
                     }
                 ];
             });
+        configureServices?.Invoke(services);
 
         var provider = services.BuildServiceProvider();
         var registry = provider.GetRequiredService<HPD.Base.Runtime.Stores.IRecordStoreRegistry>();

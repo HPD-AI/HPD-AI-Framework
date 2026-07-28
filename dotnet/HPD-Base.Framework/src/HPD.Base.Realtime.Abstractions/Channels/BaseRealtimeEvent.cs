@@ -1,4 +1,5 @@
 using HPD.Base.Records;
+using HPD.Base.Dependencies;
 
 namespace HPD.Base.Realtime;
 
@@ -31,6 +32,9 @@ public sealed record BaseRealtimeEvent
 
     /// <summary>Gets the opaque continuation cursor for a durable channel event.</summary>
     public string? Cursor { get; init; }
+
+    /// <summary>Gets policy-visible opaque dependency invalidations when the capability is enabled.</summary>
+    public BaseDependencyInvalidation? Invalidation { get; init; }
 }
 
 /// <summary>Identifies the record affected by a realtime mutation event.</summary>
