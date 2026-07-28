@@ -441,6 +441,7 @@ public sealed class HPDAuthBasePolicyEvaluatorTests
     private static ServiceCollection ServicesWithoutDetectedHost(Action<HPDBaseHPDAuthOptions>? configure = null)
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddHPDBaseHPDAuth(configure);
         return services;
     }

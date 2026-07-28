@@ -5,7 +5,7 @@ public sealed class AddHPDBaseHPDAuthAspNetCoreTests
     [Fact]
     public void RegistersCorePolicyEvaluatorAndHttpPrincipalMapper()
     {
-        var services = new ServiceCollection();
+        var services = new ServiceCollection().AddLogging();
         services.AddHPDBaseHPDAuthAspNetCore();
         using var provider = services.BuildServiceProvider();
 
@@ -17,7 +17,7 @@ public sealed class AddHPDBaseHPDAuthAspNetCoreTests
     [Fact]
     public async Task BridgeWithoutHPDAuthServicesReportsMissingAuthServicesDiagnostic()
     {
-        var services = new ServiceCollection();
+        var services = new ServiceCollection().AddLogging();
         services.AddHPDBaseHPDAuthAspNetCore();
         using var provider = services.BuildServiceProvider();
 
@@ -41,7 +41,7 @@ public sealed class AddHPDBaseHPDAuthAspNetCoreTests
     [Fact]
     public async Task BaselineHPDAuthServicesSuppressMissingAuthServicesDiagnostic()
     {
-        var services = new ServiceCollection();
+        var services = new ServiceCollection().AddLogging();
         AddBaselineHPDAuthServiceDescriptors(services);
         services.AddHPDBaseHPDAuthAspNetCore();
         using var provider = services.BuildServiceProvider();

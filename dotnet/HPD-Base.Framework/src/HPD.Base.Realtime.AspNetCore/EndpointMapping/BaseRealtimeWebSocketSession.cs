@@ -2,17 +2,22 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using HPD.Base.Realtime.AspNetCore.Observability;
+using HPD.Base.Realtime.AspNetCore.Observability.Logging;
+using HPD.Base.Observability;
 using HPD.Base.Runtime;
 using HPD.Base.Realtime.Configuration;
 using HPD.Base.Realtime.Feeds;
 using HPD.Base.Realtime.Serialization;
 using HPD.Events;
+using Microsoft.Extensions.Logging;
 
 namespace HPD.Base.Realtime.AspNetCore.EndpointMapping;
 
 internal sealed class BaseRealtimeWebSocketSession
 {
     private const string PayloadTooLargeMessageType = "__payloadTooLarge";
+    private const string NonTextMessageType = "__nonText";
+    private const string InvalidJsonMessageType = "__invalidJson";
 
     private readonly WebSocket _socket;
     private readonly IBaseRealtimeFeedSource _feeds;
@@ -20,6 +25,7 @@ internal sealed class BaseRealtimeWebSocketSession
     private readonly BaseRealtimeOptions _options;
     private readonly BaseRealtimeStats _stats;
     private readonly PrincipalContext _principal;
+    private readonly ILogger<BaseRealtimeWebSocketSession> _logger;
     private readonly Dictionary<string, CancellationTokenSource> _channels = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -29,7 +35,8 @@ internal sealed class BaseRealtimeWebSocketSession
         JsonSerializerOptions json,
         BaseRealtimeOptions options,
         BaseRealtimeStats stats,
-        PrincipalContext principal)
+        PrincipalContext principal,
+        ILogger<BaseRealtimeWebSocketSession> logger)
     {
         _socket = socket;
         _feeds = feeds;
@@ -37,11 +44,13 @@ internal sealed class BaseRealtimeWebSocketSession
         _options = options;
         _stats = stats;
         _principal = principal;
+        _logger = logger;
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         _stats.RecordConnectionOpened();
+        HPDBaseRealtimeAspNetCoreLog.ConnectionOpened(_logger);
         try
         {
             {
@@ -92,6 +101,16 @@ internal sealed class BaseRealtimeWebSocketSession
             case PayloadTooLargeMessageType:
                 await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.PayloadTooLarge, "Realtime message payload exceeded the configured limit.", cancellationToken).ConfigureAwait(false);
                 break;
+            case NonTextMessageType:
+                HPDBaseRealtimeAspNetCoreLog.ProtocolMessageUnsupported(
+                    _logger, "nonText", BaseRealtimeErrorCodes.ProtocolInvalid);
+                await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.ProtocolInvalid, "Unsupported realtime protocol message type.", cancellationToken).ConfigureAwait(false);
+                break;
+            case InvalidJsonMessageType:
+                HPDBaseRealtimeAspNetCoreLog.ProtocolMessageUnsupported(
+                    _logger, "invalidJson", BaseRealtimeErrorCodes.ProtocolInvalid);
+                await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.ProtocolInvalid, "Unsupported realtime protocol message type.", cancellationToken).ConfigureAwait(false);
+                break;
             case BaseRealtimeProtocolTypes.Join:
                 await JoinAsync(message, cancellationToken).ConfigureAwait(false);
                 break;
@@ -99,6 +118,8 @@ internal sealed class BaseRealtimeWebSocketSession
                 await LeaveAsync(message, cancellationToken).ConfigureAwait(false);
                 break;
             default:
+                HPDBaseRealtimeAspNetCoreLog.ProtocolMessageUnsupported(
+                    _logger, "unsupportedType", BaseRealtimeErrorCodes.ProtocolInvalid);
                 await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.ProtocolInvalid, "Unsupported realtime protocol message type.", cancellationToken).ConfigureAwait(false);
                 break;
         }
@@ -109,6 +130,7 @@ internal sealed class BaseRealtimeWebSocketSession
         using var activity = HPDBaseRealtimeAspNetCoreTelemetry.StartJoin(ChannelKindValue(message.Config?.Kind));
         if (string.IsNullOrWhiteSpace(message.Channel) || message.Config is null)
         {
+            HPDBaseRealtimeAspNetCoreLog.WebSocketJoinRejectedProtocol(_logger, BaseRealtimeErrorCodes.ProtocolInvalid);
             await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.ProtocolInvalid, "Join messages require channel and config.", cancellationToken).ConfigureAwait(false);
             HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "rejected");
             return;
@@ -116,6 +138,7 @@ internal sealed class BaseRealtimeWebSocketSession
 
         if (_channels.Count >= _options.Limits.MaxChannelsPerConnection)
         {
+            HPDBaseRealtimeAspNetCoreLog.WebSocketJoinRejectedProtocol(_logger, BaseRealtimeErrorCodes.TooManyChannels);
             await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.TooManyChannels, "The connection has reached the channel limit.", cancellationToken).ConfigureAwait(false);
             HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "rejected");
             return;
@@ -123,6 +146,7 @@ internal sealed class BaseRealtimeWebSocketSession
 
         if (message.Config.Kind != BaseRealtimeChannelKinds.RecordChanges)
         {
+            HPDBaseRealtimeAspNetCoreLog.WebSocketJoinRejectedProtocol(_logger, BaseRealtimeErrorCodes.ChannelUnsupported);
             await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.ChannelUnsupported, "The requested channel kind is not supported.", cancellationToken).ConfigureAwait(false);
             HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "rejected");
             return;
@@ -130,6 +154,7 @@ internal sealed class BaseRealtimeWebSocketSession
 
         if (message.Config.Private && _options.RequireAuthenticatedPrivateChannels && _principal.AuthenticationState == PrincipalAuthenticationState.Anonymous)
         {
+            HPDBaseRealtimeAspNetCoreLog.WebSocketJoinRejectedPolicy(_logger, BaseRealtimeErrorCodes.AuthRequired);
             await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.AuthRequired, "Authentication is required for private realtime channels.", cancellationToken).ConfigureAwait(false);
             HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "rejected");
             return;
@@ -137,6 +162,7 @@ internal sealed class BaseRealtimeWebSocketSession
 
         if (!TenantRequestAllowed(message.Config.TenantId))
         {
+            HPDBaseRealtimeAspNetCoreLog.WebSocketJoinRejectedPolicy(_logger, BaseRealtimeErrorCodes.ChannelUnauthorized);
             await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.ChannelUnauthorized, "The requested tenant is not authorized for this realtime channel.", cancellationToken).ConfigureAwait(false);
             HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "rejected");
             return;
@@ -223,6 +249,12 @@ internal sealed class BaseRealtimeWebSocketSession
         {
             _stats.RecordSendFailure();
         }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            HPDBaseRealtimeAspNetCoreLog.WebSocketReceiveFailed(
+                _logger, "unexpected", BaseRealtimeErrorCodes.CapabilityUnavailable);
+            throw;
+        }
     }
 
     private async Task<BaseRealtimeClientMessage?> ReceiveAsync(CancellationToken cancellationToken)
@@ -243,9 +275,16 @@ internal sealed class BaseRealtimeWebSocketSession
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 _stats.RecordHeartbeatTimeout();
+                HPDBaseRealtimeAspNetCoreLog.HeartbeatTimedOut(_logger, BaseRealtimeErrorCodes.HeartbeatTimeout);
                 if (_socket.State == WebSocketState.Open)
                     await _socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, BaseRealtimeErrorCodes.HeartbeatTimeout, CancellationToken.None).ConfigureAwait(false);
                 return null;
+            }
+            catch (WebSocketException)
+            {
+                HPDBaseRealtimeAspNetCoreLog.WebSocketReceiveFailed(
+                    _logger, "transport", BaseRealtimeErrorCodes.CapabilityUnavailable);
+                throw;
             }
             if (result.MessageType == WebSocketMessageType.Close)
             {
@@ -255,11 +294,19 @@ internal sealed class BaseRealtimeWebSocketSession
             }
 
             if (result.MessageType != WebSocketMessageType.Text)
-                return new BaseRealtimeClientMessage { Type = string.Empty };
+                return new BaseRealtimeClientMessage { Type = NonTextMessageType };
 
             if (stream.Length + result.Count > _options.Limits.MaxMessageBytes)
             {
                 _stats.RecordPayloadLimitDrop();
+                HPDBaseRealtimeAspNetCoreLog.PayloadDropped(
+                    _logger,
+                    BaseRealtimeErrorCodes.PayloadTooLarge,
+                    HPDBaseTelemetryBuckets.PayloadSize(stream.Length + result.Count));
+                while (!result.EndOfMessage)
+                {
+                    result = await _socket.ReceiveAsync(segment, cancellationToken).ConfigureAwait(false);
+                }
                 return new BaseRealtimeClientMessage { Type = PayloadTooLargeMessageType };
             }
 
@@ -277,7 +324,7 @@ internal sealed class BaseRealtimeWebSocketSession
         }
         catch (JsonException)
         {
-            return new BaseRealtimeClientMessage { Type = string.Empty };
+            return new BaseRealtimeClientMessage { Type = InvalidJsonMessageType };
         }
     }
 
@@ -304,7 +351,8 @@ internal sealed class BaseRealtimeWebSocketSession
             Event = evt
         };
 
-        if (SerializedLength(message) <= _options.Limits.MaxPayloadBytes)
+        var serializedLength = SerializedLength(message);
+        if (serializedLength <= _options.Limits.MaxPayloadBytes)
         {
             await SendAsync(message, cancellationToken).ConfigureAwait(false);
             HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "ok");
@@ -322,9 +370,14 @@ internal sealed class BaseRealtimeWebSocketSession
                 }
             };
 
-            if (SerializedLength(message) <= _options.Limits.MaxPayloadBytes)
+            var reducedLength = SerializedLength(message);
+            if (reducedLength <= _options.Limits.MaxPayloadBytes)
             {
                 _stats.RecordPayloadLimitDrop();
+                HPDBaseRealtimeAspNetCoreLog.PayloadDropped(
+                    _logger,
+                    BaseRealtimeErrorCodes.PayloadTooLarge,
+                    HPDBaseTelemetryBuckets.PayloadSize(serializedLength));
                 await SendAsync(message, cancellationToken).ConfigureAwait(false);
                 HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "ok");
                 return;
@@ -332,6 +385,10 @@ internal sealed class BaseRealtimeWebSocketSession
         }
 
         _stats.RecordPayloadLimitDrop();
+        HPDBaseRealtimeAspNetCoreLog.PayloadDropped(
+            _logger,
+            BaseRealtimeErrorCodes.PayloadTooLarge,
+            HPDBaseTelemetryBuckets.PayloadSize(serializedLength));
         HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "dropped");
     }
 
@@ -361,7 +418,16 @@ internal sealed class BaseRealtimeWebSocketSession
         await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, cancellationToken).ConfigureAwait(false);
+            }
+            catch (WebSocketException)
+            {
+                HPDBaseRealtimeAspNetCoreLog.WebSocketSendFailed(
+                    _logger, "transport", BaseRealtimeErrorCodes.CapabilityUnavailable);
+                throw;
+            }
         }
         finally
         {

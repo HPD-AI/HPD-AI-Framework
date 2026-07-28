@@ -12,7 +12,6 @@ public sealed record BaseRealtimeEvent
     public required string Type { get; init; }
     public required string SchemaVersion { get; init; }
     public required DateTimeOffset OccurredAt { get; init; }
-    public long? SequenceNumber { get; init; }
     public string? TenantId { get; init; }
     public string? CorrelationId { get; init; }
     public string? CausationId { get; init; }

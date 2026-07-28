@@ -78,6 +78,7 @@ public sealed class InMemoryConformanceFixture :
         ArgumentNullException.ThrowIfNull(options);
 
         var services = new ServiceCollection();
+        services.AddLogging();
         if (options.PolicyEvaluator is not null)
         {
             services.AddSingleton<IPolicyEvaluator>(options.PolicyEvaluator);

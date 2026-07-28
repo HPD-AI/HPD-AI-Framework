@@ -1,8 +1,10 @@
 using HPD.Auth.Core.Entities;
 using HPD.Auth.Core.Interfaces;
 using HPD.Base.Auth.HPDAuth.Health;
+using HPD.Base.Auth.HPDAuth.AspNetCore.Observability.Logging;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace HPD.Base.Auth.HPDAuth.AspNetCore.Health;
 
@@ -21,15 +23,27 @@ public sealed class HPDAuthBaseAspNetCoreHostIntegrationStatus : IHPDAuthBaseHos
         (typeof(IRefreshTokenStore), nameof(IRefreshTokenStore))
     ];
 
-    private readonly IServiceProviderIsService _serviceProviderIsService;
+    private readonly string[] _missingRequiredServiceNames;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HPDAuthBaseAspNetCoreHostIntegrationStatus"/> class.
     /// </summary>
     /// <param name="serviceProviderIsService">The service registration probe.</param>
-    public HPDAuthBaseAspNetCoreHostIntegrationStatus(IServiceProviderIsService serviceProviderIsService)
+    /// <param name="logger">The host integration status logger.</param>
+    public HPDAuthBaseAspNetCoreHostIntegrationStatus(
+        IServiceProviderIsService serviceProviderIsService,
+        ILogger<HPDAuthBaseAspNetCoreHostIntegrationStatus> logger)
     {
-        _serviceProviderIsService = serviceProviderIsService;
+        _missingRequiredServiceNames = RequiredServices
+            .Where(service => !serviceProviderIsService.IsService(service.ServiceType))
+            .Select(static service => service.Name)
+            .ToArray();
+        if (_missingRequiredServiceNames.Length != 0)
+        {
+            HPDBaseHPDAuthAspNetCoreLog.HostIntegrationUnavailable(
+                logger,
+                HPDAuthBaseDiagnosticIds.MissingAuthServices);
+        }
     }
 
     /// <inheritdoc />
@@ -39,8 +53,5 @@ public sealed class HPDAuthBaseAspNetCoreHostIntegrationStatus : IHPDAuthBaseHos
     public string Source => "hpd-auth-aspnetcore";
 
     /// <inheritdoc />
-    public string[] MissingRequiredServiceNames => RequiredServices
-        .Where(service => !_serviceProviderIsService.IsService(service.ServiceType))
-        .Select(static service => service.Name)
-        .ToArray();
+    public string[] MissingRequiredServiceNames => _missingRequiredServiceNames.ToArray();
 }

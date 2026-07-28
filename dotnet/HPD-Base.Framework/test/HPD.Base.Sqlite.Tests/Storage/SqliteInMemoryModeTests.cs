@@ -12,7 +12,7 @@ public sealed class SqliteInMemoryModeTests
     [Fact]
     public async Task DefaultInMemoryModePersistsAcrossStoreOperations()
     {
-        await using var store = new SqliteRecordStore();
+        await using var store = SqliteTestFactory.Create();
         var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
         create.Status.Should().Be(OperationStatus.Created);
 

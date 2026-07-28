@@ -25,6 +25,7 @@ using HPD.Base.Stores;
 using Microsoft.Extensions.DependencyInjection;
 
 var services = new ServiceCollection();
+services.AddLogging();
 services.AddSingleton<IBaseDescriptorContributor, SmokeDescriptorContributor>();
 services.AddSingleton<IPolicyEvaluator, SmokePolicyEvaluator>();
 services.AddSingleton<IBaseHealthContributor, SmokeHealthContributor>();

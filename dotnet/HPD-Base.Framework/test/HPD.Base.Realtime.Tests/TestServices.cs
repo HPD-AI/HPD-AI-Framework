@@ -5,6 +5,7 @@ internal static class TestServices
     public static async Task<ServiceProvider> CreateAsync(IPolicyEvaluator? evaluator = null)
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton(evaluator ?? new AllowPolicyEvaluator());
         services.AddHPDBaseRuntime()
             .AddHPDBaseRealtime()

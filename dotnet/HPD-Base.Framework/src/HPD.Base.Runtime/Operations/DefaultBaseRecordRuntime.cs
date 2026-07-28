@@ -7,6 +7,7 @@ using HPD.Base.Results;
 using HPD.Base.Observability;
 using HPD.Base.Runtime.Events;
 using HPD.Base.Runtime.Observability;
+using HPD.Base.Runtime.Observability.Logging;
 using HPD.Base.Runtime.Policy;
 using HPD.Base.Runtime.Query;
 using HPD.Base.Runtime.Results;
@@ -14,6 +15,7 @@ using HPD.Base.Runtime.Schema;
 using HPD.Base.Runtime.Stores;
 using HPD.Base.Schema;
 using HPD.Base.Stores;
+using Microsoft.Extensions.Logging;
 
 namespace HPD.Base.Runtime.Operations;
 
@@ -29,6 +31,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
     private readonly IBaseOperationalFailureMapper _failureMapper;
     private readonly IBaseEventFactory _eventFactory;
     private readonly IBaseEventDispatcher _eventDispatcher;
+    private readonly ILogger<DefaultBaseRecordRuntime> _logger;
 
     public DefaultBaseRecordRuntime(
         IBaseSchemaProvider schema,
@@ -40,7 +43,8 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         IBaseResultNormalizer normalizer,
         IBaseOperationalFailureMapper failureMapper,
         IBaseEventFactory eventFactory,
-        IBaseEventDispatcher eventDispatcher)
+        IBaseEventDispatcher eventDispatcher,
+        ILogger<DefaultBaseRecordRuntime> logger)
     {
         _schema = schema;
         _schemaValidator = schemaValidator;
@@ -52,6 +56,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         _failureMapper = failureMapper;
         _eventFactory = eventFactory;
         _eventDispatcher = eventDispatcher;
+        _logger = logger;
     }
 
     public async ValueTask<OperationResult<RecordPage>> ListAsync(
@@ -80,6 +85,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         var storeResult = _storeResolver.Resolve(collection, context);
         if (!storeResult.IsSuccess() || storeResult.Value is null)
         {
+            LogStoreUnavailableIfMissing(storeResult, context.Operation);
             return Finish(activity, Failure<RecordPage, HPD.Base.Stores.IRecordStore>(storeResult), BaseOperationKind.List, collectionId, context, startedAt);
         }
 
@@ -678,6 +684,7 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         var storeResult = _storeResolver.Resolve(collection, context);
         if (!storeResult.IsSuccess() || storeResult.Value is null)
         {
+            LogStoreUnavailableIfMissing(storeResult, context.Operation);
             return new PreparedStore<T>(Failure<T, HPD.Base.Stores.IRecordStore>(storeResult), null, null);
         }
 
@@ -767,6 +774,21 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         }
         catch (Exception exception) when (_failureMapper.TryMap(exception, context, out var error, out var status))
         {
+            if (error.Store?.Retryable is true)
+            {
+                HPDBaseRuntimeLog.StoreDependencyUnavailable(
+                    _logger,
+                    HPDBaseRuntimeLog.OperationKind(context.Operation),
+                    "base.runtime.store.dependencyFailure");
+            }
+            else
+            {
+                HPDBaseRuntimeLog.StoreDependencyFailed(
+                    _logger,
+                    HPDBaseRuntimeLog.OperationKind(context.Operation),
+                    "base.runtime.store.dependencyFailure");
+            }
+
             result = new OperationResult<T>
             {
                 Status = status,
@@ -775,6 +797,17 @@ internal sealed class DefaultBaseRecordRuntime : IBaseRecordRuntime
         }
 
         return HPDBaseRuntimeTelemetry.FinishStoreInvocation(activity, result, context, startedAt);
+    }
+
+    private void LogStoreUnavailableIfMissing<T>(OperationResult<T> result, BaseOperationKind operation)
+    {
+        if (string.Equals(result.Error?.Code, "base.runtime.store.missing", StringComparison.Ordinal))
+        {
+            HPDBaseRuntimeLog.StoreUnavailable(
+                _logger,
+                HPDBaseRuntimeLog.OperationKind(operation),
+                "missingRegistration");
+        }
     }
 
     private async ValueTask<OperationResult<RecordEnvelope>> DispatchMutationIfSuccessfulAsync(

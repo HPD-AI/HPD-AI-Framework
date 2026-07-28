@@ -7,6 +7,7 @@ using HPD.Base.Schema;
 using HPD.Base.Sqlite.Configuration;
 using HPD.Base.Sqlite.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace HPD.Base.Sqlite.Tests.Query;
 
@@ -15,7 +16,7 @@ public sealed class SqliteQueryPlanExplainerTests
     [Fact]
     public async Task UnsupportedPlanReportsReasonWithoutExecutableSql()
     {
-        var services = new ServiceCollection().AddHPDBaseSqliteStore(options => options.CollectionIds = ["items"]);
+        var services = new ServiceCollection().AddLogging().AddHPDBaseSqliteStore(options => options.CollectionIds = ["items"]);
         await using var provider = services.BuildServiceProvider();
         var explainer = provider.GetRequiredService<IRelationalQueryPlanExplainer>();
 

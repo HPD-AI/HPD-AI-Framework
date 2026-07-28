@@ -54,4 +54,34 @@ public sealed class RealtimeJsonContextTests
             JsonSerializer.Serialize(channel, HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeChannelDescriptor),
             HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeChannelDescriptor)!.Channel.Should().Be("base:records:items");
     }
+
+    [Fact]
+    public void RealtimeEventContractDoesNotExposeOrderingOrResumeTokens()
+    {
+        typeof(BaseRealtimeEvent).GetProperty("SequenceNumber").Should().BeNull();
+
+        var realtimeEvent = new BaseRealtimeEvent
+        {
+            EventId = "evt_1",
+            Type = "record.created",
+            SchemaVersion = BaseEventSchemaVersions.V1,
+            OccurredAt = DateTimeOffset.UnixEpoch,
+            Resource = new BaseRealtimeRecordResource
+            {
+                Kind = EventResourceKind.Record,
+                CollectionId = "items",
+                RecordId = new RecordId("one")
+            },
+            Operation = BaseOperationKind.Create
+        };
+
+        var json = JsonSerializer.Serialize(
+            realtimeEvent,
+            HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeEvent);
+        var normalizedJson = json.ToLowerInvariant();
+
+        normalizedJson.Should().NotContain("sequence");
+        normalizedJson.Should().NotContain("cursor");
+        normalizedJson.Should().NotContain("resume");
+    }
 }

@@ -62,6 +62,7 @@ public sealed class RuntimeIntegrationTests
     private static ServiceProvider BuildRuntime()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         services.AddHPDBaseRuntime()
             .AddHPDBaseInMemoryStore(options =>

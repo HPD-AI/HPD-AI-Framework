@@ -35,7 +35,6 @@ internal sealed class DefaultBaseRealtimeProjectionService : IBaseRealtimeProjec
             Type = request.Event.Type,
             SchemaVersion = request.Event.SchemaVersion,
             OccurredAt = request.Event.Timestamp,
-            SequenceNumber = request.Event.SequenceNumber == 0 ? null : request.Event.SequenceNumber,
             TenantId = request.Event.TenantId,
             CorrelationId = request.Event.CorrelationId,
             CausationId = request.Event.CausationId,

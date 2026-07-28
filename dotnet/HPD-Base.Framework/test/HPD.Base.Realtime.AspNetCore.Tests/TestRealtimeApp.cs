@@ -1,8 +1,12 @@
+using Microsoft.Extensions.Logging;
+
 namespace HPD.Base.Realtime.AspNetCore.Tests;
 
 internal static class TestRealtimeApp
 {
-    public static async Task<WebApplication> CreateAsync(Action<HPD.Base.Realtime.Configuration.BaseRealtimeOptions>? configureRealtime = null)
+    public static async Task<WebApplication> CreateAsync(
+        Action<HPD.Base.Realtime.Configuration.BaseRealtimeOptions>? configureRealtime = null,
+        HPD.Base.Tests.Observability.LogCollector? logs = null)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -10,6 +14,12 @@ internal static class TestRealtimeApp
         });
 
         builder.WebHost.UseTestServer();
+        if (logs is not null)
+        {
+            builder.Logging.ClearProviders();
+            builder.Logging.SetMinimumLevel(Microsoft.Extensions.Logging.LogLevel.Trace);
+            builder.Logging.AddProvider(logs);
+        }
         builder.Services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
         builder.Services.AddHPDBaseRuntime()
             .AddHPDBaseAspNetCore()

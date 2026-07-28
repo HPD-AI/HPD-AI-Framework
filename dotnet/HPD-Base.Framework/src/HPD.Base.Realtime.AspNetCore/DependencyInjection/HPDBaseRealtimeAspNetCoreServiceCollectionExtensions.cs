@@ -1,4 +1,5 @@
 using HPD.Base.Realtime.AspNetCore.Descriptors;
+using HPD.Base.Realtime.AspNetCore.EndpointMapping;
 using HPD.Base.Realtime.AspNetCore.Serialization;
 using HPD.Base.Runtime.Builder;
 using HPD.Base.Runtime.Descriptors;
@@ -16,6 +17,7 @@ public static class HPDBaseRealtimeAspNetCoreServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<JsonOptions>, HPDBaseRealtimeAspNetCoreJsonOptionsSetup>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, BaseRealtimeAspNetCoreDescriptorContributor>());
+        services.TryAddSingleton<BaseRealtimeWebSocketEndpoint>();
         return services;
     }
 

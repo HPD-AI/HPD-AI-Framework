@@ -13,7 +13,7 @@ public sealed class PrincipalMapperTelemetryTests
     {
         using var activities = new ActivityCollector(HPDBaseActivitySourceNames.HPDAuthAspNetCore);
         using var metrics = new MeterCollector(HPDBaseMeterNames.HPDAuthAspNetCore);
-        var services = new ServiceCollection();
+        var services = new ServiceCollection().AddLogging();
         services.AddScoped<ITenantContext>(_ => new TestTenantContext(Guid.Parse("11111111-1111-1111-1111-111111111111")));
         services.AddSingleton<IHPDAuthBaseHttpPrincipalEnricher, SecretPrincipalEnricher>();
         services.AddHPDBaseHPDAuthAspNetCore();

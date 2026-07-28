@@ -7,6 +7,7 @@ using HPD.Base.Sqlite.Health;
 using HPD.Base.Stores;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Sqlite.DependencyInjection;
@@ -23,7 +24,9 @@ public static class HPDBaseSqliteServiceCollectionExtensions
         services.AddOptions();
         services.TryAddSingleton(options);
         services.TryAddSingleton<IOptions<HPDBaseSqliteOptions>>(Options.Create(options));
-        services.TryAddSingleton(provider => new SqliteRecordStore(provider.GetRequiredService<IOptions<HPDBaseSqliteOptions>>()));
+        services.TryAddSingleton(provider => new SqliteRecordStore(
+            provider.GetRequiredService<IOptions<HPDBaseSqliteOptions>>().Value,
+            provider.GetRequiredService<ILoggerFactory>()));
         services.TryAddSingleton<IRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<IRevisionedRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         if (options.ContributeRelationalDescriptors)

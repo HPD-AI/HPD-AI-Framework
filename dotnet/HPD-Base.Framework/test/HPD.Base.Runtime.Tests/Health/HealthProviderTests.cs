@@ -11,6 +11,7 @@ public sealed class HealthProviderTests
     public async Task AggregatesExplicitHealthContributorsAndFiltersPublicDependencies()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton<IBaseHealthContributor, TestHealthContributor>();
         services.AddHPDBaseRuntime();
         using var provider = services.BuildServiceProvider();

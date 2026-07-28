@@ -11,6 +11,7 @@ public sealed class DiagnosticProviderTests
     public async Task PublicDiagnosticsUsePublicMessageAndRemoveRemediation()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton<IBaseDiagnosticContributor, TestDiagnosticContributor>();
         services.AddHPDBaseRuntime();
         using var provider = services.BuildServiceProvider();

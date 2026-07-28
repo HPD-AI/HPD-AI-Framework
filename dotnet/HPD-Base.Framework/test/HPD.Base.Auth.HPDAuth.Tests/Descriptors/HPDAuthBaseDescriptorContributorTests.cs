@@ -5,7 +5,7 @@ public sealed class HPDAuthBaseDescriptorContributorTests
     [Fact]
     public async Task RuntimeManifestIncludesHPDAuthAdapterModuleAndCapabilities()
     {
-        var services = new ServiceCollection();
+        var services = new ServiceCollection().AddLogging();
         services.AddHPDBaseRuntime().AddHPDBaseHPDAuth();
         using var provider = services.BuildServiceProvider();
         await provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();

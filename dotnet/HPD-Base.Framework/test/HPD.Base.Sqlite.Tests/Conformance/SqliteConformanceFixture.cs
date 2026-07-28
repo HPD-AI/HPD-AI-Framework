@@ -10,6 +10,7 @@ using HPD.Base.Runtime.Descriptors;
 using HPD.Base.Runtime.Stores;
 using HPD.Base.Schema;
 using HPD.Base.Sqlite.Configuration;
+using Microsoft.Extensions.Logging;
 using HPD.Base.Sqlite.DependencyInjection;
 using HPD.Base.StoreConformance;
 using HPD.Base.StoreConformance.Runtime;
@@ -36,7 +37,7 @@ public sealed class SqliteConformanceFixture : IConfigurableRuntimeStoreConforma
 
     public string ProviderName => "HPD.Base.Sqlite";
 
-    public StoreCapabilityDescriptor Capabilities => new SqliteRecordStore(Options).Capabilities;
+    public StoreCapabilityDescriptor Capabilities => SqliteTestFactory.Create(Options).Capabilities;
 
     public CollectionDefinition Collection => new()
     {
@@ -59,7 +60,7 @@ public sealed class SqliteConformanceFixture : IConfigurableRuntimeStoreConforma
     public ValueTask<IRecordStore> CreateStoreAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.FromResult<IRecordStore>(new SqliteRecordStore(Options));
+        return ValueTask.FromResult<IRecordStore>(SqliteTestFactory.Create(Options));
     }
 
     public ValueTask ResetAsync(CancellationToken cancellationToken = default)
@@ -78,6 +79,7 @@ public sealed class SqliteConformanceFixture : IConfigurableRuntimeStoreConforma
     {
         cancellationToken.ThrowIfCancellationRequested();
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton<IPolicyEvaluator>(options.PolicyEvaluator ?? new ConformanceAllowPolicyEvaluator());
         if (options.EventPublisher is not null)
         {

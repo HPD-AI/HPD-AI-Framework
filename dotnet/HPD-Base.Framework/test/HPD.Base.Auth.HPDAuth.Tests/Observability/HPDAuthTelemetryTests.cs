@@ -12,7 +12,7 @@ public sealed class HPDAuthTelemetryTests
     {
         using var activities = new ActivityCollector(HPDBaseActivitySourceNames.HPDAuth);
         using var metrics = new MeterCollector(HPDBaseMeterNames.HPDAuth);
-        var services = new ServiceCollection();
+        var services = new ServiceCollection().AddLogging();
         services.AddHPDBaseHPDAuth(options =>
         {
             options.RequireHPDAuthServices = false;
@@ -31,7 +31,7 @@ public sealed class HPDAuthTelemetryTests
             CurrentTenantId = "tenant-secret",
             Roles = ["role-secret"]
         }));
-        var missingHostServices = new ServiceCollection();
+        var missingHostServices = new ServiceCollection().AddLogging();
         missingHostServices.AddHPDBaseHPDAuth();
         using var missingHostProvider = missingHostServices.BuildServiceProvider();
         await missingHostProvider.GetRequiredService<IPolicyEvaluator>().EvaluateAsync(Request(Principal()));
@@ -68,7 +68,7 @@ public sealed class HPDAuthTelemetryTests
     [Fact]
     public async Task PolicyEvaluationWorksWithoutConfiguredTelemetryListeners()
     {
-        var services = new ServiceCollection();
+        var services = new ServiceCollection().AddLogging();
         services.AddHPDBaseHPDAuth(options => options.RequireHPDAuthServices = false);
         services.AddSingleton<IHPDAuthBaseGrantProvider>(new SecretGrantProvider());
         using var provider = services.BuildServiceProvider();

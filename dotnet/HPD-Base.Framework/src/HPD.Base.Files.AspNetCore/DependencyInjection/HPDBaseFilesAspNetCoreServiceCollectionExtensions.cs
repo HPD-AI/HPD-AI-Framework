@@ -1,4 +1,5 @@
 using HPD.Base.Files.AspNetCore.Descriptors;
+using HPD.Base.Files.AspNetCore.EndpointMapping;
 using HPD.Base.Files.AspNetCore.Serialization;
 using HPD.Base.Runtime.Builder;
 using HPD.Base.Runtime.Descriptors;
@@ -16,6 +17,7 @@ public static class HPDBaseFilesAspNetCoreServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<FileAspNetCoreRouteMappingState>();
+        services.TryAddSingleton<FileDownloadResponseWriter>();
         services.TryAddSingleton<IFileAspNetCoreRouteMappingState>(services => services.GetRequiredService<FileAspNetCoreRouteMappingState>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<JsonOptions>, HPDBaseFilesAspNetCoreJsonOptionsSetup>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, FileAspNetCoreDescriptorContributor>());

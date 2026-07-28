@@ -9,9 +9,10 @@ using HPD.Base.Schema;
 using HPD.Base.Sqlite.Configuration;
 using HPD.Base.Sqlite.Internal;
 using HPD.Base.Sqlite.Observability;
+using HPD.Base.Sqlite.Observability.Logging;
 using HPD.Base.Stores;
 using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using System.Globalization;
 using System.Security.Cryptography;
 
@@ -24,18 +25,22 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
     private readonly SqliteConnectionFactory _connections;
     private readonly SqliteSchemaInitializer _schema;
     private readonly SqliteNames _names;
+    private readonly ILogger<SqliteRecordStore> _logger;
     private readonly SemaphoreSlim _keepAliveGate = new(1, 1);
     private SqliteConnection? _keepAliveConnection;
 
-    public SqliteRecordStore(IOptions<HPDBaseSqliteOptions> options)
-        : this(options.Value)
+    /// <summary>
+    /// Initializes a SQLite record store with the supplied options and host-owned logger factory.
+    /// </summary>
+    /// <param name="options">SQLite provider options.</param>
+    /// <param name="loggerFactory">The host-owned logger factory.</param>
+    public SqliteRecordStore(HPDBaseSqliteOptions options, ILoggerFactory loggerFactory)
     {
-    }
-
-    public SqliteRecordStore(HPDBaseSqliteOptions? options = null)
-    {
-        _options = options ?? new HPDBaseSqliteOptions();
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(loggerFactory);
+        _options = options;
         ValidateOptions(_options);
+        _logger = loggerFactory.CreateLogger<SqliteRecordStore>();
         _connections = new SqliteConnectionFactory(_options);
         _schema = new SqliteSchemaInitializer(_options);
         _names = new SqliteNames(_options);
@@ -73,6 +78,7 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
         var plan = HPDBaseSqliteTelemetry.TraceQueryPlan(_options.StoreId, collection.Id, query, () => new SqliteQueryPlanner(_options).Plan(collection.Id, query));
         if (!plan.Supported)
         {
+            HPDBaseSqliteLog.QueryPlanRejected(_logger, "unsupported", SqliteErrorCodes.UnsupportedQuery);
             return SqliteResultFactory.Unsupported<RecordPage>(SqliteErrorCodes.UnsupportedQuery, "SQLite cannot safely execute this query shape before count/page.", string.Join(",", plan.UnsupportedParts));
         }
 
@@ -119,11 +125,11 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
         }
         catch (SqliteException ex)
         {
-            return MapSqlite<RecordPage>(ex);
+            return MapSqlite<RecordPage>(BaseOperationKind.List, ex);
         }
         catch (InvalidOperationException ex)
         {
-            return SqliteResultFactory.StoreError<RecordPage>(SqliteErrorCodes.SchemaMissing, ex.Message);
+            return MapSchemaFailure<RecordPage>(ex);
         }
         catch (OperationCanceledException)
         {
@@ -154,11 +160,11 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
         }
         catch (SqliteException ex)
         {
-            return MapSqlite<RecordEnvelope>(ex);
+            return MapSqlite<RecordEnvelope>(BaseOperationKind.Get, ex);
         }
         catch (InvalidOperationException ex)
         {
-            return SqliteResultFactory.StoreError<RecordEnvelope>(SqliteErrorCodes.SchemaMissing, ex.Message);
+            return MapSchemaFailure<RecordEnvelope>(ex);
         }
         catch (OperationCanceledException)
         {
@@ -215,11 +221,11 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
         }
         catch (SqliteException ex)
         {
-            return MapSqlite<RecordEnvelope>(ex);
+            return MapSqlite<RecordEnvelope>(BaseOperationKind.Create, ex);
         }
         catch (InvalidOperationException ex)
         {
-            return SqliteResultFactory.StoreError<RecordEnvelope>(SqliteErrorCodes.SchemaMissing, ex.Message);
+            return MapSchemaFailure<RecordEnvelope>(ex);
         }
         catch (OperationCanceledException)
         {
@@ -299,11 +305,11 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
         }
         catch (SqliteException ex)
         {
-            return MapSqlite<DeleteResult>(ex);
+            return MapSqlite<DeleteResult>(BaseOperationKind.Delete, ex);
         }
         catch (InvalidOperationException ex)
         {
-            return SqliteResultFactory.StoreError<DeleteResult>(SqliteErrorCodes.SchemaMissing, ex.Message);
+            return MapSchemaFailure<DeleteResult>(ex);
         }
         catch (OperationCanceledException)
         {
@@ -366,11 +372,11 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
         }
         catch (SqliteException ex)
         {
-            return MapSqlite<RecordEnvelope>(ex);
+            return MapSqlite<RecordEnvelope>(context.Operation, ex);
         }
         catch (InvalidOperationException ex)
         {
-            return SqliteResultFactory.StoreError<RecordEnvelope>(SqliteErrorCodes.SchemaMissing, ex.Message);
+            return MapSchemaFailure<RecordEnvelope>(ex);
         }
         catch (OperationCanceledException)
         {
@@ -522,7 +528,7 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
         Streaming = new StreamingCapability { Supported = false }
     };
 
-    private OperationResult<T> MapSqlite<T>(SqliteException ex)
+    private OperationResult<T> MapSqlite<T>(BaseOperationKind operation, SqliteException ex)
     {
         var (code, message) = ex.SqliteErrorCode switch
         {
@@ -539,6 +545,30 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
             _ => (SqliteErrorCodes.DatabaseUnavailable, "SQLite database operation failed.")
         };
 
+        switch (ex.SqliteErrorCode)
+        {
+            case 5:
+                HPDBaseSqliteLog.DatabaseBusy(_logger, true, ex.SqliteErrorCode, ex.SqliteExtendedErrorCode);
+                break;
+            case 6:
+                HPDBaseSqliteLog.DatabaseLocked(_logger, true, ex.SqliteErrorCode, ex.SqliteExtendedErrorCode);
+                break;
+            case 14:
+                HPDBaseSqliteLog.DatabaseOpenFailed(_logger, code, ex.SqliteErrorCode, ex.SqliteExtendedErrorCode);
+                break;
+            case 19:
+                break;
+            default:
+                HPDBaseSqliteLog.ProviderOperationFailed(
+                    _logger,
+                    HPDBaseSqliteLog.OperationKind(operation),
+                    "store",
+                    code,
+                    ex.SqliteErrorCode,
+                    ex.SqliteExtendedErrorCode);
+                break;
+        }
+
         return SqliteResultFactory.StoreError<T>(
             code,
             message,
@@ -546,5 +576,11 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, IAsyncDisposable
             ex.SqliteErrorCode,
             ex.SqliteExtendedErrorCode,
             ex.Message);
+    }
+
+    private OperationResult<T> MapSchemaFailure<T>(InvalidOperationException exception)
+    {
+        HPDBaseSqliteLog.SchemaMissing(_logger, SqliteErrorCodes.SchemaMissing);
+        return SqliteResultFactory.StoreError<T>(SqliteErrorCodes.SchemaMissing, exception.Message);
     }
 }

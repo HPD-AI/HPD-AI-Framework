@@ -1,7 +1,9 @@
 using HPD.Base.Events;
 using HPD.Base.Results;
 using HPD.Base.Runtime.Configuration;
+using HPD.Base.Runtime.Observability.Logging;
 using HPD.Base.Runtime.Results;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Runtime.Events;
@@ -10,13 +12,16 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
 {
     private readonly IBaseEventPublisher _publisher;
     private readonly HPDBaseRuntimeEventOptions _options;
+    private readonly ILogger<DefaultBaseEventDispatcher> _logger;
 
     public DefaultBaseEventDispatcher(
         IBaseEventPublisher publisher,
-        IOptions<HPDBaseRuntimeOptions> options)
+        IOptions<HPDBaseRuntimeOptions> options,
+        ILogger<DefaultBaseEventDispatcher> logger)
     {
         _publisher = publisher;
         _options = options.Value.Events;
+        _logger = logger;
     }
 
     public async ValueTask<OperationResult<EventReference[]>> DispatchMutationAsync(
@@ -34,6 +39,7 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
         var result = await _publisher.PublishAsync(@event, cancellationToken).ConfigureAwait(false);
         if (!result.IsSuccess() || result.Value is null)
         {
+            LogDispatchFailure(@event, "unexpected", "base.runtime.events.publishFailed");
             return OkWithoutReferences(Warning(
                 "base.runtime.events.publishFailed",
                 "Event publishing failed after the mutation committed."));
@@ -42,6 +48,7 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
         if (_options.PublishFailureMode == BaseEventPublishFailureMode.RequireEnqueue
             && result.Value.Guarantee == EventDeliveryGuarantee.BestEffort)
         {
+            LogDispatchFailure(@event, "capability", "base.runtime.events.enqueueRequired");
             return OkWithoutReferences(Warning(
                 "base.runtime.events.enqueueRequired",
                 "Durable event enqueue is required but not available."));
@@ -74,4 +81,16 @@ internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
         Code = code,
         Message = message
     };
+
+    private void LogDispatchFailure(BaseEvent @event, string errorCategory, string errorCode)
+    {
+        var operation = @event is BaseRecordMutationEvent mutation
+            ? HPDBaseRuntimeLog.OperationKind(mutation.Operation)
+            : "unknown";
+        HPDBaseRuntimeLog.MutationEventDispatchFailed(
+            _logger,
+            operation,
+            errorCategory,
+            errorCode);
+    }
 }

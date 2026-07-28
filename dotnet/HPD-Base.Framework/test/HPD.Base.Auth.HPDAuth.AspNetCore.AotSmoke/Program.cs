@@ -25,7 +25,7 @@ var context = new DefaultHttpContext
 
 var principal = await mapper.TryMapAsync(context);
 Require(principal?.AuthenticationState == PrincipalAuthenticationState.Admin, "Admin principal was not mapped.");
-Require(principal.Subjects?.Any(subject => subject.Kind == AccessSubjectKind.Admin) == true, "Admin subject was not mapped.");
+Require(principal!.Subjects?.Any(subject => subject.Kind == AccessSubjectKind.Admin) == true, "Admin subject was not mapped.");
 
 scope.Dispose();
 

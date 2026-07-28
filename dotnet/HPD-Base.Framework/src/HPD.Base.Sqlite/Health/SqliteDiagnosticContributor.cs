@@ -2,6 +2,8 @@ using HPD.Base.Health;
 using HPD.Base.Runtime.Health;
 using HPD.Base.Sqlite.Configuration;
 using HPD.Base.Sqlite.Internal;
+using HPD.Base.Sqlite.Observability.Logging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Sqlite.Health;
@@ -9,10 +11,14 @@ namespace HPD.Base.Sqlite.Health;
 internal sealed class SqliteDiagnosticContributor : IBaseDiagnosticContributor
 {
     private readonly HPDBaseSqliteOptions _options;
+    private readonly ILogger<SqliteDiagnosticContributor> _logger;
 
-    public SqliteDiagnosticContributor(IOptions<HPDBaseSqliteOptions> options)
+    public SqliteDiagnosticContributor(
+        IOptions<HPDBaseSqliteOptions> options,
+        ILogger<SqliteDiagnosticContributor> logger)
     {
         _options = options.Value;
+        _logger = logger;
     }
 
     public string Id => _options.DiagnosticRefId;
@@ -46,6 +52,10 @@ internal sealed class SqliteDiagnosticContributor : IBaseDiagnosticContributor
             var busyTimeout = await ScalarAsync(connection, "PRAGMA busy_timeout;", cancellationToken).ConfigureAwait(false);
             var synchronous = await ScalarAsync(connection, "PRAGMA synchronous;", cancellationToken).ConfigureAwait(false);
             var missing = await new SqliteSchemaInitializer(_options).GetMissingSchemaPartsAsync(connection, cancellationToken).ConfigureAwait(false);
+            if (missing.Length != 0)
+            {
+                HPDBaseSqliteLog.SchemaDiagnosticWarning(_logger, SqliteErrorCodes.SchemaMissing);
+            }
 
             diagnostics.Add(new DiagnosticDescriptor
             {

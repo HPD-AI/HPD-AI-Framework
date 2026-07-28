@@ -21,7 +21,7 @@ public sealed class SqliteTelemetryTests
         using var activities = new ActivityCollector(HPDBaseActivitySourceNames.Sqlite);
         using var metrics = new MeterCollector(HPDBaseMeterNames.Sqlite);
         var path = TempPath("sqlite-secret-path");
-        await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions
+        await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
         {
             StoreId = "primary",
             DataSource = path,
@@ -74,7 +74,7 @@ public sealed class SqliteTelemetryTests
     {
         using var activities = new ActivityCollector(HPDBaseActivitySourceNames.Sqlite);
         var dataSource = Path.Combine(Path.GetTempPath(), "hpd-base-missing-native-message", "native-message-secret.db");
-        await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions
+        await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
         {
             StoreId = "primary",
             DataSource = dataSource,
@@ -99,7 +99,7 @@ public sealed class SqliteTelemetryTests
         var path = TempPath("no-listener");
         try
         {
-            await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions
+            await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
             {
                 StoreId = "primary",
                 DataSource = path,

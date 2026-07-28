@@ -1,4 +1,5 @@
 using FluentAssertions;
+using HPD.Base.Sqlite.Configuration;
 using System.Data.Common;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -34,5 +35,16 @@ public sealed class PublicApiShapeTests
                 || type.FullName?.Contains("SqliteTransaction", StringComparison.Ordinal) == true
                 || type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IQueryable<>))
             .Should().BeFalse();
+    }
+
+    [Fact]
+    public void RecordStoreHasOnlyTheExplicitOptionsAndLoggerFactoryConstructor()
+    {
+        var constructors = typeof(SqliteRecordStore).GetConstructors();
+
+        constructors.Should().ContainSingle();
+        constructors[0].GetParameters().Select(parameter => parameter.ParameterType).Should().Equal(
+            typeof(HPDBaseSqliteOptions),
+            typeof(Microsoft.Extensions.Logging.ILoggerFactory));
     }
 }

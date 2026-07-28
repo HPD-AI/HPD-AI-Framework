@@ -5,7 +5,7 @@ public sealed class HPDAuthBaseHttpPrincipalMapperTests
     [Fact]
     public async Task MapsClaimsPrincipalAndUsesTenantContextFallback()
     {
-        var services = new ServiceCollection();
+        var services = new ServiceCollection().AddLogging();
         services.AddScoped<ITenantContext>(_ => new TestTenantContext(Guid.Parse("11111111-1111-1111-1111-111111111111")));
         services.AddHPDBaseHPDAuthAspNetCore();
         await using var provider = services.BuildServiceProvider();
@@ -33,7 +33,7 @@ public sealed class HPDAuthBaseHttpPrincipalMapperTests
     [Fact]
     public async Task MapsAnonymousRequestWithoutTenantOrClaims()
     {
-        var services = new ServiceCollection();
+        var services = new ServiceCollection().AddLogging();
         services.AddHPDBaseHPDAuthAspNetCore();
         await using var provider = services.BuildServiceProvider();
         var httpContext = new DefaultHttpContext
@@ -52,7 +52,7 @@ public sealed class HPDAuthBaseHttpPrincipalMapperTests
     [Fact]
     public async Task TenantContextFallbackCanBeDisabled()
     {
-        var services = new ServiceCollection();
+        var services = new ServiceCollection().AddLogging();
         services.AddScoped<ITenantContext>(_ => new TestTenantContext(Guid.Parse("11111111-1111-1111-1111-111111111111")));
         services.AddHPDBaseHPDAuthAspNetCore(options => options.UseTenantContextFallback = false);
         await using var provider = services.BuildServiceProvider();
@@ -75,7 +75,7 @@ public sealed class HPDAuthBaseHttpPrincipalMapperTests
     [Fact]
     public async Task CustomEnricherCanAddSafePrincipalFacts()
     {
-        var services = new ServiceCollection();
+        var services = new ServiceCollection().AddLogging();
         services.AddSingleton<IHPDAuthBaseHttpPrincipalEnricher, TestPrincipalEnricher>();
         services.AddHPDBaseHPDAuthAspNetCore();
         await using var provider = services.BuildServiceProvider();

@@ -17,7 +17,7 @@ public sealed class SqliteDatabaseErrorTests
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-busy-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
-            var setup = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path });
+            var setup = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path });
             var created = await setup.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("seed"), Payload = Payload("seed") }, Operation(BaseOperationKind.Create));
             created.Status.Should().Be(OperationStatus.Created);
 
@@ -27,7 +27,7 @@ public sealed class SqliteDatabaseErrorTests
             lockCommand.CommandText = "BEGIN IMMEDIATE;";
             await lockCommand.ExecuteNonQueryAsync();
 
-            var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path, BusyTimeout = TimeSpan.FromMilliseconds(1), CommandTimeout = TimeSpan.FromSeconds(1) });
+            var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, BusyTimeout = TimeSpan.FromMilliseconds(1), CommandTimeout = TimeSpan.FromSeconds(1) });
             var result = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("blocked"), Payload = Payload("blocked") }, Operation(BaseOperationKind.Create));
 
             result.Status.Should().Be(OperationStatus.StoreError);
@@ -51,7 +51,7 @@ public sealed class SqliteDatabaseErrorTests
         try
         {
             await File.WriteAllTextAsync(path, "not sqlite");
-            var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path });
+            var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path });
             var result = await store.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
 
             result.Status.Should().Be(OperationStatus.StoreError);
@@ -70,7 +70,7 @@ public sealed class SqliteDatabaseErrorTests
     public async Task CantOpenDatabaseMapsToSpecificNativeStoreError()
     {
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-missing-" + Guid.NewGuid().ToString("N"), "store.db");
-        var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path });
+        var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path });
 
         var result = await store.GetAsync(Collection(), new RecordId("one"), Operation(BaseOperationKind.Get));
 

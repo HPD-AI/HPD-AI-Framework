@@ -17,6 +17,7 @@ internal static class OperationTestServices
         Action<IServiceCollection>? configureServices = null)
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionContributor(fields));
         services.AddSingleton(policy ?? new AllowPolicyEvaluator());
         configureServices?.Invoke(services);

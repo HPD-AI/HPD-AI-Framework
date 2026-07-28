@@ -8,6 +8,7 @@ using HPD.Base.Sqlite.Configuration;
 using HPD.Base.Sqlite.DependencyInjection;
 using HPD.Base.Runtime.Health;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Data.Sqlite;
 using System.Text.Json;
 
@@ -29,7 +30,7 @@ public sealed class SqliteSchemaInitializationTests
                 await command.ExecuteNonQueryAsync();
             }
 
-            var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path, SchemaPrefix = "l21_" });
+            var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, SchemaPrefix = "l21_" });
             var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
             create.Status.Should().Be(OperationStatus.Created);
 
@@ -55,13 +56,13 @@ public sealed class SqliteSchemaInitializationTests
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-missing-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
-            var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path, AutoInitialize = false, FailIfSchemaMissing = true });
+            var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, AutoInitialize = false, FailIfSchemaMissing = true });
             var result = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
 
             result.Status.Should().Be(OperationStatus.StoreError);
             result.Error!.Code.Should().Be("sqlite.database.unavailable");
 
-            var services = new ServiceCollection().AddHPDBaseSqliteStore(options =>
+            var services = new ServiceCollection().AddLogging().AddHPDBaseSqliteStore(options =>
             {
                 options.DataSource = path;
                 options.AutoInitialize = false;
@@ -91,7 +92,7 @@ public sealed class SqliteSchemaInitializationTests
                 await command.ExecuteNonQueryAsync();
             }
 
-            var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path });
+            var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path });
             var result = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
 
             result.Status.Should().Be(OperationStatus.StoreError);

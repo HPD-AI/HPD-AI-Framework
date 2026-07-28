@@ -2,8 +2,10 @@ using System.Runtime.CompilerServices;
 using HPD.Base.Events;
 using HPD.Base.Realtime.Configuration;
 using HPD.Base.Realtime.Observability;
+using HPD.Base.Realtime.Observability.Logging;
 using HPD.Base.Realtime.Projection;
 using HPD.Events;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Realtime.Feeds;
@@ -16,17 +18,20 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
     private readonly IBaseRealtimeProjectionService _projection;
     private readonly BaseRealtimeOptions _options;
     private readonly BaseRealtimeStats _stats;
+    private readonly ILogger<DefaultBaseRealtimeFeedSource> _logger;
 
     public DefaultBaseRealtimeFeedSource(
         IEventStreamSource<BaseRecordMutationEvent> events,
         IBaseRealtimeProjectionService projection,
         IOptions<BaseRealtimeOptions> options,
-        BaseRealtimeStats stats)
+        BaseRealtimeStats stats,
+        ILogger<DefaultBaseRealtimeFeedSource> logger)
     {
         _events = events;
         _projection = projection;
         _options = options.Value;
         _stats = stats;
+        _logger = logger;
     }
 
     public async ValueTask<AsyncStreamOpenResult<AsyncStream<BaseRealtimeEvent>>> OpenAsync(
@@ -81,6 +86,10 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
         if (!opened.Succeeded || opened.Value is null)
         {
             _stats.RecordStreamOpenFailure();
+            HPDBaseRealtimeLog.EventStreamOpenFailed(
+                _logger,
+                "dependency",
+                BaseRealtimeErrorCodes.CapabilityUnavailable);
             return AsyncStreamOpenResult<AsyncStream<BaseRealtimeEvent>>.Failed(
                 opened.Status,
                 opened.Error ?? new AsyncStreamError
@@ -111,13 +120,25 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
                 if (!Matches(request.Join, evt))
                     continue;
 
-                var projected = await _projection.ProjectAsync(new BaseRealtimeProjectionRequest
+                BaseRealtimeEvent? projected;
+                try
                 {
-                    Event = evt,
-                    Join = request.Join,
-                    Principal = request.Principal,
-                    Operation = request.Operation
-                }, cancellationToken).ConfigureAwait(false);
+                    projected = await _projection.ProjectAsync(new BaseRealtimeProjectionRequest
+                    {
+                        Event = evt,
+                        Join = request.Join,
+                        Principal = request.Principal,
+                        Operation = request.Operation
+                    }, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    HPDBaseRealtimeLog.EventProjectionFailed(
+                        _logger,
+                        "unexpected",
+                        BaseRealtimeErrorCodes.CapabilityUnavailable);
+                    throw;
+                }
 
                 if (projected is null)
                 {

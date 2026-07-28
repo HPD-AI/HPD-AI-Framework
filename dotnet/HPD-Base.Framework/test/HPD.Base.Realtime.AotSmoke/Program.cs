@@ -4,8 +4,16 @@ using HPD.Base.Events;
 using HPD.Base.Policy;
 using HPD.Base.Records;
 using HPD.Base.Realtime;
+using HPD.Base.Realtime.DependencyInjection;
 using HPD.Base.Realtime.Serialization;
 using HPD.Base.Runtime;
+using Microsoft.Extensions.DependencyInjection;
+
+var services = new ServiceCollection();
+services.AddLogging();
+services.AddHPDBaseRealtime();
+using var provider = services.BuildServiceProvider();
+_ = provider.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>();
 
 RoundTrip(Event(), HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeEvent);
 RoundTrip(ClientJoin(), HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeClientMessage);

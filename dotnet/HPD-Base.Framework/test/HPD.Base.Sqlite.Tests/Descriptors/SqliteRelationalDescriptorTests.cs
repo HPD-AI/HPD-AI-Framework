@@ -6,6 +6,7 @@ using HPD.Base.Sqlite.Configuration;
 using HPD.Base.Sqlite.DependencyInjection;
 using HPD.Base.Sqlite.Serialization;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
 
@@ -16,7 +17,7 @@ public sealed class SqliteRelationalDescriptorTests
     [Fact]
     public async Task DescriptorListsProviderOwnedUniversalTablesAndMappings()
     {
-        var services = new ServiceCollection().AddHPDBaseSqliteStore(options =>
+        var services = new ServiceCollection().AddLogging().AddHPDBaseSqliteStore(options =>
         {
             options.StoreId = "sqlite-test";
             options.CollectionIds = ["items"];

@@ -1,8 +1,10 @@
 using HPD.Base.Auth.HPDAuth.Configuration;
 using HPD.Base.Auth.HPDAuth.Descriptors;
 using HPD.Base.Auth.HPDAuth.Policy;
+using HPD.Base.Auth.HPDAuth.Observability.Logging;
 using HPD.Base.Health;
 using HPD.Base.Runtime.Health;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Auth.HPDAuth.Health;
@@ -44,6 +46,7 @@ public sealed class HPDAuthBaseDiagnosticContributor : IBaseDiagnosticContributo
     private readonly HPDBaseHPDAuthOptions _options;
     private readonly IEnumerable<IHPDAuthBaseHostIntegrationStatus> _hostStatuses;
     private readonly IEnumerable<IHPDAuthBaseGrantProvider> _grantProviders;
+    private readonly ILogger<HPDAuthBaseDiagnosticContributor> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HPDAuthBaseDiagnosticContributor"/> class.
@@ -51,14 +54,17 @@ public sealed class HPDAuthBaseDiagnosticContributor : IBaseDiagnosticContributo
     /// <param name="options">Adapter options.</param>
     /// <param name="hostStatuses">Host integration status providers.</param>
     /// <param name="grantProviders">Registered grant providers.</param>
+    /// <param name="logger">The diagnostic contributor logger.</param>
     public HPDAuthBaseDiagnosticContributor(
         IOptions<HPDBaseHPDAuthOptions> options,
         IEnumerable<IHPDAuthBaseHostIntegrationStatus> hostStatuses,
-        IEnumerable<IHPDAuthBaseGrantProvider> grantProviders)
+        IEnumerable<IHPDAuthBaseGrantProvider> grantProviders,
+        ILogger<HPDAuthBaseDiagnosticContributor> logger)
     {
         _options = options.Value;
         _hostStatuses = hostStatuses;
         _grantProviders = grantProviders;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -71,12 +77,16 @@ public sealed class HPDAuthBaseDiagnosticContributor : IBaseDiagnosticContributo
         var diagnostics = new List<DiagnosticDescriptor>();
         var statuses = _hostStatuses.ToArray();
         if (_options.RequireHPDAuthServices && !statuses.Any(static status => status.HPDAuthServicesDetected))
+        {
+            HPDBaseHPDAuthLog.AuthServicesUnavailable(_logger, HPDAuthBaseDiagnosticIds.MissingAuthServices);
             diagnostics.Add(MissingAuthServices(statuses));
+        }
 
         if (_grantProviders.FirstOrDefault() is null
             && _options.StaticGrants.Length == 0
             && _options.CollectionRules.Length == 0)
         {
+            HPDBaseHPDAuthLog.GrantConfigurationMissing(_logger, HPDAuthBaseDiagnosticIds.NoGrantProvider);
             diagnostics.Add(new DiagnosticDescriptor
             {
                 Id = HPDAuthBaseDiagnosticIds.NoGrantProvider,

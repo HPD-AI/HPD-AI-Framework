@@ -19,6 +19,7 @@ public sealed class AddHPDBaseRuntimeTests
     public void RegistersDefaultRuntimeServices()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddHPDBaseRuntime();
 
         using var provider = services.BuildServiceProvider();
@@ -42,6 +43,7 @@ public sealed class AddHPDBaseRuntimeTests
     public void ExistingDefaultsRemainReplaceable()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         var replacement = new ReplacementRecordRuntime();
         services.AddSingleton<IBaseRecordRuntime>(replacement);
 

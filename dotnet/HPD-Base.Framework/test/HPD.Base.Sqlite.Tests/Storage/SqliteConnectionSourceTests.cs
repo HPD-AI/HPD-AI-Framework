@@ -17,7 +17,7 @@ public sealed class SqliteConnectionSourceTests
         var dataSource = TempPath();
         try
         {
-            await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions
+            await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
             {
                 DataSource = dataSource,
                 EnableWal = false,
@@ -48,7 +48,7 @@ public sealed class SqliteConnectionSourceTests
                 Mode = SqliteOpenMode.ReadWriteCreate
             }.ToString();
 
-            await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions
+            await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
             {
                 ConnectionString = connectionString,
                 DataSource = ignoredDataSource,
@@ -82,7 +82,7 @@ public sealed class SqliteConnectionSourceTests
                 Mode = SqliteOpenMode.ReadWriteCreate
             }.ToString();
 
-            await using var store = new SqliteRecordStore(new HPDBaseSqliteOptions
+            await using var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions
             {
                 ConnectionString = connectionString,
                 EnableWal = false,

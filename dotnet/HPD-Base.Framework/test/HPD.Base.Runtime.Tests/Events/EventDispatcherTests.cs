@@ -62,6 +62,7 @@ public sealed class EventDispatcherTests
     public async Task RequireEnqueueFailsRuntimeValidationWithoutDurablePublisher()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionContributor());
         services.AddHPDBaseRuntime(options => options.Events.PublishFailureMode = BaseEventPublishFailureMode.RequireEnqueue);
         using var provider = services.BuildServiceProvider();
@@ -78,6 +79,7 @@ public sealed class EventDispatcherTests
         Action<HPDBaseRuntimeOptions>? configureRuntime = null)
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionContributor());
         services.AddSingleton<IPolicyEvaluator>(new AllowPolicyEvaluator());
         configureServices?.Invoke(services);

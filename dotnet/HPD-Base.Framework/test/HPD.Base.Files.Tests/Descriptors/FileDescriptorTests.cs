@@ -9,6 +9,7 @@ public sealed class FileDescriptorTests
     public async Task DescriptorContributesFilesModuleAndRedactsSecrets()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddHPDBaseRuntime();
         services.AddHPDBaseFiles(options =>
         {

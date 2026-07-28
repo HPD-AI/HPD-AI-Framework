@@ -14,7 +14,7 @@ public sealed class SqliteFileLifecycleTests
     public async Task FileBackedStoreReleasesDatabaseFilesAfterOperation()
     {
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-lifecycle-" + Guid.NewGuid().ToString("N") + ".db");
-        var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path, EnableWal = false });
+        var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, EnableWal = false });
         var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
         create.Status.Should().Be(OperationStatus.Created);
 

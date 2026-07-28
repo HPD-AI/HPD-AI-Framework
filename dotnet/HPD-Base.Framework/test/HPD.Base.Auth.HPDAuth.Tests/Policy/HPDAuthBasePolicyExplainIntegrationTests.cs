@@ -117,7 +117,7 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
 
     private static ServiceProvider BuildProvider(Action<HPDBaseHPDAuthOptions> configure, bool detectedHost = true)
     {
-        var services = new ServiceCollection();
+        var services = new ServiceCollection().AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionContributor());
         if (detectedHost)
         {

@@ -14,7 +14,7 @@ public sealed class SqliteQueryPushdownTests
     [Fact]
     public async Task UnsupportedStringOperatorFailsClosed()
     {
-        var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = TempPath() });
+        var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = TempPath() });
         var result = await store.ListAsync(
             Collection(),
             new RecordQuery { Filter = new FilterExpression { Kind = FilterNodeKind.Compare, Field = "title", Operator = FilterOperator.Contains, Value = new QueryValue { Kind = QueryValueKind.String, String = "a" } } },

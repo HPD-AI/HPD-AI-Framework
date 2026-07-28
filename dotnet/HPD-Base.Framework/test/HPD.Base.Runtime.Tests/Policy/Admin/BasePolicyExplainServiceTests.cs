@@ -136,6 +136,7 @@ public sealed class BasePolicyExplainServiceTests
     public async Task ExplainAsync_NoPolicyEvaluatorFailsClosed()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionContributor());
         services.AddHPDBaseRuntime();
         using var provider = services.BuildServiceProvider();
@@ -656,6 +657,7 @@ public sealed class BasePolicyExplainServiceTests
         Action<HPD.Base.Runtime.Builder.IHPDBaseRuntimeBuilder>? configureRuntimeBuilder = null)
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionContributor());
         services.AddSingleton(policy);
         var builder = services.AddHPDBaseRuntime(runtimeOptions);

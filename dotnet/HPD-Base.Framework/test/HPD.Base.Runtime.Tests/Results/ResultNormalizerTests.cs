@@ -64,6 +64,7 @@ public sealed class ResultNormalizerTests
     private static ServiceProvider Provider()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddHPDBaseRuntime();
         return services.BuildServiceProvider();
     }

@@ -3,7 +3,9 @@ using HPD.Base.Observability;
 using HPD.Base.Results;
 using HPD.Base.Runtime.Descriptors;
 using HPD.Base.Runtime.Observability;
+using HPD.Base.Runtime.Observability.Logging;
 using HPD.Base.Runtime.Results;
+using Microsoft.Extensions.Logging;
 
 namespace HPD.Base.Runtime.Health;
 
@@ -11,13 +13,16 @@ internal sealed class DefaultBaseDiagnosticProvider : IBaseDiagnosticProvider
 {
     private readonly IBaseDescriptorRegistry _registry;
     private readonly IEnumerable<IBaseDiagnosticContributor> _contributors;
+    private readonly ILogger<DefaultBaseDiagnosticProvider> _logger;
 
     public DefaultBaseDiagnosticProvider(
         IBaseDescriptorRegistry registry,
-        IEnumerable<IBaseDiagnosticContributor> contributors)
+        IEnumerable<IBaseDiagnosticContributor> contributors,
+        ILogger<DefaultBaseDiagnosticProvider> logger)
     {
         _registry = registry;
         _contributors = contributors;
+        _logger = logger;
     }
 
     public async ValueTask<OperationResult<DiagnosticDescriptor[]>> GetDiagnosticsAsync(
@@ -43,7 +48,15 @@ internal sealed class DefaultBaseDiagnosticProvider : IBaseDiagnosticProvider
                 foreach (var contributor in _contributors)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    diagnostics.AddRange(await contributor.GetDiagnosticsAsync(cancellationToken).ConfigureAwait(false));
+                    try
+                    {
+                        diagnostics.AddRange(await contributor.GetDiagnosticsAsync(cancellationToken).ConfigureAwait(false));
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    {
+                        HPDBaseRuntimeLog.DiagnosticContributorFailed(_logger);
+                        throw;
+                    }
                 }
 
                 return OperationResults.Ok(DescriptorViewFilter.Diagnostics(diagnostics.ToArray(), view));

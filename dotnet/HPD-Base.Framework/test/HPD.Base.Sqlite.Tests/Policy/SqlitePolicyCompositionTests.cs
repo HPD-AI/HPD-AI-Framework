@@ -10,6 +10,7 @@ using HPD.Base.Runtime.Stores;
 using HPD.Base.Schema;
 using HPD.Base.Sqlite.Configuration;
 using HPD.Base.Sqlite.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 
@@ -84,6 +85,7 @@ public sealed class SqlitePolicyCompositionTests
     private static ServiceCollection Services(string path, IPolicyEvaluator evaluator)
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton(evaluator);
         services.AddHPDBaseRuntime().AddHPDBaseSqliteStore(options =>
         {

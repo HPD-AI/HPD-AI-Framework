@@ -106,6 +106,7 @@ public sealed class HPDAuthBaseSubjectMapperTests
     private static ServiceCollection Services(Action<HPDBaseHPDAuthOptions>? configure = null)
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddHPDBaseHPDAuth(configure);
         return services;
     }

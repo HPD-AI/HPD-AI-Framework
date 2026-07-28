@@ -17,7 +17,7 @@ public sealed class SqliteWalTests
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-wal-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
-            var store = new SqliteRecordStore(new HPDBaseSqliteOptions { DataSource = path });
+            var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path });
             var create = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("one"), Payload = Payload() }, Operation(BaseOperationKind.Create));
             create.Status.Should().Be(OperationStatus.Created);
 

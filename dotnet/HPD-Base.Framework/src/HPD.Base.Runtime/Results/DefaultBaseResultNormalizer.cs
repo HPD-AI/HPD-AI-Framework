@@ -1,10 +1,19 @@
 using HPD.Base.Results;
 using HPD.Base.Runtime;
+using HPD.Base.Runtime.Observability.Logging;
+using Microsoft.Extensions.Logging;
 
 namespace HPD.Base.Runtime.Results;
 
 internal sealed class DefaultBaseResultNormalizer : IBaseResultNormalizer
 {
+    private readonly ILogger<DefaultBaseResultNormalizer> _logger;
+
+    public DefaultBaseResultNormalizer(ILogger<DefaultBaseResultNormalizer> logger)
+    {
+        _logger = logger;
+    }
+
     public OperationResult<T> NormalizeStoreResult<T>(
         OperationResult<T> result,
         OperationContext operation)
@@ -13,26 +22,39 @@ internal sealed class DefaultBaseResultNormalizer : IBaseResultNormalizer
 
         if (result.Status.IsSuccess())
         {
-            return result.Value is null
-                ? OperationResults.StoreError<T>(new BaseError
+            if (result.Value is null)
+            {
+                HPDBaseRuntimeLog.StoreResultMalformed(
+                    _logger,
+                    HPDBaseRuntimeLog.OperationKind(operation.Operation));
+                return OperationResults.StoreError<T>(new BaseError
                 {
                     Code = "base.runtime.store.nullSuccessValue",
                     Message = "Store returned a successful result without a value.",
                     Category = ErrorCategory.Store,
                     Target = operation.CollectionId,
                     CorrelationId = operation.CorrelationId
-                })
-                : result;
+                });
+            }
+
+            return result;
         }
 
-        var error = result.Error ?? new BaseError
+        var error = result.Error;
+        if (error is null)
         {
-            Code = ErrorCode(result.Status),
-            Message = "Store returned a failed result without error details.",
-            Category = ErrorCategoryFor(result.Status),
-            Target = operation.CollectionId,
-            CorrelationId = operation.CorrelationId
-        };
+            HPDBaseRuntimeLog.StoreFailureMalformed(
+                _logger,
+                HPDBaseRuntimeLog.OperationKind(operation.Operation));
+            error = new BaseError
+            {
+                Code = ErrorCode(result.Status),
+                Message = "Store returned a failed result without error details.",
+                Category = ErrorCategoryFor(result.Status),
+                Target = operation.CollectionId,
+                CorrelationId = operation.CorrelationId
+            };
+        }
 
         return result with
         {

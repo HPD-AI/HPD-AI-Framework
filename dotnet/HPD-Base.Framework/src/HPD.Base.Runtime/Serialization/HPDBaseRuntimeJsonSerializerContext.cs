@@ -44,6 +44,7 @@ using BaseRuntimeValidationSeverityConverter = LowerCamelJsonStringEnumConverter
 [JsonSerializable(typeof(BaseRuntimeValidationIssue))]
 [JsonSerializable(typeof(BaseRuntimeValidationIssue[]))]
 [JsonSerializable(typeof(BaseRuntimeValidationResult))]
+[JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(BaseManifestRequest))]
 [JsonSerializable(typeof(BaseManifestExpansionRequest))]
 [JsonSerializable(typeof(ExpandedBaseManifest))]

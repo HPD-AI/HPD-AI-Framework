@@ -8,7 +8,6 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Net.Http.Headers;
 
 namespace HPD.Base.Files.AspNetCore.EndpointMapping;
 
@@ -74,6 +73,7 @@ internal static class FileObjectEndpoints
     {
         var service = httpContext.RequestServices.GetRequiredService<IFileObjectService>();
         var mapper = httpContext.RequestServices.GetRequiredService<IBaseHttpResultMapper>();
+        var responseWriter = httpContext.RequestServices.GetRequiredService<FileDownloadResponseWriter>();
         var result = await service.OpenDownloadAsync(DownloadRequest(httpContext), Context(httpContext), httpContext.RequestAborted);
         if (!result.IsSuccess() || result.Value is null)
         {
@@ -81,11 +81,7 @@ internal static class FileObjectEndpoints
             return;
         }
 
-        ApplyFileHeaders(httpContext, result.Value.Metadata, result.Value.ContentLength, result.Value.ContentType, result.Value.ETag);
-        await using (var download = result.Value)
-        {
-            await download.Content.CopyToAsync(httpContext.Response.Body, httpContext.RequestAborted);
-        }
+        await responseWriter.WriteAsync(httpContext, result.Value);
     }
 
     private static async Task Head(HttpContext httpContext)
@@ -99,7 +95,12 @@ internal static class FileObjectEndpoints
             return;
         }
 
-        ApplyFileHeaders(httpContext, result.Value, result.Value.SizeBytes, result.Value.ContentType, result.Value.Revision?.Value);
+        FileDownloadResponseWriter.ApplyFileHeaders(
+            httpContext,
+            result.Value,
+            result.Value.SizeBytes,
+            result.Value.ContentType,
+            result.Value.Revision?.Value);
         httpContext.Response.StatusCode = StatusCodes.Status204NoContent;
     }
 
@@ -140,18 +141,6 @@ internal static class FileObjectEndpoints
         SubjectId = httpContext.User.Identity?.Name,
         CorrelationId = httpContext.TraceIdentifier
     };
-
-    private static void ApplyFileHeaders(HttpContext httpContext, FileObjectMetadata metadata, long? contentLength, string? contentType, string? etag)
-    {
-        httpContext.Response.ContentType = string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType;
-        if (contentLength is not null)
-            httpContext.Response.ContentLength = contentLength;
-        if (!string.IsNullOrWhiteSpace(etag))
-            httpContext.Response.Headers.ETag = EntityTagHeaderValue.Parse('"' + etag.Trim('"') + '"').ToString();
-        if (metadata.UpdatedAt is not null)
-            httpContext.Response.Headers.LastModified = metadata.UpdatedAt.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
-        httpContext.Response.Headers.CacheControl = "no-store";
-    }
 
     private static string RouteValue(HttpContext httpContext, string key) => Convert.ToString(httpContext.Request.RouteValues[key], System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
 

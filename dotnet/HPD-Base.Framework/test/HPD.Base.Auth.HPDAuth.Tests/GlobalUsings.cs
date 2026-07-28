@@ -19,4 +19,5 @@ global using HPD.Base.Runtime.Descriptors;
 global using HPD.Base.Runtime.Results;
 global using HPD.Base.Schema;
 global using Microsoft.Extensions.DependencyInjection;
+global using Microsoft.Extensions.Logging;
 global using Xunit;

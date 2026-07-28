@@ -58,6 +58,7 @@ public sealed class FileObjectServiceFailClosedTests
     public async Task DisabledBucketRejectsOperations()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddHPDBaseRuntime();
         services.AddHPDBaseFiles(options =>
         {
@@ -151,6 +152,7 @@ public sealed class FileObjectServiceFailClosedTests
     private static ServiceCollection Services(bool requireChecksum = false)
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddHPDBaseRuntime();
         services.AddHPDBaseFiles(options =>
         {

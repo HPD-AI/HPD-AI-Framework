@@ -6,6 +6,7 @@ public sealed class AddHPDBaseInMemoryStoreTests
     public void RegistersSameSingletonForStoreInterfaces()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddHPDBaseInMemoryStore(options => options.StoreId = "primary");
         using var provider = services.BuildServiceProvider();
 

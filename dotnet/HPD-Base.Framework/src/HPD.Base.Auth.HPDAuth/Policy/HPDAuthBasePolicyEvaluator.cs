@@ -1,10 +1,12 @@
 using HPD.Base.Auth.HPDAuth.Configuration;
 using HPD.Base.Auth.HPDAuth.Health;
 using HPD.Base.Auth.HPDAuth.Observability;
+using HPD.Base.Auth.HPDAuth.Observability.Logging;
 using HPD.Base.Observability;
 using HPD.Base.Policy;
 using HPD.Base.Query;
 using HPD.Base.Runtime;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Auth.HPDAuth.Policy;
@@ -18,6 +20,7 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
     private readonly IEnumerable<IHPDAuthBaseGrantProvider> _grantProviders;
     private readonly IEnumerable<IHPDAuthBaseHostIntegrationStatus> _hostStatuses;
     private readonly IEnumerable<IHPDAuthBaseInnerPolicyEvaluator> _innerEvaluators;
+    private readonly ILogger<HPDAuthBasePolicyEvaluator> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HPDAuthBasePolicyEvaluator"/> class.
@@ -26,16 +29,19 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
     /// <param name="grantProviders">Optional grant providers.</param>
     /// <param name="hostStatuses">Host integration status providers.</param>
     /// <param name="innerEvaluators">Optional inner policy evaluators.</param>
+    /// <param name="logger">The policy evaluator logger.</param>
     public HPDAuthBasePolicyEvaluator(
         IOptions<HPDBaseHPDAuthOptions> options,
         IEnumerable<IHPDAuthBaseGrantProvider> grantProviders,
         IEnumerable<IHPDAuthBaseHostIntegrationStatus> hostStatuses,
-        IEnumerable<IHPDAuthBaseInnerPolicyEvaluator> innerEvaluators)
+        IEnumerable<IHPDAuthBaseInnerPolicyEvaluator> innerEvaluators,
+        ILogger<HPDAuthBasePolicyEvaluator> logger)
     {
         _options = options.Value;
         _grantProviders = grantProviders;
         _hostStatuses = hostStatuses;
         _innerEvaluators = innerEvaluators;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -93,6 +99,22 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
         PolicyEvaluationRequest request,
         CancellationToken cancellationToken)
     {
+        var decision = await EvaluateAdapterCoreAsync(request, cancellationToken).ConfigureAwait(false);
+        if (decision.Effect == PolicyEffect.Deny)
+        {
+            HPDBaseHPDAuthLog.AuthPolicyDenied(
+                _logger,
+                HPDBaseHPDAuthLog.OperationKind(request.Operation.Operation),
+                HPDBaseHPDAuthLog.PolicyReasonCode(decision.ReasonCode));
+        }
+
+        return decision;
+    }
+
+    private async ValueTask<PolicyDecision> EvaluateAdapterCoreAsync(
+        PolicyEvaluationRequest request,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -112,12 +134,14 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
         if (IsAdmin(request.Principal, subjects) && _options.AllowAdminBypass)
         {
             HPDBaseHPDAuthTelemetry.RecordBypass(request, HPDBaseTelemetryValues.BypassAdmin);
+            HPDBaseHPDAuthLog.PrivilegedBypassUsed(_logger, "admin");
             return Allow(PolicyOutcome.Bypassed, request, subjects, adminBypass: true);
         }
 
         if (IsService(request.Principal, subjects) && _options.AllowServiceBypass)
         {
             HPDBaseHPDAuthTelemetry.RecordBypass(request, HPDBaseTelemetryValues.BypassService);
+            HPDBaseHPDAuthLog.PrivilegedBypassUsed(_logger, "service");
             return Allow(PolicyOutcome.Bypassed, request, subjects, serviceBypass: true);
         }
 
@@ -326,9 +350,17 @@ public sealed class HPDAuthBasePolicyEvaluator : IPolicyEvaluator
                         HPDBaseHPDAuthTelemetry.RecordGrantProviderCall(request, "ok");
                         grants.AddRange(provided);
                     }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
                     catch
                     {
                         HPDBaseHPDAuthTelemetry.RecordGrantProviderCall(request, "error");
+                        HPDBaseHPDAuthLog.GrantProviderFailed(
+                            _logger,
+                            "dependency",
+                            "hpd.auth.base.grantProviderFailed");
                         throw;
                     }
                 }

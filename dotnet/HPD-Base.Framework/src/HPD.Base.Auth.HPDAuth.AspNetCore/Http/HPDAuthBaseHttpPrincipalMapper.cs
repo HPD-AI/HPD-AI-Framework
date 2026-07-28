@@ -3,9 +3,11 @@ using HPD.Base.AspNetCore.Http;
 using HPD.Base.Auth.HPDAuth;
 using HPD.Base.Auth.HPDAuth.AspNetCore.Configuration;
 using HPD.Base.Auth.HPDAuth.AspNetCore.Observability;
+using HPD.Base.Auth.HPDAuth.AspNetCore.Observability.Logging;
 using HPD.Base.Runtime;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace HPD.Base.Auth.HPDAuth.AspNetCore.Http;
@@ -18,6 +20,7 @@ public sealed class HPDAuthBaseHttpPrincipalMapper : IBaseHttpPrincipalMapper
     private readonly HPDAuthBaseSubjectMapper _subjectMapper;
     private readonly HPDBaseHPDAuthAspNetCoreOptions _options;
     private readonly IEnumerable<IHPDAuthBaseHttpPrincipalEnricher> _enrichers;
+    private readonly ILogger<HPDAuthBaseHttpPrincipalMapper> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HPDAuthBaseHttpPrincipalMapper"/> class.
@@ -25,14 +28,17 @@ public sealed class HPDAuthBaseHttpPrincipalMapper : IBaseHttpPrincipalMapper
     /// <param name="subjectMapper">The HPD.Auth subject mapper.</param>
     /// <param name="options">ASP.NET adapter options.</param>
     /// <param name="enrichers">Optional principal enrichers.</param>
+    /// <param name="logger">The principal mapper logger.</param>
     public HPDAuthBaseHttpPrincipalMapper(
         HPDAuthBaseSubjectMapper subjectMapper,
         IOptions<HPDBaseHPDAuthAspNetCoreOptions> options,
-        IEnumerable<IHPDAuthBaseHttpPrincipalEnricher> enrichers)
+        IEnumerable<IHPDAuthBaseHttpPrincipalEnricher> enrichers,
+        ILogger<HPDAuthBaseHttpPrincipalMapper> logger)
     {
         _subjectMapper = subjectMapper;
         _options = options.Value;
         _enrichers = enrichers;
+        _logger = logger;
     }
 
     /// <inheritdoc />
@@ -63,7 +69,22 @@ public sealed class HPDAuthBaseHttpPrincipalMapper : IBaseHttpPrincipalMapper
                             foreach (var enricher in enrichers)
                             {
                                 cancellationToken.ThrowIfCancellationRequested();
-                                principal = await enricher.EnrichAsync(httpContext, principal, cancellationToken).ConfigureAwait(false);
+                                try
+                                {
+                                    principal = await enricher.EnrichAsync(httpContext, principal, cancellationToken).ConfigureAwait(false);
+                                }
+                                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                                {
+                                    throw;
+                                }
+                                catch
+                                {
+                                    HPDBaseHPDAuthAspNetCoreLog.PrincipalEnrichmentFailed(
+                                        _logger,
+                                        "dependency",
+                                        "hpd.auth.base.principalEnrichmentFailed");
+                                    throw;
+                                }
                             }
 
                             return principal;

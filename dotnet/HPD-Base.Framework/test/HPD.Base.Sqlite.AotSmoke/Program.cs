@@ -12,12 +12,14 @@ using HPD.Base.Relational.Providers;
 using HPD.Base.Sqlite.DependencyInjection;
 using HPD.Base.Sqlite.Serialization;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
 var dataSource = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-aot-" + Guid.NewGuid().ToString("N") + ".db");
 try
 {
     var services = new ServiceCollection();
+    services.AddLogging();
     services.AddSingleton<IPolicyEvaluator, SmokePolicyEvaluator>();
     services.AddHPDBaseRuntime().AddHPDBaseSqliteStore(options =>
     {
@@ -39,7 +41,7 @@ try
         ];
     });
 
-    using var provider = services.BuildServiceProvider();
+    await using var provider = services.BuildServiceProvider();
     provider.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseSqliteStore(provider);
 
     var runtime = provider.GetRequiredService<IBaseRecordRuntime>();

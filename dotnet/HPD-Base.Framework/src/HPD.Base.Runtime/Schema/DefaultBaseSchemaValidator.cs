@@ -2,6 +2,7 @@ using System.Text.Json;
 using HPD.Base.Records;
 using HPD.Base.Results;
 using HPD.Base.Runtime.Results;
+using HPD.Base.Runtime.Serialization;
 using HPD.Base.Schema;
 
 namespace HPD.Base.Runtime.Schema;
@@ -257,10 +258,9 @@ internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
     };
 
     private static JsonElement StringElement(string value)
-    {
-        using var document = JsonDocument.Parse(JsonSerializer.Serialize(value));
-        return document.RootElement.Clone();
-    }
+        => JsonSerializer.SerializeToElement(
+            value,
+            HPDBaseRuntimeJsonSerializerContext.Default.String);
 
     private static BaseError ValidationError(string code, string message, string target) => new()
     {

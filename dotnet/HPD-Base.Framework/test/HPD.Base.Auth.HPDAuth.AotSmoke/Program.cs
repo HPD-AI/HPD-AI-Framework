@@ -8,8 +8,10 @@ using HPD.Base.Policy;
 using HPD.Base.Runtime;
 using HPD.Base.Schema;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 var services = new ServiceCollection();
+services.AddLogging();
 services.AddHPDBaseHPDAuth(options =>
 {
     options.RequireHPDAuthServices = false;
