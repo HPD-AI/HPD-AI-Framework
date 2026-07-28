@@ -5,7 +5,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Shared/Observability/*.cs" Link="Shared/Observability/%(Filename)%(Extension)" />
     <PackageReference
       Include="Microsoft.Extensions.Logging.Abstractions"
-      Version="10.0.9"
+      Version="10.0.10"
       Condition="'$(MSBuildProjectName)' != 'HPD.Base.Auth.HPDAuth.AspNetCore.Tests'" />
   </ItemGroup>
 </Project>
