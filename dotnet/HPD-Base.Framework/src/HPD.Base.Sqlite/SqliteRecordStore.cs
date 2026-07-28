@@ -71,8 +71,10 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, ITransactionalMu
         CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
-        await EnforceMutationJournalRetentionAsync(connection, cancellationToken).ConfigureAwait(false);
-        return await GetBoundsAsync(connection, cancellationToken).ConfigureAwait(false);
+        return await GetBoundsAsync(
+            connection,
+            MutationJournalCutoff(),
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -91,21 +93,24 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, ITransactionalMu
             throw new ArgumentOutOfRangeException(nameof(request), "Journal read limit exceeds the configured maximum.");
 
         await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
-        await EnforceMutationJournalRetentionAsync(connection, cancellationToken).ConfigureAwait(false);
-        var bounds = await GetBoundsAsync(connection, cancellationToken).ConfigureAwait(false);
+        var cutoff = MutationJournalCutoff();
+        var bounds = await GetBoundsAsync(connection, cutoff, cancellationToken).ConfigureAwait(false);
         var highWatermark = request.Through ?? bounds.HighWatermark;
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
 SELECT position, event_id, event_type, schema_version, occurred_at, tenant_id,
        operation, visibility, collection_id, record_id, before_json, after_json
 FROM {_names.MutationJournal}
-WHERE position > $after AND position <= $through
+WHERE position > $after
+  AND position <= $through
+  AND julianday(occurred_at) >= julianday($cutoff)
 ORDER BY position
 LIMIT $limit;
 """;
         command.CommandTimeout = TimeoutSeconds();
         command.Parameters.AddWithValue("$after", request.After.Value);
         command.Parameters.AddWithValue("$through", highWatermark.Value);
+        command.Parameters.AddWithValue("$cutoff", cutoff);
         command.Parameters.AddWithValue("$limit", checked(request.Limit + 1));
 
         var entries = new List<BaseMutationJournalEntry>(request.Limit + 1);
@@ -133,16 +138,17 @@ LIMIT $limit;
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(eventId);
         await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
-        await EnforceMutationJournalRetentionAsync(connection, cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
 SELECT position, event_id, event_type, schema_version, occurred_at, tenant_id,
        operation, visibility, collection_id, record_id, before_json, after_json
 FROM {_names.MutationJournal}
-WHERE event_id = $eventId;
+WHERE event_id = $eventId
+  AND julianday(occurred_at) >= julianday($cutoff);
 """;
         command.CommandTimeout = TimeoutSeconds();
         command.Parameters.AddWithValue("$eventId", eventId);
+        command.Parameters.AddWithValue("$cutoff", MutationJournalCutoff());
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
             ? ReadJournalEntry(reader)
@@ -595,15 +601,6 @@ WHERE position <= (
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private ValueTask EnforceMutationJournalRetentionAsync(
-        SqliteConnection connection,
-        CancellationToken cancellationToken) =>
-        PruneMutationJournalAsync(
-            connection,
-            transaction: null,
-            _timeProvider.GetUtcNow(),
-            cancellationToken);
-
     private static object SerializeSnapshot(RecordEnvelope? record)
     {
         if (record is null)
@@ -645,12 +642,17 @@ WHERE position <= (
 
     private async ValueTask<BaseMutationJournalBounds> GetBoundsAsync(
         SqliteConnection connection,
+        string cutoff,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.CommandText = $"""
 SELECT
-  MIN(position),
+  MIN(CASE
+    WHEN julianday(occurred_at) >= julianday($cutoff)
+    THEN position
+    ELSE NULL
+  END),
   COALESCE(
     MAX(position),
     (SELECT seq FROM sqlite_sequence WHERE name = $journal),
@@ -659,6 +661,7 @@ FROM {_names.MutationJournal};
 """;
         command.CommandTimeout = TimeoutSeconds();
         command.Parameters.AddWithValue("$journal", _names.MutationJournal);
+        command.Parameters.AddWithValue("$cutoff", cutoff);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         var highWatermark = reader.GetInt64(1);
@@ -669,6 +672,11 @@ FROM {_names.MutationJournal};
             new BaseMutationJournalPosition(earliest),
             new BaseMutationJournalPosition(highWatermark));
     }
+
+    private string MutationJournalCutoff() =>
+        _timeProvider.GetUtcNow()
+            .Subtract(_options.MutationJournalRetention)
+            .ToString("O");
 
     private static string EventType(BaseOperationKind operation) => operation switch
     {

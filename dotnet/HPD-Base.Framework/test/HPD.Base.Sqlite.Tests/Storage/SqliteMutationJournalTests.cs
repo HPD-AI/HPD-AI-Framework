@@ -16,6 +16,7 @@ using HPD.Base.Sqlite.Tests.Conformance;
 using HPD.Base.StoreConformance;
 using HPD.Base.StoreConformance.Runtime;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Data.Sqlite;
 using System.Text.Json;
 
 namespace HPD.Base.Sqlite.Tests.Storage;
@@ -163,26 +164,53 @@ public sealed class SqliteMutationJournalTests
     [Fact]
     public async Task AgeRetentionExpiresEntriesDuringAnIdleRead()
     {
-        var time = new ManualTimeProvider(DateTimeOffset.UnixEpoch.AddSeconds(1));
-        await using var store = CreateStore(
-            options => options.MutationJournalRetention = TimeSpan.FromSeconds(5),
-            time);
-        var collection = Collection();
-        await store.CreateAsync(
-            collection,
-            new RecordCreateRequest
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"hpd-base-l26-logical-retention-{Guid.NewGuid():N}.db");
+        try
+        {
+            var time = new ManualTimeProvider(DateTimeOffset.UnixEpoch.AddSeconds(1));
+            await using var store = CreateStore(
+                options =>
+                {
+                    options.DataSource = path;
+                    options.MutationJournalRetention = TimeSpan.FromSeconds(5);
+                },
+                time);
+            var created = await store.CreateAsync(
+                Collection(),
+                new RecordCreateRequest
+                {
+                    RequestedId = new RecordId("old"),
+                    Payload = Payload("old")
+                },
+                Operation(BaseOperationKind.Create, 1));
+            time.Advance(TimeSpan.FromSeconds(9));
+
+            var page = await store.ReadMutationJournalAsync(
+                new BaseMutationJournalReadRequest { Limit = 10 });
+            var found = await store.FindMutationJournalEntryAsync(created.Events![0].EventId);
+
+            page.Earliest.Value.Should().Be(2);
+            page.HighWatermark.Value.Should().Be(1);
+            page.Entries.Should().BeEmpty();
+            found.Should().BeNull();
+
+            await using var connection = new SqliteConnection(
+                new SqliteConnectionStringBuilder { DataSource = path }.ToString());
+            await connection.OpenAsync();
+            await using var count = connection.CreateCommand();
+            count.CommandText = "SELECT COUNT(*) FROM hpd_base_mutation_journal;";
+            (await count.ExecuteScalarAsync()).Should().Be(1L);
+        }
+        finally
+        {
+            foreach (var candidate in new[] { path, path + "-wal", path + "-shm" })
             {
-                RequestedId = new RecordId("old"),
-                Payload = Payload("old")
-            },
-            Operation(BaseOperationKind.Create, 1));
-        time.Advance(TimeSpan.FromSeconds(9));
-
-        var page = await store.ReadMutationJournalAsync(new BaseMutationJournalReadRequest { Limit = 10 });
-
-        page.Earliest.Value.Should().Be(2);
-        page.HighWatermark.Value.Should().Be(1);
-        page.Entries.Should().BeEmpty();
+                if (File.Exists(candidate))
+                    File.Delete(candidate);
+            }
+        }
     }
 
     [Fact]
