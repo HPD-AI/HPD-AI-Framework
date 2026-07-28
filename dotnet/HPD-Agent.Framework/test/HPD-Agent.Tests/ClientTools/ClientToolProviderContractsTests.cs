@@ -69,7 +69,7 @@ public sealed class ClientToolProviderContractsTests
         };
 
         var connection = new TestProviderConnection(registry);
-        var registration = await registry.RegisterConnectionAsync(identity, connection);
+        var registration = await registry.RegisterConnectionAsync(identity, null, connection);
         connection.Attach(registration.ClientRuntimeId, registration.ConnectionId);
 
         registration.ClientRuntimeId.Should().StartWith("crt_penpot_");
@@ -135,6 +135,178 @@ public sealed class ClientToolProviderContractsTests
     }
 
     [Fact]
+    public async Task BindingRejectsAmbiguousTabsAndHonorsBrowserLaunchSelection()
+    {
+        var registry = new InMemoryClientToolProviderRegistry();
+        var scope = new ClientToolProviderBindingScope
+        {
+            AgentId = "agent",
+            SessionId = "session",
+            ThreadId = "thread"
+        };
+
+        foreach (string launchId in new[] { "launch-1", "launch-2" })
+        {
+            var identity = new ClientToolProviderIdentity
+            {
+                ProviderName = "penpot-frontend",
+                AppKind = "design-editor",
+                InstanceId = $"runtime-{launchId}"
+            };
+            var connection = new TestProviderConnection(registry);
+            ClientToolProviderConnectionRegistration registration =
+                await registry.RegisterConnectionAsync(
+                    identity,
+                    RuntimeIdentity(launchId),
+                    connection);
+            connection.Attach(
+                registration.ClientRuntimeId,
+                registration.ConnectionId);
+            await registry.UpdateManifestAsync(
+                registration.ClientRuntimeId,
+                registration.ConnectionId,
+                Manifest(identity));
+        }
+
+        ClientAppProviderReference ambiguous =
+            new() { Name = "penpot" };
+        (await registry.TryAcquireBindingAsync(ambiguous, scope))
+            .Should().BeNull();
+
+        ClientAppProviderReference selected = new()
+        {
+            Name = "penpot",
+            ProviderSelector = new ClientProviderSelector
+            {
+                AppInstallationId = "installation-1",
+                BrowserLaunchSessionId = "launch-2"
+            }
+        };
+        ClientToolProviderBindingResult? binding =
+            await registry.TryAcquireBindingAsync(selected, scope);
+        binding.Should().NotBeNull();
+        binding!.Provider.RuntimeIdentity!.BrowserLaunchSessionId
+            .Should().Be("launch-2");
+
+        ClientToolProviderBindingResult? inherited =
+            await registry.TryAcquireBindingAsync(ambiguous, scope);
+        inherited!.Lease.BindingId.Should().Be(binding.Lease.BindingId);
+    }
+
+    [Fact]
+    public async Task RevocationFenceRejectsAuthorizedRegistrationAndClosesConnectedProvider()
+    {
+        var registry = new InMemoryClientToolProviderRegistry();
+        var identity = new ClientToolProviderIdentity
+        {
+            ProviderName = "penpot-frontend",
+            AppKind = "design-editor",
+            InstanceId = "runtime-1"
+        };
+        var connected = new TestProviderConnection(registry);
+        ClientToolProviderRuntimeIdentity generationFive =
+            RuntimeIdentity("launch-5") with
+            {
+                WorkloadGeneration = 5
+            };
+        ClientToolProviderConnectionRegistration registration =
+            await registry.RegisterConnectionAsync(
+                identity,
+                generationFive,
+                connected);
+
+        await registry.AdvanceRevocationFenceAsync(
+            new ClientToolProviderRevocationFence(
+                "installation-1",
+                6));
+        await registry.RevokeAsync(
+            new ClientProviderSelector
+            {
+                AppInstallationId = "installation-1"
+            },
+            "App stopped.");
+
+        connected.CloseReasons.Should().ContainSingle("App stopped.");
+        registry.TryGet(registration.ClientRuntimeId, out var revoked)
+            .Should().BeTrue();
+        revoked.State.Should()
+            .Be(ClientToolProviderConnectionState.Revoked);
+
+        var authorizedBeforeStop =
+            new TestProviderConnection(registry);
+        Func<Task> commit = async () =>
+            await registry.RegisterConnectionAsync(
+                identity,
+                RuntimeIdentity("launch-6") with
+                {
+                    WorkloadGeneration = 6
+                },
+                authorizedBeforeStop);
+        await commit.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*revoked before it committed*");
+
+        var afterStop = new TestProviderConnection(registry);
+        ClientToolProviderConnectionRegistration next =
+            await registry.RegisterConnectionAsync(
+                identity,
+                RuntimeIdentity("launch-7") with
+                {
+                    WorkloadGeneration = 7
+                },
+                afterStop);
+        next.ConnectionId.Should().StartWith("cpc_");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RevocationAttemptsEverySocketCloseAfterCleanupCancellation(
+        bool cancelBeforeTransition)
+    {
+        var registry = new InMemoryClientToolProviderRegistry();
+        using var cleanup = new CancellationTokenSource();
+        var first = new TestProviderConnection(
+            registry,
+            onClose: cleanup.Cancel);
+        var second = new TestProviderConnection(
+            registry,
+            onClose: cleanup.Cancel);
+
+        await registry.RegisterConnectionAsync(
+            new ClientToolProviderIdentity
+            {
+                ProviderName = "penpot-frontend",
+                AppKind = "design-editor",
+                InstanceId = "runtime-close-1"
+            },
+            RuntimeIdentity("launch-close-1"),
+            first);
+        await registry.RegisterConnectionAsync(
+            new ClientToolProviderIdentity
+            {
+                ProviderName = "penpot-frontend",
+                AppKind = "design-editor",
+                InstanceId = "runtime-close-2"
+            },
+            RuntimeIdentity("launch-close-2"),
+            second);
+        if (cancelBeforeTransition)
+            cleanup.Cancel();
+
+        int revoked = await registry.RevokeAsync(
+            new ClientProviderSelector
+            {
+                AppInstallationId = "installation-1"
+            },
+            "App stopped.",
+            cleanup.Token);
+
+        revoked.Should().Be(2);
+        first.CloseReasons.Should().ContainSingle("App stopped.");
+        second.CloseReasons.Should().ContainSingle("App stopped.");
+    }
+
+    [Fact]
     public async Task InMemoryClientToolProviderRegistry_InvokeToolWaitsForProviderOutcome()
     {
         var registry = new InMemoryClientToolProviderRegistry();
@@ -145,7 +317,7 @@ public sealed class ClientToolProviderContractsTests
             InstanceId = "workspace-1"
         };
         var connection = new TestProviderConnection(registry);
-        var registration = await registry.RegisterConnectionAsync(identity, connection);
+        var registration = await registry.RegisterConnectionAsync(identity, null, connection);
         connection.Attach(registration.ClientRuntimeId, registration.ConnectionId);
 
         await registry.UpdateManifestAsync(
@@ -182,6 +354,7 @@ public sealed class ClientToolProviderContractsTests
                 RequestId = "req_1",
                 CallId = "call_1",
                 Arguments = new Dictionary<string, object?>(),
+                ResolvedInvocationMode = AgentInvocationMode.Synchronous,
                 Binding = new ClientToolProviderToolBinding
                 {
                     BindingId = binding!.Lease.BindingId,
@@ -202,7 +375,7 @@ public sealed class ClientToolProviderContractsTests
     }
 
     [Fact]
-    public async Task InMemoryClientToolProviderRegistry_ResolvesProviderBackgroundOperationOutcome()
+    public async Task InMemoryClientToolProviderRegistry_PreservesStructuredBackgroundError()
     {
         var registry = new InMemoryClientToolProviderRegistry();
         var identity = new ClientToolProviderIdentity
@@ -212,7 +385,7 @@ public sealed class ClientToolProviderContractsTests
             InstanceId = "workspace-1"
         };
         var connection = new TestProviderConnection(registry);
-        var registration = await registry.RegisterConnectionAsync(identity, connection);
+        var registration = await registry.RegisterConnectionAsync(identity, null, connection);
         connection.Attach(registration.ClientRuntimeId, registration.ConnectionId);
 
         await registry.UpdateManifestAsync(
@@ -271,30 +444,100 @@ public sealed class ClientToolProviderContractsTests
             {
                 BindingId = binding.Lease.BindingId,
                 ClientOperationId = "op_1",
-                State = ClientToolBackgroundOperationOutcomeState.Completed,
-                Content = [new TextContent("done")],
+                State = ClientToolBackgroundOperationOutcomeState.Faulted,
+                Error = new ClientToolError
+                {
+                    Kind = "stale_context",
+                    Message = "Document context changed.",
+                    Retryable = true,
+                    CurrentContext = new ClientToolProviderContext
+                    {
+                        DocumentId = "doc-2",
+                        AppStateVersion = "43"
+                    },
+                    Metadata = new Dictionary<string, object?>
+                    {
+                        ["expectedRevision"] = "42"
+                    }
+                },
                 Metadata = new Dictionary<string, string> { ["artifactId"] = "file_1" }
             }).Should().BeTrue();
 
         var result = await operation.Completion.WaitAsync(TimeSpan.FromSeconds(1));
-        result.State.Should().Be(ClientToolBackgroundOperationOutcomeState.Completed);
-        result.Content.Should().ContainSingle().Which.Should().BeOfType<TextContent>()
-            .Which.Text.Should().Be("done");
+        result.State.Should().Be(ClientToolBackgroundOperationOutcomeState.Faulted);
+        result.Error.Should().NotBeNull();
+        result.Error!.Kind.Should().Be("stale_context");
+        result.Error.Retryable.Should().BeTrue();
+        result.Error.CurrentContext!.DocumentId.Should().Be("doc-2");
+        result.Error.Metadata.Should().Contain("expectedRevision", "42");
         result.Metadata.Should().Contain("artifactId", "file_1");
     }
+
+    private static ClientToolProviderManifest Manifest(
+        ClientToolProviderIdentity identity) =>
+        new()
+        {
+            Identity = identity,
+            AppProvider = new ClientAppProviderDescriptor
+            {
+                Name = "penpot"
+            },
+            Readiness = ClientToolProviderReadiness.Ready,
+            ClientToolHarnesses =
+            [
+                new clientToolHarnessDefinition(
+                    "design",
+                    "Design tools.",
+                    [
+                        new ClientToolDefinition
+                        {
+                            Name = "inspect",
+                            Description = "Inspects the design.",
+                            ParametersSchema = JsonDocument.Parse(
+                                """{"type":"object","properties":{},"additionalProperties":false}""")
+                                .RootElement
+                        }
+                    ],
+                    StartCollapsed: false)
+            ]
+        };
+
+    private static ClientToolProviderRuntimeIdentity RuntimeIdentity(
+        string browserLaunchSessionId) =>
+        new()
+        {
+            AppId = "io.penpot.penpot",
+            AppRevision = "revision-1",
+            InstallationId = "installation-1",
+            WorkloadId = "frontend",
+            WorkloadGeneration = 1,
+            EndpointId = "web",
+            PublicationId = "publication-1",
+            PublicationGeneration = 1,
+            LaunchSurfaceId = "workspace",
+            BrowserLaunchSessionId = browserLaunchSessionId,
+            BrowserLaunchSessionGeneration = 1,
+            ProviderConnectionGeneration = 1,
+            Origin = "https://penpot.example"
+        };
 
     private sealed class TestProviderConnection : IClientToolProviderConnection
     {
         private readonly IClientToolProviderRegistry _registry;
+        private readonly Action? _onClose;
         private string? _clientRuntimeId;
         private string? _connectionId;
 
-        public TestProviderConnection(IClientToolProviderRegistry registry)
+        public TestProviderConnection(
+            IClientToolProviderRegistry registry,
+            Action? onClose = null)
         {
             _registry = registry;
+            _onClose = onClose;
         }
 
         public ClientToolProviderInvokeToolMessage? LastInvocation { get; private set; }
+        public List<string> CloseReasons { get; } = [];
 
         public void Attach(string clientRuntimeId, string connectionId)
         {
@@ -318,6 +561,15 @@ public sealed class ClientToolProviderContractsTests
                     Outcome = ClientToolInvokeOutcomeKind.Completed,
                     Content = [new TextContent("selected text")]
                 });
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask CloseAsync(
+            string reason,
+            CancellationToken cancellationToken = default)
+        {
+            CloseReasons.Add(reason);
+            _onClose?.Invoke();
             return ValueTask.CompletedTask;
         }
     }

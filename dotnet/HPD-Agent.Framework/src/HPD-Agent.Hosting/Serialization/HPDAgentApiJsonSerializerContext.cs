@@ -130,6 +130,7 @@ namespace HPD.Agent.Hosting.Serialization;
 [JsonSerializable(typeof(ClientAppProviderBindingPolicy))]
 [JsonSerializable(typeof(ClientAppProviderDescriptor))]
 [JsonSerializable(typeof(ClientToolProviderIdentity))]
+[JsonSerializable(typeof(ClientToolProviderRuntimeIdentity))]
 [JsonSerializable(typeof(ClientToolProviderContext))]
 [JsonSerializable(typeof(ClientToolProviderReadiness))]
 [JsonSerializable(typeof(ClientToolProviderConnectionState))]

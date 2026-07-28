@@ -81,6 +81,9 @@ public record ClientToolInvokeOutcomeEvent : AgentEvent, IAgentResponseEvent
     /// </summary>
     public string? ErrorMessage { get; init; }
 
+    /// <summary>Gets structured provider error information when available.</summary>
+    public ClientToolError? Error { get; init; }
+
     /// <summary>
     /// Gets the client-owned id for accepted background work.
     /// </summary>

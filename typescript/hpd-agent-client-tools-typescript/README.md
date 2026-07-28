@@ -24,3 +24,25 @@ provider.harness('editor', { description: 'Active editor tools.' })
 
 await provider.connect();
 ```
+
+## Live provider context
+
+Fresh-context tools compare the invocation context selected by HPD with the
+application's live context. Applications with mutable context should expose
+their native change source through `subscribeContextChanges`; the SDK
+deduplicates and debounces manifest updates and disposes the subscription when
+the provider disconnects.
+
+```ts
+const provider = createClientToolProvider({
+  // identity and appProvider omitted
+  context: () => workspace.currentContext(),
+  contextSnapshot: () => workspace.currentContext(),
+  subscribeContextChanges: listener =>
+    workspace.subscribeContextChanges(listener),
+  contextUpdateDebounceMs: 50,
+});
+```
+
+Calling `updateManifest()` remains available for explicit changes to tools,
+readiness, metadata, or context.

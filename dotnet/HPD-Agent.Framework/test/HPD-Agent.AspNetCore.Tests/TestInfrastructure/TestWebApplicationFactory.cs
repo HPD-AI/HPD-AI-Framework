@@ -14,9 +14,16 @@ namespace HPD.Agent.AspNetCore.Tests.TestInfrastructure;
 /// </summary>
 public class TestWebApplicationFactory : IDisposable
 {
+    private readonly Action<IServiceCollection>? _configureServices;
     private TestServer? _server;
     private HttpClient? _client;
     private readonly FakeChatClient _fakeChatClient = new();
+
+    public TestWebApplicationFactory(
+        Action<IServiceCollection>? configureServices = null)
+    {
+        _configureServices = configureServices;
+    }
 
     /// <summary>
     /// Gets the shared FakeChatClient used by all agents in tests.
@@ -72,9 +79,11 @@ public class TestWebApplicationFactory : IDisposable
                 {
                     options.SessionStorePath = Path.Combine(Path.GetTempPath(), $"hpd-agent-tests-{Guid.NewGuid()}");
                 });
+                _configureServices?.Invoke(services);
             })
             .Configure(app =>
             {
+                app.UseWebSockets();
                 app.UseRouting();
                 app.UseEndpoints(endpoints =>
                 {

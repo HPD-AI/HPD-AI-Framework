@@ -87,6 +87,9 @@ public sealed record ClientToolBackgroundOperationResult
     /// <summary>Gets an error type for faulted operations.</summary>
     public string? ErrorType { get; init; }
 
+    /// <summary>Gets structured provider error information when available.</summary>
+    public ClientToolError? Error { get; init; }
+
     /// <summary>Gets a cancellation reason for cancelled operations.</summary>
     public string? CancellationReason { get; init; }
 

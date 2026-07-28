@@ -74,6 +74,61 @@ describe('ClientToolProvider', () => {
     });
   });
 
+  it('republishes a manifest only when subscribed context changes', async () => {
+    const socket = new FakeWebSocket();
+    let context = { documentId: 'document-1', appStateVersion: '1' };
+    let notifyContextChanged: (() => void) | undefined;
+    let subscriptionDisposed = false;
+    const provider = createClientToolProvider({
+      url: 'ws://localhost/api/hpd/client-tool-providers/connect',
+      identity: {
+        providerName: 'design-editor',
+        appKind: 'design-editor',
+        instanceId: 'workspace-1',
+      },
+      appProvider: {
+        name: 'design-editor',
+        displayName: 'Design Editor',
+      },
+      context: () => context,
+      contextUpdateDebounceMs: 0,
+      subscribeContextChanges: listener => {
+        notifyContextChanged = listener;
+        return () => {
+          subscriptionDisposed = true;
+        };
+      },
+      webSocketFactory: () => socket.asWebSocket(),
+    });
+
+    const connected = provider.connect();
+    socket.open();
+    socket.receive({
+      type: 'provider.welcome',
+      clientRuntimeId: 'crt_1',
+      connectionId: 'cpc_1',
+      heartbeatIntervalMs: 60_000,
+    });
+    await connected;
+    await nextTick();
+    socket.clear();
+
+    notifyContextChanged?.();
+    notifyContextChanged?.();
+    await nextTick();
+    expect(socket.sent.filter(isManifestMessage)).toHaveLength(0);
+
+    context = { documentId: 'document-1', appStateVersion: '2' };
+    notifyContextChanged?.();
+    notifyContextChanged?.();
+    await nextTick();
+    expect(socket.sent.filter(isManifestMessage)).toHaveLength(1);
+    expect(socket.sent.find(isManifestMessage)?.context).toEqual(context);
+
+    await provider.disconnect();
+    expect(subscriptionDisposed).toBe(true);
+  });
+
   it('routes provider.invoke to the registered tool and returns a completed outcome', async () => {
     const { provider, socket } = await connectProvider();
     provider.harness('editor')
@@ -143,7 +198,7 @@ describe('ClientToolProvider', () => {
         parametersSchema: { type: 'object', properties: {} },
         policy: { invocationModePolicy: 'ModelChoice' },
         handler: (_args, context) => {
-          context.acceptBackground('op_1', {
+          context.acceptBackground({
             content: 'Export started.',
             handleKind: 'ClientToolOperation',
             supportedOperations: 'Cancel',
@@ -155,6 +210,8 @@ describe('ClientToolProvider', () => {
     socket.receive(createInvocation({
       toolName: 'export_selection',
       requestedInvocationMode: 'Background',
+      resolvedInvocationMode: 'Background',
+      clientOperationId: 'op_1',
     }));
 
     await nextTick();
@@ -177,7 +234,7 @@ describe('ClientToolProvider', () => {
         parametersSchema: { type: 'object', properties: {} },
         policy: { invocationModePolicy: 'ModelChoice' },
         handler: (_args, context) => {
-          context.acceptBackground('op_1', {
+          context.acceptBackground({
             content: 'Export started.',
           });
         },
@@ -187,6 +244,8 @@ describe('ClientToolProvider', () => {
     socket.receive(createInvocation({
       toolName: 'export_selection',
       requestedInvocationMode: 'Background',
+      resolvedInvocationMode: 'Background',
+      clientOperationId: 'op_1',
     }));
     await nextTick();
     socket.clear();
@@ -211,25 +270,45 @@ describe('ClientToolProvider', () => {
   it('validates and dispatches a typed compound operation', async () => {
     const { provider, socket } = await connectProvider();
     provider.harness('design')
-      .operationTool<{ action: 'inspect'; nodeId: string }>('penpot', {
+      .operationTool<
+        | { action: 'inspect'; nodeId: string }
+        | { action: 'delete'; nodeIds: string[] }
+      >('penpot', {
         description: 'Operates on the active design.',
         discriminator: 'action',
         parametersSchema: {
           type: 'object',
-          oneOf: [{
-            type: 'object',
-            properties: {
-              action: { const: 'inspect' },
-              nodeId: { type: 'string' },
+          oneOf: [
+            {
+              type: 'object',
+              properties: {
+                action: { const: 'inspect' },
+                nodeId: { type: 'string' },
+              },
+              required: ['action', 'nodeId'],
+              additionalProperties: false,
             },
-            required: ['action', 'nodeId'],
-            additionalProperties: false,
-          }],
+            {
+              type: 'object',
+              properties: {
+                action: { const: 'delete' },
+                nodeIds: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['action', 'nodeIds'],
+              additionalProperties: false,
+            },
+          ],
         },
         actions: {
           inspect: {
             requiresPermission: false,
             requiresFreshContext: false,
+          },
+          delete: {
+            requiresPermission: true,
+            permissionScope: 'penpot.delete',
+            destructive: true,
+            requiresFreshContext: true,
           },
         },
         parse: value => {
@@ -241,6 +320,7 @@ describe('ClientToolProvider', () => {
         },
         handlers: {
           inspect: request => ({ type: 'json', value: { nodeId: request.nodeId } }),
+          delete: request => ({ type: 'json', value: { deleted: request.nodeIds } }),
         },
       });
     await provider.updateManifest();
@@ -351,6 +431,286 @@ describe('ClientToolProvider', () => {
       },
     });
   });
+
+  it('accepts additional live fields when expected context is partial', async () => {
+    let invoked = false;
+    const socket = new FakeWebSocket();
+    const provider = createClientToolProvider({
+      url: 'ws://localhost/provider',
+      identity: { providerName: 'test', appKind: 'test' },
+      appProvider: { name: 'test' },
+      contextSnapshot: () => ({
+        workspaceId: 'workspace-1',
+        documentId: 'doc-1',
+        appStateVersion: '42',
+      }),
+      webSocketFactory: () => socket.asWebSocket(),
+    });
+    provider.harness('design').operationTool<{ action: 'update' }>('penpot', {
+      description: 'Updates a design.',
+      discriminator: 'action',
+      parametersSchema: {
+        type: 'object',
+        oneOf: [{
+          type: 'object',
+          properties: { action: { const: 'update' } },
+          required: ['action'],
+          additionalProperties: false,
+        }],
+      },
+      actions: {
+        update: {
+          requiresPermission: true,
+          permissionScope: 'penpot.write.update',
+          mutatesState: true,
+          requiresFreshContext: true,
+        },
+      },
+      parse: value => value as { action: 'update' },
+      handler: () => {
+        invoked = true;
+      },
+    });
+    const connected = provider.connect();
+    socket.open();
+    socket.receive({
+      type: 'provider.welcome',
+      clientRuntimeId: 'crt_1',
+      connectionId: 'cpc_1',
+      heartbeatIntervalMs: 60_000,
+    });
+    await connected;
+    socket.clear();
+
+    socket.receive(createInvocation({
+      toolName: 'penpot',
+      arguments: { action: 'update' },
+      operation: {
+        discriminator: 'action',
+        action: 'update',
+        policy: {
+          requiresPermission: true,
+          permissionScope: 'penpot.write.update',
+          mutatesState: true,
+          requiresFreshContext: true,
+          destructive: false,
+          idempotent: false,
+          invocationModePolicy: 'SynchronousOnly',
+        },
+      },
+      expectedContext: { documentId: 'doc-1', appStateVersion: '42' },
+    }));
+    await nextTick();
+
+    expect(invoked).toBe(true);
+    expect(socket.sent.find(isInvokeOutcomeMessage)).toMatchObject({
+      outcome: 'Completed',
+    });
+  });
+
+  it('accepts the lowercase .NET wire mode for a background-only action', async () => {
+    const { provider, socket } = await connectProvider();
+    provider.harness('import').operationTool<{ action: 'importFile' }>('document', {
+      description: 'Imports a document.',
+      discriminator: 'action',
+      parametersSchema: {
+        type: 'object',
+        oneOf: [{
+          type: 'object',
+          properties: { action: { const: 'importFile' } },
+          required: ['action'],
+          additionalProperties: false,
+        }],
+      },
+      actions: {
+        importFile: {
+          requiresPermission: true,
+          permissionScope: 'document.import',
+          invocationModePolicy: 'BackgroundOnly',
+        },
+      },
+      parse: value => value as { action: 'importFile' },
+      handler: (_request, context) => {
+        expect(context.requestedInvocationMode).toBeUndefined();
+        expect(context.resolvedInvocationMode).toBe('Background');
+        context.acceptBackground();
+      },
+    });
+    await provider.updateManifest();
+
+    socket.receive(createInvocation({
+      toolName: 'document',
+      arguments: { action: 'importFile' },
+      requestedInvocationMode: undefined,
+      resolvedInvocationMode: 'background',
+      clientOperationId: 'import-1',
+      operation: {
+        discriminator: 'action',
+        action: 'importFile',
+        policy: {
+          requiresPermission: true,
+          permissionScope: 'document.import',
+          mutatesState: false,
+          requiresFreshContext: false,
+          destructive: false,
+          idempotent: false,
+          invocationModePolicy: 'BackgroundOnly',
+        },
+      },
+    }));
+    await nextTick();
+
+    expect(socket.sent.find(isInvokeOutcomeMessage)).toMatchObject({
+      outcome: 'AcceptedBackground',
+      clientOperationId: 'import-1',
+    });
+  });
+
+  it('resolves fresh authority and republishes the manifest after reconnect', async () => {
+    const sockets: FakeWebSocket[] = [];
+    const resolutionReasons: string[] = [];
+    const states: string[] = [];
+    let context = { documentId: 'document-1', appStateVersion: '1' };
+    const provider = createClientToolProvider({
+      connection: {
+        resolveEndpoint: async reason => {
+          resolutionReasons.push(reason);
+          return {
+            url: `wss://app.example/_hpd/client-tools/${resolutionReasons.length}`,
+            protocols: [`authority-${resolutionReasons.length}`],
+          };
+        },
+        retry: {
+          initialDelayMs: 1,
+          maxDelayMs: 1,
+          jitterRatio: 0,
+        },
+      },
+      identity: {
+        providerName: 'penpot-browser',
+        appKind: 'design-editor',
+        instanceId: 'frontend-runtime',
+      },
+      appProvider: { name: 'penpot' },
+      context: () => context,
+      onConnectionStateChange: change => states.push(change.current),
+      webSocketFactory: () => {
+        const socket = new FakeWebSocket();
+        sockets.push(socket);
+        return socket.asWebSocket();
+      },
+    });
+    provider.harness('design').tool('inspect', {
+      description: 'Inspects the design.',
+      parametersSchema: { type: 'object', properties: {} },
+      handler: () => 'ok',
+    });
+
+    const connected = provider.connect();
+    await waitUntil(() => sockets.length === 1);
+    sockets[0]!.open();
+    sockets[0]!.receive({
+      type: 'provider.welcome',
+      clientRuntimeId: 'crt_1',
+      connectionId: 'cpc_1',
+      heartbeatIntervalMs: 60_000,
+    });
+    await connected;
+    expect(sockets[0]!.sent.find(isManifestMessage)?.context).toEqual(context);
+
+    context = { documentId: 'document-1', appStateVersion: '2' };
+    sockets[0]!.close();
+    await waitUntil(() => sockets.length === 2);
+    sockets[1]!.open();
+    sockets[1]!.receive({
+      type: 'provider.welcome',
+      clientRuntimeId: 'crt_2',
+      connectionId: 'cpc_2',
+      heartbeatIntervalMs: 60_000,
+    });
+    await waitUntil(() => provider.status === 'ready');
+
+    expect(resolutionReasons).toEqual(['initial', 'reconnect']);
+    expect(provider.runtimeIds).toEqual({
+      clientRuntimeId: 'crt_2',
+      connectionId: 'cpc_2',
+    });
+    expect(sockets[1]!.sent.find(isManifestMessage)?.context).toEqual(context);
+    expect(states).toContain('disconnected');
+    expect(states).toContain('resolving_endpoint');
+    expect(states).toContain('registering');
+    await provider.disconnect();
+  });
+
+  it('treats authority revocation as terminal and abandons background work', async () => {
+    const sockets: FakeWebSocket[] = [];
+    const abandoned: string[] = [];
+    const provider = createClientToolProvider({
+      connection: {
+        resolveEndpoint: async () => ({
+          url: 'wss://app.example/_hpd/client-tools',
+          protocols: ['one-time-authority'],
+        }),
+        retry: {
+          initialDelayMs: 1,
+          maxDelayMs: 1,
+          jitterRatio: 0,
+        },
+      },
+      identity: {
+        providerName: 'penpot-browser',
+        appKind: 'design-editor',
+        instanceId: 'frontend-runtime',
+      },
+      appProvider: { name: 'penpot' },
+      onBackgroundOperationAbandoned: operation => {
+        abandoned.push(`${operation.clientOperationId}:${operation.reason}`);
+      },
+      webSocketFactory: () => {
+        const socket = new FakeWebSocket();
+        sockets.push(socket);
+        return socket.asWebSocket();
+      },
+    });
+    provider.harness('design').tool('export', {
+      description: 'Exports the design.',
+      parametersSchema: { type: 'object', properties: {} },
+      policy: { invocationModePolicy: 'ModelChoice' },
+      handler: (_args, context) => {
+        context.acceptBackground();
+      },
+    });
+
+    const connected = provider.connect();
+    await waitUntil(() => sockets.length === 1);
+    sockets[0]!.open();
+    sockets[0]!.receive({
+      type: 'provider.welcome',
+      clientRuntimeId: 'crt_1',
+      connectionId: 'cpc_1',
+      heartbeatIntervalMs: 60_000,
+    });
+    await connected;
+    sockets[0]!.receive(createInvocation({
+      toolName: 'export',
+      resolvedInvocationMode: 'Background',
+      clientOperationId: 'export-1',
+    }));
+    await nextTick();
+
+    sockets[0]!.receive({
+      type: 'provider.error',
+      code: 'authority_revoked',
+      message: 'The browser launch was revoked.',
+    });
+    await nextTick();
+
+    expect(provider.status).toBe('revoked');
+    expect(abandoned).toEqual(['export-1:provider_revoked']);
+    sockets[0]!.close();
+    await new Promise(resolve => setTimeout(resolve, 5));
+    expect(sockets).toHaveLength(1);
+  });
 });
 
 async function connectProvider(options: { maxQueueDepth?: number } = {}) {
@@ -401,6 +761,7 @@ function createInvocation(
     visibleToolName: 'test_app_editor_get_selected_text',
     callId: 'call_1',
     arguments: {},
+    resolvedInvocationMode: 'Synchronous',
     ...overrides,
   };
 }
@@ -421,6 +782,16 @@ function isBackgroundOutcomeMessage(
 
 function nextTick(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+async function waitUntil(condition: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (!condition()) {
+    if (Date.now() >= deadline) {
+      throw new Error('Condition was not met before the test timeout.');
+    }
+    await nextTick();
+  }
 }
 
 class FakeWebSocket {

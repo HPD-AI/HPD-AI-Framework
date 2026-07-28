@@ -548,6 +548,12 @@ public class ClientToolMiddleware : IAgentMiddleware
             .Any(policy => policy != AgentInvocationModePolicy.SynchronousOnly) == true
                 ? AgentInvocationModePolicy.ModelChoice
                 : defaultPolicy.InvocationModePolicy!.Value;
+        var modelChoiceActions = tool.OperationContract?.Actions
+            .Where(pair => ClientToolPolicy.Resolve(
+                tool.DefaultPolicy,
+                pair.Value).InvocationModePolicy == AgentInvocationModePolicy.ModelChoice)
+            .Select(static pair => pair.Key)
+            .ToHashSet(StringComparer.Ordinal);
         var additionalProperties = new Dictionary<string, object?>
         {
             ["IsClientTool"] = true,
@@ -575,7 +581,9 @@ public class ClientToolMiddleware : IAgentMiddleware
                 Validator = (_, _) => new List<ValidationError>(),
                 SchemaProvider = () => AgentInvocationModes.CreateSchema(
                     tool.ParametersSchema,
-                    modelInvocationPolicy),
+                    modelInvocationPolicy,
+                    tool.OperationContract?.Discriminator,
+                    modelChoiceActions),
                 AdditionalProperties = additionalProperties
             });
     }
@@ -712,6 +720,7 @@ public class ClientToolMiddleware : IAgentMiddleware
                 operation,
                 effectivePolicy.RequiresFreshContext is true,
                 requestedMode,
+                resolvedMode,
                 ct).ConfigureAwait(false);
         }
         else
@@ -765,9 +774,9 @@ public class ClientToolMiddleware : IAgentMiddleware
         {
             ClientToolInvokeOutcomeKind.Completed => HandleCompletedOutcome(context, outcome),
             ClientToolInvokeOutcomeKind.Rejected =>
-                $"Client tool request rejected: {outcome.ErrorMessage ?? "No reason provided."}",
+                $"Client tool request rejected: {FormatError(outcome.Error, outcome.ErrorMessage, "No reason provided.")}",
             ClientToolInvokeOutcomeKind.Failed =>
-                $"Client tool failed: {outcome.ErrorMessage ?? "Unknown error"}",
+                $"Client tool failed: {FormatError(outcome.Error, outcome.ErrorMessage, "Unknown error")}",
             _ => $"Client tool failed: unsupported outcome '{outcome.Outcome}'."
         };
     }
@@ -803,6 +812,7 @@ public class ClientToolMiddleware : IAgentMiddleware
         ClientToolResolvedOperation? operation,
         bool requiresFreshContext,
         AgentInvocationMode? requestedMode,
+        AgentInvocationMode resolvedMode,
         CancellationToken ct)
     {
         var registry = context.Services?.GetService<IClientToolProviderRegistry>();
@@ -826,6 +836,7 @@ public class ClientToolMiddleware : IAgentMiddleware
                 Operation = operation,
                 RequiresFreshContext = requiresFreshContext,
                 RequestedInvocationMode = requestedMode,
+                ResolvedInvocationMode = resolvedMode,
                 Description = context.Function.Description
             },
             _config.InvokeTimeout,
@@ -886,6 +897,17 @@ public class ClientToolMiddleware : IAgentMiddleware
     {
         ApplyAugmentation(context, outcome.Augmentation);
         return ConvertContentToResult(outcome.Content);
+    }
+
+    private static string FormatError(
+        ClientToolError? error,
+        string? fallbackMessage,
+        string defaultMessage)
+    {
+        if (error is not null)
+            return JsonSerializer.Serialize(error, HPDJsonContext.Default.ClientToolError);
+
+        return fallbackMessage ?? defaultMessage;
     }
 
     private async ValueTask<object?> HandleAcceptedBackgroundOutcomeAsync(
@@ -1025,7 +1047,10 @@ public class ClientToolMiddleware : IAgentMiddleware
                     default:
                         handle?.SetStatus("faulted");
                         throw new InvalidOperationException(
-                            result.ErrorMessage ?? "Client tool background operation failed.");
+                            FormatError(
+                                result.Error,
+                                result.ErrorMessage,
+                                "Client tool background operation failed."));
                 }
             });
 

@@ -56,6 +56,9 @@ public sealed record ClientToolProviderInvocationRequest
     /// <summary>Gets the requested invocation mode, if the model supplied one.</summary>
     public AgentInvocationMode? RequestedInvocationMode { get; init; }
 
+    /// <summary>Gets the invocation mode resolved by HPD policy.</summary>
+    public required AgentInvocationMode ResolvedInvocationMode { get; init; }
+
     /// <summary>Gets an optional tool description for diagnostics.</summary>
     public string? Description { get; init; }
 }
@@ -71,6 +74,15 @@ public interface IClientToolProviderConnection
     ValueTask SendInvocationAsync(
         ClientToolProviderInvokeToolMessage message,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Actively terminates the provider transport after server-side
+    /// revocation. Implementations must be idempotent.
+    /// </summary>
+    ValueTask CloseAsync(
+        string reason,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.CompletedTask;
 }
 
 /// <summary>

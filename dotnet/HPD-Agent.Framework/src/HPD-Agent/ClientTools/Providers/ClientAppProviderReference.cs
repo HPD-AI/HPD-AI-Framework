@@ -67,6 +67,12 @@ public sealed record ClientProviderSelector
     /// <summary>Gets the app kind to match, such as <c>penpot</c>.</summary>
     public string? AppKind { get; init; }
 
+    /// <summary>Gets the exact server-authoritative HPD-OS App installation to match.</summary>
+    public string? AppInstallationId { get; init; }
+
+    /// <summary>Gets the exact browser launch session to match.</summary>
+    public string? BrowserLaunchSessionId { get; init; }
+
     /// <summary>Gets the workspace id to match.</summary>
     public string? WorkspaceId { get; init; }
 

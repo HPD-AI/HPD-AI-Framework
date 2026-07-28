@@ -27,6 +27,8 @@ export interface ClientAppProviderReference {
 export interface ClientProviderSelector {
   clientRuntimeId?: string;
   appKind?: string;
+  appInstallationId?: string;
+  browserLaunchSessionId?: string;
   workspaceId?: string;
   documentId?: string;
   projectId?: string;
@@ -59,6 +61,22 @@ export interface ClientToolProviderIdentity {
   userHint?: string;
   origin?: string;
   version?: string;
+}
+
+export interface ClientToolProviderRuntimeIdentity {
+  appId: string;
+  appRevision: string;
+  installationId: string;
+  workloadId: string;
+  workloadGeneration: number;
+  endpointId: string;
+  publicationId: string;
+  publicationGeneration: number;
+  launchSurfaceId: string;
+  browserLaunchSessionId: string;
+  browserLaunchSessionGeneration: number;
+  providerConnectionGeneration: number;
+  origin: string;
 }
 
 export interface ClientToolProviderContext {
@@ -113,6 +131,7 @@ export interface ClientToolProviderBindingLease {
   bindingId: string;
   clientRuntimeId: string;
   connectionId: string;
+  runtimeIdentity?: ClientToolProviderRuntimeIdentity | null;
   ownerRuntimeId?: string;
   agentId?: string;
   sessionId?: string;
@@ -194,6 +213,7 @@ export interface ClientToolProviderInvokeToolMessage {
   bindingId: string;
   invocationId: string;
   requestId: string;
+  clientOperationId?: string;
   toolName: string;
   visibleToolName: string;
   callId: string;
@@ -201,6 +221,7 @@ export interface ClientToolProviderInvokeToolMessage {
   operation?: ClientToolResolvedOperation;
   expectedContext?: ClientToolProviderContext;
   requestedInvocationMode?: 'Synchronous' | 'Background' | string;
+  resolvedInvocationMode: 'Synchronous' | 'Background' | string;
   deadline?: string;
 }
 

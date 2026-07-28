@@ -31,12 +31,57 @@ import { hpdClientToolProviderRoutes as defaultProviderRoutes } from '@hpd-resea
 
 export type ProviderConnectionStatus =
   | 'idle'
+  | 'resolving_endpoint'
   | 'connecting'
+  | 'registering'
   | 'connected'
   | 'ready'
-  | 'closed';
+  | 'disconnected'
+  | 'backing_off'
+  | 'closed'
+  | 'revoked'
+  | 'unsupported';
 
-export type ProviderWebSocketFactory = (url: string) => WebSocket;
+export interface ClientToolProviderEndpoint {
+  url: string;
+  protocols?: string[];
+  expiresAt?: string;
+}
+
+export type ClientToolProviderEndpointResolutionReason =
+  | 'initial'
+  | 'reconnect'
+  | 'authority_refresh';
+
+export interface ClientToolProviderConnectionOptions {
+  resolveEndpoint(
+    reason: ClientToolProviderEndpointResolutionReason,
+  ): Promise<ClientToolProviderEndpoint>;
+  retry?: {
+    maxAttempts?: number;
+    initialDelayMs?: number;
+    maxDelayMs?: number;
+    jitterRatio?: number;
+  };
+}
+
+export interface ProviderConnectionStateChange {
+  previous: ProviderConnectionStatus;
+  current: ProviderConnectionStatus;
+  attempt: number;
+  reason?: string;
+}
+
+export interface ProviderBackgroundOperationAbandoned {
+  clientOperationId: string;
+  bindingId: string;
+  reason: 'provider_disconnected' | 'provider_revoked' | 'provider_closed';
+}
+
+export type ProviderWebSocketFactory = (
+  url: string,
+  protocols?: string[],
+) => WebSocket;
 
 export interface ProviderContextSnapshot {
   workspaceId?: string;
@@ -51,18 +96,26 @@ export interface ProviderContextSnapshot {
 export interface ClientToolProviderOptions {
   url?: string;
   baseUrl?: string;
+  connection?: ClientToolProviderConnectionOptions;
   routes?: Partial<ClientToolProviderRoutes>;
   identity: ClientToolProviderIdentity;
   appProvider: ClientAppProviderDescriptor;
   context?: ClientToolProviderContext | (() => ClientToolProviderContext | Promise<ClientToolProviderContext>);
   readiness?: ClientToolProviderReadiness | (() => ClientToolProviderReadiness | Promise<ClientToolProviderReadiness>);
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> | (() =>
+    Record<string, unknown> | Promise<Record<string, unknown>>);
   concurrency?: {
     maxQueueDepth?: number;
     invocationTimeoutMs?: number;
   };
   webSocketFactory?: ProviderWebSocketFactory;
   contextSnapshot?: () => ProviderContextSnapshot | Promise<ProviderContextSnapshot>;
+  subscribeContextChanges?: (onContextChanged: () => void) => (() => void);
+  contextUpdateDebounceMs?: number;
+  onConnectionStateChange?: (change: ProviderConnectionStateChange) => void;
+  onBackgroundOperationAbandoned?: (
+    operation: ProviderBackgroundOperationAbandoned,
+  ) => void;
 }
 
 export interface ClientToolProviderHarnessOptions {
@@ -80,21 +133,46 @@ export interface ClientToolProviderToolOptions {
   handler: ClientToolProviderToolHandler;
 }
 
-export interface ClientToolProviderOperationToolOptions<TRequest, TResult = ClientToolProviderToolResult> {
+type DefaultDiscriminator<TRequest> =
+  'action' extends keyof TRequest ? 'action' : Extract<keyof TRequest, string>;
+
+type DiscriminatorAction<
+  TRequest,
+  TDiscriminator extends keyof TRequest,
+> = Extract<TRequest[TDiscriminator], string>;
+
+export type ClientToolProviderActionHandlers<
+  TRequest,
+  TDiscriminator extends keyof TRequest,
+  TResult extends ClientToolProviderToolResult = ClientToolProviderToolResult,
+> = {
+  [TAction in DiscriminatorAction<TRequest, TDiscriminator>]:
+    ClientToolProviderOperationToolHandler<
+      Extract<TRequest, Record<TDiscriminator, TAction>>,
+      TResult
+    >;
+};
+
+export interface ClientToolProviderOperationToolOptions<
+  TRequest,
+  TDiscriminator extends keyof TRequest & string = DefaultDiscriminator<TRequest>,
+  TResult extends ClientToolProviderToolResult = ClientToolProviderToolResult,
+> {
   description: string;
-  discriminator: string;
+  discriminator: TDiscriminator;
   parametersSchema: Record<string, unknown>;
   defaultPolicy?: ClientToolPolicy;
-  actions: Record<string, ClientToolPolicy>;
+  actions: Record<DiscriminatorAction<TRequest, TDiscriminator>, ClientToolPolicy>;
   metadata?: Record<string, unknown>;
   parse: (value: unknown) => TRequest;
   handler?: ClientToolProviderOperationToolHandler<TRequest, TResult>;
-  handlers?: Record<string, ClientToolProviderOperationToolHandler<TRequest, TResult>>;
+  handlers?: ClientToolProviderActionHandlers<TRequest, TDiscriminator, TResult>;
 }
 
 export interface ClientToolProviderToolContext {
   invocation: ClientToolProviderInvokeToolMessage;
   requestedInvocationMode?: string;
+  resolvedInvocationMode: string;
   expectedContext?: ProviderContextSnapshot;
   currentContext?: ProviderContextSnapshot;
   policy: ClientToolPolicy;
@@ -102,7 +180,6 @@ export interface ClientToolProviderToolContext {
   reject: (error: ClientToolError) => void;
   fail: (error: ClientToolError) => void;
   acceptBackground: (
-    clientOperationId: string,
     options?: {
       content?: ClientToolProviderToolResult;
       handleKind?: BackgroundHandleKind;
@@ -151,9 +228,13 @@ interface QueuedInvocation {
 
 export interface ClientToolProviderHarnessBuilder {
   tool(name: string, options: ClientToolProviderToolOptions): ClientToolProviderHarnessBuilder;
-  operationTool<TRequest, TResult = ClientToolProviderToolResult>(
+  operationTool<
+    TRequest,
+    TDiscriminator extends keyof TRequest & string = DefaultDiscriminator<TRequest>,
+    TResult extends ClientToolProviderToolResult = ClientToolProviderToolResult,
+  >(
     name: string,
-    options: ClientToolProviderOperationToolOptions<TRequest, TResult>,
+    options: ClientToolProviderOperationToolOptions<TRequest, TDiscriminator, TResult>,
   ): ClientToolProviderHarnessBuilder;
 }
 
@@ -168,11 +249,19 @@ export class ClientToolProvider {
   private readonly webSocketFactory?: ProviderWebSocketFactory;
   private readonly routes: ClientToolProviderRoutes;
   private readonly explicitUrl?: string;
+  private readonly connectionOptions?: ClientToolProviderConnectionOptions;
   private socket?: WebSocket;
   private heartbeatTimer?: ReturnType<typeof setInterval>;
+  private contextUpdateTimer?: ReturnType<typeof setTimeout>;
+  private unsubscribeContextChanges?: () => void;
+  private publishedContextFingerprint?: string;
   private clientRuntimeId?: string;
   private connectionId?: string;
   private statusValue: ProviderConnectionStatus = 'idle';
+  private reconnectAttempt = 0;
+  private connectionGeneration = 0;
+  private shutdownRequested = false;
+  private reconnectTask?: Promise<void>;
   private activeInvocation = false;
   private readonly queue: QueuedInvocation[] = [];
   private readonly backgroundOperations = new Map<string, {
@@ -186,6 +275,7 @@ export class ClientToolProvider {
     this.webSocketFactory = options.webSocketFactory;
     this.routes = defaultProviderRoutes(options.routes);
     this.explicitUrl = options.url;
+    this.connectionOptions = options.connection;
   }
 
   public get status(): ProviderConnectionStatus {
@@ -220,54 +310,41 @@ export class ClientToolProvider {
   }
 
   public async connect(): Promise<void> {
-    if (this.statusValue === 'connecting' || this.statusValue === 'connected' || this.statusValue === 'ready') {
+    if (this.statusValue === 'ready') {
       return;
     }
+    if (this.reconnectTask !== undefined) {
+      return this.reconnectTask;
+    }
+    if (this.statusValue === 'closed' ||
+        this.statusValue === 'revoked' ||
+        this.statusValue === 'unsupported') {
+      throw new Error(`Client tool provider is in terminal state '${this.statusValue}'.`);
+    }
 
-    this.statusValue = 'connecting';
-    const socket = this.createSocket();
-    this.socket = socket;
-
-    const ready = new Promise<void>((resolve, reject) => {
-      socket.onmessage = async event => {
-        try {
-          await this.handleMessage(String(event.data));
-          if (this.statusValue === 'ready') {
-            resolve();
-          }
-        } catch (error) {
-          reject(error instanceof Error ? error : new Error(String(error)));
-        }
-      };
-      socket.onclose = () => {
-        this.markClosed();
-        reject(new Error('Client tool provider websocket closed before welcome.'));
-      };
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      socket.onopen = () => {
-        this.send({
-          type: 'provider.hello',
-          protocolVersion: '2',
-          identity: this.options.identity,
-        } satisfies ClientToolProviderHelloMessage);
-        resolve();
-      };
-      socket.onerror = () => reject(new Error('Client tool provider websocket failed to connect.'));
-    });
-
-    await ready;
+    this.shutdownRequested = false;
+    this.reconnectTask = this.connectWithRetry('initial')
+      .finally(() => {
+        this.reconnectTask = undefined;
+      });
+    return this.reconnectTask;
   }
 
   public async disconnect(reason = 'Provider disconnected.'): Promise<void> {
+    this.shutdownRequested = true;
     this.sendRelease(reason);
-    this.markClosed();
-    this.socket?.close();
+    this.abandonBackgroundOperations('provider_closed');
+    this.cleanupConnection();
+    this.setStatus('closed', reason);
+    const socket = this.socket;
+    this.socket = undefined;
+    socket?.close();
   }
 
   public async updateManifest(): Promise<void> {
-    this.send(await this.createManifestMessage());
+    const message = await this.createManifestMessage();
+    this.publishedContextFingerprint = fingerprint(message.context);
+    this.send(message);
   }
 
   public async setReadiness(readiness: ClientToolProviderReadiness): Promise<void> {
@@ -344,26 +421,157 @@ export class ClientToolProvider {
     });
   }
 
-  private createSocket(): WebSocket {
-    const url = this.resolveWebSocketUrl();
+  private async connectWithRetry(
+    initialReason: ClientToolProviderEndpointResolutionReason,
+  ): Promise<void> {
+    let reason = initialReason;
+    while (!this.shutdownRequested) {
+      try {
+        await this.connectOnce(reason);
+        this.reconnectAttempt = 0;
+        return;
+      } catch (error) {
+        if (this.isTerminal()) {
+          throw error;
+        }
+
+        this.reconnectAttempt += 1;
+        const maximumAttempts =
+          this.connectionOptions?.retry?.maxAttempts ?? Number.POSITIVE_INFINITY;
+        if (this.reconnectAttempt >= maximumAttempts) {
+          this.setStatus('closed', errorMessage(error));
+          throw error;
+        }
+
+        this.setStatus('backing_off', errorMessage(error));
+        await delay(this.retryDelayMs(this.reconnectAttempt));
+        reason = this.connectionOptions === undefined
+          ? 'reconnect'
+          : 'authority_refresh';
+      }
+    }
+
+    throw new Error('Client tool provider connection was closed.');
+  }
+
+  private async connectOnce(
+    reason: ClientToolProviderEndpointResolutionReason,
+  ): Promise<void> {
+    const generation = ++this.connectionGeneration;
+    this.setStatus('resolving_endpoint');
+    const endpoint = this.connectionOptions === undefined
+      ? this.resolveFixedEndpoint()
+      : await this.resolveEndpoint(reason);
+    if (this.shutdownRequested || generation !== this.connectionGeneration) {
+      throw new Error('Client tool provider connection attempt was superseded.');
+    }
+
+    this.setStatus('connecting');
+    const socket = this.createSocket(endpoint);
+    this.socket = socket;
+
+    await new Promise<void>((resolve, reject) => {
+      let ready = false;
+      let settled = false;
+      const rejectOnce = (error: Error) => {
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
+      };
+
+      socket.onopen = () => {
+        if (generation !== this.connectionGeneration || this.shutdownRequested) {
+          socket.close();
+          rejectOnce(new Error('Client tool provider connection attempt was superseded.'));
+          return;
+        }
+
+        this.setStatus('registering');
+        this.send({
+          type: 'provider.hello',
+          protocolVersion: '2',
+          identity: this.options.identity,
+        } satisfies ClientToolProviderHelloMessage);
+      };
+      socket.onmessage = event => {
+        void this.handleMessage(String(event.data))
+          .then(() => {
+            if (!ready && this.statusValue === 'ready') {
+              ready = true;
+              settled = true;
+              resolve();
+            }
+          })
+          .catch(error => {
+            rejectOnce(error instanceof Error ? error : new Error(String(error)));
+            socket.close();
+          });
+      };
+      socket.onerror = () => {
+        rejectOnce(new Error('Client tool provider websocket failed to connect.'));
+      };
+      socket.onclose = () => {
+        if (generation !== this.connectionGeneration) {
+          return;
+        }
+
+        this.handleSocketClosed(ready);
+        if (!ready) {
+          rejectOnce(new Error(
+            'Client tool provider websocket closed before registration completed.',
+          ));
+        }
+      };
+    });
+  }
+
+  private createSocket(endpoint: ClientToolProviderEndpoint): WebSocket {
+    const url = this.toWebSocketUrl(endpoint.url);
     if (this.webSocketFactory !== undefined) {
-      return this.webSocketFactory(url);
+      return this.webSocketFactory(url, endpoint.protocols);
     }
 
     if (typeof WebSocket === 'undefined') {
       throw new Error('No WebSocket implementation is available. Pass webSocketFactory in this runtime.');
     }
 
-    return new WebSocket(url);
+    return endpoint.protocols === undefined
+      ? new WebSocket(url)
+      : new WebSocket(url, endpoint.protocols);
   }
 
-  private resolveWebSocketUrl(): string {
+  private async resolveEndpoint(
+    reason: ClientToolProviderEndpointResolutionReason,
+  ): Promise<ClientToolProviderEndpoint> {
+    const endpoint = await this.connectionOptions!.resolveEndpoint(reason);
+    if (endpoint.url.trim().length === 0) {
+      throw new Error('Client tool provider endpoint resolver returned an empty URL.');
+    }
+    if (endpoint.expiresAt !== undefined &&
+        Date.parse(endpoint.expiresAt) <= Date.now()) {
+      throw new Error('Client tool provider endpoint resolver returned expired authority.');
+    }
+    return endpoint;
+  }
+
+  private resolveFixedEndpoint(): ClientToolProviderEndpoint {
     if (this.explicitUrl !== undefined) {
-      return this.toWebSocketUrl(this.explicitUrl);
+      return { url: this.explicitUrl };
     }
 
     const baseUrl = this.options.baseUrl ?? '';
-    return this.toWebSocketUrl(joinUrl(baseUrl, this.routes.connect));
+    return { url: joinUrl(baseUrl, this.routes.connect) };
+  }
+
+  private retryDelayMs(attempt: number): number {
+    const retry = this.connectionOptions?.retry;
+    const initial = Math.max(1, retry?.initialDelayMs ?? 250);
+    const maximum = Math.max(initial, retry?.maxDelayMs ?? 10_000);
+    const jitterRatio = Math.min(1, Math.max(0, retry?.jitterRatio ?? 0.2));
+    const unjittered = Math.min(maximum, initial * (2 ** Math.max(0, attempt - 1)));
+    const jitter = unjittered * jitterRatio;
+    return Math.max(0, Math.round(unjittered - jitter + Math.random() * jitter * 2));
   }
 
   private toWebSocketUrl(url: string): string {
@@ -411,13 +619,25 @@ export class ClientToolProvider {
   private async handleWelcome(message: ClientToolProviderWelcomeMessage): Promise<void> {
     this.clientRuntimeId = message.clientRuntimeId;
     this.connectionId = message.connectionId;
-    this.statusValue = 'connected';
+    this.setStatus('connected');
     this.startHeartbeat(message.heartbeatIntervalMs);
     await this.updateManifest();
-    this.statusValue = 'ready';
+    this.setStatus('ready');
+    this.startContextChangeSubscription();
   }
 
   private handleError(message: ClientToolProviderErrorMessage): void {
+    if (message.code === 'authority_revoked' ||
+        message.code === 'launch_revoked' ||
+        message.code === 'provider_revoked') {
+      this.shutdownRequested = true;
+      this.abandonBackgroundOperations('provider_revoked');
+      this.setStatus('revoked', message.message);
+    } else if (message.code === 'unsupported_protocol') {
+      this.shutdownRequested = true;
+      this.abandonBackgroundOperations('provider_closed');
+      this.setStatus('unsupported', message.message);
+    }
     throw new Error(`HPD provider error ${message.code}: ${message.message}`);
   }
 
@@ -449,6 +669,7 @@ export class ClientToolProvider {
 
     this.activeInvocation = true;
     void this.runInvocation(next.message)
+      .catch(() => undefined)
       .finally(() => {
         this.activeInvocation = false;
         next.resolve();
@@ -491,8 +712,16 @@ export class ClientToolProvider {
     }
 
     const policy = operation?.policy ?? resolvePolicy(tool.definition.defaultPolicy);
+    let requestedInvocationMode: 'Synchronous' | 'Background' | undefined;
+    let resolvedInvocationMode: 'Synchronous' | 'Background';
     try {
-      validateInvocationMode(policy, message.requestedInvocationMode);
+      requestedInvocationMode =
+        message.requestedInvocationMode === undefined
+          ? undefined
+          : normalizeResolvedInvocationMode(message.requestedInvocationMode);
+      resolvedInvocationMode =
+        normalizeResolvedInvocationMode(message.resolvedInvocationMode);
+      validateInvocationMode(policy, resolvedInvocationMode);
     } catch (error) {
       this.sendOutcome(message, {
         outcome: 'Rejected',
@@ -526,7 +755,8 @@ export class ClientToolProvider {
 
     const context: ClientToolProviderToolContext = {
       invocation: message,
-      requestedInvocationMode: message.requestedInvocationMode,
+      requestedInvocationMode,
+      resolvedInvocationMode,
       expectedContext: message.expectedContext,
       currentContext,
       policy,
@@ -543,14 +773,22 @@ export class ClientToolProvider {
         outcome: 'Failed',
         error,
       }),
-      acceptBackground: (clientOperationId, options) => reply({
-        outcome: 'AcceptedBackground',
-        clientOperationId,
-        content: normalizeContent(options?.content),
-        handleKind: options?.handleKind,
-        supportedOperations: options?.supportedOperations,
-        augmentation: options?.augmentation,
-      }),
+      acceptBackground: options => {
+        if (resolvedInvocationMode !== 'Background' ||
+            message.clientOperationId === undefined) {
+          throw new Error(
+            `Provider tool '${message.toolName}' cannot accept background work without an HPD-assigned operation id.`,
+          );
+        }
+        reply({
+          outcome: 'AcceptedBackground',
+          clientOperationId: message.clientOperationId,
+          content: normalizeContent(options?.content),
+          handleKind: options?.handleKind,
+          supportedOperations: options?.supportedOperations,
+          augmentation: options?.augmentation,
+        });
+      },
     };
 
     try {
@@ -643,7 +881,7 @@ export class ClientToolProvider {
         ...harness.definition,
         tools: [...harness.tools.values()].map(tool => tool.definition),
       })),
-      metadata: this.options.metadata,
+      metadata: await resolveValue(this.options.metadata),
     };
   }
 
@@ -657,6 +895,53 @@ export class ClientToolProvider {
         type: 'provider.heartbeat',
       } satisfies ClientToolProviderHeartbeatMessage);
     }, Math.max(1_000, intervalMs));
+  }
+
+  private startContextChangeSubscription(): void {
+    this.stopContextChangeSubscription();
+    if (this.options.subscribeContextChanges === undefined) {
+      return;
+    }
+
+    this.unsubscribeContextChanges = this.options.subscribeContextChanges(
+      () => this.scheduleContextManifestUpdate(),
+    );
+    this.scheduleContextManifestUpdate();
+  }
+
+  private stopContextChangeSubscription(): void {
+    if (this.contextUpdateTimer !== undefined) {
+      clearTimeout(this.contextUpdateTimer);
+      this.contextUpdateTimer = undefined;
+    }
+    this.unsubscribeContextChanges?.();
+    this.unsubscribeContextChanges = undefined;
+  }
+
+  private scheduleContextManifestUpdate(): void {
+    if (this.statusValue !== 'ready') {
+      return;
+    }
+    if (this.contextUpdateTimer !== undefined) {
+      clearTimeout(this.contextUpdateTimer);
+    }
+
+    this.contextUpdateTimer = setTimeout(() => {
+      this.contextUpdateTimer = undefined;
+      void this.publishManifestWhenContextChanged();
+    }, Math.max(0, this.options.contextUpdateDebounceMs ?? 50));
+  }
+
+  private async publishManifestWhenContextChanged(): Promise<void> {
+    if (this.statusValue !== 'ready') {
+      return;
+    }
+
+    const context = await resolveValue(this.options.context);
+    if (fingerprint(context) === this.publishedContextFingerprint) {
+      return;
+    }
+    await this.updateManifest();
   }
 
   private sendRelease(reason: string): void {
@@ -678,13 +963,93 @@ export class ClientToolProvider {
     this.socket.send(JSON.stringify(message));
   }
 
-  private markClosed(): void {
-    this.statusValue = 'closed';
+  private handleSocketClosed(wasReady: boolean): void {
+    this.cleanupConnection();
+    this.socket = undefined;
+    if (this.isTerminal()) {
+      return;
+    }
+
+    this.abandonBackgroundOperations('provider_disconnected');
+    this.queue.length = 0;
+    this.setStatus('disconnected', 'Provider websocket disconnected.');
+    if (!wasReady || this.shutdownRequested || this.reconnectTask !== undefined) {
+      return;
+    }
+
+    this.reconnectTask = this.connectWithRetry('reconnect')
+      .catch(() => undefined)
+      .finally(() => {
+        this.reconnectTask = undefined;
+      });
+  }
+
+  private cleanupConnection(): void {
+    this.stopContextChangeSubscription();
     if (this.heartbeatTimer !== undefined) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = undefined;
     }
   }
+
+  private abandonBackgroundOperations(
+    reason: ProviderBackgroundOperationAbandoned['reason'],
+  ): void {
+    for (const [clientOperationId, operation] of this.backgroundOperations) {
+      this.options.onBackgroundOperationAbandoned?.({
+        clientOperationId,
+        bindingId: operation.bindingId,
+        reason,
+      });
+    }
+    this.backgroundOperations.clear();
+  }
+
+  private isTerminal(): boolean {
+    return this.shutdownRequested ||
+      this.statusValue === 'closed' ||
+      this.statusValue === 'revoked' ||
+      this.statusValue === 'unsupported';
+  }
+
+  private setStatus(status: ProviderConnectionStatus, reason?: string): void {
+    if (this.statusValue === status) {
+      return;
+    }
+
+    const previous = this.statusValue;
+    this.statusValue = status;
+    this.options.onConnectionStateChange?.({
+      previous,
+      current: status,
+      attempt: this.reconnectAttempt,
+      reason,
+    });
+  }
+}
+
+function fingerprint(value: unknown): string {
+  return JSON.stringify(canonicalize(value));
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise(resolve => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalize);
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalize(entry)]),
+    );
+  }
+  return value;
 }
 
 class HarnessBuilder implements ClientToolProviderHarnessBuilder {
@@ -704,9 +1069,13 @@ class HarnessBuilder implements ClientToolProviderHarnessBuilder {
     return this;
   }
 
-  public operationTool<TRequest, TResult = ClientToolProviderToolResult>(
+  public operationTool<
+    TRequest,
+    TDiscriminator extends keyof TRequest & string = DefaultDiscriminator<TRequest>,
+    TResult extends ClientToolProviderToolResult = ClientToolProviderToolResult,
+  >(
     name: string,
-    options: ClientToolProviderOperationToolOptions<TRequest, TResult>,
+    options: ClientToolProviderOperationToolOptions<TRequest, TDiscriminator, TResult>,
   ): ClientToolProviderHarnessBuilder {
     const operationContract: ClientToolOperationContract = {
       discriminator: options.discriminator,
@@ -805,13 +1174,29 @@ function resolvedOperationsEqual(
     JSON.stringify(resolvePolicy(server.policy)) === JSON.stringify(resolvePolicy(local.policy));
 }
 
-function validateInvocationMode(policy: ClientToolPolicy, requested?: string): void {
+function validateInvocationMode(policy: ClientToolPolicy, resolved: string): void {
   const mode = normalizeInvocationModePolicy(policy.invocationModePolicy);
-  if (mode === 'SynchronousOnly' && requested === 'Background') {
+  if (mode === 'SynchronousOnly' && resolved !== 'Synchronous') {
     throw new Error('This operation only supports synchronous invocation.');
   }
-  if (mode === 'BackgroundOnly' && requested !== 'Background') {
+  if (mode === 'BackgroundOnly' && resolved !== 'Background') {
     throw new Error('This operation requires background invocation.');
+  }
+  if (resolved !== 'Synchronous' && resolved !== 'Background') {
+    throw new Error(`Unsupported resolved invocation mode '${resolved}'.`);
+  }
+}
+
+function normalizeResolvedInvocationMode(
+  mode: string,
+): 'Synchronous' | 'Background' {
+  switch (mode.toLowerCase()) {
+    case 'synchronous':
+      return 'Synchronous';
+    case 'background':
+      return 'Background';
+    default:
+      throw new Error(`Unsupported resolved invocation mode '${mode}'.`);
   }
 }
 
@@ -844,7 +1229,8 @@ function contextsMatch(
     'sceneId',
     'appStateVersion',
   ];
-  return keys.every(key => expected[key] === current[key]);
+  return keys.every(key =>
+    expected[key] === undefined || expected[key] === current[key]);
 }
 
 function validateCompoundDefinition(
@@ -959,7 +1345,7 @@ function normalizeContent(content: ClientToolProviderToolResult): ToolResultCont
     return [content];
   }
 
-  return undefined;
+  throw new Error('Client tool handler returned an unsupported result value.');
 }
 
 function isStructuredResult(value: ClientToolProviderToolResult): value is {

@@ -114,7 +114,15 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
         {
             var function = funcInfo.Function;
             var functionName = funcInfo.FunctionName;
-            var permissionKey = GetPermissionKey(function, functionName, funcInfo.Arguments);
+            if (!TryGetPermissionKey(
+                    function,
+                    functionName,
+                    funcInfo.Arguments,
+                    out var permissionKey,
+                    out _))
+            {
+                continue;
+            }
 
             // Check if permission is required (run config + builder override + attribute)
             var attributeRequiresPermission = GetDeclaredPermissionRequirement(
@@ -182,7 +190,17 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             return;
         
         var functionName = function.Name;
-        var permissionKey = GetPermissionKey(function, functionName, context.Arguments);
+        if (!TryGetPermissionKey(
+                function,
+                functionName,
+                context.Arguments,
+                out var permissionKey,
+                out var resolutionError))
+        {
+            context.BlockExecution = true;
+            context.OverrideResult = $"Client tool request rejected: {resolutionError}";
+            return;
+        }
 
         // Check if permission is required (run config + builder override + attribute)
         var attributeRequiresPermission = GetDeclaredPermissionRequirement(
@@ -516,22 +534,43 @@ public class PermissionMiddleware : IAgentPermissionMiddleware
             ?? attributeRequiresPermission;
     }
 
-    private string GetPermissionKey(
+    private bool TryGetPermissionKey(
         AIFunction function,
         string functionName,
-        IReadOnlyDictionary<string, object?>? arguments)
+        IReadOnlyDictionary<string, object?>? arguments,
+        out string permissionKey,
+        out string? validationError)
     {
         if (arguments is null)
-            return functionName;
-
-        foreach (var resolver in _scopeResolvers)
         {
-            if (resolver.TryResolveScope(function, arguments, out var scope) &&
-                !string.IsNullOrWhiteSpace(scope))
-                return $"{functionName}:{scope}";
+            permissionKey = functionName;
+            validationError = null;
+            return true;
         }
 
-        return functionName;
+        try
+        {
+            foreach (var resolver in _scopeResolvers)
+            {
+                if (resolver.TryResolveScope(function, arguments, out var scope) &&
+                    !string.IsNullOrWhiteSpace(scope))
+                {
+                    permissionKey = $"{functionName}:{scope}";
+                    validationError = null;
+                    return true;
+                }
+            }
+        }
+        catch (ArgumentException exception)
+        {
+            permissionKey = string.Empty;
+            validationError = exception.Message;
+            return false;
+        }
+
+        permissionKey = functionName;
+        validationError = null;
+        return true;
     }
 
     private static bool GetDeclaredPermissionRequirement(

@@ -57,6 +57,27 @@ public sealed record ClientToolProviderIdentity
 }
 
 /// <summary>
+/// Server-authoritative identity for the HPD-OS application incarnation that
+/// owns a provider connection. Provider JavaScript cannot supply this value.
+/// </summary>
+public sealed record ClientToolProviderRuntimeIdentity
+{
+    public required string AppId { get; init; }
+    public required string AppRevision { get; init; }
+    public required string InstallationId { get; init; }
+    public required string WorkloadId { get; init; }
+    public required long WorkloadGeneration { get; init; }
+    public required string EndpointId { get; init; }
+    public required string PublicationId { get; init; }
+    public required long PublicationGeneration { get; init; }
+    public required string LaunchSurfaceId { get; init; }
+    public required string BrowserLaunchSessionId { get; init; }
+    public required long BrowserLaunchSessionGeneration { get; init; }
+    public required long ProviderConnectionGeneration { get; init; }
+    public required string Origin { get; init; }
+}
+
+/// <summary>
 /// Current provider-side app context used for selection and stale-context checks.
 /// </summary>
 public sealed record ClientToolProviderContext
@@ -202,6 +223,9 @@ public sealed record ClientToolProviderSnapshot
 
     /// <summary>Gets HPD's connection id for this websocket connection.</summary>
     public required string ConnectionId { get; init; }
+
+    /// <summary>Gets verified host runtime identity, absent only for explicit development connections.</summary>
+    public ClientToolProviderRuntimeIdentity? RuntimeIdentity { get; init; }
 
     /// <summary>Gets the latest manifest, if the provider registered one.</summary>
     public ClientToolProviderManifest? Manifest { get; init; }

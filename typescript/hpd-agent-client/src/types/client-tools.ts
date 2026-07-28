@@ -67,8 +67,7 @@ export type BackgroundHandleKind =
   | 'Export'
   | 'IndexingJob'
   | 'Runtime'
-  | 'Other'
-  | string;
+  | 'Other';
 
 export type BackgroundHandleOperation =
   | 'None'

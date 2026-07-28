@@ -116,6 +116,12 @@ public sealed record ClientToolProviderInvokeToolMessage
     /// <summary>Gets the client-tool request id.</summary>
     public required string RequestId { get; init; }
 
+    /// <summary>
+    /// Gets the HPD-assigned stable operation id for a background invocation.
+    /// Providers must return this exact id when accepting the operation.
+    /// </summary>
+    public string? ClientOperationId { get; init; }
+
     /// <summary>Gets the original provider-side tool name.</summary>
     public required string ToolName { get; init; }
 
@@ -136,6 +142,9 @@ public sealed record ClientToolProviderInvokeToolMessage
 
     /// <summary>Gets the requested invocation mode.</summary>
     public AgentInvocationMode? RequestedInvocationMode { get; init; }
+
+    /// <summary>Gets the invocation mode resolved by HPD policy.</summary>
+    public required AgentInvocationMode ResolvedInvocationMode { get; init; }
 
     /// <summary>Gets the invocation deadline.</summary>
     public DateTimeOffset? Deadline { get; init; }
@@ -167,7 +176,7 @@ public sealed record ClientToolProviderInvokeOutcomeMessage
     /// <summary>Gets the structured rejection or failure.</summary>
     public ClientToolError? Error { get; init; }
 
-    /// <summary>Gets the provider-owned id for background work.</summary>
+    /// <summary>Gets the HPD-assigned id for background work.</summary>
     public string? ClientOperationId { get; init; }
 
     /// <summary>Gets optional handle kind for background work.</summary>

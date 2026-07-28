@@ -80,6 +80,48 @@ public sealed class CompoundClientToolContractTests
         Assert.Contains("Unknown compound tool action", exception.Message);
     }
 
+    [Fact]
+    public void InvocationSchema_AddsModeOnlyToEligibleClosedBranch()
+    {
+        var schema = JsonDocument.Parse(
+            """
+            {
+              "type": "object",
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": { "action": { "const": "inspect" } },
+                  "required": ["action"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": { "action": { "const": "export" } },
+                  "required": ["action"],
+                  "additionalProperties": false
+                }
+              ]
+            }
+            """).RootElement.Clone();
+
+        var transformed = AgentInvocationModes.CreateSchema(
+            schema,
+            AgentInvocationModePolicy.ModelChoice,
+            "action",
+            new HashSet<string>(StringComparer.Ordinal) { "export" });
+        var branches = transformed.GetProperty("oneOf");
+
+        Assert.False(branches[0].GetProperty("properties").TryGetProperty(
+            "invocationMode",
+            out _));
+        Assert.True(branches[1].GetProperty("properties").TryGetProperty(
+            "invocationMode",
+            out var invocationMode));
+        Assert.Equal("background", invocationMode.GetProperty("enum")[1].GetString());
+        Assert.False(branches[1].GetProperty("additionalProperties").GetBoolean());
+        Assert.False(transformed.TryGetProperty("properties", out _));
+    }
+
     private static ClientToolDefinition CreateDefinition() =>
         new()
         {
