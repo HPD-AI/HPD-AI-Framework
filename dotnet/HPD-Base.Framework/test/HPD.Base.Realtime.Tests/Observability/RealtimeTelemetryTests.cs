@@ -42,13 +42,18 @@ public sealed class RealtimeTelemetryTests
             }
         });
         _ = await ReadOneAsync(opened.Value!.Items);
-        provider.GetRequiredService<BaseRealtimeStats>().RecordStreamOpenFailure();
+        var stats = provider.GetRequiredService<BaseRealtimeStats>();
+        stats.RecordStreamOpenFailure();
+        stats.RecordJoinRateRejection();
+        stats.RecordSlowConsumerTermination();
 
         opened.Succeeded.Should().BeTrue();
         activities.Names.Should().Contain(HPDBaseTelemetrySpans.RealtimeChannelJoin);
         metrics.InstrumentNames.Should().Contain(HPDBaseTelemetryInstruments.RealtimeChannelsOpened);
         metrics.InstrumentNames.Should().Contain(HPDBaseTelemetryInstruments.RealtimeEventsProjected);
         metrics.InstrumentNames.Should().Contain(HPDBaseTelemetryInstruments.RealtimeStreamOpenFailures);
+        metrics.InstrumentNames.Should().Contain(HPDBaseTelemetryInstruments.RealtimeJoinRateRejections);
+        metrics.InstrumentNames.Should().Contain(HPDBaseTelemetryInstruments.RealtimeSlowConsumerTerminations);
         metrics.InstrumentNames.Should().Contain(HPDBaseTelemetryInstruments.RealtimeJoinDuration);
 
         var forbidden = new[] { "channel-secret", "tenant-secret", "record-secret", "event-secret", "payload-secret", "corr-secret" };

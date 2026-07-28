@@ -27,6 +27,7 @@ internal sealed class BaseRealtimeWebSocketEndpoint(
         var json = services.GetRequiredService<IBaseJsonOptionsProvider>();
         var options = services.GetRequiredService<IOptions<BaseRealtimeOptions>>();
         var stats = services.GetRequiredService<BaseRealtimeStats>();
+        var timeProvider = services.GetRequiredService<TimeProvider>();
 
         if (!options.Value.Enabled)
         {
@@ -46,7 +47,7 @@ internal sealed class BaseRealtimeWebSocketEndpoint(
             return;
         }
 
-        if (stats.ActiveConnections >= options.Value.Limits.MaxConnections)
+        if (!stats.TryRecordConnectionOpened(options.Value.Limits.MaxConnections))
         {
             HPDBaseRealtimeAspNetCoreLog.WebSocketConnectionRejected(logger, BaseRealtimeErrorCodes.TooManyConnections);
             context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
@@ -55,12 +56,19 @@ internal sealed class BaseRealtimeWebSocketEndpoint(
             return;
         }
 
-        using var socket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
-        var principal = await principals.CreateAsync(context, HPDBaseEndpointKind.Records, context.RequestAborted).ConfigureAwait(false);
-        var session = new BaseRealtimeWebSocketSession(
-            socket, feeds, json.Options, options.Value, stats, principal, sessionLogger);
-        HPDBaseRealtimeAspNetCoreTelemetry.Finish(acceptActivity, "ok");
-        await session.RunAsync(context.RequestAborted).ConfigureAwait(false);
+        try
+        {
+            using var socket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
+            var principal = await principals.CreateAsync(context, HPDBaseEndpointKind.Records, context.RequestAborted).ConfigureAwait(false);
+            var session = new BaseRealtimeWebSocketSession(
+                socket, feeds, json.Options, options.Value, stats, principal, sessionLogger, timeProvider);
+            HPDBaseRealtimeAspNetCoreTelemetry.Finish(acceptActivity, "ok");
+            await session.RunAsync(context.RequestAborted).ConfigureAwait(false);
+        }
+        finally
+        {
+            stats.RecordConnectionClosed();
+        }
     }
 
     private static async Task WriteErrorAsync(HttpContext context, string code, string message)

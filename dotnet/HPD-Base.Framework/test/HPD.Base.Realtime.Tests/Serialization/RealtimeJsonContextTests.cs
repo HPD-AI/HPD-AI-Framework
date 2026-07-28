@@ -26,33 +26,40 @@ public sealed class RealtimeJsonContextTests
     }
 
     [Fact]
-    public void DescriptorDtosRoundTripThroughSourceGeneratedContext()
+    public void RemovedProtocolSurfaceIsAbsentFromClrAndJsonContracts()
     {
-        var connection = new BaseRealtimeConnectionDescriptor
+        var assembly = typeof(BaseRealtimeClientMessage).Assembly;
+        string[] removedTypes =
         {
-            ConnectionId = "conn_1",
-            Transport = "websocket",
-            ConnectedAt = DateTimeOffset.UnixEpoch,
-            ActiveChannelCount = 1,
-            Replayable = false,
-            Resumable = false
-        };
-        var channel = new BaseRealtimeChannelDescriptor
-        {
-            Channel = "base:records:items",
-            Kind = BaseRealtimeChannelKinds.RecordChanges,
-            CollectionId = "items",
-            Private = true,
-            Replayable = false,
-            Resumable = false
+            "HPD.Base.Realtime.BaseRealtimeSubscribeRequest",
+            "HPD.Base.Realtime.BaseRealtimeSnapshotOptions",
+            "HPD.Base.Realtime.BaseRealtimeConnectionDescriptor",
+            "HPD.Base.Realtime.BaseRealtimeChannelDescriptor"
         };
 
-        JsonSerializer.Deserialize(
-            JsonSerializer.Serialize(connection, HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeConnectionDescriptor),
-            HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeConnectionDescriptor)!.ConnectionId.Should().Be("conn_1");
-        JsonSerializer.Deserialize(
-            JsonSerializer.Serialize(channel, HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeChannelDescriptor),
-            HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeChannelDescriptor)!.Channel.Should().Be("base:records:items");
+        foreach (var typeName in removedTypes)
+            assembly.GetType(typeName).Should().BeNull();
+        typeof(BaseRealtimeClientMessage).GetProperty("Token").Should().BeNull();
+        typeof(BaseRealtimeProtocolTypes).GetFields()
+            .Select(field => field.GetRawConstantValue())
+            .Should().NotContain(["connect", "authenticate", "system"]);
+        typeof(BaseRealtimeErrorCodes).GetFields()
+            .Select(field => field.GetRawConstantValue())
+            .Should().NotContain("base.realtime.resume.unsupported");
+
+        var staleJson = """
+        {
+          "type": "join",
+          "channel": "base:records:items",
+          "token": "stale-token",
+          "config": { "kind": "base.record_changes" }
+        }
+        """;
+
+        var deserialize = () => JsonSerializer.Deserialize(
+            staleJson,
+            HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeClientMessage);
+        deserialize.Should().Throw<JsonException>();
     }
 
     [Fact]
@@ -68,7 +75,6 @@ public sealed class RealtimeJsonContextTests
             OccurredAt = DateTimeOffset.UnixEpoch,
             Resource = new BaseRealtimeRecordResource
             {
-                Kind = EventResourceKind.Record,
                 CollectionId = "items",
                 RecordId = new RecordId("one")
             },
@@ -83,5 +89,81 @@ public sealed class RealtimeJsonContextTests
         normalizedJson.Should().NotContain("sequence");
         normalizedJson.Should().NotContain("cursor");
         normalizedJson.Should().NotContain("resume");
+    }
+
+    [Fact]
+    public void RealtimeContractExposesOnlyTheMinimalPolicyVisibleSurface()
+    {
+        AssertProperties<BaseRealtimeEvent>(
+            "EventId",
+            "Type",
+            "SchemaVersion",
+            "OccurredAt",
+            "Resource",
+            "Operation",
+            "Before",
+            "After");
+        AssertProperties<BaseRealtimeRecordResource>("CollectionId", "RecordId");
+        AssertProperties<BaseRealtimeRecordSnapshot>("Payload");
+
+        var assembly = typeof(BaseRealtimeEvent).Assembly;
+        assembly.GetType("HPD.Base.Realtime.BaseRealtimePrincipalSummary").Should().BeNull();
+        typeof(BaseRealtimeChannelJoinRequest).GetProperty("IncludePrincipal").Should().BeNull();
+        typeof(BaseRealtimeChannelJoinRequest).GetProperty("IncludeExtensions").Should().BeNull();
+        typeof(BaseRealtimeChannelJoinRequest).GetProperty("Visibility").Should().BeNull();
+        typeof(BaseRealtimeDtoIds).GetField("PrincipalSummary").Should().BeNull();
+    }
+
+    [Fact]
+    public void RemovedDisclosureFieldsAreRejectedByTheJsonContract()
+    {
+        string[] removedEventFields =
+        [
+            "tenantId",
+            "correlationId",
+            "causationId",
+            "changedFields",
+            "visibility",
+            "principal",
+            "extensions"
+        ];
+
+        foreach (var field in removedEventFields)
+        {
+            var json = $$"""
+            {
+              "eventId": "event-secret",
+              "type": "record.created",
+              "schemaVersion": "1",
+              "occurredAt": "1970-01-01T00:00:00Z",
+              "resource": { "collectionId": "items", "recordId": "one" },
+              "operation": "create",
+              "{{field}}": "forbidden-marker"
+            }
+            """;
+
+            var deserialize = () => JsonSerializer.Deserialize(
+                json,
+                HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeEvent);
+            deserialize.Should().Throw<JsonException>();
+        }
+
+        var staleJoin = """
+        {
+          "kind": "base.record_changes",
+          "includePrincipal": true
+        }
+        """;
+        var deserializeJoin = () => JsonSerializer.Deserialize(
+            staleJoin,
+            HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeChannelJoinRequest);
+        deserializeJoin.Should().Throw<JsonException>();
+    }
+
+    private static void AssertProperties<T>(params string[] expected)
+    {
+        typeof(T).GetProperties()
+            .Select(property => property.Name)
+            .Should().BeEquivalentTo(expected);
     }
 }

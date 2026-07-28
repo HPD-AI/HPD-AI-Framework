@@ -7,7 +7,6 @@ public sealed record BaseRealtimeClientMessage
     public required string Type { get; init; }
     public string? Ref { get; init; }
     public string? Channel { get; init; }
-    public string? Token { get; init; }
     public BaseRealtimeChannelJoinRequest? Config { get; init; }
     public Dictionary<string, JsonElement>? Payload { get; init; }
 }

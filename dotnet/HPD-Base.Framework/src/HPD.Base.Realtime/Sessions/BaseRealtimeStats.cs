@@ -10,7 +10,9 @@ public sealed class BaseRealtimeStats
     private long _streamOpenFailures;
     private long _policySkips;
     private long _sendFailures;
-    private long _heartbeatTimeouts;
+    private long _receiveIdleTimeouts;
+    private long _joinRateRejections;
+    private long _slowConsumerTerminations;
     private long _payloadLimitDrops;
 
     public long ActiveConnections => Volatile.Read(ref _activeConnections);
@@ -18,7 +20,12 @@ public sealed class BaseRealtimeStats
     public long StreamOpenFailures => Volatile.Read(ref _streamOpenFailures);
     public long PolicySkips => Volatile.Read(ref _policySkips);
     public long SendFailures => Volatile.Read(ref _sendFailures);
-    public long HeartbeatTimeouts => Volatile.Read(ref _heartbeatTimeouts);
+    /// <summary>Gets the number of connections closed after exceeding the receive-idle limit.</summary>
+    public long ReceiveIdleTimeouts => Volatile.Read(ref _receiveIdleTimeouts);
+    /// <summary>Gets the number of channel joins rejected by the per-connection rate limit.</summary>
+    public long JoinRateRejections => Volatile.Read(ref _joinRateRejections);
+    /// <summary>Gets the number of channels terminated because their consumers were too slow.</summary>
+    public long SlowConsumerTerminations => Volatile.Read(ref _slowConsumerTerminations);
     public long PayloadLimitDrops => Volatile.Read(ref _payloadLimitDrops);
 
     public BaseRealtimeStats()
@@ -26,27 +33,45 @@ public sealed class BaseRealtimeStats
         HPDBaseRealtimeTelemetry.RegisterStats(this);
     }
 
-    public void RecordConnectionOpened()
+    /// <summary>Attempts to reserve one active connection within the configured maximum.</summary>
+    /// <param name="maximum">The positive maximum number of active connections.</param>
+    /// <returns><see langword="true"/> when the connection was reserved; otherwise, <see langword="false"/>.</returns>
+    public bool TryRecordConnectionOpened(int maximum)
     {
-        Interlocked.Increment(ref _activeConnections);
-        HPDBaseRealtimeTelemetry.RecordConnectionOpened();
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximum);
+
+        while (true)
+        {
+            var current = Volatile.Read(ref _activeConnections);
+            if (current >= maximum)
+                return false;
+
+            if (Interlocked.CompareExchange(ref _activeConnections, current + 1, current) != current)
+                continue;
+
+            HPDBaseRealtimeTelemetry.RecordConnectionOpened();
+            return true;
+        }
     }
 
+    /// <summary>Releases one previously reserved active connection.</summary>
     public void RecordConnectionClosed()
     {
-        Interlocked.Decrement(ref _activeConnections);
+        DecrementActive(ref _activeConnections, "connection");
         HPDBaseRealtimeTelemetry.RecordConnectionClosed();
     }
 
+    /// <summary>Records one active realtime channel.</summary>
     public void RecordChannelOpened()
     {
         Interlocked.Increment(ref _activeChannels);
         HPDBaseRealtimeTelemetry.RecordChannelOpened();
     }
 
+    /// <summary>Records the closure of one active realtime channel.</summary>
     public void RecordChannelClosed()
     {
-        Interlocked.Decrement(ref _activeChannels);
+        DecrementActive(ref _activeChannels, "channel");
         HPDBaseRealtimeTelemetry.RecordChannelClosed();
     }
     public void RecordStreamOpenFailure()
@@ -67,15 +92,43 @@ public sealed class BaseRealtimeStats
         HPDBaseRealtimeTelemetry.RecordSendFailure();
     }
 
-    public void RecordHeartbeatTimeout()
+    /// <summary>Records a connection that exceeded its receive-idle limit.</summary>
+    public void RecordReceiveIdleTimeout()
     {
-        Interlocked.Increment(ref _heartbeatTimeouts);
-        HPDBaseRealtimeTelemetry.RecordHeartbeatTimeout();
+        Interlocked.Increment(ref _receiveIdleTimeouts);
+        HPDBaseRealtimeTelemetry.RecordReceiveIdleTimeout();
+    }
+
+    /// <summary>Records a channel join rejected by the per-connection rate limit.</summary>
+    public void RecordJoinRateRejection()
+    {
+        Interlocked.Increment(ref _joinRateRejections);
+        HPDBaseRealtimeTelemetry.RecordJoinRateRejection();
+    }
+
+    /// <summary>Records a channel terminated because its consumer was too slow.</summary>
+    public void RecordSlowConsumerTermination()
+    {
+        Interlocked.Increment(ref _slowConsumerTerminations);
+        HPDBaseRealtimeTelemetry.RecordSlowConsumerTermination();
     }
 
     public void RecordPayloadLimitDrop()
     {
         Interlocked.Increment(ref _payloadLimitDrops);
         HPDBaseRealtimeTelemetry.RecordPayloadDrop();
+    }
+
+    private static void DecrementActive(ref long value, string kind)
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref value);
+            if (current <= 0)
+                throw new InvalidOperationException($"Cannot close a realtime {kind} that is not active.");
+
+            if (Interlocked.CompareExchange(ref value, current - 1, current) == current)
+                return;
+        }
     }
 }

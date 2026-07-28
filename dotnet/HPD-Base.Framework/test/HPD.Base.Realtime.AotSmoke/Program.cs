@@ -1,7 +1,6 @@
 using System.Text.Json;
 using HPD.Base;
 using HPD.Base.Events;
-using HPD.Base.Policy;
 using HPD.Base.Records;
 using HPD.Base.Realtime;
 using HPD.Base.Realtime.DependencyInjection;
@@ -63,16 +62,12 @@ static BaseRealtimeEvent Event() => new()
     OccurredAt = DateTimeOffset.UnixEpoch,
     Resource = new BaseRealtimeRecordResource
     {
-        Kind = EventResourceKind.Record,
         CollectionId = "items",
         RecordId = new RecordId("rec_1")
     },
     Operation = BaseOperationKind.Create,
-    Visibility = VisibilityLevel.Public,
     After = new BaseRealtimeRecordSnapshot
     {
-        CollectionId = "items",
-        Id = new RecordId("rec_1"),
         Payload = new RecordPayload
         {
             Kind = RecordPayloadKind.FieldMap,
@@ -80,14 +75,7 @@ static BaseRealtimeEvent Event() => new()
             {
                 ["title"] = Json("hello")
             }
-        },
-        Metadata = new RecordMetadata(),
-        Redacted = true
-    },
-    Principal = new BaseRealtimePrincipalSummary
-    {
-        AuthenticationState = PrincipalAuthenticationState.System,
-        SubjectKind = AccessSubjectKind.System
+        }
     }
 };
 

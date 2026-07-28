@@ -51,7 +51,7 @@ internal sealed class BaseRealtimeHealthContributor : IBaseHealthContributor, IB
                     Metric("activeChannels", _stats.ActiveChannels),
                     Metric("policySkips", _stats.PolicySkips),
                     Metric("sendFailures", _stats.SendFailures),
-                    Metric("heartbeatTimeouts", _stats.HeartbeatTimeouts),
+                    Metric("receiveIdleTimeouts", _stats.ReceiveIdleTimeouts),
                     Metric("payloadLimitDrops", _stats.PayloadLimitDrops),
                     Metric("hpdEventsSubscriberCount", eventStats.SubscriberCount),
                     Metric("hpdEventsInboxCount", eventStats.InboxCount),
@@ -90,7 +90,7 @@ internal sealed class BaseRealtimeHealthContributor : IBaseHealthContributor, IB
             Diagnostic(BaseRealtimeDescriptorContributor.DiagnosticIds.Options, "Realtime options are registered; replay/resume/live query are disabled in L17.", now),
             Diagnostic(BaseRealtimeDescriptorContributor.DiagnosticIds.StreamOpenFailures, $"HPD.Events stream open failures: {_stats.StreamOpenFailures}.", now),
             Diagnostic("hpd.base.realtime.hpdEventsCoordinatorStats", $"HPD.Events stats: subscribers={eventStats.SubscriberCount}, inboxes={eventStats.InboxCount}, queued={eventStats.TotalQueued}, dropped={eventStats.TotalDropped}, maxDepth={eventStats.MaxSubscriberDepth}.", now),
-            Diagnostic("hpd.base.realtime.connectionStats", $"Realtime active connections={_stats.ActiveConnections}, active channels={_stats.ActiveChannels}, sendFailures={_stats.SendFailures}, heartbeatTimeouts={_stats.HeartbeatTimeouts}, payloadLimitDrops={_stats.PayloadLimitDrops}.", now)
+            Diagnostic("hpd.base.realtime.connectionStats", $"Realtime active connections={_stats.ActiveConnections}, active channels={_stats.ActiveChannels}, sendFailures={_stats.SendFailures}, receiveIdleTimeouts={_stats.ReceiveIdleTimeouts}, joinRateRejections={_stats.JoinRateRejections}, slowConsumerTerminations={_stats.SlowConsumerTerminations}, payloadLimitDrops={_stats.PayloadLimitDrops}.", now)
         ]);
     }
 

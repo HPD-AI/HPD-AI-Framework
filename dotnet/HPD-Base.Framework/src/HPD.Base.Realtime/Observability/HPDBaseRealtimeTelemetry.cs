@@ -50,10 +50,20 @@ internal static class HPDBaseRealtimeTelemetry
         unit: "{error}",
         description: "Counts HPD.BASE realtime send failures.");
 
-    private static readonly Counter<long> HeartbeatTimeouts = HPDBaseRealtimeObservability.Meter.CreateCounter<long>(
-        HPDBaseTelemetryInstruments.RealtimeHeartbeatTimeouts,
+    private static readonly Counter<long> ReceiveIdleTimeouts = HPDBaseRealtimeObservability.Meter.CreateCounter<long>(
+        HPDBaseTelemetryInstruments.RealtimeReceiveIdleTimeouts,
         unit: "{error}",
-        description: "Counts HPD.BASE realtime heartbeat timeouts.");
+        description: "Counts HPD.BASE realtime receive-idle timeouts.");
+
+    private static readonly Counter<long> JoinRateRejections = HPDBaseRealtimeObservability.Meter.CreateCounter<long>(
+        HPDBaseTelemetryInstruments.RealtimeJoinRateRejections,
+        unit: "{join}",
+        description: "Counts HPD.BASE realtime channel joins rejected by the per-connection rate limit.");
+
+    private static readonly Counter<long> SlowConsumerTerminations = HPDBaseRealtimeObservability.Meter.CreateCounter<long>(
+        HPDBaseTelemetryInstruments.RealtimeSlowConsumerTerminations,
+        unit: "{channel}",
+        description: "Counts HPD.BASE realtime channels terminated because their consumers were too slow.");
 
     private static readonly Counter<long> PayloadDrops = HPDBaseRealtimeObservability.Meter.CreateCounter<long>(
         HPDBaseTelemetryInstruments.RealtimePayloadDrops,
@@ -105,7 +115,9 @@ internal static class HPDBaseRealtimeTelemetry
     public static void RecordPolicySkip() => PolicySkips.Add(1, ChannelTags("recordChanges"));
     public static void RecordStreamOpenFailure() => StreamOpenFailures.Add(1, ErrorTags("streamOpenFailure"));
     public static void RecordSendFailure() => SendFailures.Add(1, ErrorTags("sendFailure"));
-    public static void RecordHeartbeatTimeout() => HeartbeatTimeouts.Add(1, ErrorTags("heartbeatTimeout"));
+    public static void RecordReceiveIdleTimeout() => ReceiveIdleTimeouts.Add(1, ErrorTags("receiveIdleTimeout"));
+    public static void RecordJoinRateRejection() => JoinRateRejections.Add(1, ErrorTags("joinRateLimited"));
+    public static void RecordSlowConsumerTermination() => SlowConsumerTerminations.Add(1, ErrorTags("slowConsumer"));
     public static void RecordPayloadDrop() => PayloadDrops.Add(1, MessageTags("dropped"));
 
     private static Activity? Start(string spanName, string channelKind)

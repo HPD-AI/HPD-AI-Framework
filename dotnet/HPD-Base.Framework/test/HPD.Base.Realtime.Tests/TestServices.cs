@@ -25,7 +25,14 @@ internal static class TestServices
                         Fields =
                         [
                             new FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String },
-                            new FieldDefinition { Id = "secret", Name = "secret", Type = BaseFieldTypes.String, Hidden = true }
+                            new FieldDefinition { Id = "secret", Name = "secret", Type = BaseFieldTypes.String, Hidden = true },
+                            new FieldDefinition
+                            {
+                                Id = "writeOnly",
+                                Name = "writeOnly",
+                                Type = BaseFieldTypes.String,
+                                Visibility = new FieldVisibilityAnnotation { WriteOnly = true }
+                            }
                         ],
                         Operations = new CollectionOperationMatrix
                         {

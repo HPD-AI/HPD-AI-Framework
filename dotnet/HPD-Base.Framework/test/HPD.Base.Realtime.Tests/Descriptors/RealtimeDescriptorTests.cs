@@ -21,5 +21,30 @@ public sealed class RealtimeDescriptorTests
         feature.Constraints.Realtime.Extensions!["resumable"].GetBoolean().Should().BeFalse();
         feature.Constraints.Realtime.Extensions!["liveQuery"].GetBoolean().Should().BeFalse();
         feature.RouteRefs.Should().Contain(BaseRealtimeRouteIds.WebSocket);
+
+        var limits = snapshot.Capabilities.Families
+            .Single(family => family.FamilyId == "base.realtime")
+            .Limits!
+            .Select(limit => limit.Name)
+            .ToArray();
+
+        limits.Should().Contain(
+            "outboundCapacity",
+            "receiveIdleTimeoutSeconds",
+            "sendTimeoutSeconds",
+            "maxJoinsPerSecond");
+        limits.Should().NotContain(
+            "heartbeatIntervalSeconds",
+            "heartbeatTimeoutSeconds",
+            "maxEventsPerSecond");
+
+        snapshot.Manifest.DtoContracts!
+            .Where(dto => dto.Id.StartsWith("base.realtime", StringComparison.Ordinal))
+            .Select(dto => dto.Id)
+            .Should().NotContain(
+                "base.realtime.subscribeRequest",
+                "base.realtime.snapshotOptions",
+                "base.realtime.connectionDescriptor",
+                "base.realtime.channelDescriptor");
     }
 }

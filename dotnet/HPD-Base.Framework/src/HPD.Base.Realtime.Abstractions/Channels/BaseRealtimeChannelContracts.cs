@@ -2,26 +2,35 @@ using HPD.Base.Policy;
 
 namespace HPD.Base.Realtime;
 
+/// <summary>Defines a request to join the live record-mutation channel.</summary>
 public sealed record BaseRealtimeChannelJoinRequest
 {
+    /// <summary>Gets the requested channel kind.</summary>
     public required string Kind { get; init; }
-    public bool Private { get; init; } = true;
-    public string? CollectionId { get; init; }
-    public string? RecordId { get; init; }
-    public BaseOperationKind[]? Operations { get; init; }
-    public string[]? EventTypes { get; init; }
-    public string? TenantId { get; init; }
-    public VisibilityLevel? Visibility { get; init; }
-    public bool IncludeSnapshots { get; init; }
-    public bool IncludeBefore { get; init; }
-    public bool IncludePrincipal { get; init; }
-    public bool IncludeExtensions { get; init; }
-}
 
-public sealed record BaseRealtimeSubscribeRequest
-{
-    public required string Channel { get; init; }
-    public required BaseRealtimeChannelJoinRequest Config { get; init; }
+    /// <summary>Gets whether the channel requires an authenticated principal.</summary>
+    public bool Private { get; init; } = true;
+
+    /// <summary>Gets an optional collection filter.</summary>
+    public string? CollectionId { get; init; }
+
+    /// <summary>Gets an optional record identity filter.</summary>
+    public string? RecordId { get; init; }
+
+    /// <summary>Gets optional mutation-operation filters.</summary>
+    public BaseOperationKind[]? Operations { get; init; }
+
+    /// <summary>Gets optional event-type filters.</summary>
+    public string[]? EventTypes { get; init; }
+
+    /// <summary>Gets an optional authorized tenant filter.</summary>
+    public string? TenantId { get; init; }
+
+    /// <summary>Gets whether a redacted resulting snapshot is requested.</summary>
+    public bool IncludeSnapshots { get; init; }
+
+    /// <summary>Gets whether an authorized redacted prior snapshot is requested.</summary>
+    public bool IncludeBefore { get; init; }
 }
 
 public sealed record BaseRealtimeChannelJoinResult
@@ -33,28 +42,6 @@ public sealed record BaseRealtimeChannelJoinResult
     public string? StreamId { get; init; }
 }
 
-public sealed record BaseRealtimeConnectionDescriptor
-{
-    public required string ConnectionId { get; init; }
-    public required string Transport { get; init; }
-    public required DateTimeOffset ConnectedAt { get; init; }
-    public int ActiveChannelCount { get; init; }
-    public bool Replayable { get; init; }
-    public bool Resumable { get; init; }
-}
-
-public sealed record BaseRealtimeChannelDescriptor
-{
-    public required string Channel { get; init; }
-    public required string Kind { get; init; }
-    public string? CollectionId { get; init; }
-    public string? RecordId { get; init; }
-    public string? TenantId { get; init; }
-    public bool Private { get; init; }
-    public bool Replayable { get; init; }
-    public bool Resumable { get; init; }
-}
-
 public sealed record BaseRealtimeError
 {
     public required string Code { get; init; }
@@ -62,23 +49,33 @@ public sealed record BaseRealtimeError
     public string? Target { get; init; }
 }
 
-public sealed record BaseRealtimeSnapshotOptions
-{
-    public bool IncludeSnapshots { get; init; }
-    public bool IncludeBefore { get; init; }
-    public bool IncludePrincipal { get; init; }
-    public bool IncludeExtensions { get; init; }
-}
-
+/// <summary>Defines enforced limits for one realtime server instance and its connections.</summary>
 public sealed record BaseRealtimeLimits
 {
+    /// <summary>Gets the maximum number of concurrent realtime connections.</summary>
     public int MaxConnections { get; init; } = 1024;
+
+    /// <summary>Gets the maximum number of joined channels on one connection.</summary>
     public int MaxChannelsPerConnection { get; init; } = 16;
+
+    /// <summary>Gets the capacity of each channel's HPD.Events inbox.</summary>
     public int StreamCapacity { get; init; } = 1024;
+
+    /// <summary>Gets the capacity of each channel's outbound event queue.</summary>
+    public int OutboundCapacity { get; init; } = 256;
+
+    /// <summary>Gets the maximum complete inbound protocol message size in bytes.</summary>
     public int MaxMessageBytes { get; init; } = 64 * 1024;
+
+    /// <summary>Gets the maximum serialized outbound protocol payload size in bytes.</summary>
     public int MaxPayloadBytes { get; init; } = 256 * 1024;
-    public int HeartbeatIntervalSeconds { get; init; } = 30;
-    public int HeartbeatTimeoutSeconds { get; init; } = 90;
+
+    /// <summary>Gets the maximum interval without a complete inbound message.</summary>
+    public int ReceiveIdleTimeoutSeconds { get; init; } = 90;
+
+    /// <summary>Gets the maximum time allowed for one WebSocket send.</summary>
+    public int SendTimeoutSeconds { get; init; } = 10;
+
+    /// <summary>Gets the maximum channel join attempts allowed per connection per second.</summary>
     public int MaxJoinsPerSecond { get; init; } = 8;
-    public int MaxEventsPerSecond { get; init; } = 1024;
 }

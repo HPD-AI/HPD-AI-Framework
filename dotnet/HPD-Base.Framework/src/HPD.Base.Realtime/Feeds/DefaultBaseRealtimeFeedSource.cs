@@ -100,7 +100,6 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
                 });
         }
 
-        _stats.RecordChannelOpened();
         return AsyncStreamOpenResult<AsyncStream<BaseRealtimeEvent>>.Opened(new AsyncStream<BaseRealtimeEvent>
         {
             Descriptor = opened.Value.Descriptor,
@@ -113,6 +112,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
         IAsyncEnumerable<BaseRecordMutationEvent> events,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        _stats.RecordChannelOpened();
         try
         {
             await foreach (var evt in events.WithCancellation(cancellationToken).ConfigureAwait(false))
@@ -137,7 +137,7 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
                         _logger,
                         "unexpected",
                         BaseRealtimeErrorCodes.CapabilityUnavailable);
-                    throw;
+                    yield break;
                 }
 
                 if (projected is null)
@@ -174,9 +174,6 @@ internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
             return false;
 
         if (join.EventTypes is { Length: > 0 } eventTypes && !eventTypes.Contains(evt.Type, StringComparer.Ordinal))
-            return false;
-
-        if (join.Visibility is { } visibility && evt.Visibility > visibility)
             return false;
 
         return true;

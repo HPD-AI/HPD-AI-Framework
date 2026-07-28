@@ -29,29 +29,25 @@ internal sealed class DefaultBaseRealtimeProjectionService : IBaseRealtimeProjec
         if (!decision.Allow || decision.Policy is null || decision.Collection is null)
             return null;
 
+        var collectionId = request.Event.Resource.CollectionId;
+        var recordId = request.Event.Resource.RecordId;
+        if (string.IsNullOrWhiteSpace(collectionId) || recordId is null)
+            return null;
+
         return new BaseRealtimeEvent
         {
             EventId = request.Event.EventId,
             Type = request.Event.Type,
             SchemaVersion = request.Event.SchemaVersion,
             OccurredAt = request.Event.Timestamp,
-            TenantId = request.Event.TenantId,
-            CorrelationId = request.Event.CorrelationId,
-            CausationId = request.Event.CausationId,
             Resource = new BaseRealtimeRecordResource
             {
-                Kind = request.Event.Resource.Kind,
-                CollectionId = request.Event.Resource.CollectionId,
-                RecordId = request.Event.Resource.RecordId,
-                ResourcePath = request.Event.Resource.ResourcePath
+                CollectionId = collectionId,
+                RecordId = recordId.Value
             },
             Operation = request.Event.Operation,
-            ChangedFields = request.Event.ChangedFields,
             Before = decision.IncludeBefore ? Redact(request.Event.Before, decision) : null,
-            After = decision.IncludeAfter ? Redact(request.Event.After, decision) : null,
-            Visibility = decision.View,
-            Principal = decision.IncludePrincipal ? Principal(request.Event.Principal) : null,
-            Extensions = decision.IncludeExtensions ? request.Event.Extensions : null
+            After = decision.IncludeAfter ? Redact(request.Event.After, decision) : null
         };
     }
 
@@ -70,26 +66,7 @@ internal sealed class DefaultBaseRealtimeProjectionService : IBaseRealtimeProjec
 
         return new BaseRealtimeRecordSnapshot
         {
-            CollectionId = redacted.CollectionId,
-            Id = redacted.Id,
-            Payload = redacted.Payload,
-            Metadata = redacted.Metadata,
-            IncludedFields = snapshot.IncludedFields,
-            Redacted = snapshot.Redacted || redacted.Policy?.Redacted == true
+            Payload = redacted.Payload
         };
     }
-
-    private static BaseRealtimePrincipalSummary? Principal(EventPrincipalSummary? principal) =>
-        principal is null
-            ? null
-            : new BaseRealtimePrincipalSummary
-            {
-                AuthenticationState = principal.AuthenticationState,
-                SubjectId = principal.SubjectId,
-                SubjectKind = principal.SubjectKind,
-                TenantId = principal.TenantId,
-                AuthSource = principal.AuthSource,
-                IsServicePrincipal = principal.IsServicePrincipal,
-                IsAdmin = principal.IsAdmin
-            };
 }

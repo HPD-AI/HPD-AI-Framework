@@ -26,7 +26,9 @@ internal sealed class BaseRealtimeWebSocketSession
     private readonly BaseRealtimeStats _stats;
     private readonly PrincipalContext _principal;
     private readonly ILogger<BaseRealtimeWebSocketSession> _logger;
-    private readonly Dictionary<string, CancellationTokenSource> _channels = new(StringComparer.Ordinal);
+    private readonly TimeProvider _timeProvider;
+    private readonly BaseRealtimeJoinRateLimiter _joinRateLimiter;
+    private readonly Dictionary<string, BaseRealtimeChannelOwner> _channels = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
     public BaseRealtimeWebSocketSession(
@@ -36,7 +38,8 @@ internal sealed class BaseRealtimeWebSocketSession
         BaseRealtimeOptions options,
         BaseRealtimeStats stats,
         PrincipalContext principal,
-        ILogger<BaseRealtimeWebSocketSession> logger)
+        ILogger<BaseRealtimeWebSocketSession> logger,
+        TimeProvider timeProvider)
     {
         _socket = socket;
         _feeds = feeds;
@@ -45,11 +48,14 @@ internal sealed class BaseRealtimeWebSocketSession
         _stats = stats;
         _principal = principal;
         _logger = logger;
+        _timeProvider = timeProvider;
+        _joinRateLimiter = new BaseRealtimeJoinRateLimiter(
+            timeProvider,
+            options.Limits.MaxJoinsPerSecond);
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        _stats.RecordConnectionOpened();
         HPDBaseRealtimeAspNetCoreLog.ConnectionOpened(_logger);
         try
         {
@@ -76,12 +82,8 @@ internal sealed class BaseRealtimeWebSocketSession
         }
         finally
         {
-            foreach (var channel in _channels.Values)
-                channel.Cancel();
-            foreach (var channel in _channels.Values)
-                channel.Dispose();
+            await StopChannelsAsync().ConfigureAwait(false);
             _sendLock.Dispose();
-            _stats.RecordConnectionClosed();
         }
     }
 
@@ -89,12 +91,6 @@ internal sealed class BaseRealtimeWebSocketSession
     {
         switch (message.Type)
         {
-            case BaseRealtimeProtocolTypes.Connect:
-                await SendAsync(new BaseRealtimeServerMessage { Type = BaseRealtimeProtocolTypes.Connected, Ref = message.Ref }, cancellationToken).ConfigureAwait(false);
-                break;
-            case BaseRealtimeProtocolTypes.Authenticate:
-                await SendAsync(new BaseRealtimeServerMessage { Type = BaseRealtimeProtocolTypes.System, Ref = message.Ref }, cancellationToken).ConfigureAwait(false);
-                break;
             case BaseRealtimeProtocolTypes.Heartbeat:
                 await SendAsync(new BaseRealtimeServerMessage { Type = BaseRealtimeProtocolTypes.Heartbeat, Ref = message.Ref }, cancellationToken).ConfigureAwait(false);
                 break;
@@ -132,6 +128,37 @@ internal sealed class BaseRealtimeWebSocketSession
         {
             HPDBaseRealtimeAspNetCoreLog.WebSocketJoinRejectedProtocol(_logger, BaseRealtimeErrorCodes.ProtocolInvalid);
             await SendErrorAsync(message.Ref, message.Channel, BaseRealtimeErrorCodes.ProtocolInvalid, "Join messages require channel and config.", cancellationToken).ConfigureAwait(false);
+            HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "rejected");
+            return;
+        }
+
+        if (!_joinRateLimiter.TryAcquire())
+        {
+            _stats.RecordJoinRateRejection();
+            HPDBaseRealtimeAspNetCoreLog.WebSocketJoinRejectedProtocol(
+                _logger, BaseRealtimeErrorCodes.JoinRateLimited);
+            await SendErrorAsync(
+                message.Ref,
+                message.Channel,
+                BaseRealtimeErrorCodes.JoinRateLimited,
+                "The connection exceeded its channel join rate limit.",
+                cancellationToken).ConfigureAwait(false);
+            HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "rejected");
+            return;
+        }
+
+        await RemoveCompletedChannelsAsync().ConfigureAwait(false);
+
+        if (_channels.ContainsKey(message.Channel))
+        {
+            HPDBaseRealtimeAspNetCoreLog.WebSocketJoinRejectedProtocol(
+                _logger, BaseRealtimeErrorCodes.ChannelAlreadyJoined);
+            await SendErrorAsync(
+                message.Ref,
+                message.Channel,
+                BaseRealtimeErrorCodes.ChannelAlreadyJoined,
+                "The channel is already joined on this connection.",
+                cancellationToken).ConfigureAwait(false);
             HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "rejected");
             return;
         }
@@ -176,7 +203,7 @@ internal sealed class BaseRealtimeWebSocketSession
             TenantId = message.Config.TenantId ?? _principal.CurrentTenantId,
             Mode = OperationMode.User,
             CorrelationId = message.Ref,
-            Now = DateTimeOffset.UtcNow
+            Now = _timeProvider.GetUtcNow()
         };
 
         var opened = await _feeds.OpenAsync(new BaseRealtimeFeedRequest
@@ -194,34 +221,49 @@ internal sealed class BaseRealtimeWebSocketSession
             return;
         }
 
-        var channelCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _channels[message.Channel] = channelCancellation;
-        _ = Task.Run(() => PumpChannelAsync(message.Channel, opened.Value.Items, channelCancellation.Token), CancellationToken.None);
-
-        await SendAsync(new BaseRealtimeServerMessage
+        var owner = new BaseRealtimeChannelOwner(
+            message.Channel,
+            opened.Value.Items,
+            _options.Limits.OutboundCapacity,
+            cancellationToken,
+            SendEventAsync,
+            RecordPumpFailure,
+            TerminateSlowConsumerAsync);
+        _channels.Add(message.Channel, owner);
+        try
         {
-            Type = BaseRealtimeProtocolTypes.Joined,
-            Ref = message.Ref,
-            Channel = message.Channel,
-            Join = new BaseRealtimeChannelJoinResult
+            await SendAsync(new BaseRealtimeServerMessage
             {
+                Type = BaseRealtimeProtocolTypes.Joined,
+                Ref = message.Ref,
                 Channel = message.Channel,
-                Kind = message.Config.Kind,
-                Replayable = opened.Value.Descriptor.Replayable,
-                Resumable = opened.Value.Descriptor.Resumable,
-                StreamId = opened.Value.Descriptor.StreamId
-            }
-        }, cancellationToken).ConfigureAwait(false);
+                Join = new BaseRealtimeChannelJoinResult
+                {
+                    Channel = message.Channel,
+                    Kind = message.Config.Kind,
+                    Replayable = opened.Value.Descriptor.Replayable,
+                    Resumable = opened.Value.Descriptor.Resumable,
+                    StreamId = opened.Value.Descriptor.StreamId
+                }
+            }, cancellationToken).ConfigureAwait(false);
+            owner.Activate();
+        }
+        catch
+        {
+            _channels.Remove(message.Channel);
+            await owner.StopAsync().ConfigureAwait(false);
+            throw;
+        }
+
         HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "ok");
     }
 
     private async Task LeaveAsync(BaseRealtimeClientMessage message, CancellationToken cancellationToken)
     {
         using var activity = HPDBaseRealtimeAspNetCoreTelemetry.StartLeave();
-        if (message.Channel is not null && _channels.Remove(message.Channel, out var cts))
+        if (message.Channel is not null && _channels.Remove(message.Channel, out var owner))
         {
-            await cts.CancelAsync().ConfigureAwait(false);
-            cts.Dispose();
+            await owner.StopAsync().ConfigureAwait(false);
         }
 
         await SendAsync(new BaseRealtimeServerMessage
@@ -233,27 +275,54 @@ internal sealed class BaseRealtimeWebSocketSession
         HPDBaseRealtimeAspNetCoreTelemetry.Finish(activity, "ok");
     }
 
-    private async Task PumpChannelAsync(string channel, IAsyncEnumerable<BaseRealtimeEvent> events, CancellationToken cancellationToken)
+    private async Task RemoveCompletedChannelsAsync()
     {
+        var completed = _channels
+            .Where(pair => pair.Value.IsCompleted)
+            .ToArray();
+
+        foreach (var pair in completed)
+        {
+            _channels.Remove(pair.Key);
+            await pair.Value.StopAsync().ConfigureAwait(false);
+        }
+    }
+
+    private async Task StopChannelsAsync()
+    {
+        var channels = _channels.Values.ToArray();
+        _channels.Clear();
+
+        var stops = channels.Select(channel => channel.StopAsync()).ToArray();
+        await Task.WhenAll(stops).ConfigureAwait(false);
+    }
+
+    private void RecordPumpFailure() =>
+        HPDBaseRealtimeAspNetCoreLog.WebSocketReceiveFailed(
+            _logger, "unexpected", BaseRealtimeErrorCodes.CapabilityUnavailable);
+
+    private async Task TerminateSlowConsumerAsync(
+        string channel,
+        CancellationToken cancellationToken)
+    {
+        _stats.RecordSlowConsumerTermination();
+        HPDBaseRealtimeAspNetCoreLog.SlowConsumerTerminated(
+            _logger, BaseRealtimeErrorCodes.ConsumerSlow);
+
         try
         {
-            await foreach (var evt in events.WithCancellation(cancellationToken).ConfigureAwait(false))
-            {
-                await SendEventAsync(channel, evt, cancellationToken).ConfigureAwait(false);
-            }
+            await SendErrorAsync(
+                null,
+                channel,
+                BaseRealtimeErrorCodes.ConsumerSlow,
+                "The realtime channel was terminated because the consumer was too slow.",
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (BaseRealtimeSendTimeoutException)
+        {
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-        }
-        catch (WebSocketException)
-        {
-            _stats.RecordSendFailure();
-        }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            HPDBaseRealtimeAspNetCoreLog.WebSocketReceiveFailed(
-                _logger, "unexpected", BaseRealtimeErrorCodes.CapabilityUnavailable);
-            throw;
         }
     }
 
@@ -266,7 +335,7 @@ internal sealed class BaseRealtimeWebSocketSession
         while (true)
         {
             using var receiveTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            receiveTimeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.Limits.HeartbeatTimeoutSeconds)));
+            receiveTimeout.CancelAfter(TimeSpan.FromSeconds(_options.Limits.ReceiveIdleTimeoutSeconds));
             WebSocketReceiveResult result;
             try
             {
@@ -274,10 +343,10 @@ internal sealed class BaseRealtimeWebSocketSession
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                _stats.RecordHeartbeatTimeout();
-                HPDBaseRealtimeAspNetCoreLog.HeartbeatTimedOut(_logger, BaseRealtimeErrorCodes.HeartbeatTimeout);
+                _stats.RecordReceiveIdleTimeout();
+                HPDBaseRealtimeAspNetCoreLog.ConnectionIdleTimedOut(_logger, BaseRealtimeErrorCodes.ConnectionIdleTimeout);
                 if (_socket.State == WebSocketState.Open)
-                    await _socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, BaseRealtimeErrorCodes.HeartbeatTimeout, CancellationToken.None).ConfigureAwait(false);
+                    await _socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, BaseRealtimeErrorCodes.ConnectionIdleTimeout, CancellationToken.None).ConfigureAwait(false);
                 return null;
             }
             catch (WebSocketException)
@@ -415,23 +484,43 @@ internal sealed class BaseRealtimeWebSocketSession
         _ = _json;
         var bytes = JsonSerializer.SerializeToUtf8Bytes(message, HPDBaseRealtimeJsonSerializerContext.Default.BaseRealtimeServerMessage);
         HPDBaseRealtimeAspNetCoreTelemetry.RecordSent(bytes.LongLength);
-        await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var timeout = new CancellationTokenSource(
+            TimeSpan.FromSeconds(_options.Limits.SendTimeoutSeconds),
+            _timeProvider);
+        using var sendCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            timeout.Token);
+        var lockTaken = false;
         try
         {
+            await _sendLock.WaitAsync(sendCancellation.Token).ConfigureAwait(false);
+            lockTaken = true;
             try
             {
-                await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, cancellationToken).ConfigureAwait(false);
+                await _socket.SendAsync(
+                    bytes,
+                    WebSocketMessageType.Text,
+                    true,
+                    sendCancellation.Token).ConfigureAwait(false);
             }
             catch (WebSocketException)
             {
+                _stats.RecordSendFailure();
                 HPDBaseRealtimeAspNetCoreLog.WebSocketSendFailed(
                     _logger, "transport", BaseRealtimeErrorCodes.CapabilityUnavailable);
                 throw;
             }
         }
+        catch (OperationCanceledException) when (
+            timeout.IsCancellationRequested
+            && !cancellationToken.IsCancellationRequested)
+        {
+            throw new BaseRealtimeSendTimeoutException();
+        }
         finally
         {
-            _sendLock.Release();
+            if (lockTaken)
+                _sendLock.Release();
         }
     }
 

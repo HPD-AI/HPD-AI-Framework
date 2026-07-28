@@ -1,3 +1,4 @@
+using HPD.Base.Realtime.AspNetCore.Observability.Logging;
 using HPD.Base.Tests.Observability;
 using Microsoft.Extensions.Logging;
 
@@ -11,7 +12,7 @@ public sealed class RealtimeAspNetCoreLoggingTests
         HPDBaseLogEventRegistry.Active
             .Where(contract => contract.Owner.StartsWith("HPD.Base.Realtime", StringComparison.Ordinal))
             .Select(contract => contract.Id)
-            .Should().Equal(5000, 5001, 5500, 5501, 5502, 5503, 5504, 5505, 5506, 5508, 5509);
+            .Should().Equal(5000, 5001, 5500, 5501, 5503, 5504, 5505, 5506, 5508, 5509, 5510, 5511);
     }
 
     [Fact]
@@ -106,6 +107,47 @@ public sealed class RealtimeAspNetCoreLoggingTests
         logs.RecordsFor(5506).Should().ContainSingle();
         logs.Records.Where(record => record.EventId.Id is >= 5500 and <= 5509)
             .Should().OnlyContain(record => record.EventId.Id == 5506);
+    }
+
+    [Fact]
+    public async Task ReceiveIdleTimeoutUsesExactSafeContract()
+    {
+        using var logs = new LogCollector();
+        await using var app = await TestRealtimeApp.CreateAsync(
+            options => options.Limits = options.Limits with { ReceiveIdleTimeoutSeconds = 1 },
+            logs);
+        using var socket = await app.GetTestServer().CreateWebSocketClient()
+            .ConnectAsync(new Uri("ws://localhost" + BaseRealtimeRoutes.WebSocket), CancellationToken.None);
+        _ = await ReceiveAsync(socket);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var result = await socket.ReceiveAsync(new byte[1024], cts.Token);
+
+        result.MessageType.Should().Be(WebSocketMessageType.Close);
+        var record = logs.RecordsFor(5510).Should().ContainSingle().Subject;
+        record.Level.Should().Be(LogLevel.Information);
+        record.OriginalFormat.Should().Be(
+            "A realtime WebSocket connection exceeded its receive-idle limit ({ErrorCode}).");
+        Property(record, "ErrorCode").Should().Be(BaseRealtimeErrorCodes.ConnectionIdleTimeout);
+        LogSafetyInspector.AssertSafe([record]);
+    }
+
+    [Fact]
+    public void SlowConsumerTerminationUsesExactSafeContract()
+    {
+        using var logs = new LogCollector();
+
+        HPDBaseRealtimeAspNetCoreLog.SlowConsumerTerminated(
+            logs.CreateLogger<BaseRealtimeWebSocketSession>(),
+            BaseRealtimeErrorCodes.ConsumerSlow);
+
+        var record = logs.RecordsFor(5511).Should().ContainSingle().Subject;
+        record.Level.Should().Be(LogLevel.Information);
+        record.OriginalFormat.Should().Be(
+            "A realtime channel was terminated because its consumer was too slow ({ErrorCode}).");
+        Property(record, "ErrorCode").Should().Be(BaseRealtimeErrorCodes.ConsumerSlow);
+        record.Exception.Should().BeNull();
+        LogSafetyInspector.AssertSafe([record]);
     }
 
     private static async Task SendAsync(WebSocket socket, BaseRealtimeClientMessage message)

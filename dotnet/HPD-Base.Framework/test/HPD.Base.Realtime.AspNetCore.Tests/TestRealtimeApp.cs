@@ -6,7 +6,8 @@ internal static class TestRealtimeApp
 {
     public static async Task<WebApplication> CreateAsync(
         Action<HPD.Base.Realtime.Configuration.BaseRealtimeOptions>? configureRealtime = null,
-        HPD.Base.Tests.Observability.LogCollector? logs = null)
+        HPD.Base.Tests.Observability.LogCollector? logs = null,
+        Action<IServiceCollection>? configureServices = null)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -50,6 +51,8 @@ internal static class TestRealtimeApp
                     }
                 ];
             });
+
+        configureServices?.Invoke(builder.Services);
 
         var app = builder.Build();
         app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseInMemoryStore(app.Services);

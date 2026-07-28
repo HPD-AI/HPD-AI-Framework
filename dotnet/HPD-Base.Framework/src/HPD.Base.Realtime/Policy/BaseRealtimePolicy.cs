@@ -9,15 +9,25 @@ using HPD.Base.Schema;
 
 namespace HPD.Base.Realtime.Policy;
 
+/// <summary>Contains the internal authorization and redaction decision for one realtime event.</summary>
 public sealed record BaseRealtimeEventProjectionDecision
 {
+    /// <summary>Gets whether the event may be projected to the subscriber.</summary>
     public bool Allow { get; init; }
+
+    /// <summary>Gets the principal-derived visibility used for redaction.</summary>
     public VisibilityLevel View { get; init; }
+
+    /// <summary>Gets whether the prior snapshot may be projected.</summary>
     public bool IncludeBefore { get; init; }
+
+    /// <summary>Gets whether the resulting snapshot may be projected.</summary>
     public bool IncludeAfter { get; init; }
-    public bool IncludePrincipal { get; init; }
-    public bool IncludeExtensions { get; init; }
+
+    /// <summary>Gets the effective record-read policy used for redaction.</summary>
     public BasePolicyEvaluation? Policy { get; init; }
+
+    /// <summary>Gets the collection definition used for redaction.</summary>
     public CollectionDefinition? Collection { get; init; }
 }
 
@@ -51,9 +61,12 @@ internal sealed class DefaultBaseRealtimePolicy : IBaseRealtimePolicy
         if (!TenantAllowed(request.Principal, request.Event.TenantId, request.Join.TenantId))
             return new BaseRealtimeEventProjectionDecision();
 
-        var view = request.Join.Visibility ?? VisibilityLevel.Public;
+        var view = VisibilityLevel.Public;
         if (request.Principal.AuthenticationState is PrincipalAuthenticationState.Admin or PrincipalAuthenticationState.System)
-            view = request.Join.Visibility ?? VisibilityLevel.Admin;
+            view = VisibilityLevel.Admin;
+
+        if (request.Event.Visibility > view)
+            return new BaseRealtimeEventProjectionDecision();
 
         var collectionId = request.Event.Resource.CollectionId;
         if (string.IsNullOrWhiteSpace(collectionId))
@@ -89,8 +102,6 @@ internal sealed class DefaultBaseRealtimePolicy : IBaseRealtimePolicy
             IncludeBefore = request.Join.IncludeSnapshots
                 && request.Join.IncludeBefore
                 && request.Principal.AuthenticationState is PrincipalAuthenticationState.Admin or PrincipalAuthenticationState.System,
-            IncludePrincipal = request.Join.IncludePrincipal,
-            IncludeExtensions = request.Join.IncludeExtensions,
             Policy = policy.Value,
             Collection = collectionResult.Value
         };

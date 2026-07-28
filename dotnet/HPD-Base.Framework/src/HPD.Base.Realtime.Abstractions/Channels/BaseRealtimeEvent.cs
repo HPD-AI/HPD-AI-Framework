@@ -1,55 +1,48 @@
-using System.Text.Json;
-using HPD.Base.Events;
-using HPD.Base.Policy;
 using HPD.Base.Records;
-using HPD.Base.Runtime;
 
 namespace HPD.Base.Realtime;
 
+/// <summary>Describes one policy-visible live record mutation.</summary>
 public sealed record BaseRealtimeEvent
 {
+    /// <summary>Gets the event identity assigned by the mutation publisher.</summary>
     public required string EventId { get; init; }
+
+    /// <summary>Gets the stable record-mutation event type.</summary>
     public required string Type { get; init; }
+
+    /// <summary>Gets the schema version of the projected event contract.</summary>
     public required string SchemaVersion { get; init; }
+
+    /// <summary>Gets when the mutation occurred.</summary>
     public required DateTimeOffset OccurredAt { get; init; }
-    public string? TenantId { get; init; }
-    public string? CorrelationId { get; init; }
-    public string? CausationId { get; init; }
+
+    /// <summary>Gets the affected record identity.</summary>
     public required BaseRealtimeRecordResource Resource { get; init; }
+
+    /// <summary>Gets the mutation operation.</summary>
     public required BaseOperationKind Operation { get; init; }
-    public string[]? ChangedFields { get; init; }
+
+    /// <summary>Gets the independently redacted prior snapshot when explicitly authorized.</summary>
     public BaseRealtimeRecordSnapshot? Before { get; init; }
+
+    /// <summary>Gets the independently redacted resulting snapshot when requested and authorized.</summary>
     public BaseRealtimeRecordSnapshot? After { get; init; }
-    public VisibilityLevel Visibility { get; init; }
-    public BaseRealtimePrincipalSummary? Principal { get; init; }
-    public Dictionary<string, JsonElement>? Extensions { get; init; }
 }
 
+/// <summary>Identifies the record affected by a realtime mutation event.</summary>
 public sealed record BaseRealtimeRecordResource
 {
-    public required EventResourceKind Kind { get; init; }
-    public string? CollectionId { get; init; }
-    public RecordId? RecordId { get; init; }
-    public string? ResourcePath { get; init; }
+    /// <summary>Gets the collection that owns the record.</summary>
+    public required string CollectionId { get; init; }
+
+    /// <summary>Gets the affected record identity.</summary>
+    public required RecordId RecordId { get; init; }
 }
 
+/// <summary>Contains a subscriber-specific redacted record payload.</summary>
 public sealed record BaseRealtimeRecordSnapshot
 {
-    public required string CollectionId { get; init; }
-    public required RecordId Id { get; init; }
-    public RecordPayload? Payload { get; init; }
-    public RecordMetadata? Metadata { get; init; }
-    public string[]? IncludedFields { get; init; }
-    public bool Redacted { get; init; }
-}
-
-public sealed record BaseRealtimePrincipalSummary
-{
-    public PrincipalAuthenticationState AuthenticationState { get; init; }
-    public string? SubjectId { get; init; }
-    public AccessSubjectKind SubjectKind { get; init; }
-    public string? TenantId { get; init; }
-    public string? AuthSource { get; init; }
-    public bool IsServicePrincipal { get; init; }
-    public bool IsAdmin { get; init; }
+    /// <summary>Gets the redacted record payload.</summary>
+    public required RecordPayload Payload { get; init; }
 }

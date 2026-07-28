@@ -20,13 +20,8 @@ public static class BaseRealtimeDtoIds
     public const string Event = "base.realtime.event";
     public const string RecordResource = "base.realtime.recordResource";
     public const string RecordSnapshot = "base.realtime.recordSnapshot";
-    public const string PrincipalSummary = "base.realtime.principalSummary";
-    public const string SubscribeRequest = "base.realtime.subscribeRequest";
     public const string ChannelJoinRequest = "base.realtime.channelJoinRequest";
     public const string ChannelJoinResult = "base.realtime.channelJoinResult";
-    public const string ConnectionDescriptor = "base.realtime.connectionDescriptor";
-    public const string ChannelDescriptor = "base.realtime.channelDescriptor";
-    public const string SnapshotOptions = "base.realtime.snapshotOptions";
     public const string Error = "base.realtime.error";
     public const string ClientMessage = "base.realtime.protocol.clientMessage";
     public const string ServerMessage = "base.realtime.protocol.serverMessage";
@@ -49,8 +44,6 @@ public static class BaseRealtimeChannelKinds
 
 public static class BaseRealtimeProtocolTypes
 {
-    public const string Connect = "connect";
-    public const string Authenticate = "authenticate";
     public const string Join = "join";
     public const string Leave = "leave";
     public const string Heartbeat = "heartbeat";
@@ -58,7 +51,6 @@ public static class BaseRealtimeProtocolTypes
     public const string Joined = "joined";
     public const string Left = "left";
     public const string Event = "event";
-    public const string System = "system";
     public const string Error = "error";
 }
 
@@ -68,11 +60,17 @@ public static class BaseRealtimeErrorCodes
     public const string AuthRequired = "base.realtime.auth.required";
     public const string ChannelUnauthorized = "base.realtime.channel.unauthorized";
     public const string ChannelUnsupported = "base.realtime.channel.unsupported";
+    /// <summary>Identifies an attempt to join a channel name already active on the connection.</summary>
+    public const string ChannelAlreadyJoined = "base.realtime.channel.alreadyJoined";
+    /// <summary>Identifies a channel join rejected by the per-connection fixed-window limit.</summary>
+    public const string JoinRateLimited = "base.realtime.join.rateLimited";
+    /// <summary>Identifies a channel terminated because its consumer could not keep pace.</summary>
+    public const string ConsumerSlow = "base.realtime.consumer.slow";
     public const string TooManyChannels = "base.realtime.tooManyChannels";
     public const string TooManyConnections = "base.realtime.tooManyConnections";
     public const string PayloadTooLarge = "base.realtime.payloadTooLarge";
-    public const string HeartbeatTimeout = "base.realtime.heartbeatTimeout";
+    /// <summary>Identifies a connection closed after its receive-idle limit elapsed.</summary>
+    public const string ConnectionIdleTimeout = "base.realtime.connection.idleTimeout";
     public const string CapabilityUnavailable = "base.realtime.capabilityUnavailable";
     public const string Disabled = "base.realtime.disabled";
-    public const string ResumeUnsupported = "base.realtime.resume.unsupported";
 }

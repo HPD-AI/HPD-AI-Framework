@@ -121,12 +121,12 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
                         Limit("maxConnections", _options.Limits.MaxConnections),
                         Limit("maxChannelsPerConnection", _options.Limits.MaxChannelsPerConnection),
                         Limit("streamCapacity", _options.Limits.StreamCapacity),
+                        Limit("outboundCapacity", _options.Limits.OutboundCapacity),
                         Limit("maxMessageBytes", _options.Limits.MaxMessageBytes),
                         Limit("maxPayloadBytes", _options.Limits.MaxPayloadBytes),
-                        Limit("heartbeatIntervalSeconds", _options.Limits.HeartbeatIntervalSeconds),
-                        Limit("heartbeatTimeoutSeconds", _options.Limits.HeartbeatTimeoutSeconds),
+                        Limit("receiveIdleTimeoutSeconds", _options.Limits.ReceiveIdleTimeoutSeconds),
+                        Limit("sendTimeoutSeconds", _options.Limits.SendTimeoutSeconds),
                         Limit("maxJoinsPerSecond", _options.Limits.MaxJoinsPerSecond),
-                        Limit("maxEventsPerSecond", _options.Limits.MaxEventsPerSecond)
                     ]
                 }
             ]
@@ -237,13 +237,8 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
         BaseRealtimeDtoIds.Event,
         BaseRealtimeDtoIds.RecordResource,
         BaseRealtimeDtoIds.RecordSnapshot,
-        BaseRealtimeDtoIds.PrincipalSummary,
-        BaseRealtimeDtoIds.SubscribeRequest,
         BaseRealtimeDtoIds.ChannelJoinRequest,
         BaseRealtimeDtoIds.ChannelJoinResult,
-        BaseRealtimeDtoIds.ConnectionDescriptor,
-        BaseRealtimeDtoIds.ChannelDescriptor,
-        BaseRealtimeDtoIds.SnapshotOptions,
         BaseRealtimeDtoIds.Error,
         BaseRealtimeDtoIds.ClientMessage,
         BaseRealtimeDtoIds.ServerMessage

@@ -25,6 +25,7 @@ public static class HPDBaseRealtimeServiceCollectionExtensions
 
         var options = new BaseRealtimeOptions();
         configure?.Invoke(options);
+        BaseRealtimeOptionsValidator.Validate(options);
 
         services.AddOptions();
         services.TryAddSingleton(options);

@@ -12,9 +12,9 @@ internal static partial class HPDBaseRealtimeAspNetCoreLog
         Message = "A realtime WebSocket send failed ({ErrorCategory}, {ErrorCode}).")]
     public static partial void WebSocketSendFailed(ILogger logger, string errorCategory, string errorCode);
 
-    [LoggerMessage(EventId = 5502, EventName = "HeartbeatTimedOut", Level = LogLevel.Information,
-        Message = "A realtime WebSocket connection timed out waiting for a heartbeat ({ErrorCode}).")]
-    public static partial void HeartbeatTimedOut(ILogger logger, string errorCode);
+    [LoggerMessage(EventId = 5510, EventName = "ConnectionIdleTimedOut", Level = LogLevel.Information,
+        Message = "A realtime WebSocket connection exceeded its receive-idle limit ({ErrorCode}).")]
+    public static partial void ConnectionIdleTimedOut(ILogger logger, string errorCode);
 
     [LoggerMessage(EventId = 5503, EventName = "PayloadDropped", Level = LogLevel.Information,
         Message = "A realtime protocol payload was dropped ({ErrorCode}, {PayloadSizeBucket}).")]
@@ -42,4 +42,8 @@ internal static partial class HPDBaseRealtimeAspNetCoreLog
     [LoggerMessage(EventId = 5509, EventName = "WebSocketConnectionRejected", Level = LogLevel.Information,
         Message = "A realtime WebSocket connection was rejected ({ErrorCode}).")]
     public static partial void WebSocketConnectionRejected(ILogger logger, string errorCode);
+
+    [LoggerMessage(EventId = 5511, EventName = "SlowConsumerTerminated", Level = LogLevel.Information,
+        Message = "A realtime channel was terminated because its consumer was too slow ({ErrorCode}).")]
+    public static partial void SlowConsumerTerminated(ILogger logger, string errorCode);
 }

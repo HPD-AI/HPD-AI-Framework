@@ -89,8 +89,12 @@ public static class HPDBaseTelemetryInstruments
     public const string RealtimeStreamOpenFailures = "hpd.base.realtime.stream.open_failures";
     /// <summary>Realtime send failure counter.</summary>
     public const string RealtimeSendFailures = "hpd.base.realtime.send.failures";
-    /// <summary>Realtime heartbeat timeout counter.</summary>
-    public const string RealtimeHeartbeatTimeouts = "hpd.base.realtime.heartbeat.timeouts";
+    /// <summary>Realtime receive-idle timeout counter.</summary>
+    public const string RealtimeReceiveIdleTimeouts = "hpd.base.realtime.receive_idle.timeouts";
+    /// <summary>Realtime join-rate rejection counter.</summary>
+    public const string RealtimeJoinRateRejections = "hpd.base.realtime.join.rate_rejections";
+    /// <summary>Realtime slow-consumer termination counter.</summary>
+    public const string RealtimeSlowConsumerTerminations = "hpd.base.realtime.consumer.slow_terminations";
     /// <summary>Realtime payload drop counter.</summary>
     public const string RealtimePayloadDrops = "hpd.base.realtime.payload.drops";
     /// <summary>Realtime message bytes histogram.</summary>
