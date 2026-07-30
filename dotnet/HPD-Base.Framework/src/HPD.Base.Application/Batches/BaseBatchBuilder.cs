@@ -4,6 +4,7 @@ using HPD.Base.Application.Results;
 using HPD.Base.Application.Sessions;
 using HPD.Base.Records;
 using System.Text.Json.Serialization.Metadata;
+using HPD.Base.Application.Mutations;
 
 namespace HPD.Base.Application.Batches;
 
@@ -12,6 +13,36 @@ namespace HPD.Base.Application.Batches;
 /// </summary>
 public sealed class BaseBatchBuilder
 {
+    public BaseBatchItem<T> Add<T>(BaseCreate<T> command) =>
+        Create(command.Collection, command.Id, command.Value, command.IdempotencyKey);
+
+    public BaseBatchItem<T> Add<T>(BaseReplace<T> command) =>
+        Replace(command.Collection, command.Id, command.Value, command.ExpectedRevision);
+
+    public BaseBatchItem<T> Add<T, TPatch>(BasePatch<T, TPatch> command) =>
+        Patch(
+            command.Collection,
+            command.Id,
+            command.Value,
+            command.JsonTypeInfo,
+            command.ExpectedRevision);
+
+    public BaseDeleteBatchItem Add<T>(BaseDelete<T> command) =>
+        Delete(
+            command.Collection,
+            command.Id,
+            command.ExpectedRevision,
+            command.ReturnPrevious);
+
+    public BaseBatchItem<T> Add<T>(BaseUpsert<T> command) =>
+        Upsert(
+            command.Collection,
+            command.Id,
+            command.CreateValue,
+            command.UpdateValue,
+            command.Condition,
+            command.ExpectedRevision);
+
     private readonly BaseSession _session;
     private readonly BaseRecordBatchExecutionMode _mode;
     private readonly object _owner = new();

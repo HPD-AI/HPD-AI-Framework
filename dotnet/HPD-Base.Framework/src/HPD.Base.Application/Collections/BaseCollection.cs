@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Text.Json.Serialization.Metadata;
 using HPD.Base.Schema;
+using HPD.Base.Application.Mutations;
+using HPD.Base.Records;
 
 namespace HPD.Base.Application.Collections;
 
@@ -65,6 +67,39 @@ public sealed class BaseCollection<T>
 
         return typed;
     }
+
+    public BaseCreate<T> Create(
+        RecordId id,
+        T value,
+        string? idempotencyKey = null) =>
+        new(this, id, value, idempotencyKey);
+
+    public BaseReplace<T> Replace(
+        RecordId id,
+        T value,
+        RevisionToken? expectedRevision = null) =>
+        new(this, id, value, expectedRevision);
+
+    public BasePatch<T, TPatch> Patch<TPatch>(
+        RecordId id,
+        TPatch value,
+        JsonTypeInfo<TPatch> jsonTypeInfo,
+        RevisionToken? expectedRevision = null) =>
+        new(this, id, value, jsonTypeInfo, expectedRevision);
+
+    public BaseDelete<T> Delete(
+        RecordId id,
+        RevisionToken? expectedRevision = null,
+        bool returnPrevious = false) =>
+        new(this, id, expectedRevision, returnPrevious);
+
+    public BaseUpsert<T> Upsert(
+        RecordId id,
+        T createValue,
+        T updateValue,
+        RecordUpsertExistenceCondition condition = RecordUpsertExistenceCondition.Any,
+        RevisionToken? expectedRevision = null) =>
+        new(this, id, createValue, updateValue, condition, expectedRevision);
 
     /// <summary>
     /// Creates a validated manual collection contract.
