@@ -20,14 +20,14 @@ public static class HPDBaseApplicationServiceCollectionExtensions
         var builder = new HPDBaseApplicationBuilder(services);
         configure(builder);
         builder.Build();
-        services.AddHPDBaseApplication();
+        services.AddHPDBaseApplicationCore();
         return services;
     }
 
     /// <summary>
     /// Registers principal-bound application sessions over the canonical Runtime.
     /// </summary>
-    public static IServiceCollection AddHPDBaseApplication(
+    private static IServiceCollection AddHPDBaseApplicationCore(
         this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);

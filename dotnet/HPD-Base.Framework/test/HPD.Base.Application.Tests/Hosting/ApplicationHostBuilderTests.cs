@@ -5,6 +5,7 @@ using HPD.Base.Application.Sessions;
 using HPD.Base.Application.Tests.Generation;
 using HPD.Base.Runtime;
 using HPD.Base.Runtime.Stores;
+using HPD.Base.Application.Schema;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -55,5 +56,24 @@ public sealed class ApplicationHostBuilderTests
             .WithMessage("*exactly one*");
         duplicate.Should().Throw<InvalidOperationException>()
             .WithMessage("*Only one*");
+    }
+
+    [Fact]
+    public void RequiredPhysicalIndexesFailClosedForUnsupportedProviders()
+    {
+        var required = HPD.Base.Application.Schema.BaseCollection.Define(
+            "required.projects",
+            GeneratedApplicationJsonContext.Default.GeneratedProject,
+            schema =>
+            {
+                schema.String("organizationId").Required();
+                schema.Index("organization", "organizationId").Required();
+            });
+
+        Action register = () => new ServiceCollection().AddHPDBase(
+            builder => builder.UseSqlite().AddCollection(required));
+
+        register.Should().Throw<InvalidOperationException>()
+            .WithMessage("*cannot be installed*SQLite*");
     }
 }

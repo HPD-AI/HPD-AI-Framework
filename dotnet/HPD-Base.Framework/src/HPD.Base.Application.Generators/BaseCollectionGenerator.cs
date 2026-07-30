@@ -378,6 +378,16 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             .Append(model.Strict ? "Strict" : "Loose").AppendLine(",");
         source.Append("                UnknownFields = global::HPD.Base.Schema.UnknownFieldPolicy.")
             .Append(model.Strict ? "Reject" : "Preserve").AppendLine(",");
+        source.AppendLine("                Operations = new global::HPD.Base.Schema.CollectionOperationMatrix");
+        source.AppendLine("                {");
+        source.AppendLine("                    List = true,");
+        source.AppendLine("                    Get = true,");
+        source.AppendLine("                    Create = true,");
+        source.AppendLine("                    Patch = true,");
+        source.AppendLine("                    Replace = true,");
+        source.AppendLine("                    Upsert = true,");
+        source.AppendLine("                    Delete = true,");
+        source.AppendLine("                },");
         source.AppendLine("                Source = new global::HPD.Base.Schema.SchemaSourceDescriptor");
         source.AppendLine("                {");
         source.AppendLine("                    Id = \"hpd.base.application.generated\",");

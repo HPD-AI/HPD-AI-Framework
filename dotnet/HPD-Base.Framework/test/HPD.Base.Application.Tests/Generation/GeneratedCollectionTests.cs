@@ -66,6 +66,24 @@ public sealed class GeneratedCollectionTests
         build.Should().Throw<InvalidOperationException>()
             .WithMessage("*unknown field*");
     }
+
+    [Fact]
+    public void GeneratedAndManualContractsLowerToEquivalentCanonicalSchemas()
+    {
+        BaseCollection<GeneratedProject> manual =
+            HPD.Base.Application.Schema.BaseCollection.Define(
+                "projects",
+                GeneratedApplicationJsonContext.Default.GeneratedProject,
+                schema =>
+                {
+                    schema.String("organizationId").Required();
+                    schema.String("name").Required();
+                    schema.String("optionalNote").Optional();
+                    schema.Index("organization", "organizationId").Advisory();
+                });
+
+        manual.Definition.Should().BeEquivalentTo(GeneratedProject.Collection.Definition);
+    }
 }
 
 [BaseCollection("projects", typeof(GeneratedApplicationJsonContext))]

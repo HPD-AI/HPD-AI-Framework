@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using HPD.Base.Application.Collections;
 using HPD.Base.Schema;
@@ -117,7 +116,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
         {
             Id = _id,
             Name = _id,
-            Kind = "document",
+            Kind = "record",
             System = _system,
             Exposed = !_system,
             ReadOnly = _readOnly,
@@ -139,7 +138,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
             Indexes = indexes,
             Source = new SchemaSourceDescriptor
             {
-                Id = "hpd.base.application",
+                Id = "hpd.base.application.generated",
                 Kind = SchemaSourceKind.Generated,
             },
         };
@@ -231,17 +230,7 @@ public sealed class BaseCollectionSchemaBuilder<T>
                 Kind = IndexPartKind.Field,
                 FieldPath = field,
             }).ToArray(),
-            Extensions = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
-            {
-                ["hpd.base.requiredPhysical"] = BooleanElement(Required),
-            },
         };
-
-        private static JsonElement BooleanElement(bool value)
-        {
-            using JsonDocument document = JsonDocument.Parse(value ? "true" : "false");
-            return document.RootElement.Clone();
-        }
     }
 }
 

@@ -13,6 +13,7 @@ using HPD.Base.Results;
 using HPD.Base.Runtime;
 using HPD.Base.Runtime.Operations;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 
 namespace HPD.Base.Application.Tests.Sessions;
@@ -303,9 +304,12 @@ public sealed class BaseSessionTests
         TimeProvider timeProvider)
     {
         var services = new ServiceCollection();
-        services.AddSingleton<IBaseRecordRuntime>(runtime);
+        services.AddLogging();
         services.AddSingleton(timeProvider);
-        services.AddHPDBaseApplication();
+        services.AddHPDBase(builder => builder
+            .UseInMemory()
+            .AddCollection(GeneratedProject.Collection));
+        services.Replace(ServiceDescriptor.Singleton<IBaseRecordRuntime>(runtime));
         return services.BuildServiceProvider();
     }
 
