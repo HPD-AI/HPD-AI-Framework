@@ -19,5 +19,16 @@
 
   <ItemGroup>
     <ProjectReference Include="../HPD.Base.Abstractions/HPD.Base.Abstractions.csproj" />
+    <ProjectReference Include="../HPD.Base.Application.Generators/HPD.Base.Application.Generators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../HPD.Base.Application.Generators/bin/$(Configuration)/netstandard2.0/HPD.Base.Application.Generators.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false"
+          Condition="Exists('../HPD.Base.Application.Generators/bin/$(Configuration)/netstandard2.0/HPD.Base.Application.Generators.dll')" />
   </ItemGroup>
 </Project>

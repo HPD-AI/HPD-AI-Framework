@@ -8,6 +8,7 @@
   <Folder Name="/Core/">
     <Project Path="src/HPD.Base.Abstractions/HPD.Base.Abstractions.csproj" />
     <Project Path="src/HPD.Base.Application/HPD.Base.Application.csproj" />
+    <Project Path="src/HPD.Base.Application.Generators/HPD.Base.Application.Generators.csproj" />
     <Project Path="src/HPD.Base.Runtime/HPD.Base.Runtime.csproj" />
     <Project Path="src/HPD.Base.InMemory/HPD.Base.InMemory.csproj" />
     <Project Path="src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
@@ -35,6 +36,8 @@
   <Folder Name="/Tests/">
     <Project Path="test/HPD.Base.Abstractions.Tests/HPD.Base.Abstractions.Tests.csproj" />
     <Project Path="test/HPD.Base.Application.Tests/HPD.Base.Application.Tests.csproj" />
+    <Project Path="test/HPD.Base.Application.Generators.Tests/HPD.Base.Application.Generators.Tests.csproj" />
+    <Project Path="test/HPD.Base.Application.AotSmoke/HPD.Base.Application.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.Abstractions.AotSmoke/HPD.Base.Abstractions.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.Runtime.Tests/HPD.Base.Runtime.Tests.csproj" />
     <Project Path="test/HPD.Base.Runtime.AotSmoke/HPD.Base.Runtime.AotSmoke.csproj" />
