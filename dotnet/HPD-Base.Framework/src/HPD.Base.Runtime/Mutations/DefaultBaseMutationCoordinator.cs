@@ -860,26 +860,75 @@ internal sealed class DefaultBaseMutationCoordinator(
                 HPDBaseRuntimeLog.OperationKind(attempt.Command.Context.Operation),
                 "unexpected",
                 "base.runtime.events.postCommitFailed");
-            return new BaseRecordBatchItemResult
-            {
-                ItemId = attempt.Command.ItemId,
-                Index = attempt.Command.Index,
-                Kind = attempt.Command.Kind,
-                Disposition = BaseRecordBatchItemDisposition.Committed,
-                Status = attempt.Status,
-                Revision = attempt.Revision,
-                Events = [attempt.Mutation!.Event],
-                Warnings =
-                [
-                    new OperationWarning
-                    {
-                        Code = "base.runtime.events.postCommitFailed",
-                        Message = "Post-commit processing failed after the mutation committed."
-                    }
-                ]
-            };
+            return CommittedFallback(attempt);
         }
     }
+
+    private static BaseRecordBatchItemResult CommittedFallback(BaseMutationAttempt attempt)
+    {
+        var mutation = attempt.Mutation!;
+        var record = mutation.After is null ? null : SafeCommittedRecord(mutation.After);
+        var delete = mutation.CommittedOperation == BaseCommittedRecordMutationKind.Delete
+            ? new DeleteResult
+            {
+                Id = mutation.Delete?.Id ?? mutation.Before!.Id,
+                Deleted = true,
+                Previous = null
+            }
+            : null;
+        var upsert = attempt.Command.Kind == BaseRecordMutationKind.Upsert
+            ? new RecordUpsertResult
+            {
+                Outcome = mutation.UpsertOutcome!.Value,
+                Record = record!
+            }
+            : null;
+
+        return new BaseRecordBatchItemResult
+        {
+            ItemId = attempt.Command.ItemId,
+            Index = attempt.Command.Index,
+            Kind = attempt.Command.Kind,
+            Disposition = BaseRecordBatchItemDisposition.Committed,
+            Status = attempt.Status,
+            Record = upsert is null ? record : null,
+            Delete = delete,
+            Upsert = upsert,
+            Revision = attempt.Revision,
+            Events = [mutation.Event],
+            Warnings =
+            [
+                new OperationWarning
+                {
+                    Code = "base.runtime.events.postCommitFailed",
+                    Message = "Post-commit processing failed after the mutation committed."
+                }
+            ]
+        };
+    }
+
+    private static RecordEnvelope SafeCommittedRecord(RecordEnvelope record) => new()
+    {
+        CollectionId = record.CollectionId,
+        Id = record.Id,
+        Payload = new RecordPayload
+        {
+            Kind = RecordPayloadKind.FieldMap,
+            Fields = new Dictionary<string, System.Text.Json.JsonElement>(StringComparer.Ordinal)
+        },
+        Metadata = new RecordMetadata
+        {
+            CreatedAt = record.Metadata.CreatedAt,
+            UpdatedAt = record.Metadata.UpdatedAt,
+            Revision = record.Metadata.Revision,
+            ETag = record.Metadata.ETag
+        },
+        Policy = new RecordPolicyMetadata
+        {
+            Redacted = true,
+            ReasonCode = "base.runtime.events.postCommitFailed"
+        }
+    };
 
     private static bool AllAttemptsSucceeded(
         IReadOnlyList<BaseMutationAttempt> attempts,

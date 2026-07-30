@@ -109,6 +109,12 @@ public sealed class OpenApiDocumentTests
         upsert.GetProperty("x-hpd-required-feature-ids").EnumerateArray()
             .Select(featureId => featureId.GetString())
             .Should().Contain(BaseFeatureIds.RecordsUpsert);
+        var upsertResponses = upsert.GetProperty("responses");
+        upsertResponses.TryGetProperty("200", out _).Should().BeTrue();
+        upsertResponses.TryGetProperty("201", out _).Should().BeTrue();
+        upsertResponses.TryGetProperty("424", out var failedDependency).Should().BeTrue();
+        failedDependency.GetProperty("content")
+            .TryGetProperty("application/problem+json", out _).Should().BeTrue();
 
         var responses = create.GetProperty("responses");
         responses.TryGetProperty("201", out var created).Should().BeTrue();
@@ -118,6 +124,7 @@ public sealed class OpenApiDocumentTests
 
         responses.TryGetProperty("400", out var badRequest).Should().BeTrue();
         badRequest.GetProperty("content").TryGetProperty("application/problem+json", out _).Should().BeTrue();
+        responses.TryGetProperty("424", out _).Should().BeTrue();
     }
 
     [Fact]

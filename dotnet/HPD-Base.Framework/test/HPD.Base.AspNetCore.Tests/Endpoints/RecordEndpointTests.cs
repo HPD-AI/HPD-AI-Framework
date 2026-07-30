@@ -66,7 +66,30 @@ public sealed class RecordEndpointTests
         var response = await app.GetTestClient().PostAsync("/base/collections/items/records", new StringContent("{", System.Text.Encoding.UTF8, "application/json"));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await response.Content.ReadAsStringAsync()).Should().Contain("base.http.body.invalidJson");
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("base.http.body.invalidJson")
+            .And.Contain("Request body is not valid JSON.")
+            .And.NotContain("Path:")
+            .And.NotContain("BytePositionInLine")
+            .And.NotContain("System.Text.Json");
+    }
+
+    [Fact]
+    public async Task UnknownLengthRequestBodyCannotBypassConfiguredLimit()
+    {
+        await using var app = await TestBaseApp.CreateAsync(
+            configureAspNetCore: options => options.Limits.MaxRequestBodyLength = 64);
+        var content = new UnknownLengthContent(
+            """{"payload":{"kind":"json","json":{"title":"this body is deliberately much larger than sixty-four bytes"}}}""");
+
+        var response = await app.GetTestClient().PostAsync(
+            "/base/collections/items/records",
+            content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("base.http.body.invalidJson")
+            .And.Contain("Request body is not valid JSON.");
     }
 
     [Fact]
@@ -153,5 +176,19 @@ public sealed class RecordEndpointTests
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Contain("base.http.recordId.conflict");
+    }
+
+    private sealed class UnknownLengthContent(string body) : HttpContent
+    {
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context) =>
+            stream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(body)).AsTask();
     }
 }

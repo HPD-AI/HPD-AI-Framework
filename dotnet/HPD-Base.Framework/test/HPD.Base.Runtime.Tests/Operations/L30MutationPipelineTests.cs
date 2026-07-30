@@ -387,6 +387,61 @@ public sealed class L30MutationPipelineTests
                 CancellationToken.None));
     }
 
+    [Fact]
+    public async Task UnexpectedPostCommitFailurePreservesCommittedStandaloneValues()
+    {
+        var store = new FakeRecordStore("primary");
+        using var provider = OperationTestServices.Build(
+            store,
+            configureServices: services =>
+                services.AddSingleton<IBaseEventFactory, ThrowingEventFactory>());
+        var runtime = Runtime(provider);
+
+        var created = await runtime.CreateAsync(
+            "items",
+            CreateRequest("created", "value"),
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Create),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Created, created.Status);
+        Assert.Equal("created", created.Value!.Id.Value);
+        Assert.Empty(created.Value.Payload.Fields!);
+        Assert.True(created.Value.Policy!.Redacted);
+        Assert.Contains(created.Warnings!, warning =>
+            warning.Code == "base.runtime.events.postCommitFailed");
+
+        var upserted = await runtime.UpsertAsync(
+            "items",
+            Upsert("upserted", "created", "updated"),
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Upsert),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Created, upserted.Status);
+        Assert.Equal(RecordUpsertOutcome.Created, upserted.Value!.Outcome);
+        Assert.Equal("upserted", upserted.Value.Record.Id.Value);
+        Assert.Empty(upserted.Value.Record.Payload.Fields!);
+        Assert.Contains(upserted.Warnings!, warning =>
+            warning.Code == "base.runtime.events.postCommitFailed");
+
+        var deleted = await runtime.DeleteAsync(
+            "items",
+            new RecordId("created"),
+            new RecordDeleteRequest { ReturnPrevious = true },
+            RuntimeTestData.AnonymousPrincipal,
+            RuntimeTestData.Operation(BaseOperationKind.Delete),
+            CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Deleted, deleted.Status);
+        Assert.True(deleted.Value!.Deleted);
+        Assert.Equal("created", deleted.Value.Id.Value);
+        Assert.Null(deleted.Value.Previous);
+        Assert.Contains(deleted.Warnings!, warning =>
+            warning.Code == "base.runtime.events.postCommitFailed");
+        Assert.Equal(OperationStatus.NotFound, (await Get(store, "created")).Status);
+    }
+
     private static IBaseRecordRuntime Runtime(ServiceProvider provider) =>
         provider.GetRequiredService<IBaseRecordRuntime>();
 
@@ -577,6 +632,20 @@ public sealed class L30MutationPipelineTests
                 Guarantee = EventDeliveryGuarantee.BestEffort
             }));
         }
+    }
+
+    private sealed class ThrowingEventFactory : IBaseEventFactory
+    {
+        public BaseRecordMutationEvent CreateRecordMutationEvent(
+            BaseOperationKind operation,
+            OperationContext context,
+            PrincipalContext principal,
+            CollectionDefinition collection,
+            RecordEnvelope? before,
+            RecordEnvelope? after,
+            string[]? changedFields,
+            string? committedEventId) =>
+            throw new InvalidOperationException("hostile post-commit failure");
     }
 
     private sealed class CommittedStateObserver(FakeRecordStore store)

@@ -104,6 +104,7 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
             case BaseRouteIds.RecordsUpsert:
                 Accepts<RecordUpsertRequest>(builder);
                 Produces<RecordUpsertResult>(builder);
+                Produces<RecordUpsertResult>(builder, StatusCodes.Status201Created);
                 break;
             case BaseHttpRouteNames.AdminPolicyExplain:
                 Accepts<BasePolicyExplainRequest>(builder);
@@ -119,6 +120,7 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
         Produces<ProblemDetails>(builder, StatusCodes.Status403Forbidden, "application/problem+json");
         Produces<ProblemDetails>(builder, StatusCodes.Status404NotFound, "application/problem+json");
         Produces<ProblemDetails>(builder, StatusCodes.Status409Conflict, "application/problem+json");
+        Produces<ProblemDetails>(builder, StatusCodes.Status424FailedDependency, "application/problem+json");
         Produces<ProblemDetails>(builder, StatusCodes.Status429TooManyRequests, "application/problem+json");
         Produces<ProblemDetails>(builder, StatusCodes.Status500InternalServerError, "application/problem+json");
     }

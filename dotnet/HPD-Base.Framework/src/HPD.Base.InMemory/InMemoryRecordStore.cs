@@ -1906,7 +1906,7 @@ public sealed class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordSt
                     Before = before,
                     After = after,
                     Delete = delete,
-                    ChangedFields = changedFields
+                    ChangedFields = context.ChangedFields
                 };
                 value = new RecordMutationSessionResult
                 {

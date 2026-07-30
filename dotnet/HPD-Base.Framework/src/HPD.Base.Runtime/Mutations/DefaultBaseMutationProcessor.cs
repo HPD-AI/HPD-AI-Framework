@@ -98,7 +98,7 @@ internal sealed class DefaultBaseMutationProcessor(
         var result = await session.CreateAsync(
             command.Collection,
             request,
-            SessionContext(command, requested),
+            SessionContext(command, requested, validated.ChangedFields),
             cancellationToken).ConfigureAwait(false);
         return NormalizeSession(command, result, policyResult, upsertOutcome);
     }
@@ -155,7 +155,7 @@ internal sealed class DefaultBaseMutationProcessor(
             command.Collection,
             command.RecordId.GetValueOrDefault(),
             request,
-            SessionContext(command, requested),
+            SessionContext(command, requested, validated.ChangedFields),
             cancellationToken).ConfigureAwait(false);
         return NormalizeSession(command, result, policyResult, upsertOutcome);
     }
@@ -211,7 +211,7 @@ internal sealed class DefaultBaseMutationProcessor(
             command.Collection,
             command.RecordId.GetValueOrDefault(),
             request,
-            SessionContext(command, requested),
+            SessionContext(command, requested, validated.ChangedFields),
             cancellationToken).ConfigureAwait(false);
         return NormalizeSession(command, result, policyResult, upsertOutcome);
     }
@@ -503,12 +503,14 @@ internal sealed class DefaultBaseMutationProcessor(
 
     private static RecordMutationSessionContext SessionContext(
         BaseMutationCommand command,
-        BaseRecordMutationKind requested) => new()
+        BaseRecordMutationKind requested,
+        string[]? changedFields = null) => new()
     {
         ItemId = command.ItemId,
         RequestedOperation = requested,
         EventId = command.EventId,
-        Operation = command.Context
+        Operation = command.Context,
+        ChangedFields = changedFields
     };
 
     private AtomicMutationProcessingResult Failed(BaseError error) =>

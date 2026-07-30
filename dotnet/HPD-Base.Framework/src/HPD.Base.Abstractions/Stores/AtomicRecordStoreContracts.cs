@@ -135,6 +135,12 @@ public sealed record RecordMutationSessionContext
 
     /// <summary>Gets the normalized Runtime operation context.</summary>
     public required OperationContext Operation { get; init; }
+
+    /// <summary>
+    /// Gets the authoritative Runtime-computed changed fields for the physical mutation.
+    /// Providers preserve this metadata and do not reconstruct it from stored payloads.
+    /// </summary>
+    public string[]? ChangedFields { get; init; }
 }
 
 /// <summary>Returns one physical session mutation and its canonical provisional fact.</summary>

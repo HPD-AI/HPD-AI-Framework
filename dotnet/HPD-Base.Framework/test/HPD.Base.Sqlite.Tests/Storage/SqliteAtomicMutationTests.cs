@@ -197,6 +197,38 @@ public sealed class SqliteAtomicMutationTests
     }
 
     [Fact]
+    public async Task MutationFactPreservesRuntimeComputedChangedFields()
+    {
+        await using var store = Store();
+        var collection = Collection("items");
+        var processor = new CallbackProcessor(async (session, cancellationToken) =>
+        {
+            var created = await session.CreateAsync(
+                collection,
+                new RecordCreateRequest
+                {
+                    RequestedId = new RecordId("changed-fields"),
+                    Payload = Payload("value")
+                },
+                MutationContext(
+                    BaseRecordMutationKind.Create,
+                    "evt-changed-fields",
+                    collection.Id) with
+                {
+                    ChangedFields = ["value", "removedByReplace"]
+                },
+                cancellationToken);
+            return Ready([created.Value!.Mutation]);
+        });
+
+        var execution = await store.ExecuteSingleAsync(processor, ExecutionRequest());
+
+        execution.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        execution.Processing!.Mutations.Single().ChangedFields
+            .Should().Equal("value", "removedByReplace");
+    }
+
+    [Fact]
     public async Task JournalRetentionIsPrunedOncePerAtomicBoundary()
     {
         var time = new CountingTimeProvider();
@@ -347,6 +379,54 @@ public sealed class SqliteAtomicMutationTests
         execution.Error.Store!.Retryable.Should().BeFalse();
         transactions.CommitCalls.Should().Be(1);
         transactions.RollbackCalls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task NonCooperativeCommitCannotExceedCompletionBound()
+    {
+        var transactions = new FaultingTransactionController { BlockCommit = true };
+        await using var store = FaultableStore(transactions);
+        var collection = Collection("items");
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        var execution = await store.ExecuteAtomicAsync(
+            CreateProcessor(collection, "commit-timeout", "evt-commit-timeout"),
+            ExecutionRequest() with { CommitCompletionTimeout = TimeSpan.FromSeconds(1) });
+
+        started.Stop();
+        execution.Outcome.Should().Be(RecordMutationExecutionOutcome.Indeterminate);
+        execution.Processing.Should().BeNull();
+        execution.Error!.Code.Should().Be(BaseMutationErrorCodes.BatchIndeterminate);
+        started.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(3));
+
+        transactions.ReleaseCommit();
+        await transactions.CommitExited.WaitAsync(TimeSpan.FromSeconds(3));
+    }
+
+    [Fact]
+    public async Task NonCooperativeRollbackCannotExceedCompletionBound()
+    {
+        var transactions = new FaultingTransactionController { BlockRollback = true };
+        await using var store = FaultableStore(transactions);
+        var processor = new CallbackProcessor((_, _) => ValueTask.FromResult(
+            new AtomicMutationProcessingResult(
+                AtomicMutationProcessingOutcome.Failed,
+                [],
+                Error("base.runtime.batch.itemInvalid"))));
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        var execution = await store.ExecuteAtomicAsync(
+            processor,
+            ExecutionRequest() with { CommitCompletionTimeout = TimeSpan.FromSeconds(1) });
+
+        started.Stop();
+        execution.Outcome.Should().Be(RecordMutationExecutionOutcome.Indeterminate);
+        execution.Processing.Should().BeNull();
+        execution.Error!.Code.Should().Be(BaseMutationErrorCodes.BatchIndeterminate);
+        started.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(3));
+
+        transactions.ReleaseRollback();
+        await transactions.RollbackExited.WaitAsync(TimeSpan.FromSeconds(3));
     }
 
     [Fact]
@@ -525,18 +605,39 @@ public sealed class SqliteAtomicMutationTests
 
     private sealed class FaultingTransactionController : ISqliteTransactionController
     {
+        private readonly TaskCompletionSource _commitRelease =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _commitExited =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _rollbackRelease =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _rollbackExited =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public bool FailCommit { get; init; }
 
         public bool FailRollback { get; init; }
+
+        public bool BlockCommit { get; init; }
+
+        public bool BlockRollback { get; init; }
 
         public int CommitCalls { get; private set; }
 
         public int RollbackCalls { get; private set; }
 
+        public Task CommitExited => _commitExited.Task;
+
+        public Task RollbackExited => _rollbackExited.Task;
+
+        public void ReleaseCommit() => _commitRelease.TrySetResult();
+
+        public void ReleaseRollback() => _rollbackRelease.TrySetResult();
+
         public SqliteTransaction BeginImmediate(SqliteConnection connection) =>
             connection.BeginTransaction(deferred: false);
 
-        public ValueTask CommitAsync(
+        public async ValueTask CommitAsync(
             SqliteTransaction transaction,
             CancellationToken cancellationToken)
         {
@@ -545,10 +646,21 @@ public sealed class SqliteAtomicMutationTests
             if (FailCommit)
                 throw new InvalidOperationException("Injected commit failure.");
 
-            return new ValueTask(transaction.CommitAsync(cancellationToken));
+            if (BlockCommit)
+                await _commitRelease.Task.ConfigureAwait(false);
+
+            try
+            {
+                await transaction.CommitAsync(
+                    BlockCommit ? CancellationToken.None : cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _commitExited.TrySetResult();
+            }
         }
 
-        public ValueTask RollbackAsync(
+        public async ValueTask RollbackAsync(
             SqliteTransaction transaction,
             CancellationToken cancellationToken)
         {
@@ -557,7 +669,18 @@ public sealed class SqliteAtomicMutationTests
             if (FailRollback)
                 throw new InvalidOperationException("Injected rollback failure.");
 
-            return new ValueTask(transaction.RollbackAsync(cancellationToken));
+            if (BlockRollback)
+                await _rollbackRelease.Task.ConfigureAwait(false);
+
+            try
+            {
+                await transaction.RollbackAsync(
+                    BlockRollback ? CancellationToken.None : cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _rollbackExited.TrySetResult();
+            }
         }
     }
 }

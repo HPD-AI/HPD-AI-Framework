@@ -456,7 +456,10 @@ internal static class RecordEndpoints
         if (httpContext.Features.Get<IHttpRequestBodyDetectionFeature>()?.CanHaveBody == false)
             return default;
 
-        return await JsonSerializer.DeserializeAsync(httpContext.Request.Body, jsonTypeInfo, cancellationToken);
+        await using var limitedBody = new LimitedRequestBodyStream(
+            httpContext.Request.Body,
+            Limits(httpContext).MaxRequestBodyLength);
+        return await JsonSerializer.DeserializeAsync(limitedBody, jsonTypeInfo, cancellationToken);
     }
 
     private static async ValueTask<(T? Value, IResult? Error)> ReadRequiredBody<T>(
@@ -476,9 +479,12 @@ internal static class RecordEndpoints
 
             return (value, null);
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            return (default, BodyValidationProblem(httpContext, "base.http.body.invalidJson", ex.Message));
+            return (default, BodyValidationProblem(
+                httpContext,
+                "base.http.body.invalidJson",
+                "Request body is not valid JSON."));
         }
     }
 

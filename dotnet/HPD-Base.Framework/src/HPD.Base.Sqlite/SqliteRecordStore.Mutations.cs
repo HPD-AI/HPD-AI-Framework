@@ -81,8 +81,8 @@ public sealed partial class SqliteRecordStore
             return FailedBeforeCommit(MapSchemaFailure<object>(ex).Error!);
         }
 
-        await using (connection.ConfigureAwait(false))
-        await using (transaction.ConfigureAwait(false))
+        var resources = new TransactionResources(connection, transaction);
+        try
         {
             using var processingLifetime =
                 CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -116,6 +116,7 @@ public sealed partial class SqliteRecordStore
             {
                 await session.CloseAsync().ConfigureAwait(false);
                 return await RollbackAsync(
+                    resources,
                     transaction,
                     RecordMutationExecutionOutcome.CancelledRollbackConfirmed,
                     FailedProcessing(
@@ -128,6 +129,7 @@ public sealed partial class SqliteRecordStore
             {
                 await session.CloseAsync().ConfigureAwait(false);
                 return await RollbackAsync(
+                    resources,
                     transaction,
                     RecordMutationExecutionOutcome.CancelledRollbackConfirmed,
                     FailedProcessing(
@@ -140,6 +142,7 @@ public sealed partial class SqliteRecordStore
             {
                 await session.CloseAsync().ConfigureAwait(false);
                 return await RollbackAsync(
+                    resources,
                     transaction,
                     RecordMutationExecutionOutcome.RollbackConfirmed,
                     FailedProcessing(
@@ -154,6 +157,7 @@ public sealed partial class SqliteRecordStore
             if (processingLifetime.IsCancellationRequested)
             {
                 return await RollbackAsync(
+                    resources,
                     transaction,
                     RecordMutationExecutionOutcome.CancelledRollbackConfirmed,
                     FailedProcessing(
@@ -174,6 +178,7 @@ public sealed partial class SqliteRecordStore
                     _ => RecordMutationExecutionOutcome.RollbackConfirmed
                 };
                 return await RollbackAsync(
+                    resources,
                     transaction,
                     outcome,
                     processing,
@@ -201,6 +206,7 @@ public sealed partial class SqliteRecordStore
             catch (OperationCanceledException)
             {
                 return await RollbackAsync(
+                    resources,
                     transaction,
                     RecordMutationExecutionOutcome.CancelledRollbackConfirmed,
                     FailedProcessing(
@@ -214,6 +220,7 @@ public sealed partial class SqliteRecordStore
             {
                 var conflict = IsTransactionConflict(ex);
                 return await RollbackAsync(
+                    resources,
                     transaction,
                     conflict
                         ? RecordMutationExecutionOutcome.ConflictRollbackConfirmed
@@ -227,28 +234,33 @@ public sealed partial class SqliteRecordStore
                     .ConfigureAwait(false);
             }
 
-            // Request cancellation stops controlling the result at this point. Microsoft.Data.Sqlite
-            // executes COMMIT synchronously; it is awaited to completion so the connection is never
-            // disposed concurrently with an unfinished native commit.
+            // Request cancellation stops controlling the result at this point. The controller call
+            // runs outside this method's continuation so even a synchronous, non-cooperative native
+            // implementation cannot defeat the advertised completion bound.
             using var commitLifetime = new CancellationTokenSource(request.CommitCompletionTimeout);
+            var commitTask = InvokeTransactionOperationAsync(
+                () => _transactions.CommitAsync(transaction, commitLifetime.Token));
             try
             {
-                await _transactions.CommitAsync(
-                    transaction,
-                    commitLifetime.Token).ConfigureAwait(false);
+                await commitTask.WaitAsync(commitLifetime.Token).ConfigureAwait(false);
                 return new RecordMutationExecutionResult(
                     RecordMutationExecutionOutcome.Committed,
                     processing);
+            }
+            catch (OperationCanceledException) when (!commitTask.IsCompleted)
+            {
+                resources.TransferTo(commitTask);
+                return Indeterminate();
             }
             catch (Exception ex)
             {
                 using var rollbackLifetime =
                     new CancellationTokenSource(request.CommitCompletionTimeout);
+                var rollbackTask = InvokeTransactionOperationAsync(
+                    () => _transactions.RollbackAsync(transaction, rollbackLifetime.Token));
                 try
                 {
-                    await _transactions.RollbackAsync(
-                        transaction,
-                        rollbackLifetime.Token).ConfigureAwait(false);
+                    await rollbackTask.WaitAsync(rollbackLifetime.Token).ConfigureAwait(false);
                     var error = ex switch
                     {
                         SqliteException sqlite when IsTransactionConflict(sqlite) =>
@@ -271,11 +283,20 @@ public sealed partial class SqliteRecordStore
                         processing,
                         error);
                 }
+                catch (OperationCanceledException) when (!rollbackTask.IsCompleted)
+                {
+                    resources.TransferTo(rollbackTask);
+                    return Indeterminate();
+                }
                 catch
                 {
                     return Indeterminate();
                 }
             }
+        }
+        finally
+        {
+            await resources.DisposeIfOwnedAsync().ConfigureAwait(false);
         }
     }
 
@@ -298,22 +319,89 @@ public sealed partial class SqliteRecordStore
     }
 
     private async ValueTask<RecordMutationExecutionResult> RollbackAsync(
+        TransactionResources resources,
         SqliteTransaction transaction,
         RecordMutationExecutionOutcome confirmedOutcome,
         AtomicMutationProcessingResult processing,
         TimeSpan completionTimeout)
     {
         using var rollbackLifetime = new CancellationTokenSource(completionTimeout);
+        var rollbackTask = InvokeTransactionOperationAsync(
+            () => _transactions.RollbackAsync(transaction, rollbackLifetime.Token));
         try
         {
-            await _transactions.RollbackAsync(
-                transaction,
-                rollbackLifetime.Token).ConfigureAwait(false);
+            await rollbackTask.WaitAsync(rollbackLifetime.Token).ConfigureAwait(false);
             return new RecordMutationExecutionResult(confirmedOutcome, processing);
+        }
+        catch (OperationCanceledException) when (!rollbackTask.IsCompleted)
+        {
+            resources.TransferTo(rollbackTask);
+            return Indeterminate();
         }
         catch
         {
             return Indeterminate();
+        }
+    }
+
+    private static Task InvokeTransactionOperationAsync(Func<ValueTask> operation) =>
+        Task.Run(
+            async () => await operation().ConfigureAwait(false),
+            CancellationToken.None);
+
+    private sealed class TransactionResources(
+        SqliteConnection connection,
+        SqliteTransaction transaction)
+    {
+        private bool _transferred;
+
+        public void TransferTo(Task operation)
+        {
+            _transferred = true;
+            _ = DisposeAfterCompletionAsync(operation);
+        }
+
+        public async ValueTask DisposeIfOwnedAsync()
+        {
+            if (_transferred)
+                return;
+
+            await transaction.DisposeAsync().ConfigureAwait(false);
+            await connection.DisposeAsync().ConfigureAwait(false);
+        }
+
+        private static async Task IgnoreFailureAsync(Task operation)
+        {
+            try
+            {
+                await operation.ConfigureAwait(false);
+            }
+            catch
+            {
+                // The public result is already indeterminate. Never expose provider details.
+            }
+        }
+
+        private async Task DisposeAfterCompletionAsync(Task operation)
+        {
+            await IgnoreFailureAsync(operation).ConfigureAwait(false);
+            try
+            {
+                await transaction.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // Deferred cleanup must never surface provider details or become unobserved.
+            }
+
+            try
+            {
+                await connection.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // Deferred cleanup must never surface provider details or become unobserved.
+            }
         }
     }
 
@@ -681,7 +769,8 @@ public sealed partial class SqliteRecordStore
                 collection.Id,
                 id.Value,
                 cancellationToken,
-                _transaction).ConfigureAwait(false);
+                _transaction,
+                CommandTimeoutSeconds()).ConfigureAwait(false);
             if (before is null)
                 return SqliteResultFactory.NotFound<RecordMutationSessionResult>(id.Value);
 
@@ -774,7 +863,8 @@ public sealed partial class SqliteRecordStore
                 collection.Id,
                 id.Value,
                 cancellationToken,
-                _transaction).ConfigureAwait(false);
+                _transaction,
+                CommandTimeoutSeconds()).ConfigureAwait(false);
             if (before is null)
                 return SqliteResultFactory.NotFound<RecordMutationSessionResult>(id.Value);
             if (request.ExpectedRevision is not null
@@ -850,7 +940,8 @@ public sealed partial class SqliteRecordStore
                 Event = committedEvent,
                 Before = before,
                 After = after,
-                Delete = delete
+                Delete = delete,
+                ChangedFields = context.ChangedFields
             };
             return new RecordMutationSessionResult
             {
