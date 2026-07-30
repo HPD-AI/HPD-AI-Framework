@@ -5,6 +5,8 @@ using HPD.Base.Runtime;
 using HPD.Base.Runtime.Events;
 using HPD.Base.Runtime.Operations;
 using HPD.Base.Policy;
+using HPD.Base.Events;
+using HPD.Base.Stores;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -78,6 +80,46 @@ public sealed class BaseTestHost : IAsyncDisposable
 
     public T GetRequiredService<T>() where T : notnull =>
         _provider.GetRequiredService<T>();
+
+    /// <summary>
+    /// Reads a bounded snapshot of the SQLite durable mutation journal.
+    /// </summary>
+    public async ValueTask<IReadOnlyList<BaseMutationJournalEntry>> JournalAsync(
+        int maximum = 1_000,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximum, 1);
+        ITransactionalMutationJournalStore journal =
+            _provider.GetService<ITransactionalMutationJournalStore>()
+            ?? throw new InvalidOperationException(
+                "Journal inspection requires a transactional journal provider.");
+        BaseMutationJournalBounds bounds =
+            await journal.GetMutationJournalBoundsAsync(cancellationToken)
+                .ConfigureAwait(false);
+        var entries = new List<BaseMutationJournalEntry>(
+            Math.Min(maximum, 256));
+        var after = new BaseMutationJournalPosition(
+            Math.Max(0, bounds.Earliest.Value - 1));
+
+        while (entries.Count < maximum)
+        {
+            BaseMutationJournalPage page =
+                await journal.ReadMutationJournalAsync(
+                    new BaseMutationJournalReadRequest
+                    {
+                        After = after,
+                        Through = bounds.HighWatermark,
+                        Limit = Math.Min(256, maximum - entries.Count),
+                    },
+                    cancellationToken).ConfigureAwait(false);
+            entries.AddRange(page.Entries);
+            if (!page.HasMore || page.Entries.Length == 0)
+                break;
+            after = page.Entries[^1].Position;
+        }
+
+        return entries;
+    }
 
     public ValueTask DisposeAsync() => _provider.DisposeAsync();
 

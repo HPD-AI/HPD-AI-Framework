@@ -11,6 +11,7 @@
     <PackageId>HPD.Base.Application</PackageId>
     <Description>Typed, AOT-safe application contracts for HPD.BASE collections, fields, sessions, queries, and mutations.</Description>
     <PackageTags>hpd;base;application;typed;aot</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <IsAotCompatible>true</IsAotCompatible>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
@@ -40,6 +41,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="README.md" Pack="true" PackagePath="/" />
     <None Include="../HPD.Base.Application.Generators/bin/$(Configuration)/netstandard2.0/HPD.Base.Application.Generators.dll"
           Pack="true"
           PackagePath="analyzers/dotnet/cs"
