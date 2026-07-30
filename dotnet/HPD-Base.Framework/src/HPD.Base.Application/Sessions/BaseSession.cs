@@ -36,7 +36,8 @@ public sealed class BaseSession
         IFileObjectService? files = null,
         IBaseDependencyReferenceFactory? dependencies = null,
         IBaseRealtimeFeedSource? realtime = null,
-        IBaseLiveQueryCoordinator? liveQueries = null)
+        IBaseLiveQueryCoordinator? liveQueries = null,
+        int maxQueryPageSize = 500)
     {
         _runtime = runtime;
         _timeProvider = timeProvider;
@@ -46,6 +47,7 @@ public sealed class BaseSession
         _dependencies = dependencies;
         _realtime = realtime;
         _liveQueries = liveQueries;
+        MaxQueryPageSize = maxQueryPageSize;
     }
 
     /// <summary>
@@ -89,6 +91,7 @@ public sealed class BaseSession
         _liveQueries ?? Missing<IBaseLiveQueryCoordinator>("live queries"));
 
     internal IBaseRecordRuntime Runtime => _runtime;
+    internal int MaxQueryPageSize { get; }
 
     internal PrincipalContext Principal => _principal;
 

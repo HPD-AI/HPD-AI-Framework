@@ -5,6 +5,8 @@ using HPD.Base.Files.Objects;
 using HPD.Base.LiveQuery;
 using HPD.Base.Realtime.Feeds;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using HPD.Base.Runtime.Configuration;
 
 namespace HPD.Base.Application.Sessions;
 
@@ -12,7 +14,8 @@ internal sealed class DefaultBaseSessionFactory(
     IBaseRecordRuntime runtime,
     TimeProvider timeProvider,
     IServiceProvider services,
-    IEnumerable<IBaseApplicationInitializer> initializers) : IBaseSessionFactory
+    IEnumerable<IBaseApplicationInitializer> initializers,
+    IOptions<HPDBaseRuntimeOptions> runtimeOptions) : IBaseSessionFactory
 {
     public BaseSession For(
         PrincipalContext principal,
@@ -45,7 +48,8 @@ internal sealed class DefaultBaseSessionFactory(
             services.GetService<IFileObjectService>(),
             services.GetService<IBaseDependencyReferenceFactory>(),
             services.GetService<IBaseRealtimeFeedSource>(),
-            services.GetService<IBaseLiveQueryCoordinator>());
+            services.GetService<IBaseLiveQueryCoordinator>(),
+            runtimeOptions.Value.Limits.MaxPageSize);
     }
 
     private static PrincipalContext Snapshot(PrincipalContext principal) =>

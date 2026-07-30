@@ -186,6 +186,57 @@ public sealed class BaseSessionTests
     }
 
     [Fact]
+    public async Task ArrayQueryOwnsPagingWithinTheConfiguredRuntimeLimit()
+    {
+        var runtime = new RecordingRuntime
+        {
+            List = query =>
+            {
+                int offset = query.Page!.Offset ?? 0;
+                int limit = query.Page.Limit ?? 0;
+                int count = Math.Min(limit, 5 - offset);
+                return new OperationResult<RecordPage>
+                {
+                    Status = OperationStatus.Ok,
+                    Value = new RecordPage
+                    {
+                        Items = Enumerable.Range(offset, count)
+                            .Select(index => Envelope(new GeneratedProject
+                            {
+                                OrganizationId = "org_1",
+                                Name = $"project_{index}",
+                            }) with
+                            {
+                                Id = new RecordId($"record_{index}"),
+                            })
+                            .ToArray(),
+                        Page = new PageInfo
+                        {
+                            Offset = offset,
+                            Limit = limit,
+                            HasMore = offset + count < 5,
+                        },
+                    },
+                };
+            },
+        };
+        using var services = Services(runtime, TimeProvider.System, maxPageSize: 2);
+        var query = services.GetRequiredService<IBaseSessionFactory>()
+            .For(Principal())
+            .Collection(GeneratedProject.Collection)
+            .Query();
+
+        Application.Records.BaseRecord<GeneratedProject>[] records =
+            (await query.ToArrayAsync(10_000)).RequireValue();
+
+        records.Should().HaveCount(5);
+        runtime.Queries.Select(item => item.Page!.Limit)
+            .Should().Equal(2, 2, 2);
+        runtime.Queries.Select(item => item.Page!.Offset)
+            .Should().Equal(0, 2, 4);
+    }
+
+    [Fact]
     public async Task EnsureReadsExistingRecordWithoutReportingAnUpdate()
     {
         var runtime = new RecordingRuntime
@@ -301,14 +352,23 @@ public sealed class BaseSessionTests
 
     private static ServiceProvider Services(
         RecordingRuntime runtime,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        int? maxPageSize = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(timeProvider);
-        services.AddHPDBase(builder => builder
-            .UseInMemory()
-            .AddCollection(GeneratedProject.Collection));
+        services.AddHPDBase(builder =>
+        {
+            builder
+                .UseInMemory()
+                .AddCollection(GeneratedProject.Collection);
+            if (maxPageSize is not null)
+            {
+                builder.ConfigureRuntime(
+                    options => options.Limits.MaxPageSize = maxPageSize.Value);
+            }
+        });
         services.Replace(ServiceDescriptor.Singleton<IBaseRecordRuntime>(runtime));
         return services.BuildServiceProvider();
     }
@@ -359,10 +419,12 @@ public sealed class BaseSessionTests
         public OperationResult<RecordPage>? ListResult { get; init; }
         public OperationResult<RecordUpsertResult>? UpsertResult { get; init; }
         public OperationResult<BaseRecordBatchResult>? BatchResult { get; init; }
+        public Func<RecordQuery, OperationResult<RecordPage>>? List { get; init; }
         public PrincipalContext? Principal { get; private set; }
         public OperationContext? Operation { get; private set; }
         public RecordCreateRequest? CreateRequest { get; private set; }
         public RecordQuery? Query { get; private set; }
+        public List<RecordQuery> Queries { get; } = [];
         public RecordUpsertRequest? UpsertRequest { get; private set; }
         public BaseRecordBatchRequest? BatchRequest { get; private set; }
 
@@ -397,8 +459,11 @@ public sealed class BaseSessionTests
             CancellationToken cancellationToken = default)
         {
             Query = query;
+            if (query is not null)
+                Queries.Add(query);
             Capture(principal, operation);
-            return ValueTask.FromResult(ListResult!);
+            return ValueTask.FromResult(
+                List is not null ? List(query!) : ListResult!);
         }
 
         public ValueTask<OperationResult<RecordEnvelope>> PatchAsync(

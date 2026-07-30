@@ -188,7 +188,9 @@ public sealed class BaseQuery<T>
 
         while (items.Count < effectiveLimit)
         {
-            int remaining = effectiveLimit - items.Count;
+            int remaining = Math.Min(
+                effectiveLimit - items.Count,
+                _session.MaxQueryPageSize);
             BaseResult<BasePage<T>> pageResult = await ExecutePageAsync(
                 remaining,
                 offset,
@@ -244,7 +246,9 @@ public sealed class BaseQuery<T>
         while (emitted < effectiveLimit)
         {
             BasePage<T> page = (await ExecutePageAsync(
-                effectiveLimit - emitted,
+                Math.Min(
+                    effectiveLimit - emitted,
+                    _session.MaxQueryPageSize),
                 offset,
                 cancellationToken).ConfigureAwait(false)).RequireValue();
             if (page.Items.Length == 0 && page.Page.HasMore)
