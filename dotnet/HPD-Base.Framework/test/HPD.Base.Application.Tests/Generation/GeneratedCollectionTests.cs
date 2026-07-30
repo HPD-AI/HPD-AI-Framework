@@ -69,7 +69,7 @@ public sealed class GeneratedCollectionTests
 }
 
 [BaseCollection("projects", typeof(GeneratedApplicationJsonContext))]
-[BaseIndex("organization", nameof(OrganizationId))]
+[BaseIndex("organization", nameof(OrganizationId), Required = false)]
 internal sealed partial record GeneratedProject
 {
     public required string OrganizationId { get; init; }

@@ -9,6 +9,7 @@
     <Project Path="src/HPD.Base.Abstractions/HPD.Base.Abstractions.csproj" />
     <Project Path="src/HPD.Base.Application/HPD.Base.Application.csproj" />
     <Project Path="src/HPD.Base.Application.Generators/HPD.Base.Application.Generators.csproj" />
+    <Project Path="src/HPD.Base.Testing/HPD.Base.Testing.csproj" />
     <Project Path="src/HPD.Base.Runtime/HPD.Base.Runtime.csproj" />
     <Project Path="src/HPD.Base.InMemory/HPD.Base.InMemory.csproj" />
     <Project Path="src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />

@@ -1,17 +1,28 @@
 using HPD.Base.Runtime;
 using HPD.Base.Runtime.Operations;
+using HPD.Base.Dependencies;
+using HPD.Base.Files.Objects;
+using HPD.Base.LiveQuery;
+using HPD.Base.Realtime.Feeds;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Base.Application.Sessions;
 
 internal sealed class DefaultBaseSessionFactory(
     IBaseRecordRuntime runtime,
-    TimeProvider timeProvider) : IBaseSessionFactory
+    TimeProvider timeProvider,
+    IServiceProvider services,
+    IEnumerable<IBaseApplicationInitializer> initializers) : IBaseSessionFactory
 {
     public BaseSession For(
         PrincipalContext principal,
         Action<BaseSessionOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(principal);
+        foreach (IBaseApplicationInitializer initializer in initializers)
+        {
+            initializer.Initialize();
+        }
 
         var options = new BaseSessionOptions
         {
@@ -30,7 +41,11 @@ internal sealed class DefaultBaseSessionFactory(
             runtime,
             timeProvider,
             Snapshot(principal),
-            options);
+            options,
+            services.GetService<IFileObjectService>(),
+            services.GetService<IBaseDependencyReferenceFactory>(),
+            services.GetService<IBaseRealtimeFeedSource>(),
+            services.GetService<IBaseLiveQueryCoordinator>());
     }
 
     private static PrincipalContext Snapshot(PrincipalContext principal) =>
@@ -50,4 +65,9 @@ internal sealed class DefaultBaseSessionFactory(
                 })
                 .ToArray(),
         };
+}
+
+internal interface IBaseApplicationInitializer
+{
+    void Initialize();
 }

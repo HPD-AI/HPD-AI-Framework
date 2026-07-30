@@ -28,6 +28,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/HPD.Base.Application/HPD.Base.Application.csproj" />
+    <ProjectReference Include="../../src/HPD.Base.Testing/HPD.Base.Testing.csproj" />
     <ProjectReference Include="../../src/HPD.Base.Application.Generators/HPD.Base.Application.Generators.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
