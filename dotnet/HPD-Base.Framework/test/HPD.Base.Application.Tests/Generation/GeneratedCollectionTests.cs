@@ -2,6 +2,7 @@ using FluentAssertions;
 using HPD.Base.Application.Collections;
 using HPD.Base.Application.Generation;
 using HPD.Base.Schema;
+using HPD.Base.Application.Schema;
 using System.Text.Json.Serialization;
 using Xunit;
 
@@ -26,6 +27,44 @@ public sealed class GeneratedCollectionTests
         GeneratedProject.Collection.Definition.Indexes![0].Parts.Should().ContainSingle();
         GeneratedProject.Collection.Definition.Indexes[0].Parts![0].FieldPath
             .Should().Be("organizationId");
+    }
+
+    [Fact]
+    public void ManualBuilderProducesValidatedImmutableCanonicalContract()
+    {
+        BaseCollection<GeneratedProject> collection =
+            HPD.Base.Application.Schema.BaseCollection.Define(
+                "manual.projects",
+                GeneratedApplicationJsonContext.Default.GeneratedProject,
+                schema =>
+                {
+                    schema.String("organizationId").Required();
+                    schema.String("name").Required();
+                    schema.String("optionalNote").Optional();
+                    schema.Index("organization-name", "organizationId", "name")
+                        .Required()
+                        .Unique();
+                });
+
+        collection.Field<string>("organizationId").Nullable.Should().BeFalse();
+        collection.Definition.Indexes![0].Enforcement.Should().Be(EnforcementOwner.Store);
+        collection.Definition.Indexes[0].Unique.Should().BeTrue();
+
+        CollectionDefinition snapshot = collection.Definition;
+        snapshot.Fields![0] = snapshot.Fields[0] with { Name = "mutated" };
+        collection.Definition.Fields![0].Name.Should().Be("organizationId");
+    }
+
+    [Fact]
+    public void ManualBuilderRejectsUnknownIndexFields()
+    {
+        Action build = () => HPD.Base.Application.Schema.BaseCollection.Define(
+            "manual.projects",
+            GeneratedApplicationJsonContext.Default.GeneratedProject,
+            schema => schema.Index("missing", "unknown").Required());
+
+        build.Should().Throw<InvalidOperationException>()
+            .WithMessage("*unknown field*");
     }
 }
 

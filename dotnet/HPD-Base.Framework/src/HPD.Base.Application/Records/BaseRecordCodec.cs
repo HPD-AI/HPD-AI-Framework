@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using HPD.Base.Application.Collections;
 using HPD.Base.Records;
 
@@ -10,13 +11,19 @@ internal static class BaseRecordCodec
     public static RecordPayload Encode<T>(
         BaseCollection<T> collection,
         T value)
+        => Encode(value, collection.JsonTypeInfo);
+
+    public static RecordPayload Encode<T>(
+        T value,
+        JsonTypeInfo<T> jsonTypeInfo)
     {
         ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(jsonTypeInfo);
 
         return new RecordPayload
         {
             Kind = RecordPayloadKind.Json,
-            Json = JsonSerializer.SerializeToElement(value, collection.JsonTypeInfo),
+            Json = JsonSerializer.SerializeToElement(value, jsonTypeInfo),
         };
     }
 

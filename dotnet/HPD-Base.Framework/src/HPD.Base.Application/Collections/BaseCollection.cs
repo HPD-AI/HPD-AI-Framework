@@ -11,13 +11,14 @@ namespace HPD.Base.Application.Collections;
 public sealed class BaseCollection<T>
 {
     private readonly ReadOnlyDictionary<string, object> _fields;
+    private readonly CollectionDefinition _definition;
 
     private BaseCollection(
         CollectionDefinition definition,
         JsonTypeInfo<T> jsonTypeInfo,
         IReadOnlyDictionary<string, object> fields)
     {
-        Definition = definition;
+        _definition = Snapshot(definition);
         JsonTypeInfo = jsonTypeInfo;
         _fields = new ReadOnlyDictionary<string, object>(
             new Dictionary<string, object>(fields, StringComparer.Ordinal));
@@ -26,7 +27,7 @@ public sealed class BaseCollection<T>
     /// <summary>
     /// Gets the canonical collection identifier.
     /// </summary>
-    public string Id => Definition.Id;
+    public string Id => _definition.Id;
 
     /// <summary>
     /// Gets the source-generated JSON contract for the persisted type.
@@ -36,7 +37,7 @@ public sealed class BaseCollection<T>
     /// <summary>
     /// Gets the canonical immutable collection definition.
     /// </summary>
-    public CollectionDefinition Definition { get; }
+    public CollectionDefinition Definition => Snapshot(_definition);
 
     /// <summary>
     /// Gets the registered typed field with the specified stored path.
@@ -95,4 +96,48 @@ public sealed class BaseCollection<T>
 
         return new BaseCollection<T>(definition, jsonTypeInfo, fields.Items);
     }
+
+    private static CollectionDefinition Snapshot(CollectionDefinition definition) =>
+        definition with
+        {
+            Fields = definition.Fields?
+                .Select(static field => field with
+                {
+                    RequiredCapabilities = field.RequiredCapabilities?.ToArray(),
+                    Extensions = field.Extensions is null
+                        ? null
+                        : new Dictionary<string, System.Text.Json.JsonElement>(
+                            field.Extensions,
+                            StringComparer.Ordinal),
+                })
+                .ToArray(),
+            Indexes = definition.Indexes?
+                .Select(static index => index with
+                {
+                    Parts = index.Parts?
+                        .Select(static part => part with
+                        {
+                            Extensions = part.Extensions is null
+                                ? null
+                                : new Dictionary<string, System.Text.Json.JsonElement>(
+                                    part.Extensions,
+                                    StringComparer.Ordinal),
+                        })
+                        .ToArray(),
+                    Extensions = index.Extensions is null
+                        ? null
+                        : new Dictionary<string, System.Text.Json.JsonElement>(
+                            index.Extensions,
+                            StringComparer.Ordinal),
+                })
+                .ToArray(),
+            PolicyRefs = definition.PolicyRefs?.ToArray(),
+            RequiredCapabilities = definition.RequiredCapabilities?.ToArray(),
+            Diagnostics = definition.Diagnostics?.ToArray(),
+            Extensions = definition.Extensions is null
+                ? null
+                : new Dictionary<string, System.Text.Json.JsonElement>(
+                    definition.Extensions,
+                    StringComparer.Ordinal),
+        };
 }

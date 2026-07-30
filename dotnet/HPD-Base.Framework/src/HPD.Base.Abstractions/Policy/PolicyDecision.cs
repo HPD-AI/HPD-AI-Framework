@@ -12,6 +12,82 @@ public sealed record PolicyDecision
     public PolicyObligation[]? Obligations { get; init; }
     public PolicyPushdown? Pushdown { get; init; }
     public PolicyAuditInfo? Audit { get; init; }
+
+    public static PolicyDecision Allow() => new()
+    {
+        Effect = PolicyEffect.Allow,
+        Outcome = PolicyOutcome.Allowed,
+    };
+
+    public static PolicyDecision Abstain() => new()
+    {
+        Effect = PolicyEffect.Abstain,
+        Outcome = PolicyOutcome.Bypassed,
+    };
+
+    public static PolicyDecision Deny(string code, string safeMessage)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(code);
+        ArgumentException.ThrowIfNullOrWhiteSpace(safeMessage);
+        return new PolicyDecision
+        {
+            Effect = PolicyEffect.Deny,
+            Outcome = PolicyOutcome.Denied,
+            ReasonCode = code,
+            SafeMessage = safeMessage,
+        };
+    }
+
+    public PolicyDecision WithRecordFilter(FilterExpression filter)
+    {
+        EnsureAllow();
+        ArgumentNullException.ThrowIfNull(filter);
+        return this with
+        {
+            Outcome = PolicyOutcome.AllowedWithConstraints,
+            Constraints = (Constraints ?? new PolicyConstraints()) with
+            {
+                RecordFilter = filter,
+            },
+        };
+    }
+
+    public PolicyDecision WithReadMask(FieldMask mask)
+    {
+        EnsureAllow();
+        ArgumentNullException.ThrowIfNull(mask);
+        return this with
+        {
+            Outcome = PolicyOutcome.AllowedWithConstraints,
+            Constraints = (Constraints ?? new PolicyConstraints()) with
+            {
+                ReadMask = mask,
+            },
+        };
+    }
+
+    public PolicyDecision WithWriteCheck(FilterExpression check)
+    {
+        EnsureAllow();
+        ArgumentNullException.ThrowIfNull(check);
+        return this with
+        {
+            Outcome = PolicyOutcome.AllowedWithConstraints,
+            Constraints = (Constraints ?? new PolicyConstraints()) with
+            {
+                WriteCheck = check,
+            },
+        };
+    }
+
+    private void EnsureAllow()
+    {
+        if (Effect != PolicyEffect.Allow)
+        {
+            throw new InvalidOperationException(
+                "Policy constraints may only be attached to an allow decision.");
+        }
+    }
 }
 
 public sealed record PolicyConstraints

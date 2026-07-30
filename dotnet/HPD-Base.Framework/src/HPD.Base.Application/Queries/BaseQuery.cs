@@ -132,6 +132,47 @@ public sealed class BaseQuery<T>
                 failure.Diagnostics));
     }
 
+    /// <summary>
+    /// Returns the only visible record, null when none exists, or a bounded
+    /// failure when more than one record matches.
+    /// </summary>
+    public async ValueTask<BaseResult<BaseRecord<T>?>> SingleOrDefaultAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ExecutePageAsync(2, cancellationToken).ConfigureAwait(false);
+        if (result is BaseFailure<BasePage<T>> failure)
+        {
+            return new BaseFailure<BaseRecord<T>?>(
+                failure.Status,
+                failure.Error,
+                failure.Warnings,
+                failure.Diagnostics);
+        }
+
+        var success = (BaseSuccess<BasePage<T>>)result;
+        if (success.Value.Items.Length > 1 || success.Value.Page.HasMore)
+        {
+            return new BaseFailure<BaseRecord<T>?>(
+                OperationStatus.Conflict,
+                new BaseError
+                {
+                    Code = "base.application.query.notSingle",
+                    Message = "The query matched more than one visible record.",
+                    Category = ErrorCategory.Conflict,
+                },
+                success.Warnings,
+                success.Diagnostics);
+        }
+
+        return new BaseSuccess<BaseRecord<T>?>(
+            success.Value.Items.SingleOrDefault(),
+            success.Status,
+            success.Warnings,
+            success.Revision,
+            success.Events,
+            success.Diagnostics);
+    }
+
     /// <summary>Returns at most the explicitly declared number of records.</summary>
     public async ValueTask<BaseResult<BaseRecord<T>[]>> ToArrayAsync(
         int maximumItems,

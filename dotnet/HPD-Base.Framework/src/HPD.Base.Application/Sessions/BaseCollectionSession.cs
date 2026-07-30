@@ -3,6 +3,7 @@ using HPD.Base.Application.Records;
 using HPD.Base.Application.Queries;
 using HPD.Base.Application.Results;
 using HPD.Base.Records;
+using System.Text.Json.Serialization.Metadata;
 
 namespace HPD.Base.Application.Sessions;
 
@@ -95,6 +96,32 @@ public sealed class BaseCollectionSession<T>
             envelope => BaseRecordCodec.Decode(_collection, envelope));
     }
 
+    /// <summary>Applies a typed merge patch using explicit source-generated JSON metadata.</summary>
+    public async ValueTask<BaseResult<BaseRecord<T>>> PatchAsync<TPatch>(
+        RecordId id,
+        TPatch patch,
+        JsonTypeInfo<TPatch> patchJsonTypeInfo,
+        RevisionToken? expectedRevision = null,
+        CancellationToken cancellationToken = default)
+    {
+        var request = new RecordPatchRequest
+        {
+            ExpectedRevision = expectedRevision,
+            Patch = BaseRecordCodec.Encode(patch, patchJsonTypeInfo),
+        };
+        var result = await _session.Runtime.PatchAsync(
+            _collection.Id,
+            id,
+            request,
+            _session.Principal,
+            _session.Operation(BaseOperationKind.Patch, _collection.Id, id),
+            cancellationToken).ConfigureAwait(false);
+
+        return BaseResultMapper.Map(
+            result,
+            envelope => BaseRecordCodec.Decode(_collection, envelope));
+    }
+
     /// <summary>Deletes one record under an optional revision precondition.</summary>
     public async ValueTask<BaseResult<DeleteResult>> DeleteAsync(
         RecordId id,
@@ -125,7 +152,6 @@ public sealed class BaseCollectionSession<T>
         RecordId id,
         T createValue,
         T updateValue,
-        RecordUpsertUpdateMode updateMode = RecordUpsertUpdateMode.Replace,
         RecordUpsertExistenceCondition condition = RecordUpsertExistenceCondition.Any,
         RevisionToken? expectedRevision = null,
         CancellationToken cancellationToken = default)
@@ -135,7 +161,42 @@ public sealed class BaseCollectionSession<T>
             Id = id,
             CreatePayload = BaseRecordCodec.Encode(_collection, createValue),
             UpdatePayload = BaseRecordCodec.Encode(_collection, updateValue),
-            UpdateMode = updateMode,
+            UpdateMode = RecordUpsertUpdateMode.Replace,
+            Condition = condition,
+            ExpectedRevision = expectedRevision,
+        };
+        var result = await _session.Runtime.UpsertAsync(
+            _collection.Id,
+            request,
+            _session.Principal,
+            _session.Operation(BaseOperationKind.Upsert, _collection.Id, id),
+            cancellationToken).ConfigureAwait(false);
+
+        return BaseResultMapper.Map(
+            result,
+            upsert => new BaseUpsertResult<T>
+            {
+                Outcome = upsert.Outcome,
+                Record = BaseRecordCodec.Decode(_collection, upsert.Record),
+            });
+    }
+
+    /// <summary>Atomically creates a record or applies a typed merge patch.</summary>
+    public async ValueTask<BaseResult<BaseUpsertResult<T>>> UpsertPatchAsync<TPatch>(
+        RecordId id,
+        T createValue,
+        TPatch patch,
+        JsonTypeInfo<TPatch> patchJsonTypeInfo,
+        RecordUpsertExistenceCondition condition = RecordUpsertExistenceCondition.Any,
+        RevisionToken? expectedRevision = null,
+        CancellationToken cancellationToken = default)
+    {
+        var request = new RecordUpsertRequest
+        {
+            Id = id,
+            CreatePayload = BaseRecordCodec.Encode(_collection, createValue),
+            UpdatePayload = BaseRecordCodec.Encode(patch, patchJsonTypeInfo),
+            UpdateMode = RecordUpsertUpdateMode.Patch,
             Condition = condition,
             ExpectedRevision = expectedRevision,
         };
@@ -167,7 +228,6 @@ public sealed class BaseCollectionSession<T>
             id,
             createValue,
             createValue,
-            RecordUpsertUpdateMode.Replace,
             RecordUpsertExistenceCondition.CreateOnly,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 

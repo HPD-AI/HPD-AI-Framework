@@ -3,6 +3,7 @@ using HPD.Base.Application.Records;
 using HPD.Base.Application.Results;
 using HPD.Base.Application.Sessions;
 using HPD.Base.Records;
+using System.Text.Json.Serialization.Metadata;
 
 namespace HPD.Base.Application.Batches;
 
@@ -87,7 +88,6 @@ public sealed class BaseBatchBuilder
         RecordId id,
         T createValue,
         T updateValue,
-        RecordUpsertUpdateMode updateMode = RecordUpsertUpdateMode.Replace,
         RecordUpsertExistenceCondition condition = RecordUpsertExistenceCondition.Any,
         RevisionToken? expectedRevision = null)
     {
@@ -103,7 +103,70 @@ public sealed class BaseBatchBuilder
                 Id = id,
                 CreatePayload = BaseRecordCodec.Encode(collection, createValue),
                 UpdatePayload = BaseRecordCodec.Encode(collection, updateValue),
-                UpdateMode = updateMode,
+                UpdateMode = RecordUpsertUpdateMode.Replace,
+                Condition = condition,
+                ExpectedRevision = expectedRevision,
+            },
+        });
+        return new BaseBatchItem<T>(
+            _owner,
+            itemId,
+            collection,
+            BaseRecordMutationKind.Upsert);
+    }
+
+    /// <summary>Adds a typed patch command.</summary>
+    public BaseBatchItem<T> Patch<T, TPatch>(
+        BaseCollection<T> collection,
+        RecordId id,
+        TPatch patch,
+        JsonTypeInfo<TPatch> patchJsonTypeInfo,
+        RevisionToken? expectedRevision = null)
+    {
+        EnsureMutable();
+        string itemId = NextItemId();
+        _items.Add(new BaseRecordBatchItem
+        {
+            ItemId = itemId,
+            CollectionId = collection.Id,
+            Kind = BaseRecordMutationKind.Patch,
+            RecordId = id,
+            Patch = new RecordPatchRequest
+            {
+                ExpectedRevision = expectedRevision,
+                Patch = BaseRecordCodec.Encode(patch, patchJsonTypeInfo),
+            },
+        });
+        return new BaseBatchItem<T>(
+            _owner,
+            itemId,
+            collection,
+            BaseRecordMutationKind.Patch);
+    }
+
+    /// <summary>Adds a typed create-or-patch upsert command.</summary>
+    public BaseBatchItem<T> UpsertPatch<T, TPatch>(
+        BaseCollection<T> collection,
+        RecordId id,
+        T createValue,
+        TPatch patch,
+        JsonTypeInfo<TPatch> patchJsonTypeInfo,
+        RecordUpsertExistenceCondition condition = RecordUpsertExistenceCondition.Any,
+        RevisionToken? expectedRevision = null)
+    {
+        EnsureMutable();
+        string itemId = NextItemId();
+        _items.Add(new BaseRecordBatchItem
+        {
+            ItemId = itemId,
+            CollectionId = collection.Id,
+            Kind = BaseRecordMutationKind.Upsert,
+            Upsert = new RecordUpsertRequest
+            {
+                Id = id,
+                CreatePayload = BaseRecordCodec.Encode(collection, createValue),
+                UpdatePayload = BaseRecordCodec.Encode(patch, patchJsonTypeInfo),
+                UpdateMode = RecordUpsertUpdateMode.Patch,
                 Condition = condition,
                 ExpectedRevision = expectedRevision,
             },
