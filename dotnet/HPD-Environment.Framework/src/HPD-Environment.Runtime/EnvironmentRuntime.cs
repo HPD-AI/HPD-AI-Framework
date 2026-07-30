@@ -484,7 +484,7 @@ public sealed class DefaultRuntimePlanner(IProviderCatalog providers, IProviderC
     }
 }
 
-public sealed class InMemoryEnvironmentRuntime(
+public sealed partial class InMemoryEnvironmentRuntime(
     EnvironmentProviderRegistry registry,
     IRuntimePlanner? planner = null,
     TimeProvider? timeProvider = null,
@@ -653,12 +653,42 @@ public sealed class InMemoryEnvironmentRuntime(
             }
 
             CleanupPolicy policy = _host.Snapshot.Spec.LifecyclePolicy.Cleanup;
+            // Crossing this point begins authoritative teardown. Caller
+            // cancellation was honored while acquiring the gate and is checked
+            // once more here, but must not interrupt revocation or leave a
+            // partially dismantled ownership graph. Cleanup uses its own
+            // bounded deadline; caller cancellation is reported only after the
+            // authoritative checkpoint completes.
+            cancellationToken.ThrowIfCancellationRequested();
             using var overallCancellation =
-                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                new CancellationTokenSource();
             overallCancellation.CancelAfter(PositiveTimeout(policy.OverallTimeout, TimeSpan.FromSeconds(30)));
-            var cleanup = new CleanupContext(policy, cancellationToken, overallCancellation.Token);
+            var cleanup = new CleanupContext(
+                policy,
+                CancellationToken.None,
+                overallCancellation.Token);
             try
             {
+                // Authority-first teardown is a security invariant. Once
+                // deletion starts, revoke every binding before stopping
+                // processes, finalizing content, releasing endpoints, or
+                // deleting workload resources.
+                foreach (OwnedAuthorityBinding authority in AuthoritiesForCurrentHost())
+                {
+                    bool revoked = await ExecuteCleanupStepAsync(
+                        $"authority revocation '{authority.Snapshot.Metadata.Id.Value}'",
+                        stepToken => ProviderById(
+                                registry.AuthorityBindingProviders,
+                                authority.ProviderId,
+                                "authority binding")
+                            .RevokeAuthorityBindingAsync(Ref(authority.Snapshot.Metadata), stepToken),
+                        cleanup).ConfigureAwait(false);
+                    if (revoked)
+                    {
+                        _authorities.Remove(authority.Snapshot.Metadata.Id.Value);
+                    }
+                }
+
                 await StopActiveProcessesAsync(cleanup).ConfigureAwait(false);
                 foreach (OwnedProcess process in ProcessesForCurrentHost())
                 {
@@ -712,19 +742,47 @@ public sealed class InMemoryEnvironmentRuntime(
                     }
                 }
 
-                foreach (OwnedAuthorityBinding authority in AuthoritiesForCurrentHost())
+                foreach (OwnedServiceDiscovery discovery in
+                         ServiceDiscoveriesForCurrentHost())
                 {
-                    bool revoked = await ExecuteCleanupStepAsync(
-                        $"authority revocation '{authority.Snapshot.Metadata.Id.Value}'",
+                    bool released = await ExecuteCleanupStepAsync(
+                        $"service-discovery release '{discovery.Snapshot.Metadata.Id.Value}'",
                         stepToken => ProviderById(
-                                registry.AuthorityBindingProviders,
-                                authority.ProviderId,
-                                "authority binding")
-                            .RevokeAuthorityBindingAsync(Ref(authority.Snapshot.Metadata), stepToken),
+                                registry.ServiceDiscoveryProviders,
+                                discovery.ProviderId,
+                                "service discovery")
+                            .ReleaseAsync(
+                                Ref(discovery.Snapshot.Metadata),
+                                stepToken),
                         cleanup).ConfigureAwait(false);
-                    if (revoked)
+                    if (released)
                     {
-                        _authorities.Remove(authority.Snapshot.Metadata.Id.Value);
+                        _serviceDiscoveries.Remove(
+                            discovery.Snapshot.Metadata.Id.Value);
+                        _discoveryIdsByIdentity.Remove(
+                            discovery.Identity);
+                    }
+                }
+
+                foreach (OwnedNetworkMembership membership in
+                         NetworkMembershipsForCurrentHost())
+                {
+                    bool released = await ExecuteCleanupStepAsync(
+                        $"network-membership release '{membership.Snapshot.Metadata.Id.Value}'",
+                        stepToken => ProviderById(
+                                registry.NetworkMembershipProviders,
+                                membership.ProviderId,
+                                "network membership")
+                            .ReleaseMembershipAsync(
+                                Ref(membership.Snapshot.Metadata),
+                                stepToken),
+                        cleanup).ConfigureAwait(false);
+                    if (released)
+                    {
+                        _networkMemberships.Remove(
+                            membership.Snapshot.Metadata.Id.Value);
+                        _membershipIdsByIdentity.Remove(
+                            membership.Identity);
                     }
                 }
 
@@ -742,6 +800,28 @@ public sealed class InMemoryEnvironmentRuntime(
                         {
                             _unitIdsByIdentity.Remove(identity);
                         }
+                    }
+                }
+
+                foreach (OwnedNetwork network in
+                         NetworksForCurrentHost())
+                {
+                    bool deleted = await ExecuteCleanupStepAsync(
+                        $"network deletion '{network.Snapshot.Metadata.Id.Value}'",
+                        stepToken => ProviderById(
+                                registry.NetworkProviders,
+                                network.ProviderId,
+                                "network")
+                            .DeleteNetworkAsync(
+                                Ref(network.Snapshot.Metadata),
+                                stepToken),
+                        cleanup).ConfigureAwait(false);
+                    if (deleted)
+                    {
+                        _networks.Remove(
+                            network.Snapshot.Metadata.Id.Value);
+                        _networkIdsByIdentity.Remove(
+                            network.Identity);
                     }
                 }
 
@@ -769,20 +849,28 @@ public sealed class InMemoryEnvironmentRuntime(
                     cleanup).ConfigureAwait(false);
                 if (!hostDeleted)
                 {
-                    return RetainedDeletionResult(cleanup.Diagnostics);
+                    RuntimeHostDeletionResult retained =
+                        RetainedDeletionResult(cleanup.Diagnostics);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return retained;
                 }
 
                 RemoveCurrentHostDependentOwnership();
                 _host = null;
-                return new RuntimeHostDeletionResult
+                var deletionResult = new RuntimeHostDeletionResult
                 {
                     Deleted = true,
                     Diagnostics = cleanup.Diagnostics.ToArray(),
                 };
+                cancellationToken.ThrowIfCancellationRequested();
+                return deletionResult;
             }
             catch (CleanupRetainedException)
             {
-                return RetainedDeletionResult(cleanup.Diagnostics);
+                RuntimeHostDeletionResult retained =
+                    RetainedDeletionResult(cleanup.Diagnostics);
+                cancellationToken.ThrowIfCancellationRequested();
+                return retained;
             }
         }
         finally
@@ -796,6 +884,7 @@ public sealed class InMemoryEnvironmentRuntime(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(spec);
+        ValidateWorkloadStorage(spec.WorkloadStorage);
         await _reconciliationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -1146,6 +1235,13 @@ public sealed class InMemoryEnvironmentRuntime(
         try
         {
             OwnedExecutionUnit owned = FindUnit(unit);
+            if (owned.Snapshot.Status.Handle is { } unitHandle &&
+                _networkMemberships.Values.Any(membership =>
+                    membership.Snapshot.Spec.Target.Unit is { } target &&
+                    target == unitHandle))
+                throw OwnershipFailure(
+                    "hpd.environment.execution-unit.network-memberships-active",
+                    $"Execution unit '{unit.Id.Value}' still owns network memberships.");
             foreach (OwnedProcess process in ProcessesForUnit(Ref(owned.Snapshot.Metadata)))
             {
                 OwnedProcess current = process;
@@ -1198,6 +1294,7 @@ public sealed class InMemoryEnvironmentRuntime(
             OwnedHost host = _host ?? throw OwnershipFailure(
                 "hpd.environment.published-endpoint.host-required",
                 "A runtime host must be owned before publishing an endpoint.");
+            ValidateEndpointOwnership(spec, host.ProviderId);
             IEndpointPublicationProvider provider = ProviderById(
                 registry.EndpointPublicationProviders,
                 host.ProviderId,
@@ -1794,6 +1891,20 @@ public sealed class InMemoryEnvironmentRuntime(
 
         if (request.CleanupPolicy.RevokeAuthorityBindingsFirst)
         {
+            foreach (IRuntimeFinalizationParticipant participant in
+                     registry.AuthorityBindingProviders
+                         .OfType<IRuntimeFinalizationParticipant>())
+            {
+                RuntimeFinalizationResult providerFinalization =
+                    await participant.FinalizeRuntimeAsync(
+                            request,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                retainedResources.AddRange(
+                    providerFinalization.RetainedResources);
+                conflicts.AddRange(providerFinalization.Conflicts);
+                diagnostics.AddRange(providerFinalization.Diagnostics);
+            }
             foreach (OwnedAuthorityBinding authority in _authorities.Values.ToArray())
             {
                 await ProviderById(registry.AuthorityBindingProviders, authority.ProviderId, "authority binding")
@@ -1987,6 +2098,26 @@ public sealed class InMemoryEnvironmentRuntime(
         foreach ((EngineIdentity key, _) in EnginesForCurrentHost())
         {
             _engines.Remove(key);
+        }
+        foreach (OwnedServiceDiscovery discovery in
+                 ServiceDiscoveriesForCurrentHost())
+        {
+            _serviceDiscoveries.Remove(
+                discovery.Snapshot.Metadata.Id.Value);
+            _discoveryIdsByIdentity.Remove(discovery.Identity);
+        }
+        foreach (OwnedNetworkMembership membership in
+                 NetworkMembershipsForCurrentHost())
+        {
+            _networkMemberships.Remove(
+                membership.Snapshot.Metadata.Id.Value);
+            _membershipIdsByIdentity.Remove(membership.Identity);
+        }
+        foreach (OwnedNetwork network in
+                 NetworksForCurrentHost())
+        {
+            _networks.Remove(network.Snapshot.Metadata.Id.Value);
+            _networkIdsByIdentity.Remove(network.Identity);
         }
     }
 
@@ -2454,6 +2585,9 @@ public sealed class InMemoryEnvironmentRuntime(
         UnitsForCurrentHost().Any() ||
         EnginesForCurrentHost().Any() ||
         AuthoritiesForCurrentHost().Any() ||
+        NetworksForCurrentHost().Any() ||
+        NetworkMembershipsForCurrentHost().Any() ||
+        ServiceDiscoveriesForCurrentHost().Any() ||
         _publishedEndpoints.Count > 0;
 
     private bool HasActiveUnitDependents(OwnedExecutionUnit unit)
@@ -2474,6 +2608,9 @@ public sealed class InMemoryEnvironmentRuntime(
         TargetHandle<ExecutionUnit>? handle = status.Handle;
         return handle is not null &&
             (_authorities.Values.Any(authority => authority.Snapshot.Spec.Target.Unit is { } target &&
+                target.Equals(handle.Value)) ||
+             _networkMemberships.Values.Any(membership =>
+                membership.Snapshot.Spec.Target.Unit is { } target &&
                 target.Equals(handle.Value)) ||
              _activeHandles.Values.Any(process => process.Spec.Target.Equals(handle.Value)) ||
              _activeRuns.Values.Any(process => process.Spec.Target.Equals(handle.Value)));
@@ -2734,6 +2871,25 @@ public sealed class InMemoryEnvironmentRuntime(
             key.Value);
     }
 
+    private static void ValidateWorkloadStorage(
+        WorkloadStorageRequest? storage)
+    {
+        if (storage is null)
+            return;
+        if (string.IsNullOrWhiteSpace(storage.LogicalId) ||
+            storage.LogicalId.Length > 128 ||
+            storage.LogicalId.Any(character =>
+                !(char.IsAsciiLetterOrDigit(character) ||
+                  character is '.' or '_' or '-')))
+            throw OwnershipFailure(
+                "hpd.environment.workload-storage.logical-id-invalid",
+                "A workload storage logical ID must contain 1-128 ASCII letters, digits, dots, underscores, or hyphens.");
+        if (!Enum.IsDefined(storage.PersistenceClass))
+            throw OwnershipFailure(
+                "hpd.environment.workload-storage.persistence-invalid",
+                "A workload storage persistence class must be recognized.");
+    }
+
     private static ResourceRef<TResource> Ref<TResource>(ResourceMetadata<TResource> metadata)
         where TResource : IExecutionResourceMarker =>
         new(metadata.Id, metadata.Scope, metadata.Generation);
@@ -2805,6 +2961,10 @@ public sealed class InMemoryEnvironmentRuntime(
             candidate is IExecutionUnitProvider unit && unit.ProviderId.Equals(providerId) ||
             candidate is IProcessProvider process && process.ProviderId.Equals(providerId) ||
             candidate is IFunctionSandboxProvider sandbox && sandbox.ProviderId.Equals(providerId) ||
+            candidate is INetworkProvider network && network.ProviderId.Equals(providerId) ||
+            candidate is INetworkMembershipProvider membership && membership.ProviderId.Equals(providerId) ||
+            candidate is IServiceDiscoveryProvider discovery && discovery.ProviderId.Equals(providerId) ||
+            candidate is IEndpointPublicationProvider endpoint && endpoint.ProviderId.Equals(providerId) ||
             candidate is IAuthorityBindingProvider authority && authority.ProviderId.Equals(providerId) ||
             candidate is IEngineControlPlaneProvider engine && engine.ProviderId.Equals(providerId));
         return provider ?? throw OwnershipFailure(
@@ -3117,6 +3277,9 @@ public sealed class RuntimeCleanupException(string step, Exception innerExceptio
 [JsonSerializable(typeof(EngineControlPlaneSpec))]
 [JsonSerializable(typeof(AuthorityBindingSpec))]
 [JsonSerializable(typeof(ExecutionUnitSpec))]
+[JsonSerializable(typeof(NetworkSpec))]
+[JsonSerializable(typeof(NetworkMembershipSpec))]
+[JsonSerializable(typeof(ServiceDiscoverySpec))]
 internal sealed partial class RuntimeSpecJsonContext : JsonSerializerContext;
 
 public interface IRuntimeFinalizationParticipant
@@ -3155,6 +3318,7 @@ public sealed class InMemoryEnvironmentProviderModule : IProviderModule
             ProviderContractKind.ContentProjection |
             ProviderContractKind.Network |
             ProviderContractKind.NetworkMembership |
+            ProviderContractKind.ServiceDiscovery |
             ProviderContractKind.EndpointPublication |
             ProviderContractKind.AuthorityBinding |
             ProviderContractKind.FunctionSandbox |
@@ -3184,6 +3348,7 @@ public sealed class InMemoryEnvironmentProviderModule : IProviderModule
         builder.AddContentProjectionProvider(_provider);
         builder.AddNetworkProvider(_provider);
         builder.AddNetworkMembershipProvider(_provider);
+        builder.AddServiceDiscoveryProvider(_provider);
         builder.AddEndpointPublicationProvider(_provider);
         builder.AddAuthorityBindingProvider(_provider);
         builder.AddEngineControlPlaneProvider(_provider);
@@ -3207,6 +3372,7 @@ public sealed class InMemoryEnvironmentProvider :
     IContentProjectionProvider,
     INetworkProvider,
     INetworkMembershipProvider,
+    IServiceDiscoveryProvider,
     IEndpointPublicationProvider,
     IAuthorityBindingProvider,
     IEngineControlPlaneProvider
@@ -3258,6 +3424,10 @@ public sealed class InMemoryEnvironmentProvider :
 
     public ValueTask<ExecutionUnitStatus> EnsureAsync(ResourceMetadata<ExecutionUnit> metadata, ExecutionUnitSpec spec, ExecutionUnitStatus? observed, CancellationToken cancellationToken = default)
     {
+        var namespaceHandle = new ProviderOpaqueHandle(
+            ProviderId,
+            $"execution-unit:{metadata.Scope.Value}:{metadata.Id.Value}",
+            Generation: 1);
         var status = new ExecutionUnitStatus
         {
             Phase = ResourcePhase.Ready,
@@ -3265,6 +3435,18 @@ public sealed class InMemoryEnvironmentProvider :
             UnitPhase = ExecutionUnitPhase.Ready,
             AssignedHost = spec.PreferredHost,
             Handle = Handle<ExecutionUnit>(TargetRouteSegmentKind.ExecutionUnit, metadata.Id.Value),
+            NamespaceHandle = namespaceHandle,
+            WorkloadStorage = spec.WorkloadStorage is { } storage
+                ? new WorkloadStorageAllocation
+                {
+                    LogicalId = storage.LogicalId,
+                    ProviderHandle = namespaceHandle,
+                    EffectiveRuntimePath =
+                        $"/hpd/in-memory/{metadata.Id.Value}",
+                    PersistenceClass = storage.PersistenceClass,
+                    Generation = metadata.Generation,
+                }
+                : null,
             RealizedRootfs = spec.Rootfs,
             RealizedContentProjections = spec.ContentProjections,
         };
@@ -3563,7 +3745,7 @@ public sealed class InMemoryEnvironmentProvider :
 
     public ValueTask ReleaseAsync(TargetHandle<ContentProjection> projection, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
-    public ValueTask<NetworkStatus> EnsureNetworkAsync(ResourceMetadata<Network> metadata, NetworkSpec spec, NetworkStatus? observed, CancellationToken cancellationToken = default) =>
+    public ValueTask<NetworkStatus> EnsureNetworkAsync(ResourceMetadata<Network> metadata, NetworkSpec spec, NetworkRealizationContext? realizationContext, NetworkStatus? observed, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(new NetworkStatus
         {
             Phase = ResourcePhase.Ready,
@@ -3594,6 +3776,65 @@ public sealed class InMemoryEnvironmentProvider :
         ValueTask.FromResult(new NetworkMembershipStatus { Phase = ResourcePhase.Ready, MembershipPhase = NetworkMembershipPhase.Ready });
 
     public ValueTask ReleaseMembershipAsync(ResourceRef<NetworkMembership> membership, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+
+    public ValueTask<ServiceDiscoveryStatus>
+        EnsureServiceDiscoveryAsync(
+            ResourceMetadata<ServiceDiscovery> metadata,
+            ServiceDiscoverySpec spec,
+            ServiceDiscoveryStatus? observed,
+            CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<DiscoveryRecord> records =
+            DerivedServiceDiscovery.Build(spec, []);
+        var status = new ServiceDiscoveryStatus
+        {
+            Phase = ResourcePhase.Ready,
+            ObservedGeneration = metadata.Generation,
+            DiscoveryPhase = ServiceDiscoveryPhase.Ready,
+            Records = records,
+        };
+        _resources[$"discovery:{metadata.Scope}:{metadata.Id.Value}"] =
+            status;
+        return ValueTask.FromResult(status);
+    }
+
+    public ValueTask<ServiceDiscoveryStatus> GetStatusAsync(
+        ResourceRef<ServiceDiscovery> discovery,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(
+            _resources.TryGetValue(
+                $"discovery:{discovery.Scope}:{discovery.Id.Value}",
+                out object? value) &&
+            value is ServiceDiscoveryStatus status
+                ? status
+                : new ServiceDiscoveryStatus
+                {
+                    Phase = ResourcePhase.Failed,
+                    DiscoveryPhase = ServiceDiscoveryPhase.Failed,
+                });
+
+    public ValueTask<IReadOnlyList<DiscoveryRecord>> ResolveAsync(
+        ServiceDiscoveryQuery query,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(
+            _resources.TryGetValue(
+                $"discovery:{query.Discovery.Scope}:{query.Discovery.Id.Value}",
+                out object? value) &&
+            value is ServiceDiscoveryStatus status
+                ? DerivedServiceDiscovery.Resolve(
+                    status.Records,
+                    query)
+                : (IReadOnlyList<DiscoveryRecord>)[]);
+
+    public ValueTask ReleaseAsync(
+        ResourceRef<ServiceDiscovery> discovery,
+        CancellationToken cancellationToken = default)
+    {
+        _resources.TryRemove(
+            $"discovery:{discovery.Scope}:{discovery.Id.Value}",
+            out _);
+        return ValueTask.CompletedTask;
+    }
 
     public ValueTask<PublishedEndpointStatus> EnsurePublishedEndpointAsync(ResourceMetadata<PublishedEndpoint> metadata, PublishedEndpointSpec spec, PublishedEndpointStatus? observed, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(new PublishedEndpointStatus

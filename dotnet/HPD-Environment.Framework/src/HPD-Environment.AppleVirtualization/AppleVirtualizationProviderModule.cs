@@ -391,6 +391,63 @@ public sealed class AppleVirtualizationCapabilityReporter : IProviderCapabilityR
     [
         new CapabilityFact
         {
+            Id = StandardEnvironmentCapabilities.ProcessIsolation,
+            Category = new CapabilityCategory("isolation"),
+            AppliesTo = ProviderContractKind.ExecutionUnit,
+            State = hostIsMac ? CapabilityState.Supported : CapabilityState.Unsupported,
+            Detail = "Workloads execute inside a managed hardware-virtualized guest.",
+        },
+        new CapabilityFact
+        {
+            Id = StandardEnvironmentCapabilities.ContainerIsolation,
+            Category = new CapabilityCategory("isolation"),
+            AppliesTo = ProviderContractKind.ExecutionUnit,
+            State = hostIsMac ? CapabilityState.Supported : CapabilityState.Unsupported,
+            Detail = "Container workloads execute inside the managed guest engine.",
+        },
+        new CapabilityFact
+        {
+            Id = StandardEnvironmentCapabilities.SharedHostKernel,
+            Category = new CapabilityCategory("isolation"),
+            AppliesTo = ProviderContractKind.ExecutionUnit,
+            State = CapabilityState.Unsupported,
+            Detail = "The managed guest does not share the macOS host kernel.",
+        },
+        new CapabilityFact
+        {
+            Id = StandardEnvironmentCapabilities.HardwareVirtualization,
+            Category = new CapabilityCategory("isolation"),
+            AppliesTo = ProviderContractKind.RuntimeHost,
+            State = hostIsMac ? CapabilityState.Supported : CapabilityState.Unsupported,
+            Detail = "Virtualization.framework provides the hardware-virtualized boundary.",
+        },
+        new CapabilityFact
+        {
+            Id = StandardEnvironmentCapabilities.GuestAgentBoundary,
+            Category = new CapabilityCategory("isolation"),
+            AppliesTo = ProviderContractKind.RuntimeHost,
+            State = hostIsMac ? CapabilityState.Supported : CapabilityState.Unsupported,
+            Detail = "The guest-agent transport is the bounded guest control boundary.",
+        },
+        new CapabilityFact
+        {
+            Id = StandardEnvironmentCapabilities.MediatedEngineAuthority,
+            Category = new CapabilityCategory("authority"),
+            AppliesTo = ProviderContractKind.AuthorityBinding |
+                ProviderContractKind.EngineControlPlane,
+            State = hostIsMac ? CapabilityState.Supported : CapabilityState.Unsupported,
+            Detail = "Engine authority is mediated through HPD Environment and the guest agent.",
+        },
+        new CapabilityFact
+        {
+            Id = StandardEnvironmentCapabilities.HostLocalEndpointPublication,
+            Category = new CapabilityCategory("endpoint"),
+            AppliesTo = ProviderContractKind.EndpointPublication,
+            State = hostIsMac ? CapabilityState.Supported : CapabilityState.Unsupported,
+            Detail = "App endpoints are published through bounded host-local routes.",
+        },
+        new CapabilityFact
+        {
             Id = AppleVirtualizationProviderDescriptor.HelperPreflightCapability,
             Category = new CapabilityCategory("preflight"),
             AppliesTo = ProviderContractKind.RuntimeHost,

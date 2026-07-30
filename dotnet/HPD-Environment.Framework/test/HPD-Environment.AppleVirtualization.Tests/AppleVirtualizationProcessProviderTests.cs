@@ -670,6 +670,36 @@ public sealed class AppleVirtualizationProcessProviderTests
     }
 
     [Fact]
+    public async Task Wait_transport_window_timeout_renews_until_process_exits()
+    {
+        var fixture = CreateFixture();
+        fixture.Helper.EnqueueResponse(ProcessStatus(
+            AppleVirtualizationHelperOperation.ProcessStart,
+            "process-1",
+            ProcessInvocationPhase.Running));
+        fixture.Helper.EnqueueResponse(ProcessError(
+            AppleVirtualizationHelperOperation.ProcessWait,
+            "AppleVirtualization.GuestAgentProcessReadFailed",
+            "wait observation timed out"));
+        fixture.Helper.EnqueueResponse(ProcessExited("process-1", exitCode: 0));
+        IProcessInvocationHandle handle =
+            await fixture.Provider.StartAsync(fixture.Spec);
+
+        ProcessInvocationResult result = await handle.WaitAsync();
+
+        result.CompletionKind.Should().Be(ProcessCompletionKind.Exited);
+        result.ExitCode.Should().Be(0);
+        fixture.Helper.Requests
+            .Where(static request =>
+                request.Operation ==
+                    AppleVirtualizationHelperOperation.ProcessWait)
+            .Should().HaveCount(2)
+            .And.OnlyContain(static request =>
+                request.ProcessLifecycleRequest!.Timeout ==
+                    TimeSpan.FromSeconds(25));
+    }
+
+    [Fact]
     public async Task Wait_vm_stopped_error_returns_stopped_result()
     {
         var fixture = CreateFixture();

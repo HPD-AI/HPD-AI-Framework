@@ -2495,16 +2495,21 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     private lazy var endpointForwarders = EndpointForwarderManager { [weak self] targetAddress, targetPort in
         self?.guestAgentTcpTunnel(targetAddress: targetAddress, targetPort: targetPort)
     }
+    private let vmQueue = DispatchQueue(
+        label: "io.hpd.environment.apple-virtualization.vm")
+    private let vmQueueKey = DispatchSpecificKey<UInt8>()
     private let lock = NSLock()
 
-    public init() {}
+    public init() {
+        vmQueue.setSpecific(key: vmQueueKey, value: 1)
+    }
 
-    private static func runOnMainThread<T>(_ body: () -> T) -> T {
-        if Thread.isMainThread {
+    private func runOnVmQueue<T>(_ body: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: vmQueueKey) != nil {
             return body()
         }
 
-        return DispatchQueue.main.sync(execute: body)
+        return vmQueue.sync(execute: body)
     }
 
     public func preflight() -> VirtualizationPreflight {
@@ -2565,7 +2570,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     }
 
     public func validateVmConfiguration(_ request: VmConfigurationValidationRequest) -> VmConfigurationValidationResult {
-        Self.runOnMainThread {
+        runOnVmQueue {
             validateVmConfigurationOnMainThread(request)
         }
     }
@@ -2624,7 +2629,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     }
 
     public func startHost(_ request: HostLifecycleRequest) -> HostLifecycleResult {
-        Self.runOnMainThread {
+        runOnVmQueue {
             startHostOnMainThread(request)
         }
     }
@@ -2703,7 +2708,9 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         do {
             let configuration = try Self.buildConfiguration(vmRequest)
             try configuration.validate()
-            let machine = VZVirtualMachine(configuration: configuration)
+            let machine = VZVirtualMachine(
+                configuration: configuration,
+                queue: vmQueue)
             let delegate = HostVirtualMachineDelegate { [weak self] machine, state, diagnostic in
                 self?.recordStop(hostId: request.hostId, machine: machine, state: state, diagnostic: diagnostic)
             }
@@ -2745,7 +2752,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     }
 
     public func hostStatus(_ request: HostLifecycleRequest) -> HostLifecycleResult {
-        Self.runOnMainThread {
+        runOnVmQueue {
             hostStatusOnMainThread(request)
         }
     }
@@ -2763,7 +2770,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     }
 
     public func requestStopHost(_ request: HostLifecycleRequest) -> HostLifecycleResult {
-        Self.runOnMainThread {
+        runOnVmQueue {
             requestStopHostOnMainThread(request)
         }
     }
@@ -2801,7 +2808,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     }
 
     public func stopHost(_ request: HostLifecycleRequest) -> HostLifecycleResult {
-        Self.runOnMainThread {
+        runOnVmQueue {
             stopHostOnMainThread(request)
         }
     }
@@ -2839,7 +2846,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     }
 
     public func deleteHost(_ request: HostLifecycleRequest) -> HostLifecycleResult {
-        Self.runOnMainThread {
+        runOnVmQueue {
             deleteHostOnMainThread(request)
         }
     }
@@ -3097,7 +3104,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         providerGeneration: UInt64? = nil,
         hostStartGeneration: UInt64? = nil
     ) -> (socketDevice: VZVirtioSocketDevice?, result: GuestAgentTransportProbeResult?) {
-        Self.runOnMainThread {
+        runOnVmQueue {
             resolveRunningSocketDeviceOnMainThread(
                 hostId: hostId,
                 endpoint: endpoint,
@@ -3241,7 +3248,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
         let timeout = boundedTimeoutMilliseconds(request.timeoutMilliseconds)
         let semaphore = DispatchSemaphore(value: 0)
         var connectionResult: Result<VZVirtioSocketConnection, Error>?
-        Self.runOnMainThread {
+        runOnVmQueue {
             socketDevice.connect(toPort: port) { result in
                 connectionResult = result
                 semaphore.signal()
@@ -4203,7 +4210,7 @@ public final class LocalVirtualizationAdapter: VirtualizationAdapter, @unchecked
     // Legacy provider-internal callers that do not yet carry resource ownership.
     // Process operations must never use this resolver.
     private func resolveAnyRunningSocketDevice() -> (hostId: String?, socketDevice: VZVirtioSocketDevice?, diagnostic: VmConfigurationValidationDiagnostic?) {
-        Self.runOnMainThread {
+        runOnVmQueue {
             lock.lock()
             defer { lock.unlock() }
             for (hostId, existing) in hosts {

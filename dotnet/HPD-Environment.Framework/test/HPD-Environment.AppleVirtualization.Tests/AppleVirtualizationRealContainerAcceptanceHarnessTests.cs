@@ -1085,6 +1085,7 @@ public sealed class AppleVirtualizationRealContainerAcceptanceToolHarnessTests
                     },
                     DiscoveryPolicy = new NetworkDiscoveryPolicy { EnableInternalDns = false },
                 },
+                realizationContext: null,
                 observed: null).ConfigureAwait(false);
             network.NetworkPhase.Should().NotBe(NetworkPhase.Failed);
 

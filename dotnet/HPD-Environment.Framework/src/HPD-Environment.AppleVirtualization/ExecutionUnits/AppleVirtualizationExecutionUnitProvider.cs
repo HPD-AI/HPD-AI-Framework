@@ -192,6 +192,41 @@ public sealed class AppleVirtualizationExecutionUnitProvider : IExecutionUnitPro
                     environment),
             ],
         };
+        if (spec.WorkloadStorage is { } storage)
+        {
+            if (string.IsNullOrWhiteSpace(storage.LogicalId) ||
+                storage.LogicalId.Length > 128 ||
+                storage.LogicalId.Any(character =>
+                    !(char.IsAsciiLetterOrDigit(character) ||
+                      character is '.' or '_' or '-')) ||
+                !Enum.IsDefined(storage.PersistenceClass))
+                return Store(metadata, FailureStatus(
+                    metadata,
+                    assignedHost,
+                    new Diagnostic
+                    {
+                        Severity = DiagnosticSeverity.Error,
+                        Code = new DiagnosticCode(
+                            "AppleVirtualization.WorkloadStorageLogicalIdInvalid"),
+                        Message =
+                            "The workload storage request is malformed.",
+                        ProviderId = ProviderId,
+                    }));
+            status = status with
+            {
+                WorkloadStorage = new WorkloadStorageAllocation
+                {
+                    LogicalId = storage.LogicalId,
+                    ProviderHandle = new ProviderOpaqueHandle(
+                        ProviderId,
+                        $"storage:{metadata.Scope.Value}:{metadata.Id.Value}",
+                        Generation: _ledger.ProviderGeneration),
+                    EffectiveRuntimePath = workingDirectory,
+                    PersistenceClass = storage.PersistenceClass,
+                    Generation = metadata.Generation,
+                },
+            };
+        }
 
         return Store(metadata, status, spec);
     }

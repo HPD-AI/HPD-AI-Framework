@@ -450,6 +450,24 @@ public enum UnsupportedSeverity { Info, Warning, Error, Fatal }
 public readonly record struct PlatformSpec(string OperatingSystem, string Architecture, string? Variant = null, string? Version = null);
 public readonly record struct GuestAbiSpec(string Family, string Architecture, SemanticVersion? Version = null, string? Variant = null);
 
+public static class StandardEnvironmentCapabilities
+{
+    public static readonly CapabilityId ProcessIsolation =
+        new("hpd.environment.isolation.process");
+    public static readonly CapabilityId ContainerIsolation =
+        new("hpd.environment.isolation.container");
+    public static readonly CapabilityId SharedHostKernel =
+        new("hpd.environment.isolation.host-kernel-shared");
+    public static readonly CapabilityId HardwareVirtualization =
+        new("hpd.environment.isolation.hardware-virtualized");
+    public static readonly CapabilityId GuestAgentBoundary =
+        new("hpd.environment.boundary.guest-agent");
+    public static readonly CapabilityId MediatedEngineAuthority =
+        new("hpd.environment.engine.authority-mediated");
+    public static readonly CapabilityId HostLocalEndpointPublication =
+        new("hpd.environment.endpoint.host-local");
+}
+
 public sealed record CapabilityRequirementSet
 {
     public static CapabilityRequirementSet Empty { get; } = new();
@@ -808,6 +826,7 @@ public sealed record RuntimeHostResetResult(RuntimeHostResetScope Scope, Resourc
 public sealed record ExecutionUnitSpec
 {
     public ExecutionUnitIdentityKey? ReconciliationKey { get; init; }
+    public WorkloadStorageRequest? WorkloadStorage { get; init; }
     public ResourceRef<RuntimeHost>? PreferredHost { get; init; }
     public PlacementPolicy Placement { get; init; } = PlacementPolicy.Default;
     public ResourceRef<RootFilesystemView>? Rootfs { get; init; }
@@ -824,12 +843,36 @@ public sealed record ExecutionUnitSpec
 
 public readonly record struct ExecutionUnitIdentityKey(string Value);
 
+public enum WorkloadStoragePersistenceClass
+{
+    Runtime,
+    Workload,
+    Installation,
+}
+
+public sealed record WorkloadStorageRequest
+{
+    public required string LogicalId { get; init; }
+    public WorkloadStoragePersistenceClass PersistenceClass { get; init; } =
+        WorkloadStoragePersistenceClass.Workload;
+}
+
+public sealed record WorkloadStorageAllocation
+{
+    public required string LogicalId { get; init; }
+    public required ProviderOpaqueHandle ProviderHandle { get; init; }
+    public required string EffectiveRuntimePath { get; init; }
+    public required WorkloadStoragePersistenceClass PersistenceClass { get; init; }
+    public required ResourceGeneration Generation { get; init; }
+}
+
 public sealed record ExecutionUnitStatus : ResourceStatus
 {
     public required ExecutionUnitPhase UnitPhase { get; init; }
     public ResourceRef<RuntimeHost>? AssignedHost { get; init; }
     public TargetHandle<ExecutionUnit>? Handle { get; init; }
     public ProviderOpaqueHandle? NamespaceHandle { get; init; }
+    public WorkloadStorageAllocation? WorkloadStorage { get; init; }
     public ResourceRef<ProcessInvocation>? PrimaryProcess { get; init; }
     public ProcessInvocationResult? PrimaryProcessResult { get; init; }
     public ResourceRef<RootFilesystemView>? RealizedRootfs { get; init; }
@@ -1294,9 +1337,37 @@ public enum NetworkScope { Host, Runtime, ExecutionUnit, Project, Shared, Provid
 public enum NetworkConnectivityIntent { Isolated, NatEgress, PeerReachable, Routed, ProviderDefined }
 [Flags] public enum AddressFamilyRequirement { None = 0, IPv4Optional = 1, IPv4Required = 2, IPv6Optional = 4, IPv6Required = 8 }
 public enum NetworkPhase { Pending, Creating, Ready, Degraded, Failed, Deleting, Deleted }
+public readonly record struct NetworkIdentityKey(string Value);
 
-public sealed record NetworkSpec { public required NetworkScope Scope { get; init; } public required NetworkConnectivityIntent ConnectivityIntent { get; init; } public required AddressFamilyRequirement AddressFamilies { get; init; } public IReadOnlyList<IpCidr> CidrHints { get; init; } = Array.Empty<IpCidr>(); public NetworkDiscoveryPolicy DiscoveryPolicy { get; init; } = new(); public NetworkExposurePolicy ExposurePolicy { get; init; } = new(); public ProviderId? PreferredProvider { get; init; } public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>(); }
-public sealed record NetworkStatus : ResourceStatus { public required NetworkPhase NetworkPhase { get; init; } public NetworkCapabilitySet RealizedCapabilities { get; init; } public ResourceRef<ProviderActivation>? ProviderActivation { get; init; } public IReadOnlyList<IpCidr> Subnets { get; init; } = Array.Empty<IpCidr>(); public IReadOnlyList<IpAddressValue> Gateways { get; init; } = Array.Empty<IpAddressValue>(); public IReadOnlyList<NetworkLimitation> Limitations { get; init; } = Array.Empty<NetworkLimitation>(); public TargetHandle<Network>? Handle { get; init; } }
+public sealed record NetworkSpec
+{
+    public NetworkIdentityKey? ReconciliationKey { get; init; }
+    public required NetworkScope Scope { get; init; }
+    public required NetworkConnectivityIntent ConnectivityIntent { get; init; }
+    public required AddressFamilyRequirement AddressFamilies { get; init; }
+    public IReadOnlyList<IpCidr> CidrHints { get; init; } = Array.Empty<IpCidr>();
+    public NetworkDiscoveryPolicy DiscoveryPolicy { get; init; } = new();
+    public NetworkExposurePolicy ExposurePolicy { get; init; } = new();
+    public ProviderId? PreferredProvider { get; init; }
+    public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>();
+}
+public sealed record NetworkRealizationIdentity(
+    ScopedName Name,
+    string OpaqueId);
+public sealed record NetworkRealizationContext(
+    ResourceRef<ExecutionUnit> OwnerExecutionUnit,
+    ResourceRef<AuthorityBinding> EngineAuthority);
+public sealed record NetworkStatus : ResourceStatus
+{
+    public required NetworkPhase NetworkPhase { get; init; }
+    public NetworkCapabilitySet RealizedCapabilities { get; init; }
+    public ResourceRef<ProviderActivation>? ProviderActivation { get; init; }
+    public NetworkRealizationIdentity? Realization { get; init; }
+    public IReadOnlyList<IpCidr> Subnets { get; init; } = Array.Empty<IpCidr>();
+    public IReadOnlyList<IpAddressValue> Gateways { get; init; } = Array.Empty<IpAddressValue>();
+    public IReadOnlyList<NetworkLimitation> Limitations { get; init; } = Array.Empty<NetworkLimitation>();
+    public TargetHandle<Network>? Handle { get; init; }
+}
 public sealed record NetworkMembershipSpec { public required ResourceRef<Network> Network { get; init; } public required NetworkMembershipTarget Target { get; init; } public ScopedName? Hostname { get; init; } public IReadOnlyList<ScopedName> Aliases { get; init; } = Array.Empty<ScopedName>(); public IReadOnlyList<ServiceName> ServiceNames { get; init; } = Array.Empty<ServiceName>(); public IpAddressValue? RequestedAddress { get; init; } public MacAddressValue? RequestedMacAddress { get; init; } public ushort? RequestedMtu { get; init; } public MembershipConnectivityPolicy ConnectivityPolicy { get; init; } = new(); public IReadOnlyList<ProviderExtensionData> ProviderExtensions { get; init; } = Array.Empty<ProviderExtensionData>(); }
 public sealed record NetworkMembershipStatus : ResourceStatus { public required NetworkMembershipPhase MembershipPhase { get; init; } public NetworkEndpointHandle? EndpointHandle { get; init; } public IReadOnlyList<NetworkAddressAssignment> Addresses { get; init; } = Array.Empty<NetworkAddressAssignment>(); public IReadOnlyList<IpAddressValue> Gateways { get; init; } = Array.Empty<IpAddressValue>(); public string? InterfaceName { get; init; } public MacAddressValue? MacAddress { get; init; } public ushort? Mtu { get; init; } public IReadOnlyList<DiscoveryRecord> RegisteredRecords { get; init; } = Array.Empty<DiscoveryRecord>(); public IReadOnlyList<NetworkLimitation> Limitations { get; init; } = Array.Empty<NetworkLimitation>(); public TargetHandle<NetworkMembership>? Handle { get; init; } }
 public enum NetworkMembershipPhase { Pending, Allocating, Realizing, Ready, Degraded, Failed, Releasing, Released }
@@ -1307,7 +1378,7 @@ public sealed record NetworkExposurePolicy { public bool AllowPublishedEndpoints
 public sealed record MembershipConnectivityPolicy { public bool RequirePeerConnectivity { get; init; } public bool RequireEgress { get; init; } public bool RequireStaticAddress { get; init; } public bool AllowDegradedAddressFamilies { get; init; } = true; }
 
 public sealed record ServiceDiscoverySpec { public required DiscoveryScope Scope { get; init; } public ResourceRef<Network>? Network { get; init; } public ResourceRef<RuntimeHost>? Host { get; init; } public DefaultDiscoveryRecordPolicy DefaultRecordPolicy { get; init; } = DefaultDiscoveryRecordPolicy.MembershipHostnames; public IReadOnlyList<DiscoveryRecordSpec> Records { get; init; } = Array.Empty<DiscoveryRecordSpec>(); public IReadOnlyList<DnsName> SearchDomains { get; init; } = Array.Empty<DnsName>(); public TimeSpan? DefaultTtl { get; init; } public bool RequestHostExport { get; init; } public bool RequestHostResolverImport { get; init; } }
-public sealed record ServiceDiscoveryStatus : ResourceStatus { public required ServiceDiscoveryPhase DiscoveryPhase { get; init; } public DiscoveryCapabilitySet RealizedCapabilities { get; init; } public IReadOnlyList<DiscoveryRecord> Records { get; init; } = Array.Empty<DiscoveryRecord>(); public IReadOnlyList<DnsName> HostExportedDomains { get; init; } = Array.Empty<DnsName>(); public IReadOnlyList<ProviderNamedEndpoint> EffectiveResolvers { get; init; } = Array.Empty<ProviderNamedEndpoint>(); public IReadOnlyList<NetworkLimitation> Limitations { get; init; } = Array.Empty<NetworkLimitation>(); }
+public sealed record ServiceDiscoveryStatus : ResourceStatus { public required ServiceDiscoveryPhase DiscoveryPhase { get; init; } public DiscoveryCapabilitySet RealizedCapabilities { get; init; } public IReadOnlyList<DiscoveryRecord> Records { get; init; } = Array.Empty<DiscoveryRecord>(); public IReadOnlyList<DnsName> HostExportedDomains { get; init; } = Array.Empty<DnsName>(); public IReadOnlyList<ProviderNamedEndpoint> EffectiveResolvers { get; init; } = Array.Empty<ProviderNamedEndpoint>(); public IReadOnlyList<NetworkLimitation> Limitations { get; init; } = Array.Empty<NetworkLimitation>(); public TargetHandle<ServiceDiscovery>? Handle { get; init; } }
 public enum DiscoveryScope { Network, Runtime, HostExported, HostResolverImported, ProviderDefined }
 public enum DefaultDiscoveryRecordPolicy { None, MembershipHostnames, MembershipHostnamesAndAliases, ExplicitOnly }
 public enum ServiceDiscoveryPhase { Pending, Configuring, Ready, Degraded, Failed, Disabled }
@@ -1427,6 +1498,16 @@ public interface IEnvironmentRuntime
     ValueTask<IReadOnlyList<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>>> ListExecutionUnitsAsync(CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus>> GetExecutionUnitAsync(ResourceRef<ExecutionUnit> unit, CancellationToken cancellationToken = default);
     ValueTask DeleteExecutionUnitAsync(ResourceRef<ExecutionUnit> unit, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<Network, NetworkSpec, NetworkStatus>> EnsureNetworkAsync(NetworkSpec spec, NetworkRealizationContext? realizationContext = null, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<Network, NetworkSpec, NetworkStatus>> GetNetworkAsync(ResourceRef<Network> network, CancellationToken cancellationToken = default);
+    ValueTask DeleteNetworkAsync(ResourceRef<Network> network, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<NetworkMembership, NetworkMembershipSpec, NetworkMembershipStatus>> EnsureNetworkMembershipAsync(NetworkMembershipSpec spec, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<NetworkMembership, NetworkMembershipSpec, NetworkMembershipStatus>> GetNetworkMembershipAsync(ResourceRef<NetworkMembership> membership, CancellationToken cancellationToken = default);
+    ValueTask ReleaseNetworkMembershipAsync(ResourceRef<NetworkMembership> membership, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<ServiceDiscovery, ServiceDiscoverySpec, ServiceDiscoveryStatus>> EnsureServiceDiscoveryAsync(ServiceDiscoverySpec spec, CancellationToken cancellationToken = default);
+    ValueTask<ResourceSnapshot<ServiceDiscovery, ServiceDiscoverySpec, ServiceDiscoveryStatus>> GetServiceDiscoveryAsync(ResourceRef<ServiceDiscovery> discovery, CancellationToken cancellationToken = default);
+    ValueTask<IReadOnlyList<DiscoveryRecord>> ResolveServiceDiscoveryAsync(ServiceDiscoveryQuery query, CancellationToken cancellationToken = default);
+    ValueTask ReleaseServiceDiscoveryAsync(ResourceRef<ServiceDiscovery> discovery, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<PublishedEndpoint, PublishedEndpointSpec, PublishedEndpointStatus>> EnsurePublishedEndpointAsync(PublishedEndpointSpec spec, CancellationToken cancellationToken = default);
     ValueTask ReleasePublishedEndpointAsync(ResourceRef<PublishedEndpoint> endpoint, CancellationToken cancellationToken = default);
     ValueTask<ResourceSnapshot<AuthorityBinding, AuthorityBindingSpec, AuthorityBindingStatus>> EnsureAuthorityBindingAsync(AuthorityBindingSpec spec, CancellationToken cancellationToken = default);
@@ -1481,9 +1562,9 @@ public interface IArtifactProvider { ProviderId ProviderId { get; } ValueTask<Co
 public interface IRootFilesystemProvider { ProviderId ProviderId { get; } ValueTask<RootFilesystemViewStatus> MaterializeAsync(ResourceMetadata<RootFilesystemView> metadata, RootFilesystemViewSpec spec, TargetHandle<RuntimeHost>? host, TargetHandle<ExecutionUnit>? unit, CancellationToken cancellationToken = default); ValueTask<FinalizationResult> FinalizeAsync(TargetHandle<RootFilesystemView> rootfs, FinalizationRequest request, CancellationToken cancellationToken = default); ValueTask ReleaseAsync(TargetHandle<RootFilesystemView> rootfs, CancellationToken cancellationToken = default); }
 public interface IWorkspaceStore { ValueTask<WorkspaceStatus> GetStatusAsync(ResourceRef<Workspace> workspace, CancellationToken cancellationToken = default); ValueTask<ContentEnumerationPage> EnumerateAsync(ResourceRef<Workspace> workspace, ContentSelector selector, ContentPageCursor cursor, CancellationToken cancellationToken = default); ValueTask CopyContentAsync(ContentSelector selector, IBufferWriter<byte> destination, CancellationToken cancellationToken = default); }
 public interface IContentProjectionProvider { ProviderId ProviderId { get; } ValueTask<ContentProjectionStatus> ProjectAsync(ResourceMetadata<ContentProjection> metadata, ContentProjectionSpec spec, TargetHandle<RuntimeHost>? host, TargetHandle<ExecutionUnit>? unit, CancellationToken cancellationToken = default); ValueTask EnumerateEntriesAsync(ResourceRef<ContentProjection> projection, IContentProjectionEntrySink sink, CancellationToken cancellationToken = default); ValueTask<SyncResult> SyncAsync(TargetHandle<ContentProjection> projection, SyncRequest request, CancellationToken cancellationToken = default); ValueTask<FinalizationResult> FinalizeAsync(TargetHandle<ContentProjection> projection, FinalizationRequest request, IExecutionEventSink? events = null, CancellationToken cancellationToken = default); ValueTask ReleaseAsync(TargetHandle<ContentProjection> projection, CancellationToken cancellationToken = default); }
-public interface INetworkProvider { ProviderId ProviderId { get; } ValueTask<NetworkStatus> EnsureNetworkAsync(ResourceMetadata<Network> metadata, NetworkSpec spec, NetworkStatus? observed, CancellationToken cancellationToken = default); ValueTask<NetworkStatus> GetStatusAsync(ResourceRef<Network> network, CancellationToken cancellationToken = default); ValueTask DeleteNetworkAsync(ResourceRef<Network> network, CancellationToken cancellationToken = default); }
+public interface INetworkProvider { ProviderId ProviderId { get; } ValueTask<NetworkStatus> EnsureNetworkAsync(ResourceMetadata<Network> metadata, NetworkSpec spec, NetworkRealizationContext? realizationContext, NetworkStatus? observed, CancellationToken cancellationToken = default); ValueTask<NetworkStatus> GetStatusAsync(ResourceRef<Network> network, CancellationToken cancellationToken = default); ValueTask DeleteNetworkAsync(ResourceRef<Network> network, CancellationToken cancellationToken = default); }
 public interface INetworkMembershipProvider { ProviderId ProviderId { get; } ValueTask<NetworkMembershipStatus> EnsureMembershipAsync(ResourceMetadata<NetworkMembership> metadata, NetworkMembershipSpec spec, NetworkMembershipStatus? observed, CancellationToken cancellationToken = default); ValueTask<NetworkMembershipStatus> GetMembershipStatusAsync(ResourceRef<NetworkMembership> membership, CancellationToken cancellationToken = default); ValueTask ReleaseMembershipAsync(ResourceRef<NetworkMembership> membership, CancellationToken cancellationToken = default); }
-public interface IServiceDiscoveryProvider { ProviderId ProviderId { get; } ValueTask<ServiceDiscoveryStatus> EnsureServiceDiscoveryAsync(ResourceMetadata<ServiceDiscovery> metadata, ServiceDiscoverySpec spec, ServiceDiscoveryStatus? observed, CancellationToken cancellationToken = default); ValueTask<ServiceDiscoveryStatus> GetStatusAsync(ResourceRef<ServiceDiscovery> discovery, CancellationToken cancellationToken = default); ValueTask<IReadOnlyList<DiscoveryRecord>> ResolveAsync(ServiceDiscoveryQuery query, CancellationToken cancellationToken = default); }
+public interface IServiceDiscoveryProvider { ProviderId ProviderId { get; } ValueTask<ServiceDiscoveryStatus> EnsureServiceDiscoveryAsync(ResourceMetadata<ServiceDiscovery> metadata, ServiceDiscoverySpec spec, ServiceDiscoveryStatus? observed, CancellationToken cancellationToken = default); ValueTask<ServiceDiscoveryStatus> GetStatusAsync(ResourceRef<ServiceDiscovery> discovery, CancellationToken cancellationToken = default); ValueTask<IReadOnlyList<DiscoveryRecord>> ResolveAsync(ServiceDiscoveryQuery query, CancellationToken cancellationToken = default); ValueTask ReleaseAsync(ResourceRef<ServiceDiscovery> discovery, CancellationToken cancellationToken = default); }
 public sealed record ServiceDiscoveryQuery(ResourceRef<ServiceDiscovery> Discovery, DnsName Name, DiscoveryRecordKind? Kind = null);
 public interface IEndpointPublicationProvider { ProviderId ProviderId { get; } ValueTask<PublishedEndpointStatus> EnsurePublishedEndpointAsync(ResourceMetadata<PublishedEndpoint> metadata, PublishedEndpointSpec spec, PublishedEndpointStatus? observed, CancellationToken cancellationToken = default); ValueTask<PublishedEndpointStatus> GetStatusAsync(ResourceRef<PublishedEndpoint> endpoint, CancellationToken cancellationToken = default); ValueTask ReleasePublishedEndpointAsync(ResourceRef<PublishedEndpoint> endpoint, CancellationToken cancellationToken = default); }
 public interface IAuthorityBindingProvider { ProviderId ProviderId { get; } ValueTask<AuthorityBindingStatus> EnsureAuthorityBindingAsync(ResourceMetadata<AuthorityBinding> metadata, AuthorityBindingSpec spec, AuthorityBindingStatus? observed, CancellationToken cancellationToken = default); ValueTask<AuthorityBindingStatus> GetStatusAsync(ResourceRef<AuthorityBinding> binding, CancellationToken cancellationToken = default); ValueTask RevokeAuthorityBindingAsync(ResourceRef<AuthorityBinding> binding, CancellationToken cancellationToken = default); }

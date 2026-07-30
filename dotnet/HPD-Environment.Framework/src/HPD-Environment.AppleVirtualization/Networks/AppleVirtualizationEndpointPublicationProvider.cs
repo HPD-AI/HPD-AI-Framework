@@ -32,6 +32,57 @@ public sealed class AppleVirtualizationEndpointPublicationProvider : IEndpointPu
         ArgumentNullException.ThrowIfNull(spec);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var resource = new ResourceRef<PublishedEndpoint>(
+            metadata.Id,
+            metadata.Scope,
+            metadata.Generation);
+        AppleVirtualizationLedgerLookup<
+            AppleVirtualizationLedgerEntry<
+                PublishedEndpoint,
+                PublishedEndpointStatus>> existing =
+            _ledger.TryGetPublishedEndpoint(resource);
+        if (existing.Succeeded)
+        {
+            PublishedEndpointSpec? existingSpec =
+                _ledger.TryGetPublishedEndpointSpec(resource);
+            if (existingSpec != spec)
+            {
+                return new PublishedEndpointStatus
+                {
+                    Phase = ResourcePhase.Failed,
+                    EndpointPhase =
+                        PublishedEndpointPhase.Failed,
+                    ReconciliationOutcome =
+                        ResourceReconciliationOutcome.Rejected,
+                    ObservedGeneration = metadata.Generation,
+                    Diagnostics =
+                    [
+                        EndpointDiagnostic(
+                            DiagnosticSeverity.Error,
+                            "AppleVirtualization.EndpointSpecConflict",
+                            "A published endpoint with the same identity already exists with a different immutable specification.",
+                            "endpoint/" + metadata.Id.Value),
+                    ],
+                };
+            }
+            if (existing.Entry!.Status.EndpointPhase ==
+                    PublishedEndpointPhase.Bound)
+                return existing.Entry.Status;
+        }
+        else if (existing.Diagnostic?.Code !=
+                 AppleVirtualizationHandleDiagnostics.MissingHandle)
+        {
+            return new PublishedEndpointStatus
+            {
+                Phase = ResourcePhase.Failed,
+                EndpointPhase = PublishedEndpointPhase.Failed,
+                ReconciliationOutcome =
+                    ResourceReconciliationOutcome.Rejected,
+                ObservedGeneration = metadata.Generation,
+                Diagnostics = [existing.Diagnostic!],
+            };
+        }
+
         EndpointValidation validation = ValidateSpec(spec);
         RouteResolution route = ResolveRoute(spec);
         if (validation.FatalDiagnostic is { } validationFatal)

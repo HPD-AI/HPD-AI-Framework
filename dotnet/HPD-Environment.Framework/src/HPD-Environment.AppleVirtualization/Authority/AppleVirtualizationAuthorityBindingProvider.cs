@@ -61,6 +61,46 @@ public sealed class AppleVirtualizationAuthorityBindingProvider : IAuthorityBind
             return Store(metadata, spec, failed, Audit(metadata, spec, AuthorityAuditKind.Failed, now, ReasonCode: classification.DiagnosticCode));
         }
 
+        var resource = new ResourceRef<AuthorityBinding>(
+            metadata.Id,
+            metadata.Scope,
+            metadata.Generation);
+        AppleVirtualizationLedgerLookup<
+            AppleVirtualizationLedgerEntry<
+                AuthorityBinding,
+                AuthorityBindingStatus>> existing =
+            _ledger.TryGetAuthorityBinding(resource);
+        if (existing.Succeeded)
+        {
+            AuthorityBindingSpec? existingSpec =
+                _ledger.TryGetAuthorityBindingSpec(resource);
+            if (existingSpec != spec)
+            {
+                return FailedStatus(
+                    metadata,
+                    spec,
+                    classification,
+                    AuthorityDiagnostic(
+                        DiagnosticSeverity.Error,
+                        "AppleVirtualization.AuthoritySpecConflict",
+                        "An authority binding with the same identity already exists with a different immutable specification.",
+                        "authority/" + metadata.Id.Value));
+            }
+            if (existing.Entry!.Status.BindingPhase is
+                AuthorityBindingPhase.Projected or
+                AuthorityBindingPhase.Revoked)
+                return existing.Entry.Status;
+        }
+        else if (existing.Diagnostic?.Code !=
+                 AppleVirtualizationHandleDiagnostics.MissingHandle)
+        {
+            return FailedStatus(
+                metadata,
+                spec,
+                classification,
+                existing.Diagnostic!);
+        }
+
         if (ValidateProjectionPolicy(metadata, spec, classification) is { } projectionDiagnostic)
         {
             AuthorityBindingStatus failed = FailedStatus(metadata, spec, classification, projectionDiagnostic);
@@ -403,13 +443,12 @@ public sealed class AppleVirtualizationAuthorityBindingProvider : IAuthorityBind
         }
 
         RevocationVerificationStatus revocation = MapRevocationVerification(helper);
-        AuthorityBindingPhase phase = helper.BindingPhase == AuthorityBindingPhase.Revoked &&
-            revocation == RevocationVerificationStatus.Verified
-                ? AuthorityBindingPhase.Revoked
-                : AuthorityBindingPhase.Revoking;
-        ResourcePhase resourcePhase = phase == AuthorityBindingPhase.Revoked
-            ? ResourcePhase.Deleted
-            : ResourcePhase.Deleting;
+        AuthorityRevocationEvaluation evaluation =
+            AuthorityRevocationVerifier.Evaluate(
+                helper.BindingPhase,
+                revocation);
+        AuthorityBindingPhase phase = evaluation.BindingPhase;
+        ResourcePhase resourcePhase = evaluation.ResourcePhase;
         Diagnostic? diagnostic = RevocationDiagnostic(revocation);
 
         BoundAuthority? boundAuthority = current.BoundAuthority is { } currentAuthority
@@ -479,14 +518,14 @@ public sealed class AppleVirtualizationAuthorityBindingProvider : IAuthorityBind
         if (helper.BindingPhase == AuthorityBindingPhase.Revoked)
         {
             RevocationVerificationStatus revocation = MapRevocationVerification(helper);
+            AuthorityRevocationEvaluation evaluation =
+                AuthorityRevocationVerifier.Evaluate(
+                    helper.BindingPhase,
+                    revocation);
             refreshed = refreshed with
             {
-                Phase = revocation == RevocationVerificationStatus.Verified
-                    ? ResourcePhase.Deleted
-                    : ResourcePhase.Deleting,
-                BindingPhase = revocation == RevocationVerificationStatus.Verified
-                    ? AuthorityBindingPhase.Revoked
-                    : AuthorityBindingPhase.Revoking,
+                Phase = evaluation.ResourcePhase,
+                BindingPhase = evaluation.BindingPhase,
                 BoundAuthority = refreshed.BoundAuthority is { } authority
                     ? authority with { RevocationStatus = revocation }
                     : null,

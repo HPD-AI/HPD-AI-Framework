@@ -8,6 +8,143 @@ namespace HPD.Environment.Runtime.Tests;
 public sealed class InMemoryEnvironmentRuntimeTests
 {
     [Fact]
+    public async Task Workload_storage_logical_identity_is_path_free_and_bounded()
+    {
+        var runtime = new InMemoryEnvironmentRuntime(CreateRegistry());
+        RuntimeResourceOwnershipException error =
+            await Assert.ThrowsAsync<RuntimeResourceOwnershipException>(
+                () => runtime.EnsureExecutionUnitAsync(
+                    new ExecutionUnitSpec
+                    {
+                        WorkloadStorage = new WorkloadStorageRequest
+                        {
+                            LogicalId = "../../host-path",
+                            PersistenceClass =
+                                WorkloadStoragePersistenceClass.Workload,
+                        },
+                    }).AsTask());
+
+        Assert.Equal(
+            "hpd.environment.workload-storage.logical-id-invalid",
+            error.Diagnostic.Code.Value);
+    }
+
+    [Fact]
+    public async Task Runtime_owns_network_membership_and_discovery_lifecycle()
+    {
+        EnvironmentProviderRegistry registry = CreateRegistry();
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<
+            RuntimeHost,
+            RuntimeHostSpec,
+            RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                Platform = new PlatformSpec("linux", "x64"),
+                PreferredProvider =
+                    InMemoryEnvironmentProvider.InMemoryProviderId,
+            });
+        var networkSpec = new NetworkSpec
+        {
+            ReconciliationKey = new NetworkIdentityKey("project.frontend"),
+            Scope = NetworkScope.Runtime,
+            ConnectivityIntent =
+                NetworkConnectivityIntent.NatEgress,
+            AddressFamilies =
+                AddressFamilyRequirement.IPv4Required,
+        };
+        ResourceSnapshot<Network, NetworkSpec, NetworkStatus>
+            network = await runtime.EnsureNetworkAsync(networkSpec);
+        ResourceSnapshot<Network, NetworkSpec, NetworkStatus>
+            sameNetwork =
+                await runtime.EnsureNetworkAsync(networkSpec);
+        ResourceSnapshot<Network, NetworkSpec, NetworkStatus>
+            distinctNetwork =
+                await runtime.EnsureNetworkAsync(networkSpec with
+                {
+                    ReconciliationKey =
+                        new NetworkIdentityKey("project.backend"),
+                });
+        ResourceRef<Network> networkRef = new(
+            network.Metadata.Id,
+            network.Metadata.Scope,
+            network.Metadata.Generation);
+        ResourceSnapshot<
+            NetworkMembership,
+            NetworkMembershipSpec,
+            NetworkMembershipStatus> membership =
+            await runtime.EnsureNetworkMembershipAsync(
+                new NetworkMembershipSpec
+                {
+                    Network = networkRef,
+                    Target = new NetworkMembershipTarget(
+                        NetworkMembershipTargetKind.RuntimeHost,
+                        host.Status.Handle,
+                        Unit: null,
+                        Process: null),
+                    ServiceNames = [new ServiceName("web")],
+                });
+        var explicitRecord = new DiscoveryRecordSpec(
+            new DnsName("web"),
+            DiscoveryRecordKind.Service,
+            new DiscoveryRecordTarget(
+                Address: null,
+                new ServiceName("web"),
+                Membership: new ResourceRef<NetworkMembership>(
+                    membership.Metadata.Id,
+                    membership.Metadata.Scope,
+                    membership.Metadata.Generation),
+                Port: new NetworkPort(8080),
+                Transport: NetworkTransport.Tcp,
+                CanonicalName: null));
+        ResourceSnapshot<
+            ServiceDiscovery,
+            ServiceDiscoverySpec,
+            ServiceDiscoveryStatus> discovery =
+            await runtime.EnsureServiceDiscoveryAsync(
+                new ServiceDiscoverySpec
+                {
+                    Scope = DiscoveryScope.Network,
+                    Network = networkRef,
+                    DefaultRecordPolicy =
+                        DefaultDiscoveryRecordPolicy.ExplicitOnly,
+                    Records = [explicitRecord],
+                });
+        ResourceRef<ServiceDiscovery> discoveryRef = new(
+            discovery.Metadata.Id,
+            discovery.Metadata.Scope,
+            discovery.Metadata.Generation);
+
+        Assert.Equal(
+            network.Metadata.Id,
+            sameNetwork.Metadata.Id);
+        Assert.NotEqual(
+            network.Metadata.Id,
+            distinctNetwork.Metadata.Id);
+        Assert.Single(
+            await runtime.ResolveServiceDiscoveryAsync(
+                new ServiceDiscoveryQuery(
+                    discoveryRef,
+                    new DnsName("WEB"),
+                    DiscoveryRecordKind.Service)));
+
+        await runtime.ReleaseServiceDiscoveryAsync(discoveryRef);
+        await runtime.ReleaseNetworkMembershipAsync(
+            new ResourceRef<NetworkMembership>(
+                membership.Metadata.Id,
+                membership.Metadata.Scope,
+                membership.Metadata.Generation));
+        await runtime.DeleteNetworkAsync(networkRef);
+        await runtime.DeleteNetworkAsync(new ResourceRef<Network>(
+            distinctNetwork.Metadata.Id,
+            distinctNetwork.Metadata.Scope,
+            distinctNetwork.Metadata.Generation));
+        RuntimeHostDeletionResult deleted =
+            await runtime.DeleteHostAsync();
+        Assert.True(deleted.Deleted);
+    }
+
+    [Fact]
     public async Task Runtime_owns_and_releases_published_endpoints()
     {
         EnvironmentProviderRegistry registry = CreateRegistry();
@@ -75,6 +212,8 @@ public sealed class InMemoryEnvironmentRuntimeTests
         Assert.NotEmpty(registry.FunctionSandboxProviders);
         Assert.NotEmpty(registry.ArtifactProviders);
         Assert.NotEmpty(registry.NetworkProviders);
+        Assert.NotEmpty(registry.NetworkMembershipProviders);
+        Assert.NotEmpty(registry.ServiceDiscoveryProviders);
         Assert.Contains(report.Capabilities, fact => fact.AppliesTo == ProviderContractKind.RuntimeHost && fact.State == CapabilityState.Supported);
         Assert.Contains(report.PreflightChecks, check => check.State == PreflightCheckState.Passed);
     }
@@ -1353,6 +1492,38 @@ public sealed class InMemoryEnvironmentRuntimeTests
             });
         Assert.True(plan.Accepted);
         _ = await runtime.EnsureEngineAuthorityBindingAsync(plan);
+        _ = await runtime.EnsurePublishedEndpointAsync(
+            new PublishedEndpointSpec
+            {
+                Listener = new EndpointListenerSpec(
+                    EndpointListenerKind.HostAddress,
+                    NetworkTransport.Tcp,
+                    new IpAddressValue(
+                        NetworkAddressFamily.IPv4,
+                        0,
+                        0x7f000001),
+                    Ports: null,
+                    Socket: null),
+                Target = new EndpointRouteTarget(
+                    EndpointTargetKind.NetworkAddress,
+                    Membership: null,
+                    Unit: null,
+                    Process: null,
+                    ServiceName: null,
+                    NetworkTransport.Tcp,
+                    new NetworkPort(8080),
+                    SocketPath: null,
+                    new IpAddressValue(
+                        NetworkAddressFamily.IPv4,
+                        0,
+                        0x0a000002)),
+                ExposurePolicy = new EndpointExposurePolicy
+                {
+                    Scope = EndpointExposureScope.HostLocal,
+                    AllowEphemeralPort = true,
+                },
+                RoutingHost = hostRef,
+            });
         owner.BlockProcessUntilCanceled = true;
         Task<ProcessInvocationResult> runningProcess = runtime.RunProcessAsync(
             new ProcessInvocationSpec
@@ -1368,7 +1539,8 @@ public sealed class InMemoryEnvironmentRuntimeTests
         Assert.Empty(first.Calls);
         Assert.Equal(
             ["host-ensure", "engine-ensure", "unit-ensure", "engine-authority-plan", "authority-ensure",
-             "process-start", "process-stop", "finalize-content", "authority-revoke", "unit-delete",
+             "endpoint-ensure", "process-start", "authority-revoke", "process-stop",
+             "finalize-content", "endpoint-release", "unit-delete",
              "engine-delete", "host-delete"],
             owner.Calls);
     }
@@ -1426,6 +1598,71 @@ public sealed class InMemoryEnvironmentRuntimeTests
 
         await runtime.DeleteHostAsync();
         Assert.Contains("host-delete", provider.Calls);
+    }
+
+    [Fact]
+    public async Task Caller_cancellation_after_cleanup_begins_does_not_interrupt_revocation_or_deletion()
+    {
+        var provider = new RecordingRuntimeProvider(
+            "hpd.execution.test-noncancellable-cleanup")
+        {
+            BlockAuthorityRevocation = true,
+        };
+        var registry = new EnvironmentProviderRegistry();
+        registry.RegisterModule(new RecordingRuntimeProviderModule(provider));
+        var runtime = new InMemoryEnvironmentRuntime(registry);
+        ResourceSnapshot<RuntimeHost, RuntimeHostSpec, RuntimeHostStatus> host =
+            await runtime.EnsureHostAsync(new RuntimeHostSpec
+            {
+                PreferredProvider = provider.ProviderId,
+                Platform = new PlatformSpec("linux", "x64"),
+            });
+        ResourceRef<RuntimeHost> hostRef =
+            new(host.Metadata.Id, host.Metadata.Scope, host.Metadata.Generation);
+        ResourceSnapshot<EngineControlPlane, EngineControlPlaneSpec, EngineControlPlaneStatus> engine =
+            await runtime.EnsureEngineControlPlaneAsync(new EngineControlPlaneSpec
+            {
+                Kind = EngineControlPlaneKind.DockerCompatible,
+                Api = EngineApiKind.DockerCompatible,
+                Host = hostRef,
+            });
+        ResourceSnapshot<ExecutionUnit, ExecutionUnitSpec, ExecutionUnitStatus> unit =
+            await runtime.EnsureExecutionUnitAsync(new ExecutionUnitSpec
+            {
+                PreferredHost = hostRef,
+            });
+        EngineAuthorityBindingPlan plan =
+            await runtime.PlanEngineAuthorityBindingAsync(
+                new EngineAuthorityBindingRequest
+                {
+                    Engine = new ResourceRef<EngineControlPlane>(
+                        engine.Metadata.Id,
+                        engine.Metadata.Scope,
+                        engine.Metadata.Generation),
+                    Api = EngineApiKind.DockerCompatible,
+                    TargetUnit = unit.Status.Handle!.Value,
+                    TargetSocketPath =
+                        new UnixSocketPath("/run/hpd/engine.sock"),
+                });
+        _ = await runtime.EnsureEngineAuthorityBindingAsync(plan);
+
+        using var callerCancellation = new CancellationTokenSource();
+        Task<RuntimeHostDeletionResult> deletion =
+            runtime.DeleteHostAsync(callerCancellation.Token).AsTask();
+        await provider.AuthorityRevocationStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(5));
+        callerCancellation.Cancel();
+        provider.ReleaseAuthorityRevocation.TrySetResult();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => deletion);
+        Assert.Contains("authority-revoke", provider.Calls);
+        Assert.Contains("unit-delete", provider.Calls);
+        Assert.Contains("engine-delete", provider.Calls);
+        Assert.Contains("host-delete", provider.Calls);
+        Assert.True(
+            provider.Calls.IndexOf("authority-revoke") <
+            provider.Calls.IndexOf("unit-delete"));
     }
 
     [Fact]
@@ -2153,7 +2390,7 @@ public sealed class InMemoryEnvironmentRuntimeTests
             Scope = NetworkScope.Runtime,
             ConnectivityIntent = NetworkConnectivityIntent.NatEgress,
             AddressFamilies = AddressFamilyRequirement.IPv4Required,
-        }, observed: null);
+        }, realizationContext: null, observed: null);
         NetworkMembershipStatus membership = await provider.EnsureMembershipAsync(membershipMetadata, new NetworkMembershipSpec
         {
             Network = networkRef,
@@ -2399,6 +2636,7 @@ public sealed class InMemoryEnvironmentRuntimeTests
                 ProviderContractKind.ProcessInvocation |
                 ProviderContractKind.ContentProjection |
                 ProviderContractKind.AuthorityBinding |
+                ProviderContractKind.EndpointPublication |
                 ProviderContractKind.EngineControlPlane,
             TrustLevel = ProviderTrustLevel.BuiltIn,
             DefaultActivationScope = ProviderActivationScope.Runtime,
@@ -2420,6 +2658,7 @@ public sealed class InMemoryEnvironmentRuntimeTests
                 : new EphemeralProcessProvider(provider));
             builder.AddContentProjectionProvider(provider);
             builder.AddAuthorityBindingProvider(provider);
+            builder.AddEndpointPublicationProvider(provider);
             builder.AddEngineControlPlaneProvider(provider);
         }
 
@@ -2452,6 +2691,7 @@ public sealed class InMemoryEnvironmentRuntimeTests
         IRetainedProcessProvider,
         IContentProjectionProvider,
         IAuthorityBindingProvider,
+        IEndpointPublicationProvider,
         IEngineControlPlaneProvider,
         IRuntimeFinalizationParticipant
     {
@@ -2461,6 +2701,7 @@ public sealed class InMemoryEnvironmentRuntimeTests
         public List<string> Calls { get; } = [];
         public bool RejectArm64HostChange { get; set; }
         public bool FailAuthorityRevocation { get; set; }
+        public bool BlockAuthorityRevocation { get; set; }
         public bool BlockProcessUntilCanceled { get; set; }
         public bool IgnoreProcessCancellation { get; set; }
         public bool IgnoreUnitObservationCancellation { get; set; }
@@ -2478,6 +2719,10 @@ public sealed class InMemoryEnvironmentRuntimeTests
         public TaskCompletionSource ReleaseIgnoredProcess { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseIgnoredOutput { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource AuthorityRevocationStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseAuthorityRevocation { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Queue<ProcessOutputChunk> CursorOutputChunks { get; } = [];
         public RuntimeHostStatus? LastObservedHost { get; private set; }
@@ -2801,7 +3046,7 @@ public sealed class InMemoryEnvironmentRuntimeTests
             CancellationToken cancellationToken = default) =>
             _inner.GetStatusAsync(binding, cancellationToken);
 
-        public ValueTask RevokeAuthorityBindingAsync(
+        public async ValueTask RevokeAuthorityBindingAsync(
             ResourceRef<AuthorityBinding> binding,
             CancellationToken cancellationToken = default)
         {
@@ -2810,7 +3055,48 @@ public sealed class InMemoryEnvironmentRuntimeTests
             {
                 throw new InvalidOperationException("Injected authority revocation failure.");
             }
-            return _inner.RevokeAuthorityBindingAsync(binding, cancellationToken);
+            if (BlockAuthorityRevocation)
+            {
+                AuthorityRevocationStarted.TrySetResult();
+                await ReleaseAuthorityRevocation.Task.WaitAsync(
+                    cancellationToken);
+            }
+            await _inner.RevokeAuthorityBindingAsync(
+                binding,
+                cancellationToken);
+        }
+
+        public async ValueTask<PublishedEndpointStatus>
+            EnsurePublishedEndpointAsync(
+                ResourceMetadata<PublishedEndpoint> metadata,
+                PublishedEndpointSpec spec,
+                PublishedEndpointStatus? observed,
+                CancellationToken cancellationToken = default)
+        {
+            Calls.Add("endpoint-ensure");
+            return await _inner.EnsurePublishedEndpointAsync(
+                metadata,
+                spec,
+                observed,
+                cancellationToken);
+        }
+
+        public ValueTask<PublishedEndpointStatus>
+            GetStatusAsync(
+                ResourceRef<PublishedEndpoint> endpoint,
+                CancellationToken cancellationToken = default) =>
+            _inner.GetStatusAsync(
+                endpoint,
+                cancellationToken);
+
+        public ValueTask ReleasePublishedEndpointAsync(
+            ResourceRef<PublishedEndpoint> endpoint,
+            CancellationToken cancellationToken = default)
+        {
+            Calls.Add("endpoint-release");
+            return _inner.ReleasePublishedEndpointAsync(
+                endpoint,
+                cancellationToken);
         }
 
         public async ValueTask<EngineControlPlaneStatus> EnsureEngineControlPlaneAsync(

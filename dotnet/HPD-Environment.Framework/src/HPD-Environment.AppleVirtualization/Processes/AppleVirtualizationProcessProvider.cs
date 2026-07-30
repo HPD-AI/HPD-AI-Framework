@@ -325,27 +325,84 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
             return stored;
         }
 
-        AppleVirtualizationHelperEnvelope response = await _helper.SendAsync(
-            Request(AppleVirtualizationHelperOperation.ProcessWait) with
-            {
-                ResourceKind = ProcessKind,
-                ResourceId = entry.Resource.Id.Value,
-                ResourceScope = entry.Resource.Scope,
-                ResourceGeneration = entry.Resource.Generation,
-                ProviderHandle = entry.ProviderHandle,
-                ProviderGeneration = _ledger.ProviderGeneration,
-                ProcessHost = Route(entry),
-                ProcessLifecycleRequest = new AppleVirtualizationProcessLifecycleRequest
-                {
-                    ProcessId = entry.Resource.Id.Value,
-                    Timeout = timeout,
-                },
-            },
-            cancellationToken).ConfigureAwait(false);
-
-        if (response.ResponseStatus == AppleVirtualizationHelperResponseStatus.Error)
+        AppleVirtualizationHelperEnvelope response;
+        DateTimeOffset? deadline = timeout is { } requestedTimeout
+            ? DateTimeOffset.UtcNow + requestedTimeout
+            : null;
+        bool firstWaitRequest = true;
+        while (true)
         {
-            Diagnostic diagnostic = ProcessDiagnostics.ToDiagnostic(response.Error, "process.wait");
+            TimeSpan requestTimeout = TimeSpan.FromSeconds(25);
+            if (deadline is { } value)
+            {
+                TimeSpan remaining = firstWaitRequest &&
+                    timeout is { } initialTimeout
+                        ? initialTimeout
+                        : value - DateTimeOffset.UtcNow;
+                if (remaining <= TimeSpan.Zero)
+                {
+                    Diagnostic timeoutDiagnostic =
+                        ProcessDiagnostics.RunTimedOut(
+                            entry.Resource.Id.Value,
+                            timeout);
+                    ProcessInvocationResult timedOut = FailedResult(
+                        entry,
+                        null,
+                        ProcessCompletionKind.TimedOut,
+                        timeoutDiagnostic);
+                    Update(entry, entry.Status with
+                    {
+                        Phase = ResourcePhase.Ready,
+                        ProcessPhase = ProcessInvocationPhase.Stopped,
+                        IoState = ProcessIoState.Closed,
+                        Result = timedOut,
+                        Diagnostics = AppendDiagnostic(
+                            entry.Status.Diagnostics,
+                            timeoutDiagnostic),
+                        ExitedAt = timedOut.ExitedAt,
+                        LastTransitionAt = DateTimeOffset.UtcNow,
+                    });
+                    return timedOut;
+                }
+                requestTimeout = remaining < requestTimeout
+                    ? remaining
+                    : requestTimeout;
+            }
+            response = await _helper.SendAsync(
+                Request(AppleVirtualizationHelperOperation.ProcessWait) with
+                {
+                    ResourceKind = ProcessKind,
+                    ResourceId = entry.Resource.Id.Value,
+                    ResourceScope = entry.Resource.Scope,
+                    ResourceGeneration = entry.Resource.Generation,
+                    ProviderHandle = entry.ProviderHandle,
+                    ProviderGeneration = _ledger.ProviderGeneration,
+                    ProcessHost = Route(entry),
+                    ProcessLifecycleRequest = new AppleVirtualizationProcessLifecycleRequest
+                    {
+                        ProcessId = entry.Resource.Id.Value,
+                        Timeout = requestTimeout,
+                    },
+                },
+                cancellationToken).ConfigureAwait(false);
+            firstWaitRequest = false;
+
+            if (response.ResponseStatus !=
+                    AppleVirtualizationHelperResponseStatus.Error)
+            {
+                break;
+            }
+
+            Diagnostic diagnostic = ProcessDiagnostics.ToDiagnostic(
+                response.Error,
+                "process.wait");
+            if (diagnostic.Code.Value is
+                "AppleVirtualization.GuestAgentProcessWaitTimeout" or
+                "AppleVirtualization.GuestAgentProcessReadFailed")
+            {
+                continue;
+            }
+
             ProcessCompletionKind completionKind = CompletionKindFromHelperError(diagnostic);
             ProcessInvocationResult failed = FailedResult(entry, null, completionKind, diagnostic);
             Update(entry, entry.Status with
@@ -419,9 +476,11 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
 
         ThrowIfHelperError(response, "process.readOutput");
 
+        int emitted = 0;
         if (TryCreateOutputChunk(entry, response.ProcessOutputEvent, out ProcessOutputChunk responseChunk))
         {
             RecordLastOutputSequence(processId, responseChunk.Sequence);
+            emitted++;
             yield return responseChunk;
         }
 
@@ -429,11 +488,14 @@ public sealed class AppleVirtualizationProcessProvider : IProcessProvider, IReta
             .ReadEventsAsync(cancellationToken)
             .ConfigureAwait(false))
         {
+            if (emitted >= MaxReadOutputChunksPerCall)
+                break;
             if (!TryCreateOutputChunk(entry, helperEvent.ProcessOutputEvent, out ProcessOutputChunk outputChunk))
             {
                 continue;
             }
             RecordLastOutputSequence(processId, outputChunk.Sequence);
+            emitted++;
             yield return outputChunk;
         }
     }

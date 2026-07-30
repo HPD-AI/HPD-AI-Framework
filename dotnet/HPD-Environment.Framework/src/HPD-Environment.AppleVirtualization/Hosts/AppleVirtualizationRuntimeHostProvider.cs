@@ -197,11 +197,18 @@ public sealed class AppleVirtualizationRuntimeHostProvider : IRuntimeHostProvide
                 };
             }
 
-            return await EnsureRealVmLifecycleAsync(
-                metadata,
-                spec,
-                observed,
-                cancellationToken).ConfigureAwait(false);
+            if (ShouldStartRealVm())
+                return await EnsureRealVmLifecycleAsync(
+                    metadata,
+                    spec,
+                    observed,
+                    cancellationToken).ConfigureAwait(false);
+            return await EnsureAsync(
+                    metadata,
+                    spec,
+                    observed: null,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         RuntimeHostStatus status = Store(metadata, CreateStatus(metadata, spec, RuntimeHostPhase.Preparing, ResourcePhase.Reconciling), spec);

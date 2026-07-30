@@ -27,7 +27,15 @@ public sealed class AppleVirtualizationExecutionUnitProviderTests
 
         ExecutionUnitStatus status = await provider.EnsureAsync(
             metadata,
-            AppleVirtualizationContractFixtures.ExecutionUnitSpec(),
+            AppleVirtualizationContractFixtures.ExecutionUnitSpec() with
+            {
+                WorkloadStorage = new WorkloadStorageRequest
+                {
+                    LogicalId = "compose-project-test",
+                    PersistenceClass =
+                        WorkloadStoragePersistenceClass.Workload,
+                },
+            },
             observed: null);
 
         status.UnitPhase.Should().Be(ExecutionUnitPhase.Ready);
@@ -38,6 +46,13 @@ public sealed class AppleVirtualizationExecutionUnitProviderTests
         request.UnitId.Should().Be("unit-1");
         request.WorkingDirectory.Should().Be("/hpd/units/unit-1");
         request.Environment.Should().ContainKey("HPD_EXECUTION_USER").WhoseValue.Should().Be("hpd");
+        status.WorkloadStorage.Should().NotBeNull();
+        status.WorkloadStorage!.LogicalId.Should().Be(
+            "compose-project-test");
+        status.WorkloadStorage.EffectiveRuntimePath.Should().Be(
+            "/hpd/units/unit-1");
+        status.WorkloadStorage.ProviderHandle.ProviderId.Should().Be(
+            AppleVirtualizationProviderDescriptor.ProviderId);
     }
 
     [Fact]

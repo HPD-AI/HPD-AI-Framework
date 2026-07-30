@@ -16,4 +16,10 @@
   <ItemGroup>
     <ProjectReference Include="../HPD-Environment.Abstractions/HPD-Environment.Abstractions.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HPD-Environment.AppleVirtualization" />
+    <InternalsVisibleTo Include="HPD-Environment.Local" />
+    <InternalsVisibleTo Include="HPD-Environment.Tests" />
+  </ItemGroup>
 </Project>

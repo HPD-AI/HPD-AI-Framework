@@ -28,6 +28,7 @@ public sealed class AppleVirtualizationNetworkProvider : INetworkProvider, INetw
     public async ValueTask<NetworkStatus> EnsureNetworkAsync(
         ResourceMetadata<Network> metadata,
         NetworkSpec spec,
+        NetworkRealizationContext? realizationContext,
         NetworkStatus? observed,
         CancellationToken cancellationToken = default)
     {
