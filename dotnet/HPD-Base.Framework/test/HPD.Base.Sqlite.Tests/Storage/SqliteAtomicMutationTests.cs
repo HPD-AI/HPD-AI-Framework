@@ -433,25 +433,99 @@ public sealed class SqliteAtomicMutationTests
     }
 
     [Fact]
-    public async Task CleanupFailureCannotReplaceConfirmedCommitOutcome()
+    public async Task RepeatedCleanupFailuresRemainCappedAndVisibleWithoutChangingCommits()
     {
         var disposer = new FaultingResourceDisposer();
-        await using var store = SqliteTestFactory.Create(
-            new HPDBaseSqliteOptions
-            {
-                StoreId = $"atomic-{Guid.NewGuid():N}",
-                CollectionIds = ["items"]
-            },
+        var options = new HPDBaseSqliteOptions
+        {
+            StoreId = $"atomic-{Guid.NewGuid():N}",
+            CollectionIds = ["items"],
+            MaxTrackedMutationExecutions = 2,
+            QuarantinedMutationDrainTimeout = TimeSpan.FromMilliseconds(100)
+        };
+        var store = SqliteTestFactory.Create(
+            options,
             transactionResourceDisposer: disposer);
         var collection = Collection("items");
 
-        var execution = await store.ExecuteAtomicAsync(
-            CreateProcessor(collection, "cleanup-failure", "evt-cleanup-failure"),
+        var first = await store.ExecuteAtomicAsync(
+            CreateProcessor(collection, "cleanup-failure-1", "evt-cleanup-failure-1"),
+            ExecutionRequest());
+        var second = await store.ExecuteAtomicAsync(
+            CreateProcessor(collection, "cleanup-failure-2", "evt-cleanup-failure-2"),
             ExecutionRequest());
 
-        execution.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
-        execution.Processing!.Mutations.Should().ContainSingle();
-        disposer.Calls.Should().Be(1);
+        first.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        second.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        first.Processing!.Mutations.Should().ContainSingle();
+        second.Processing!.Mutations.Should().ContainSingle();
+        disposer.Calls.Should().Be(2);
+        store.QuarantinedMutationCount.Should().Be(2);
+
+        var health = await new SqliteHealthContributor(Options.Create(options), store)
+            .GetHealthAsync();
+        health.Single().Status.Should().Be(HealthStatus.Degraded);
+
+        var rejected = await store.ExecuteAtomicAsync(
+            CreateProcessor(collection, "cleanup-rejected", "evt-cleanup-rejected"),
+            ExecutionRequest() with { AcquisitionTimeout = TimeSpan.FromSeconds(1) });
+        rejected.Outcome.Should().Be(
+            RecordMutationExecutionOutcome.CancelledRollbackConfirmed);
+        disposer.Calls.Should().Be(2);
+
+        await store.DisposeAsync();
+        await disposer.ReleaseAllAsync();
+    }
+
+    [Fact]
+    public async Task UnhealthyDatabaseWinsOverQuarantineDegradation()
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"hpd-base-health-quarantine-{Guid.NewGuid():N}.db");
+        var disposer = new FaultingResourceDisposer();
+        var options = new HPDBaseSqliteOptions
+        {
+            StoreId = $"atomic-{Guid.NewGuid():N}",
+            DataSource = path,
+            CollectionIds = ["items"],
+            FailIfSchemaMissing = true,
+            QuarantinedMutationDrainTimeout = TimeSpan.FromMilliseconds(100)
+        };
+        var store = SqliteTestFactory.Create(
+            options,
+            transactionResourceDisposer: disposer);
+        try
+        {
+            var collection = Collection("items");
+            var execution = await store.ExecuteAtomicAsync(
+                CreateProcessor(collection, "unhealthy-quarantine", "evt-unhealthy-quarantine"),
+                ExecutionRequest());
+            execution.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+            store.QuarantinedMutationCount.Should().Be(1);
+
+            await using (var connection = new SqliteConnection($"Data Source={path};Pooling=False"))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText = $"DROP TABLE {options.SchemaPrefix}records;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var health = await new SqliteHealthContributor(Options.Create(options), store)
+                .GetHealthAsync();
+            health.Single().Status.Should().Be(HealthStatus.Unhealthy);
+            health.Single().Metrics.Should().Contain(metric =>
+                metric.Name == "quarantinedMutations" && metric.NumberValue == 1);
+        }
+        finally
+        {
+            await store.DisposeAsync();
+            await disposer.ReleaseAllAsync();
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     [Fact]
@@ -815,16 +889,37 @@ public sealed class SqliteAtomicMutationTests
 
     private sealed class FaultingResourceDisposer : ISqliteTransactionResourceDisposer
     {
+        private readonly List<(SqliteTransaction Transaction, SqliteConnection Connection)>
+            _resources = [];
+
         public int Calls { get; private set; }
 
         public ValueTask DisposeAsync(
             SqliteTransaction transaction,
             SqliteConnection connection)
         {
-            _ = transaction;
-            _ = connection;
+            _resources.Add((transaction, connection));
             Calls++;
             throw new InvalidOperationException("Injected cleanup failure.");
+        }
+
+        public async ValueTask ReleaseAllAsync()
+        {
+            foreach (var (transaction, connection) in _resources)
+            {
+                try
+                {
+                    await transaction.DisposeAsync();
+                }
+                catch
+                {
+                    // Test cleanup still closes the owning connection.
+                }
+
+                await connection.DisposeAsync();
+            }
+
+            _resources.Clear();
         }
     }
 

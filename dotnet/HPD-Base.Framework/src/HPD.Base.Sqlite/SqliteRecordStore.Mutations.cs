@@ -421,7 +421,7 @@ public sealed partial class SqliteRecordStore
         public void TransferTo(Task operation)
         {
             _transferred = true;
-            owner.TrackQuarantinedMutation(DisposeAfterCompletionAsync(operation));
+            owner.TrackQuarantinedMutation(DisposeAfterCompletionAsync(operation), this);
         }
 
         public async ValueTask DisposeIfOwnedAsync(TimeSpan completionTimeout)
@@ -432,12 +432,16 @@ public sealed partial class SqliteRecordStore
             var cleanup = Task.Run(DisposeCoreAsync, CancellationToken.None);
             try
             {
-                await cleanup.WaitAsync(completionTimeout).ConfigureAwait(false);
+                var disposed = await cleanup
+                    .WaitAsync(completionTimeout)
+                    .ConfigureAwait(false);
+                if (!disposed)
+                    owner.TrackQuarantinedMutation(cleanup, this);
             }
             catch
             {
                 if (!cleanup.IsCompleted)
-                    owner.TrackQuarantinedMutation(cleanup);
+                    owner.TrackQuarantinedMutation(cleanup, this);
                 else
                     ObserveCompletion(cleanup);
             }
@@ -455,26 +459,27 @@ public sealed partial class SqliteRecordStore
             }
         }
 
-        private async Task DisposeAfterCompletionAsync(Task operation)
+        private async Task<bool> DisposeAfterCompletionAsync(Task operation)
         {
             await IgnoreFailureAsync(operation).ConfigureAwait(false);
-            await DisposeCoreAsync().ConfigureAwait(false);
+            return await DisposeCoreAsync().ConfigureAwait(false);
         }
 
-        private async Task DisposeCoreAsync()
+        private async Task<bool> DisposeCoreAsync()
         {
             try
             {
                 await owner._transactionResourceDisposer
                     .DisposeAsync(transaction, connection)
                     .ConfigureAwait(false);
+                executionSlot.Dispose();
+                return true;
             }
             catch
             {
-                // Deferred cleanup must never surface provider details or become unobserved.
+                // Unconfirmed cleanup remains quarantined and retains its capacity slot.
+                return false;
             }
-
-            executionSlot.Dispose();
         }
     }
 

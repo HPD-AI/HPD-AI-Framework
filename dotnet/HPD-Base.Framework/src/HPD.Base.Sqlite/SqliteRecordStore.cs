@@ -41,7 +41,7 @@ public sealed partial class SqliteRecordStore :
     private readonly ISqliteTransactionResourceDisposer _transactionResourceDisposer;
     private readonly SemaphoreSlim _keepAliveGate = new(1, 1);
     private readonly SemaphoreSlim _mutationExecutionSlots;
-    private readonly ConcurrentDictionary<long, Task> _quarantinedMutations = new();
+    private readonly ConcurrentDictionary<long, QuarantinedMutation> _quarantinedMutations = new();
     private SqliteConnection? _keepAliveConnection;
     private long _nextQuarantinedMutationId;
     private int _disposed;
@@ -225,21 +225,27 @@ WHERE event_id = $eventId
             _mutationExecutionSlots.Release(acquiredSlots);
     }
 
-    private void TrackQuarantinedMutation(Task cleanup)
+    private void TrackQuarantinedMutation(Task<bool> cleanup, object resourceOwner)
     {
         var id = Interlocked.Increment(ref _nextQuarantinedMutationId);
-        _quarantinedMutations[id] = cleanup;
+        _quarantinedMutations[id] = new QuarantinedMutation(cleanup, resourceOwner);
         _ = cleanup.ContinueWith(
             completed =>
             {
                 _ = completed.Exception;
-                _quarantinedMutations.TryRemove(id, out var ignored);
-                _ = ignored;
+                if (completed.Status == TaskStatus.RanToCompletion
+                    && completed.Result)
+                {
+                    _quarantinedMutations.TryRemove(id, out var ignored);
+                    _ = ignored;
+                }
             },
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
     }
+
+    private sealed record QuarantinedMutation(Task<bool> Cleanup, object ResourceOwner);
 
     /// <inheritdoc />
     public ValueTask<OperationResult<RecordPage>> ListAsync(CollectionDefinition collection, RecordQuery query, OperationContext context, CancellationToken cancellationToken = default) =>

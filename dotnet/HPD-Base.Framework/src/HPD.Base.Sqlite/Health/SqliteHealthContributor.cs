@@ -28,36 +28,36 @@ internal sealed class SqliteHealthContributor : IBaseHealthContributor
         string? journalMode = null;
         string[] missing = [];
         var quarantinedMutations = _store.QuarantinedMutationCount;
-        if (quarantinedMutations == 0)
+        try
         {
-            try
+            var factory = new SqliteConnectionFactory(_options);
+            SqliteConnectionFactory.InitializeBatteries(_options);
+            await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+                factory.BuildConnectionString());
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            journalMode = await factory.GetJournalModeAsync(connection, cancellationToken).ConfigureAwait(false);
+            var schema = new SqliteSchemaInitializer(_options);
+            if (_options.AutoInitialize && quarantinedMutations == 0)
             {
-                var factory = new SqliteConnectionFactory(_options);
-                await using var connection = await factory.OpenAsync(cancellationToken).ConfigureAwait(false);
-                journalMode = await factory.GetJournalModeAsync(connection, cancellationToken).ConfigureAwait(false);
-                var schema = new SqliteSchemaInitializer(_options);
-                if (_options.AutoInitialize)
-                {
-                    await schema.InitializeAsync(connection, cancellationToken).ConfigureAwait(false);
-                    missing = await schema.GetMissingSchemaPartsAsync(connection, cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    missing = await schema.GetMissingSchemaPartsAsync(connection, cancellationToken).ConfigureAwait(false);
-                    if (missing.Length != 0)
-                    {
-                        status = _options.FailIfSchemaMissing ? HealthStatus.Unhealthy : HealthStatus.Degraded;
-                        summary = "SQLite provider-owned schema is missing required parts.";
-                    }
-                }
+                await schema.InitializeAsync(connection, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+
+            missing = await schema.GetMissingSchemaPartsAsync(connection, cancellationToken).ConfigureAwait(false);
+            if (missing.Length != 0)
             {
-                status = HealthStatus.Unhealthy;
-                summary = "SQLite store is not reachable.";
+                status = _options.FailIfSchemaMissing
+                    ? HealthStatus.Unhealthy
+                    : HealthStatus.Degraded;
+                summary = "SQLite provider-owned schema is missing required parts.";
             }
         }
-        else
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            status = HealthStatus.Unhealthy;
+            summary = "SQLite store is not reachable.";
+        }
+
+        if (quarantinedMutations != 0 && status == HealthStatus.Healthy)
         {
             status = HealthStatus.Degraded;
             summary = "SQLite has indeterminate mutation work in quarantine.";
