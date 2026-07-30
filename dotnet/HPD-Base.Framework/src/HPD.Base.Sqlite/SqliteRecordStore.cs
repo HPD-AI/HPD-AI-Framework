@@ -19,6 +19,7 @@ using Microsoft.Extensions.Logging;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Collections.Concurrent;
 
 namespace HPD.Base.Sqlite;
 
@@ -36,8 +37,14 @@ public sealed partial class SqliteRecordStore :
     private readonly ILogger<SqliteRecordStore> _logger;
     private readonly TimeProvider _timeProvider;
     private readonly ISqliteTransactionController _transactions;
+    private readonly ISqliteSessionOperationController _sessionOperations;
+    private readonly ISqliteTransactionResourceDisposer _transactionResourceDisposer;
     private readonly SemaphoreSlim _keepAliveGate = new(1, 1);
+    private readonly SemaphoreSlim _mutationExecutionSlots;
+    private readonly ConcurrentDictionary<long, Task> _quarantinedMutations = new();
     private SqliteConnection? _keepAliveConnection;
+    private long _nextQuarantinedMutationId;
+    private int _disposed;
 
     /// <summary>
     /// Initializes a SQLite record store with the supplied options and host-owned logger factory.
@@ -55,7 +62,9 @@ public sealed partial class SqliteRecordStore :
         HPDBaseSqliteOptions options,
         ILoggerFactory loggerFactory,
         TimeProvider timeProvider,
-        ISqliteTransactionController? transactions = null)
+        ISqliteTransactionController? transactions = null,
+        ISqliteSessionOperationController? sessionOperations = null,
+        ISqliteTransactionResourceDisposer? transactionResourceDisposer = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loggerFactory);
@@ -65,11 +74,20 @@ public sealed partial class SqliteRecordStore :
         _logger = loggerFactory.CreateLogger<SqliteRecordStore>();
         _timeProvider = timeProvider;
         _transactions = transactions ?? DefaultSqliteTransactionController.Instance;
+        _sessionOperations =
+            sessionOperations ?? DefaultSqliteSessionOperationController.Instance;
+        _transactionResourceDisposer =
+            transactionResourceDisposer ?? DefaultSqliteTransactionResourceDisposer.Instance;
         _connections = new SqliteConnectionFactory(_options);
         _schema = new SqliteSchemaInitializer(_options);
         _names = new SqliteNames(_options);
+        _mutationExecutionSlots = new SemaphoreSlim(
+            _options.MaxTrackedMutationExecutions,
+            _options.MaxTrackedMutationExecutions);
         Capabilities = CreateCapabilities(_options);
     }
+
+    internal int QuarantinedMutationCount => _quarantinedMutations.Count;
 
     /// <inheritdoc />
     public StoreCapabilityDescriptor Capabilities { get; }
@@ -166,13 +184,61 @@ WHERE event_id = $eventId
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
+        var acquiredSlots = 0;
+        using var drainLifetime =
+            new CancellationTokenSource(_options.QuarantinedMutationDrainTimeout);
+        try
+        {
+            while (acquiredSlots < _options.MaxTrackedMutationExecutions)
+            {
+                await _mutationExecutionSlots
+                    .WaitAsync(drainLifetime.Token)
+                    .ConfigureAwait(false);
+                acquiredSlots++;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown is bounded. Active or permanently blocked work remains quarantined.
+        }
+
         if (_keepAliveConnection is not null)
         {
-            await _keepAliveConnection.DisposeAsync().ConfigureAwait(false);
+            try
+            {
+                await _keepAliveConnection.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // Cleanup cannot change an already classified mutation outcome.
+            }
             _keepAliveConnection = null;
         }
 
         _keepAliveGate.Dispose();
+        if (acquiredSlots == _options.MaxTrackedMutationExecutions)
+            _mutationExecutionSlots.Dispose();
+        else if (acquiredSlots != 0)
+            _mutationExecutionSlots.Release(acquiredSlots);
+    }
+
+    private void TrackQuarantinedMutation(Task cleanup)
+    {
+        var id = Interlocked.Increment(ref _nextQuarantinedMutationId);
+        _quarantinedMutations[id] = cleanup;
+        _ = cleanup.ContinueWith(
+            completed =>
+            {
+                _ = completed.Exception;
+                _quarantinedMutations.TryRemove(id, out var ignored);
+                _ = ignored;
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     /// <inheritdoc />
@@ -616,6 +682,8 @@ FROM {_names.MutationJournal};
         if (options.MutationJournalRetention <= TimeSpan.Zero) throw new ArgumentException("SQLite mutation journal retention must be positive.", nameof(options));
         if (options.MutationJournalMaxEntries <= 0) throw new ArgumentException("SQLite mutation journal maximum entries must be positive.", nameof(options));
         if (options.MutationJournalMaxReadSize <= 0) throw new ArgumentException("SQLite mutation journal maximum read size must be positive.", nameof(options));
+        if (options.MaxTrackedMutationExecutions <= 0) throw new ArgumentException("SQLite tracked mutation execution limit must be positive.", nameof(options));
+        if (options.QuarantinedMutationDrainTimeout <= TimeSpan.Zero) throw new ArgumentException("SQLite quarantined mutation drain timeout must be positive.", nameof(options));
     }
 
     private static StoreCapabilityDescriptor CreateCapabilities(HPDBaseSqliteOptions options) => new()

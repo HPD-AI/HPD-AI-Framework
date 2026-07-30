@@ -7,7 +7,10 @@ using HPD.Base.Schema;
 using HPD.Base.Sqlite.Configuration;
 using HPD.Base.Sqlite.Internal;
 using HPD.Base.Stores;
+using HPD.Base.Health;
+using HPD.Base.Sqlite.Health;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 
 namespace HPD.Base.Sqlite.Tests.Storage;
@@ -430,6 +433,112 @@ public sealed class SqliteAtomicMutationTests
     }
 
     [Fact]
+    public async Task CleanupFailureCannotReplaceConfirmedCommitOutcome()
+    {
+        var disposer = new FaultingResourceDisposer();
+        await using var store = SqliteTestFactory.Create(
+            new HPDBaseSqliteOptions
+            {
+                StoreId = $"atomic-{Guid.NewGuid():N}",
+                CollectionIds = ["items"]
+            },
+            transactionResourceDisposer: disposer);
+        var collection = Collection("items");
+
+        var execution = await store.ExecuteAtomicAsync(
+            CreateProcessor(collection, "cleanup-failure", "evt-cleanup-failure"),
+            ExecutionRequest());
+
+        execution.Outcome.Should().Be(RecordMutationExecutionOutcome.Committed);
+        execution.Processing!.Mutations.Should().ContainSingle();
+        disposer.Calls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task NonCooperativeSessionOperationIsQuarantinedWithoutRollbackRace()
+    {
+        var sessions = new BlockingSessionOperationController();
+        var transactions = new FaultingTransactionController();
+        await using var store = SqliteTestFactory.Create(
+            new HPDBaseSqliteOptions
+            {
+                StoreId = $"atomic-{Guid.NewGuid():N}",
+                CollectionIds = ["items"]
+            },
+            transactions: transactions,
+            sessionOperations: sessions);
+        var collection = Collection("items");
+        var processor = new CallbackProcessor(async (session, cancellationToken) =>
+        {
+            _ = await session.GetAsync(
+                collection,
+                new RecordId("blocked"),
+                Operation(BaseOperationKind.Get, collection.Id),
+                cancellationToken);
+            return Ready([]);
+        });
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        var execution = await store.ExecuteAtomicAsync(
+            processor,
+            ExecutionRequest(transactionTimeout: TimeSpan.FromSeconds(1)) with
+            {
+                CommitCompletionTimeout = TimeSpan.FromSeconds(1)
+            });
+
+        started.Stop();
+        execution.Outcome.Should().Be(RecordMutationExecutionOutcome.Indeterminate);
+        started.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(3));
+        transactions.RollbackCalls.Should().Be(0);
+        store.QuarantinedMutationCount.Should().Be(1);
+
+        sessions.Release();
+        await sessions.Exited.WaitAsync(TimeSpan.FromSeconds(3));
+        await WaitForAsync(() => store.QuarantinedMutationCount == 0);
+    }
+
+    [Fact]
+    public async Task PermanentQuarantineIsCappedReportedAndDoesNotBlockStoreDisposal()
+    {
+        var transactions = new FaultingTransactionController { BlockCommit = true };
+        var options = new HPDBaseSqliteOptions
+        {
+            StoreId = $"atomic-{Guid.NewGuid():N}",
+            CollectionIds = ["items"],
+            MaxTrackedMutationExecutions = 1,
+            QuarantinedMutationDrainTimeout = TimeSpan.FromMilliseconds(100)
+        };
+        var store = SqliteTestFactory.Create(options, transactions: transactions);
+        var collection = Collection("items");
+
+        var first = await store.ExecuteAtomicAsync(
+            CreateProcessor(collection, "permanent", "evt-permanent"),
+            ExecutionRequest() with { CommitCompletionTimeout = TimeSpan.FromSeconds(1) });
+        first.Outcome.Should().Be(RecordMutationExecutionOutcome.Indeterminate);
+        store.QuarantinedMutationCount.Should().Be(1);
+
+        var health = await new SqliteHealthContributor(Options.Create(options), store)
+            .GetHealthAsync();
+        health.Single().Status.Should().Be(HealthStatus.Degraded);
+        health.Single().Metrics.Should().Contain(metric =>
+            metric.Name == "quarantinedMutations" && metric.NumberValue == 1);
+
+        var second = await store.ExecuteAtomicAsync(
+            CreateProcessor(collection, "rejected", "evt-rejected"),
+            ExecutionRequest() with { AcquisitionTimeout = TimeSpan.FromSeconds(1) });
+        second.Outcome.Should().Be(
+            RecordMutationExecutionOutcome.CancelledRollbackConfirmed);
+
+        var disposalStarted = System.Diagnostics.Stopwatch.StartNew();
+        await store.DisposeAsync();
+        disposalStarted.Stop();
+        disposalStarted.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1));
+
+        transactions.ReleaseCommit();
+        await transactions.CommitExited.WaitAsync(TimeSpan.FromSeconds(3));
+    }
+
+    [Fact]
     public async Task DescriptorAdvertisesOnlyProvenL30Guarantees()
     {
         await using var store = Store();
@@ -681,6 +790,53 @@ public sealed class SqliteAtomicMutationTests
             {
                 _rollbackExited.TrySetResult();
             }
+        }
+    }
+
+    private sealed class BlockingSessionOperationController
+        : ISqliteSessionOperationController
+    {
+        private readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _exited =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Exited => _exited.Task;
+
+        public void Release() => _release.TrySetResult();
+
+        public async ValueTask BeforeExecuteAsync(CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            await _release.Task.ConfigureAwait(false);
+            _exited.TrySetResult();
+        }
+    }
+
+    private sealed class FaultingResourceDisposer : ISqliteTransactionResourceDisposer
+    {
+        public int Calls { get; private set; }
+
+        public ValueTask DisposeAsync(
+            SqliteTransaction transaction,
+            SqliteConnection connection)
+        {
+            _ = transaction;
+            _ = connection;
+            Calls++;
+            throw new InvalidOperationException("Injected cleanup failure.");
+        }
+    }
+
+    private static async Task WaitForAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
+        while (!condition())
+        {
+            if (DateTime.UtcNow >= deadline)
+                throw new TimeoutException("The bounded condition was not reached.");
+
+            await Task.Delay(10);
         }
     }
 }

@@ -9,15 +9,22 @@ internal static class SqliteTestFactory
     public static SqliteRecordStore Create(
         HPDBaseSqliteOptions? options = null,
         TimeProvider? timeProvider = null,
-        ISqliteTransactionController? transactions = null)
+        ISqliteTransactionController? transactions = null,
+        ISqliteSessionOperationController? sessionOperations = null,
+        ISqliteTransactionResourceDisposer? transactionResourceDisposer = null)
     {
         options ??= new HPDBaseSqliteOptions();
-        return timeProvider is null && transactions is null
+        return timeProvider is null
+            && transactions is null
+            && sessionOperations is null
+            && transactionResourceDisposer is null
             ? new SqliteRecordStore(options, NullLoggerFactory.Instance)
             : new SqliteRecordStore(
                 options,
                 NullLoggerFactory.Instance,
                 timeProvider ?? TimeProvider.System,
-                transactions);
+                transactions,
+                sessionOperations,
+                transactionResourceDisposer);
     }
 }

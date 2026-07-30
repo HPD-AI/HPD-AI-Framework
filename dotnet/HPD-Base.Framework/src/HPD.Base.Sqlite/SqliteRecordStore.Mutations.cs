@@ -43,10 +43,25 @@ public sealed partial class SqliteRecordStore
             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         acquisitionLifetime.CancelAfter(request.AcquisitionTimeout);
 
+        MutationExecutionSlot? executionSlot = null;
         SqliteConnection? connection = null;
         SqliteTransaction? transaction = null;
         try
         {
+            if (Volatile.Read(ref _disposed) != 0)
+                return FailedBeforeCommit(ProviderError(
+                    SqliteErrorCodes.DatabaseUnavailable,
+                    "SQLite mutation execution is unavailable."));
+
+            await _mutationExecutionSlots.WaitAsync(acquisitionLifetime.Token).ConfigureAwait(false);
+            executionSlot = new MutationExecutionSlot(_mutationExecutionSlots);
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                executionSlot.Dispose();
+                return FailedBeforeCommit(ProviderError(
+                    SqliteErrorCodes.DatabaseUnavailable,
+                    "SQLite mutation execution is unavailable."));
+            }
             connection = await OpenInitializedAsync(acquisitionLifetime.Token).ConfigureAwait(false);
             var remaining = request.AcquisitionTimeout - Stopwatch.GetElapsedTime(acquisitionStarted);
             if (remaining <= TimeSpan.Zero)
@@ -60,6 +75,7 @@ public sealed partial class SqliteRecordStore
         {
             if (connection is not null)
                 await connection.DisposeAsync().ConfigureAwait(false);
+            executionSlot?.Dispose();
 
             return CancelledBeforeCommit();
         }
@@ -67,21 +83,30 @@ public sealed partial class SqliteRecordStore
         {
             if (connection is not null)
                 await connection.DisposeAsync().ConfigureAwait(false);
+            executionSlot?.Dispose();
 
             if (IsTransactionConflict(ex))
                 return ConflictBeforeCommit();
 
             return FailedBeforeCommit(MapSqlite<object>(BaseOperationKind.Batch, ex).Error!);
         }
+        catch (ObjectDisposedException)
+        {
+            executionSlot?.Dispose();
+            return FailedBeforeCommit(ProviderError(
+                SqliteErrorCodes.DatabaseUnavailable,
+                "SQLite mutation execution is unavailable."));
+        }
         catch (InvalidOperationException ex)
         {
             if (connection is not null)
                 await connection.DisposeAsync().ConfigureAwait(false);
+            executionSlot?.Dispose();
 
             return FailedBeforeCommit(MapSchemaFailure<object>(ex).Error!);
         }
 
-        var resources = new TransactionResources(connection, transaction);
+        var resources = new TransactionResources(this, connection, transaction, executionSlot!);
         try
         {
             using var processingLifetime =
@@ -114,7 +139,11 @@ public sealed partial class SqliteRecordStore
             }
             catch (OperationCanceledException)
             {
-                await session.CloseAsync().ConfigureAwait(false);
+                if (!await CloseSessionAsync(
+                        session,
+                        resources,
+                        request.CommitCompletionTimeout).ConfigureAwait(false))
+                    return Indeterminate();
                 return await RollbackAsync(
                     resources,
                     transaction,
@@ -127,7 +156,11 @@ public sealed partial class SqliteRecordStore
             }
             catch (Exception) when (processingLifetime.IsCancellationRequested)
             {
-                await session.CloseAsync().ConfigureAwait(false);
+                if (!await CloseSessionAsync(
+                        session,
+                        resources,
+                        request.CommitCompletionTimeout).ConfigureAwait(false))
+                    return Indeterminate();
                 return await RollbackAsync(
                     resources,
                     transaction,
@@ -140,7 +173,11 @@ public sealed partial class SqliteRecordStore
             }
             catch
             {
-                await session.CloseAsync().ConfigureAwait(false);
+                if (!await CloseSessionAsync(
+                        session,
+                        resources,
+                        request.CommitCompletionTimeout).ConfigureAwait(false))
+                    return Indeterminate();
                 return await RollbackAsync(
                     resources,
                     transaction,
@@ -152,7 +189,11 @@ public sealed partial class SqliteRecordStore
                     .ConfigureAwait(false);
             }
 
-            await session.CloseAsync().ConfigureAwait(false);
+            if (!await CloseSessionAsync(
+                    session,
+                    resources,
+                    request.CommitCompletionTimeout).ConfigureAwait(false))
+                return Indeterminate();
 
             if (processingLifetime.IsCancellationRequested)
             {
@@ -296,7 +337,7 @@ public sealed partial class SqliteRecordStore
         }
         finally
         {
-            await resources.DisposeIfOwnedAsync().ConfigureAwait(false);
+            await resources.DisposeIfOwnedAsync(request.CommitCompletionTimeout).ConfigureAwait(false);
         }
     }
 
@@ -349,25 +390,57 @@ public sealed partial class SqliteRecordStore
             async () => await operation().ConfigureAwait(false),
             CancellationToken.None);
 
+    private static async ValueTask<bool> CloseSessionAsync(
+        SqliteAtomicRecordSession session,
+        TransactionResources resources,
+        TimeSpan completionTimeout)
+    {
+        var closeTask = Task.Run(
+            async () => await session.CloseAsync().ConfigureAwait(false),
+            CancellationToken.None);
+        try
+        {
+            await closeTask.WaitAsync(completionTimeout).ConfigureAwait(false);
+            return true;
+        }
+        catch
+        {
+            resources.TransferTo(closeTask);
+            return false;
+        }
+    }
+
     private sealed class TransactionResources(
+        SqliteRecordStore owner,
         SqliteConnection connection,
-        SqliteTransaction transaction)
+        SqliteTransaction transaction,
+        MutationExecutionSlot executionSlot)
     {
         private bool _transferred;
 
         public void TransferTo(Task operation)
         {
             _transferred = true;
-            _ = DisposeAfterCompletionAsync(operation);
+            owner.TrackQuarantinedMutation(DisposeAfterCompletionAsync(operation));
         }
 
-        public async ValueTask DisposeIfOwnedAsync()
+        public async ValueTask DisposeIfOwnedAsync(TimeSpan completionTimeout)
         {
             if (_transferred)
                 return;
 
-            await transaction.DisposeAsync().ConfigureAwait(false);
-            await connection.DisposeAsync().ConfigureAwait(false);
+            var cleanup = Task.Run(DisposeCoreAsync, CancellationToken.None);
+            try
+            {
+                await cleanup.WaitAsync(completionTimeout).ConfigureAwait(false);
+            }
+            catch
+            {
+                if (!cleanup.IsCompleted)
+                    owner.TrackQuarantinedMutation(cleanup);
+                else
+                    ObserveCompletion(cleanup);
+            }
         }
 
         private static async Task IgnoreFailureAsync(Task operation)
@@ -385,23 +458,34 @@ public sealed partial class SqliteRecordStore
         private async Task DisposeAfterCompletionAsync(Task operation)
         {
             await IgnoreFailureAsync(operation).ConfigureAwait(false);
+            await DisposeCoreAsync().ConfigureAwait(false);
+        }
+
+        private async Task DisposeCoreAsync()
+        {
             try
             {
-                await transaction.DisposeAsync().ConfigureAwait(false);
+                await owner._transactionResourceDisposer
+                    .DisposeAsync(transaction, connection)
+                    .ConfigureAwait(false);
             }
             catch
             {
                 // Deferred cleanup must never surface provider details or become unobserved.
             }
 
-            try
-            {
-                await connection.DisposeAsync().ConfigureAwait(false);
-            }
-            catch
-            {
-                // Deferred cleanup must never surface provider details or become unobserved.
-            }
+            executionSlot.Dispose();
+        }
+    }
+
+    private sealed class MutationExecutionSlot(SemaphoreSlim slots) : IDisposable
+    {
+        private int _released;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _released, 1) == 0)
+                slots.Release();
         }
     }
 
@@ -632,6 +716,9 @@ public sealed partial class SqliteRecordStore
                 if (Volatile.Read(ref _lifetimeState) != Active)
                     return SessionClosed<T>();
 
+                await _owner._sessionOperations
+                    .BeforeExecuteAsync(cancellationToken)
+                    .ConfigureAwait(false);
                 return await action(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)

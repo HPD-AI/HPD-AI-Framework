@@ -51,6 +51,18 @@ public sealed class HPDBaseSqliteOptions
     public TimeSpan MutationJournalRetention { get; set; } = TimeSpan.FromDays(7);
     public int MutationJournalMaxEntries { get; set; } = 100_000;
     public int MutationJournalMaxReadSize { get; set; } = 1_000;
+
+    /// <summary>
+    /// Gets or sets the maximum number of mutation executions that may concurrently own SQLite
+    /// transaction resources, including indeterminate operations quarantined after a deadline.
+    /// </summary>
+    public int MaxTrackedMutationExecutions { get; set; } = 8;
+
+    /// <summary>
+    /// Gets or sets the bounded lifetime used to drain quarantined mutation work during disposal.
+    /// </summary>
+    public TimeSpan QuarantinedMutationDrainTimeout { get; set; } = TimeSpan.FromSeconds(5);
+
     public string HealthRefId { get; set; } = HPDBaseSqliteDefaults.DefaultHealthRefId;
     public string DiagnosticRefId { get; set; } = HPDBaseSqliteDefaults.DefaultDiagnosticRefId;
     public string[] CollectionIds { get; set; } = [];
