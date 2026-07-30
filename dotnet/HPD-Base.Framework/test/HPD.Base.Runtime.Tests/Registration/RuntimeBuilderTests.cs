@@ -29,8 +29,22 @@ public sealed class RuntimeBuilderTests
 
         Assert.True(options.FailFastOnDescriptorValidation);
         Assert.True(options.Events.Enabled);
+        Assert.Equal(TimeSpan.FromSeconds(5), options.Events.PostCommitWorkTimeout);
         Assert.True(options.Redaction.RedactPublicErrors);
         Assert.True(options.Limits.MaxPageSize > 0);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(60_001)]
+    public void PostCommitTimeoutMustRemainBounded(int milliseconds)
+    {
+        var services = new ServiceCollection();
+
+        var registration = () => services.AddHPDBaseRuntime(options =>
+            options.Events.PostCommitWorkTimeout = TimeSpan.FromMilliseconds(milliseconds));
+
+        Assert.Throws<ArgumentOutOfRangeException>(registration);
     }
 
     [Fact]

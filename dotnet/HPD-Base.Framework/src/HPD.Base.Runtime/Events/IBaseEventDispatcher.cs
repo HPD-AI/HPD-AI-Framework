@@ -14,3 +14,15 @@ public interface IBaseEventDispatcher
         EventDeliveryGuarantee committedGuarantee,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Observes a record mutation after its store transaction has committed.
+/// Implementations cannot roll the mutation back and must not expose payload data in failures.
+/// </summary>
+public interface IBaseCommittedMutationObserver
+{
+    /// <summary>Observes one committed record mutation before the runtime operation returns.</summary>
+    ValueTask ObserveAsync(
+        BaseRecordMutationEvent mutation,
+        CancellationToken cancellationToken = default);
+}

@@ -35,6 +35,7 @@ internal sealed class BaseRealtimeWebSocketEndpoint(
             context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
             await WriteErrorAsync(context, BaseRealtimeErrorCodes.Disabled, "HPD.BASE realtime is disabled.").ConfigureAwait(false);
             HPDBaseRealtimeAspNetCoreTelemetry.Finish(acceptActivity, "disabled");
+            acceptActivity?.Stop();
             return;
         }
 
@@ -44,6 +45,7 @@ internal sealed class BaseRealtimeWebSocketEndpoint(
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
             await WriteErrorAsync(context, BaseRealtimeErrorCodes.ProtocolInvalid, "This endpoint requires a WebSocket upgrade.").ConfigureAwait(false);
             HPDBaseRealtimeAspNetCoreTelemetry.Finish(acceptActivity, "rejected");
+            acceptActivity?.Stop();
             return;
         }
 
@@ -53,6 +55,7 @@ internal sealed class BaseRealtimeWebSocketEndpoint(
             context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
             await WriteErrorAsync(context, BaseRealtimeErrorCodes.TooManyConnections, "The realtime connection limit has been reached.").ConfigureAwait(false);
             HPDBaseRealtimeAspNetCoreTelemetry.Finish(acceptActivity, "rejected");
+            acceptActivity?.Stop();
             return;
         }
 
@@ -63,6 +66,7 @@ internal sealed class BaseRealtimeWebSocketEndpoint(
             var session = new BaseRealtimeWebSocketSession(
                 socket, feeds, json.Options, options.Value, stats, principal, sessionLogger, timeProvider);
             HPDBaseRealtimeAspNetCoreTelemetry.Finish(acceptActivity, "ok");
+            acceptActivity?.Stop();
             await session.RunAsync(context.RequestAborted).ConfigureAwait(false);
         }
         finally

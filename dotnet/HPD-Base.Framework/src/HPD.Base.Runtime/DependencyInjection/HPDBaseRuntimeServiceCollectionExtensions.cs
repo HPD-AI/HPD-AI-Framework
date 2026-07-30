@@ -64,6 +64,13 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
 
         var options = HPDBaseRuntimeOptions.CreateDefault();
         configure?.Invoke(options);
+        if (options.Events.PostCommitWorkTimeout < TimeSpan.FromMilliseconds(10)
+            || options.Events.PostCommitWorkTimeout > TimeSpan.FromMinutes(1))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(configure),
+                "Post-commit work timeout must be between 10 milliseconds and 1 minute.");
+        }
 
         services.AddHPDEvents();
         services.AddOptions();

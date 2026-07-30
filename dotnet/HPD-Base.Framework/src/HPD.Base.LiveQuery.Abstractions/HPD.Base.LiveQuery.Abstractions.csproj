@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <RootNamespace>HPD.Base.LiveQuery</RootNamespace>
+    <AssemblyName>HPD.Base.LiveQuery.Abstractions</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD.Base.LiveQuery.Abstractions</PackageId>
+    <Description>Server-side live-query contracts for HPD.BASE.</Description>
+    <PackageTags>hpd;base;live-query;dependencies;server;aot</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Base.Dependencies.Abstractions/HPD.Base.Dependencies.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

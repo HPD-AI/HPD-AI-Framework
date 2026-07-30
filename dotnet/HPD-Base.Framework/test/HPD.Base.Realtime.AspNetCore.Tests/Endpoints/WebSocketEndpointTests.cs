@@ -515,8 +515,9 @@ public sealed class WebSocketEndpointTests
 
     private static async Task YieldUntilAsync(Func<bool> condition)
     {
-        for (var attempt = 0; attempt < 1024 && !condition(); attempt++)
-            await Task.Yield();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        while (!condition() && !timeout.IsCancellationRequested)
+            await Task.Delay(TimeSpan.FromMilliseconds(10), timeout.Token).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
         condition().Should().BeTrue();
     }

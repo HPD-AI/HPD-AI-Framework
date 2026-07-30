@@ -80,6 +80,7 @@ internal class FakeRecordStore : IRecordStore
     public RecordCreateRequest? LastCreateRequest { get; private set; }
     public RecordPatchRequest? LastPatchRequest { get; protected set; }
     public RecordReplaceRequest? LastReplaceRequest { get; protected set; }
+    public Action? AfterCreateCommitted { get; set; }
 
     public void AddRecord(RecordEnvelope record)
     {
@@ -127,6 +128,7 @@ internal class FakeRecordStore : IRecordStore
             Metadata = new RecordMetadata()
         };
         Records[id.Value] = record;
+        AfterCreateCommitted?.Invoke();
         return ValueTask.FromResult(new OperationResult<RecordEnvelope>
         {
             Status = OperationStatus.Created,
