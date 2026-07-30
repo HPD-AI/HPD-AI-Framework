@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <RootNamespace>HPD.Base.Application</RootNamespace>
+    <AssemblyName>HPD.Base.Application</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD.Base.Application</PackageId>
+    <Description>Typed, AOT-safe application contracts for HPD.BASE collections, fields, sessions, queries, and mutations.</Description>
+    <PackageTags>hpd;base;application;typed;aot</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Base.Abstractions/HPD.Base.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

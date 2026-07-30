@@ -4,5 +4,7 @@
   <PropertyGroup>
     <!-- HPD.Base follows the current HPD.Auth framework policy for the first release. -->
     <TargetFrameworks>net10.0</TargetFrameworks>
+    <!-- .NET 10 is the minimum BASE contract and maps to released C# 14. -->
+    <LangVersion>14.0</LangVersion>
   </PropertyGroup>
 </Project>
