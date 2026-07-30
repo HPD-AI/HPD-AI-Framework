@@ -41,7 +41,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="README.md" Pack="true" PackagePath="/" />
     <None Include="../HPD.Base.Application.Generators/bin/$(Configuration)/netstandard2.0/HPD.Base.Application.Generators.dll"
           Pack="true"
           PackagePath="analyzers/dotnet/cs"
