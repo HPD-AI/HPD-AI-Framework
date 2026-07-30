@@ -76,4 +76,45 @@ public sealed class ApplicationHostBuilderTests
         register.Should().Throw<InvalidOperationException>()
             .WithMessage("*cannot be installed*SQLite*");
     }
+
+    [Fact]
+    public void OptionalModulesNeedNoEmptyConfigurationCallbacks()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHPDBase(builder => builder
+            .UseInMemory()
+            .AddCollection(GeneratedProject.Collection)
+            .AddFiles()
+            .AddRealtime());
+
+        using ServiceProvider provider = services.BuildServiceProvider(
+            new ServiceProviderOptions { ValidateOnBuild = true });
+        HPDBaseInstalledFeatures manifest =
+            provider.GetRequiredService<HPDBaseInstalledFeatures>();
+
+        manifest.Files.Should().BeTrue();
+        manifest.Dependencies.Should().BeFalse();
+        manifest.Realtime.Should().BeTrue();
+    }
+
+    [Fact]
+    public void UnifiedBuilderRejectsDuplicateModuleInstallation()
+    {
+        Action duplicateRealtime = () => new ServiceCollection().AddHPDBase(
+            builder => builder
+                .UseInMemory()
+                .AddRealtime()
+                .AddRealtime());
+        Action duplicateLiveQuery = () => new ServiceCollection().AddHPDBase(
+            builder => builder
+                .UseInMemory()
+                .AddLiveQueries()
+                .AddLiveQueries());
+
+        duplicateRealtime.Should().Throw<InvalidOperationException>()
+            .WithMessage("*Realtime is already registered*");
+        duplicateLiveQuery.Should().Throw<InvalidOperationException>()
+            .WithMessage("*Live queries are already registered*");
+    }
 }

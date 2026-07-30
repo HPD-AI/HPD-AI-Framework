@@ -117,6 +117,11 @@ public sealed class HPDBaseApplicationBuilder
     public HPDBaseApplicationBuilder AddRealtime(
         Action<BaseRealtimeOptions>? configure = null)
     {
+        if (_realtime is not null)
+        {
+            throw new InvalidOperationException("Realtime is already registered.");
+        }
+
         _realtime = configure ?? (_ => { });
         return this;
     }
@@ -124,6 +129,11 @@ public sealed class HPDBaseApplicationBuilder
     public HPDBaseApplicationBuilder AddLiveQueries(
         Action<BaseLiveQueryOptions>? configure = null)
     {
+        if (_liveQueries is not null)
+        {
+            throw new InvalidOperationException("Live queries are already registered.");
+        }
+
         _liveQueries = configure ?? (_ => { });
         return this;
     }
