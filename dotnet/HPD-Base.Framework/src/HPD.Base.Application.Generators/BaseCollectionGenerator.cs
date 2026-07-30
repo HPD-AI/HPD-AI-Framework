@@ -22,6 +22,8 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         "HPD.Base.Application.Generation.BaseIndexAttribute";
     private const string JsonPropertyNameAttribute =
         "System.Text.Json.Serialization.JsonPropertyNameAttribute";
+    private const string JsonOptionsAttribute =
+        "System.Text.Json.Serialization.JsonSourceGenerationOptionsAttribute";
 
     private static readonly DiagnosticDescriptor TypeMustBePartial = new DiagnosticDescriptor(
         "HPDBASE001",
@@ -183,6 +185,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         var fields = new List<FieldModel>();
         var storedNames = new HashSet<string>(StringComparer.Ordinal);
         var propertyFields = new Dictionary<string, FieldModel>(StringComparer.Ordinal);
+        bool camelCaseJson = UsesCamelCase(jsonContext);
 
         foreach (IPropertySymbol property in symbol.GetMembers()
             .OfType<IPropertySymbol>()
@@ -202,7 +205,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
             string storedName =
                 GetNamedString(fieldAttribute, "Name") ??
                 GetJsonPropertyName(property) ??
-                ToCamelCase(property.Name);
+                (camelCaseJson ? ToCamelCase(property.Name) : property.Name);
 
             if (!storedNames.Add(storedName))
             {
@@ -590,6 +593,39 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
     {
         AttributeData attribute = FindAttribute(property, JsonPropertyNameAttribute);
         return GetConstructorString(attribute, 0);
+    }
+
+    private static bool UsesCamelCase(INamedTypeSymbol jsonContext)
+    {
+        AttributeData options = FindAttribute(jsonContext, JsonOptionsAttribute);
+        if (options == null)
+        {
+            return false;
+        }
+
+        foreach (KeyValuePair<string, TypedConstant> argument in options.NamedArguments)
+        {
+            if (argument.Key != "PropertyNamingPolicy" ||
+                argument.Value.Type == null ||
+                argument.Value.Value == null)
+            {
+                continue;
+            }
+
+            long selected = Convert.ToInt64(
+                argument.Value.Value,
+                CultureInfo.InvariantCulture);
+            IFieldSymbol member = argument.Value.Type.GetMembers()
+                .OfType<IFieldSymbol>()
+                .FirstOrDefault(field =>
+                    field.HasConstantValue &&
+                    Convert.ToInt64(
+                        field.ConstantValue,
+                        CultureInfo.InvariantCulture) == selected);
+            return member != null && member.Name == "CamelCase";
+        }
+
+        return false;
     }
 
     private static bool IsNullable(IPropertySymbol property)

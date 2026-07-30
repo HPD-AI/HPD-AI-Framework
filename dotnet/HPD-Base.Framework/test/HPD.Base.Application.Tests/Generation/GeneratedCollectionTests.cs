@@ -42,4 +42,5 @@ internal sealed partial record GeneratedProject
 }
 
 [JsonSerializable(typeof(GeneratedProject))]
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class GeneratedApplicationJsonContext : JsonSerializerContext;

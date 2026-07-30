@@ -35,5 +35,6 @@ namespace HPD.Base.Application.AotSmoke
     }
 
     [JsonSerializable(typeof(AotProject))]
+    [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
     internal sealed partial class AotApplicationJsonContext : JsonSerializerContext;
 }
