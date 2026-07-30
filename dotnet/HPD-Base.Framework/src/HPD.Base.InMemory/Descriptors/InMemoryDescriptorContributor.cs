@@ -86,15 +86,24 @@ internal sealed class InMemoryDescriptorContributor : IBaseDescriptorContributor
         };
     }
 
-    private static string[] FeatureIds() =>
-    [
-        BaseFeatureIds.RecordsList,
-        BaseFeatureIds.RecordsGet,
-        BaseFeatureIds.RecordsCreate,
-        BaseFeatureIds.RecordsPatch,
-        BaseFeatureIds.RecordsReplace,
-        BaseFeatureIds.RecordsDelete,
-        BaseFeatureIds.RecordsRevision,
-        BaseFeatureIds.RecordsStreaming
-    ];
+    private string[] FeatureIds()
+    {
+        var features = new List<string>
+        {
+            BaseFeatureIds.RecordsList,
+            BaseFeatureIds.RecordsGet,
+            BaseFeatureIds.RecordsCreate,
+            BaseFeatureIds.RecordsPatch,
+            BaseFeatureIds.RecordsReplace,
+            BaseFeatureIds.RecordsDelete,
+            BaseFeatureIds.RecordsRevision,
+            BaseFeatureIds.StoreBatchAtomic,
+            BaseFeatureIds.StoreBatchCrossCollection,
+            BaseFeatureIds.RecordsStreaming
+        };
+        if (_store.Capabilities.Upsert is not null)
+            features.Add(BaseFeatureIds.StoreRecordUpsertAtomic);
+
+        return features.ToArray();
+    }
 }

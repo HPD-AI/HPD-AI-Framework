@@ -50,14 +50,10 @@ public sealed class SqliteMutationJournalTests
             new RecordDeleteRequest { ReturnPrevious = true },
             Operation(BaseOperationKind.Delete, 4));
 
-        create.Events.Should().ContainSingle();
-        patch.Events.Should().ContainSingle();
-        replace.Events.Should().ContainSingle();
-        delete.Events.Should().ContainSingle();
-        create.Events![0].Guarantee.Should().Be(EventDeliveryGuarantee.Transactional);
-        patch.Events![0].Guarantee.Should().Be(EventDeliveryGuarantee.Transactional);
-        replace.Events![0].Guarantee.Should().Be(EventDeliveryGuarantee.Transactional);
-        delete.Events![0].Guarantee.Should().Be(EventDeliveryGuarantee.Transactional);
+        create.Status.Should().Be(OperationStatus.Created);
+        patch.Status.Should().Be(OperationStatus.Updated);
+        replace.Status.Should().Be(OperationStatus.Updated);
+        delete.Status.Should().Be(OperationStatus.Deleted);
 
         var page = await store.ReadMutationJournalAsync(new BaseMutationJournalReadRequest { Limit = 10 });
         page.Entries.Select(entry => entry.Position.Value).Should().Equal(1, 2, 3, 4);
@@ -67,11 +63,9 @@ public sealed class SqliteMutationJournalTests
             BaseOperationKind.Replace,
             BaseOperationKind.Delete);
         page.Entries.Should().OnlyContain(entry => entry.Visibility == VisibilityLevel.Public);
-        page.Entries.Select(entry => entry.EventId).Should().Equal(
-            create.Events[0].EventId,
-            patch.Events[0].EventId,
-            replace.Events[0].EventId,
-            delete.Events[0].EventId);
+        page.Entries.Select(entry => entry.EventId)
+            .Should().OnlyHaveUniqueItems()
+            .And.OnlyContain(eventId => !string.IsNullOrWhiteSpace(eventId));
         page.Entries[0].Before.Should().BeNull();
         page.Entries[0].After.Should().NotBeNull();
         page.Entries[1].Before.Should().NotBeNull();
@@ -185,11 +179,14 @@ public sealed class SqliteMutationJournalTests
                     Payload = Payload("old")
                 },
                 Operation(BaseOperationKind.Create, 1));
+            var committed = await store.ReadMutationJournalAsync(
+                new BaseMutationJournalReadRequest { Limit = 10 });
+            var eventId = committed.Entries.Should().ContainSingle().Subject.EventId;
             time.Advance(TimeSpan.FromSeconds(9));
 
             var page = await store.ReadMutationJournalAsync(
                 new BaseMutationJournalReadRequest { Limit = 10 });
-            var found = await store.FindMutationJournalEntryAsync(created.Events![0].EventId);
+            var found = await store.FindMutationJournalEntryAsync(eventId);
 
             page.Earliest.Value.Should().Be(2);
             page.HighWatermark.Value.Should().Be(1);

@@ -706,7 +706,10 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
             return false;
         }
 
-        if (!StoreAllows(storeResult.Value.Capabilities.Crud, operation))
+        if (!StoreAllows(
+            storeResult.Value.Capabilities.Read,
+            storeResult.Value.Capabilities.Mutation,
+            operation))
         {
             failure = OperationResults.Unsupported<BasePolicyExplainResponse>(new BaseError
             {
@@ -846,15 +849,18 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
                 _ => fields[0]
             };
 
-    private static bool StoreAllows(CrudCapability capability, BaseOperationKind operation) =>
+    private static bool StoreAllows(
+        RecordReadCapability read,
+        RecordMutationCapability mutation,
+        BaseOperationKind operation) =>
         operation switch
         {
-            BaseOperationKind.List => capability.List,
-            BaseOperationKind.Get => capability.Get,
-            BaseOperationKind.Create => capability.Create,
-            BaseOperationKind.Patch => capability.Patch,
-            BaseOperationKind.Replace => capability.Replace,
-            BaseOperationKind.Delete => capability.Delete,
+            BaseOperationKind.List => read.List,
+            BaseOperationKind.Get => read.Get,
+            BaseOperationKind.Create => mutation.Create,
+            BaseOperationKind.Patch => mutation.Patch,
+            BaseOperationKind.Replace => mutation.Replace,
+            BaseOperationKind.Delete => mutation.Delete,
             _ => false
         };
 

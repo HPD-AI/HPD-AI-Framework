@@ -6,7 +6,7 @@ public abstract class RecordStoreCopyIsolationConformanceTests<TFixture> : Recor
     [Fact]
     public async Task CreateInputAndGetResultsAreDeepCopiedWhenCrudIsSupported()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.Get)
+        if (!Capabilities.Mutation.Create || !Capabilities.Read.Get)
         {
             return;
         }
@@ -45,7 +45,7 @@ public abstract class RecordStoreCopyIsolationConformanceTests<TFixture> : Recor
     [Fact]
     public async Task ListAndDeletePreviousResultsAreDeepCopiedWhenSupported()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.List || !Capabilities.Crud.Get || !Capabilities.Crud.Delete)
+        if (!Capabilities.Mutation.Create || !Capabilities.Read.List || !Capabilities.Read.Get || !Capabilities.Mutation.Delete)
         {
             return;
         }
@@ -77,7 +77,7 @@ public abstract class RecordStoreCopyIsolationConformanceTests<TFixture> : Recor
     [Fact]
     public async Task PatchInputIsDeepCopiedWhenSupported()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.Patch || !Capabilities.Crud.Get)
+        if (!Capabilities.Mutation.Create || !Capabilities.Mutation.Patch || !Capabilities.Read.Get)
         {
             return;
         }
@@ -114,7 +114,7 @@ public abstract class RecordStoreCopyIsolationConformanceTests<TFixture> : Recor
     [Fact]
     public async Task ReplaceInputIsDeepCopiedWhenSupported()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.Replace || !Capabilities.Crud.Get)
+        if (!Capabilities.Mutation.Create || !Capabilities.Mutation.Replace || !Capabilities.Read.Get)
         {
             return;
         }

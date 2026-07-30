@@ -75,7 +75,6 @@ internal static partial class HPDBaseRuntimeLog
         BaseOperationKind.Upsert => "upsert",
         BaseOperationKind.Delete => "delete",
         BaseOperationKind.Batch => "batch",
-        BaseOperationKind.Transaction => "transaction",
         BaseOperationKind.SchemaRead => "schemaRead",
         BaseOperationKind.SchemaWrite => "schemaWrite",
         BaseOperationKind.FileRead => "fileRead",

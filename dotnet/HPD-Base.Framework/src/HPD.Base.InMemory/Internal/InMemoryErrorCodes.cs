@@ -13,9 +13,9 @@ internal static class InMemoryErrorCodes
     public const string PatchUnsupportedShape = "base.inmemory.patch.unsupportedShape";
     public const string EmptyPatch = "base.inmemory.patch.empty";
     public const string InvalidField = "base.inmemory.field.invalid";
-    public const string RevisionMismatch = "base.inmemory.revision.mismatch";
-    public const string ExpectedRevisionConflict = "base.inmemory.revision.expectedConflict";
     public const string UnsupportedQuery = "base.inmemory.query.unsupported";
     public const string InvalidQuery = "base.inmemory.query.invalid";
-    public const string StoreError = "base.inmemory.store.error";
+    public const string MutationProcessorFailed = "base.inmemory.mutation.processorFailed";
+    public const string SessionClosed = "base.inmemory.mutation.sessionClosed";
+    public const string SessionOperationCancelled = "base.inmemory.mutation.sessionOperationCancelled";
 }

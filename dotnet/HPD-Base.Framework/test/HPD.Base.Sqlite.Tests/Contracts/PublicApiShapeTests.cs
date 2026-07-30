@@ -1,5 +1,8 @@
 using FluentAssertions;
+using HPD.Base.Stores;
 using HPD.Base.Sqlite.Configuration;
+using HPD.Base.Sqlite.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using System.Data.Common;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -46,5 +49,46 @@ public sealed class PublicApiShapeTests
         constructors[0].GetParameters().Select(parameter => parameter.ParameterType).Should().Equal(
             typeof(HPDBaseSqliteOptions),
             typeof(Microsoft.Extensions.Logging.ILoggerFactory));
+    }
+
+    [Fact]
+    public void RecordStoreExposesOnlyTheExecutorMutationContracts()
+    {
+        typeof(SqliteRecordStore).GetInterfaces().Should().Contain(typeof(IRecordMutationStore));
+        typeof(SqliteRecordStore).GetInterfaces().Should().Contain(typeof(IAtomicRecordStore));
+        typeof(SqliteRecordStore).GetInterfaces()
+            .Select(type => type.Name)
+            .Should().NotContain("IRevisionedRecordStore");
+
+        var obsoleteMutationMethods = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "CreateAsync",
+            "PatchAsync",
+            "PatchIfRevisionAsync",
+            "ReplaceAsync",
+            "ReplaceIfRevisionAsync",
+            "DeleteAsync"
+        };
+        typeof(SqliteRecordStore)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Select(method => method.Name)
+            .Should().NotContain(name => obsoleteMutationMethods.Contains(name));
+    }
+
+    [Fact]
+    public async Task DependencyInjectionRegistersOnlyTheFinalMutationInterfaces()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddHPDBaseSqliteStore();
+
+        services.Select(descriptor => descriptor.ServiceType.Name)
+            .Should().NotContain("IRevisionedRecordStore");
+        services.Should().Contain(descriptor => descriptor.ServiceType == typeof(IRecordMutationStore));
+        services.Should().Contain(descriptor => descriptor.ServiceType == typeof(IAtomicRecordStore));
+
+        await using var provider = services.BuildServiceProvider();
+        provider.GetRequiredService<IRecordMutationStore>()
+            .Should().BeSameAs(provider.GetRequiredService<IAtomicRecordStore>());
     }
 }

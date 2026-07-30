@@ -1,6 +1,7 @@
 using HPD.Base.InMemory.Configuration;
 using HPD.Base.InMemory.Internal;
 using HPD.Base.InMemory.Observability;
+using HPD.Base.Events;
 using HPD.Base.Observability;
 using HPD.Base.Query;
 using HPD.Base.Records;
@@ -22,10 +23,12 @@ namespace HPD.Base.InMemory;
 /// <summary>
 /// Process-local, thread-safe, non-durable HPD.BASE record store implementation.
 /// </summary>
-public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingRecordStore
+public sealed class InMemoryRecordStore : IAtomicRecordStore, IStreamingRecordStore
 {
     private readonly HPDBaseInMemoryOptions _options;
-    private readonly InMemoryStoreState _state = new();
+    private readonly SemaphoreSlim _stateGate = new(1, 1);
+    private InMemoryStoreState _publishedState = new();
+    private long _generation;
 
     /// <summary>
     /// Initializes a new store using configured options.
@@ -83,14 +86,11 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
             return ValueTask.FromResult(queryError);
         }
 
-        StoredRecord[] snapshot;
-        lock (_state.Gate)
-        {
-            snapshot = GetCollectionOrNull(collection.Id)?.RecordsById.Values
-                .OrderBy(record => record.Sequence)
-                .ThenBy(record => record.Id.Value, StringComparer.Ordinal)
-                .ToArray() ?? [];
-        }
+        var published = Volatile.Read(ref _publishedState);
+        var snapshot = GetCollectionOrNull(published, collection.Id)?.RecordsById.Values
+            .OrderBy(record => record.Sequence)
+            .ThenBy(record => record.Id.Value, StringComparer.Ordinal)
+            .ToArray() ?? [];
 
         var filtered = new List<StoredRecord>(snapshot.Length);
         foreach (var record in snapshot)
@@ -152,7 +152,19 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
         OperationContext context,
         CancellationToken cancellationToken = default)
     {
+        var published = Volatile.Read(ref _publishedState);
+        return GetFromStateAsync(published, collection, id, context, cancellationToken);
+    }
+
+    private static ValueTask<OperationResult<RecordEnvelope>> GetFromStateAsync(
+        InMemoryStoreState state,
+        CollectionDefinition collection,
+        RecordId id,
+        OperationContext context,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(collection);
+        ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
 
         if (InMemoryValidation.ValidateCollectionId<RecordEnvelope>(collection.Id) is { } collectionError)
@@ -165,33 +177,220 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
             return ValueTask.FromResult(idError);
         }
 
-        lock (_state.Gate)
+        var record = GetCollectionOrNull(state, collection.Id)?.RecordsById.GetValueOrDefault(id.Value);
+        if (record is null)
         {
-            var record = GetCollectionOrNull(collection.Id)?.RecordsById.GetValueOrDefault(id.Value);
-            if (record is null)
-            {
-                return ValueTask.FromResult(InMemoryResultFactory.NotFound<RecordEnvelope>(id.Value));
-            }
-
-            var envelope = RecordCloneHelpers.CloneEnvelope(record);
-            return ValueTask.FromResult(InMemoryResultFactory.WithRevision(OperationResults.Ok(envelope), record.Metadata));
+            return ValueTask.FromResult(InMemoryResultFactory.NotFound<RecordEnvelope>(id.Value));
         }
+
+        var envelope = RecordCloneHelpers.CloneEnvelope(record);
+        return ValueTask.FromResult(InMemoryResultFactory.WithRevision(OperationResults.Ok(envelope), record.Metadata));
     }
 
     /// <inheritdoc />
-    public ValueTask<OperationResult<RecordEnvelope>> CreateAsync(
-        CollectionDefinition collection,
-        RecordCreateRequest request,
-        OperationContext context,
+    public ValueTask<RecordMutationExecutionResult> ExecuteSingleAsync(
+        IAtomicMutationProcessor processor,
+        RecordMutationExecutionRequest request,
         CancellationToken cancellationToken = default) =>
-        HPDBaseInMemoryTelemetry.TraceAsync(
-            HPDBaseTelemetrySpans.StoreCreate,
-            BaseOperationKind.Create,
-            _options.StoreId,
-            CollectionIdForTelemetry(collection),
-            () => CreateCoreAsync(collection, request, context, cancellationToken));
+        ExecuteMutationAsync(processor, request, cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<RecordMutationExecutionResult> ExecuteAtomicAsync(
+        IAtomicMutationProcessor processor,
+        RecordMutationExecutionRequest request,
+        CancellationToken cancellationToken = default) =>
+        ExecuteMutationAsync(processor, request, cancellationToken);
+
+    private async ValueTask<RecordMutationExecutionResult> ExecuteMutationAsync(
+        IAtomicMutationProcessor processor,
+        RecordMutationExecutionRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(processor);
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateExecutionRequest(request);
+
+        InMemoryStoreState working;
+        long capturedGeneration;
+        using var acquisitionLifetime =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        acquisitionLifetime.CancelAfter(request.AcquisitionTimeout);
+        try
+        {
+            await _stateGate.WaitAsync(acquisitionLifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return cancellationToken.IsCancellationRequested
+                ? CancelledRollback("The mutation was cancelled before its state snapshot was acquired.")
+                : Rollback(
+                    BaseMutationErrorCodes.TransactionTimeout,
+                    "The mutation state snapshot could not be acquired in time.");
+        }
+
+        try
+        {
+            capturedGeneration = _generation;
+            working = Volatile.Read(ref _publishedState).Clone();
+        }
+        finally
+        {
+            _stateGate.Release();
+        }
+
+        if (acquisitionLifetime.IsCancellationRequested)
+        {
+            return cancellationToken.IsCancellationRequested
+                ? CancelledRollback("The mutation was cancelled while its state snapshot was acquired.")
+                : Rollback(
+                    BaseMutationErrorCodes.TransactionTimeout,
+                    "The mutation state snapshot could not be acquired in time.");
+        }
+
+        using var processingLifetime =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        processingLifetime.CancelAfter(request.TransactionTimeout);
+        var session = new AtomicSession(this, working);
+        AtomicMutationProcessingResult processing;
+        try
+        {
+            var processingTask =
+                processor.ProcessAsync(session, processingLifetime.Token).AsTask();
+            try
+            {
+                processing = await processingTask
+                    .WaitAsync(processingLifetime.Token)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                ObserveCompletion(processingTask);
+                throw;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            await session.CloseAsync().ConfigureAwait(false);
+            return cancellationToken.IsCancellationRequested
+                ? CancelledRollback("The mutation was cancelled before commit.")
+                : Rollback(
+                    BaseMutationErrorCodes.TransactionTimeout,
+                    "The mutation transaction exceeded its bounded lifetime.");
+        }
+        catch
+        {
+            await session.CloseAsync().ConfigureAwait(false);
+            return Rollback(
+                InMemoryErrorCodes.MutationProcessorFailed,
+                "The mutation processor failed.");
+        }
+
+        await session.CloseAsync().ConfigureAwait(false);
+        if (processingLifetime.IsCancellationRequested)
+        {
+            return cancellationToken.IsCancellationRequested
+                ? CancelledRollback("The mutation was cancelled before commit.", processing)
+                : Rollback(
+                    BaseMutationErrorCodes.TransactionTimeout,
+                    "The mutation transaction exceeded its bounded lifetime.",
+                    processing);
+        }
+
+        if (processing.Outcome != AtomicMutationProcessingOutcome.ReadyToCommit)
+        {
+            return new RecordMutationExecutionResult(
+                RecordMutationExecutionOutcome.RollbackConfirmed,
+                processing,
+                processing.Error);
+        }
+
+        using var commitLifetime = new CancellationTokenSource(request.CommitCompletionTimeout);
+        try
+        {
+            await _stateGate.WaitAsync(commitLifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return Rollback(
+                BaseMutationErrorCodes.TransactionTimeout,
+                "The mutation state could not be published in time.",
+                processing);
+        }
+
+        try
+        {
+            if (_generation != capturedGeneration)
+            {
+                return new RecordMutationExecutionResult(
+                    RecordMutationExecutionOutcome.ConflictRollbackConfirmed,
+                    processing,
+                    Error(
+                        BaseMutationErrorCodes.TransactionConflict,
+                        "The InMemory mutation snapshot was superseded by a concurrent commit."));
+            }
+
+            Volatile.Write(ref _publishedState, working);
+            _generation++;
+            return new RecordMutationExecutionResult(
+                RecordMutationExecutionOutcome.Committed,
+                processing);
+        }
+        finally
+        {
+            _stateGate.Release();
+        }
+    }
+
+    private static void ValidateExecutionRequest(RecordMutationExecutionRequest request)
+    {
+        if (request.AcquisitionTimeout <= TimeSpan.Zero
+            || request.TransactionTimeout <= TimeSpan.Zero
+            || request.CommitCompletionTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(request), "Execution timeouts must be positive.");
+        }
+    }
+
+    private static RecordMutationExecutionResult Rollback(
+        string code,
+        string message,
+        AtomicMutationProcessingResult? processing = null) =>
+        new(
+            RecordMutationExecutionOutcome.RollbackConfirmed,
+            processing ?? FailedProcessing(code, message),
+            Error(code, message));
+
+    private static RecordMutationExecutionResult CancelledRollback(
+        string message,
+        AtomicMutationProcessingResult? processing = null) =>
+        new(
+            RecordMutationExecutionOutcome.CancelledRollbackConfirmed,
+            processing ?? FailedProcessing(BaseMutationErrorCodes.TransactionTimeout, message),
+            Error(BaseMutationErrorCodes.TransactionTimeout, message));
+
+    private static AtomicMutationProcessingResult FailedProcessing(string code, string message) =>
+        new(
+            AtomicMutationProcessingOutcome.Failed,
+            [],
+            Error(code, message));
+
+    private static BaseError Error(string code, string message) => new()
+    {
+        Code = code,
+        Message = message,
+        Category = ErrorCategory.Store,
+        Store = new StoreErrorInfo { Retryable = false }
+    };
+
+    private static void ObserveCompletion(Task task) =>
+        _ = task.ContinueWith(
+            completed => _ = completed.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
 
     private ValueTask<OperationResult<RecordEnvelope>> CreateCoreAsync(
+        InMemoryStoreState working,
         CollectionDefinition collection,
         RecordCreateRequest request,
         OperationContext context,
@@ -228,89 +427,40 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
             }
         }
 
-        lock (_state.Gate)
+        var id = request.RequestedId ?? new RecordId(NextRecordId(working));
+        if (request.RequestedId is not null && !_options.AllowClientRequestedIds)
         {
-            var id = request.RequestedId ?? new RecordId(NextRecordId());
-            if (request.RequestedId is not null && !_options.AllowClientRequestedIds)
-            {
-                return ValueTask.FromResult(InMemoryResultFactory.Unsupported<RecordEnvelope>(
-                    InMemoryErrorCodes.RequestedIdUnsupported,
-                    "Client-requested ids are disabled for this InMemory store.",
-                    id.Value));
-            }
-
-            if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id.Value) is { } idError)
-            {
-                return ValueTask.FromResult(idError);
-            }
-
-            var state = GetOrCreateCollection(collection.Id);
-            if (state.RecordsById.ContainsKey(id.Value))
-            {
-                return ValueTask.FromResult(InMemoryResultFactory.DuplicateId<RecordEnvelope>(id.Value));
-            }
-
-            var now = Now(context);
-            var revision = NextRevision();
-            var metadata = new RecordMetadata
-            {
-                CreatedAt = now,
-                UpdatedAt = now,
-                Revision = revision,
-                ETag = ETag(revision),
-                StoreId = _options.StoreId
-            };
-            var record = new StoredRecord(collection.Id, id, payload, metadata, ++_state.NextSequence);
-            state.RecordsById.Add(id.Value, record);
-
-            var result = OperationResults.Created(RecordCloneHelpers.CloneEnvelope(record));
-            return ValueTask.FromResult(InMemoryResultFactory.WithRevision(result, metadata));
+            return ValueTask.FromResult(InMemoryResultFactory.Unsupported<RecordEnvelope>(
+                InMemoryErrorCodes.RequestedIdUnsupported,
+                "Client-requested ids are disabled for this InMemory store.",
+                id.Value));
         }
+
+        if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id.Value) is { } idError)
+            return ValueTask.FromResult(idError);
+
+        var state = GetOrCreateCollection(working, collection.Id);
+        if (state.RecordsById.ContainsKey(id.Value))
+            return ValueTask.FromResult(InMemoryResultFactory.DuplicateId<RecordEnvelope>(id.Value));
+
+        var now = Now(context);
+        var revision = NextRevision(working);
+        var metadata = new RecordMetadata
+        {
+            CreatedAt = now,
+            UpdatedAt = now,
+            Revision = revision,
+            ETag = ETag(revision),
+            StoreId = _options.StoreId
+        };
+        var record = new StoredRecord(collection.Id, id, payload, metadata, ++working.NextSequence);
+        state.RecordsById.Add(id.Value, record);
+        return ValueTask.FromResult(InMemoryResultFactory.WithRevision(
+            OperationResults.Created(RecordCloneHelpers.CloneEnvelope(record)), metadata));
     }
 
-    /// <inheritdoc />
-    public ValueTask<OperationResult<RecordEnvelope>> PatchAsync(
-        CollectionDefinition collection,
-        RecordId id,
-        RecordPatchRequest request,
-        OperationContext context,
-        CancellationToken cancellationToken = default) =>
-        HPDBaseInMemoryTelemetry.TraceAsync(
-            HPDBaseTelemetrySpans.StorePatch,
-            BaseOperationKind.Patch,
-            _options.StoreId,
-            CollectionIdForTelemetry(collection),
-            () => PatchCoreAsync(collection, id, request, request.ExpectedRevision, context, cancellationToken));
-
-    /// <inheritdoc />
-    public ValueTask<OperationResult<RecordEnvelope>> ReplaceAsync(
-        CollectionDefinition collection,
-        RecordId id,
-        RecordReplaceRequest request,
-        OperationContext context,
-        CancellationToken cancellationToken = default) =>
-        HPDBaseInMemoryTelemetry.TraceAsync(
-            HPDBaseTelemetrySpans.StoreReplace,
-            BaseOperationKind.Replace,
-            _options.StoreId,
-            CollectionIdForTelemetry(collection),
-            () => ReplaceCoreAsync(collection, id, request, request.ExpectedRevision, context, cancellationToken));
-
-    /// <inheritdoc />
-    public ValueTask<OperationResult<DeleteResult>> DeleteAsync(
-        CollectionDefinition collection,
-        RecordId id,
-        RecordDeleteRequest request,
-        OperationContext context,
-        CancellationToken cancellationToken = default) =>
-        HPDBaseInMemoryTelemetry.TraceAsync(
-            HPDBaseTelemetrySpans.StoreDelete,
-            BaseOperationKind.Delete,
-            _options.StoreId,
-            CollectionIdForTelemetry(collection),
-            () => DeleteCoreAsync(collection, id, request, context, cancellationToken));
-
     private ValueTask<OperationResult<DeleteResult>> DeleteCoreAsync(
+        InMemoryStoreState working,
         CollectionDefinition collection,
         RecordId id,
         RecordDeleteRequest request,
@@ -331,60 +481,20 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
             return ValueTask.FromResult(idError);
         }
 
-        lock (_state.Gate)
+        var state = GetCollectionOrNull(working, collection.Id);
+        if (state is null || !state.RecordsById.TryGetValue(id.Value, out var current))
+            return ValueTask.FromResult(InMemoryResultFactory.NotFound<DeleteResult>(id.Value));
+
+        if (request.ExpectedRevision is { } expected && !RevisionEquals(current.Metadata.Revision, expected))
         {
-            var state = GetCollectionOrNull(collection.Id);
-            if (state is null || !state.RecordsById.TryGetValue(id.Value, out var current))
-            {
-                return ValueTask.FromResult(InMemoryResultFactory.NotFound<DeleteResult>(id.Value));
-            }
-
-            if (request.ExpectedRevision is { } expected && !RevisionEquals(current.Metadata.Revision, expected))
-            {
-                return ValueTask.FromResult(InMemoryResultFactory.RevisionConflict<DeleteResult>(expected, current.Metadata.Revision, id.Value));
-            }
-
-            var previous = request.ReturnPrevious ? RecordCloneHelpers.CloneEnvelope(current) : null;
-            state.RecordsById.Remove(id.Value);
-            var result = OperationResults.Deleted(new DeleteResult
-            {
-                Id = id,
-                Deleted = true,
-                Previous = previous
-            });
-            return ValueTask.FromResult(InMemoryResultFactory.WithRevision(result, current.Metadata));
+            return ValueTask.FromResult(InMemoryResultFactory.RevisionConflict<DeleteResult>(expected, current.Metadata.Revision, id.Value));
         }
+
+        var previous = request.ReturnPrevious ? RecordCloneHelpers.CloneEnvelope(current) : null;
+        state.RecordsById.Remove(id.Value);
+        var result = OperationResults.Deleted(new DeleteResult { Id = id, Deleted = true, Previous = previous });
+        return ValueTask.FromResult(InMemoryResultFactory.WithRevision(result, current.Metadata));
     }
-
-    /// <inheritdoc />
-    public ValueTask<OperationResult<RecordEnvelope>> PatchIfRevisionAsync(
-        CollectionDefinition collection,
-        RecordId id,
-        RecordPatchRequest request,
-        RevisionToken expectedRevision,
-        OperationContext context,
-        CancellationToken cancellationToken = default) =>
-        HPDBaseInMemoryTelemetry.TraceAsync(
-            HPDBaseTelemetrySpans.StorePatchIfRevision,
-            BaseOperationKind.Patch,
-            _options.StoreId,
-            CollectionIdForTelemetry(collection),
-            () => PatchCoreAsync(collection, id, request, expectedRevision, context, cancellationToken));
-
-    /// <inheritdoc />
-    public ValueTask<OperationResult<RecordEnvelope>> ReplaceIfRevisionAsync(
-        CollectionDefinition collection,
-        RecordId id,
-        RecordReplaceRequest request,
-        RevisionToken expectedRevision,
-        OperationContext context,
-        CancellationToken cancellationToken = default) =>
-        HPDBaseInMemoryTelemetry.TraceAsync(
-            HPDBaseTelemetrySpans.StoreReplaceIfRevision,
-            BaseOperationKind.Replace,
-            _options.StoreId,
-            CollectionIdForTelemetry(collection),
-            () => ReplaceCoreAsync(collection, id, request, expectedRevision, context, cancellationToken));
 
     /// <inheritdoc />
     public ValueTask<OperationResult<AsyncStream<RecordEnvelope>>> OpenStreamAsync(
@@ -476,10 +586,10 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
     }
 
     private ValueTask<OperationResult<RecordEnvelope>> PatchCoreAsync(
+        InMemoryStoreState working,
         CollectionDefinition collection,
         RecordId id,
         RecordPatchRequest request,
-        RevisionToken? expectedRevision,
         OperationContext context,
         CancellationToken cancellationToken)
     {
@@ -495,11 +605,6 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
         if (InMemoryValidation.ValidateRecordId<RecordEnvelope>(id.Value) is { } idError)
         {
             return ValueTask.FromResult(idError);
-        }
-
-        if (ValidateExpectedRevisionInputs<RecordEnvelope>(request.ExpectedRevision, expectedRevision) is { } revisionInputError)
-        {
-            return ValueTask.FromResult(revisionInputError);
         }
 
         if (request.Patch.Kind != RecordPayloadKind.FieldMap)
@@ -526,43 +631,34 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
             }
         }
 
-        lock (_state.Gate)
+        var state = GetCollectionOrNull(working, collection.Id);
+        if (state is null || !state.RecordsById.TryGetValue(id.Value, out var current))
+            return ValueTask.FromResult(InMemoryResultFactory.NotFound<RecordEnvelope>(id.Value));
+
+        if (request.ExpectedRevision is { } expected && !RevisionEquals(current.Metadata.Revision, expected))
         {
-            var state = GetCollectionOrNull(collection.Id);
-            if (state is null || !state.RecordsById.TryGetValue(id.Value, out var current))
-            {
-                return ValueTask.FromResult(InMemoryResultFactory.NotFound<RecordEnvelope>(id.Value));
-            }
-
-            if (expectedRevision is { } expected && !RevisionEquals(current.Metadata.Revision, expected))
-            {
-                return ValueTask.FromResult(InMemoryResultFactory.RevisionConflict<RecordEnvelope>(expected, current.Metadata.Revision, id.Value));
-            }
-
-            var existingFields = ToFieldMap<RecordEnvelope>(current.Payload);
-            if (existingFields.Value is not { } fields)
-            {
-                return ValueTask.FromResult(existingFields.Result!);
-            }
-
-            foreach (var field in request.Patch.Fields)
-            {
-                fields[field.Key] = field.Value.Clone();
-            }
-
-            var updatedPayload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields };
-            var updated = MutateRecord(current, updatedPayload, context);
-            state.RecordsById[id.Value] = updated;
-            var result = OperationResults.Updated(RecordCloneHelpers.CloneEnvelope(updated));
-            return ValueTask.FromResult(InMemoryResultFactory.WithRevision(result, updated.Metadata));
+            return ValueTask.FromResult(InMemoryResultFactory.RevisionConflict<RecordEnvelope>(expected, current.Metadata.Revision, id.Value));
         }
+
+        var existingFields = ToFieldMap<RecordEnvelope>(current.Payload);
+        if (existingFields.Value is not { } fields)
+            return ValueTask.FromResult(existingFields.Result!);
+
+        foreach (var field in request.Patch.Fields)
+            fields[field.Key] = field.Value.Clone();
+
+        var updatedPayload = new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields };
+        var updated = MutateRecord(working, current, updatedPayload, context);
+        state.RecordsById[id.Value] = updated;
+        return ValueTask.FromResult(InMemoryResultFactory.WithRevision(
+            OperationResults.Updated(RecordCloneHelpers.CloneEnvelope(updated)), updated.Metadata));
     }
 
     private ValueTask<OperationResult<RecordEnvelope>> ReplaceCoreAsync(
+        InMemoryStoreState working,
         CollectionDefinition collection,
         RecordId id,
         RecordReplaceRequest request,
-        RevisionToken? expectedRevision,
         OperationContext context,
         CancellationToken cancellationToken)
     {
@@ -580,11 +676,6 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
             return ValueTask.FromResult(idError);
         }
 
-        if (ValidateExpectedRevisionInputs<RecordEnvelope>(request.ExpectedRevision, expectedRevision) is { } revisionInputError)
-        {
-            return ValueTask.FromResult(revisionInputError);
-        }
-
         var normalizedReplacePayload = NormalizeObjectPayload<RecordEnvelope>(request.Payload);
         if (normalizedReplacePayload.Value is not { } payload)
         {
@@ -599,29 +690,28 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
             }
         }
 
-        lock (_state.Gate)
+        var state = GetCollectionOrNull(working, collection.Id);
+        if (state is null || !state.RecordsById.TryGetValue(id.Value, out var current))
+            return ValueTask.FromResult(InMemoryResultFactory.NotFound<RecordEnvelope>(id.Value));
+
+        if (request.ExpectedRevision is { } expected && !RevisionEquals(current.Metadata.Revision, expected))
         {
-            var state = GetCollectionOrNull(collection.Id);
-            if (state is null || !state.RecordsById.TryGetValue(id.Value, out var current))
-            {
-                return ValueTask.FromResult(InMemoryResultFactory.NotFound<RecordEnvelope>(id.Value));
-            }
-
-            if (expectedRevision is { } expected && !RevisionEquals(current.Metadata.Revision, expected))
-            {
-                return ValueTask.FromResult(InMemoryResultFactory.RevisionConflict<RecordEnvelope>(expected, current.Metadata.Revision, id.Value));
-            }
-
-            var updated = MutateRecord(current, payload, context);
-            state.RecordsById[id.Value] = updated;
-            var result = OperationResults.Updated(RecordCloneHelpers.CloneEnvelope(updated));
-            return ValueTask.FromResult(InMemoryResultFactory.WithRevision(result, updated.Metadata));
+            return ValueTask.FromResult(InMemoryResultFactory.RevisionConflict<RecordEnvelope>(expected, current.Metadata.Revision, id.Value));
         }
+
+        var updated = MutateRecord(working, current, payload, context);
+        state.RecordsById[id.Value] = updated;
+        return ValueTask.FromResult(InMemoryResultFactory.WithRevision(
+            OperationResults.Updated(RecordCloneHelpers.CloneEnvelope(updated)), updated.Metadata));
     }
 
-    private StoredRecord MutateRecord(StoredRecord current, RecordPayload payload, OperationContext context)
+    private StoredRecord MutateRecord(
+        InMemoryStoreState working,
+        StoredRecord current,
+        RecordPayload payload,
+        OperationContext context)
     {
-        var revision = NextRevision();
+        var revision = NextRevision(working);
         var metadata = current.Metadata with
         {
             UpdatedAt = Now(context),
@@ -635,24 +725,24 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
         };
     }
 
-    private InMemoryCollectionState GetOrCreateCollection(string collectionId)
+    private static InMemoryCollectionState GetOrCreateCollection(InMemoryStoreState state, string collectionId)
     {
-        if (_state.Collections.TryGetValue(collectionId, out var collection))
+        if (state.Collections.TryGetValue(collectionId, out var collection))
         {
             return collection;
         }
 
         collection = new InMemoryCollectionState();
-        _state.Collections.Add(collectionId, collection);
+        state.Collections.Add(collectionId, collection);
         return collection;
     }
 
-    private InMemoryCollectionState? GetCollectionOrNull(string collectionId) =>
-        _state.Collections.GetValueOrDefault(collectionId);
+    private static InMemoryCollectionState? GetCollectionOrNull(InMemoryStoreState state, string collectionId) =>
+        state.Collections.GetValueOrDefault(collectionId);
 
-    private string NextRecordId() => $"mem:{++_state.NextRecordId:x16}";
+    private static string NextRecordId(InMemoryStoreState state) => $"mem:{++state.NextRecordId:x16}";
 
-    private RevisionToken NextRevision() => new($"mem:{++_state.NextRevision:x16}");
+    private static RevisionToken NextRevision(InMemoryStoreState state) => new($"mem:{++state.NextRevision:x16}");
 
     private static string ETag(RevisionToken revision) => $"\"{revision.Value}\"";
 
@@ -661,20 +751,6 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
 
     private static bool RevisionEquals(RevisionToken? left, RevisionToken right) =>
         left is { } current && string.Equals(current.Value, right.Value, StringComparison.Ordinal);
-
-    private static OperationResult<T>? ValidateExpectedRevisionInputs<T>(RevisionToken? requestRevision, RevisionToken? methodRevision)
-    {
-        if (requestRevision is { } request
-            && methodRevision is { } method
-            && !string.Equals(request.Value, method.Value, StringComparison.Ordinal))
-        {
-            return InMemoryResultFactory.Validation<T>(
-                InMemoryErrorCodes.ExpectedRevisionConflict,
-                "Expected revision inputs must match when both request and method revisions are supplied.");
-        }
-
-        return null;
-    }
 
     private static PayloadNormalizeResult<T> NormalizeObjectPayload<T>(RecordPayload payload)
     {
@@ -1448,10 +1524,14 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
         StoreId = options.StoreId,
         StoreKind = BaseStoreKinds.InMemory,
         StoreVersion = options.StoreVersion,
-        Crud = new CrudCapability
+        Read = new RecordReadCapability
         {
             List = true,
             Get = true,
+            MaxPageSize = options.MaxPageSize
+        },
+        Mutation = new RecordMutationCapability
+        {
             Create = true,
             Patch = true,
             Replace = true,
@@ -1521,8 +1601,41 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
             Supported = true,
             Guarantee = RevisionGuarantee.Store,
             Patch = true,
+            Replace = true,
             Delete = true
         },
+        Batch = new StoreBatchCapability
+        {
+            Modes = [BaseRecordBatchExecutionMode.Atomic],
+            MaxOperations = HPDBaseInMemoryDefaults.MaximumBatchOperations,
+            MaxCanonicalPayloadBytes = HPDBaseInMemoryDefaults.MaximumBatchCanonicalPayloadBytes,
+            MinimumAcquisitionTimeout = TimeSpan.FromMilliseconds(10),
+            MinimumTransactionTimeout = TimeSpan.FromMilliseconds(10),
+            MinimumCommitCompletionTimeout = TimeSpan.FromMilliseconds(10),
+            TimeoutGranularity = TimeSpan.FromMilliseconds(10),
+            Ordered = true,
+            PartialResults = false,
+            CrossCollectionAtomic = true,
+            ReadYourWrites = true,
+            Durable = false,
+            TransactionalJournal = false,
+            Isolation = BaseTransactionIsolation.Serializable,
+            NestedTransactions = false,
+            Savepoints = false
+        },
+        Upsert = options.AllowClientRequestedIds
+            ? new StoreUpsertCapability
+            {
+                Atomic = true,
+                UpdateModes =
+                [
+                    RecordUpsertUpdateMode.Patch,
+                    RecordUpsertUpdateMode.Replace
+                ],
+                ExpectedRevision = true,
+                ExistenceConditions = true
+            }
+            : null,
         Streaming = new StreamingCapability
         {
             Supported = options.EnableStreamingCapability,
@@ -1532,6 +1645,329 @@ public sealed class InMemoryRecordStore : IRevisionedRecordStore, IStreamingReco
     };
 
     private static string CollectionIdForTelemetry(CollectionDefinition? collection) => collection?.Id ?? string.Empty;
+
+    private sealed class AtomicSession : IAtomicRecordSession
+    {
+        private const int Active = 0;
+        private const int Closing = 1;
+        private const int Closed = 2;
+
+        private readonly InMemoryRecordStore _owner;
+        private readonly InMemoryStoreState _working;
+        private readonly SemaphoreSlim _operationGate = new(1, 1);
+        private int _lifetimeState;
+
+        public AtomicSession(InMemoryRecordStore owner, InMemoryStoreState working)
+        {
+            _owner = owner;
+            _working = working;
+        }
+
+        public ValueTask<OperationResult<RecordEnvelope>> GetAsync(
+            CollectionDefinition collection,
+            RecordId id,
+            OperationContext context,
+            CancellationToken cancellationToken = default) =>
+            ExecuteAsync(
+                cancellationToken,
+                token => HPDBaseInMemoryTelemetry.TraceAsync(
+                    HPDBaseTelemetrySpans.StoreGet,
+                    BaseOperationKind.Get,
+                    _owner._options.StoreId,
+                    CollectionIdForTelemetry(collection),
+                    () => GetFromStateAsync(
+                        _working,
+                        collection,
+                        id,
+                        context,
+                        token)));
+
+        public ValueTask<OperationResult<RecordMutationSessionResult>> CreateAsync(
+            CollectionDefinition collection,
+            RecordCreateRequest request,
+            RecordMutationSessionContext context,
+            CancellationToken cancellationToken = default) =>
+            ExecuteAsync(
+                cancellationToken,
+                async token =>
+                {
+                    ArgumentNullException.ThrowIfNull(context);
+                    var result = await HPDBaseInMemoryTelemetry.TraceAsync(
+                        HPDBaseTelemetrySpans.StoreCreate,
+                        BaseOperationKind.Create,
+                        _owner._options.StoreId,
+                        CollectionIdForTelemetry(collection),
+                        () => _owner.CreateCoreAsync(
+                            _working,
+                            collection,
+                            request,
+                            context.Operation,
+                            token)).ConfigureAwait(false);
+                    return ProjectMutation(
+                        result,
+                        collection,
+                        context,
+                        BaseCommittedRecordMutationKind.Create,
+                        before: null,
+                        after: result.Value,
+                        delete: null,
+                        changedFields: PayloadFieldNames(request.Payload));
+                });
+
+        public ValueTask<OperationResult<RecordMutationSessionResult>> PatchAsync(
+            CollectionDefinition collection,
+            RecordId id,
+            RecordPatchRequest request,
+            RecordMutationSessionContext context,
+            CancellationToken cancellationToken = default) =>
+            ExecuteAsync(
+                cancellationToken,
+                async token =>
+                {
+                    ArgumentNullException.ThrowIfNull(context);
+                    var before = SnapshotRecord(collection, id);
+                    var result = await HPDBaseInMemoryTelemetry.TraceAsync(
+                        HPDBaseTelemetrySpans.StorePatch,
+                        BaseOperationKind.Patch,
+                        _owner._options.StoreId,
+                        CollectionIdForTelemetry(collection),
+                        () => _owner.PatchCoreAsync(
+                            _working,
+                            collection,
+                            id,
+                            request,
+                            context.Operation,
+                            token)).ConfigureAwait(false);
+                    return ProjectMutation(
+                        result,
+                        collection,
+                        context,
+                        BaseCommittedRecordMutationKind.Patch,
+                        before,
+                        result.Value,
+                        delete: null,
+                        changedFields: PayloadFieldNames(request.Patch));
+                });
+
+        public ValueTask<OperationResult<RecordMutationSessionResult>> ReplaceAsync(
+            CollectionDefinition collection,
+            RecordId id,
+            RecordReplaceRequest request,
+            RecordMutationSessionContext context,
+            CancellationToken cancellationToken = default) =>
+            ExecuteAsync(
+                cancellationToken,
+                async token =>
+                {
+                    ArgumentNullException.ThrowIfNull(context);
+                    var before = SnapshotRecord(collection, id);
+                    var result = await HPDBaseInMemoryTelemetry.TraceAsync(
+                        HPDBaseTelemetrySpans.StoreReplace,
+                        BaseOperationKind.Replace,
+                        _owner._options.StoreId,
+                        CollectionIdForTelemetry(collection),
+                        () => _owner.ReplaceCoreAsync(
+                            _working,
+                            collection,
+                            id,
+                            request,
+                            context.Operation,
+                            token)).ConfigureAwait(false);
+                    return ProjectMutation(
+                        result,
+                        collection,
+                        context,
+                        BaseCommittedRecordMutationKind.Replace,
+                        before,
+                        result.Value,
+                        delete: null,
+                        changedFields: PayloadFieldNames(request.Payload));
+                });
+
+        public ValueTask<OperationResult<RecordMutationSessionResult>> DeleteAsync(
+            CollectionDefinition collection,
+            RecordId id,
+            RecordDeleteRequest request,
+            RecordMutationSessionContext context,
+            CancellationToken cancellationToken = default) =>
+            ExecuteAsync(
+                cancellationToken,
+                async token =>
+                {
+                    ArgumentNullException.ThrowIfNull(context);
+                    var before = SnapshotRecord(collection, id);
+                    var result = await HPDBaseInMemoryTelemetry.TraceAsync(
+                        HPDBaseTelemetrySpans.StoreDelete,
+                        BaseOperationKind.Delete,
+                        _owner._options.StoreId,
+                        CollectionIdForTelemetry(collection),
+                        () => _owner.DeleteCoreAsync(
+                            _working,
+                            collection,
+                            id,
+                            request,
+                            context.Operation,
+                            token)).ConfigureAwait(false);
+                    return ProjectMutation(
+                        result,
+                        collection,
+                        context,
+                        BaseCommittedRecordMutationKind.Delete,
+                        before,
+                        after: null,
+                        delete: result.Value,
+                        changedFields: null);
+                });
+
+        public async ValueTask CloseAsync()
+        {
+            if (Interlocked.CompareExchange(
+                    ref _lifetimeState,
+                    Closing,
+                    Active) != Active)
+            {
+                return;
+            }
+
+            await _operationGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            Volatile.Write(ref _lifetimeState, Closed);
+            _operationGate.Release();
+        }
+
+        private async ValueTask<OperationResult<T>> ExecuteAsync<T>(
+            CancellationToken cancellationToken,
+            Func<CancellationToken, ValueTask<OperationResult<T>>> action)
+        {
+            if (Volatile.Read(ref _lifetimeState) != Active)
+                return SessionClosed<T>();
+
+            try
+            {
+                await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return SessionOperationCancelled<T>();
+            }
+
+            try
+            {
+                if (Volatile.Read(ref _lifetimeState) != Active)
+                    return SessionClosed<T>();
+
+                return await action(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return SessionOperationCancelled<T>();
+            }
+            finally
+            {
+                _operationGate.Release();
+            }
+        }
+
+        private RecordEnvelope? SnapshotRecord(CollectionDefinition collection, RecordId id)
+        {
+            var record = GetCollectionOrNull(_working, collection.Id)?
+                .RecordsById.GetValueOrDefault(id.Value);
+            return record is null ? null : RecordCloneHelpers.CloneEnvelope(record);
+        }
+
+        private static OperationResult<RecordMutationSessionResult> ProjectMutation<T>(
+            OperationResult<T> result,
+            CollectionDefinition collection,
+            RecordMutationSessionContext context,
+            BaseCommittedRecordMutationKind committedOperation,
+            RecordEnvelope? before,
+            RecordEnvelope? after,
+            DeleteResult? delete,
+            string[]? changedFields)
+        {
+            RecordMutationSessionResult? value = null;
+            if (result.Value is not null)
+            {
+                RecordUpsertOutcome? upsertOutcome =
+                    context.RequestedOperation == BaseRecordMutationKind.Upsert
+                        ? committedOperation == BaseCommittedRecordMutationKind.Create
+                            ? RecordUpsertOutcome.Created
+                            : RecordUpsertOutcome.Updated
+                        : null;
+                var mutation = new BaseRecordMutationFact
+                {
+                    ItemId = context.ItemId,
+                    RequestedOperation = context.RequestedOperation,
+                    CommittedOperation = committedOperation,
+                    UpsertOutcome = upsertOutcome,
+                    Collection = collection,
+                    Event = EventReference(
+                        context.EventId,
+                        committedOperation),
+                    Before = before,
+                    After = after,
+                    Delete = delete,
+                    ChangedFields = changedFields
+                };
+                value = new RecordMutationSessionResult
+                {
+                    Mutation = mutation,
+                    Record = after,
+                    Delete = delete
+                };
+            }
+
+            return new OperationResult<RecordMutationSessionResult>
+            {
+                Status = result.Status,
+                Value = value,
+                Error = result.Error,
+                Warnings = result.Warnings,
+                Diagnostics = result.Diagnostics,
+                Revision = result.Revision
+            };
+        }
+
+        private static EventReference EventReference(
+            string eventId,
+            BaseCommittedRecordMutationKind operation) => new()
+        {
+            EventId = eventId,
+            Type = operation switch
+            {
+                BaseCommittedRecordMutationKind.Create => BaseEventTypes.RecordCreated,
+                BaseCommittedRecordMutationKind.Patch => BaseEventTypes.RecordPatched,
+                BaseCommittedRecordMutationKind.Replace => BaseEventTypes.RecordUpdated,
+                BaseCommittedRecordMutationKind.Delete => BaseEventTypes.RecordDeleted,
+                _ => throw new InvalidOperationException("Unsupported committed mutation kind.")
+            },
+            Guarantee = EventDeliveryGuarantee.BestEffort
+        };
+
+        private static string[]? PayloadFieldNames(RecordPayload? payload)
+        {
+            if (payload is null)
+                return null;
+            if (payload.Kind == RecordPayloadKind.FieldMap)
+                return payload.Fields?.Keys.Order(StringComparer.Ordinal).ToArray();
+            if (payload.Json.ValueKind != JsonValueKind.Object)
+                return null;
+            return payload.Json
+                .EnumerateObject()
+                .Select(static property => property.Name)
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        private static OperationResult<T> SessionClosed<T>() =>
+            InMemoryResultFactory.StoreError<T>(
+                InMemoryErrorCodes.SessionClosed,
+                "The InMemory mutation session is no longer active.");
+
+        private static OperationResult<T> SessionOperationCancelled<T>() =>
+            InMemoryResultFactory.StoreError<T>(
+                InMemoryErrorCodes.SessionOperationCancelled,
+                "The InMemory mutation session operation was cancelled.");
+    }
 
     private readonly record struct PayloadNormalizeResult<T>(RecordPayload? Value, OperationResult<T>? Result)
     {

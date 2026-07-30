@@ -8,7 +8,7 @@ public abstract class RuntimeStoreResultNormalizationConformanceTests<TFixture> 
     [Fact]
     public async Task RuntimeMapsKnownStoreDependencyExceptionsToStoreError()
     {
-        if (!Capabilities.Crud.Get)
+        if (!Capabilities.Read.Get)
         {
             return;
         }
@@ -33,7 +33,7 @@ public abstract class RuntimeStoreResultNormalizationConformanceTests<TFixture> 
     [Fact]
     public async Task RuntimeDoesNotSwallowProgrammerInvariantExceptions()
     {
-        if (!Capabilities.Crud.Get)
+        if (!Capabilities.Read.Get)
         {
             return;
         }

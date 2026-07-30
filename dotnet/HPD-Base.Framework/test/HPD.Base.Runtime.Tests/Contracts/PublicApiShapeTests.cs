@@ -77,6 +77,7 @@ public sealed class PublicApiShapeTests
                 nameof(HPDBaseRuntimeOptions.FailFastOnDescriptorValidation),
                 nameof(HPDBaseRuntimeOptions.Limits),
                 nameof(HPDBaseRuntimeOptions.Events),
+                nameof(HPDBaseRuntimeOptions.Mutations),
                 nameof(HPDBaseRuntimeOptions.Redaction),
                 nameof(HPDBaseRuntimeOptions.Observability)
             ]);
@@ -121,7 +122,9 @@ public sealed class PublicApiShapeTests
                 nameof(IBaseRecordRuntime.CreateAsync),
                 nameof(IBaseRecordRuntime.PatchAsync),
                 nameof(IBaseRecordRuntime.ReplaceAsync),
-                nameof(IBaseRecordRuntime.DeleteAsync)
+                nameof(IBaseRecordRuntime.DeleteAsync),
+                nameof(IBaseRecordRuntime.UpsertAsync),
+                nameof(IBaseRecordRuntime.BatchAsync)
             ]);
 
         methods.Should().AllSatisfy(method =>
@@ -133,7 +136,9 @@ public sealed class PublicApiShapeTests
             typeof(ValueTask<OperationResult<RecordEnvelope>>),
             typeof(ValueTask<OperationResult<RecordEnvelope>>),
             typeof(ValueTask<OperationResult<RecordEnvelope>>),
-            typeof(ValueTask<OperationResult<DeleteResult>>)
+            typeof(ValueTask<OperationResult<DeleteResult>>),
+            typeof(ValueTask<OperationResult<RecordUpsertResult>>),
+            typeof(ValueTask<OperationResult<BaseRecordBatchResult>>)
         ]);
     }
 

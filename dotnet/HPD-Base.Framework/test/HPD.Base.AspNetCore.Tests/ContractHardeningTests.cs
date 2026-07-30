@@ -43,6 +43,8 @@ public sealed class ContractHardeningTests
         routes.Single(route => route.OperationId == BaseRouteIds.RecordsPatch).RequiredFeatureIds.Should().Contain(BaseFeatureIds.RecordsPatch);
         routes.Single(route => route.OperationId == BaseRouteIds.RecordsReplace).RequiredFeatureIds.Should().Contain(BaseFeatureIds.RecordsReplace);
         routes.Single(route => route.OperationId == BaseRouteIds.RecordsDelete).RequiredFeatureIds.Should().Contain(BaseFeatureIds.RecordsDelete);
+        routes.Single(route => route.OperationId == BaseRouteIds.RecordsBatch).RequiredFeatureIds.Should().Contain(BaseFeatureIds.RecordsBatch);
+        routes.Single(route => route.OperationId == BaseRouteIds.RecordsUpsert).RequiredFeatureIds.Should().Contain(BaseFeatureIds.RecordsUpsert);
     }
 
     [Fact]

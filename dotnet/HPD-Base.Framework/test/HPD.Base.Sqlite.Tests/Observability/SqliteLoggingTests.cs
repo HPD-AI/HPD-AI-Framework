@@ -99,7 +99,7 @@ public sealed class SqliteLoggingTests
     }
 
     [Fact]
-    public async Task BusyDatabaseEmitsExactlyOneRetryableAvailabilityEvent()
+    public async Task BusyWriteBoundaryReturnsRoutineConflictWithoutLogging()
     {
         var path = TempPath("busy");
         try
@@ -129,10 +129,9 @@ public sealed class SqliteLoggingTests
 
             var result = await store.CreateAsync(Collection(), CreateRequest("blocked"), Operation(BaseOperationKind.Create));
 
-            result.Status.Should().Be(OperationStatus.StoreError);
-            var record = collector.Records.Should().ContainSingle().Subject;
-            record.EventId.Id.Should().BeOneOf(3001, 3002);
-            AssertContract(record, record.EventId.Id);
+            result.Status.Should().Be(OperationStatus.Conflict);
+            result.Error!.Code.Should().Be(BaseMutationErrorCodes.TransactionConflict);
+            collector.Records.Should().BeEmpty();
             LogSafetyInspector.AssertSafe(collector.Records, path);
             LogSafetyInspector.AssertNoExceptions(collector.Records);
         }

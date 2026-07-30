@@ -71,14 +71,23 @@ internal sealed class SqliteDescriptorContributor : IBaseDescriptorContributor
         };
     }
 
-    private static string[] FeatureIds() =>
-    [
-        BaseFeatureIds.RecordsList,
-        BaseFeatureIds.RecordsGet,
-        BaseFeatureIds.RecordsCreate,
-        BaseFeatureIds.RecordsPatch,
-        BaseFeatureIds.RecordsReplace,
-        BaseFeatureIds.RecordsDelete,
-        BaseFeatureIds.RecordsRevision
-    ];
+    private string[] FeatureIds()
+    {
+        var features = new List<string>
+        {
+            BaseFeatureIds.RecordsList,
+            BaseFeatureIds.RecordsGet,
+            BaseFeatureIds.RecordsCreate,
+            BaseFeatureIds.RecordsPatch,
+            BaseFeatureIds.RecordsReplace,
+            BaseFeatureIds.RecordsDelete,
+            BaseFeatureIds.RecordsRevision,
+            BaseFeatureIds.StoreBatchAtomic,
+            BaseFeatureIds.StoreBatchCrossCollection
+        };
+        if (_store.Capabilities.Upsert is not null)
+            features.Add(BaseFeatureIds.StoreRecordUpsertAtomic);
+
+        return features.ToArray();
+    }
 }

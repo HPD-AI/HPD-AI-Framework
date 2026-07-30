@@ -23,7 +23,11 @@ using System.Text.Json;
 namespace HPD.Base.Sqlite;
 
 /// <summary>Durable SQLite implementation of the HPD.BASE record store contract.</summary>
-public sealed class SqliteRecordStore : IRevisionedRecordStore, ITransactionalMutationJournalStore, IAsyncDisposable
+public sealed partial class SqliteRecordStore :
+    IRecordMutationStore,
+    IAtomicRecordStore,
+    ITransactionalMutationJournalStore,
+    IAsyncDisposable
 {
     private readonly HPDBaseSqliteOptions _options;
     private readonly SqliteConnectionFactory _connections;
@@ -31,6 +35,7 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, ITransactionalMu
     private readonly SqliteNames _names;
     private readonly ILogger<SqliteRecordStore> _logger;
     private readonly TimeProvider _timeProvider;
+    private readonly ISqliteTransactionController _transactions;
     private readonly SemaphoreSlim _keepAliveGate = new(1, 1);
     private SqliteConnection? _keepAliveConnection;
 
@@ -49,7 +54,8 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, ITransactionalMu
     internal SqliteRecordStore(
         HPDBaseSqliteOptions options,
         ILoggerFactory loggerFactory,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        ISqliteTransactionController? transactions = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loggerFactory);
@@ -58,12 +64,14 @@ public sealed class SqliteRecordStore : IRevisionedRecordStore, ITransactionalMu
         ValidateOptions(_options);
         _logger = loggerFactory.CreateLogger<SqliteRecordStore>();
         _timeProvider = timeProvider;
+        _transactions = transactions ?? DefaultSqliteTransactionController.Instance;
         _connections = new SqliteConnectionFactory(_options);
         _schema = new SqliteSchemaInitializer(_options);
         _names = new SqliteNames(_options);
         Capabilities = CreateCapabilities(_options);
     }
 
+    /// <inheritdoc />
     public StoreCapabilityDescriptor Capabilities { get; }
 
     /// <inheritdoc />
@@ -155,6 +163,7 @@ WHERE event_id = $eventId
             : null;
     }
 
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         if (_keepAliveConnection is not null)
@@ -166,6 +175,7 @@ WHERE event_id = $eventId
         _keepAliveGate.Dispose();
     }
 
+    /// <inheritdoc />
     public ValueTask<OperationResult<RecordPage>> ListAsync(CollectionDefinition collection, RecordQuery query, OperationContext context, CancellationToken cancellationToken = default) =>
         HPDBaseSqliteTelemetry.TraceStoreAsync(
             HPDBaseTelemetrySpans.StoreList,
@@ -243,6 +253,7 @@ WHERE event_id = $eventId
         }
     }
 
+    /// <inheritdoc />
     public ValueTask<OperationResult<RecordEnvelope>> GetAsync(CollectionDefinition collection, RecordId id, OperationContext context, CancellationToken cancellationToken = default) =>
         HPDBaseSqliteTelemetry.TraceStoreAsync(
             HPDBaseTelemetrySpans.StoreGet,
@@ -278,241 +289,18 @@ WHERE event_id = $eventId
         }
     }
 
-    public ValueTask<OperationResult<RecordEnvelope>> CreateAsync(CollectionDefinition collection, RecordCreateRequest request, OperationContext context, CancellationToken cancellationToken = default) =>
-        HPDBaseSqliteTelemetry.TraceStoreAsync(
-            HPDBaseTelemetrySpans.StoreCreate,
-            BaseOperationKind.Create,
-            _options.StoreId,
-            CollectionIdForTelemetry(collection),
-            () => CreateCoreAsync(collection, request, context, cancellationToken));
-
-    private async ValueTask<OperationResult<RecordEnvelope>> CreateCoreAsync(CollectionDefinition collection, RecordCreateRequest request, OperationContext context, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(collection);
-        ArgumentNullException.ThrowIfNull(request);
-        if (SqliteValidation.ValidateCollectionId<RecordEnvelope>(collection.Id) is { } collectionError) return collectionError;
-        if (ValidateRegisteredCollection<RecordEnvelope>(collection.Id) is { } registrationError) return registrationError;
-        if (!string.IsNullOrWhiteSpace(request.IdempotencyKey)) return SqliteResultFactory.Unsupported<RecordEnvelope>(SqliteErrorCodes.IdempotencyUnsupported, "Idempotency keys are not supported by HPD.BASE SQLite.", collection.Id);
-        if (request.RequestedId is not null && !_options.AllowClientRequestedIds) return SqliteResultFactory.Unsupported<RecordEnvelope>(SqliteErrorCodes.RequestedIdUnsupported, "Client-requested ids are disabled for this SQLite store.", request.RequestedId.Value.Value);
-
-        var id = request.RequestedId ?? new RecordId(NextRecordId());
-        if (SqliteValidation.ValidateRecordId<RecordEnvelope>(id.Value) is { } idError) return idError;
-        if (ValidatePayload<RecordEnvelope>(request.Payload) is { } payloadError) return payloadError;
-
-        var now = Now(context);
-        var payloadJson = SqliteRecordSerializer.Serialize(request.Payload);
-        try
-        {
-            await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
-            await using var transaction = await BeginImmediateAsync(connection, cancellationToken).ConfigureAwait(false);
-            await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = $"INSERT INTO {_names.Records}(collection_id, record_id, revision, created_at, updated_at, payload_json) VALUES ($collection, $id, 1, $created, $updated, $payload);";
-            command.CommandTimeout = TimeoutSeconds();
-            command.Parameters.AddWithValue("$collection", collection.Id);
-            command.Parameters.AddWithValue("$id", id.Value);
-            command.Parameters.AddWithValue("$created", now.ToString("O"));
-            command.Parameters.AddWithValue("$updated", now.ToString("O"));
-            command.Parameters.AddWithValue("$payload", payloadJson);
-            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            var metadata = SqliteRecordMapper.Metadata(1, now, now, _options.StoreId);
-            var envelope = new RecordEnvelope { CollectionId = collection.Id, Id = id, Payload = SqliteRecordSerializer.Deserialize(payloadJson), Metadata = metadata };
-            var journal = await AppendMutationJournalAsync(
-                connection, transaction, BaseOperationKind.Create, context,
-                collection.Id, id, collection.Visibility?.Visibility ?? VisibilityLevel.Public,
-                null, envelope, cancellationToken).ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-
-            return SqliteResultFactory.WithRevision(
-                OperationResults.Created(envelope) with { Events = [journal] },
-                metadata);
-        }
-        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
-        {
-            return SqliteResultFactory.DuplicateId<RecordEnvelope>(id.Value);
-        }
-        catch (SqliteException ex)
-        {
-            return MapSqlite<RecordEnvelope>(BaseOperationKind.Create, ex);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return MapSchemaFailure<RecordEnvelope>(ex);
-        }
-        catch (OperationCanceledException)
-        {
-            return SqliteResultFactory.StoreError<RecordEnvelope>(SqliteErrorCodes.OperationCancelled, "SQLite operation was cancelled.");
-        }
-    }
-
-    public ValueTask<OperationResult<RecordEnvelope>> PatchAsync(CollectionDefinition collection, RecordId id, RecordPatchRequest request, OperationContext context, CancellationToken cancellationToken = default) =>
-        HPDBaseSqliteTelemetry.TraceStoreAsync(
-            HPDBaseTelemetrySpans.StorePatch,
-            BaseOperationKind.Patch,
-            _options.StoreId,
-            CollectionIdForTelemetry(collection),
-            () => PatchCoreAsync(collection, id, request, request.ExpectedRevision, context, cancellationToken));
-
-    public ValueTask<OperationResult<RecordEnvelope>> PatchIfRevisionAsync(CollectionDefinition collection, RecordId id, RecordPatchRequest request, RevisionToken expectedRevision, OperationContext context, CancellationToken cancellationToken = default) =>
-        HPDBaseSqliteTelemetry.TraceStoreAsync(
-            HPDBaseTelemetrySpans.StorePatchIfRevision,
-            BaseOperationKind.Patch,
-            _options.StoreId,
-            CollectionIdForTelemetry(collection),
-            () => PatchCoreAsync(collection, id, request, expectedRevision, context, cancellationToken));
-
-    public ValueTask<OperationResult<RecordEnvelope>> ReplaceAsync(CollectionDefinition collection, RecordId id, RecordReplaceRequest request, OperationContext context, CancellationToken cancellationToken = default) =>
-        HPDBaseSqliteTelemetry.TraceStoreAsync(
-            HPDBaseTelemetrySpans.StoreReplace,
-            BaseOperationKind.Replace,
-            _options.StoreId,
-            CollectionIdForTelemetry(collection),
-            () => ReplaceCoreAsync(collection, id, request, request.ExpectedRevision, context, cancellationToken));
-
-    public ValueTask<OperationResult<RecordEnvelope>> ReplaceIfRevisionAsync(CollectionDefinition collection, RecordId id, RecordReplaceRequest request, RevisionToken expectedRevision, OperationContext context, CancellationToken cancellationToken = default) =>
-        HPDBaseSqliteTelemetry.TraceStoreAsync(
-            HPDBaseTelemetrySpans.StoreReplaceIfRevision,
-            BaseOperationKind.Replace,
-            _options.StoreId,
-            CollectionIdForTelemetry(collection),
-            () => ReplaceCoreAsync(collection, id, request, expectedRevision, context, cancellationToken));
-
-    public ValueTask<OperationResult<DeleteResult>> DeleteAsync(CollectionDefinition collection, RecordId id, RecordDeleteRequest request, OperationContext context, CancellationToken cancellationToken = default) =>
-        HPDBaseSqliteTelemetry.TraceStoreAsync(
-            HPDBaseTelemetrySpans.StoreDelete,
-            BaseOperationKind.Delete,
-            _options.StoreId,
-            CollectionIdForTelemetry(collection),
-            () => DeleteCoreAsync(collection, id, request, context, cancellationToken));
-
-    private async ValueTask<OperationResult<DeleteResult>> DeleteCoreAsync(CollectionDefinition collection, RecordId id, RecordDeleteRequest request, OperationContext context, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(collection);
-        ArgumentNullException.ThrowIfNull(request);
-        if (SqliteValidation.ValidateCollectionId<DeleteResult>(collection.Id) is { } collectionError) return collectionError;
-        if (ValidateRegisteredCollection<DeleteResult>(collection.Id) is { } registrationError) return registrationError;
-        if (SqliteValidation.ValidateRecordId<DeleteResult>(id.Value) is { } idError) return idError;
-        if (!SqliteRecordMapper.TryParseRevision(request.ExpectedRevision, out var expected)) return SqliteResultFactory.Validation<DeleteResult>(SqliteErrorCodes.InvalidRevisionToken, "Expected revision must use the sqlite:{integer} format.", "expectedRevision");
-
-        try
-        {
-            await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
-            await using var transaction = await BeginImmediateAsync(connection, cancellationToken).ConfigureAwait(false);
-            var existing = await ReadAsync(connection, collection.Id, id.Value, cancellationToken, transaction).ConfigureAwait(false);
-            if (existing is null) return SqliteResultFactory.NotFound<DeleteResult>(id.Value);
-            if (request.ExpectedRevision is not null && expected.ToString(CultureInfo.InvariantCulture) != existing.Metadata.Revision?.Value["sqlite:".Length..])
-            {
-                return SqliteResultFactory.RevisionConflict<DeleteResult>(request.ExpectedRevision.Value, existing.Metadata.Revision, id.Value);
-            }
-
-            await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = $"DELETE FROM {_names.Records} WHERE collection_id = $collection AND record_id = $id;";
-            command.Parameters.AddWithValue("$collection", collection.Id);
-            command.Parameters.AddWithValue("$id", id.Value);
-            command.CommandTimeout = TimeoutSeconds();
-            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            var journal = await AppendMutationJournalAsync(
-                connection, transaction, BaseOperationKind.Delete, context,
-                collection.Id, id, collection.Visibility?.Visibility ?? VisibilityLevel.Public,
-                existing, null, cancellationToken).ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return OperationResults.Deleted(new DeleteResult { Id = id, Deleted = true, Previous = request.ReturnPrevious ? existing : null })
-                with { Events = [journal] };
-        }
-        catch (SqliteException ex)
-        {
-            return MapSqlite<DeleteResult>(BaseOperationKind.Delete, ex);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return MapSchemaFailure<DeleteResult>(ex);
-        }
-        catch (OperationCanceledException)
-        {
-            return SqliteResultFactory.StoreError<DeleteResult>(SqliteErrorCodes.OperationCancelled, "SQLite operation was cancelled.");
-        }
-    }
-
-    private async ValueTask<OperationResult<RecordEnvelope>> PatchCoreAsync(CollectionDefinition collection, RecordId id, RecordPatchRequest request, RevisionToken? expectedRevision, OperationContext context, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        if (ValidatePayload<RecordEnvelope>(request.Patch) is { } payloadError) return payloadError;
-        return await MutateAsync(collection, id, expectedRevision, context, current => SqliteRecordSerializer.Merge(current, request.Patch), cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask<OperationResult<RecordEnvelope>> ReplaceCoreAsync(CollectionDefinition collection, RecordId id, RecordReplaceRequest request, RevisionToken? expectedRevision, OperationContext context, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        if (ValidatePayload<RecordEnvelope>(request.Payload) is { } payloadError) return payloadError;
-        return await MutateAsync(collection, id, expectedRevision, context, _ => SqliteRecordSerializer.Clone(request.Payload), cancellationToken).ConfigureAwait(false);
-    }
-
-    private async ValueTask<OperationResult<RecordEnvelope>> MutateAsync(CollectionDefinition collection, RecordId id, RevisionToken? expectedRevision, OperationContext context, Func<RecordPayload, RecordPayload> mutate, CancellationToken cancellationToken)
-    {
-        if (SqliteValidation.ValidateCollectionId<RecordEnvelope>(collection.Id) is { } collectionError) return collectionError;
-        if (ValidateRegisteredCollection<RecordEnvelope>(collection.Id) is { } registrationError) return registrationError;
-        if (SqliteValidation.ValidateRecordId<RecordEnvelope>(id.Value) is { } idError) return idError;
-        if (!SqliteRecordMapper.TryParseRevision(expectedRevision, out var expected)) return SqliteResultFactory.Validation<RecordEnvelope>(SqliteErrorCodes.InvalidRevisionToken, "Expected revision must use the sqlite:{integer} format.", "expectedRevision");
-
-        try
-        {
-            await using var connection = await OpenInitializedAsync(cancellationToken).ConfigureAwait(false);
-            await using var transaction = await BeginImmediateAsync(connection, cancellationToken).ConfigureAwait(false);
-            var existing = await ReadAsync(connection, collection.Id, id.Value, cancellationToken, transaction).ConfigureAwait(false);
-            if (existing is null) return SqliteResultFactory.NotFound<RecordEnvelope>(id.Value);
-            var currentRevision = long.Parse(existing.Metadata.Revision!.Value.Value["sqlite:".Length..], CultureInfo.InvariantCulture);
-            if (expectedRevision is not null && expected != currentRevision)
-            {
-                return SqliteResultFactory.RevisionConflict<RecordEnvelope>(expectedRevision.Value, existing.Metadata.Revision, id.Value);
-            }
-
-            var nextRevision = currentRevision + 1;
-            var now = Now(context);
-            var nextPayload = mutate(existing.Payload);
-            var payloadJson = SqliteRecordSerializer.Serialize(nextPayload);
-            await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = $"UPDATE {_names.Records} SET revision = $revision, updated_at = $updated, payload_json = $payload WHERE collection_id = $collection AND record_id = $id;";
-            command.CommandTimeout = TimeoutSeconds();
-            command.Parameters.AddWithValue("$revision", nextRevision);
-            command.Parameters.AddWithValue("$updated", now.ToString("O"));
-            command.Parameters.AddWithValue("$payload", payloadJson);
-            command.Parameters.AddWithValue("$collection", collection.Id);
-            command.Parameters.AddWithValue("$id", id.Value);
-            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            var metadata = SqliteRecordMapper.Metadata(nextRevision, existing.Metadata.CreatedAt!.Value, now, _options.StoreId);
-            var envelope = existing with { Payload = SqliteRecordSerializer.Deserialize(payloadJson), Metadata = metadata };
-            var journal = await AppendMutationJournalAsync(
-                connection, transaction, context.Operation, context,
-                collection.Id, id, collection.Visibility?.Visibility ?? VisibilityLevel.Public,
-                existing, envelope, cancellationToken).ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-
-            return SqliteResultFactory.WithRevision(
-                OperationResults.Updated(envelope) with { Events = [journal] },
-                metadata);
-        }
-        catch (SqliteException ex)
-        {
-            return MapSqlite<RecordEnvelope>(context.Operation, ex);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return MapSchemaFailure<RecordEnvelope>(ex);
-        }
-        catch (OperationCanceledException)
-        {
-            return SqliteResultFactory.StoreError<RecordEnvelope>(SqliteErrorCodes.OperationCancelled, "SQLite operation was cancelled.");
-        }
-    }
-
-    private async ValueTask<RecordEnvelope?> ReadAsync(SqliteConnection connection, string collectionId, string id, CancellationToken cancellationToken, SqliteTransaction? transaction = null)
+    private async ValueTask<RecordEnvelope?> ReadAsync(
+        SqliteConnection connection,
+        string collectionId,
+        string id,
+        CancellationToken cancellationToken,
+        SqliteTransaction? transaction = null,
+        int? commandTimeoutSeconds = null)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = $"SELECT collection_id, record_id, revision, created_at, updated_at, payload_json FROM {_names.Records} WHERE collection_id = $collection AND record_id = $id;";
-        command.CommandTimeout = TimeoutSeconds();
+        command.CommandTimeout = commandTimeoutSeconds ?? TimeoutSeconds();
         command.Parameters.AddWithValue("$collection", collectionId);
         command.Parameters.AddWithValue("$id", id);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -522,6 +310,7 @@ WHERE event_id = $eventId
     private async ValueTask<EventReference> AppendMutationJournalAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
+        string eventId,
         BaseOperationKind operation,
         OperationContext context,
         string collectionId,
@@ -529,9 +318,9 @@ WHERE event_id = $eventId
         VisibilityLevel visibility,
         RecordEnvelope? before,
         RecordEnvelope? after,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int commandTimeoutSeconds)
     {
-        var eventId = $"evt_{Guid.NewGuid():N}";
         var occurredAt = Now(context);
         var type = EventType(operation);
         await using var command = connection.CreateCommand();
@@ -544,7 +333,7 @@ VALUES(
   $eventId, $eventType, $schemaVersion, $occurredAt, $tenantId, $operation, $visibility,
   $collectionId, $recordId, $beforeJson, $afterJson);
 """;
-        command.CommandTimeout = TimeoutSeconds();
+        command.CommandTimeout = commandTimeoutSeconds;
         command.Parameters.AddWithValue("$eventId", eventId);
         command.Parameters.AddWithValue("$eventType", type);
         command.Parameters.AddWithValue("$schemaVersion", BaseEventSchemaVersions.V1);
@@ -557,11 +346,6 @@ VALUES(
         command.Parameters.AddWithValue("$beforeJson", SerializeSnapshot(before));
         command.Parameters.AddWithValue("$afterJson", SerializeSnapshot(after));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        await PruneMutationJournalAsync(
-            connection,
-            transaction,
-            _timeProvider.GetUtcNow(),
-            cancellationToken).ConfigureAwait(false);
 
         return new EventReference
         {
@@ -575,9 +359,10 @@ VALUES(
 
     private async ValueTask PruneMutationJournalAsync(
         SqliteConnection connection,
-        SqliteTransaction? transaction,
+        SqliteTransaction transaction,
         DateTimeOffset now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int commandTimeoutSeconds)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -595,7 +380,7 @@ WHERE position <= (
   FROM {_names.MutationJournal}
 );
 """;
-        command.CommandTimeout = TimeoutSeconds();
+        command.CommandTimeout = commandTimeoutSeconds;
         command.Parameters.AddWithValue("$cutoff", now.Subtract(_options.MutationJournalRetention).ToString("O"));
         command.Parameters.AddWithValue("$maxEntries", _options.MutationJournalMaxEntries);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -734,12 +519,37 @@ FROM {_names.MutationJournal};
         }
     }
 
-    private async ValueTask<SqliteTransaction> BeginImmediateAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    private async ValueTask<SqliteTransaction> BeginImmediateAsync(
+        SqliteConnection connection,
+        TimeSpan maximumWait,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        await SetBusyTimeoutAsync(connection, maximumWait, cancellationToken).ConfigureAwait(false);
         return await HPDBaseSqliteTelemetry.TraceTransactionAsync(
             _options.StoreId,
-            () => ValueTask.FromResult(connection.BeginTransaction(deferred: false))).ConfigureAwait(false);
+            () => ValueTask.FromResult(_transactions.BeginImmediate(connection))).ConfigureAwait(false);
+    }
+
+    private async ValueTask SetBusyTimeoutAsync(
+        SqliteConnection connection,
+        TimeSpan maximumWait,
+        CancellationToken cancellationToken)
+    {
+        var boundedWait = maximumWait <= _options.BusyTimeout
+            ? maximumWait
+            : _options.BusyTimeout;
+        var milliseconds = Math.Clamp(
+            (long)Math.Ceiling(boundedWait.TotalMilliseconds),
+            0,
+            int.MaxValue);
+        connection.DefaultTimeout = Math.Max(
+            1,
+            (int)Math.Ceiling(boundedWait.TotalSeconds));
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA busy_timeout={milliseconds.ToString(CultureInfo.InvariantCulture)};";
+        command.CommandTimeout = TimeoutSeconds();
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private OperationResult<T>? ValidateRegisteredCollection<T>(string collectionId)
@@ -794,6 +604,11 @@ FROM {_names.MutationJournal};
 
     private int TimeoutSeconds() => Math.Max(1, (int)Math.Ceiling(_options.CommandTimeout.TotalSeconds));
 
+    private int TimeoutSeconds(TimeSpan maximum) =>
+        Math.Min(
+            TimeoutSeconds(),
+            Math.Max(1, (int)Math.Floor(maximum.TotalSeconds)));
+
     private static void ValidateOptions(HPDBaseSqliteOptions options)
     {
         if (!SqliteValidation.IsValidSchemaPrefix(options.SchemaPrefix)) throw new ArgumentException("SQLite schema prefix must contain only ASCII letters, digits, and underscores.", nameof(options));
@@ -808,7 +623,22 @@ FROM {_names.MutationJournal};
         StoreId = options.StoreId,
         StoreKind = "sqlite",
         StoreVersion = options.StoreVersion,
-        Crud = new CrudCapability { List = true, Get = true, Create = true, Patch = true, Replace = true, Delete = true, IdAuthority = options.AllowClientRequestedIds ? IdAuthority.Hybrid : IdAuthority.Store, TimestampAuthority = TimestampAuthority.Store, Consistency = ConsistencyModel.Strong },
+        Read = new RecordReadCapability
+        {
+            List = true,
+            Get = true,
+            MaxPageSize = options.MaxPageSize
+        },
+        Mutation = new RecordMutationCapability
+        {
+            Create = true,
+            Patch = true,
+            Replace = true,
+            Delete = true,
+            IdAuthority = options.AllowClientRequestedIds ? IdAuthority.Hybrid : IdAuthority.Store,
+            TimestampAuthority = TimestampAuthority.Store,
+            Consistency = ConsistencyModel.Strong
+        },
         Query = new QueryCapability
         {
             Filter = new FilterCapability { Supported = true, Operators = [FilterOperator.Equal, FilterOperator.NotEqual, FilterOperator.LessThan, FilterOperator.LessThanOrEqual, FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual], BooleanComposition = true, Not = true, NullChecks = true, MissingFieldChecks = true, NestedFieldPaths = false, ArrayMembership = false, MaxDepth = options.MaxFilterDepth, MaxNodes = options.MaxFilterNodes, ExecutionMode = QueryExecutionMode.Native },
@@ -818,7 +648,46 @@ FROM {_names.MutationJournal};
             Select = new SelectCapability { PayloadFields = true, SystemFields = false, NestedFieldPaths = false },
             Include = new QueryIncludeCapability { Supported = false, ExecutionMode = QueryExecutionMode.Unsupported }
         },
-        Revision = new RevisionCapability { Supported = true, Guarantee = RevisionGuarantee.Store, Patch = true, Delete = true },
+        Revision = new RevisionCapability
+        {
+            Supported = true,
+            Guarantee = RevisionGuarantee.Store,
+            Patch = true,
+            Replace = true,
+            Delete = true
+        },
+        Batch = new StoreBatchCapability
+        {
+            Modes = [BaseRecordBatchExecutionMode.Atomic],
+            MaxOperations = HPDBaseSqliteDefaults.MaximumBatchOperations,
+            MaxCanonicalPayloadBytes = HPDBaseSqliteDefaults.MaximumBatchCanonicalPayloadBytes,
+            MinimumAcquisitionTimeout = TimeSpan.FromSeconds(1),
+            MinimumTransactionTimeout = TimeSpan.FromSeconds(1),
+            MinimumCommitCompletionTimeout = TimeSpan.FromSeconds(1),
+            TimeoutGranularity = TimeSpan.FromSeconds(1),
+            Ordered = true,
+            PartialResults = false,
+            CrossCollectionAtomic = true,
+            ReadYourWrites = true,
+            Durable = true,
+            TransactionalJournal = true,
+            Isolation = BaseTransactionIsolation.Serializable,
+            NestedTransactions = false,
+            Savepoints = false
+        },
+        Upsert = options.AllowClientRequestedIds
+            ? new StoreUpsertCapability
+            {
+                Atomic = true,
+                UpdateModes =
+                [
+                    RecordUpsertUpdateMode.Patch,
+                    RecordUpsertUpdateMode.Replace
+                ],
+                ExpectedRevision = true,
+                ExistenceConditions = true
+            }
+            : null,
         Streaming = new StreamingCapability { Supported = false }
     };
 

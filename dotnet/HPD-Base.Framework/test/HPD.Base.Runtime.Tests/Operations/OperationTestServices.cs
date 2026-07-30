@@ -1,4 +1,5 @@
 using HPD.Base.Policy;
+using HPD.Base.Runtime.Configuration;
 using HPD.Base.Runtime.DependencyInjection;
 using HPD.Base.Runtime.Descriptors;
 using HPD.Base.Runtime.Stores;
@@ -14,14 +15,15 @@ internal static class OperationTestServices
         IRecordStore? store = null,
         IPolicyEvaluator? policy = null,
         FieldDefinition[]? fields = null,
-        Action<IServiceCollection>? configureServices = null)
+        Action<IServiceCollection>? configureServices = null,
+        Action<HPDBaseRuntimeOptions>? configureRuntime = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton<IBaseDescriptorContributor>(new CollectionContributor(fields));
         services.AddSingleton(policy ?? new AllowPolicyEvaluator());
         configureServices?.Invoke(services);
-        services.AddHPDBaseRuntime();
+        services.AddHPDBaseRuntime(configureRuntime);
 
         var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync().AsTask().GetAwaiter().GetResult();
@@ -67,7 +69,8 @@ internal static class OperationTestServices
                     Create = true,
                     Patch = true,
                     Replace = true,
-                    Delete = true
+                    Delete = true,
+                    Upsert = true
                 }
             });
         }

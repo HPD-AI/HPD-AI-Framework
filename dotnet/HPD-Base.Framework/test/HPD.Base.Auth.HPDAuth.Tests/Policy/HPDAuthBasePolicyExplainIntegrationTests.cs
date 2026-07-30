@@ -209,10 +209,13 @@ public sealed class HPDAuthBasePolicyExplainIntegrationTests
             StoreId = "explain",
             StoreKind = BaseStoreKinds.Custom,
             StoreVersion = "test",
-            Crud = new CrudCapability
+            Read = new RecordReadCapability
             {
                 List = true,
-                Get = true,
+                Get = true
+            },
+            Mutation = new RecordMutationCapability
+            {
                 Create = true,
                 Patch = true,
                 Replace = true,

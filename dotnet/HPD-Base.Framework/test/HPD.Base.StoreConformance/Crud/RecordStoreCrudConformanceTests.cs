@@ -6,7 +6,7 @@ public abstract class RecordStoreCrudConformanceTests<TFixture> : RecordStoreCon
     [Fact]
     public async Task CreateGetListDeleteRoundTripWhenSupported()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.Get || !Capabilities.Crud.List || !Capabilities.Crud.Delete)
+        if (!Capabilities.Mutation.Create || !Capabilities.Read.Get || !Capabilities.Read.List || !Capabilities.Mutation.Delete)
         {
             return;
         }
@@ -66,7 +66,7 @@ public abstract class RecordStoreCrudConformanceTests<TFixture> : RecordStoreCon
     {
         var store = await CreateStoreAsync();
 
-        if (Capabilities.Crud.List)
+        if (Capabilities.Read.List)
         {
             var empty = await store.ListAsync(Collection, RecordStoreConformanceQueries.Empty, Operation(BaseOperationKind.List));
             RecordStoreConformanceAssertions.Success(empty, OperationStatus.Ok);
@@ -74,7 +74,7 @@ public abstract class RecordStoreCrudConformanceTests<TFixture> : RecordStoreCon
             RecordStoreConformanceAssertions.PageShape(empty.Value);
         }
 
-        if (Capabilities.Crud.Create)
+        if (Capabilities.Mutation.Create)
         {
             var create = await store.CreateAsync(
                 Collection,
@@ -90,7 +90,7 @@ public abstract class RecordStoreCrudConformanceTests<TFixture> : RecordStoreCon
     {
         var store = await CreateStoreAsync();
 
-        if (Capabilities.Crud.Get)
+        if (Capabilities.Read.Get)
         {
             var missing = await store.GetAsync(Collection, new RecordId("missing"), Operation(BaseOperationKind.Get, new RecordId("missing")));
             RecordStoreConformanceAssertions.Failure(missing, OperationStatus.NotFound);
@@ -99,7 +99,7 @@ public abstract class RecordStoreCrudConformanceTests<TFixture> : RecordStoreCon
             RecordStoreConformanceAssertions.Failure(invalid, OperationStatus.ValidationFailed);
         }
 
-        if (Capabilities.Crud.Delete)
+        if (Capabilities.Mutation.Delete)
         {
             var delete = await store.DeleteAsync(
                 Collection,
@@ -113,8 +113,8 @@ public abstract class RecordStoreCrudConformanceTests<TFixture> : RecordStoreCon
     [Fact]
     public async Task DuplicateRequestedIdConflictsAndDoesNotOverwriteWhenClientIdsAreSupported()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.Get ||
-            Capabilities.Crud.IdAuthority is not (IdAuthority.Client or IdAuthority.Hybrid))
+        if (!Capabilities.Mutation.Create || !Capabilities.Read.Get ||
+            Capabilities.Mutation.IdAuthority is not (IdAuthority.Client or IdAuthority.Hybrid))
         {
             return;
         }
@@ -141,7 +141,7 @@ public abstract class RecordStoreCrudConformanceTests<TFixture> : RecordStoreCon
     [Fact]
     public async Task IdempotencyKeyFailsClosedUntilAdvertised()
     {
-        if (!Capabilities.Crud.Create)
+        if (!Capabilities.Mutation.Create)
         {
             return;
         }
@@ -166,7 +166,7 @@ public abstract class RecordStoreCrudConformanceTests<TFixture> : RecordStoreCon
     [Fact]
     public async Task MalformedCreatePayloadFailsClosedWhenCreateIsSupported()
     {
-        if (!Capabilities.Crud.Create)
+        if (!Capabilities.Mutation.Create)
         {
             return;
         }

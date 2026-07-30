@@ -50,6 +50,27 @@ public sealed class PublicApiShapeTests
             .GetInterfaces()
             .Where(type => type.Assembly == typeof(IRecordStore).Assembly)
             .Should()
-            .BeEquivalentTo([typeof(IRecordStore), typeof(IRevisionedRecordStore), typeof(IStreamingRecordStore)]);
+            .BeEquivalentTo(
+            [
+                typeof(IRecordStore),
+                typeof(IRecordMutationStore),
+                typeof(IAtomicRecordStore),
+                typeof(IStreamingRecordStore)
+            ]);
+    }
+
+    [Theory]
+    [InlineData("CreateAsync")]
+    [InlineData("PatchAsync")]
+    [InlineData("ReplaceAsync")]
+    [InlineData("DeleteAsync")]
+    [InlineData("PatchIfRevisionAsync")]
+    [InlineData("ReplaceIfRevisionAsync")]
+    public void StoreExposesNoLegacyDirectMutationMethods(string methodName)
+    {
+        typeof(InMemoryRecordStore)
+            .GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public)
+            .Should()
+            .BeNull();
     }
 }

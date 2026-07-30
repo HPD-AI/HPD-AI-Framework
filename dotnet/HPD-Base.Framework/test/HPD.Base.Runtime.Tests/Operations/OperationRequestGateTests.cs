@@ -30,15 +30,15 @@ public sealed class OperationRequestGateTests
     [Fact]
     public async Task RequestedIdFailsWhenStoreIdAuthorityIsNotClientOrHybrid()
     {
-        var store = new FakeRecordStore("primary", new CrudCapability
+        var store = new FakeRecordStore("primary", mutation: new RecordMutationCapability
         {
-            List = true,
-            Get = true,
             Create = true,
             Patch = true,
             Replace = true,
             Delete = true,
-            IdAuthority = IdAuthority.Store
+            IdAuthority = IdAuthority.Store,
+            TimestampAuthority = TimestampAuthority.Runtime,
+            Consistency = ConsistencyModel.Strong
         });
         using var provider = OperationTestServices.Build(store);
 

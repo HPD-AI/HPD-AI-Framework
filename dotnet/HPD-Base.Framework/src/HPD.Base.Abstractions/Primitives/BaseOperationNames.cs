@@ -14,6 +14,10 @@ public static class BaseRouteIds
     public const string RecordsPatch = "records.patch";
     public const string RecordsReplace = "records.replace";
     public const string RecordsDelete = "records.delete";
+    /// <summary>Ordered record-batch endpoint.</summary>
+    public const string RecordsBatch = "records.batch";
+    /// <summary>Atomic record-ID upsert endpoint.</summary>
+    public const string RecordsUpsert = "records.upsert";
 }
 
 public static class BaseDtoIds
@@ -25,6 +29,14 @@ public static class BaseDtoIds
     public const string RecordPage = "base.recordPage";
     public const string BaseError = "base.error";
     public const string BaseRecordMutationEvent = "base.recordMutationEvent";
+    /// <summary>Ordered record-batch request contract.</summary>
+    public const string BaseRecordBatchRequest = "base.recordBatchRequest";
+    /// <summary>Ordered record-batch result contract.</summary>
+    public const string BaseRecordBatchResult = "base.recordBatchResult";
+    /// <summary>Atomic record-ID upsert request contract.</summary>
+    public const string RecordUpsertRequest = "base.recordUpsertRequest";
+    /// <summary>Atomic record-ID upsert result contract.</summary>
+    public const string RecordUpsertResult = "base.recordUpsertResult";
     public const string HealthDescriptor = "base.healthDescriptor";
     public const string DiagnosticDescriptor = "base.diagnosticDescriptor";
 }

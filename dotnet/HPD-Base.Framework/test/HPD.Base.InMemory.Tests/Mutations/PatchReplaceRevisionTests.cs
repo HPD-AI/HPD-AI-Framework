@@ -9,12 +9,12 @@ public sealed class PatchReplaceRevisionTests
     {
         var store = new InMemoryRecordStore();
         var collection = InMemoryTestData.Collection();
-        var create = await store.CreateAsync(
+        var create = await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", "old"), ("status", "active")) },
             InMemoryTestData.Operation(BaseOperationKind.Create));
 
-        var patch = await store.PatchAsync(
+        var patch = await InMemoryMutationTestDriver.PatchAsync(store,
             collection,
             create.Value!.Id,
             new RecordPatchRequest { Patch = InMemoryTestData.Patch("title", "new") },
@@ -31,13 +31,13 @@ public sealed class PatchReplaceRevisionTests
     {
         var store = new InMemoryRecordStore();
         var collection = InMemoryTestData.Collection();
-        var create = await store.CreateAsync(
+        var create = await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", "old"), ("status", "active")) },
             InMemoryTestData.Operation(BaseOperationKind.Create));
 
         using var document = JsonDocument.Parse("""{"status":null}""");
-        var patch = await store.PatchAsync(
+        var patch = await InMemoryMutationTestDriver.PatchAsync(store,
             collection,
             create.Value!.Id,
             new RecordPatchRequest
@@ -64,12 +64,12 @@ public sealed class PatchReplaceRevisionTests
     {
         var store = new InMemoryRecordStore();
         var collection = InMemoryTestData.Collection();
-        var create = await store.CreateAsync(
+        var create = await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", "old"), ("status", "active")) },
             InMemoryTestData.Operation(BaseOperationKind.Create));
 
-        var replace = await store.ReplaceAsync(
+        var replace = await InMemoryMutationTestDriver.ReplaceAsync(store,
             collection,
             create.Value!.Id,
             new RecordReplaceRequest { Payload = InMemoryTestData.Payload(("title", "replacement")) },
@@ -84,17 +84,20 @@ public sealed class PatchReplaceRevisionTests
     {
         var store = new InMemoryRecordStore();
         var collection = InMemoryTestData.Collection();
-        var create = await store.CreateAsync(
+        var create = await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", "old")) },
             InMemoryTestData.Operation(BaseOperationKind.Create));
 
         var stale = new RevisionToken("mem:stale");
-        var result = await store.PatchIfRevisionAsync(
+        var result = await InMemoryMutationTestDriver.PatchAsync(store,
             collection,
             create.Value!.Id,
-            new RecordPatchRequest { Patch = InMemoryTestData.Patch("title", "new") },
-            stale,
+            new RecordPatchRequest
+            {
+                Patch = InMemoryTestData.Patch("title", "new"),
+                ExpectedRevision = stale
+            },
             InMemoryTestData.Operation(BaseOperationKind.Patch));
 
         result.Status.Should().Be(OperationStatus.Conflict);
@@ -106,12 +109,12 @@ public sealed class PatchReplaceRevisionTests
     {
         var store = new InMemoryRecordStore();
         var collection = InMemoryTestData.Collection();
-        var create = await store.CreateAsync(
+        var create = await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", "old")) },
             InMemoryTestData.Operation(BaseOperationKind.Create));
 
-        var conflict = await store.ReplaceAsync(
+        var conflict = await InMemoryMutationTestDriver.ReplaceAsync(store,
             collection,
             create.Value!.Id,
             new RecordReplaceRequest
@@ -124,7 +127,7 @@ public sealed class PatchReplaceRevisionTests
         conflict.Status.Should().Be(OperationStatus.Conflict);
         conflict.Error!.Conflict!.Kind.Should().Be(ConflictKind.Revision);
 
-        var updated = await store.ReplaceAsync(
+        var updated = await InMemoryMutationTestDriver.ReplaceAsync(store,
             collection,
             create.Value.Id,
             new RecordReplaceRequest
@@ -144,12 +147,12 @@ public sealed class PatchReplaceRevisionTests
         var store = new InMemoryRecordStore();
         var collection = InMemoryTestData.Collection();
 
-        var patch = await store.PatchAsync(
+        var patch = await InMemoryMutationTestDriver.PatchAsync(store,
             collection,
             new RecordId("missing"),
             new RecordPatchRequest { Patch = InMemoryTestData.Patch("title", "new") },
             InMemoryTestData.Operation(BaseOperationKind.Patch));
-        var replace = await store.ReplaceAsync(
+        var replace = await InMemoryMutationTestDriver.ReplaceAsync(store,
             collection,
             new RecordId("missing"),
             new RecordReplaceRequest { Payload = InMemoryTestData.Payload(("title", "new")) },
@@ -166,19 +169,19 @@ public sealed class PatchReplaceRevisionTests
     {
         var store = new InMemoryRecordStore();
         var collection = InMemoryTestData.Collection();
-        var create = await store.CreateAsync(
+        var create = await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", "old")) },
             InMemoryTestData.Operation(BaseOperationKind.Create));
 
-        var conflict = await store.DeleteAsync(
+        var conflict = await InMemoryMutationTestDriver.DeleteAsync(store,
             collection,
             create.Value!.Id,
             new RecordDeleteRequest { ExpectedRevision = new RevisionToken("mem:stale") },
             InMemoryTestData.Operation(BaseOperationKind.Delete));
         conflict.Status.Should().Be(OperationStatus.Conflict);
 
-        var deleted = await store.DeleteAsync(
+        var deleted = await InMemoryMutationTestDriver.DeleteAsync(store,
             collection,
             create.Value.Id,
             new RecordDeleteRequest { ExpectedRevision = create.Value.Metadata.Revision },

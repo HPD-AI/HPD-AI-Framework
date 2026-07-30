@@ -1,5 +1,6 @@
 using HPD.Base.Runtime.Descriptors;
 using HPD.Base.Runtime.Stores;
+using HPD.Base.Records;
 using HPD.Base.Results;
 using HPD.Base.Stores;
 
@@ -35,7 +36,12 @@ internal sealed class DefaultBaseCapabilityValidator : IBaseCapabilityValidator
                 continue;
             }
 
-            ValidateCrud(collection.Id, collection.Operations, store.Capabilities.Crud, issues);
+            ValidateOperations(
+                collection.Id,
+                collection.Operations,
+                store,
+                issues);
+            ValidateAtomicGuarantees(collection.Id, store, issues);
         }
 
         foreach (var feature in snapshot.Capabilities.Families.SelectMany(family => family.Features ?? []))
@@ -78,31 +84,36 @@ internal sealed class DefaultBaseCapabilityValidator : IBaseCapabilityValidator
                 continue;
             }
 
-            if (revision.Patch && store is not IRevisionedRecordStore)
+            if ((revision.Patch || revision.Replace || revision.Delete)
+                && store is not IRecordMutationStore)
             {
                 issues.Add(Fatal(
                     "base.runtime.capability.revision.interfaceMismatch",
-                    $"Revision patch feature '{feature.FeatureId}' requires IRevisionedRecordStore.",
+                    $"Revision mutation feature '{feature.FeatureId}' requires IRecordMutationStore.",
                     collectionId));
             }
 
-            if (revision.Delete && !SupportsExpectedRevisionDelete(store))
+            if (revision.Patch && !SupportsExpectedRevision(store, static capability => capability.Patch)
+                || revision.Replace && !SupportsExpectedRevision(store, static capability => capability.Replace)
+                || revision.Delete && !SupportsExpectedRevision(store, static capability => capability.Delete))
             {
                 issues.Add(Fatal(
-                    "base.runtime.capability.revision.deleteUnsupported",
-                    $"Revision delete feature '{feature.FeatureId}' requires a store that advertises atomic expected-revision delete.",
+                    "base.runtime.capability.revision.operationUnsupported",
+                    $"Revision feature '{feature.FeatureId}' requires matching atomic expected-revision support.",
                     collectionId));
             }
         }
     }
 
-    private static bool SupportsExpectedRevisionDelete(IRecordStore store) =>
+    private static bool SupportsExpectedRevision(
+        IRecordStore store,
+        Func<RevisionCapability, bool> operation) =>
         store.Capabilities.Revision is
         {
             Supported: true,
-            Delete: true,
             Guarantee: RevisionGuarantee.Store or RevisionGuarantee.Native
-        };
+        } revision
+        && operation(revision);
 
     private void ValidateStreamingFeature(
         HPD.Base.Descriptors.CapabilityFeatureDescriptor feature,
@@ -135,10 +146,10 @@ internal sealed class DefaultBaseCapabilityValidator : IBaseCapabilityValidator
         }
     }
 
-    private static void ValidateCrud(
+    private static void ValidateOperations(
         string collectionId,
         HPD.Base.Schema.CollectionOperationMatrix? matrix,
-        CrudCapability capability,
+        IRecordStore store,
         List<BaseRuntimeValidationIssue> issues)
     {
         if (matrix is null)
@@ -146,12 +157,18 @@ internal sealed class DefaultBaseCapabilityValidator : IBaseCapabilityValidator
             return;
         }
 
-        Check(matrix.List, capability.List, "list");
-        Check(matrix.Get, capability.Get, "get");
-        Check(matrix.Create, capability.Create, "create");
-        Check(matrix.Patch, capability.Patch, "patch");
-        Check(matrix.Replace, capability.Replace, "replace");
-        Check(matrix.Delete, capability.Delete, "delete");
+        var capabilities = store.Capabilities;
+        Check(matrix.List, capabilities.Read.List, "list");
+        Check(matrix.Get, capabilities.Read.Get, "get");
+        Check(matrix.Create, capabilities.Mutation.Create && store is IRecordMutationStore, "create");
+        Check(matrix.Patch, capabilities.Mutation.Patch && store is IRecordMutationStore, "patch");
+        Check(matrix.Replace, capabilities.Mutation.Replace && store is IRecordMutationStore, "replace");
+        Check(matrix.Delete, capabilities.Mutation.Delete && store is IRecordMutationStore, "delete");
+        Check(
+            matrix.Upsert,
+            capabilities.Upsert?.Atomic == true
+            && store is IAtomicRecordStore,
+            "upsert");
 
         void Check(bool claimed, bool supported, string operation)
         {
@@ -162,6 +179,30 @@ internal sealed class DefaultBaseCapabilityValidator : IBaseCapabilityValidator
                     $"Collection '{collectionId}' claims unsupported '{operation}' operation.",
                     collectionId));
             }
+        }
+    }
+
+    private static void ValidateAtomicGuarantees(
+        string collectionId,
+        IRecordStore store,
+        List<BaseRuntimeValidationIssue> issues)
+    {
+        var batch = store.Capabilities.Batch;
+        if (batch?.Modes.Contains(BaseRecordBatchExecutionMode.Atomic) != true)
+            return;
+
+        if (store is not IAtomicRecordStore
+            || !batch.Ordered
+            || !batch.ReadYourWrites
+            || batch.MinimumAcquisitionTimeout <= TimeSpan.Zero
+            || batch.MinimumTransactionTimeout <= TimeSpan.Zero
+            || batch.MinimumCommitCompletionTimeout <= TimeSpan.Zero
+            || batch.TimeoutGranularity <= TimeSpan.Zero)
+        {
+            issues.Add(Fatal(
+                "base.runtime.capability.atomic.interfaceMismatch",
+                $"Collection '{collectionId}' advertises atomic execution without the required interface, ordering, and read-your-writes guarantees.",
+                collectionId));
         }
     }
 

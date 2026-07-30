@@ -8,7 +8,7 @@ public abstract class RuntimeStoreCapabilityGateConformanceTests<TFixture> : Run
     [Fact]
     public async Task RuntimeRejectsIdempotencyKeysBeforeStoreMutation()
     {
-        if (!Capabilities.Crud.Create)
+        if (!Capabilities.Mutation.Create)
         {
             return;
         }
@@ -27,7 +27,7 @@ public abstract class RuntimeStoreCapabilityGateConformanceTests<TFixture> : Run
 
         RecordStoreConformanceAssertions.Failure(result, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable, OperationStatus.ValidationFailed);
 
-        if (Capabilities.Crud.List)
+        if (Capabilities.Read.List)
         {
             var list = await runtime.ListAsync(Collection.Id, RecordStoreConformanceQueries.Empty, Principal, Operation(BaseOperationKind.List));
             RecordStoreConformanceAssertions.Success(list, OperationStatus.Ok);
@@ -39,7 +39,7 @@ public abstract class RuntimeStoreCapabilityGateConformanceTests<TFixture> : Run
     [Fact]
     public async Task RuntimeRejectsClientIdsWhenStoreAuthorityDoesNotAllowThem()
     {
-        if (!Capabilities.Crud.Create || Capabilities.Crud.IdAuthority is IdAuthority.Client or IdAuthority.Hybrid)
+        if (!Capabilities.Mutation.Create || Capabilities.Mutation.IdAuthority is IdAuthority.Client or IdAuthority.Hybrid)
         {
             return;
         }

@@ -14,7 +14,6 @@ public enum BaseOperationKind
     Upsert,
     Delete,
     Batch,
-    Transaction,
     SchemaRead,
     SchemaWrite,
     FileRead,

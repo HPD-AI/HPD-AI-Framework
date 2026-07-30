@@ -40,5 +40,4 @@ public sealed record CollectionOperationMatrix
     public bool Replace { get; init; }
     public bool Upsert { get; init; }
     public bool Delete { get; init; }
-    public bool Batch { get; init; }
 }

@@ -17,7 +17,7 @@ public sealed class InMemoryStoreTelemetryTests
         var collection = InMemoryTestData.Collection();
         var context = InMemoryTestData.Operation(BaseOperationKind.Create);
 
-        var create = await store.CreateAsync(
+        var create = await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest
             {

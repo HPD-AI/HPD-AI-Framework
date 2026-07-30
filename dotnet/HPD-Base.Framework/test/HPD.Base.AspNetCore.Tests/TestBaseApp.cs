@@ -58,6 +58,7 @@ internal static class TestBaseApp
             Create = true,
             Patch = true,
             Replace = true,
+            Upsert = true,
             Delete = true
         }
     };

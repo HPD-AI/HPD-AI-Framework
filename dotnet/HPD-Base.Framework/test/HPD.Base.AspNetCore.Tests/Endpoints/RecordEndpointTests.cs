@@ -68,4 +68,90 @@ public sealed class RecordEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Contain("base.http.body.invalidJson");
     }
+
+    [Fact]
+    public async Task BatchAndUpsertRoutesUseCanonicalMutationRuntime()
+    {
+        await using var app = await TestBaseApp.CreateAsync();
+        var client = app.GetTestClient();
+        var upsertId = new RecordId("upsert-route");
+
+        var upsertResponse = await client.PutAsync(
+            $"/base/collections/items/records/{upsertId.Value}:upsert",
+            JsonContent.Create(
+                new RecordUpsertRequest
+                {
+                    Id = upsertId,
+                    CreatePayload = TestBaseApp.Payload(("title", "created")),
+                    UpdatePayload = TestBaseApp.Patch("title", "updated"),
+                    UpdateMode = RecordUpsertUpdateMode.Patch,
+                    Condition = RecordUpsertExistenceCondition.Any
+                },
+                HPDBaseJsonSerializerContext.Default.RecordUpsertRequest));
+
+        upsertResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var upsert = await app.ReadBaseJsonAsync<RecordUpsertResult>(upsertResponse.Content);
+        upsert!.Outcome.Should().Be(RecordUpsertOutcome.Created);
+        upsert.Record.Id.Should().Be(upsertId);
+
+        var batchResponse = await client.PostAsync(
+            "/base/records/batch",
+            JsonContent.Create(
+                new BaseRecordBatchRequest
+                {
+                    Mode = BaseRecordBatchExecutionMode.Atomic,
+                    Operations =
+                    [
+                        new BaseRecordBatchItem
+                        {
+                            ItemId = "first",
+                            CollectionId = "items",
+                            Kind = BaseRecordMutationKind.Create,
+                            Create = new RecordCreateRequest
+                            {
+                                RequestedId = new RecordId("batch-route"),
+                                Payload = TestBaseApp.Payload(("title", "one"))
+                            }
+                        },
+                        new BaseRecordBatchItem
+                        {
+                            ItemId = "second",
+                            CollectionId = "items",
+                            Kind = BaseRecordMutationKind.Patch,
+                            RecordId = new RecordId("batch-route"),
+                            Patch = new RecordPatchRequest
+                            {
+                                Patch = TestBaseApp.Patch("title", "two")
+                            }
+                        }
+                    ]
+                },
+                HPDBaseJsonSerializerContext.Default.BaseRecordBatchRequest));
+
+        batchResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var batch = await app.ReadBaseJsonAsync<BaseRecordBatchResult>(batchResponse.Content);
+        batch!.Outcome.Should().Be(BaseRecordBatchOutcome.Committed);
+        batch.Items.Should().OnlyContain(item => item.Disposition == BaseRecordBatchItemDisposition.Committed);
+    }
+
+    [Fact]
+    public async Task UpsertRouteRejectsBodyIdMismatch()
+    {
+        await using var app = await TestBaseApp.CreateAsync();
+        var response = await app.GetTestClient().PutAsync(
+            "/base/collections/items/records/route-id:upsert",
+            JsonContent.Create(
+                new RecordUpsertRequest
+                {
+                    Id = new RecordId("body-id"),
+                    CreatePayload = TestBaseApp.Payload(("title", "created")),
+                    UpdatePayload = TestBaseApp.Patch("title", "updated"),
+                    UpdateMode = RecordUpsertUpdateMode.Patch,
+                    Condition = RecordUpsertExistenceCondition.Any
+                },
+                HPDBaseJsonSerializerContext.Default.RecordUpsertRequest));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("base.http.recordId.conflict");
+    }
 }

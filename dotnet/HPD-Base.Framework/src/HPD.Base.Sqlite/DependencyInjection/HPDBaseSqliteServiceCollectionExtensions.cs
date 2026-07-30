@@ -15,6 +15,10 @@ namespace HPD.Base.Sqlite.DependencyInjection;
 /// <summary>Adds HPD.BASE SQLite store services to a service collection.</summary>
 public static class HPDBaseSqliteServiceCollectionExtensions
 {
+    /// <summary>Adds one durable SQLite record store and its advertised optional capabilities.</summary>
+    /// <param name="services">The host service collection.</param>
+    /// <param name="configure">An optional direct SQLite options callback.</param>
+    /// <returns>The supplied service collection.</returns>
     public static IServiceCollection AddHPDBaseSqliteStore(this IServiceCollection services, Action<HPDBaseSqliteOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -29,7 +33,8 @@ public static class HPDBaseSqliteServiceCollectionExtensions
             provider.GetRequiredService<ILoggerFactory>(),
             provider.GetService<TimeProvider>() ?? TimeProvider.System));
         services.TryAddSingleton<IRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
-        services.TryAddSingleton<IRevisionedRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IRecordMutationStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
+        services.TryAddSingleton<IAtomicRecordStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         services.TryAddSingleton<ITransactionalMutationJournalStore>(provider => provider.GetRequiredService<SqliteRecordStore>());
         if (options.ContributeRelationalDescriptors)
         {

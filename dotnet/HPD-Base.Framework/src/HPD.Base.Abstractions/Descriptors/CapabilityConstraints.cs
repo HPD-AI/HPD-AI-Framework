@@ -1,5 +1,6 @@
 using System.Text.Json;
 using HPD.Base.Query;
+using HPD.Base.Records;
 using HPD.Base.Results;
 using HPD.Base.Stores;
 
@@ -7,7 +8,10 @@ namespace HPD.Base.Descriptors;
 
 public sealed record CapabilityConstraintSet
 {
-    public StoreCrudCapabilityConstraints? StoreCrud { get; init; }
+    /// <summary>Gets record-read constraints.</summary>
+    public StoreReadCapabilityConstraints? StoreRead { get; init; }
+    /// <summary>Gets record-mutation constraints.</summary>
+    public StoreMutationCapabilityConstraints? StoreMutation { get; init; }
     public StoreRevisionCapabilityConstraints? StoreRevision { get; init; }
     public StoreStreamingCapabilityConstraints? StoreStreaming { get; init; }
     public QueryFilterCapabilityConstraints? QueryFilter { get; init; }
@@ -23,24 +27,42 @@ public sealed record CapabilityConstraintSet
     public FileCapabilityConstraints? Files { get; init; }
     public RealtimeCapabilityConstraints? Realtime { get; init; }
     public BatchCapabilityConstraints? Batch { get; init; }
+    /// <summary>Gets atomic record-ID upsert constraints.</summary>
+    public UpsertCapabilityConstraints? Upsert { get; init; }
     public SearchCapabilityConstraints? Search { get; init; }
     public VectorCapabilityConstraints? Vector { get; init; }
     public Dictionary<string, JsonElement>? Extensions { get; init; }
 }
 
-public sealed record StoreCrudCapabilityConstraints
+/// <summary>Describes record-read operations and their page bound.</summary>
+public sealed record StoreReadCapabilityConstraints
 {
+    /// <summary>Gets the supported read operation names.</summary>
     public string[]? Operations { get; init; }
-    public IdAuthority IdAuthority { get; init; }
-    public TimestampAuthority TimestampAuthority { get; init; }
-    public ConsistencyModel Consistency { get; init; }
+    /// <summary>Gets the maximum page size.</summary>
     public int? MaxPageSize { get; init; }
-    public bool SupportsIdempotencyKey { get; init; }
+}
+
+/// <summary>Describes physical mutation support and provider authority.</summary>
+public sealed record StoreMutationCapabilityConstraints
+{
+    /// <summary>Gets the supported mutation operation names.</summary>
+    public string[]? Operations { get; init; }
+    /// <summary>Gets which layer supplies identifiers.</summary>
+    public IdAuthority IdAuthority { get; init; }
+    /// <summary>Gets which layer supplies persisted timestamps.</summary>
+    public TimestampAuthority TimestampAuthority { get; init; }
+    /// <summary>Gets the consistency classification.</summary>
+    public ConsistencyModel Consistency { get; init; }
 }
 
 public sealed record StoreRevisionCapabilityConstraints
 {
+    /// <summary>Gets whether conditional patch is enforced.</summary>
     public bool Patch { get; init; }
+    /// <summary>Gets whether conditional replace is enforced.</summary>
+    public bool Replace { get; init; }
+    /// <summary>Gets whether conditional delete is enforced.</summary>
     public bool Delete { get; init; }
     public RevisionGuarantee Guarantee { get; init; }
 }
@@ -158,11 +180,49 @@ public sealed record RealtimeCapabilityConstraints
     public Dictionary<string, JsonElement>? Extensions { get; init; }
 }
 
+/// <summary>Describes ordered batch guarantees and bounds.</summary>
 public sealed record BatchCapabilityConstraints
 {
-    public bool Supported { get; init; }
-    public int? MaxOperations { get; init; }
-    public string[]? FeatureIds { get; init; }
+    /// <summary>Gets the supported execution modes.</summary>
+    public required BaseRecordBatchExecutionMode[] Modes { get; init; }
+    /// <summary>Gets the maximum operations per request.</summary>
+    public required int MaxOperations { get; init; }
+    /// <summary>Gets the maximum canonical serialized payload bytes.</summary>
+    public required long MaxCanonicalPayloadBytes { get; init; }
+    /// <summary>Gets whether execution preserves request order.</summary>
+    public bool Ordered { get; init; }
+    /// <summary>Gets whether independent execution returns partial results.</summary>
+    public bool PartialResults { get; init; }
+    /// <summary>Gets whether one atomic batch may span collections.</summary>
+    public bool CrossCollectionAtomic { get; init; }
+    /// <summary>Gets whether later items observe earlier provisional writes.</summary>
+    public bool ReadYourWrites { get; init; }
+    /// <summary>Gets whether committed records are durable.</summary>
+    public bool Durable { get; init; }
+    /// <summary>Gets whether journal entries share the record transaction.</summary>
+    public bool TransactionalJournal { get; init; }
+    /// <summary>Gets the isolation classification.</summary>
+    public required BaseTransactionIsolation Isolation { get; init; }
+    /// <summary>Gets whether nested transactions are supported.</summary>
+    public bool NestedTransactions { get; init; }
+    /// <summary>Gets whether savepoints are exposed.</summary>
+    public bool Savepoints { get; init; }
+    /// <summary>Gets namespaced optional extension metadata.</summary>
+    public Dictionary<string, JsonElement>? Extensions { get; init; }
+}
+
+/// <summary>Describes atomic record-ID upsert guarantees.</summary>
+public sealed record UpsertCapabilityConstraints
+{
+    /// <summary>Gets whether branch selection and mutation are atomic.</summary>
+    public bool Atomic { get; init; }
+    /// <summary>Gets the supported update-branch modes.</summary>
+    public required RecordUpsertUpdateMode[] UpdateModes { get; init; }
+    /// <summary>Gets whether expected revision is supported on update.</summary>
+    public bool ExpectedRevision { get; init; }
+    /// <summary>Gets whether create-only and update-only conditions are supported.</summary>
+    public bool ExistenceConditions { get; init; }
+    /// <summary>Gets namespaced optional extension metadata.</summary>
     public Dictionary<string, JsonElement>? Extensions { get; init; }
 }
 

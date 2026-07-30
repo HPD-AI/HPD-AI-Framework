@@ -77,7 +77,8 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
             CancellationToken.None);
 
         Assert.Equal(OperationStatus.Updated, result.Status);
-        Assert.Equal(1, store.PatchIfRevisionCalls);
+        Assert.Equal(1, store.PatchCalls);
+        Assert.Equal("rev_1", store.LastPatchRequest!.ExpectedRevision!.Value.Value);
         Assert.Single(result.Events!);
     }
 
@@ -85,6 +86,7 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
     public async Task ExpectedRevisionReplaceUsesRevisionedStoreMethod()
     {
         var store = new FakeRevisionedRecordStore("primary");
+        store.AddRecord(ExistingRecord());
         using var provider = OperationTestServices.Build(store);
 
         var result = await provider.GetRequiredService<IBaseRecordRuntime>().ReplaceAsync(
@@ -100,7 +102,8 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
             CancellationToken.None);
 
         Assert.Equal(OperationStatus.Updated, result.Status);
-        Assert.Equal(1, store.ReplaceIfRevisionCalls);
+        Assert.Equal(1, store.ReplaceCalls);
+        Assert.Equal("rev_1", store.LastReplaceRequest!.ExpectedRevision!.Value.Value);
         Assert.Single(result.Events!);
     }
 
@@ -211,6 +214,7 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
     public async Task ReplacePassesSchemaValidatedPayloadToStore()
     {
         var store = new FakeRecordStore("primary");
+        store.AddRecord(ExistingRecord());
         using var provider = OperationTestServices.Build(
             store,
             configureServices: services => services.AddSingleton<IBaseSchemaValidator>(new NormalizingSchemaValidator()));
@@ -231,6 +235,7 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
     public async Task WriteCheckDeniesReplaceAgainstProposedPayloadBeforeStoreCall()
     {
         var store = new FakeRecordStore("primary");
+        store.AddRecord(ExistingRecord());
         using var provider = OperationTestServices.Build(store, new ConstrainedPolicyEvaluator(writeCheck: OwnerWriteCheck("user-1")));
 
         var result = await provider.GetRequiredService<IBaseRecordRuntime>().ReplaceAsync(
@@ -448,7 +453,7 @@ public sealed class PatchReplaceDeleteOperationPipelineTests
                 ? new Dictionary<string, JsonElement> { ["title"] = Json("existing") }
                 : fields.ToDictionary(field => field.Name, field => Json(field.Value), StringComparer.Ordinal)
         },
-        Metadata = new RecordMetadata()
+        Metadata = new RecordMetadata { Revision = new RevisionToken("rev_1") }
     };
 
     private sealed class CapturingPolicyEvaluator : IPolicyEvaluator

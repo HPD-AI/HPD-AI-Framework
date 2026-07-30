@@ -41,7 +41,8 @@ public sealed class InMemoryConformanceFixture :
             Create = true,
             Patch = true,
             Replace = true,
-            Delete = true
+            Delete = true,
+            Upsert = true
         }
     };
 
@@ -141,7 +142,11 @@ public sealed class InMemoryConformanceFixture :
             }
         };
 
-        var result = await store.CreateAsync(collection, request, Operation(BaseOperationKind.Create, new RecordId(id)));
+        var result = await InMemoryMutationTestDriver.CreateAsync(
+            (IRecordMutationStore)store,
+            collection,
+            request,
+            Operation(BaseOperationKind.Create, new RecordId(id)));
         result.Status.Should().Be(OperationStatus.Created);
         return result.Value!;
     }

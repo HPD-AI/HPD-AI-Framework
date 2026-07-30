@@ -24,8 +24,7 @@ public sealed class DeferredFeatureAbsenceTests
         var paths = manifest!.Projections!.SelectMany(projection => projection.Routes ?? []).Select(route => route.Path);
 
         paths.Should().NotContain(path =>
-            path.Contains("batch", StringComparison.Ordinal)
-            || path.Contains("files", StringComparison.Ordinal)
+            path.Contains("files", StringComparison.Ordinal)
             || path.Contains("graphql", StringComparison.Ordinal)
             || path.Contains("openapi", StringComparison.Ordinal)
             || path.Contains("search", StringComparison.Ordinal)

@@ -22,7 +22,7 @@ public abstract class RecordStoreStreamingConformanceTests<TFixture> : RecordSto
         }
 
         Assert.True(store is IStreamingRecordStore, "Store advertises streaming but does not implement IStreamingRecordStore.");
-        if (!Capabilities.Crud.Create)
+        if (!Capabilities.Mutation.Create)
         {
             return;
         }
@@ -49,7 +49,7 @@ public abstract class RecordStoreStreamingConformanceTests<TFixture> : RecordSto
         var streamed = items.Single(item => item.Id.Value == "stream-one");
         streamed.Payload.Fields!["title"] = RecordStoreConformanceData.StringElement("mutated");
 
-        if (Capabilities.Crud.Get)
+        if (Capabilities.Read.Get)
         {
             var get = await store.GetAsync(Collection, new RecordId("stream-one"), Operation(BaseOperationKind.Get, new RecordId("stream-one")));
             RecordStoreConformanceAssertions.Success(get, OperationStatus.Ok);
@@ -102,7 +102,7 @@ public abstract class RecordStoreStreamingConformanceTests<TFixture> : RecordSto
     {
         if (Capabilities.Streaming?.Supported != true ||
             Fixture is not IStreamingRecordStoreConformanceExpectations { ExpectsSnapshotStreams: true } ||
-            !Capabilities.Crud.Create)
+            !Capabilities.Mutation.Create)
         {
             return;
         }
@@ -139,7 +139,7 @@ public abstract class RecordStoreStreamingConformanceTests<TFixture> : RecordSto
     {
         if (Capabilities.Streaming?.Supported != true ||
             Fixture is not IStreamingRecordStoreConformanceExpectations { ExpectsEnumerationCancellation: true } ||
-            !Capabilities.Crud.Create)
+            !Capabilities.Mutation.Create)
         {
             return;
         }

@@ -35,7 +35,8 @@ public static class HPDBaseInMemoryServiceCollectionExtensions
         services.TryAddSingleton<IOptions<HPDBaseInMemoryOptions>>(Options.Create(options));
         services.TryAddSingleton(provider => new InMemoryRecordStore(provider.GetRequiredService<IOptions<HPDBaseInMemoryOptions>>()));
         services.TryAddSingleton<IRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
-        services.TryAddSingleton<IRevisionedRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
+        services.TryAddSingleton<IRecordMutationStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
+        services.TryAddSingleton<IAtomicRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
         services.TryAddSingleton<IStreamingRecordStore>(provider => provider.GetRequiredService<InMemoryRecordStore>());
 
         if (options.ContributeModuleDescriptor || options.ContributeCapabilities || options.Collections is not null)

@@ -97,6 +97,14 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
                 Accepts<RecordDeleteRequest>(builder, isOptional: true);
                 Produces<DeleteResult>(builder);
                 break;
+            case BaseRouteIds.RecordsBatch:
+                Accepts<BaseRecordBatchRequest>(builder);
+                Produces<BaseRecordBatchResult>(builder);
+                break;
+            case BaseRouteIds.RecordsUpsert:
+                Accepts<RecordUpsertRequest>(builder);
+                Produces<RecordUpsertResult>(builder);
+                break;
             case BaseHttpRouteNames.AdminPolicyExplain:
                 Accepts<BasePolicyExplainRequest>(builder);
                 Produces<BasePolicyExplainResponse>(builder);
@@ -138,6 +146,8 @@ internal static class HPDBaseOpenApiEndpointMetadataExtensions
             BaseRouteIds.RecordsPatch => Record(operationId, "Patch record", "Patches a record in a collection."),
             BaseRouteIds.RecordsReplace => Record(operationId, "Replace record", "Replaces a record in a collection."),
             BaseRouteIds.RecordsDelete => Record(operationId, "Delete record", "Deletes a record from a collection."),
+            BaseRouteIds.RecordsBatch => Record(operationId, "Mutate records in a batch", "Executes a bounded ordered record-mutation batch."),
+            BaseRouteIds.RecordsUpsert => Record(operationId, "Upsert record", "Atomically creates or updates one record by id."),
             BaseHttpRouteNames.AdminManifest => Admin(operationId, "Admin BASE manifest", "Returns the admin BASE manifest.", "Admin Metadata"),
             BaseHttpRouteNames.AdminCapabilities => Admin(operationId, "Admin BASE capabilities", "Returns admin BASE runtime capabilities.", "Admin Metadata"),
             BaseHttpRouteNames.AdminSchema => Admin(operationId, "Admin BASE schema", "Returns admin schema metadata.", "Admin Metadata"),

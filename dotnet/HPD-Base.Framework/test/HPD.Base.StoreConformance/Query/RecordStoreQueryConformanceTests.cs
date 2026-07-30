@@ -6,7 +6,7 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
     [Fact]
     public async Task SupportedFilterSortCountAndSelectAreApplied()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.List ||
+        if (!Capabilities.Mutation.Create || !Capabilities.Read.List ||
             Capabilities.Query.Filter.Supported != true ||
             Capabilities.Query.Sort.Supported != true ||
             Capabilities.Query.Select.PayloadFields != true ||
@@ -41,7 +41,7 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
     [Fact]
     public async Task SupportedFilterNodeShapesAreApplied()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.List || Capabilities.Query.Filter.Supported != true)
+        if (!Capabilities.Mutation.Create || !Capabilities.Read.List || Capabilities.Query.Filter.Supported != true)
         {
             return;
         }
@@ -198,7 +198,7 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
     [Fact]
     public async Task UnsupportedIncludeExtensionDependencyAndOperatorsFailClosed()
     {
-        if (!Capabilities.Crud.List)
+        if (!Capabilities.Read.List)
         {
             return;
         }
@@ -241,7 +241,7 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
     [Fact]
     public async Task PaginationModesAreDeterministicWhenAdvertised()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.List || !Capabilities.Query.Pagination.Page)
+        if (!Capabilities.Mutation.Create || !Capabilities.Read.List || !Capabilities.Query.Pagination.Page)
         {
             return;
         }
@@ -318,7 +318,7 @@ public abstract class RecordStoreQueryConformanceTests<TFixture> : RecordStoreCo
     [Fact]
     public async Task SelectAndSortLimitsFollowCapabilities()
     {
-        if (!Capabilities.Crud.Create || !Capabilities.Crud.List)
+        if (!Capabilities.Mutation.Create || !Capabilities.Read.List)
         {
             return;
         }

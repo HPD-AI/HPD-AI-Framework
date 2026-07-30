@@ -124,7 +124,7 @@ public sealed class RelationalAbstractionsAntiScopeTests
         var recordStoreMethods = typeof(IRecordStore).GetMethods().Select(method => method.Name).ToArray();
 
         Assert.Equal(
-            ["get_Capabilities", "ListAsync", "GetAsync", "CreateAsync", "PatchAsync", "ReplaceAsync", "DeleteAsync"],
+            ["get_Capabilities", "ListAsync", "GetAsync"],
             recordStoreMethods);
 
         var queryProperties = typeof(RecordQuery).GetProperties().Select(property => property.Name).ToArray();

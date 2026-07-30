@@ -10,7 +10,7 @@ public sealed class CopyIsolationTests
         var store = new InMemoryRecordStore();
         var collection = InMemoryTestData.Collection();
 
-        var create = await store.CreateAsync(
+        var create = await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", "original")) },
             InMemoryTestData.Operation(BaseOperationKind.Create));
@@ -39,7 +39,7 @@ public sealed class CopyIsolationTests
             };
         }
 
-        var create = await store.CreateAsync(collection, request, InMemoryTestData.Operation(BaseOperationKind.Create));
+        var create = await InMemoryMutationTestDriver.CreateAsync(store, collection, request, InMemoryTestData.Operation(BaseOperationKind.Create));
         var get = await store.GetAsync(collection, create.Value!.Id, InMemoryTestData.Operation(BaseOperationKind.Get));
 
         get.Value!.Payload.Fields!["title"].GetString().Should().Be("owned");

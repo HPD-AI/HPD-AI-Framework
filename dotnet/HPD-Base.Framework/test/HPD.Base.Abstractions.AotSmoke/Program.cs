@@ -12,6 +12,7 @@ using HPD.Base.Results;
 using HPD.Base.Runtime;
 using HPD.Base.Schema;
 using HPD.Base.Serialization;
+using HPD.Base.Stores;
 
 var options = new JsonSerializerOptions(HPDBaseJsonSerializerContext.Default.Options)
 {
@@ -30,6 +31,9 @@ RoundTrip(CreateRecordPage(), HPDBaseJsonSerializerContext.Default.RecordPage, o
 RoundTrip(CreateRecordEnvelope(), HPDBaseJsonSerializerContext.Default.RecordEnvelope, options);
 RoundTrip(CreateValidationError(), HPDBaseJsonSerializerContext.Default.BaseError, options);
 RoundTrip(CreateEvent(), HPDBaseJsonSerializerContext.Default.BaseRecordMutationEvent, options);
+RoundTrip(CreateBatch(), HPDBaseJsonSerializerContext.Default.BaseRecordBatchRequest, options);
+RoundTrip(CreateUpsert(), HPDBaseJsonSerializerContext.Default.RecordUpsertRequest, options);
+RoundTrip(CreateExecutionResult(), HPDBaseJsonSerializerContext.Default.RecordMutationExecutionResult, options);
 RoundTrip(new[] { CreateHealth() }, HPDBaseJsonSerializerContext.Default.HealthDescriptorArray, options);
 RoundTrip(new[] { CreateDiagnostic() }, HPDBaseJsonSerializerContext.Default.DiagnosticDescriptorArray, options);
 RoundTrip(CreateTypedEnvelope(), SampleAppJsonSerializerContext.Default.RecordEnvelopeSampleAppPayload, options);
@@ -207,6 +211,63 @@ static BaseRecordMutationEvent CreateEvent() => new()
         SubjectKind = AccessSubjectKind.System
     }
 };
+
+static BaseRecordBatchRequest CreateBatch() => new()
+{
+    Mode = BaseRecordBatchExecutionMode.Atomic,
+    Operations =
+    [
+        new BaseRecordBatchItem
+        {
+            ItemId = "item_1",
+            CollectionId = "items",
+            Kind = BaseRecordMutationKind.Upsert,
+            Upsert = CreateUpsert()
+        }
+    ]
+};
+
+static RecordUpsertRequest CreateUpsert() => new()
+{
+    Id = new RecordId("rec_1"),
+    CreatePayload = new RecordPayload
+    {
+        Kind = RecordPayloadKind.FieldMap,
+        Fields = new Dictionary<string, JsonElement>()
+    },
+    UpdatePayload = new RecordPayload
+    {
+        Kind = RecordPayloadKind.FieldMap,
+        Fields = new Dictionary<string, JsonElement>()
+    },
+    UpdateMode = RecordUpsertUpdateMode.Patch,
+    Condition = RecordUpsertExistenceCondition.Any
+};
+
+static RecordMutationExecutionResult CreateExecutionResult()
+{
+    var mutation = new BaseRecordMutationFact
+    {
+        ItemId = "item_1",
+        RequestedOperation = BaseRecordMutationKind.Upsert,
+        CommittedOperation = BaseCommittedRecordMutationKind.Create,
+        UpsertOutcome = RecordUpsertOutcome.Created,
+        Collection = CreateSchema().Collections![0],
+        Event = new EventReference
+        {
+            EventId = "evt_upsert_1",
+            Type = BaseEventTypes.RecordCreated,
+            Guarantee = EventDeliveryGuarantee.BestEffort
+        },
+        After = CreateRecordEnvelope()
+    };
+
+    return new RecordMutationExecutionResult(
+        RecordMutationExecutionOutcome.Committed,
+        new AtomicMutationProcessingResult(
+            AtomicMutationProcessingOutcome.ReadyToCommit,
+            [mutation]));
+}
 
 static HealthDescriptor CreateHealth() => new()
 {

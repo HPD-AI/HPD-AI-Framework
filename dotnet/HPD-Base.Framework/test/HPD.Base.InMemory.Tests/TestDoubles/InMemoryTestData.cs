@@ -16,7 +16,8 @@ internal static class InMemoryTestData
             Create = true,
             Patch = true,
             Replace = true,
-            Delete = true
+            Delete = true,
+            Upsert = true
         }
     };
 

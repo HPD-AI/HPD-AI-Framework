@@ -90,6 +90,17 @@ using CapabilityFailureReasonConverter = LowerCamelJsonStringEnumConverter<Capab
 using RevisionGuaranteeConverter = LowerCamelJsonStringEnumConverter<RevisionGuarantee>;
 using EventResourceKindConverter = LowerCamelJsonStringEnumConverter<EventResourceKind>;
 using EventDeliveryGuaranteeConverter = LowerCamelJsonStringEnumConverter<EventDeliveryGuarantee>;
+using BaseRecordMutationKindConverter = LowerCamelJsonStringEnumConverter<BaseRecordMutationKind>;
+using BaseCommittedRecordMutationKindConverter = LowerCamelJsonStringEnumConverter<BaseCommittedRecordMutationKind>;
+using BaseRecordBatchExecutionModeConverter = LowerCamelJsonStringEnumConverter<BaseRecordBatchExecutionMode>;
+using BaseRecordBatchOutcomeConverter = LowerCamelJsonStringEnumConverter<BaseRecordBatchOutcome>;
+using BaseRecordBatchItemDispositionConverter = LowerCamelJsonStringEnumConverter<BaseRecordBatchItemDisposition>;
+using RecordUpsertUpdateModeConverter = LowerCamelJsonStringEnumConverter<RecordUpsertUpdateMode>;
+using RecordUpsertExistenceConditionConverter = LowerCamelJsonStringEnumConverter<RecordUpsertExistenceCondition>;
+using RecordUpsertOutcomeConverter = LowerCamelJsonStringEnumConverter<RecordUpsertOutcome>;
+using BaseTransactionIsolationConverter = LowerCamelJsonStringEnumConverter<BaseTransactionIsolation>;
+using RecordMutationExecutionOutcomeConverter = LowerCamelJsonStringEnumConverter<RecordMutationExecutionOutcome>;
+using AtomicMutationProcessingOutcomeConverter = LowerCamelJsonStringEnumConverter<AtomicMutationProcessingOutcome>;
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
@@ -176,7 +187,18 @@ using EventDeliveryGuaranteeConverter = LowerCamelJsonStringEnumConverter<EventD
         typeof(CapabilityFailureReasonConverter),
         typeof(RevisionGuaranteeConverter),
         typeof(EventResourceKindConverter),
-        typeof(EventDeliveryGuaranteeConverter)
+        typeof(EventDeliveryGuaranteeConverter),
+        typeof(BaseRecordMutationKindConverter),
+        typeof(BaseCommittedRecordMutationKindConverter),
+        typeof(BaseRecordBatchExecutionModeConverter),
+        typeof(BaseRecordBatchOutcomeConverter),
+        typeof(BaseRecordBatchItemDispositionConverter),
+        typeof(RecordUpsertUpdateModeConverter),
+        typeof(RecordUpsertExistenceConditionConverter),
+        typeof(RecordUpsertOutcomeConverter),
+        typeof(BaseTransactionIsolationConverter),
+        typeof(RecordMutationExecutionOutcomeConverter),
+        typeof(AtomicMutationProcessingOutcomeConverter)
     })]
 [JsonSerializable(typeof(BaseOperationKind))]
 [JsonSerializable(typeof(OperationMode))]
@@ -255,6 +277,19 @@ using EventDeliveryGuaranteeConverter = LowerCamelJsonStringEnumConverter<EventD
 [JsonSerializable(typeof(RevisionGuarantee))]
 [JsonSerializable(typeof(EventResourceKind))]
 [JsonSerializable(typeof(EventDeliveryGuarantee))]
+[JsonSerializable(typeof(BaseRecordMutationKind))]
+[JsonSerializable(typeof(BaseCommittedRecordMutationKind))]
+[JsonSerializable(typeof(BaseRecordBatchExecutionMode))]
+[JsonSerializable(typeof(BaseRecordBatchExecutionMode[]))]
+[JsonSerializable(typeof(BaseRecordBatchOutcome))]
+[JsonSerializable(typeof(BaseRecordBatchItemDisposition))]
+[JsonSerializable(typeof(RecordUpsertUpdateMode))]
+[JsonSerializable(typeof(RecordUpsertUpdateMode[]))]
+[JsonSerializable(typeof(RecordUpsertExistenceCondition))]
+[JsonSerializable(typeof(RecordUpsertOutcome))]
+[JsonSerializable(typeof(BaseTransactionIsolation))]
+[JsonSerializable(typeof(RecordMutationExecutionOutcome))]
+[JsonSerializable(typeof(AtomicMutationProcessingOutcome))]
 [JsonSerializable(typeof(RecordId))]
 [JsonSerializable(typeof(RevisionToken))]
 [JsonSerializable(typeof(JsonElement))]
@@ -285,7 +320,8 @@ using EventDeliveryGuaranteeConverter = LowerCamelJsonStringEnumConverter<EventD
 [JsonSerializable(typeof(CapabilityLimitDescriptor))]
 [JsonSerializable(typeof(CapabilityDependencyDescriptor))]
 [JsonSerializable(typeof(CapabilityConstraintSet))]
-[JsonSerializable(typeof(StoreCrudCapabilityConstraints))]
+[JsonSerializable(typeof(StoreReadCapabilityConstraints))]
+[JsonSerializable(typeof(StoreMutationCapabilityConstraints))]
 [JsonSerializable(typeof(StoreRevisionCapabilityConstraints))]
 [JsonSerializable(typeof(StoreStreamingCapabilityConstraints))]
 [JsonSerializable(typeof(QueryFilterCapabilityConstraints))]
@@ -301,6 +337,7 @@ using EventDeliveryGuaranteeConverter = LowerCamelJsonStringEnumConverter<EventD
 [JsonSerializable(typeof(FileCapabilityConstraints))]
 [JsonSerializable(typeof(RealtimeCapabilityConstraints))]
 [JsonSerializable(typeof(BatchCapabilityConstraints))]
+[JsonSerializable(typeof(UpsertCapabilityConstraints))]
 [JsonSerializable(typeof(SearchCapabilityConstraints))]
 [JsonSerializable(typeof(VectorCapabilityConstraints))]
 [JsonSerializable(typeof(SchemaMetadata))]
@@ -347,11 +384,29 @@ using EventDeliveryGuaranteeConverter = LowerCamelJsonStringEnumConverter<EventD
 [JsonSerializable(typeof(RecordPatchRequest))]
 [JsonSerializable(typeof(RecordReplaceRequest))]
 [JsonSerializable(typeof(RecordDeleteRequest))]
+[JsonSerializable(typeof(RecordUpsertRequest))]
+[JsonSerializable(typeof(RecordUpsertResult))]
+[JsonSerializable(typeof(BaseRecordBatchRequest))]
+[JsonSerializable(typeof(BaseRecordBatchItem))]
+[JsonSerializable(typeof(BaseRecordBatchItem[]))]
+[JsonSerializable(typeof(BaseRecordBatchResult))]
+[JsonSerializable(typeof(BaseRecordBatchItemResult))]
+[JsonSerializable(typeof(BaseRecordBatchItemResult[]))]
 [JsonSerializable(typeof(DeleteResult))]
 [JsonSerializable(typeof(StoreCapabilityDescriptor))]
-[JsonSerializable(typeof(CrudCapability))]
+[JsonSerializable(typeof(RecordReadCapability))]
+[JsonSerializable(typeof(RecordMutationCapability))]
 [JsonSerializable(typeof(RevisionCapability))]
+[JsonSerializable(typeof(StoreBatchCapability))]
+[JsonSerializable(typeof(StoreUpsertCapability))]
 [JsonSerializable(typeof(StreamingCapability))]
+[JsonSerializable(typeof(RecordMutationExecutionRequest))]
+[JsonSerializable(typeof(AtomicMutationProcessingResult))]
+[JsonSerializable(typeof(BaseRecordMutationFact))]
+[JsonSerializable(typeof(BaseRecordMutationFact[]))]
+[JsonSerializable(typeof(RecordMutationSessionContext))]
+[JsonSerializable(typeof(RecordMutationSessionResult))]
+[JsonSerializable(typeof(RecordMutationExecutionResult))]
 [JsonSerializable(typeof(RecordQuery))]
 [JsonSerializable(typeof(QuerySort))]
 [JsonSerializable(typeof(QuerySort[]))]
@@ -398,6 +453,9 @@ using EventDeliveryGuaranteeConverter = LowerCamelJsonStringEnumConverter<EventD
 [JsonSerializable(typeof(OperationResult<RecordPage>))]
 [JsonSerializable(typeof(OperationResult<RecordEnvelope>))]
 [JsonSerializable(typeof(OperationResult<DeleteResult>))]
+[JsonSerializable(typeof(OperationResult<RecordUpsertResult>))]
+[JsonSerializable(typeof(OperationResult<BaseRecordBatchResult>))]
+[JsonSerializable(typeof(OperationResult<RecordMutationSessionResult>))]
 [JsonSerializable(typeof(OperationResult<EventPublishResult>))]
 [JsonSerializable(typeof(OperationResult<BaseManifest>))]
 [JsonSerializable(typeof(OperationResult<CapabilityDescriptor>))]

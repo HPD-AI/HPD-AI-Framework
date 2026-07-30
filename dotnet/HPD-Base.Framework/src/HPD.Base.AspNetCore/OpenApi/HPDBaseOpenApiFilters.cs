@@ -23,6 +23,8 @@ internal static class HPDBaseOpenApiFilters
         BaseRouteIds.RecordsPatch,
         BaseRouteIds.RecordsReplace,
         BaseRouteIds.RecordsDelete,
+        BaseRouteIds.RecordsBatch,
+        BaseRouteIds.RecordsUpsert,
         "base.files.objects.upload",
         "base.files.objects.download",
         "base.files.objects.head",

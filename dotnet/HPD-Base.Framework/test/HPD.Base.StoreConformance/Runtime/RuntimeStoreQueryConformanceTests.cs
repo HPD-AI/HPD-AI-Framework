@@ -8,7 +8,7 @@ public abstract class RuntimeStoreQueryConformanceTests<TFixture> : RuntimeStore
     [Fact]
     public async Task RuntimeRejectsUnsupportedQueryShapeBeforeStoreExecution()
     {
-        if (!Capabilities.Crud.List)
+        if (!Capabilities.Read.List)
         {
             return;
         }

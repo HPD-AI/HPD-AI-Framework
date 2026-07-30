@@ -10,7 +10,7 @@ internal static class SqliteErrorCodes
     public const string CollectionNotRegistered = "sqlite.collection.notRegistered";
     public const string NotFound = "base.runtime.record.notFound";
     public const string DuplicateId = "sqlite.record.duplicateId";
-    public const string RevisionMismatch = "sqlite.record.revisionConflict";
+    public const string RevisionMismatch = "base.runtime.revision.conflict";
     public const string UnsupportedQuery = "sqlite.query.unsupported";
     public const string UnsafeQuery = "sqlite.query.unsafePlan";
     public const string IdempotencyUnsupported = "sqlite.record.idempotencyUnsupported";
@@ -26,5 +26,6 @@ internal static class SqliteErrorCodes
     public const string DatabaseCorrupt = "sqlite.database.corrupt";
     public const string ConstraintFailed = "sqlite.constraint.failed";
     public const string OperationCancelled = "sqlite.operation.cancelled";
+    public const string SessionClosed = "sqlite.mutation.sessionClosed";
     public const string SchemaMissing = "sqlite.schema.missing";
 }

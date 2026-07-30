@@ -53,7 +53,7 @@ public sealed class SqliteTelemetryTests
 
         create.Status.Should().Be(OperationStatus.Created);
         list.Status.Should().Be(OperationStatus.Ok);
-        activities.Names.Should().Contain(HPDBaseTelemetrySpans.StoreCreate);
+        activities.Names.Should().NotContain(HPDBaseTelemetrySpans.StoreCreate);
         activities.Names.Should().Contain(HPDBaseTelemetrySpans.StoreList);
         activities.Names.Should().Contain(HPDBaseTelemetrySpans.SqliteConnectionOpen);
         activities.Names.Should().Contain(HPDBaseTelemetrySpans.SqliteSchemaInitialize);

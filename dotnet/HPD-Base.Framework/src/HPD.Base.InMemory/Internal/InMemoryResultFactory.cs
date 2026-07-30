@@ -43,13 +43,23 @@ internal static class InMemoryResultFactory
             Target = target
         });
 
+    public static OperationResult<T> StoreError<T>(string code, string message, string? target = null) =>
+        OperationResults.StoreError<T>(new BaseError
+        {
+            Code = code,
+            Message = message,
+            Category = ErrorCategory.Store,
+            Target = target,
+            Store = new StoreErrorInfo { Retryable = false }
+        });
+
     public static OperationResult<T> RevisionConflict<T>(
         RevisionToken expected,
         RevisionToken? actual,
         string recordId) =>
         OperationResults.Conflict<T>(new BaseError
         {
-            Code = InMemoryErrorCodes.RevisionMismatch,
+            Code = BaseMutationErrorCodes.RevisionConflict,
             Message = "Record revision did not match the expected revision.",
             Category = ErrorCategory.Conflict,
             Target = recordId,

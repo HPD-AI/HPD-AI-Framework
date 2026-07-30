@@ -13,7 +13,8 @@ public sealed class AddHPDBaseInMemoryStoreTests
         var concrete = provider.GetRequiredService<InMemoryRecordStore>();
 
         provider.GetRequiredService<IRecordStore>().Should().BeSameAs(concrete);
-        provider.GetRequiredService<IRevisionedRecordStore>().Should().BeSameAs(concrete);
+        provider.GetRequiredService<IRecordMutationStore>().Should().BeSameAs(concrete);
+        provider.GetRequiredService<IAtomicRecordStore>().Should().BeSameAs(concrete);
         provider.GetRequiredService<IStreamingRecordStore>().Should().BeSameAs(concrete);
         concrete.Capabilities.StoreId.Should().Be("primary");
     }

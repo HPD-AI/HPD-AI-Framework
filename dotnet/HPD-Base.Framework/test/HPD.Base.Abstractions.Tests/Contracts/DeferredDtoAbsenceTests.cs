@@ -3,10 +3,12 @@ namespace HPD.Base.Abstractions.Tests.Contracts;
 public sealed class DeferredDtoAbsenceTests
 {
     [Theory]
-    [InlineData("HPD.Base.Records.RecordUpsertRequest")]
     [InlineData("HPD.Base.Stores.IUpsertRecordStore")]
     [InlineData("HPD.Base.Stores.IBatchRecordStore")]
     [InlineData("HPD.Base.Stores.ITransactionalRecordStore")]
+    [InlineData("HPD.Base.Stores.IRevisionedRecordStore")]
+    [InlineData("HPD.Base.Stores.CrudCapability")]
+    [InlineData("HPD.Base.Descriptors.StoreCrudCapabilityConstraints")]
     [InlineData("HPD.Base.Stores.INativePolicyRecordStore")]
     [InlineData("HPD.Base.Stores.IRelationalIncludeRecordStore")]
     [InlineData("HPD.Base.Stores.ISearchRecordStore")]

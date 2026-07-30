@@ -92,6 +92,64 @@ Require(replace.Status == OperationStatus.Updated && replace.Events?.Length == 1
 var listAfter = await records.ListAsync(SmokeDescriptorContributor.CollectionId, new RecordQuery(), principal, Operation(BaseOperationKind.List), CancellationToken.None);
 Require(listAfter.IsSuccess() && listAfter.Value?.Items.Length == 1, "List after mutation failed.");
 
+var upsert = await records.UpsertAsync(
+    SmokeDescriptorContributor.CollectionId,
+    new RecordUpsertRequest
+    {
+        Id = new RecordId("aot_upsert"),
+        CreatePayload = FieldMapPayload("upsert-created"),
+        UpdatePayload = FieldMapPayload("upsert-updated"),
+        UpdateMode = RecordUpsertUpdateMode.Patch,
+        Condition = RecordUpsertExistenceCondition.Any
+    },
+    principal,
+    Operation(BaseOperationKind.Upsert),
+    CancellationToken.None);
+Require(
+    upsert.IsSuccess()
+    && upsert.Value?.Outcome == RecordUpsertOutcome.Created
+    && upsert.Events?.Length == 1,
+    "Upsert failed.");
+
+var batch = await records.BatchAsync(
+    new BaseRecordBatchRequest
+    {
+        Mode = BaseRecordBatchExecutionMode.Atomic,
+        Operations =
+        [
+            new BaseRecordBatchItem
+            {
+                ItemId = "first",
+                CollectionId = SmokeDescriptorContributor.CollectionId,
+                Kind = BaseRecordMutationKind.Create,
+                Create = new RecordCreateRequest
+                {
+                    RequestedId = new RecordId("aot_batch_1"),
+                    Payload = FieldMapPayload("batch-one")
+                }
+            },
+            new BaseRecordBatchItem
+            {
+                ItemId = "second",
+                CollectionId = SmokeDescriptorContributor.CollectionId,
+                Kind = BaseRecordMutationKind.Create,
+                Create = new RecordCreateRequest
+                {
+                    RequestedId = new RecordId("aot_batch_2"),
+                    Payload = FieldMapPayload("batch-two")
+                }
+            }
+        ]
+    },
+    principal,
+    Operation(BaseOperationKind.Batch),
+    CancellationToken.None);
+Require(
+    batch.IsSuccess()
+    && batch.Value?.Outcome == BaseRecordBatchOutcome.Committed
+    && batch.Value.Items.Length == 2,
+    "Atomic batch failed.");
+
 var delete = await records.DeleteAsync(SmokeDescriptorContributor.CollectionId, id, new RecordDeleteRequest { ReturnPrevious = true }, principal, Operation(BaseOperationKind.Delete), CancellationToken.None);
 Require(delete.Status == OperationStatus.Deleted && delete.Events?.Length == 1 && delete.Value?.Previous is not null, "Delete failed.");
 
@@ -188,6 +246,7 @@ internal sealed class SmokeDescriptorContributor : IBaseDescriptorContributor
                 Create = true,
                 Patch = true,
                 Replace = true,
+                Upsert = true,
                 Delete = true
             },
             Fields =
@@ -264,7 +323,7 @@ internal sealed class SmokePolicyEvaluator : IPolicyEvaluator
     }
 }
 
-internal sealed class SmokeRecordStore : IRecordStore
+internal sealed class SmokeRecordStore : IAtomicRecordStore
 {
     private readonly Dictionary<string, RecordEnvelope> _records = new(StringComparer.Ordinal);
     private int _nextId;
@@ -274,15 +333,21 @@ internal sealed class SmokeRecordStore : IRecordStore
         StoreId = "smoke",
         StoreKind = BaseStoreKinds.Custom,
         StoreVersion = "aot",
-        Crud = new CrudCapability
+        Read = new RecordReadCapability
         {
             List = true,
             Get = true,
+            MaxPageSize = 100
+        },
+        Mutation = new RecordMutationCapability
+        {
             Create = true,
             Patch = true,
             Replace = true,
             Delete = true,
-            IdAuthority = IdAuthority.Store
+            IdAuthority = IdAuthority.Hybrid,
+            TimestampAuthority = TimestampAuthority.Runtime,
+            Consistency = ConsistencyModel.Strong
         },
         Query = new QueryCapability
         {
@@ -292,6 +357,27 @@ internal sealed class SmokeRecordStore : IRecordStore
             Count = new CountCapability { SupportedModes = [QueryCountMode.None, QueryCountMode.IfAvailable] },
             Select = new SelectCapability { PayloadFields = true },
             Include = new QueryIncludeCapability { Supported = true }
+        },
+        Batch = new StoreBatchCapability
+        {
+            Modes = [BaseRecordBatchExecutionMode.Atomic],
+            MaxOperations = 100,
+            MaxCanonicalPayloadBytes = 1_048_576,
+            MinimumAcquisitionTimeout = TimeSpan.FromMilliseconds(10),
+            MinimumTransactionTimeout = TimeSpan.FromMilliseconds(10),
+            MinimumCommitCompletionTimeout = TimeSpan.FromMilliseconds(10),
+            TimeoutGranularity = TimeSpan.FromMilliseconds(10),
+            Ordered = true,
+            PartialResults = true,
+            CrossCollectionAtomic = true,
+            ReadYourWrites = true,
+            Isolation = BaseTransactionIsolation.Serializable
+        },
+        Upsert = new StoreUpsertCapability
+        {
+            Atomic = true,
+            UpdateModes = [RecordUpsertUpdateMode.Patch, RecordUpsertUpdateMode.Replace],
+            ExistenceConditions = true
         }
     };
 
@@ -333,61 +419,43 @@ internal sealed class SmokeRecordStore : IRecordStore
             });
     }
 
-    public ValueTask<OperationResult<RecordEnvelope>> CreateAsync(
-        CollectionDefinition collection,
-        RecordCreateRequest request,
-        OperationContext context,
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var record = Envelope(collection.Id, new RecordId($"rec_{++_nextId}"), request.Payload);
-        _records[record.Id.Value] = record;
-        return ValueTask.FromResult(new OperationResult<RecordEnvelope> { Status = OperationStatus.Created, Value = record });
-    }
+    public ValueTask<RecordMutationExecutionResult> ExecuteSingleAsync(
+        IAtomicMutationProcessor processor,
+        RecordMutationExecutionRequest request,
+        CancellationToken cancellationToken = default) =>
+        ExecuteCoreAsync(processor, cancellationToken);
 
-    public ValueTask<OperationResult<RecordEnvelope>> PatchAsync(
-        CollectionDefinition collection,
-        RecordId id,
-        RecordPatchRequest request,
-        OperationContext context,
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var record = Envelope(collection.Id, id, request.Patch);
-        _records[id.Value] = record;
-        return ValueTask.FromResult(new OperationResult<RecordEnvelope> { Status = OperationStatus.Updated, Value = record });
-    }
+    public ValueTask<RecordMutationExecutionResult> ExecuteAtomicAsync(
+        IAtomicMutationProcessor processor,
+        RecordMutationExecutionRequest request,
+        CancellationToken cancellationToken = default) =>
+        ExecuteCoreAsync(processor, cancellationToken);
 
-    public ValueTask<OperationResult<RecordEnvelope>> ReplaceAsync(
-        CollectionDefinition collection,
-        RecordId id,
-        RecordReplaceRequest request,
-        OperationContext context,
-        CancellationToken cancellationToken = default)
+    private async ValueTask<RecordMutationExecutionResult> ExecuteCoreAsync(
+        IAtomicMutationProcessor processor,
+        CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        var record = Envelope(collection.Id, id, request.Payload);
-        _records[id.Value] = record;
-        return ValueTask.FromResult(new OperationResult<RecordEnvelope> { Status = OperationStatus.Updated, Value = record });
-    }
-
-    public ValueTask<OperationResult<DeleteResult>> DeleteAsync(
-        CollectionDefinition collection,
-        RecordId id,
-        RecordDeleteRequest request,
-        OperationContext context,
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        _ = collection;
-        _ = context;
-        _records.TryGetValue(id.Value, out var previous);
-        var deleted = _records.Remove(id.Value);
-        return ValueTask.FromResult(new OperationResult<DeleteResult>
+        var staged = _records.ToDictionary(
+            static pair => pair.Key,
+            static pair => pair.Value,
+            StringComparer.Ordinal);
+        var session = new SmokeSession(this, staged);
+        var processing = await processor.ProcessAsync(session, cancellationToken);
+        session.Close();
+        if (processing.Outcome == AtomicMutationProcessingOutcome.Failed)
         {
-            Status = OperationStatus.Deleted,
-            Value = new DeleteResult { Id = id, Deleted = deleted, Previous = request.ReturnPrevious ? previous : null }
-        });
+            return new RecordMutationExecutionResult(
+                RecordMutationExecutionOutcome.RollbackConfirmed,
+                processing,
+                processing.Error);
+        }
+
+        _records.Clear();
+        foreach (var pair in staged)
+            _records.Add(pair.Key, pair.Value);
+        return new RecordMutationExecutionResult(
+            RecordMutationExecutionOutcome.Committed,
+            processing);
     }
 
     private static RecordEnvelope Envelope(string collectionId, RecordId id, RecordPayload payload) => new()
@@ -397,6 +465,208 @@ internal sealed class SmokeRecordStore : IRecordStore
         Payload = payload,
         Metadata = new RecordMetadata()
     };
+
+    private sealed class SmokeSession(
+        SmokeRecordStore owner,
+        Dictionary<string, RecordEnvelope> records) : IAtomicRecordSession
+    {
+        private bool _active = true;
+
+        public void Close() => _active = false;
+
+        public ValueTask<OperationResult<RecordEnvelope>> GetAsync(
+            CollectionDefinition collection,
+            RecordId id,
+            OperationContext context,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureActive();
+            return ValueTask.FromResult(records.TryGetValue(id.Value, out var record)
+                ? new OperationResult<RecordEnvelope>
+                {
+                    Status = OperationStatus.Ok,
+                    Value = record
+                }
+                : new OperationResult<RecordEnvelope>
+                {
+                    Status = OperationStatus.NotFound,
+                    Error = Error("notFound", ErrorCategory.NotFound)
+                });
+        }
+
+        public ValueTask<OperationResult<RecordMutationSessionResult>> CreateAsync(
+            CollectionDefinition collection,
+            RecordCreateRequest request,
+            RecordMutationSessionContext context,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureActive();
+            var id = request.RequestedId ?? new RecordId($"rec_{++owner._nextId}");
+            if (records.ContainsKey(id.Value))
+                return ValueTask.FromResult(Failure("conflict", ErrorCategory.Conflict));
+            var after = Envelope(collection.Id, id, request.Payload);
+            records[id.Value] = after;
+            return ValueTask.FromResult(Result(
+                OperationStatus.Created,
+                collection,
+                context,
+                BaseCommittedRecordMutationKind.Create,
+                null,
+                after));
+        }
+
+        public ValueTask<OperationResult<RecordMutationSessionResult>> PatchAsync(
+            CollectionDefinition collection,
+            RecordId id,
+            RecordPatchRequest request,
+            RecordMutationSessionContext context,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureActive();
+            if (!records.TryGetValue(id.Value, out var before))
+                return ValueTask.FromResult(Failure("notFound", ErrorCategory.NotFound));
+            var after = Envelope(collection.Id, id, Merge(before.Payload, request.Patch));
+            records[id.Value] = after;
+            return ValueTask.FromResult(Result(
+                OperationStatus.Updated,
+                collection,
+                context,
+                BaseCommittedRecordMutationKind.Patch,
+                before,
+                after));
+        }
+
+        public ValueTask<OperationResult<RecordMutationSessionResult>> ReplaceAsync(
+            CollectionDefinition collection,
+            RecordId id,
+            RecordReplaceRequest request,
+            RecordMutationSessionContext context,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureActive();
+            if (!records.TryGetValue(id.Value, out var before))
+                return ValueTask.FromResult(Failure("notFound", ErrorCategory.NotFound));
+            var after = Envelope(collection.Id, id, request.Payload);
+            records[id.Value] = after;
+            return ValueTask.FromResult(Result(
+                OperationStatus.Updated,
+                collection,
+                context,
+                BaseCommittedRecordMutationKind.Replace,
+                before,
+                after));
+        }
+
+        public ValueTask<OperationResult<RecordMutationSessionResult>> DeleteAsync(
+            CollectionDefinition collection,
+            RecordId id,
+            RecordDeleteRequest request,
+            RecordMutationSessionContext context,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureActive();
+            if (!records.Remove(id.Value, out var before))
+                return ValueTask.FromResult(Failure("notFound", ErrorCategory.NotFound));
+            var delete = new DeleteResult
+            {
+                Id = id,
+                Deleted = true,
+                Previous = request.ReturnPrevious ? before : null
+            };
+            return ValueTask.FromResult(Result(
+                OperationStatus.Deleted,
+                collection,
+                context,
+                BaseCommittedRecordMutationKind.Delete,
+                before,
+                null,
+                delete));
+        }
+
+        private static OperationResult<RecordMutationSessionResult> Result(
+            OperationStatus status,
+            CollectionDefinition collection,
+            RecordMutationSessionContext context,
+            BaseCommittedRecordMutationKind committed,
+            RecordEnvelope? before,
+            RecordEnvelope? after,
+            DeleteResult? delete = null) => new()
+        {
+            Status = status,
+            Value = new RecordMutationSessionResult
+            {
+                Record = after,
+                Delete = delete,
+                Mutation = new BaseRecordMutationFact
+                {
+                    ItemId = context.ItemId,
+                    RequestedOperation = context.RequestedOperation,
+                    CommittedOperation = committed,
+                    UpsertOutcome = context.RequestedOperation == BaseRecordMutationKind.Upsert
+                        ? committed == BaseCommittedRecordMutationKind.Create
+                            ? RecordUpsertOutcome.Created
+                            : RecordUpsertOutcome.Updated
+                        : null,
+                    Collection = collection,
+                    Event = new EventReference
+                    {
+                        EventId = context.EventId,
+                        Type = committed switch
+                        {
+                            BaseCommittedRecordMutationKind.Create => BaseEventTypes.RecordCreated,
+                            BaseCommittedRecordMutationKind.Patch => BaseEventTypes.RecordPatched,
+                            BaseCommittedRecordMutationKind.Replace => BaseEventTypes.RecordUpdated,
+                            BaseCommittedRecordMutationKind.Delete => BaseEventTypes.RecordDeleted,
+                            _ => throw new InvalidOperationException()
+                        },
+                        Guarantee = EventDeliveryGuarantee.BestEffort
+                    },
+                    Before = before,
+                    After = after,
+                    Delete = delete
+                }
+            }
+        };
+
+        private static OperationResult<RecordMutationSessionResult> Failure(
+            string code,
+            ErrorCategory category) => new()
+        {
+            Status = category == ErrorCategory.NotFound
+                ? OperationStatus.NotFound
+                : OperationStatus.Conflict,
+            Error = Error(code, category)
+        };
+
+        private static BaseError Error(string code, ErrorCategory category) => new()
+        {
+            Code = code,
+            Message = "Smoke mutation failed.",
+            Category = category
+        };
+
+        private static RecordPayload Merge(RecordPayload before, RecordPayload patch)
+        {
+            if (before.Kind != RecordPayloadKind.FieldMap
+                || patch.Kind != RecordPayloadKind.FieldMap)
+            {
+                return patch;
+            }
+
+            var fields = new Dictionary<string, JsonElement>(
+                before.Fields ?? [],
+                StringComparer.Ordinal);
+            foreach (var pair in patch.Fields ?? [])
+                fields[pair.Key] = pair.Value;
+            return new RecordPayload { Kind = RecordPayloadKind.FieldMap, Fields = fields };
+        }
+
+        private void EnsureActive()
+        {
+            if (!_active)
+                throw new InvalidOperationException("Session is closed.");
+        }
+    }
 }
 
 internal sealed class SmokeHealthContributor : IBaseHealthContributor

@@ -12,7 +12,7 @@ namespace HPD.Base.Sqlite.Tests.Errors;
 public sealed class SqliteDatabaseErrorTests
 {
     [Fact]
-    public async Task BusyDatabaseMapsToRetryableStoreError()
+    public async Task BusyWriteBoundaryMapsToNonRetryingTransactionConflict()
     {
         var path = Path.Combine(Path.GetTempPath(), "hpd-base-sqlite-busy-" + Guid.NewGuid().ToString("N") + ".db");
         try
@@ -30,13 +30,11 @@ public sealed class SqliteDatabaseErrorTests
             var store = SqliteTestFactory.Create(new HPDBaseSqliteOptions { DataSource = path, BusyTimeout = TimeSpan.FromMilliseconds(1), CommandTimeout = TimeSpan.FromSeconds(1) });
             var result = await store.CreateAsync(Collection(), new RecordCreateRequest { RequestedId = new RecordId("blocked"), Payload = Payload("blocked") }, Operation(BaseOperationKind.Create));
 
-            result.Status.Should().Be(OperationStatus.StoreError);
-            result.Error!.Code.Should().BeOneOf("sqlite.database.busy", "sqlite.database.locked");
-            result.Error.Store!.Retryable.Should().BeTrue();
-            result.Error.Store.NativeCategory.Should().Be("sqlite");
-            result.Error.Store.NativeCode.Should().NotBeNullOrWhiteSpace();
-            result.Error.Store.NativeSubcode.Should().NotBeNullOrWhiteSpace();
-            result.Error.Store.NativeMessage.Should().NotBeNullOrWhiteSpace();
+            result.Status.Should().Be(OperationStatus.Conflict);
+            result.Error!.Code.Should().Be(BaseMutationErrorCodes.TransactionConflict);
+            result.Error.Category.Should().Be(ErrorCategory.Conflict);
+            result.Error.Conflict!.Kind.Should().Be(ConflictKind.Transaction);
+            result.Error.Store.Should().BeNull();
         }
         finally
         {

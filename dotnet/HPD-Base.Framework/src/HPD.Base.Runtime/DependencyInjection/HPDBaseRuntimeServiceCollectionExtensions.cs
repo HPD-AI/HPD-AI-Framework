@@ -5,6 +5,7 @@ using HPD.Base.Runtime.Configuration;
 using HPD.Base.Runtime.Descriptors;
 using HPD.Base.Runtime.Events;
 using HPD.Base.Runtime.Health;
+using HPD.Base.Runtime.Mutations;
 using HPD.Base.Runtime.Operations;
 using HPD.Base.Runtime.Policy;
 using HPD.Base.Runtime.Policy.Admin;
@@ -71,6 +72,7 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
                 nameof(configure),
                 "Post-commit work timeout must be between 10 milliseconds and 1 minute.");
         }
+        ValidateMutationOptions(options.Mutations, nameof(configure));
 
         services.AddHPDEvents();
         services.AddOptions();
@@ -88,11 +90,14 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton<IBaseCapabilityValidator, DefaultBaseCapabilityValidator>();
         services.TryAddSingleton<IRecordStoreRegistry, DefaultRecordStoreRegistry>();
         services.TryAddSingleton<IRecordStoreResolver, DefaultRecordStoreResolver>();
+        services.TryAddSingleton<IBaseStoreExecutionResolver, DefaultBaseStoreExecutionResolver>();
         services.TryAddSingleton<IBaseQueryValidator, DefaultBaseQueryValidator>();
         services.TryAddSingleton<IBasePolicyOrchestrator, DefaultBasePolicyOrchestrator>();
         services.TryAddSingleton<BasePolicyExplainRedactor>();
         services.TryAddSingleton<IBasePolicyExplainService, DefaultBasePolicyExplainService>();
         services.TryAddSingleton<IBaseRecordRedactor, DefaultBaseRecordRedactor>();
+        services.TryAddSingleton<IBaseMutationPostCommitDispatcher, DefaultBaseMutationPostCommitDispatcher>();
+        services.TryAddSingleton<IBaseMutationCoordinator, DefaultBaseMutationCoordinator>();
         services.TryAddSingleton<IBaseRecordRuntime, DefaultBaseRecordRuntime>();
         services.TryAddSingleton<IBaseHealthProvider, DefaultBaseHealthProvider>();
         services.TryAddSingleton<IBaseDiagnosticProvider, DefaultBaseDiagnosticProvider>();
@@ -106,10 +111,39 @@ public static class HPDBaseRuntimeServiceCollectionExtensions
         services.TryAddSingleton<IBaseEventFactory, DefaultBaseEventFactory>();
         services.TryAddSingleton<IBaseEventDispatcher, DefaultBaseEventDispatcher>();
         services.TryAddSingleton<IHPDBaseRuntime, DefaultHPDBaseRuntime>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, BaseMutationDescriptorContributor>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, PolicyAdminDescriptorContributor>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseHealthContributor, PolicyAdminHealthContributor>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDiagnosticContributor, PolicyAdminHealthContributor>());
 
         return new HPDBaseRuntimeBuilder(services, options);
+    }
+
+    private static void ValidateMutationOptions(
+        HPDBaseRuntimeMutationOptions options,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (options.MaxOperations is < 1 or > 1_000)
+            throw new ArgumentOutOfRangeException(parameterName, "Maximum mutation operations must be between 1 and 1,000.");
+        if (options.MaxCanonicalPayloadBytes is < 1_024 or > 16_777_216)
+            throw new ArgumentOutOfRangeException(parameterName, "Maximum canonical mutation payload bytes must be between 1,024 and 16,777,216.");
+        if (options.MaxItemIdLength is < 1 or > 256)
+            throw new ArgumentOutOfRangeException(parameterName, "Maximum batch item identifier length must be between 1 and 256.");
+        if (options.MaxTransactionDuration < TimeSpan.FromMilliseconds(10)
+            || options.MaxTransactionDuration > TimeSpan.FromSeconds(60))
+        {
+            throw new ArgumentOutOfRangeException(parameterName, "Maximum transaction duration must be between 10 milliseconds and 60 seconds.");
+        }
+        if (options.StoreAcquisitionTimeout < TimeSpan.FromMilliseconds(10)
+            || options.StoreAcquisitionTimeout > TimeSpan.FromSeconds(30))
+        {
+            throw new ArgumentOutOfRangeException(parameterName, "Store acquisition timeout must be between 10 milliseconds and 30 seconds.");
+        }
+        if (options.CommitCompletionTimeout < TimeSpan.FromMilliseconds(10)
+            || options.CommitCompletionTimeout > TimeSpan.FromSeconds(60))
+        {
+            throw new ArgumentOutOfRangeException(parameterName, "Commit completion timeout must be between 10 milliseconds and 60 seconds.");
+        }
     }
 }

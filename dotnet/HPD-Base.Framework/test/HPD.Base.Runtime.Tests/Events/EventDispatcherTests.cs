@@ -37,7 +37,7 @@ public sealed class EventDispatcherTests
 
         Assert.Equal(OperationStatus.Created, result.Status);
         Assert.Equal(1, store.CreateCalls);
-        Assert.Empty(result.Events!);
+        Assert.Single(result.Events!);
         Assert.Contains(result.Warnings!, warning => warning.Code == "base.runtime.events.publishFailed");
     }
 
@@ -58,7 +58,7 @@ public sealed class EventDispatcherTests
 
         Assert.Equal(OperationStatus.Created, result.Status);
         Assert.Equal(1, store.CreateCalls);
-        Assert.Empty(result.Events!);
+        Assert.Single(result.Events!);
         Assert.Contains(result.Warnings!, warning => warning.Code == "base.runtime.events.disabled");
     }
 

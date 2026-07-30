@@ -96,7 +96,7 @@ public sealed class CreateOperationPipelineTests
 
         Assert.Equal(OperationStatus.PolicyDenied, result.Status);
         Assert.Equal("base.runtime.policy.writeMask.denied", result.Error!.Code);
-        Assert.Equal("secret", result.Error.Target);
+        Assert.Null(result.Error.Target);
         Assert.Equal(0, store.CreateCalls);
     }
 

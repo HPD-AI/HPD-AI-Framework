@@ -10,7 +10,7 @@ public sealed class CreateGetDeleteSemanticsTests
         var store = new InMemoryRecordStore(new HPDBaseInMemoryOptions { StoreId = "primary" });
         var collection = InMemoryTestData.Collection();
 
-        var create = await store.CreateAsync(
+        var create = await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", "hello")) },
             InMemoryTestData.Operation(BaseOperationKind.Create));
@@ -27,7 +27,7 @@ public sealed class CreateGetDeleteSemanticsTests
         get.Status.Should().Be(OperationStatus.Ok);
         get.Value!.Payload.Fields!["title"].GetString().Should().Be("hello");
 
-        var delete = await store.DeleteAsync(
+        var delete = await InMemoryMutationTestDriver.DeleteAsync(store,
             collection,
             create.Value.Id,
             new RecordDeleteRequest { ReturnPrevious = true },
@@ -48,11 +48,11 @@ public sealed class CreateGetDeleteSemanticsTests
         var store = new InMemoryRecordStore();
         var id = new RecordId("shared");
 
-        var first = await store.CreateAsync(
+        var first = await InMemoryMutationTestDriver.CreateAsync(store,
             InMemoryTestData.Collection("a"),
             new RecordCreateRequest { RequestedId = id, Payload = InMemoryTestData.Payload(("title", "a")) },
             InMemoryTestData.Operation(BaseOperationKind.Create, "a"));
-        var second = await store.CreateAsync(
+        var second = await InMemoryMutationTestDriver.CreateAsync(store,
             InMemoryTestData.Collection("b"),
             new RecordCreateRequest { RequestedId = id, Payload = InMemoryTestData.Payload(("title", "b")) },
             InMemoryTestData.Operation(BaseOperationKind.Create, "b"));
@@ -72,8 +72,8 @@ public sealed class CreateGetDeleteSemanticsTests
             Payload = InMemoryTestData.Payload(("title", "one"))
         };
 
-        (await store.CreateAsync(collection, request, InMemoryTestData.Operation(BaseOperationKind.Create))).Status.Should().Be(OperationStatus.Created);
-        var duplicate = await store.CreateAsync(collection, request, InMemoryTestData.Operation(BaseOperationKind.Create));
+        (await InMemoryMutationTestDriver.CreateAsync(store, collection, request, InMemoryTestData.Operation(BaseOperationKind.Create))).Status.Should().Be(OperationStatus.Created);
+        var duplicate = await InMemoryMutationTestDriver.CreateAsync(store, collection, request, InMemoryTestData.Operation(BaseOperationKind.Create));
 
         duplicate.Status.Should().Be(OperationStatus.Conflict);
         duplicate.Error.Should().NotBeNull();
@@ -84,7 +84,7 @@ public sealed class CreateGetDeleteSemanticsTests
     {
         var store = new InMemoryRecordStore();
 
-        var result = await store.CreateAsync(
+        var result = await InMemoryMutationTestDriver.CreateAsync(store,
             InMemoryTestData.Collection(),
             new RecordCreateRequest
             {
@@ -105,7 +105,7 @@ public sealed class CreateGetDeleteSemanticsTests
     {
         var store = new InMemoryRecordStore();
 
-        var result = await store.CreateAsync(
+        var result = await InMemoryMutationTestDriver.CreateAsync(store,
             InMemoryTestData.Collection(),
             new RecordCreateRequest
             {
@@ -123,7 +123,7 @@ public sealed class CreateGetDeleteSemanticsTests
     {
         var store = new InMemoryRecordStore();
 
-        var result = await store.DeleteAsync(
+        var result = await InMemoryMutationTestDriver.DeleteAsync(store,
             InMemoryTestData.Collection(),
             new RecordId("missing"),
             new RecordDeleteRequest(),

@@ -20,23 +20,29 @@ internal sealed class DefaultRecordStoreRegistry : IRecordStoreRegistry
     }
 
     public IRecordStore? GetStore(string storeId)
+        => GetRegistration(storeId)?.Store;
+
+    public RecordStoreRegistration? GetRegistration(string storeId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(storeId);
         lock (_gate)
         {
             return _registrations.LastOrDefault(registration =>
-                string.Equals(registration.StoreId, storeId, StringComparison.Ordinal))?.Store;
+                string.Equals(registration.StoreId, storeId, StringComparison.Ordinal));
         }
     }
 
     public IRecordStore? GetStoreForCollection(string collectionId)
+        => GetRegistrationForCollection(collectionId)?.Store;
+
+    public RecordStoreRegistration? GetRegistrationForCollection(string collectionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(collectionId);
         lock (_gate)
         {
             return _registrations.LastOrDefault(registration =>
-                registration.CollectionIds?.Contains(collectionId, StringComparer.Ordinal) == true)?.Store
-                ?? _registrations.LastOrDefault(registration => registration.CollectionIds is null or { Length: 0 })?.Store;
+                registration.CollectionIds?.Contains(collectionId, StringComparer.Ordinal) == true)
+                ?? _registrations.LastOrDefault(registration => registration.CollectionIds is null or { Length: 0 });
         }
     }
 

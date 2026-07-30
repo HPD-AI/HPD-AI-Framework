@@ -47,7 +47,10 @@ internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApi
         if (metadata.OperationId is BaseRouteIds.RecordsCreate)
             AddRequestHeader(operation, BaseHttpHeaders.IdempotencyKey, required: false, "Idempotency key for record creation.");
 
-        if (metadata.OperationId is BaseRouteIds.RecordsPatch or BaseRouteIds.RecordsReplace or BaseRouteIds.RecordsDelete)
+        if (metadata.OperationId is BaseRouteIds.RecordsPatch
+            or BaseRouteIds.RecordsReplace
+            or BaseRouteIds.RecordsDelete
+            or BaseRouteIds.RecordsUpsert)
             AddRequestHeader(operation, BaseHttpHeaders.IfMatch, required: false, "Expected record revision for optimistic concurrency.");
 
         var responseHeaders = metadata.OperationId == BaseHttpRouteNames.AdminPolicyExplain

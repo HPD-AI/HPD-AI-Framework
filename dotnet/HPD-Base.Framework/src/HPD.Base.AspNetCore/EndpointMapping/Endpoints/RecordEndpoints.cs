@@ -31,6 +31,8 @@ internal static class RecordEndpoints
         endpoints.MapPatch("/collections/{collectionId}/records/{id}", (RequestDelegate)PatchRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsPatch).WithName(BaseRouteIds.RecordsPatch);
         endpoints.MapPut("/collections/{collectionId}/records/{id}", (RequestDelegate)ReplaceRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsReplace).WithName(BaseRouteIds.RecordsReplace);
         endpoints.MapDelete("/collections/{collectionId}/records/{id}", (RequestDelegate)DeleteRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsDelete).WithName(BaseRouteIds.RecordsDelete);
+        endpoints.MapPost("/records/batch", (RequestDelegate)BatchRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsBatch).WithName(BaseRouteIds.RecordsBatch);
+        endpoints.MapPut("/collections/{collectionId}/records/{id}:upsert", (RequestDelegate)UpsertRequest).WithHPDBaseOpenApi(BaseRouteIds.RecordsUpsert).WithName(BaseRouteIds.RecordsUpsert);
     }
 
     private static Task ListRequest(HttpContext httpContext) => Execute(httpContext,
@@ -85,6 +87,56 @@ internal static class RecordEndpoints
     {
         var request = await ReadOptionalBody(httpContext, HPDBaseJsonSerializerContext.Default.RecordDeleteRequest, httpContext.RequestAborted);
         await Execute(httpContext, services => Delete(RouteValue(httpContext, "collectionId"), RouteValue(httpContext, "id"), request, httpContext, services.GetRequiredService<IHPDBaseRuntime>(), services.GetRequiredService<IBaseHttpPrincipalContextFactory>(), services.GetRequiredService<IBaseHttpOperationContextFactory>(), services.GetRequiredService<IBaseHttpResultMapper>(), httpContext.RequestAborted));
+    }
+
+    private static async Task BatchRequest(HttpContext httpContext)
+    {
+        var request = await ReadRequiredBody(
+            httpContext,
+            HPDBaseJsonSerializerContext.Default.BaseRecordBatchRequest,
+            "base.http.body.required",
+            "Batch request body is required.",
+            httpContext.RequestAborted);
+        if (request.Value is null)
+        {
+            await request.Error!.ExecuteAsync(httpContext);
+            return;
+        }
+
+        await Execute(httpContext, services => Batch(
+            request.Value,
+            httpContext,
+            services.GetRequiredService<IHPDBaseRuntime>(),
+            services.GetRequiredService<IBaseHttpPrincipalContextFactory>(),
+            services.GetRequiredService<IBaseHttpOperationContextFactory>(),
+            services.GetRequiredService<IBaseHttpResultMapper>(),
+            httpContext.RequestAborted));
+    }
+
+    private static async Task UpsertRequest(HttpContext httpContext)
+    {
+        var request = await ReadRequiredBody(
+            httpContext,
+            HPDBaseJsonSerializerContext.Default.RecordUpsertRequest,
+            "base.http.body.required",
+            "Upsert request body is required.",
+            httpContext.RequestAborted);
+        if (request.Value is null)
+        {
+            await request.Error!.ExecuteAsync(httpContext);
+            return;
+        }
+
+        await Execute(httpContext, services => Upsert(
+            RouteValue(httpContext, "collectionId"),
+            RouteValue(httpContext, "id"),
+            request.Value,
+            httpContext,
+            services.GetRequiredService<IHPDBaseRuntime>(),
+            services.GetRequiredService<IBaseHttpPrincipalContextFactory>(),
+            services.GetRequiredService<IBaseHttpOperationContextFactory>(),
+            services.GetRequiredService<IBaseHttpResultMapper>(),
+            httpContext.RequestAborted));
     }
 
     private static async Task<IResult> List(
@@ -245,6 +297,88 @@ internal static class RecordEndpoints
 
         request = request with { ExpectedRevision = expectedRevision };
         var result = await runtime.Records.DeleteAsync(collectionId, recordId, request, principal, operation, cancellationToken);
+        return resultMapper.ToHttpResult(result, httpContext, Mapping(operation));
+    }
+
+    private static async Task<IResult> Batch(
+        BaseRecordBatchRequest request,
+        HttpContext httpContext,
+        IHPDBaseRuntime runtime,
+        IBaseHttpPrincipalContextFactory principalFactory,
+        IBaseHttpOperationContextFactory operationFactory,
+        IBaseHttpResultMapper resultMapper,
+        CancellationToken cancellationToken)
+    {
+        var principal = await principalFactory.CreateAsync(
+            httpContext,
+            HPDBaseEndpointKind.Records,
+            cancellationToken);
+        var operation = operationFactory.Create(
+            httpContext,
+            principal,
+            BaseOperationKind.Batch,
+            "base");
+        var result = await runtime.Records.BatchAsync(
+            request,
+            principal,
+            operation,
+            cancellationToken);
+        return resultMapper.ToHttpResult(result, httpContext, Mapping(operation));
+    }
+
+    private static async Task<IResult> Upsert(
+        string collectionId,
+        string id,
+        RecordUpsertRequest request,
+        HttpContext httpContext,
+        IHPDBaseRuntime runtime,
+        IBaseHttpPrincipalContextFactory principalFactory,
+        IBaseHttpOperationContextFactory operationFactory,
+        IBaseHttpResultMapper resultMapper,
+        CancellationToken cancellationToken)
+    {
+        var principal = await principalFactory.CreateAsync(
+            httpContext,
+            HPDBaseEndpointKind.Records,
+            cancellationToken);
+        var operation = operationFactory.Create(
+            httpContext,
+            principal,
+            BaseOperationKind.Upsert,
+            collectionId,
+            id);
+
+        if (!TryBindRecordId(id, Limits(httpContext), out var recordId, out var validation))
+            return resultMapper.ToHttpResult(validation!, httpContext, Mapping(operation));
+
+        if (!string.Equals(request.Id.Value, recordId.Value, StringComparison.Ordinal))
+        {
+            return resultMapper.ToHttpResult(
+                Validation<RecordUpsertResult>(
+                    "base.http.recordId.conflict",
+                    "Route record id conflicts with request body id.",
+                    "id"),
+                httpContext,
+                Mapping(operation));
+        }
+
+        var headerRevision = BaseIfMatchHeaderBinder.Bind(httpContext);
+        if (!TryMergeRevision<RecordUpsertResult>(
+                request.ExpectedRevision,
+                headerRevision,
+                out var expectedRevision,
+                out var revisionError))
+        {
+            return resultMapper.ToHttpResult(revisionError!, httpContext, Mapping(operation));
+        }
+
+        request = request with { Id = recordId, ExpectedRevision = expectedRevision };
+        var result = await runtime.Records.UpsertAsync(
+            collectionId,
+            request,
+            principal,
+            operation,
+            cancellationToken);
         return resultMapper.ToHttpResult(result, httpContext, Mapping(operation));
     }
 

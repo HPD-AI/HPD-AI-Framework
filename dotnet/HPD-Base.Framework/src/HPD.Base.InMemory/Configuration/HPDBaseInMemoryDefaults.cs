@@ -17,4 +17,8 @@ public static class HPDBaseInMemoryDefaults
     public const string DefaultHealthRefId = "hpd.base.inmemory.health";
     /// <summary>The default diagnostic reference id contributed by the package.</summary>
     public const string DefaultDiagnosticRefId = "hpd.base.inmemory.diagnostics";
+    /// <summary>The maximum operation count advertised for one ordered batch.</summary>
+    public const int MaximumBatchOperations = 100;
+    /// <summary>The maximum canonical payload size advertised for one ordered batch.</summary>
+    public const long MaximumBatchCanonicalPayloadBytes = 1_048_576;
 }

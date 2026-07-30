@@ -9,7 +9,7 @@ public sealed class StreamingTests
     {
         var store = new InMemoryRecordStore();
         var collection = InMemoryTestData.Collection();
-        await store.CreateAsync(
+        await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", "one")) },
             InMemoryTestData.Operation(BaseOperationKind.Create));
@@ -35,11 +35,11 @@ public sealed class StreamingTests
     {
         var store = new InMemoryRecordStore();
         var collection = InMemoryTestData.Collection();
-        await store.CreateAsync(
+        await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", "one")) },
             InMemoryTestData.Operation(BaseOperationKind.Create));
-        await store.CreateAsync(
+        await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", "two")) },
             InMemoryTestData.Operation(BaseOperationKind.Create));
@@ -53,7 +53,7 @@ public sealed class StreamingTests
         await using var enumerator = stream.Value!.Items.GetAsyncEnumerator();
 
         (await enumerator.MoveNextAsync()).Should().BeTrue();
-        await store.CreateAsync(
+        await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", "three")) },
             InMemoryTestData.Operation(BaseOperationKind.Create));

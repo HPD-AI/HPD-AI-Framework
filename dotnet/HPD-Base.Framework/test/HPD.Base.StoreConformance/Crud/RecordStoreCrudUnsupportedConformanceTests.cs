@@ -9,19 +9,19 @@ public abstract class RecordStoreCrudUnsupportedConformanceTests<TFixture> : Rec
         var store = await CreateStoreAsync();
         var id = new RecordId("unsupported-crud");
 
-        if (!Capabilities.Crud.List)
+        if (!Capabilities.Read.List)
         {
             var result = await store.ListAsync(Collection, RecordStoreConformanceQueries.Empty, Operation(BaseOperationKind.List));
             RecordStoreConformanceAssertions.Failure(result, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable);
         }
 
-        if (!Capabilities.Crud.Get)
+        if (!Capabilities.Read.Get)
         {
             var result = await store.GetAsync(Collection, id, Operation(BaseOperationKind.Get, id));
             RecordStoreConformanceAssertions.Failure(result, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable);
         }
 
-        if (!Capabilities.Crud.Create)
+        if (!Capabilities.Mutation.Create)
         {
             var result = await store.CreateAsync(
                 Collection,
@@ -30,7 +30,7 @@ public abstract class RecordStoreCrudUnsupportedConformanceTests<TFixture> : Rec
             RecordStoreConformanceAssertions.Failure(result, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable, OperationStatus.ValidationFailed);
         }
 
-        if (!Capabilities.Crud.Patch)
+        if (!Capabilities.Mutation.Patch)
         {
             var result = await store.PatchAsync(
                 Collection,
@@ -40,7 +40,7 @@ public abstract class RecordStoreCrudUnsupportedConformanceTests<TFixture> : Rec
             RecordStoreConformanceAssertions.Failure(result, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable, OperationStatus.ValidationFailed);
         }
 
-        if (!Capabilities.Crud.Replace)
+        if (!Capabilities.Mutation.Replace)
         {
             var result = await store.ReplaceAsync(
                 Collection,
@@ -50,7 +50,7 @@ public abstract class RecordStoreCrudUnsupportedConformanceTests<TFixture> : Rec
             RecordStoreConformanceAssertions.Failure(result, OperationStatus.Unsupported, OperationStatus.CapabilityUnavailable, OperationStatus.ValidationFailed);
         }
 
-        if (!Capabilities.Crud.Delete)
+        if (!Capabilities.Mutation.Delete)
         {
             var result = await store.DeleteAsync(
                 Collection,

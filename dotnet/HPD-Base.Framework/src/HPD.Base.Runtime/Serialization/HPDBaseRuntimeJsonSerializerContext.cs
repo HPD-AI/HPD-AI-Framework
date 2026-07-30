@@ -73,6 +73,7 @@ using BaseRuntimeValidationSeverityConverter = LowerCamelJsonStringEnumConverter
 [JsonSerializable(typeof(OperationResult<BaseValidatedPayload>))]
 [JsonSerializable(typeof(OperationResult<ValidatedRecordQuery>))]
 [JsonSerializable(typeof(HPDBaseRuntimeOptions))]
+[JsonSerializable(typeof(HPDBaseRuntimeMutationOptions))]
 [JsonSerializable(typeof(HPDBaseRuntimeObservabilityOptions))]
 [JsonSerializable(typeof(HPDBaseRuntimeLimitOptions))]
 [JsonSerializable(typeof(HPDBaseRuntimeEventOptions))]

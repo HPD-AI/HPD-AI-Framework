@@ -10,9 +10,9 @@ namespace HPD.Base.Runtime.Tests.Operations;
 public sealed class OperationStoreCapabilityGateTests
 {
     [Fact]
-    public async Task CreateFailsBeforeStoreWhenStoreCrudDisallowsCreate()
+    public async Task CreateFailsBeforeStoreWhenMutationCapabilityDisallowsCreate()
     {
-        var store = new FakeRecordStore("primary", Crud(create: false));
+        var store = new FakeRecordStore("primary", mutation: Mutations(create: false));
         using var provider = OperationTestServices.Build(store);
 
         var result = await provider.GetRequiredService<IBaseRecordRuntime>().CreateAsync(
@@ -28,9 +28,9 @@ public sealed class OperationStoreCapabilityGateTests
     }
 
     [Fact]
-    public async Task ListFailsBeforeStoreWhenStoreCrudDisallowsList()
+    public async Task ListFailsBeforeStoreWhenReadCapabilityDisallowsList()
     {
-        var store = new FakeRecordStore("primary", Crud(list: false));
+        var store = new FakeRecordStore("primary", read: Reads(list: false));
         using var provider = OperationTestServices.Build(store);
 
         var result = await provider.GetRequiredService<IBaseRecordRuntime>().ListAsync(
@@ -45,20 +45,27 @@ public sealed class OperationStoreCapabilityGateTests
         Assert.Equal(0, store.ListCalls);
     }
 
-    private static CrudCapability Crud(
+    private static RecordReadCapability Reads(
         bool list = true,
-        bool get = true,
+        bool get = true) => new()
+        {
+            List = list,
+            Get = get
+        };
+
+    private static RecordMutationCapability Mutations(
         bool create = true,
         bool patch = true,
         bool replace = true,
         bool delete = true) => new()
         {
-            List = list,
-            Get = get,
             Create = create,
             Patch = patch,
             Replace = replace,
-            Delete = delete
+            Delete = delete,
+            IdAuthority = IdAuthority.Hybrid,
+            TimestampAuthority = TimestampAuthority.Runtime,
+            Consistency = ConsistencyModel.Strong
         };
 
     private static RecordCreateRequest CreateRequest()

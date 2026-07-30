@@ -12,23 +12,24 @@ namespace HPD.Base.Runtime.Tests.Capabilities;
 public sealed class CapabilityHonestyTests
 {
     [Fact]
-    public async Task CollectionOperationCannotExceedRegisteredStoreCrud()
+    public async Task CollectionOperationCannotExceedRegisteredStoreOperations()
     {
         var services = new ServiceCollection();
-        services.AddSingleton<IBaseDescriptorContributor>(new CrudContributor());
+        services.AddSingleton<IBaseDescriptorContributor>(new OperationContributor());
         services.AddHPDBaseRuntime();
         using var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IRecordStoreRegistry>().Add(new RecordStoreRegistration
         {
             StoreId = "primary",
-            Store = new FakeRecordStore("primary", new CrudCapability
+            Store = new FakeRecordStore("primary", mutation: new RecordMutationCapability
             {
-                List = true,
-                Get = true,
                 Create = false,
                 Patch = true,
                 Replace = true,
-                Delete = true
+                Delete = true,
+                IdAuthority = IdAuthority.Hybrid,
+                TimestampAuthority = TimestampAuthority.Runtime,
+                Consistency = ConsistencyModel.Strong
             }),
             CollectionIds = ["items"]
         });
@@ -56,7 +57,7 @@ public sealed class CapabilityHonestyTests
         var snapshot = await provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();
 
         Assert.False(snapshot.Validation.Succeeded);
-        Assert.Contains(snapshot.Validation.Issues!, issue => issue.Code == "base.runtime.capability.revision.interfaceMismatch");
+        Assert.Contains(snapshot.Validation.Issues!, issue => issue.Code == "base.runtime.capability.revision.operationUnsupported");
     }
 
     [Fact]
@@ -76,7 +77,7 @@ public sealed class CapabilityHonestyTests
         var snapshot = await provider.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();
 
         Assert.False(snapshot.Validation.Succeeded);
-        Assert.Contains(snapshot.Validation.Issues!, issue => issue.Code == "base.runtime.capability.revision.deleteUnsupported");
+        Assert.Contains(snapshot.Validation.Issues!, issue => issue.Code == "base.runtime.capability.revision.operationUnsupported");
     }
 
     [Fact]
@@ -99,7 +100,7 @@ public sealed class CapabilityHonestyTests
         Assert.Contains(snapshot.Validation.Issues!, issue => issue.Code == "base.runtime.capability.streaming.interfaceMismatch");
     }
 
-    private sealed class CrudContributor : IBaseDescriptorContributor
+    private sealed class OperationContributor : IBaseDescriptorContributor
     {
         public string Id => "crud";
 

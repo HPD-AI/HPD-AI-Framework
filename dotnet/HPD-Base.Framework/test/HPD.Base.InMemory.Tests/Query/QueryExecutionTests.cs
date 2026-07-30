@@ -45,7 +45,7 @@ public sealed class QueryExecutionTests
         var store = new InMemoryRecordStore();
         var collection = InMemoryTestData.Collection();
         using var document = JsonDocument.Parse("""{"title":"a","profile":{"name":"ada","hidden":"x"}}""");
-        var create = await store.CreateAsync(
+        var create = await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest
             {
@@ -214,7 +214,7 @@ public sealed class QueryExecutionTests
 
     private static async Task Create(InMemoryRecordStore store, CollectionDefinition collection, string title, string status, string rank)
     {
-        var result = await store.CreateAsync(
+        var result = await InMemoryMutationTestDriver.CreateAsync(store,
             collection,
             new RecordCreateRequest { Payload = InMemoryTestData.Payload(("title", title), ("status", status), ("rank", rank)) },
             InMemoryTestData.Operation(BaseOperationKind.Create));

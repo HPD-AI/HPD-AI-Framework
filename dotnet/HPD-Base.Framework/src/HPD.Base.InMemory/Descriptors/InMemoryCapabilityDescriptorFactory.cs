@@ -21,17 +21,7 @@ internal static class InMemoryCapabilityDescriptorFactory
                 FamilyVersion = options.StoreVersion,
                 Status = CapabilityStatus.Available,
                 OwnerModuleId = options.ModuleId,
-                Features =
-                [
-                    Feature(BaseFeatureIds.RecordsList, options, new CapabilityConstraintSet { StoreCrud = Crud(options, storeCapabilities) }),
-                    Feature(BaseFeatureIds.RecordsGet, options, new CapabilityConstraintSet { StoreCrud = Crud(options, storeCapabilities) }),
-                    Feature(BaseFeatureIds.RecordsCreate, options, new CapabilityConstraintSet { StoreCrud = Crud(options, storeCapabilities) }),
-                    Feature(BaseFeatureIds.RecordsPatch, options, new CapabilityConstraintSet { StoreCrud = Crud(options, storeCapabilities), StoreRevision = Revision(storeCapabilities) }),
-                    Feature(BaseFeatureIds.RecordsReplace, options, new CapabilityConstraintSet { StoreCrud = Crud(options, storeCapabilities), StoreRevision = Revision(storeCapabilities) }),
-                    Feature(BaseFeatureIds.RecordsDelete, options, new CapabilityConstraintSet { StoreCrud = Crud(options, storeCapabilities), StoreRevision = Revision(storeCapabilities) }),
-                    Feature(BaseFeatureIds.RecordsRevision, options, new CapabilityConstraintSet { StoreRevision = Revision(storeCapabilities) }),
-                    Feature(BaseFeatureIds.RecordsStreaming, options, new CapabilityConstraintSet { StoreStreaming = Streaming(storeCapabilities) })
-                ]
+                Features = StoreFeatures(options, storeCapabilities)
             },
             new CapabilityFamilyDescriptor
             {
@@ -91,6 +81,34 @@ internal static class InMemoryCapabilityDescriptorFactory
         ]
     };
 
+    private static CapabilityFeatureDescriptor[] StoreFeatures(
+        HPDBaseInMemoryOptions options,
+        StoreCapabilityDescriptor capabilities)
+    {
+        var features = new List<CapabilityFeatureDescriptor>
+        {
+            Feature(BaseFeatureIds.RecordsList, options, new CapabilityConstraintSet { StoreRead = Read(capabilities) }),
+            Feature(BaseFeatureIds.RecordsGet, options, new CapabilityConstraintSet { StoreRead = Read(capabilities) }),
+            Feature(BaseFeatureIds.RecordsCreate, options, new CapabilityConstraintSet { StoreMutation = Mutation(capabilities) }),
+            Feature(BaseFeatureIds.RecordsPatch, options, new CapabilityConstraintSet { StoreMutation = Mutation(capabilities), StoreRevision = Revision(capabilities) }),
+            Feature(BaseFeatureIds.RecordsReplace, options, new CapabilityConstraintSet { StoreMutation = Mutation(capabilities), StoreRevision = Revision(capabilities) }),
+            Feature(BaseFeatureIds.RecordsDelete, options, new CapabilityConstraintSet { StoreMutation = Mutation(capabilities), StoreRevision = Revision(capabilities) }),
+            Feature(BaseFeatureIds.RecordsRevision, options, new CapabilityConstraintSet { StoreRevision = Revision(capabilities) }),
+            Feature(BaseFeatureIds.StoreBatchAtomic, options, new CapabilityConstraintSet { Batch = Batch(capabilities) }),
+            Feature(BaseFeatureIds.StoreBatchCrossCollection, options, new CapabilityConstraintSet { Batch = Batch(capabilities) }),
+            Feature(BaseFeatureIds.RecordsStreaming, options, new CapabilityConstraintSet { StoreStreaming = Streaming(capabilities) })
+        };
+        if (capabilities.Upsert is not null)
+        {
+            features.Add(Feature(
+                BaseFeatureIds.StoreRecordUpsertAtomic,
+                options,
+                new CapabilityConstraintSet { Upsert = Upsert(capabilities) }));
+        }
+
+        return features.ToArray();
+    }
+
     private static CapabilityFeatureDescriptor Feature(
         string featureId,
         HPDBaseInMemoryOptions options,
@@ -108,23 +126,30 @@ internal static class InMemoryCapabilityDescriptorFactory
         Visibility = VisibilityLevel.Admin
     };
 
-    private static StoreCrudCapabilityConstraints Crud(
-        HPDBaseInMemoryOptions options,
+    private static StoreReadCapabilityConstraints Read(
         StoreCapabilityDescriptor capabilities) => new()
     {
         Operations =
         [
             "list",
-            "get",
+            "get"
+        ],
+        MaxPageSize = capabilities.Read.MaxPageSize
+    };
+
+    private static StoreMutationCapabilityConstraints Mutation(
+        StoreCapabilityDescriptor capabilities) => new()
+    {
+        Operations =
+        [
             "create",
             "patch",
             "replace",
             "delete"
         ],
-        IdAuthority = capabilities.Crud.IdAuthority,
-        TimestampAuthority = capabilities.Crud.TimestampAuthority,
-        Consistency = capabilities.Crud.Consistency,
-        MaxPageSize = options.MaxPageSize
+        IdAuthority = capabilities.Mutation.IdAuthority,
+        TimestampAuthority = capabilities.Mutation.TimestampAuthority,
+        Consistency = capabilities.Mutation.Consistency
     };
 
     private static StoreRevisionCapabilityConstraints? Revision(StoreCapabilityDescriptor capabilities) =>
@@ -133,8 +158,39 @@ internal static class InMemoryCapabilityDescriptorFactory
             : new StoreRevisionCapabilityConstraints
             {
                 Patch = capabilities.Revision.Patch,
+                Replace = capabilities.Revision.Replace,
                 Delete = capabilities.Revision.Delete,
                 Guarantee = capabilities.Revision.Guarantee
+            };
+
+    private static BatchCapabilityConstraints? Batch(StoreCapabilityDescriptor capabilities) =>
+        capabilities.Batch is null
+            ? null
+            : new BatchCapabilityConstraints
+            {
+                Modes = capabilities.Batch.Modes,
+                MaxOperations = capabilities.Batch.MaxOperations,
+                MaxCanonicalPayloadBytes = capabilities.Batch.MaxCanonicalPayloadBytes,
+                Ordered = capabilities.Batch.Ordered,
+                PartialResults = capabilities.Batch.PartialResults,
+                CrossCollectionAtomic = capabilities.Batch.CrossCollectionAtomic,
+                ReadYourWrites = capabilities.Batch.ReadYourWrites,
+                Durable = capabilities.Batch.Durable,
+                TransactionalJournal = capabilities.Batch.TransactionalJournal,
+                Isolation = capabilities.Batch.Isolation,
+                NestedTransactions = capabilities.Batch.NestedTransactions,
+                Savepoints = capabilities.Batch.Savepoints
+            };
+
+    private static UpsertCapabilityConstraints? Upsert(StoreCapabilityDescriptor capabilities) =>
+        capabilities.Upsert is null
+            ? null
+            : new UpsertCapabilityConstraints
+            {
+                Atomic = capabilities.Upsert.Atomic,
+                UpdateModes = capabilities.Upsert.UpdateModes,
+                ExpectedRevision = capabilities.Upsert.ExpectedRevision,
+                ExistenceConditions = capabilities.Upsert.ExistenceConditions
             };
 
     private static StoreStreamingCapabilityConstraints? Streaming(StoreCapabilityDescriptor capabilities) =>

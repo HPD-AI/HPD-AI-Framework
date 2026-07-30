@@ -24,4 +24,10 @@ internal sealed class ReplacementRecordRuntime : IBaseRecordRuntime
 
     public ValueTask<OperationResult<DeleteResult>> DeleteAsync(string collectionId, RecordId id, RecordDeleteRequest request, PrincipalContext principal, OperationContext operation, CancellationToken cancellationToken = default) =>
         throw new NotImplementedException();
+
+    public ValueTask<OperationResult<RecordUpsertResult>> UpsertAsync(string collectionId, RecordUpsertRequest request, PrincipalContext principal, OperationContext operation, CancellationToken cancellationToken = default) =>
+        throw new NotImplementedException();
+
+    public ValueTask<OperationResult<BaseRecordBatchResult>> BatchAsync(BaseRecordBatchRequest request, PrincipalContext principal, OperationContext operation, CancellationToken cancellationToken = default) =>
+        throw new NotImplementedException();
 }

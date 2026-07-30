@@ -82,15 +82,4 @@ internal sealed class TestMutationJournalStore : ITransactionalMutationJournalSt
     public ValueTask<OperationResult<RecordEnvelope>> GetAsync(CollectionDefinition collection, RecordId id, OperationContext context, CancellationToken cancellationToken = default) =>
         _inner.GetAsync(collection, id, context, cancellationToken);
 
-    public ValueTask<OperationResult<RecordEnvelope>> CreateAsync(CollectionDefinition collection, RecordCreateRequest request, OperationContext context, CancellationToken cancellationToken = default) =>
-        _inner.CreateAsync(collection, request, context, cancellationToken);
-
-    public ValueTask<OperationResult<RecordEnvelope>> PatchAsync(CollectionDefinition collection, RecordId id, RecordPatchRequest request, OperationContext context, CancellationToken cancellationToken = default) =>
-        _inner.PatchAsync(collection, id, request, context, cancellationToken);
-
-    public ValueTask<OperationResult<RecordEnvelope>> ReplaceAsync(CollectionDefinition collection, RecordId id, RecordReplaceRequest request, OperationContext context, CancellationToken cancellationToken = default) =>
-        _inner.ReplaceAsync(collection, id, request, context, cancellationToken);
-
-    public ValueTask<OperationResult<DeleteResult>> DeleteAsync(CollectionDefinition collection, RecordId id, RecordDeleteRequest request, OperationContext context, CancellationToken cancellationToken = default) =>
-        _inner.DeleteAsync(collection, id, request, context, cancellationToken);
 }
