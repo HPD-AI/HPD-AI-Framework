@@ -105,6 +105,96 @@ public sealed class BaseCollectionGeneratorTests
         result.GeneratedSource.Should().BeEmpty();
     }
 
+    [Fact]
+    public void UnsupportedPayloadFieldReportsAtTheField()
+    {
+        const string source = """
+            using HPD.Base.Application.Generation;
+            using System;
+            using System.Text.Json.Serialization;
+
+            [BaseCollection("projects", typeof(AppJsonContext))]
+            public partial record Project
+            {
+                public Action? Callback { get; init; }
+            }
+
+            [JsonSerializable(typeof(Project))]
+            public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        var result = Run(source);
+
+        Diagnostic diagnostic = result.Diagnostics.Should()
+            .ContainSingle(item => item.Id == "HPDBASE008")
+            .Subject;
+        diagnostic.Location.GetLineSpan().StartLinePosition.Line.Should().Be(7);
+        result.GeneratedSource.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DuplicateStoredFieldReportsAtTheSecondField()
+    {
+        const string source = """
+            using HPD.Base.Application.Generation;
+            using System.Text.Json.Serialization;
+
+            [BaseCollection("projects", typeof(AppJsonContext))]
+            public partial record Project
+            {
+                [BaseField(Name = "name")]
+                public string First { get; init; } = "";
+
+                [BaseField(Name = "name")]
+                public string Second { get; init; } = "";
+            }
+
+            [JsonSerializable(typeof(Project))]
+            public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        var result = Run(source);
+
+        Diagnostic diagnostic = result.Diagnostics.Should()
+            .ContainSingle(item => item.Id == "HPDBASE004")
+            .Subject;
+        diagnostic.Location.GetLineSpan().StartLinePosition.Line.Should().Be(10);
+        result.GeneratedSource.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("""[BaseIndex("", nameof(Name))]""")]
+    [InlineData("""[BaseIndex("empty")]""")]
+    [InlineData("""
+        [BaseIndex("same", nameof(Name))]
+        [BaseIndex("same", nameof(Name))]
+        """)]
+    public void InvalidIndexesReportAtTheDeclaration(string declaration)
+    {
+        string source = $$"""
+            using HPD.Base.Application.Generation;
+            using System.Text.Json.Serialization;
+
+            {{declaration}}
+            [BaseCollection("projects", typeof(AppJsonContext))]
+            public partial record Project
+            {
+                public string Name { get; init; } = "";
+            }
+
+            [JsonSerializable(typeof(Project))]
+            public partial class AppJsonContext : JsonSerializerContext;
+            """;
+
+        var result = Run(source);
+
+        Diagnostic diagnostic = result.Diagnostics.Should()
+            .ContainSingle(item => item.Id == "HPDBASE009")
+            .Subject;
+        diagnostic.Location.IsInSource.Should().BeTrue();
+        result.GeneratedSource.Should().BeEmpty();
+    }
+
     private static GeneratorResult Run(string source)
     {
         var parseOptions = new CSharpParseOptions(LanguageVersion.CSharp14);

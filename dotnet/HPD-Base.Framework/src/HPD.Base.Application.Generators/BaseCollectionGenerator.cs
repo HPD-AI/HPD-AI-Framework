@@ -81,6 +81,22 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         DiagnosticSeverity.Error,
         true);
 
+    private static readonly DiagnosticDescriptor InvalidField = new DiagnosticDescriptor(
+        "HPDBASE008",
+        "Invalid BASE field declaration",
+        "Collection '{0}' field '{1}' is invalid: {2}",
+        "HPD.Base.Generation",
+        DiagnosticSeverity.Error,
+        true);
+
+    private static readonly DiagnosticDescriptor InvalidIndex = new DiagnosticDescriptor(
+        "HPDBASE009",
+        "Invalid BASE index declaration",
+        "Collection '{0}' index '{1}' is invalid: {2}",
+        "HPD.Base.Generation",
+        DiagnosticSeverity.Error,
+        true);
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         IncrementalValuesProvider<INamedTypeSymbol> candidates =
@@ -206,6 +222,39 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 GetNamedString(fieldAttribute, "Name") ??
                 GetJsonPropertyName(property) ??
                 (camelCaseJson ? ToCamelCase(property.Name) : property.Name);
+            if (string.IsNullOrWhiteSpace(storedName))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    InvalidField,
+                    GetLocation(property),
+                    collectionId,
+                    property.Name,
+                    "the stored name must not be empty"));
+                return null;
+            }
+
+            if (!IsSupportedFieldType(property.Type))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    InvalidField,
+                    GetLocation(property),
+                    collectionId,
+                    property.Name,
+                    "the payload type is not supported"));
+                return null;
+            }
+
+            long operators = GetNamedInt64(fieldAttribute, "Operators", 1);
+            if ((operators & ~15L) != 0)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    InvalidField,
+                    GetLocation(property),
+                    collectionId,
+                    property.Name,
+                    "the query operator flags are not recognized"));
+                return null;
+            }
 
             if (!storedNames.Add(storedName))
             {
@@ -226,7 +275,7 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 SchemaFormat = GetSchemaFormat(property.Type),
                 Nullable = IsNullable(property),
                 Required = property.IsRequired || !IsNullable(property),
-                Operators = GetNamedInt64(fieldAttribute, "Operators", 1),
+                Operators = operators,
             };
 
             fields.Add(field);
@@ -234,19 +283,54 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         }
 
         var indexes = new List<IndexModel>();
+        var indexIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (AttributeData indexAttribute in symbol.GetAttributes()
             .Where(attribute =>
                 attribute.AttributeClass != null &&
                 attribute.AttributeClass.ToDisplayString() == IndexAttribute))
         {
             string indexId = GetConstructorString(indexAttribute, 0);
+            Location indexLocation = GetLocation(indexAttribute, symbol);
+            if (string.IsNullOrWhiteSpace(indexId))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    InvalidIndex,
+                    indexLocation,
+                    collectionId,
+                    indexId ?? string.Empty,
+                    "the identifier must not be empty"));
+                return null;
+            }
+
+            if (!indexIds.Add(indexId))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    InvalidIndex,
+                    indexLocation,
+                    collectionId,
+                    indexId,
+                    "the identifier is duplicated"));
+                return null;
+            }
+
             ImmutableArray<TypedConstant> fieldConstants =
                 indexAttribute.ConstructorArguments.Length > 1 &&
                 indexAttribute.ConstructorArguments[1].Kind == TypedConstantKind.Array
                     ? indexAttribute.ConstructorArguments[1].Values
                     : ImmutableArray<TypedConstant>.Empty;
+            if (fieldConstants.IsDefaultOrEmpty)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    InvalidIndex,
+                    indexLocation,
+                    collectionId,
+                    indexId,
+                    "at least one field is required"));
+                return null;
+            }
 
             var indexFields = new List<FieldModel>();
+            var indexedProperties = new HashSet<string>(StringComparer.Ordinal);
             foreach (TypedConstant fieldConstant in fieldConstants)
             {
                 string propertyName = fieldConstant.Value as string;
@@ -255,10 +339,21 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
                 {
                     context.ReportDiagnostic(Diagnostic.Create(
                         InvalidIndexField,
-                        GetLocation(symbol),
+                        indexLocation,
                         indexId ?? string.Empty,
                         collectionId,
                         propertyName ?? string.Empty));
+                    return null;
+                }
+
+                if (!indexedProperties.Add(propertyName))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        InvalidIndex,
+                        indexLocation,
+                        collectionId,
+                        indexId,
+                        "a field is included more than once"));
                     return null;
                 }
 
@@ -489,6 +584,28 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
         symbol.TypeKind == TypeKind.Class &&
         symbol.ContainingType == null &&
         symbol.TypeParameters.Length == 0;
+
+    private static bool IsSupportedFieldType(ITypeSymbol type)
+    {
+        if (type is IArrayTypeSymbol array)
+        {
+            return array.Rank == 1 && IsSupportedFieldType(array.ElementType);
+        }
+
+        if (type is INamedTypeSymbol named &&
+            named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+        {
+            return IsSupportedFieldType(named.TypeArguments[0]);
+        }
+
+        return type.TypeKind is not (
+            TypeKind.Delegate or
+            TypeKind.Error or
+            TypeKind.FunctionPointer or
+            TypeKind.Pointer or
+            TypeKind.TypeParameter) &&
+            !type.IsRefLikeType;
+    }
 
     private static bool IsPartial(INamedTypeSymbol symbol) =>
         symbol.DeclaringSyntaxReferences
@@ -756,6 +873,10 @@ public sealed class BaseCollectionGenerator : IIncrementalGenerator
 
     private static Location GetLocation(ISymbol symbol) =>
         symbol.Locations.FirstOrDefault(location => location.IsInSource) ?? Location.None;
+
+    private static Location GetLocation(AttributeData attribute, ISymbol fallback) =>
+        attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ??
+        GetLocation(fallback);
 
     private sealed class CollectionModel
     {
