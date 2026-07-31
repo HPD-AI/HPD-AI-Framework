@@ -18,7 +18,8 @@ The host includes:
 
 - a controllable `TimeProvider`;
 - mutable allow/deny policy decisions that are evaluated per operation;
-- one-shot atomic-commit and post-commit-observer failures;
+- provider-bound atomic rollback and indeterminate-acknowledgement controls;
+- one-shot post-commit-observer failures;
 - captured committed mutations and dependency invalidations;
 - bounded SQLite durable-journal inspection;
 - the normal typed files, realtime, and live-query session surfaces.

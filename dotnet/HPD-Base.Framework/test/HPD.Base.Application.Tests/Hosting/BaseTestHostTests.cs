@@ -75,11 +75,16 @@ public sealed class BaseTestHostTests
             GeneratedProject.Collection,
             new RecordId("project_1"),
             new GeneratedProject { OrganizationId = "org_1", Name = "failed" });
-        BaseResult<Application.Batches.BaseBatchResult> failed =
-            await failedBatch.CommitAsync();
+        Application.Batches.BaseBatchResult failed =
+            (await failedBatch.CommitAsync()).RequireValue();
 
-        failed.Should().BeOfType<BaseFailure<Application.Batches.BaseBatchResult>>()
-            .Which.Status.Should().Be(OperationStatus.StoreError);
+        failed.Outcome.Should().Be(BaseRecordBatchOutcome.RolledBack);
+        failed.Error!.Code.Should().Be("base.testing.atomicCommitFailed");
+        (await session.Collection(GeneratedProject.Collection)
+                .GetAsync(new RecordId("project_1")))
+            .Should().BeOfType<
+                BaseFailure<Application.Records.BaseRecord<GeneratedProject>>>();
+        host.Probe.Mutations.Should().BeEmpty();
 
         var committedBatch = session.Atomic();
         committedBatch.Create(
@@ -89,6 +94,75 @@ public sealed class BaseTestHostTests
         (await committedBatch.CommitAsync())
             .RequireValue()
             .RequireCommitted();
+    }
+
+    [Fact]
+    public async Task AtomicCommitFailureRollsBackSqliteRecordsAndJournal()
+    {
+        string database = Path.Combine(
+            Path.GetTempPath(),
+            $"hpd-base-testing-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using BaseTestHost host = await BaseTestHost.CreateAsync(
+                builder => builder
+                    .UseSqlite(options => options.DataSource = database)
+                    .AddCollection(GeneratedProject.Collection));
+            var session = host.Session(BaseTestPrincipal.System("application-test"));
+
+            host.Faults.FailNextAtomicCommit();
+            var batch = session.Atomic();
+            batch.Create(
+                GeneratedProject.Collection,
+                new RecordId("project_rollback"),
+                new GeneratedProject { OrganizationId = "org_1", Name = "rollback" });
+
+            Application.Batches.BaseBatchResult failure =
+                (await batch.CommitAsync()).RequireValue();
+            failure.Outcome.Should().Be(BaseRecordBatchOutcome.RolledBack);
+            failure.Error!.Code.Should().Be("base.testing.atomicCommitFailed");
+            (await session.Collection(GeneratedProject.Collection)
+                    .GetAsync(new RecordId("project_rollback")))
+                .Should().BeOfType<
+                    BaseFailure<Application.Records.BaseRecord<GeneratedProject>>>();
+            (await host.JournalAsync()).Should().BeEmpty();
+            host.Probe.Mutations.Should().BeEmpty();
+        }
+        finally
+        {
+            File.Delete(database);
+            File.Delete(database + "-shm");
+            File.Delete(database + "-wal");
+        }
+    }
+
+    [Fact]
+    public async Task IndeterminateCommitExposesNoBatchItemsButMayHavePersisted()
+    {
+        await using BaseTestHost host = await BaseTestHost.CreateAsync(
+            builder => builder
+                .UseInMemory()
+                .AddCollection(GeneratedProject.Collection));
+        var session = host.Session(BaseTestPrincipal.System("application-test"));
+
+        host.Faults.MakeNextAtomicCommitIndeterminate();
+        var batch = session.Atomic();
+        batch.Create(
+            GeneratedProject.Collection,
+            new RecordId("project_indeterminate"),
+            new GeneratedProject { OrganizationId = "org_1", Name = "indeterminate" });
+
+        BaseFailure<Application.Batches.BaseBatchResult> failure =
+            (await batch.CommitAsync()).Should()
+                .BeOfType<BaseFailure<Application.Batches.BaseBatchResult>>()
+                .Subject;
+        failure.Status.Should().Be(OperationStatus.StoreError);
+        failure.Error.Code.Should().Be("base.runtime.batch.indeterminate");
+        (await session.Collection(GeneratedProject.Collection)
+                .GetAsync(new RecordId("project_indeterminate")))
+            .RequireValue()
+            .Value.Name.Should().Be("indeterminate");
+        host.Probe.Mutations.Should().BeEmpty();
     }
 
     [Fact]

@@ -61,9 +61,12 @@ internal sealed class DefaultBaseRealtimePolicy : IBaseRealtimePolicy
         if (!TenantAllowed(request.Principal, request.Event.TenantId, request.Join.TenantId))
             return new BaseRealtimeEventProjectionDecision();
 
-        var view = VisibilityLevel.Public;
-        if (request.Principal.AuthenticationState is PrincipalAuthenticationState.Admin or PrincipalAuthenticationState.System)
-            view = VisibilityLevel.Admin;
+        var view = request.Principal.AuthenticationState switch
+        {
+            PrincipalAuthenticationState.System => VisibilityLevel.Internal,
+            PrincipalAuthenticationState.Admin => VisibilityLevel.Admin,
+            _ => VisibilityLevel.Public,
+        };
 
         if (request.Event.Visibility > view)
             return new BaseRealtimeEventProjectionDecision();

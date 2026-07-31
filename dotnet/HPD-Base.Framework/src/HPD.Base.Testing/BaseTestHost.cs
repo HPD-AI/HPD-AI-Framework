@@ -3,9 +3,9 @@ using HPD.Base.Application.Hosting;
 using HPD.Base.Application.Sessions;
 using HPD.Base.Runtime;
 using HPD.Base.Runtime.Events;
-using HPD.Base.Runtime.Operations;
 using HPD.Base.Policy;
 using HPD.Base.Events;
+using HPD.Base.Files.Policy;
 using HPD.Base.Stores;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -53,12 +53,19 @@ public sealed class BaseTestHost : IAsyncDisposable
         services.AddSingleton(policy);
         services.Replace(
             ServiceDescriptor.Singleton<IPolicyEvaluator, BaseTestPolicyEvaluator>());
+        services.Replace(
+            ServiceDescriptor.Singleton<
+                IFilePolicyOrchestrator,
+                BaseTestFilePolicyOrchestrator>());
         var faults = new BaseTestFaults();
         services.AddSingleton(faults);
         services.AddSingleton<BaseTestProbe>();
         services.AddSingleton<IBaseCommittedMutationObserver>(
             provider => provider.GetRequiredService<BaseTestProbe>());
-        DecorateRuntime(services);
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<
+                IBaseApplicationInitializer,
+                BaseTestStoreInitializer>());
         ServiceProvider provider = services.BuildServiceProvider(
             new ServiceProviderOptions
             {
@@ -123,35 +130,4 @@ public sealed class BaseTestHost : IAsyncDisposable
 
     public ValueTask DisposeAsync() => _provider.DisposeAsync();
 
-    private static void DecorateRuntime(ServiceCollection services)
-    {
-        ServiceDescriptor descriptor = services.LastOrDefault(
-            item => item.ServiceType == typeof(IBaseRecordRuntime))
-            ?? throw new InvalidOperationException(
-                "The HPD.BASE runtime was not registered.");
-        services.Remove(descriptor);
-        services.AddSingleton<IBaseRecordRuntime>(provider =>
-            new BaseTestRecordRuntime(
-                CreateRuntime(provider, descriptor),
-                provider.GetRequiredService<BaseTestFaults>()));
-    }
-
-    private static IBaseRecordRuntime CreateRuntime(
-        IServiceProvider provider,
-        ServiceDescriptor descriptor)
-    {
-        if (descriptor.ImplementationInstance is IBaseRecordRuntime instance)
-            return instance;
-        if (descriptor.ImplementationFactory is not null)
-            return (IBaseRecordRuntime)descriptor.ImplementationFactory(provider);
-        if (descriptor.ImplementationType is not null)
-        {
-            return (IBaseRecordRuntime)ActivatorUtilities.CreateInstance(
-                provider,
-                descriptor.ImplementationType);
-        }
-
-        throw new InvalidOperationException(
-            "The HPD.BASE runtime registration cannot be decorated.");
-    }
 }

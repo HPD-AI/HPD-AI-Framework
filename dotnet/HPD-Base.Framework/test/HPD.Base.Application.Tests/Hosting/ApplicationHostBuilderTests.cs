@@ -86,6 +86,8 @@ public sealed class ApplicationHostBuilderTests
             .UseInMemory()
             .AddCollection(GeneratedProject.Collection)
             .AddFiles()
+            .AddDependencies(options =>
+                options.ProtectionKey = Enumerable.Repeat((byte)0x31, 32).ToArray())
             .AddRealtime());
 
         using ServiceProvider provider = services.BuildServiceProvider(
@@ -94,8 +96,12 @@ public sealed class ApplicationHostBuilderTests
             provider.GetRequiredService<HPDBaseInstalledFeatures>();
 
         manifest.Files.Should().BeTrue();
-        manifest.Dependencies.Should().BeFalse();
+        manifest.Dependencies.Should().BeTrue();
         manifest.Realtime.Should().BeTrue();
+        typeof(HPDBaseApplicationBuilder)
+            .GetMethod(nameof(HPDBaseApplicationBuilder.AddDependencies))!
+            .GetParameters()[0]
+            .IsOptional.Should().BeTrue();
     }
 
     [Fact]

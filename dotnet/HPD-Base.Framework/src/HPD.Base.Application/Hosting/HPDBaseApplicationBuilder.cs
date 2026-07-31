@@ -57,8 +57,6 @@ public sealed class HPDBaseApplicationBuilder
         return this;
     }
 
-    public HPDBaseApplicationBuilder UseFailClosedPolicy() => this;
-
     public HPDBaseApplicationBuilder UseInMemory(Action<HPDBaseInMemoryOptions>? configure = null)
     {
         EnsureNoStore();
@@ -100,16 +98,15 @@ public sealed class HPDBaseApplicationBuilder
     }
 
     public HPDBaseApplicationBuilder AddDependencies(
-        Action<BaseDependencyOptions> configure,
+        Action<BaseDependencyOptions>? configure = null,
         Action<BaseDependencyCatalog>? define = null)
     {
-        ArgumentNullException.ThrowIfNull(configure);
         if (_dependencies is not null)
         {
             throw new InvalidOperationException("Dependencies are already registered.");
         }
 
-        _dependencies = configure;
+        _dependencies = configure ?? (_ => { });
         define?.Invoke(new BaseDependencyCatalog(_dependencyTemplates));
         return this;
     }

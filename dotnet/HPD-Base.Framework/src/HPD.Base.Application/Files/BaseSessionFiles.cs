@@ -4,24 +4,43 @@ using HPD.Base.Files.Objects;
 namespace HPD.Base.Application.Files;
 
 /// <summary>Opens bucket-bound file handles under one session identity.</summary>
-public sealed class BaseSessionFiles(
-    IFileObjectService service,
-    FileOperationContext context)
+public sealed class BaseSessionFiles
 {
+    private readonly IFileObjectService _service;
+    private readonly FileOperationContext _context;
+
+    internal BaseSessionFiles(
+        IFileObjectService service,
+        FileOperationContext context)
+    {
+        _service = service;
+        _context = context;
+    }
+
     public BaseFileBucket Bucket(string bucketId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(bucketId);
-        return new BaseFileBucket(service, context, new FileBucketId(bucketId));
+        return new BaseFileBucket(_service, _context, new FileBucketId(bucketId));
     }
 }
 
 /// <summary>Performs file operations without repeating bucket or identity context.</summary>
-public sealed class BaseFileBucket(
-    IFileObjectService service,
-    FileOperationContext context,
-    FileBucketId bucketId)
+public sealed class BaseFileBucket
 {
-    public FileBucketId Id => bucketId;
+    private readonly IFileObjectService _service;
+    private readonly FileOperationContext _context;
+
+    internal BaseFileBucket(
+        IFileObjectService service,
+        FileOperationContext context,
+        FileBucketId bucketId)
+    {
+        _service = service;
+        _context = context;
+        Id = bucketId;
+    }
+
+    public FileBucketId Id { get; }
 
     public async ValueTask<BaseResult<FileObjectUploadResult>> UploadAsync(
         string key,
@@ -34,20 +53,23 @@ public sealed class BaseFileBucket(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(content);
-        var result = await service.UploadAsync(
+        var result = await _service.UploadAsync(
             new FileObjectUploadRequest
             {
-                BucketId = bucketId,
+                BucketId = Id,
                 Key = new FileObjectKey(key),
                 Content = content,
                 ContentType = contentType,
+                SizeBytes = content.CanSeek
+                    ? content.Length - content.Position
+                    : null,
                 Overwrite = overwrite,
                 Checksum = checksum,
                 Metadata = metadata is null
                     ? null
                     : new Dictionary<string, string>(metadata, StringComparer.Ordinal),
             },
-            context,
+            _context,
             cancellationToken).ConfigureAwait(false);
         return BaseResultMapper.Map(result, static value => value);
     }
@@ -56,9 +78,9 @@ public sealed class BaseFileBucket(
         FileObjectId objectId,
         CancellationToken cancellationToken = default)
     {
-        var result = await service.OpenDownloadAsync(
-            new FileObjectDownloadRequest { BucketId = bucketId, ObjectId = objectId },
-            context,
+        var result = await _service.OpenDownloadAsync(
+            new FileObjectDownloadRequest { BucketId = Id, ObjectId = objectId },
+            _context,
             cancellationToken).ConfigureAwait(false);
         return BaseResultMapper.Map(result, static value => value);
     }
@@ -67,9 +89,9 @@ public sealed class BaseFileBucket(
         FileObjectId objectId,
         CancellationToken cancellationToken = default)
     {
-        var result = await service.GetMetadataAsync(
-            new FileObjectMetadataRequest { BucketId = bucketId, ObjectId = objectId },
-            context,
+        var result = await _service.GetMetadataAsync(
+            new FileObjectMetadataRequest { BucketId = Id, ObjectId = objectId },
+            _context,
             cancellationToken).ConfigureAwait(false);
         return BaseResultMapper.Map(result, static value => value);
     }
@@ -78,9 +100,9 @@ public sealed class BaseFileBucket(
         FileObjectId objectId,
         CancellationToken cancellationToken = default)
     {
-        var result = await service.DeleteAsync(
-            new FileObjectDeleteRequest { BucketId = bucketId, ObjectId = objectId },
-            context,
+        var result = await _service.DeleteAsync(
+            new FileObjectDeleteRequest { BucketId = Id, ObjectId = objectId },
+            _context,
             cancellationToken).ConfigureAwait(false);
         return BaseResultMapper.Map(result);
     }
@@ -92,15 +114,15 @@ public sealed class BaseFileBucket(
         CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(maximum, 1);
-        var result = await service.ListMetadataAsync(
+        var result = await _service.ListMetadataAsync(
             new FileObjectListRequest
             {
-                BucketId = bucketId,
+                BucketId = Id,
                 Prefix = string.IsNullOrEmpty(prefix) ? null : new FileObjectKey(prefix),
                 Limit = maximum,
                 Cursor = cursor,
             },
-            context,
+            _context,
             cancellationToken).ConfigureAwait(false);
         return BaseResultMapper.Map(result, static value => value);
     }

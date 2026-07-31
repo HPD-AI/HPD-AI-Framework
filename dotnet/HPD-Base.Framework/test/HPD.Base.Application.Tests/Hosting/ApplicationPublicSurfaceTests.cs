@@ -1,6 +1,7 @@
 using FluentAssertions;
 using HPD.Base.Application.Hosting;
 using HPD.Base.Application.Sessions;
+using HPD.Base.Files.Objects;
 using HPD.Base.InMemory;
 using HPD.Base.Runtime;
 using HPD.Base.Runtime.Operations;
@@ -27,6 +28,8 @@ public sealed class ApplicationPublicSurfaceTests
             typeof(HPD.Base.Records.RecordPayload),
             typeof(HPD.Base.Records.BaseRecordBatchItem),
             typeof(HPD.Base.Query.QueryValue),
+            typeof(IFileObjectService),
+            typeof(FileOperationContext),
         ];
         MemberInfo[] publicMembers = typeof(BaseSession).Assembly
             .GetExportedTypes()

@@ -58,7 +58,9 @@ internal sealed class DefaultBaseEventFactory : IBaseEventFactory
             ChangedFields = changedFields,
             Before = before is null ? null : Snapshot(before),
             After = after is null ? null : Snapshot(after),
-            Visibility = VisibilityLevel.Internal
+            // The source snapshot remains internal and is never emitted directly. The
+            // realtime layer reauthorizes and independently redacts it for each subscriber.
+            Visibility = VisibilityLevel.Public
         };
     }
 
