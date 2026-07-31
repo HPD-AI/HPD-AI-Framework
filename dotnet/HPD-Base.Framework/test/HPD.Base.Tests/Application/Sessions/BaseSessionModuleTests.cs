@@ -17,11 +17,10 @@ public sealed class BaseSessionModuleTests
     {
         await using BaseTestHost host = await BaseTestHost.CreateAsync(
             builder => builder
-                .UseInMemory()
+
                 .AddFiles(options => options.Buckets.Add(new FileBucketDescriptor
                 {
                     BucketId = new FileBucketId("attachments"),
-                    ProviderRef = new FileProviderRef("inmemory"),
                     Capabilities = new FileBucketCapabilities
                     {
                         Upload = true,
@@ -57,7 +56,7 @@ public sealed class BaseSessionModuleTests
     {
         await using BaseTestHost host = await BaseTestHost.CreateAsync(
             builder => builder
-                .UseInMemory()
+
                 .AddCollection(GeneratedProject.Collection)
                 .AddDependencies(options => options.ProtectionKey = DependencyKey));
         var session = host.Session(
@@ -79,7 +78,7 @@ public sealed class BaseSessionModuleTests
     {
         await using BaseTestHost host = await BaseTestHost.CreateAsync(
             builder => builder
-                .UseInMemory()
+
                 .AddCollection(GeneratedProject.Collection)
                 .AddDependencies(options => options.ProtectionKey = DependencyKey)
                 .AddLiveQueries());
@@ -90,7 +89,7 @@ public sealed class BaseSessionModuleTests
             await session.LiveQueries.SubscribeAsync(
                 "project-count",
                 _ => ValueTask.FromResult(
-                    LiveQuery.Result(
+                    global::HPD.Base.LiveQuery.Result(
                     Interlocked.Increment(ref evaluations),
                     session.Dependencies.Set(
                         session.Dependencies.Record(
@@ -117,7 +116,7 @@ public sealed class BaseSessionModuleTests
     {
         await using BaseTestHost host = await BaseTestHost.CreateAsync(
             builder => builder
-                .UseInMemory()
+
                 .AddCollection(GeneratedProject.Collection)
                 .AddRealtime());
         var session = host.Session(
@@ -183,7 +182,7 @@ public sealed class BaseSessionModuleTests
     {
         await using BaseTestHost host = await BaseTestHost.CreateAsync(
             builder => builder
-                .UseInMemory()
+
                 .AddCollection(GeneratedProject.Collection)
                 .AddRealtime(options =>
                     options.CursorProtectionKey =

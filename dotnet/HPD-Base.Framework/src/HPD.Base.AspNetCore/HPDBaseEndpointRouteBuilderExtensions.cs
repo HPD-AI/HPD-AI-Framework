@@ -1,6 +1,7 @@
 using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HPD.Base.AspNetCore;
 
@@ -38,6 +39,12 @@ public static class HPDBaseEndpointRouteBuilderExtensions
         Action<HPDBaseEndpointOptions>? configure)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
+
+        foreach (IBaseApplicationInitializer initializer in
+                 endpoints.ServiceProvider.GetServices<IBaseApplicationInitializer>())
+        {
+            initializer.Initialize();
+        }
 
         var options = new HPDBaseEndpointOptions();
         configure?.Invoke(options);

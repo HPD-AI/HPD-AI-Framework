@@ -23,7 +23,7 @@ Install one provider and the generated collection:
 ```csharp
 services.AddHPDBase(hpd =>
 {
-    hpd.UseInMemory();
+    hpd;
     hpd.AddCollection(Project.Collection);
 });
 ```

@@ -26,6 +26,7 @@ public sealed class HPDBaseBuilder
     private Action<BaseDependencyOptions>? _dependencies;
     private Action<BaseRealtimeOptions>? _realtime;
     private Action<BaseLiveQueryOptions>? _liveQueries;
+    private Action<HPDBaseVolatileStoreOptions>? _volatileStore;
     private bool _built;
 
     internal HPDBaseBuilder(IServiceCollection services) => _services = services;
@@ -34,6 +35,15 @@ public sealed class HPDBaseBuilder
     {
         ArgumentNullException.ThrowIfNull(configure);
         _runtime += configure;
+        return this;
+    }
+
+    /// <summary>Configures the built-in process-local volatile provider.</summary>
+    /// <remarks>An explicit record provider cannot be combined with volatile-provider configuration.</remarks>
+    public HPDBaseBuilder ConfigureVolatileStore(Action<HPDBaseVolatileStoreOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        _volatileStore += configure;
         return this;
     }
 
@@ -112,16 +122,39 @@ public sealed class HPDBaseBuilder
             throw new InvalidOperationException("The HPD.BASE builder was already applied.");
         _built = true;
 
-        IHPDBaseBuilderExtension[] providers = _extensions.Where(static item => item.IsRecordProvider).ToArray();
-        if (providers.Length != 1)
-            throw new InvalidOperationException("Select exactly one HPD.BASE record provider.");
+        IHPDBaseBuilderExtension[] explicitProviders = _extensions.Where(static item => item.IsRecordProvider).ToArray();
+        if (explicitProviders.Length > 1)
+            throw new InvalidOperationException("Select at most one explicit HPD.BASE record provider.");
+        if (explicitProviders.Length == 1 && _volatileStore is not null)
+            throw new InvalidOperationException(
+                "ConfigureVolatileStore cannot be combined with an explicit HPD.BASE record provider.");
+
+        IHPDBaseBuilderExtension provider = explicitProviders.Length == 1
+            ? explicitProviders[0]
+            : new VolatileProviderInstaller(_volatileStore);
 
         CollectionDefinition[] collections = _collections.Values.ToArray();
-        ValidateIndexCapabilities(collections, providers[0]);
+        ValidateIndexCapabilities(collections, provider);
 
         _services.AddHPDBaseRuntime(_runtime).UseFailClosedPolicy();
         if (_files is not null)
-            _services.AddHPDBaseFiles(_files);
+        {
+            _services.AddHPDBaseFiles(options =>
+            {
+                _files(options);
+                for (var index = 0; index < options.Buckets.Count; index++)
+                {
+                    if (options.Buckets[index].ProviderRef is null)
+                    {
+                        options.Buckets[index] = options.Buckets[index] with
+                        {
+                            ProviderRef = new FileProviderRef("volatile")
+                        };
+                    }
+                }
+            });
+            _services.AddHPDBaseFilesVolatileProvider();
+        }
         if (_dependencies is not null)
             _services.AddHPDBaseDependencies(_dependencies, _dependencyTemplates.ToArray());
         if (_realtime is not null)
@@ -133,19 +166,22 @@ public sealed class HPDBaseBuilder
             _services.AddHPDBaseLiveQuery(_liveQueries);
         }
 
-        foreach (IHPDBaseBuilderExtension extension in _extensions)
+        IHPDBaseBuilderExtension[] installedExtensions = explicitProviders.Length == 0
+            ? [provider, .. _extensions]
+            : _extensions.ToArray();
+        foreach (IHPDBaseBuilderExtension extension in installedExtensions)
             extension.Configure(_services, collections);
 
         _services.AddSingleton(new HPDBaseInstalledFeatures
         {
-            Provider = providers[0].Id,
+            Provider = provider.Id,
             CollectionIds = collections.Select(static item => item.Id).ToArray(),
             Files = _files is not null,
             Dependencies = _dependencies is not null,
             Realtime = _realtime is not null,
             LiveQueries = _liveQueries is not null,
-            ExtensionIds = _extensions.Select(static item => item.Id).ToArray(),
-            Extensions = _extensions.ToArray()
+            ExtensionIds = installedExtensions.Select(static item => item.Id).ToArray(),
+            Extensions = installedExtensions
         });
         _services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseApplicationInitializer, BaseRecordStoreInitializer>());
     }

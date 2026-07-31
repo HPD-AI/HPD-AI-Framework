@@ -9,7 +9,6 @@
     <Project Path="src/HPD.Base/HPD.Base.csproj" />
     <Project Path="src/HPD.Base.Generators/HPD.Base.Generators.csproj" />
     <Project Path="src/HPD.Base.Testing/HPD.Base.Testing.csproj" />
-    <Project Path="src/HPD.Base.InMemory/HPD.Base.InMemory.csproj" />
     <Project Path="src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
     <Project Path="src/HPD.Base.AspNetCore/HPD.Base.AspNetCore.csproj" />
     <Project Path="src/HPD.Base.Studio/HPD.Base.Studio.csproj" />
@@ -27,10 +26,8 @@
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="test/HPD.Base.StoreConformance/HPD.Base.StoreConformance.csproj" />
-    <Project Path="test/HPD.Base.InMemory.Tests/HPD.Base.InMemory.Tests.csproj" />
     <Project Path="test/HPD.Base.Sqlite.Tests/HPD.Base.Sqlite.Tests.csproj" />
     <Project Path="test/HPD.Base.Sqlite.AotSmoke/HPD.Base.Sqlite.AotSmoke.csproj" />
-    <Project Path="test/HPD.Base.InMemory.AotSmoke/HPD.Base.InMemory.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.AspNetCore.Tests/HPD.Base.AspNetCore.Tests.csproj" />
     <Project Path="test/HPD.Base.AspNetCore.AotSmoke/HPD.Base.AspNetCore.AotSmoke.csproj" />
     <Project Path="test/HPD.Base.Files.ProviderConformance/HPD.Base.Files.ProviderConformance.csproj" />

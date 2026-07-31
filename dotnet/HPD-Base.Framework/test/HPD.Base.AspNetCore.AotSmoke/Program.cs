@@ -1,7 +1,6 @@
 using System.Text.Json;
 using HPD.Base;
 using HPD.Base.AspNetCore;
-using HPD.Base.InMemory;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 
@@ -10,38 +9,32 @@ var builder = WebApplication.CreateSlimBuilder(
     args.Where(argument => !string.Equals(argument, "--verify", StringComparison.Ordinal)).ToArray());
 
 builder.Services.AddSingleton<IPolicyEvaluator, SmokePolicyEvaluator>();
-builder.Services.AddHPDBaseRuntime()
-    .AddHPDBaseAspNetCore()
-    .AddHPDBaseInMemoryStore(options =>
+var items = BaseCollection<JsonElement>.Create(
+    new CollectionDefinition
     {
-        options.StoreId = "primary";
-        options.CollectionIds = ["items"];
-        options.Collections =
-        [
-            new CollectionDefinition
-            {
-                Id = "items",
-                Name = "items",
-                Kind = BaseCollectionKinds.Document,
-                SchemaMode = SchemaMode.Loose,
-                UnknownFields = UnknownFieldPolicy.Preserve,
-                Operations = new CollectionOperationMatrix
-                {
-                    List = true,
-                    Get = true,
-                    Create = true,
-                    Patch = true,
-                    Replace = true,
-                    Delete = true,
-                    Upsert = true
-                }
-            }
-        ];
-    });
+        Id = "items",
+        Name = "items",
+        Kind = BaseCollectionKinds.Document,
+        SchemaMode = SchemaMode.Loose,
+        UnknownFields = UnknownFieldPolicy.Preserve,
+        Operations = new CollectionOperationMatrix
+        {
+            List = true,
+            Get = true,
+            Create = true,
+            Patch = true,
+            Replace = true,
+            Delete = true,
+            Upsert = true
+        }
+    },
+    HPDBaseJsonSerializerContext.Default.JsonElement,
+    static _ => { });
+builder.Services.AddHPDBase(hpd => hpd
+    .AddAspNetCore()
+    .AddCollection(items));
 
 var app = builder.Build();
-app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseInMemoryStore(app.Services);
-await app.Services.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();
 app.MapHPDBaseApi();
 
 app.MapGet("/", () => "HPD.Base.AspNetCore AOT smoke");
@@ -83,7 +76,11 @@ static async Task VerifyProjectionAsync(WebApplication app)
                     Condition = RecordUpsertExistenceCondition.Any
                 },
                 HPDBaseJsonSerializerContext.Default.RecordUpsertRequest));
-        Require(upsertResponse.StatusCode == System.Net.HttpStatusCode.Created, "Standalone upsert projection failed.");
+        if (upsertResponse.StatusCode != System.Net.HttpStatusCode.Created)
+        {
+            throw new InvalidOperationException(
+                $"Standalone upsert projection failed: {await upsertResponse.Content.ReadAsStringAsync()}");
+        }
         var upsert = await upsertResponse.Content.ReadFromJsonAsync(
             HPDBaseJsonSerializerContext.Default.RecordUpsertResult);
         Require(

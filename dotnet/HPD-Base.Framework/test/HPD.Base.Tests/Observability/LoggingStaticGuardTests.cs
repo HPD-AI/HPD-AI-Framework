@@ -61,22 +61,6 @@ public sealed partial class LoggingStaticGuardTests
     }
 
     /// <summary>
-    /// Ensures reference in-memory providers do not retain hypothetical logging dependencies.
-    /// </summary>
-    [Theory]
-    [InlineData("HPD.Base.InMemory")]
-    public void InMemoryProjectsDoNotReferenceLoggingAbstractions(string projectName)
-    {
-        var root = FindSolutionRoot();
-        var project = Path.Combine(root, "src", projectName, $"{projectName}.csproj");
-
-        Assert.DoesNotContain(
-            "Microsoft.Extensions.Logging.Abstractions",
-            PackageReferences(project),
-            StringComparer.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
     /// Ensures an emitting non-ASP.NET project declares logging abstractions directly.
     /// </summary>
     [Fact]

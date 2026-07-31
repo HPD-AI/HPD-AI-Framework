@@ -81,7 +81,7 @@ public static class BaseAuthSources
 
 public static class BaseStoreKinds
 {
-    public const string InMemory = "inMemory";
+    public const string Volatile = "volatile";
     public const string Document = "document";
     public const string Relational = "relational";
     public const string KeyValue = "keyValue";

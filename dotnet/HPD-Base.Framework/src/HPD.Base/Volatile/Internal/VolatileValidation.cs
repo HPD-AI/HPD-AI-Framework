@@ -1,0 +1,59 @@
+
+namespace HPD.Base;
+
+internal static class VolatileValidation
+{
+    public static OperationResult<T>? ValidateCollectionId<T>(string? collectionId)
+    {
+        if (IsValidIdText(collectionId))
+        {
+            return null;
+        }
+
+        return OperationResults.ValidationFailed<T>(new BaseError
+        {
+            Code = VolatileErrorCodes.InvalidCollectionId,
+            Message = "Collection id must be non-empty and contain no control characters.",
+            Category = ErrorCategory.Validation,
+            Target = "collection.id"
+        });
+    }
+
+    public static OperationResult<T>? ValidateRecordId<T>(string? recordId)
+    {
+        if (IsValidIdText(recordId))
+        {
+            return null;
+        }
+
+        return OperationResults.ValidationFailed<T>(new BaseError
+        {
+            Code = VolatileErrorCodes.InvalidRecordId,
+            Message = "Record id must be non-empty and contain no control characters.",
+            Category = ErrorCategory.Validation,
+            Target = "id"
+        });
+    }
+
+    public static OperationResult<T>? ValidateFieldName<T>(string? fieldName)
+    {
+        if (IsValidFieldName(fieldName))
+        {
+            return null;
+        }
+
+        return OperationResults.ValidationFailed<T>(new BaseError
+        {
+            Code = VolatileErrorCodes.InvalidField,
+            Message = "Field names must be non-empty and contain no control characters.",
+            Category = ErrorCategory.Validation,
+            Target = fieldName
+        });
+    }
+
+    public static bool IsValidIdText(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && !value.Any(char.IsControl);
+
+    private static bool IsValidFieldName(string? value) =>
+        !string.IsNullOrEmpty(value) && !value.Any(char.IsControl);
+}

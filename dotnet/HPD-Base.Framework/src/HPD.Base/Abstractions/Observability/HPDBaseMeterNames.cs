@@ -11,8 +11,8 @@ public static class HPDBaseMeterNames
     /// <summary>ASP.NET Core projection meter name.</summary>
     public const string AspNetCore = "HPD.Base";
 
-    /// <summary>InMemory provider meter name.</summary>
-    public const string InMemory = "HPD.Base";
+    /// <summary>Volatile provider meter name.</summary>
+    public const string Volatile = "HPD.Base";
 
     /// <summary>SQLite provider meter name.</summary>
     public const string Sqlite = "HPD.Base";
@@ -23,8 +23,8 @@ public static class HPDBaseMeterNames
     /// <summary>Files ASP.NET Core projection meter name.</summary>
     public const string FilesAspNetCore = "HPD.Base";
 
-    /// <summary>Files InMemory provider meter name.</summary>
-    public const string FilesInMemory = "HPD.Base";
+    /// <summary>Files Volatile provider meter name.</summary>
+    public const string FilesVolatile = "HPD.Base";
 
     /// <summary>Realtime runtime meter name.</summary>
     public const string Realtime = "HPD.Base";
@@ -42,11 +42,11 @@ public static class HPDBaseMeterNames
     public static readonly string[] Core = [Runtime];
 
     /// <summary>Record store provider meter names.</summary>
-    public static readonly string[] Stores = [InMemory, Sqlite];
+    public static readonly string[] Stores = [Volatile, Sqlite];
 
     /// <summary>Optional module meter names.</summary>
-    public static readonly string[] OptionalModules = [Files, FilesAspNetCore, FilesInMemory, Realtime, RealtimeAspNetCore, HPDAuth, HPDAuthAspNetCore];
+    public static readonly string[] OptionalModules = [Files, FilesAspNetCore, FilesVolatile, Realtime, RealtimeAspNetCore, HPDAuth, HPDAuthAspNetCore];
 
     /// <summary>All known BASE meter names.</summary>
-    public static readonly string[] All = [Runtime, AspNetCore, InMemory, Sqlite, Files, FilesAspNetCore, FilesInMemory, Realtime, RealtimeAspNetCore, HPDAuth, HPDAuthAspNetCore];
+    public static readonly string[] All = [Runtime, AspNetCore, Volatile, Sqlite, Files, FilesAspNetCore, FilesVolatile, Realtime, RealtimeAspNetCore, HPDAuth, HPDAuthAspNetCore];
 }

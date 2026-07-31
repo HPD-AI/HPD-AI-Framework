@@ -6,6 +6,28 @@ namespace HPD.Base.AspNetCore.Tests.DependencyInjection;
 public sealed class MapHPDBaseApiTests
 {
     [Fact]
+    public void UnifiedBuilderMapInitializesDefaultVolatileProvider()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
+        var items = BaseCollection<JsonElement>.Create(
+            TestBaseApp.Collection(),
+            HPDBaseJsonSerializerContext.Default.JsonElement,
+            static _ => { });
+        builder.Services.AddHPDBase(hpd => hpd
+            .AddAspNetCore()
+            .AddCollection(items));
+
+        using var app = builder.Build();
+        app.MapHPDBaseApi();
+
+        app.Services.GetRequiredService<IRecordStoreRegistry>()
+            .GetStoreForCollection("items")
+            .Should()
+            .NotBeNull();
+    }
+
+    [Fact]
     public async Task MapsConfiguredPrefixAndToggles()
     {
         await using var app = await TestBaseApp.CreateAsync(configureEndpoints: options =>
@@ -27,7 +49,7 @@ public sealed class MapHPDBaseApiTests
         builder.WebHost.UseTestServer();
         builder.Services.AddAuthorizationBuilder().AddPolicy("admin", policy => policy.RequireAssertion(_ => true));
         builder.Services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        builder.Services.AddHPDBaseRuntime().AddHPDBaseAspNetCore().AddHPDBaseInMemoryStore(options =>
+        builder.Services.AddHPDBaseRuntime().AddHPDBaseAspNetCore().AddHPDBaseVolatileStore(options =>
         {
             options.StoreId = "primary";
             options.CollectionIds = ["items"];
@@ -35,7 +57,7 @@ public sealed class MapHPDBaseApiTests
         });
 
         await using var app = builder.Build();
-        app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseInMemoryStore(app.Services);
+        app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseVolatileStore(app.Services);
         await app.Services.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();
         app.MapHPDBaseApi(options => options.AdminPolicyName = "admin");
         await app.StartAsync();
@@ -55,7 +77,7 @@ public sealed class MapHPDBaseApiTests
         builder.WebHost.UseTestServer();
         builder.Services.AddAuthorizationBuilder().AddPolicy("records", policy => policy.RequireAssertion(_ => true));
         builder.Services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        builder.Services.AddHPDBaseRuntime().AddHPDBaseAspNetCore().AddHPDBaseInMemoryStore(options =>
+        builder.Services.AddHPDBaseRuntime().AddHPDBaseAspNetCore().AddHPDBaseVolatileStore(options =>
         {
             options.StoreId = "primary";
             options.CollectionIds = ["items"];
@@ -63,7 +85,7 @@ public sealed class MapHPDBaseApiTests
         });
 
         await using var app = builder.Build();
-        app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseInMemoryStore(app.Services);
+        app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseVolatileStore(app.Services);
         await app.Services.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();
         app.MapHPDBaseApi(options =>
         {
@@ -90,7 +112,7 @@ public sealed class MapHPDBaseApiTests
             .AddPolicy(HPDBasePolicies.Authenticated, policy => policy.RequireAssertion(_ => true))
             .AddPolicy(HPDBasePolicies.Admin, policy => policy.RequireAssertion(_ => true));
         builder.Services.AddSingleton<IPolicyEvaluator, AllowPolicyEvaluator>();
-        builder.Services.AddHPDBaseRuntime().UseFailClosedPolicy().AddHPDBaseAspNetCore().AddHPDBaseInMemoryStore(options =>
+        builder.Services.AddHPDBaseRuntime().UseFailClosedPolicy().AddHPDBaseAspNetCore().AddHPDBaseVolatileStore(options =>
         {
             options.StoreId = "primary";
             options.CollectionIds = ["items"];
@@ -98,7 +120,7 @@ public sealed class MapHPDBaseApiTests
         });
 
         await using var app = builder.Build();
-        app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseInMemoryStore(app.Services);
+        app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseVolatileStore(app.Services);
         await app.Services.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();
         app.MapHPDBaseControlPlaneApi("/control");
         await app.StartAsync();

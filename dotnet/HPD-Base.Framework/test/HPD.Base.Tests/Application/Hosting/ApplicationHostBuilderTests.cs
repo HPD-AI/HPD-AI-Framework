@@ -2,6 +2,7 @@ using FluentAssertions;
 using HPD.Base;
 using HPD.Base.Tests.Application.Generation;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace HPD.Base.Tests.Application.Hosting;
@@ -14,7 +15,7 @@ public sealed class ApplicationHostBuilderTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddHPDBase(builder => builder
-            .UseInMemory()
+
             .AddCollection(GeneratedProject.Collection));
 
         using ServiceProvider provider = services.BuildServiceProvider(
@@ -32,7 +33,7 @@ public sealed class ApplicationHostBuilderTests
 
         HPDBaseInstalledFeatures manifest =
             provider.GetRequiredService<HPDBaseInstalledFeatures>();
-        manifest.Provider.Should().Be("inMemory");
+        manifest.Provider.Should().Be("volatile");
         manifest.CollectionIds.Should().Equal("projects");
         provider.GetRequiredService<IRecordStoreRegistry>()
             .GetStoreForCollection("projects")
@@ -40,17 +41,80 @@ public sealed class ApplicationHostBuilderTests
     }
 
     [Fact]
-    public void UnifiedBuilderRejectsMissingOrMultipleProviders()
+    public void UnifiedBuilderDefaultsWhenMissingAndRejectsMultipleExplicitProviders()
     {
-        Action missing = () => new ServiceCollection().AddHPDBase(
+        var defaultServices = new ServiceCollection();
+        defaultServices.AddHPDBase(
             builder => builder.AddCollection(GeneratedProject.Collection));
         Action duplicate = () => new ServiceCollection().AddHPDBase(
-            builder => builder.UseInMemory().UseSqlite());
+            builder => builder
+                .Use(new TestProviderExtension("first"))
+                .Use(new TestProviderExtension("second")));
 
-        missing.Should().Throw<InvalidOperationException>()
-            .WithMessage("*exactly one*");
+        using var provider = defaultServices.BuildServiceProvider();
+        provider.GetRequiredService<HPDBaseInstalledFeatures>().Provider
+            .Should().Be("volatile");
         duplicate.Should().Throw<InvalidOperationException>()
-            .WithMessage("*exactly one*");
+            .WithMessage("*at most one explicit*");
+    }
+
+    [Fact]
+    public void VolatileProviderIsPerHostSingletonAndExplicitProvidersSuppressIt()
+    {
+        static ServiceProvider VolatileHost()
+        {
+            var services = new ServiceCollection();
+            services.AddHPDBase(builder => builder.AddCollection(GeneratedProject.Collection));
+            return services.BuildServiceProvider();
+        }
+
+        using var firstHost = VolatileHost();
+        using var secondHost = VolatileHost();
+        var first = firstHost.GetRequiredService<VolatileRecordStore>();
+
+        firstHost.GetRequiredService<VolatileRecordStore>().Should().BeSameAs(first);
+        secondHost.GetRequiredService<VolatileRecordStore>().Should().NotBeSameAs(first);
+
+        var explicitServices = new ServiceCollection();
+        explicitServices.AddHPDBase(builder => builder
+            .UseSqlite()
+            .AddCollection(GeneratedProject.Collection));
+        using var explicitHost = explicitServices.BuildServiceProvider();
+        explicitHost.GetService<VolatileRecordStore>().Should().BeNull();
+        explicitHost.GetRequiredService<HPDBaseInstalledFeatures>().Provider.Should().Be("sqlite");
+    }
+
+    [Fact]
+    public void VolatileConfigurationCannotBeSilentlyIgnoredByExplicitProvider()
+    {
+        Action register = () => new ServiceCollection().AddHPDBase(builder => builder
+            .ConfigureVolatileStore(options => options.MaxPageSize = 50)
+            .UseSqlite()
+            .AddCollection(GeneratedProject.Collection));
+
+        register.Should().Throw<InvalidOperationException>()
+            .WithMessage("*ConfigureVolatileStore*explicit*");
+    }
+
+    [Fact]
+    public void VolatileFileDefaultIsIndependentFromTheRecordProvider()
+    {
+        var services = new ServiceCollection();
+        services.AddHPDBase(builder => builder
+            .UseSqlite()
+            .AddCollection(GeneratedProject.Collection)
+            .AddFiles(options => options.Buckets.Add(new FileBucketDescriptor
+            {
+                BucketId = new FileBucketId("assets")
+            })));
+
+        using var provider = services.BuildServiceProvider();
+        provider.GetServices<IFileStorageProvider>()
+            .Should().ContainSingle()
+            .Which.ProviderRef.Should().Be(new FileProviderRef("volatile"));
+        provider.GetRequiredService<IOptions<HPDBaseFilesOptions>>().Value.Buckets
+            .Should().ContainSingle()
+            .Which.ProviderRef.Should().Be(new FileProviderRef("volatile"));
     }
 
     [Fact]
@@ -70,6 +134,11 @@ public sealed class ApplicationHostBuilderTests
 
         register.Should().Throw<InvalidOperationException>()
             .WithMessage("*cannot be installed*SQLite*");
+
+        Action defaultRegister = () => new ServiceCollection().AddHPDBase(
+            builder => builder.AddCollection(required));
+        defaultRegister.Should().Throw<InvalidOperationException>()
+            .WithMessage("*cannot be installed*volatile*");
     }
 
     [Fact]
@@ -78,7 +147,7 @@ public sealed class ApplicationHostBuilderTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddHPDBase(builder => builder
-            .UseInMemory()
+
             .AddCollection(GeneratedProject.Collection)
             .AddFiles()
             .AddDependencies(options =>
@@ -104,12 +173,12 @@ public sealed class ApplicationHostBuilderTests
     {
         Action duplicateRealtime = () => new ServiceCollection().AddHPDBase(
             builder => builder
-                .UseInMemory()
+
                 .AddRealtime()
                 .AddRealtime());
         Action duplicateLiveQuery = () => new ServiceCollection().AddHPDBase(
             builder => builder
-                .UseInMemory()
+
                 .AddLiveQueries()
                 .AddLiveQueries());
 
@@ -118,4 +187,12 @@ public sealed class ApplicationHostBuilderTests
         duplicateLiveQuery.Should().Throw<InvalidOperationException>()
             .WithMessage("*Live queries are already registered*");
     }
+}
+
+file sealed class TestProviderExtension(string id) : IHPDBaseBuilderExtension
+{
+    public string Id { get; } = id;
+    public bool IsRecordProvider => true;
+    public bool SupportsRequiredIndexes => false;
+    public void Configure(IServiceCollection services, IReadOnlyList<CollectionDefinition> collections) { }
 }

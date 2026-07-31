@@ -4,7 +4,6 @@ global using System.Text.Json;
 global using FluentAssertions;
 global using HPD.Base;
 global using HPD.Base.AspNetCore;
-global using HPD.Base.InMemory;
 global using HPD.Base.AspNetCore.Tests.TestSupport;
 global using Microsoft.AspNetCore.Builder;
 global using Microsoft.AspNetCore.TestHost;

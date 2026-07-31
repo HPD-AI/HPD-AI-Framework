@@ -5,7 +5,6 @@ public sealed class PublicNamespaceTests
     private static readonly string[] ForbiddenExtensionNamespaces =
     {
         "HPD.Base.AspNetCore",
-        "HPD.Base.InMemory",
         "HPD.Base.Sqlite",
         "HPD.Base.Auth",
         "HPD.Base.Testing",

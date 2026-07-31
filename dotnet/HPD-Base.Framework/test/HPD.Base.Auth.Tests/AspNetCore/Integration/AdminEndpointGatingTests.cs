@@ -68,7 +68,7 @@ public sealed class AdminEndpointGatingTests
         builder.Services.AddHPDBaseHPDAuthAspNetCore(configureCore: options => options.RequireHPDAuthServices = false);
         builder.Services.AddHPDBaseRuntime()
             .AddHPDBaseAspNetCore()
-            .AddHPDBaseInMemoryStore(options =>
+            .AddHPDBaseVolatileStore(options =>
             {
                 options.StoreId = "primary";
                 options.CollectionIds = ["items"];
@@ -78,7 +78,7 @@ public sealed class AdminEndpointGatingTests
         var app = builder.Build();
         app.UseAuthentication();
         app.UseAuthorization();
-        app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseInMemoryStore(app.Services);
+        app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseVolatileStore(app.Services);
         await app.Services.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();
         app.MapHPDBaseApi(configureEndpoints);
         await app.StartAsync();

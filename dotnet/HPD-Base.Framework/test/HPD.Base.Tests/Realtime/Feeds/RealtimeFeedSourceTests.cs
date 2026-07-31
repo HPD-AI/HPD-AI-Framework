@@ -950,7 +950,7 @@ internal sealed class AdditionalCollectionDependencyRule : IBaseMutationDependen
 internal sealed class CountingDependencyRule : IBaseMutationDependencyRule
 {
     private int _callCount;
-    public int CallCount => Volatile.Read(ref _callCount);
+    public int CallCount => System.Threading.Volatile.Read(ref _callCount);
 
     public ValueTask<IReadOnlyList<BaseDependencyInput>> ResolveAsync(
         BaseRecordMutationEvent mutation,

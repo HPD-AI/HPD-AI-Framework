@@ -1,6 +1,5 @@
 global using FluentAssertions;
 global using HPD.Base;
-global using HPD.Base.InMemory;
 global using HPD.Base.Tests.Realtime;
 global using HPD.Events;
 global using Microsoft.Extensions.DependencyInjection;

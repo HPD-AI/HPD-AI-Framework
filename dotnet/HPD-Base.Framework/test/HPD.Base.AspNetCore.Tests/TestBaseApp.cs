@@ -23,7 +23,7 @@ internal static class TestBaseApp
             builder.Services.AddHPDBaseOpenApi(configureOpenApi);
         builder.Services.AddHPDBaseRuntime()
             .AddHPDBaseAspNetCore(configureAspNetCore)
-            .AddHPDBaseInMemoryStore(options =>
+            .AddHPDBaseVolatileStore(options =>
             {
                 options.StoreId = "primary";
                 options.CollectionIds = ["items"];
@@ -31,7 +31,7 @@ internal static class TestBaseApp
             });
 
         var app = builder.Build();
-        app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseInMemoryStore(app.Services);
+        app.Services.GetRequiredService<IRecordStoreRegistry>().AddHPDBaseVolatileStore(app.Services);
         await app.Services.GetRequiredService<IBaseDescriptorRegistry>().RebuildAsync();
         app.MapHPDBaseApi(options =>
         {

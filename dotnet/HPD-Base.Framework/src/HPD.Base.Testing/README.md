@@ -6,7 +6,7 @@ the typed HPD.BASE API.
 ```csharp
 await using BaseTestHost host = await BaseTestHost.CreateAsync(hpd =>
 {
-    hpd.UseInMemory();
+    hpd;
     hpd.AddCollection(Project.Collection);
 });
 

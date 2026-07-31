@@ -1,6 +1,5 @@
 using FluentAssertions;
 using HPD.Base;
-using HPD.Base.InMemory;
 using HPD.Base.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
@@ -62,7 +61,6 @@ public sealed class ApplicationPublicSurfaceTests
         Assembly[] runtimeAssemblies =
         [
             typeof(IBaseRecordRuntime).Assembly,
-            typeof(InMemoryRecordStore).Assembly,
             typeof(SqliteRecordStore).Assembly,
         ];
 

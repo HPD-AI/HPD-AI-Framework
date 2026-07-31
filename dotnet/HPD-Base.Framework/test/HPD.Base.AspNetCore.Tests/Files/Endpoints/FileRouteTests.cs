@@ -180,14 +180,14 @@ public sealed class FileRouteTests
             {
                 BucketId = new FileBucketId("assets"),
                 DisplayName = "Assets",
-                ProviderRef = new FileProviderRef(useInMemory ? "inmemory" : "none")
+                ProviderRef = new FileProviderRef(useInMemory ? "volatile" : "none")
             });
         });
         builder.Services.AddHPDBaseFilesAspNetCore();
         if (useInMemory)
         {
             builder.Services.AddSingleton<IFilePolicyOrchestrator, AllowFilePolicy>();
-            builder.Services.AddHPDBaseFilesInMemoryProvider();
+            builder.Services.AddHPDBaseFilesVolatileProvider();
         }
 
         var app = builder.Build();

@@ -8,14 +8,14 @@ public sealed class TelemetryContractTests
     public void SourceAndMeterNamesExposeFirstSliceAndDeferredModules()
     {
         Assert.Contains(HPDBaseActivitySourceNames.Runtime, HPDBaseActivitySourceNames.Core);
-        Assert.Contains(HPDBaseActivitySourceNames.InMemory, HPDBaseActivitySourceNames.Stores);
+        Assert.Contains(HPDBaseActivitySourceNames.Volatile, HPDBaseActivitySourceNames.Stores);
         Assert.Contains(HPDBaseActivitySourceNames.Sqlite, HPDBaseActivitySourceNames.Stores);
         Assert.Contains(HPDBaseActivitySourceNames.Files, HPDBaseActivitySourceNames.OptionalModules);
         Assert.Contains(HPDBaseActivitySourceNames.Realtime, HPDBaseActivitySourceNames.OptionalModules);
         Assert.Contains(HPDBaseActivitySourceNames.HPDAuth, HPDBaseActivitySourceNames.OptionalModules);
 
         Assert.Contains(HPDBaseMeterNames.Runtime, HPDBaseMeterNames.Core);
-        Assert.Contains(HPDBaseMeterNames.InMemory, HPDBaseMeterNames.Stores);
+        Assert.Contains(HPDBaseMeterNames.Volatile, HPDBaseMeterNames.Stores);
         Assert.Contains(HPDBaseMeterNames.Sqlite, HPDBaseMeterNames.Stores);
         Assert.Contains(HPDBaseMeterNames.Files, HPDBaseMeterNames.OptionalModules);
         Assert.Contains(HPDBaseMeterNames.Realtime, HPDBaseMeterNames.OptionalModules);

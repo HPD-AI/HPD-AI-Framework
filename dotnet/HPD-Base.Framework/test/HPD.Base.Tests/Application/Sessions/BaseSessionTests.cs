@@ -351,7 +351,7 @@ public sealed class BaseSessionTests
         services.AddHPDBase(builder =>
         {
             builder
-                .UseInMemory()
+
                 .AddCollection(GeneratedProject.Collection);
             if (maxPageSize is not null)
             {

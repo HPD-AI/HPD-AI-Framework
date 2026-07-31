@@ -6,7 +6,6 @@ global using HPD.Auth.Core.Interfaces;
 global using HPD.Base;
 global using HPD.Base.AspNetCore;
 global using HPD.Base.Auth;
-global using HPD.Base.InMemory;
 global using Microsoft.AspNetCore.Authentication;
 global using Microsoft.AspNetCore.Authorization;
 global using Microsoft.AspNetCore.Authorization.Infrastructure;

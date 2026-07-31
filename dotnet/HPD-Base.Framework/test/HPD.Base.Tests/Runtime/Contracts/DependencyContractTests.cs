@@ -5,6 +5,7 @@ public sealed class DependencyContractTests
     private static readonly HashSet<string> AllowedRuntimeAssemblyReferences = new(StringComparer.Ordinal)
     {
         "System.Runtime",
+        "System.Runtime.InteropServices",
         "System.Collections",
         "System.Collections.Concurrent",
         "System.ComponentModel",

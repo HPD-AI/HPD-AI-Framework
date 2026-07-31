@@ -14,7 +14,7 @@ public sealed class BaseTestHostTests
         DateTimeOffset initial = new(2030, 4, 5, 6, 7, 8, TimeSpan.Zero);
         await using BaseTestHost host = await BaseTestHost.CreateAsync(
             builder => builder
-                .UseInMemory()
+
                 .AddCollection(GeneratedProject.Collection),
             initial);
 
@@ -32,7 +32,7 @@ public sealed class BaseTestHostTests
     {
         await using BaseTestHost host = await BaseTestHost.CreateAsync(
             builder => builder
-                .UseInMemory()
+
                 .AddCollection(GeneratedProject.Collection));
         var records = host
             .Session(BaseTestPrincipal.System("application-test"))
@@ -63,7 +63,7 @@ public sealed class BaseTestHostTests
     {
         await using BaseTestHost host = await BaseTestHost.CreateAsync(
             builder => builder
-                .UseInMemory()
+
                 .AddCollection(GeneratedProject.Collection));
         var session = host.Session(BaseTestPrincipal.System("application-test"));
 
@@ -139,7 +139,7 @@ public sealed class BaseTestHostTests
     {
         await using BaseTestHost host = await BaseTestHost.CreateAsync(
             builder => builder
-                .UseInMemory()
+
                 .AddCollection(GeneratedProject.Collection));
         var session = host.Session(BaseTestPrincipal.System("application-test"));
 
@@ -168,7 +168,7 @@ public sealed class BaseTestHostTests
     {
         await using BaseTestHost host = await BaseTestHost.CreateAsync(
             builder => builder
-                .UseInMemory()
+
                 .AddCollection(GeneratedProject.Collection));
         var records = host
             .Session(BaseTestPrincipal.System("application-test"))
