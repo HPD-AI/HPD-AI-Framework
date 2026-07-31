@@ -22,6 +22,6 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/HPD.Base.LiveQuery/HPD.Base.LiveQuery.csproj" />
+    <ProjectReference Include="../../src/HPD.Base/HPD.Base.csproj" />
   </ItemGroup>
 </Project>

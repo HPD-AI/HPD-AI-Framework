@@ -20,6 +20,6 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../HPD.Base.AspNetCore/HPD.Base.AspNetCore.csproj" />
-    <ProjectReference Include="../HPD.Base.Files/HPD.Base.Files.csproj" />
+    <ProjectReference Include="../HPD.Base/HPD.Base.csproj" />
   </ItemGroup>
 </Project>

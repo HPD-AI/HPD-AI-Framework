@@ -6,28 +6,18 @@
     <Platform Name="x86" />
   </Configurations>
   <Folder Name="/Core/">
-    <Project Path="src/HPD.Base.Abstractions/HPD.Base.Abstractions.csproj" />
+    <Project Path="src/HPD.Base/HPD.Base.csproj" />
     <Project Path="src/HPD.Base.Application/HPD.Base.Application.csproj" />
     <Project Path="src/HPD.Base.Application.Generators/HPD.Base.Application.Generators.csproj" />
     <Project Path="src/HPD.Base.Testing/HPD.Base.Testing.csproj" />
-    <Project Path="src/HPD.Base.Runtime/HPD.Base.Runtime.csproj" />
     <Project Path="src/HPD.Base.InMemory/HPD.Base.InMemory.csproj" />
     <Project Path="src/HPD.Base.Sqlite/HPD.Base.Sqlite.csproj" />
     <Project Path="src/HPD.Base.AspNetCore/HPD.Base.AspNetCore.csproj" />
-    <Project Path="src/HPD.Base.Files.Abstractions/HPD.Base.Files.Abstractions.csproj" />
-    <Project Path="src/HPD.Base.Files/HPD.Base.Files.csproj" />
     <Project Path="src/HPD.Base.Files.AspNetCore/HPD.Base.Files.AspNetCore.csproj" />
     <Project Path="src/HPD.Base.Files.InMemory/HPD.Base.Files.InMemory.csproj" />
-    <Project Path="src/HPD.Base.Realtime.Abstractions/HPD.Base.Realtime.Abstractions.csproj" />
-    <Project Path="src/HPD.Base.Realtime/HPD.Base.Realtime.csproj" />
     <Project Path="src/HPD.Base.Realtime.AspNetCore/HPD.Base.Realtime.AspNetCore.csproj" />
-    <Project Path="src/HPD.Base.Dependencies.Abstractions/HPD.Base.Dependencies.Abstractions.csproj" />
-    <Project Path="src/HPD.Base.Dependencies/HPD.Base.Dependencies.csproj" />
-    <Project Path="src/HPD.Base.LiveQuery.Abstractions/HPD.Base.LiveQuery.Abstractions.csproj" />
-    <Project Path="src/HPD.Base.LiveQuery/HPD.Base.LiveQuery.csproj" />
     <Project Path="test/HPD.Base.LiveQuery.Tests/HPD.Base.LiveQuery.Tests.csproj" />
     <Project Path="test/HPD.Base.LiveQuery.AotSmoke/HPD.Base.LiveQuery.AotSmoke.csproj" />
-    <Project Path="src/HPD.Base.Relational.Abstractions/HPD.Base.Relational.Abstractions.csproj" />
     <Project Path="src/HPD.Base.Studio/HPD.Base.Studio.csproj" />
   </Folder>
   <Folder Name="/Auth/">

@@ -6,6 +6,7 @@ public sealed class DependencyContractTests
     {
         "System.Runtime",
         "System.Collections",
+        "System.Collections.Concurrent",
         "System.ComponentModel",
         "System.Linq",
         "System.Memory",
@@ -13,11 +14,12 @@ public sealed class DependencyContractTests
         "System.Text.Json",
         "System.Text.Encodings.Web",
         "System.Threading",
+        "System.Threading.Channels",
+        "System.Security.Cryptography",
         "Microsoft.Extensions.DependencyInjection",
         "Microsoft.Extensions.DependencyInjection.Abstractions",
         "Microsoft.Extensions.Logging.Abstractions",
         "Microsoft.Extensions.Options",
-        "HPD.Base.Abstractions",
         "HPD.Events"
     };
 

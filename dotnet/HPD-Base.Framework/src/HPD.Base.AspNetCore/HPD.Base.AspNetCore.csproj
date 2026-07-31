@@ -24,6 +24,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../HPD.Base.Runtime/HPD.Base.Runtime.csproj" />
+    <ProjectReference Include="../HPD.Base/HPD.Base.csproj" />
   </ItemGroup>
 </Project>

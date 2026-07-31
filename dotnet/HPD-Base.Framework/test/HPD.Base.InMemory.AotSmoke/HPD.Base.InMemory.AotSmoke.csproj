@@ -20,8 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/HPD.Base.Abstractions/HPD.Base.Abstractions.csproj" />
-    <ProjectReference Include="../../src/HPD.Base.Runtime/HPD.Base.Runtime.csproj" />
+    <ProjectReference Include="../../src/HPD.Base/HPD.Base.csproj" />
     <ProjectReference Include="../../src/HPD.Base.InMemory/HPD.Base.InMemory.csproj" />
   </ItemGroup>
 </Project>

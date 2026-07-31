@@ -2,15 +2,15 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <TargetFrameworks></TargetFrameworks>
-    <RootNamespace>HPD.Base.Realtime</RootNamespace>
-    <AssemblyName>HPD.Base.Realtime</AssemblyName>
+    <RootNamespace>HPD.Base</RootNamespace>
+    <AssemblyName>HPD.Base</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPackable>true</IsPackable>
-    <PackageId>HPD.Base.Realtime</PackageId>
-    <Description>Runtime services for HPD.BASE realtime record mutation event feeds over HPD.Events.</Description>
-    <PackageTags>hpd;base;realtime;events;runtime;aot</PackageTags>
+    <PackageId>HPD.Base</PackageId>
+    <Description>Typed, policy-aware, realtime application data platform for .NET.</Description>
+    <PackageTags>hpd;base;data;realtime;aot</PackageTags>
     <IsAotCompatible>true</IsAotCompatible>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
@@ -18,13 +18,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../HPD.Base.Realtime.Abstractions/HPD.Base.Realtime.Abstractions.csproj" />
-    <ProjectReference Include="../HPD.Base.Dependencies/HPD.Base.Dependencies.csproj" />
-    <ProjectReference Include="../HPD.Base.Runtime/HPD.Base.Runtime.csproj" />
+    <ProjectReference Include="../../../shared/src/HPD-Events/HPD-Events.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.10" />
   </ItemGroup>

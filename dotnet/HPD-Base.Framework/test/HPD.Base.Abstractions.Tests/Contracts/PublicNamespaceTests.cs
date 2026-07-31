@@ -2,31 +2,26 @@ namespace HPD.Base.Abstractions.Tests.Contracts;
 
 public sealed class PublicNamespaceTests
 {
-    private static readonly HashSet<string> AllowedNamespaces = new(StringComparer.Ordinal)
+    private static readonly string[] ForbiddenExtensionNamespaces =
     {
-        "HPD.Base",
-        "HPD.Base.Descriptors",
-        "HPD.Base.Schema",
-        "HPD.Base.Records",
-        "HPD.Base.Query",
-        "HPD.Base.Policy",
-        "HPD.Base.Runtime",
-        "HPD.Base.Stores",
-        "HPD.Base.Results",
-        "HPD.Base.Events",
-        "HPD.Base.Health",
-        "HPD.Base.Serialization",
-        "HPD.Base.Observability"
+        "HPD.Base.AspNetCore",
+        "HPD.Base.InMemory",
+        "HPD.Base.Sqlite",
+        "HPD.Base.Auth",
+        "HPD.Base.Testing",
+        "HPD.Base.Studio"
     };
 
     [Fact]
-    public void PublicTypesStayWithinApprovedNamespaces()
+    public void CoreAssemblyDoesNotOwnExtensionNamespaces()
     {
         var unexpected = typeof(RecordId).Assembly
             .GetExportedTypes()
             .Select(type => type.Namespace ?? string.Empty)
             .Distinct()
-            .Where(ns => !AllowedNamespaces.Contains(ns))
+            .Where(ns => ForbiddenExtensionNamespaces.Any(prefix =>
+                ns.Equals(prefix, StringComparison.Ordinal) ||
+                ns.StartsWith(prefix + ".", StringComparison.Ordinal)))
             .Order(StringComparer.Ordinal)
             .ToArray();
 

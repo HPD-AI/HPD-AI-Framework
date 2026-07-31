@@ -7,8 +7,10 @@ public sealed class UndefinedSupportTypeGuardTests
     {
         var forbidden = typeof(RecordId).Assembly
             .GetExportedTypes()
-            .Where(type => type.Namespace is not "HPD.Base.Serialization")
-            .SelectMany(type => type.GetProperties().Select(property => $"{type.FullName}.{property.Name}:{property.PropertyType.FullName}"))
+            .Where(type => type.Namespace?.EndsWith(".Serialization", StringComparison.Ordinal) is not true)
+            .SelectMany(type => type.GetProperties()
+                .Where(property => property.DeclaringType == type)
+                .Select(property => $"{type.FullName}.{property.Name}:{property.PropertyType.FullName}"))
             .Where(signature =>
                 signature.EndsWith(":System.Object", StringComparison.Ordinal) ||
                 signature.EndsWith(":System.Type", StringComparison.Ordinal) ||

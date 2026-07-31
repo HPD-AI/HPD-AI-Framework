@@ -18,8 +18,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../HPD.Base.Abstractions/HPD.Base.Abstractions.csproj" />
-    <ProjectReference Include="../HPD.Base.Runtime/HPD.Base.Runtime.csproj" />
+    <ProjectReference Include="../HPD.Base/HPD.Base.csproj" />
   </ItemGroup>
 
   <ItemGroup>

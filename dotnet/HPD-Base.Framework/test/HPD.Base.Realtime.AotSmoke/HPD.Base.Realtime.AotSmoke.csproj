@@ -16,7 +16,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/HPD.Base.Realtime/HPD.Base.Realtime.csproj" />
+    <ProjectReference Include="../../src/HPD.Base/HPD.Base.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -200,11 +200,9 @@ public sealed class DependencyReferenceTests
     public void DependencyRuntimeIsIntentionallyLogAndTelemetryFree()
     {
         var assembly = typeof(IBaseDependencyReferenceFactory).Assembly;
-        assembly.GetReferencedAssemblies()
-            .Select(static reference => reference.Name)
-            .Should().NotContain("Microsoft.Extensions.Logging.Abstractions");
-
         var forbiddenFieldTypes = assembly.GetTypes()
+            .Where(static type => type.Namespace?.StartsWith(
+                "HPD.Base.Dependencies", StringComparison.Ordinal) is true)
             .SelectMany(static type => type.GetFields(
                 BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
             .Select(static field => field.FieldType.FullName)

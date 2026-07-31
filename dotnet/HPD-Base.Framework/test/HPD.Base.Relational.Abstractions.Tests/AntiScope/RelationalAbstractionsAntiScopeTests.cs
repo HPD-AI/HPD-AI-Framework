@@ -15,8 +15,6 @@ public sealed class RelationalAbstractionsAntiScopeTests
     {
         var references = RelationalAssembly.GetReferencedAssemblies().Select(reference => reference.Name).ToArray();
 
-        Assert.Contains("HPD.Base.Abstractions", references);
-        Assert.DoesNotContain("HPD.Base.Runtime", references);
         Assert.DoesNotContain("HPD.Base.InMemory", references);
         Assert.DoesNotContain("Microsoft.AspNetCore", references);
         Assert.DoesNotContain("Microsoft.EntityFrameworkCore", references);

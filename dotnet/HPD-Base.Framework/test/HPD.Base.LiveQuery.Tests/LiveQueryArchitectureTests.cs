@@ -10,7 +10,7 @@ public sealed class LiveQueryArchitectureTests
     {
         var sourceRoot = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory,
-            "../../../../../src/HPD.Base.LiveQuery"));
+            "../../../../../src/HPD.Base/LiveQuery"));
         var text = string.Join(
             '\n',
             Directory.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories)

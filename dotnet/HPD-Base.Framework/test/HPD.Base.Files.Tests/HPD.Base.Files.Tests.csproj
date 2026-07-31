@@ -27,6 +27,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/HPD.Base.Files/HPD.Base.Files.csproj" />
+    <ProjectReference Include="../../src/HPD.Base/HPD.Base.csproj" />
   </ItemGroup>
 </Project>

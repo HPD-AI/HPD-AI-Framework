@@ -26,7 +26,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/HPD.Base.Relational.Abstractions/HPD.Base.Relational.Abstractions.csproj" />
-    <ProjectReference Include="../../src/HPD.Base.Abstractions/HPD.Base.Abstractions.csproj" />
+    <ProjectReference Include="../../src/HPD.Base/HPD.Base.csproj" />
   </ItemGroup>
 </Project>
