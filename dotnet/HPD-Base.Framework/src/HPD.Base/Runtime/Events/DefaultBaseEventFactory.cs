@@ -1,10 +1,5 @@
-using HPD.Base.Events;
-using HPD.Base.Policy;
-using HPD.Base.Records;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Runtime.Events;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseEventFactory : IBaseEventFactory
 {

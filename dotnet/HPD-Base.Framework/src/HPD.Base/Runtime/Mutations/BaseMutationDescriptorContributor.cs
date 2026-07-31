@@ -1,7 +1,5 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Runtime.Descriptors;
 
-namespace HPD.Base.Runtime.Mutations;
+namespace HPD.Base;
 
 internal sealed class BaseMutationDescriptorContributor : IBaseDescriptorContributor
 {

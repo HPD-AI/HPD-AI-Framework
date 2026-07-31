@@ -1,12 +1,4 @@
-using HPD.Base.Application.DependencyInjection;
-using HPD.Base.Application.Hosting;
-using HPD.Base.Application.Sessions;
-using HPD.Base.Runtime;
-using HPD.Base.Runtime.Events;
-using HPD.Base.Policy;
-using HPD.Base.Events;
-using HPD.Base.Files.Policy;
-using HPD.Base.Stores;
+using HPD.Base;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -39,7 +31,7 @@ public sealed class BaseTestHost : IAsyncDisposable
         _provider.GetRequiredService<HPDBaseInstalledFeatures>();
 
     public static ValueTask<BaseTestHost> CreateAsync(
-        Action<HPDBaseApplicationBuilder> configure,
+        Action<HPDBaseBuilder> configure,
         DateTimeOffset? initialTime = null)
     {
         ArgumentNullException.ThrowIfNull(configure);

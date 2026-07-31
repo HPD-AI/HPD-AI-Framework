@@ -1,7 +1,6 @@
 using System.Text.Json;
-using HPD.Base.Health;
 
-namespace HPD.Base.Schema;
+namespace HPD.Base;
 
 public sealed record CollectionDefinition
 {

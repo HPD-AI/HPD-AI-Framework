@@ -1,9 +1,6 @@
 using System.Text.Json;
-using HPD.Base.Dependencies.Serialization;
-using HPD.Base.Descriptors;
-using HPD.Base.Runtime.Descriptors;
 
-namespace HPD.Base.Dependencies.Descriptors;
+namespace HPD.Base;
 
 internal sealed class BaseDependencyDescriptorContributor(
     IBaseDependencyTemplateProvider templates) : IBaseDescriptorContributor
@@ -18,7 +15,7 @@ internal sealed class BaseDependencyDescriptorContributor(
         builder.AddModule(new BaseModuleDescriptor
         {
             Id = BaseDependencyModuleIds.Module,
-            Name = "HPD.Base.Dependencies",
+            Name = "HPD.Base",
             Kind = BaseModuleKind.Custom,
             Version = "1.0.0",
             Status = ModuleStatus.Installed,

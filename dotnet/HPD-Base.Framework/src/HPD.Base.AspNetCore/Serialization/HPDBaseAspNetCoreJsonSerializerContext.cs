@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace HPD.Base.AspNetCore.Serialization;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Source-generated JSON metadata for ASP.NET projection-local HPD.BASE wire types.

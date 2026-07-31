@@ -1,10 +1,8 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Schema;
-using HPD.Base.Sqlite.Configuration;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Sqlite.Descriptors;
+namespace HPD.Base.Sqlite;
 
 internal sealed class SqliteDescriptorContributor : IBaseDescriptorContributor
 {
@@ -39,7 +37,7 @@ internal sealed class SqliteDescriptorContributor : IBaseDescriptorContributor
 
         if (_options.ContributeHealth)
         {
-            builder.AddHealthRef(new HealthRefDescriptor { Id = _options.HealthRefId, Scope = HPD.Base.Health.HealthScope.Store, TargetRef = _options.StoreId, Visibility = VisibilityLevel.Admin });
+            builder.AddHealthRef(new HealthRefDescriptor { Id = _options.HealthRefId, Scope = HealthScope.Store, TargetRef = _options.StoreId, Visibility = VisibilityLevel.Admin });
         }
 
         if (_options.ContributeDiagnostics)

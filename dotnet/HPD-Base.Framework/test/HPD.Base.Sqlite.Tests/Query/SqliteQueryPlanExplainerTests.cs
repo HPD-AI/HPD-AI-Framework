@@ -1,11 +1,6 @@
 using FluentAssertions;
-using HPD.Base.Query;
-using HPD.Base.Relational.Planning;
-using HPD.Base.Relational.Providers;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.DependencyInjection;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 

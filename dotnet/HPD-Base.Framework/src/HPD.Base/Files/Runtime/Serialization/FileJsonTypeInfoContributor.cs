@@ -1,8 +1,5 @@
-using HPD.Base.Files.Serialization;
-using HPD.Base.Files.Runtime;
-using HPD.Base.Serialization;
 
-namespace HPD.Base.Files.Serialization;
+namespace HPD.Base;
 
 internal sealed class FileJsonTypeInfoContributor : IBaseJsonTypeInfoContributor
 {

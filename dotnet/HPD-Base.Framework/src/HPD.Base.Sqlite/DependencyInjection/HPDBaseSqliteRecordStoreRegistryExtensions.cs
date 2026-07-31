@@ -1,10 +1,9 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Runtime.Stores;
-using HPD.Base.Sqlite.Configuration;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Sqlite.DependencyInjection;
+namespace HPD.Base.Sqlite;
 
 /// <summary>Provides explicit HPD.BASE Runtime store-registry registration for the SQLite store.</summary>
 public static class HPDBaseSqliteRecordStoreRegistryExtensions
@@ -20,7 +19,7 @@ public static class HPDBaseSqliteRecordStoreRegistryExtensions
             StoreId = options.StoreId,
             Store = store,
             CollectionIds = options.CollectionIds,
-            HealthRefs = options.ContributeHealth ? [new HealthRefDescriptor { Id = options.HealthRefId, Scope = HPD.Base.Health.HealthScope.Store, TargetRef = options.StoreId, Visibility = VisibilityLevel.Admin }] : null,
+            HealthRefs = options.ContributeHealth ? [new HealthRefDescriptor { Id = options.HealthRefId, Scope = HealthScope.Store, TargetRef = options.StoreId, Visibility = VisibilityLevel.Admin }] : null,
             DiagnosticRefs = options.ContributeDiagnostics ? [new DiagnosticRefDescriptor { Id = options.DiagnosticRefId, Visibility = VisibilityLevel.Admin }] : null
         });
     }

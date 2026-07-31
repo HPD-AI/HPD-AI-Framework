@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
-using HPD.Base.Serialization;
 
-namespace HPD.Base.Dependencies.Serialization;
+namespace HPD.Base;
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

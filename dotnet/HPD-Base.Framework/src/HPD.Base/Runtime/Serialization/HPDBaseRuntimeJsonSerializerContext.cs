@@ -1,22 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using HPD.Base.Descriptors;
-using HPD.Base.Health;
-using HPD.Base.Policy;
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Configuration;
-using HPD.Base.Runtime.Observability;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Runtime.Policy;
-using HPD.Base.Runtime.Policy.Admin;
-using HPD.Base.Runtime.Query;
-using HPD.Base.Runtime.Schema;
-using HPD.Base.Schema;
-using HPD.Base.Serialization;
 
-namespace HPD.Base.Runtime.Serialization;
+namespace HPD.Base;
 
 using BaseEventPublishFailureModeConverter = LowerCamelJsonStringEnumConverter<BaseEventPublishFailureMode>;
 using BaseQueryValidationUsageConverter = LowerCamelJsonStringEnumConverter<BaseQueryValidationUsage>;

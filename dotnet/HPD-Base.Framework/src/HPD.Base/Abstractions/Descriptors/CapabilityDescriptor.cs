@@ -1,6 +1,5 @@
-using HPD.Base;
 
-namespace HPD.Base.Descriptors;
+namespace HPD.Base;
 
 public sealed record CapabilityDescriptor
 {

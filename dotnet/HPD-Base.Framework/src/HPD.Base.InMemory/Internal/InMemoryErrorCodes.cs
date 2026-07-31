@@ -1,4 +1,4 @@
-namespace HPD.Base.InMemory.Internal;
+namespace HPD.Base.InMemory;
 
 internal static class InMemoryErrorCodes
 {

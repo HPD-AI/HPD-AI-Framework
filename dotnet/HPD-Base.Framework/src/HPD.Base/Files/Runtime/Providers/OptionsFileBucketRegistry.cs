@@ -1,10 +1,6 @@
-using HPD.Base.Files.Configuration;
-using HPD.Base.Files.Buckets;
-using HPD.Base.Files.Objects;
-using HPD.Base.Files.Providers;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Files.Providers;
+namespace HPD.Base;
 
 internal sealed class OptionsFileBucketRegistry : IFileBucketRegistry
 {

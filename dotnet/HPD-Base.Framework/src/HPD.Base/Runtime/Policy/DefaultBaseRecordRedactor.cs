@@ -1,9 +1,6 @@
 using System.Text.Json;
-using HPD.Base.Policy;
-using HPD.Base.Records;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Runtime.Policy;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseRecordRedactor : IBaseRecordRedactor
 {

@@ -1,3 +1,3 @@
-namespace HPD.Base.AspNetCore.QueryBinding;
+namespace HPD.Base.AspNetCore;
 
 internal sealed record BaseHttpQueryParseResult(bool Succeeded, string? ErrorCode = null, string? ErrorMessage = null, string? Target = null);

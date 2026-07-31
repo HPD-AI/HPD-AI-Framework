@@ -1,6 +1,5 @@
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.Runtime.Policy.Admin;
+using HPD.Base.AspNetCore;
+using HPD.Base;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using System.Text;

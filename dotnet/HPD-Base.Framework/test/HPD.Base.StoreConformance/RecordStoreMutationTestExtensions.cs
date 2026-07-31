@@ -1,7 +1,7 @@
 using System.Globalization;
-using HPD.Base.Runtime.Results;
+using HPD.Base;
 
-namespace HPD.Base.Stores;
+namespace HPD.Base;
 
 /// <summary>
 /// Test-only helpers that exercise provider mutations through the final L30

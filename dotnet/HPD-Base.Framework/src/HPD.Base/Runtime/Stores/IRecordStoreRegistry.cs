@@ -1,6 +1,5 @@
-using HPD.Base.Stores;
 
-namespace HPD.Base.Runtime.Stores;
+namespace HPD.Base;
 
 /// <summary>Registers exact record-store instances and resolves their owning registrations.</summary>
 public interface IRecordStoreRegistry

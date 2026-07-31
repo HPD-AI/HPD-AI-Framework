@@ -1,7 +1,5 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Stores;
 
-namespace HPD.Base.Runtime.Stores;
+namespace HPD.Base;
 
 /// <summary>Binds one exact record-store instance to its Runtime identity and collections.</summary>
 public sealed record RecordStoreRegistration

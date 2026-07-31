@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace HPD.Base.AspNetCore.EndpointMapping;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class LimitedRequestBodyStream(Stream inner, long maximumBytes) : Stream
 {

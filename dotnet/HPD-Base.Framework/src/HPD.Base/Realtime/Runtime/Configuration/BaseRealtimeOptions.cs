@@ -1,6 +1,6 @@
 using HPD.Events;
 
-namespace HPD.Base.Realtime.Configuration;
+namespace HPD.Base;
 
 /// <summary>Configures the live, best-effort HPD.BASE realtime subsystem.</summary>
 public sealed class BaseRealtimeOptions

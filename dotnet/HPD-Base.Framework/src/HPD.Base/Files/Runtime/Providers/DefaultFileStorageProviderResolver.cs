@@ -1,7 +1,5 @@
-using HPD.Base.Files.Buckets;
-using HPD.Base.Files.Providers;
 
-namespace HPD.Base.Files.Providers;
+namespace HPD.Base;
 
 internal sealed class DefaultFileStorageProviderResolver : IFileStorageProviderResolver
 {

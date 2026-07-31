@@ -1,14 +1,10 @@
-using HPD.Base.InMemory.Configuration;
-using HPD.Base.InMemory.Descriptors;
-using HPD.Base.InMemory.Health;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Runtime.Health;
-using HPD.Base.Stores;
+using HPD.Base.InMemory;
+using HPD.Base;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.InMemory.DependencyInjection;
+namespace HPD.Base.InMemory;
 
 /// <summary>
 /// Adds HPD.BASE InMemory store services to a service collection.

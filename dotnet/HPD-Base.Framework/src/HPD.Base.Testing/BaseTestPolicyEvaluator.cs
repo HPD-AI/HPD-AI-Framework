@@ -1,4 +1,4 @@
-using HPD.Base.Policy;
+using HPD.Base;
 
 namespace HPD.Base.Testing;
 

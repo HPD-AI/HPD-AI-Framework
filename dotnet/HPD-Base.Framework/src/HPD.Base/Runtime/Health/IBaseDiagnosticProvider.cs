@@ -1,8 +1,5 @@
-using HPD.Base.Health;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
 
-namespace HPD.Base.Runtime.Health;
+namespace HPD.Base;
 
 public interface IBaseDiagnosticProvider
 {

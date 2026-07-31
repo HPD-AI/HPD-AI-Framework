@@ -1,11 +1,6 @@
 using System.Text.Json.Serialization;
-using HPD.Base.Files.Buckets;
-using HPD.Base.Files.Objects;
-using HPD.Base.Files.Policy;
-using HPD.Base.Results;
-using HPD.Base.Serialization;
 
-namespace HPD.Base.Files.Serialization;
+namespace HPD.Base;
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

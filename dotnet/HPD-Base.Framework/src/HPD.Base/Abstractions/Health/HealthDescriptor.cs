@@ -1,6 +1,5 @@
-using HPD.Base;
 
-namespace HPD.Base.Health;
+namespace HPD.Base;
 
 public sealed record HealthDescriptor
 {

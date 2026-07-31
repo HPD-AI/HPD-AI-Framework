@@ -1,6 +1,5 @@
-using HPD.Base.Runtime;
 
-namespace HPD.Base.Runtime.Descriptors;
+namespace HPD.Base;
 
 public sealed record BaseManifestRequest
 {

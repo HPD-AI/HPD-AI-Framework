@@ -1,10 +1,6 @@
 using FluentAssertions;
-using HPD.Base.Relational.Descriptors;
-using HPD.Base.Relational.Providers;
-using HPD.Base.Runtime;
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.DependencyInjection;
-using HPD.Base.Sqlite.Serialization;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -23,16 +19,16 @@ public sealed class SqliteRelationalDescriptorTests
             options.CollectionIds = ["items"];
             options.Collections =
             [
-                new HPD.Base.Schema.CollectionDefinition
+                new HPD.Base.CollectionDefinition
                 {
                     Id = "items",
                     Name = "items",
                     Kind = BaseCollectionKinds.Document,
-                    SchemaMode = HPD.Base.Schema.SchemaMode.Loose,
-                    UnknownFields = HPD.Base.Schema.UnknownFieldPolicy.Preserve,
+                    SchemaMode = HPD.Base.SchemaMode.Loose,
+                    UnknownFields = HPD.Base.UnknownFieldPolicy.Preserve,
                     Fields =
                     [
-                        new HPD.Base.Schema.FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String }
+                        new HPD.Base.FieldDefinition { Id = "title", Name = "title", Type = BaseFieldTypes.String }
                     ]
                 }
             ];

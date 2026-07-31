@@ -1,7 +1,6 @@
 using HPD.Base;
-using HPD.Base.Descriptors;
 
-namespace HPD.Base.AspNetCore.Descriptors;
+namespace HPD.Base.AspNetCore;
 
 internal static class AspNetCoreDtoContractDescriptorFactory
 {

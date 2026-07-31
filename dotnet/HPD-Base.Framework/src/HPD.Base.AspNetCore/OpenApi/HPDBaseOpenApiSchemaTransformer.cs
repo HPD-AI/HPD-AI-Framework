@@ -1,10 +1,10 @@
 using System.Text.Json;
-using HPD.Base.Records;
+using HPD.Base;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
 
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class HPDBaseOpenApiSchemaTransformer : IOpenApiSchemaTransformer
 {

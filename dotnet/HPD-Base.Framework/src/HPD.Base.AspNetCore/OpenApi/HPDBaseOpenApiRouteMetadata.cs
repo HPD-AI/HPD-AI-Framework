@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 internal sealed record HPDBaseOpenApiRouteMetadata(
     string OperationId,

@@ -1,13 +1,5 @@
-using HPD.Base.Events;
-using HPD.Base.Policy;
-using HPD.Base.Records;
-using HPD.Base.Realtime.Projection;
-using HPD.Base.Runtime;
-using HPD.Base.Runtime.Policy;
-using HPD.Base.Runtime.Schema;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Realtime.Policy;
+namespace HPD.Base;
 
 /// <summary>Contains the internal authorization and redaction decision for one realtime event.</summary>
 public sealed record BaseRealtimeEventProjectionDecision

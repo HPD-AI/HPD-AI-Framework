@@ -1,6 +1,5 @@
-using HPD.Base.Files.Objects;
 
-namespace HPD.Base.Files.Buckets;
+namespace HPD.Base;
 
 public sealed record FileModuleOptionsContract
 {

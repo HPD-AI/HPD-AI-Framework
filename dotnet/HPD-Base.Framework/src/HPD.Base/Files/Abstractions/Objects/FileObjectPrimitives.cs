@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace HPD.Base.Files.Objects;
+namespace HPD.Base;
 
 [JsonConverter(typeof(FileBucketIdJsonConverter))]
 public readonly record struct FileBucketId(string Value)

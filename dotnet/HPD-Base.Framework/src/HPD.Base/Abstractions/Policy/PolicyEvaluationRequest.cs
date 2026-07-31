@@ -1,9 +1,5 @@
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Policy;
+namespace HPD.Base;
 
 public sealed record PolicyEvaluationRequest
 {

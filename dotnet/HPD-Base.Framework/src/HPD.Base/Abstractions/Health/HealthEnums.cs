@@ -1,4 +1,4 @@
-namespace HPD.Base.Health;
+namespace HPD.Base;
 
 public enum HealthStatus { Healthy, Degraded, Unhealthy, Unknown, Disabled }
 public enum HealthScope { Runtime, Module, Store, Collection, Projection, Dependency }

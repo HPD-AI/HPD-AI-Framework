@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace HPD.Base.Sqlite.Observability.Logging;
+namespace HPD.Base.Sqlite;
 
 internal static partial class HPDBaseSqliteLog
 {

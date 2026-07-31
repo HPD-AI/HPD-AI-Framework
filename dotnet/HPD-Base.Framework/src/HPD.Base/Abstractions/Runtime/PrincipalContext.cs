@@ -1,6 +1,5 @@
-using HPD.Base.Policy;
 
-namespace HPD.Base.Runtime;
+namespace HPD.Base;
 
 public sealed record PrincipalContext
 {

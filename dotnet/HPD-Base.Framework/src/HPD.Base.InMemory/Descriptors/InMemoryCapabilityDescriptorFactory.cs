@@ -1,9 +1,7 @@
-using HPD.Base.Descriptors;
-using HPD.Base.InMemory.Configuration;
-using HPD.Base.Query;
-using HPD.Base.Stores;
+using HPD.Base;
+using HPD.Base.InMemory;
 
-namespace HPD.Base.InMemory.Descriptors;
+namespace HPD.Base.InMemory;
 
 internal static class InMemoryCapabilityDescriptorFactory
 {

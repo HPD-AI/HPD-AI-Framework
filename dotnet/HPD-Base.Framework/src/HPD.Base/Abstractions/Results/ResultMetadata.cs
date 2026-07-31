@@ -1,7 +1,5 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Events;
 
-namespace HPD.Base.Results;
+namespace HPD.Base;
 
 public sealed record OperationWarning
 {

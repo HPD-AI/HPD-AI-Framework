@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace HPD.Base.Realtime.Observability.Logging;
+namespace HPD.Base;
 
 internal static partial class HPDBaseRealtimeLog
 {

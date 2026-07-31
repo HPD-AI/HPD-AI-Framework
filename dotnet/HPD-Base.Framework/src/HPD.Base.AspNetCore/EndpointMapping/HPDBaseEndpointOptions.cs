@@ -1,7 +1,7 @@
-                                                                                                                                                                                                   using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Routing;
 
-namespace HPD.Base.AspNetCore.EndpointMapping;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Configures which HPD.BASE ASP.NET Core endpoints are mapped.

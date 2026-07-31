@@ -18,7 +18,7 @@ public sealed class QueryBindingTests
         var httpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext();
         httpContext.Request.QueryString = new Microsoft.AspNetCore.Http.QueryString(query);
 
-        var result = await app.Services.GetRequiredService<HPD.Base.AspNetCore.QueryBinding.IBaseHttpQueryBinder>()
+        var result = await app.Services.GetRequiredService<HPD.Base.AspNetCore.IBaseHttpQueryBinder>()
             .BindListQueryAsync(httpContext);
 
         result.Status.Should().Be(OperationStatus.Ok);

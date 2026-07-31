@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.EndpointMapping;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Identifies the HTTP route family requesting a principal context.

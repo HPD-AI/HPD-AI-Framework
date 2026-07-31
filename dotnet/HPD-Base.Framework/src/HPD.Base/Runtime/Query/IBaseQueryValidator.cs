@@ -1,8 +1,5 @@
-using HPD.Base.Query;
-using HPD.Base.Results;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Runtime.Query;
+namespace HPD.Base;
 
 public interface IBaseQueryValidator
 {

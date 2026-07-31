@@ -1,6 +1,5 @@
-using HPD.Base.Health;
 
-namespace HPD.Base.Runtime.Health;
+namespace HPD.Base;
 
 public interface IBaseHealthContributor
 {

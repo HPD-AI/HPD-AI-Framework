@@ -1,7 +1,5 @@
-using HPD.Base.Files.Objects;
-using HPD.Base.Results;
 
-namespace HPD.Base.Files.Validation;
+namespace HPD.Base;
 
 public interface IFileObjectKeyValidator
 {

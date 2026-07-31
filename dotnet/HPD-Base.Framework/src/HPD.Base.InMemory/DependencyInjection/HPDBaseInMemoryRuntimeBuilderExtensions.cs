@@ -1,7 +1,7 @@
-using HPD.Base.InMemory.Configuration;
-using HPD.Base.Runtime.Builder;
+using HPD.Base.InMemory;
+using HPD.Base;
 
-namespace HPD.Base.InMemory.DependencyInjection;
+namespace HPD.Base.InMemory;
 
 /// <summary>
 /// Adds HPD.BASE InMemory services to an existing HPD.BASE runtime builder.

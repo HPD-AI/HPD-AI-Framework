@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace HPD.Base.Records;
+namespace HPD.Base;
 
 public sealed record RecordPayload
 {

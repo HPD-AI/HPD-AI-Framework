@@ -1,6 +1,5 @@
-using HPD.Base.Query;
 
-namespace HPD.Base.Policy;
+namespace HPD.Base;
 
 public sealed record AccessGrant
 {

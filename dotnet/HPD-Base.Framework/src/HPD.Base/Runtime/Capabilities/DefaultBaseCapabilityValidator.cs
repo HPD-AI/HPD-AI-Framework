@@ -1,10 +1,5 @@
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Runtime.Stores;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Stores;
 
-namespace HPD.Base.Runtime.Capabilities;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseCapabilityValidator : IBaseCapabilityValidator
 {
@@ -63,7 +58,7 @@ internal sealed class DefaultBaseCapabilityValidator : IBaseCapabilityValidator
             : _stores.GetStoreForCollection(collectionId);
 
     private void ValidateRevisionFeature(
-        HPD.Base.Descriptors.CapabilityFeatureDescriptor feature,
+        CapabilityFeatureDescriptor feature,
         List<BaseRuntimeValidationIssue> issues)
     {
         var revision = feature.Constraints?.StoreRevision;
@@ -116,7 +111,7 @@ internal sealed class DefaultBaseCapabilityValidator : IBaseCapabilityValidator
         && operation(revision);
 
     private void ValidateStreamingFeature(
-        HPD.Base.Descriptors.CapabilityFeatureDescriptor feature,
+        CapabilityFeatureDescriptor feature,
         List<BaseRuntimeValidationIssue> issues)
     {
         if (feature.Constraints?.StoreStreaming is null)
@@ -148,7 +143,7 @@ internal sealed class DefaultBaseCapabilityValidator : IBaseCapabilityValidator
 
     private static void ValidateOperations(
         string collectionId,
-        HPD.Base.Schema.CollectionOperationMatrix? matrix,
+        CollectionOperationMatrix? matrix,
         IRecordStore store,
         List<BaseRuntimeValidationIssue> issues)
     {

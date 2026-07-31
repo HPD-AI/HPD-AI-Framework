@@ -1,9 +1,5 @@
-using HPD.Base.Events;
-using HPD.Base.Records;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Runtime.Events;
+namespace HPD.Base;
 
 /// <summary>
 /// Creates BASE domain events for runtime operations.

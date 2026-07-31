@@ -1,6 +1,6 @@
-using HPD.Base.AspNetCore.EndpointMapping;
+using HPD.Base.AspNetCore;
 
-namespace HPD.Base.AspNetCore.Configuration;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Configures the ASP.NET Core projection for HPD.BASE.

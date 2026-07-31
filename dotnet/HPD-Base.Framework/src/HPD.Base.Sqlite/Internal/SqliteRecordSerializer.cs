@@ -1,7 +1,7 @@
-using HPD.Base.Records;
+using HPD.Base;
 using System.Text.Json;
 
-namespace HPD.Base.Sqlite.Internal;
+namespace HPD.Base.Sqlite;
 
 internal static class SqliteRecordSerializer
 {

@@ -1,6 +1,5 @@
-using HPD.Base.Results;
 
-namespace HPD.Base.Runtime.Results;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseResultFactory : IBaseResultFactory
 {

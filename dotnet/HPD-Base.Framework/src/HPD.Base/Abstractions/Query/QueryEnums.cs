@@ -1,4 +1,4 @@
-namespace HPD.Base.Query;
+namespace HPD.Base;
 
 public enum FilterNodeKind { True, False, Not, And, Or, Compare, In, Between, IsNull, IsDefined, Extension }
 public enum FilterOperator { Equal, NotEqual, LessThan, LessThanOrEqual, GreaterThan, GreaterThanOrEqual, Contains, NotContains, StartsWith, EndsWith, Like, NotLike }

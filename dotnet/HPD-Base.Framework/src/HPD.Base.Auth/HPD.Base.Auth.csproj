@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
+    <RootNamespace>HPD.Base.Auth</RootNamespace>
+    <AssemblyName>HPD.Base.Auth</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>true</IsPackable>
+    <PackageId>HPD.Base.Auth</PackageId>
+    <Description>HPD.Auth adapter for HPD.BASE principals, subjects, grants, policy evaluation, descriptors, health, and diagnostics.</Description>
+    <PackageTags>hpd;base;auth;policy;adapter;aot</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../HPD.Base/HPD.Base.csproj" />
+    <ProjectReference Include="../HPD.Base.AspNetCore/HPD.Base.AspNetCore.csproj" />
+    <ProjectReference Include="../../../HPD-Auth.Framework/src/HPD.Auth.Core/HPD.Auth.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

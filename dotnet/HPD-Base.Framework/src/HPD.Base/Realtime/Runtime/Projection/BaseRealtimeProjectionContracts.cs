@@ -1,7 +1,5 @@
-using HPD.Base.Events;
-using HPD.Base.Runtime;
 
-namespace HPD.Base.Realtime.Projection;
+namespace HPD.Base;
 
 public sealed record BaseRealtimeProjectionRequest
 {

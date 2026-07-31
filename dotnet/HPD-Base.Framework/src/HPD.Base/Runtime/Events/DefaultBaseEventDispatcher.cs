@@ -1,12 +1,7 @@
-using HPD.Base.Events;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Configuration;
-using HPD.Base.Runtime.Observability.Logging;
-using HPD.Base.Runtime.Results;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Runtime.Events;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseEventDispatcher : IBaseEventDispatcher
 {

@@ -1,9 +1,5 @@
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Stores;
+namespace HPD.Base;
 
 /// <summary>Classifies the confirmed provider outcome of one mutation execution boundary.</summary>
 public enum RecordMutationExecutionOutcome

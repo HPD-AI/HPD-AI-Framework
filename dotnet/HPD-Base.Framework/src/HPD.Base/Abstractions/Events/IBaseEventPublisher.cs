@@ -1,6 +1,5 @@
-using HPD.Base.Results;
 
-namespace HPD.Base.Events;
+namespace HPD.Base;
 
 /// <summary>
 /// Publishes BASE domain events and reports BASE-specific publish results.

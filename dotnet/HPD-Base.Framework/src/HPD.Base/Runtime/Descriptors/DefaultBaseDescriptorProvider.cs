@@ -1,10 +1,5 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Observability;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Observability;
-using HPD.Base.Runtime.Results;
 
-namespace HPD.Base.Runtime.Descriptors;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseDescriptorProvider : IBaseDescriptorProvider
 {

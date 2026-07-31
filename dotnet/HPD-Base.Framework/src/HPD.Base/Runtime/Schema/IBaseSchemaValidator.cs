@@ -1,9 +1,5 @@
-using HPD.Base.Policy;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Runtime.Schema;
+namespace HPD.Base;
 
 public interface IBaseSchemaValidator
 {

@@ -1,9 +1,7 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Query;
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Stores;
+using HPD.Base;
+using HPD.Base.Sqlite;
 
-namespace HPD.Base.Sqlite.Descriptors;
+namespace HPD.Base.Sqlite;
 
 internal static class SqliteCapabilityDescriptorFactory
 {

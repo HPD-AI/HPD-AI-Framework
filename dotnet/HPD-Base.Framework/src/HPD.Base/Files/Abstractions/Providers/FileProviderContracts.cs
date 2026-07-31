@@ -1,8 +1,5 @@
-using HPD.Base.Files.Buckets;
-using HPD.Base.Files.Objects;
-using HPD.Base.Results;
 
-namespace HPD.Base.Files.Providers;
+namespace HPD.Base;
 
 public interface IFileBucketRegistry
 {

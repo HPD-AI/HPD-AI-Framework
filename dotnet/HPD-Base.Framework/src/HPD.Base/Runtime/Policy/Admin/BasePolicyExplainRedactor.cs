@@ -1,8 +1,5 @@
-using HPD.Base.Policy;
-using HPD.Base.Query;
-using HPD.Base.Records;
 
-namespace HPD.Base.Runtime.Policy.Admin;
+namespace HPD.Base;
 
 /// <summary>
 /// Projects runtime policy objects into admin-safe explain summaries.

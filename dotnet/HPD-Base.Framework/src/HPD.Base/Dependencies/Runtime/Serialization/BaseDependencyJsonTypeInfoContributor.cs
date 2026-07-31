@@ -1,6 +1,5 @@
-using HPD.Base.Serialization;
 
-namespace HPD.Base.Dependencies.Serialization;
+namespace HPD.Base;
 
 internal sealed class BaseDependencyJsonTypeInfoContributor : IBaseJsonTypeInfoContributor
 {

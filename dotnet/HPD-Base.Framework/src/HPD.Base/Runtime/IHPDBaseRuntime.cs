@@ -1,11 +1,5 @@
-using HPD.Base.Runtime.Capabilities;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Runtime.Health;
-using HPD.Base.Runtime.Operations;
-using HPD.Base.Runtime.Schema;
-using HPD.Base.Runtime.Serialization;
 
-namespace HPD.Base.Runtime;
+namespace HPD.Base;
 
 public interface IHPDBaseRuntime
 {

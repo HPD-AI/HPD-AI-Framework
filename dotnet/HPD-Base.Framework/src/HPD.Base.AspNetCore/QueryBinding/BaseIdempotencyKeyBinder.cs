@@ -1,7 +1,7 @@
-using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Http;
 
-namespace HPD.Base.AspNetCore.QueryBinding;
+namespace HPD.Base.AspNetCore;
 
 internal static class BaseIdempotencyKeyBinder
 {

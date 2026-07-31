@@ -1,7 +1,6 @@
 using System.Text.Json;
-using HPD.Base;
 
-namespace HPD.Base.Relational.Descriptors;
+namespace HPD.Base;
 
 public sealed record RelationalIndexDescriptor
 {

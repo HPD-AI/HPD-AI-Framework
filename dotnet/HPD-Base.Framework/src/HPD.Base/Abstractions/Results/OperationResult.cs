@@ -1,4 +1,4 @@
-namespace HPD.Base.Results;
+namespace HPD.Base;
 
 public sealed record OperationResult<T>
 {

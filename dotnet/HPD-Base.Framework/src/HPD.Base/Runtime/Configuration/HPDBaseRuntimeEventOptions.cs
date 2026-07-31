@@ -1,4 +1,4 @@
-namespace HPD.Base.Runtime.Configuration;
+namespace HPD.Base;
 
 public sealed class HPDBaseRuntimeEventOptions
 {

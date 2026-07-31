@@ -1,8 +1,5 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
 
-namespace HPD.Base.Runtime.Descriptors;
+namespace HPD.Base;
 
 public interface IBaseDescriptorProvider
 {

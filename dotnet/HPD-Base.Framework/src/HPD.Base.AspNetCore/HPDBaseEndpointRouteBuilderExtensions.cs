@@ -1,7 +1,4 @@
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.AspNetCore.EndpointMapping.Endpoints;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.AspNetCore.Policy.Admin;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 

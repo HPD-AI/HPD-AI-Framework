@@ -1,12 +1,6 @@
 using HPD.Events;
-using HPD.Base.Events;
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Stores;
+namespace HPD.Base;
 
 public interface IStreamingRecordStore : IRecordStore
 {

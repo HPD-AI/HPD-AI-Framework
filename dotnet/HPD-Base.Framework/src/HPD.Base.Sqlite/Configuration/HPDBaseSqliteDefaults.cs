@@ -1,4 +1,4 @@
-namespace HPD.Base.Sqlite.Configuration;
+namespace HPD.Base.Sqlite;
 
 /// <summary>Default values for the HPD.BASE SQLite record store.</summary>
 public static class HPDBaseSqliteDefaults

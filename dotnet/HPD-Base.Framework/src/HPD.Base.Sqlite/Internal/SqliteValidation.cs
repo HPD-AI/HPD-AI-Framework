@@ -1,7 +1,6 @@
-using HPD.Base.Results;
-using HPD.Base.Runtime.Results;
+using HPD.Base;
 
-namespace HPD.Base.Sqlite.Internal;
+namespace HPD.Base.Sqlite;
 
 internal static class SqliteValidation
 {

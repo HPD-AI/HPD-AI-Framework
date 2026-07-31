@@ -1,7 +1,7 @@
 using System.Text.Json;
-using HPD.Base.Records;
+using HPD.Base;
 
-namespace HPD.Base.InMemory.Internal;
+namespace HPD.Base.InMemory;
 
 internal static class RecordCloneHelpers
 {

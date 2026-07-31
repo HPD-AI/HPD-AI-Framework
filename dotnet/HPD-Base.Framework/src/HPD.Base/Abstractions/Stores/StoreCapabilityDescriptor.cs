@@ -1,9 +1,6 @@
 using System.Text.Json;
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Results;
 
-namespace HPD.Base.Stores;
+namespace HPD.Base;
 
 public sealed record StoreCapabilityDescriptor
 {

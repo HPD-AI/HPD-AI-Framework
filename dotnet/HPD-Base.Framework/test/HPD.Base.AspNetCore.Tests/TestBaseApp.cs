@@ -3,12 +3,12 @@ namespace HPD.Base.AspNetCore.Tests;
 internal static class TestBaseApp
 {
     public static async Task<WebApplication> CreateAsync(
-        Action<HPD.Base.AspNetCore.Configuration.HPDBaseAspNetCoreOptions>? configureAspNetCore = null,
+        Action<HPD.Base.AspNetCore.HPDBaseAspNetCoreOptions>? configureAspNetCore = null,
         IPolicyEvaluator? policyEvaluator = null,
         Action<IServiceCollection>? configureServices = null,
-        Action<HPD.Base.AspNetCore.EndpointMapping.HPDBaseEndpointOptions>? configureEndpoints = null,
-        Action<HPD.Base.AspNetCore.OpenApi.HPDBaseOpenApiOptions>? configureOpenApi = null,
-        Action<HPD.Base.AspNetCore.OpenApi.HPDBaseOpenApiEndpointOptions>? configureOpenApiEndpoints = null,
+        Action<HPD.Base.AspNetCore.HPDBaseEndpointOptions>? configureEndpoints = null,
+        Action<HPD.Base.AspNetCore.HPDBaseOpenApiOptions>? configureOpenApi = null,
+        Action<HPD.Base.AspNetCore.HPDBaseOpenApiEndpointOptions>? configureOpenApiEndpoints = null,
         bool mapOpenApi = false)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions

@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace HPD.Base.Schema;
+namespace HPD.Base;
 
 public sealed record FieldDefinition
 {

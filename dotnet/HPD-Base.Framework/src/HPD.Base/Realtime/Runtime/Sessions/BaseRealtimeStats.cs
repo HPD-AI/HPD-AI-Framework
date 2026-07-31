@@ -1,7 +1,6 @@
 using System.Threading;
-using HPD.Base.Realtime.Observability;
 
-namespace HPD.Base.Realtime;
+namespace HPD.Base;
 
 public sealed class BaseRealtimeStats
 {

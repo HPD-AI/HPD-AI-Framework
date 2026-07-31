@@ -1,7 +1,5 @@
-using HPD.Base.Results;
-using HPD.Base.Runtime;
 
-namespace HPD.Base.Runtime.Results;
+namespace HPD.Base;
 
 public interface IBaseOperationalFailureMapper
 {

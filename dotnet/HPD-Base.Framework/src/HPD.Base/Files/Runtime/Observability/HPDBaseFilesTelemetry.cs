@@ -1,11 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using HPD.Base.Files.Objects;
-using HPD.Base.Observability;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Results;
 
-namespace HPD.Base.Files.Observability;
+namespace HPD.Base;
 
 internal static class HPDBaseFilesTelemetry
 {
@@ -128,7 +124,7 @@ internal static class HPDBaseFilesTelemetry
         var bytes = operation switch
         {
             FileOperationValues.Upload => requestedSizeBytes,
-            FileOperationValues.DownloadOpen when result.Value is Objects.FileObjectDownloadResult download => download.ContentLength,
+            FileOperationValues.DownloadOpen when result.Value is FileObjectDownloadResult download => download.ContentLength,
             _ => null
         };
 

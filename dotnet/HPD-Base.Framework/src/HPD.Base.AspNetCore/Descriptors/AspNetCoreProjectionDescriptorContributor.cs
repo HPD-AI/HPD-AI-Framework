@@ -1,9 +1,7 @@
 using HPD.Base;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.Descriptors;
-using HPD.Base.Runtime.Descriptors;
+using HPD.Base.AspNetCore;
 
-namespace HPD.Base.AspNetCore.Descriptors;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class AspNetCoreProjectionDescriptorContributor : IBaseDescriptorContributor
 {

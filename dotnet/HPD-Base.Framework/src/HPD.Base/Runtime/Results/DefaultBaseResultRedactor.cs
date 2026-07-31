@@ -1,8 +1,6 @@
-using HPD.Base.Results;
-using HPD.Base.Runtime.Configuration;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Runtime.Results;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseResultRedactor : IBaseResultRedactor
 {

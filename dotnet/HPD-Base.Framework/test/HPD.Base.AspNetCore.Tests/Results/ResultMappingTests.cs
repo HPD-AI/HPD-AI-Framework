@@ -1,4 +1,4 @@
-using HPD.Base.AspNetCore.Results;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Http;
 
 namespace HPD.Base.AspNetCore.Tests.Results;

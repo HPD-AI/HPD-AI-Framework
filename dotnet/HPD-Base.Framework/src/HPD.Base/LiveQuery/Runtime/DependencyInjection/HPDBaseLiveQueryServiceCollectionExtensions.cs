@@ -1,12 +1,7 @@
-using HPD.Base.LiveQuery.Configuration;
-using HPD.Base.LiveQuery.Descriptors;
-using HPD.Base.LiveQuery.Internal;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Runtime.Events;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-namespace HPD.Base.LiveQuery.DependencyInjection;
+namespace HPD.Base;
 
 public static class HPDBaseLiveQueryServiceCollectionExtensions
 {

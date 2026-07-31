@@ -1,4 +1,4 @@
-namespace HPD.Base.Results;
+namespace HPD.Base;
 
 /// <summary>Defines the stable bounded public failure codes reserved by the mutation runtime.</summary>
 public static class BaseMutationErrorCodes

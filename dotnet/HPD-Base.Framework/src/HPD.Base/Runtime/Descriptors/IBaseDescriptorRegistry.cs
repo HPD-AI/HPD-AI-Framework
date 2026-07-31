@@ -1,4 +1,4 @@
-namespace HPD.Base.Runtime.Descriptors;
+namespace HPD.Base;
 
 public interface IBaseDescriptorRegistry
 {

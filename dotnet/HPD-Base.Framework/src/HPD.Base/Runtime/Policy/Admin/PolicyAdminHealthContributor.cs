@@ -1,8 +1,5 @@
-using HPD.Base.Health;
-using HPD.Base.Runtime.Health;
-using HPD.Base.Policy;
 
-namespace HPD.Base.Runtime.Policy.Admin;
+namespace HPD.Base;
 
 internal sealed class PolicyAdminHealthContributor : IBaseHealthContributor, IBaseDiagnosticContributor
 {

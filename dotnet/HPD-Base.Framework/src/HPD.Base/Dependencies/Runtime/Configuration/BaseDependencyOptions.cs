@@ -1,4 +1,4 @@
-namespace HPD.Base.Dependencies.Configuration;
+namespace HPD.Base;
 
 /// <summary>Configures dependency-reference protection and output bounds.</summary>
 public sealed class BaseDependencyOptions

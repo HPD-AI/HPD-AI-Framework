@@ -1,6 +1,6 @@
-using HPD.Base.Schema;
+using HPD.Base;
 
-namespace HPD.Base.InMemory.Configuration;
+namespace HPD.Base.InMemory;
 
 /// <summary>
 /// Configures the process-local HPD.BASE InMemory record store.

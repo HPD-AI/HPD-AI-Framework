@@ -1,5 +1,4 @@
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.Internal;
+using HPD.Base.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace HPD.Base.Sqlite.Tests;

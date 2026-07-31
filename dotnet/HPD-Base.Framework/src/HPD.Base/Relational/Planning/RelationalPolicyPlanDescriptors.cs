@@ -1,7 +1,6 @@
 using System.Text.Json;
-using HPD.Base;
 
-namespace HPD.Base.Relational.Planning;
+namespace HPD.Base;
 
 public enum RelationalPolicyPlanKind { RuntimeOnly, NativePolicy, TranslatedFilter, Hybrid, Unsupported, Unknown }
 

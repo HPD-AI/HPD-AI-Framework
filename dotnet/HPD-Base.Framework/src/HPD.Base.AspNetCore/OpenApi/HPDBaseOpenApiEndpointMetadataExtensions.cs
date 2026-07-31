@@ -1,18 +1,11 @@
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.AspNetCore.Descriptors;
-using HPD.Base.Descriptors;
-using HPD.Base.Health;
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Runtime.Policy.Admin;
-using HPD.Base.Schema;
+using HPD.Base.AspNetCore;
+using HPD.Base;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Mvc;
 
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 internal static class HPDBaseOpenApiEndpointMetadataExtensions
 {

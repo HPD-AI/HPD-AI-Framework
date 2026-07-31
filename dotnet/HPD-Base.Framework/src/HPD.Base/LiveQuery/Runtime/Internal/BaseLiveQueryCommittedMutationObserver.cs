@@ -1,8 +1,5 @@
-using HPD.Base.Dependencies;
-using HPD.Base.Events;
-using HPD.Base.Runtime.Events;
 
-namespace HPD.Base.LiveQuery.Internal;
+namespace HPD.Base;
 
 internal sealed class BaseLiveQueryCommittedMutationObserver(
     IBaseDependencyInvalidationMapper invalidations,

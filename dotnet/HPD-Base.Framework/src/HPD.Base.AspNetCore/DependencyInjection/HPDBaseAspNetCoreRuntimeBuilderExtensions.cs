@@ -1,7 +1,7 @@
-using HPD.Base.AspNetCore.Configuration;
-using HPD.Base.Runtime.Builder;
+using HPD.Base.AspNetCore;
+using HPD.Base;
 
-namespace HPD.Base.AspNetCore.DependencyInjection;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Extension methods for adding HPD.BASE ASP.NET Core services from a Runtime builder.

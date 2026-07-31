@@ -1,9 +1,9 @@
 using HPD.Base;
-using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.AspNetCore.Routing;
 
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 internal static class HPDBaseOpenApiFilters
 {

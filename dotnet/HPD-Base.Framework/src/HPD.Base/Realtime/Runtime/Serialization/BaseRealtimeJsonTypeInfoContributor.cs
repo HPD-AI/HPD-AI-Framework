@@ -1,7 +1,5 @@
-using HPD.Base.Realtime.Serialization;
-using HPD.Base.Serialization;
 
-namespace HPD.Base.Realtime.Serialization;
+namespace HPD.Base;
 
 internal sealed class BaseRealtimeJsonTypeInfoContributor : IBaseJsonTypeInfoContributor
 {

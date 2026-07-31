@@ -1,11 +1,5 @@
-using HPD.Base.Relational.Descriptors;
-using HPD.Base.Relational.Planning;
-using HPD.Base.Query;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Relational.Providers;
+namespace HPD.Base;
 
 public interface IRelationalMetadataProvider
 {

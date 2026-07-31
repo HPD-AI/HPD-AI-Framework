@@ -1,9 +1,8 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using HPD.Base.Observability;
 using HPD.Events;
 
-namespace HPD.Base.Realtime.Observability;
+namespace HPD.Base;
 
 internal static class HPDBaseRealtimeTelemetry
 {

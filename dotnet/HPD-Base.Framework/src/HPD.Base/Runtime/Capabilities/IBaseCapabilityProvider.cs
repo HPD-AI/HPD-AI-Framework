@@ -1,8 +1,5 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
 
-namespace HPD.Base.Runtime.Capabilities;
+namespace HPD.Base;
 
 public interface IBaseCapabilityProvider
 {

@@ -1,10 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using HPD.Base.Observability;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Results;
 
-namespace HPD.Base.Runtime.Observability;
+namespace HPD.Base;
 
 internal static class HPDBaseRuntimeTelemetry
 {

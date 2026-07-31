@@ -1,11 +1,5 @@
-using HPD.Base.Observability;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Runtime.Observability;
-using HPD.Base.Runtime.Results;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Runtime.Schema;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseSchemaProvider : IBaseSchemaProvider
 {

@@ -1,10 +1,8 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
-using HPD.Base.Dependencies;
-using HPD.Base.LiveQuery.Configuration;
 
-namespace HPD.Base.LiveQuery.Internal;
+namespace HPD.Base;
 
 internal interface IBaseLiveQueryState
 {

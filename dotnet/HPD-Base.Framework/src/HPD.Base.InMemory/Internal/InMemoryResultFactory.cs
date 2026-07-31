@@ -1,8 +1,6 @@
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Results;
+using HPD.Base;
 
-namespace HPD.Base.InMemory.Internal;
+namespace HPD.Base.InMemory;
 
 internal static class InMemoryResultFactory
 {

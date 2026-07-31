@@ -1,4 +1,4 @@
-namespace HPD.Base.Observability;
+namespace HPD.Base;
 
 /// <summary>
 /// Defines stable <see cref="System.Diagnostics.ActivitySource" /> names emitted by HPD.BASE packages.
@@ -6,37 +6,37 @@ namespace HPD.Base.Observability;
 public static class HPDBaseActivitySourceNames
 {
     /// <summary>Runtime/core orchestration activity source name.</summary>
-    public const string Runtime = "HPD.Base.Runtime";
+    public const string Runtime = "HPD.Base";
 
     /// <summary>ASP.NET Core projection activity source name.</summary>
-    public const string AspNetCore = "HPD.Base.AspNetCore";
+    public const string AspNetCore = "HPD.Base";
 
     /// <summary>InMemory provider activity source name.</summary>
-    public const string InMemory = "HPD.Base.InMemory";
+    public const string InMemory = "HPD.Base";
 
     /// <summary>SQLite provider activity source name.</summary>
-    public const string Sqlite = "HPD.Base.Sqlite";
+    public const string Sqlite = "HPD.Base";
 
     /// <summary>Files runtime activity source name.</summary>
-    public const string Files = "HPD.Base.Files";
+    public const string Files = "HPD.Base";
 
     /// <summary>Files ASP.NET Core projection activity source name.</summary>
-    public const string FilesAspNetCore = "HPD.Base.Files.AspNetCore";
+    public const string FilesAspNetCore = "HPD.Base";
 
     /// <summary>Files InMemory provider activity source name.</summary>
-    public const string FilesInMemory = "HPD.Base.Files.InMemory";
+    public const string FilesInMemory = "HPD.Base";
 
     /// <summary>Realtime runtime activity source name.</summary>
-    public const string Realtime = "HPD.Base.Realtime";
+    public const string Realtime = "HPD.Base";
 
     /// <summary>Realtime ASP.NET Core projection activity source name.</summary>
-    public const string RealtimeAspNetCore = "HPD.Base.Realtime.AspNetCore";
+    public const string RealtimeAspNetCore = "HPD.Base";
 
     /// <summary>HPD.Auth adapter activity source name.</summary>
-    public const string HPDAuth = "HPD.Base.Auth.HPDAuth";
+    public const string HPDAuth = "HPD.Base";
 
     /// <summary>HPD.Auth ASP.NET Core bridge activity source name.</summary>
-    public const string HPDAuthAspNetCore = "HPD.Base.Auth.HPDAuth.AspNetCore";
+    public const string HPDAuthAspNetCore = "HPD.Base";
 
     /// <summary>Core source names used by the BASE runtime spine.</summary>
     public static readonly string[] Core = [Runtime];

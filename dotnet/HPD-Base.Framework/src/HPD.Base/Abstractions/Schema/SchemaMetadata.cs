@@ -1,7 +1,5 @@
-using HPD.Base;
-using HPD.Base.Health;
 
-namespace HPD.Base.Schema;
+namespace HPD.Base;
 
 public sealed record SchemaMetadata
 {

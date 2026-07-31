@@ -1,14 +1,6 @@
 using FluentAssertions;
 using HPD.Base;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.Internal;
-using HPD.Base.Stores;
-using HPD.Base.Health;
-using HPD.Base.Sqlite.Health;
+using HPD.Base.Sqlite;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
@@ -84,7 +76,7 @@ public sealed class SqliteAtomicMutationTests
             .Status.Should().Be(OperationStatus.Ok);
 
         var journal = await store.ReadMutationJournalAsync(
-            new HPD.Base.Events.BaseMutationJournalReadRequest { Limit = 10 });
+            new HPD.Base.BaseMutationJournalReadRequest { Limit = 10 });
         journal.Entries.Select(entry => entry.EventId)
             .Should().Equal("evt-create", "evt-patch", "evt-other");
     }
@@ -120,7 +112,7 @@ public sealed class SqliteAtomicMutationTests
             new RecordId("provisional"),
             Operation(BaseOperationKind.Get, collection.Id))).Status.Should().Be(OperationStatus.NotFound);
         (await store.ReadMutationJournalAsync(
-            new HPD.Base.Events.BaseMutationJournalReadRequest { Limit = 10 }))
+            new HPD.Base.BaseMutationJournalReadRequest { Limit = 10 }))
             .Entries.Should().BeEmpty();
     }
 
@@ -165,7 +157,7 @@ public sealed class SqliteAtomicMutationTests
             new RecordId("timed-out"),
             Operation(BaseOperationKind.Get, collection.Id))).Status.Should().Be(OperationStatus.NotFound);
         (await store.ReadMutationJournalAsync(
-            new HPD.Base.Events.BaseMutationJournalReadRequest { Limit = 10 }))
+            new HPD.Base.BaseMutationJournalReadRequest { Limit = 10 }))
             .Entries.Should().BeEmpty();
 
         var escapedCall = await retained!.GetAsync(
@@ -337,7 +329,7 @@ public sealed class SqliteAtomicMutationTests
             new RecordId("commit-failure"),
             Operation(BaseOperationKind.Get, collection.Id))).Status.Should().Be(OperationStatus.NotFound);
         (await store.ReadMutationJournalAsync(
-            new HPD.Base.Events.BaseMutationJournalReadRequest { Limit = 10 }))
+            new HPD.Base.BaseMutationJournalReadRequest { Limit = 10 }))
             .Entries.Should().BeEmpty();
     }
 

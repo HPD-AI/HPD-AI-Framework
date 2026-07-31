@@ -1,8 +1,7 @@
 using HPD.Base;
-using HPD.Base.Runtime;
 using Microsoft.AspNetCore.Http;
 
-namespace HPD.Base.AspNetCore.Http;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Creates HPD.BASE operation contexts from ASP.NET Core HTTP requests.

@@ -1,4 +1,4 @@
-namespace HPD.Base.Observability;
+namespace HPD.Base;
 
 /// <summary>
 /// Defines stable BASE metric instrument names.

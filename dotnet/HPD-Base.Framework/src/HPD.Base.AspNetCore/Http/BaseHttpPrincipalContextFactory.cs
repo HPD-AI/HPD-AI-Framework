@@ -1,12 +1,10 @@
 using System.Security.Claims;
-using HPD.Base.AspNetCore.Configuration;
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.Policy;
-using HPD.Base.Runtime;
+using HPD.Base.AspNetCore;
+using HPD.Base;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.AspNetCore.Http;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class BaseHttpPrincipalContextFactory : IBaseHttpPrincipalContextFactory
 {

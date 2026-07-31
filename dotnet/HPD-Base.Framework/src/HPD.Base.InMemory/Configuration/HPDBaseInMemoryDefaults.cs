@@ -1,4 +1,4 @@
-namespace HPD.Base.InMemory.Configuration;
+namespace HPD.Base.InMemory;
 
 /// <summary>
 /// Default identifiers and version values for the HPD.BASE InMemory store package.

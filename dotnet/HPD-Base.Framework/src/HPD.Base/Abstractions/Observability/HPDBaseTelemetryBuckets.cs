@@ -1,4 +1,4 @@
-namespace HPD.Base.Observability;
+namespace HPD.Base;
 
 /// <summary>
 /// Provides deterministic bucket helpers for safe telemetry dimensions.

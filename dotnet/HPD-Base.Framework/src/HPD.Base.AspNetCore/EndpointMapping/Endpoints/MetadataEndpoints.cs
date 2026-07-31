@@ -1,17 +1,11 @@
 using HPD.Base;
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.AspNetCore.OpenApi;
-using HPD.Base.AspNetCore.QueryBinding;
-using HPD.Base.AspNetCore.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Runtime.Descriptors;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace HPD.Base.AspNetCore.EndpointMapping.Endpoints;
+namespace HPD.Base.AspNetCore;
 
 internal static class MetadataEndpoints
 {
@@ -55,7 +49,7 @@ internal static class MetadataEndpoints
         var principal = await principalFactory.CreateAsync(httpContext, isAdmin ? HPDBaseEndpointKind.AdminMetadata : HPDBaseEndpointKind.PublicMetadata, cancellationToken);
         var operation = operationFactory.Create(httpContext, principal, BaseOperationKind.SchemaRead, "base", mode: mode);
         var expand = queryBinder.BindManifestExpand(httpContext);
-        if (expand.Status != HPD.Base.Results.OperationStatus.Ok)
+        if (expand.Status != OperationStatus.Ok)
             return resultMapper.ToHttpResult(expand, httpContext, Mapping(operation, isAdmin));
 
         if (expand.Value is { Length: > 0 })

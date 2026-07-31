@@ -1,6 +1,5 @@
-using HPD.Base.Stores;
 
-namespace HPD.Base.Runtime.Stores;
+namespace HPD.Base;
 
 internal sealed class DefaultRecordStoreRegistry : IRecordStoreRegistry
 {

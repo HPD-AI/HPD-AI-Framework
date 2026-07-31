@@ -1,7 +1,6 @@
 using FluentAssertions;
-using HPD.Base.Runtime.Health;
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.DependencyInjection;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 

@@ -1,22 +1,8 @@
-using HPD.Base.Files.Configuration;
-using HPD.Base.Files.Descriptors;
-using HPD.Base.Files.Health;
-using HPD.Base.Files.Objects;
-using HPD.Base.Files.Policy;
-using HPD.Base.Files.Providers;
-using HPD.Base.Files.Runtime;
-using HPD.Base.Files.Serialization;
-using HPD.Base.Files.Validation;
-using HPD.Base.Runtime.Builder;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Runtime.Health;
-using HPD.Base.Runtime.Serialization;
-using HPD.Base.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Files.DependencyInjection;
+namespace HPD.Base;
 
 public static class HPDBaseFilesServiceCollectionExtensions
 {

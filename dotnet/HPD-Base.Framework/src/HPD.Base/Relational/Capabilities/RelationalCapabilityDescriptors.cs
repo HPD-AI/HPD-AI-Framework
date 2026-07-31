@@ -1,9 +1,6 @@
 using System.Text.Json;
-using HPD.Base;
-using HPD.Base.Descriptors;
-using HPD.Base.Relational;
 
-namespace HPD.Base.Relational.Capabilities;
+namespace HPD.Base;
 
 public sealed record RelationalCapabilityDescriptor
 {

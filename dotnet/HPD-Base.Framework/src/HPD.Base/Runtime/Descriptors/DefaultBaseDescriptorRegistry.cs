@@ -1,19 +1,13 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Health;
-using HPD.Base.Runtime.Configuration;
-using HPD.Base.Schema;
-using HPD.Base.Runtime.Stores;
-using HPD.Base.Stores;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Runtime.Descriptors;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseDescriptorRegistry : IBaseDescriptorRegistry
 {
     private readonly HPDBaseRuntimeOptions _options;
     private readonly IEnumerable<IBaseDescriptorContributor> _contributors;
     private readonly IEnumerable<IBaseDescriptorValidator> _validators;
-    private readonly HPD.Base.Runtime.Capabilities.IBaseCapabilityValidator _capabilityValidator;
+    private readonly IBaseCapabilityValidator _capabilityValidator;
     private readonly IRecordStoreRegistry _stores;
     private BaseDescriptorSnapshot? _current;
 
@@ -21,7 +15,7 @@ internal sealed class DefaultBaseDescriptorRegistry : IBaseDescriptorRegistry
         IOptions<HPDBaseRuntimeOptions> options,
         IEnumerable<IBaseDescriptorContributor> contributors,
         IEnumerable<IBaseDescriptorValidator> validators,
-        HPD.Base.Runtime.Capabilities.IBaseCapabilityValidator capabilityValidator,
+        IBaseCapabilityValidator capabilityValidator,
         IRecordStoreRegistry stores)
     {
         _options = options.Value;

@@ -1,9 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
-using HPD.Base.Query;
-using HPD.Base.Records;
 
-namespace HPD.Base.Runtime.Policy;
+namespace HPD.Base;
 
 internal static class BasePolicyWriteConstraintEvaluator
 {

@@ -1,10 +1,7 @@
 using HPD.Base;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Results;
 using System.Globalization;
 
-namespace HPD.Base.Sqlite.Internal;
+namespace HPD.Base.Sqlite;
 
 internal static class SqliteResultFactory
 {

@@ -1,11 +1,5 @@
 using System.Reflection;
-using HPD.Base.AspNetCore.Configuration;
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.AspNetCore.OpenApi;
-using HPD.Base.AspNetCore.QueryBinding;
-using HPD.Base.AspNetCore.Results;
-using HPD.Base.AspNetCore.Serialization;
+using HPD.Base.AspNetCore;
 
 namespace HPD.Base.AspNetCore.Tests.PublicApi;
 
@@ -62,7 +56,7 @@ public sealed class PublicApiShapeTests
             .Should()
             .HaveCount(2);
 
-        typeof(HPD.Base.AspNetCore.DependencyInjection.HPDBaseAspNetCoreServiceCollectionExtensions)
+        typeof(HPD.Base.AspNetCore.HPDBaseAspNetCoreServiceCollectionExtensions)
             .GetMethods(BindingFlags.Public | BindingFlags.Static)
             .Single(method => method.Name == "AddHPDBaseAspNetCore")
             .ReturnType

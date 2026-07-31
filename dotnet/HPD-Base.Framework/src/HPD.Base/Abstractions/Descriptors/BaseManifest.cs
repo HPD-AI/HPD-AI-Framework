@@ -1,6 +1,5 @@
-using HPD.Base;
 
-namespace HPD.Base.Descriptors;
+namespace HPD.Base;
 
 /// <summary>
 /// Compact bootstrap document for BASE clients.

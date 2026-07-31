@@ -1,10 +1,5 @@
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Stores;
+namespace HPD.Base;
 
 /// <summary>Provides portable record reads and declares one store instance's capabilities.</summary>
 public interface IRecordStore

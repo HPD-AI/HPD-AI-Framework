@@ -6,6 +6,6 @@
     <PackageReference
       Include="Microsoft.Extensions.Logging.Abstractions"
       Version="10.0.10"
-      Condition="'$(MSBuildProjectName)' != 'HPD.Base.Auth.HPDAuth.AspNetCore.Tests'" />
+      Condition="'$(MSBuildProjectName)' != 'HPD.Base.Auth.Tests'" />
   </ItemGroup>
 </Project>

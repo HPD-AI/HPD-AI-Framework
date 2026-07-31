@@ -1,21 +1,8 @@
-using HPD.Base.Realtime.Configuration;
-using HPD.Base.Realtime.Descriptors;
-using HPD.Base.Realtime.Durability;
-using HPD.Base.Realtime.Feeds;
-using HPD.Base.Realtime.Health;
-using HPD.Base.Realtime.Policy;
-using HPD.Base.Realtime.Projection;
-using HPD.Base.Realtime.Serialization;
-using HPD.Base.Runtime.Builder;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Runtime.Health;
-using HPD.Base.Serialization;
-using HPD.Base.Dependencies;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Realtime.DependencyInjection;
+namespace HPD.Base;
 
 public static class HPDBaseRealtimeServiceCollectionExtensions
 {
@@ -39,7 +26,7 @@ public static class HPDBaseRealtimeServiceCollectionExtensions
         services.TryAddSingleton<IBaseRealtimeProjectionService>(provider =>
             new DefaultBaseRealtimeProjectionService(
                 provider.GetRequiredService<IBaseRealtimePolicy>(),
-                provider.GetRequiredService<HPD.Base.Runtime.Policy.IBaseRecordRedactor>(),
+                provider.GetRequiredService<IBaseRecordRedactor>(),
                 provider.GetService<IBaseDependencyInvalidationMapper>()));
         services.TryAddSingleton<IBaseRealtimeFeedSource, DefaultBaseRealtimeFeedSource>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IBaseDescriptorContributor, BaseRealtimeDescriptorContributor>());

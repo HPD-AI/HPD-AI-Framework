@@ -1,8 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using HPD.Base.Files.Objects;
 
-namespace HPD.Base.Files.Objects;
+namespace HPD.Base;
 
 public sealed class FileBucketIdJsonConverter : JsonConverter<FileBucketId>
 {

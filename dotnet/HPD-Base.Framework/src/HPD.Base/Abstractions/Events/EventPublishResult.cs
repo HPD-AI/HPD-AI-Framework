@@ -1,4 +1,4 @@
-namespace HPD.Base.Events;
+namespace HPD.Base;
 
 public sealed record EventPublishResult
 {

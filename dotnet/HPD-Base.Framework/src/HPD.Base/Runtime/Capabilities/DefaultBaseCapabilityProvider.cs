@@ -1,11 +1,5 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Observability;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Runtime.Observability;
-using HPD.Base.Runtime.Results;
 
-namespace HPD.Base.Runtime.Capabilities;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseCapabilityProvider : IBaseCapabilityProvider
 {

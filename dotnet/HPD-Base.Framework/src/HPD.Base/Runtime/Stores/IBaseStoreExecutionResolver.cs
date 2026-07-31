@@ -1,10 +1,5 @@
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
-using HPD.Base.Stores;
 
-namespace HPD.Base.Runtime.Stores;
+namespace HPD.Base;
 
 internal interface IBaseStoreExecutionResolver
 {

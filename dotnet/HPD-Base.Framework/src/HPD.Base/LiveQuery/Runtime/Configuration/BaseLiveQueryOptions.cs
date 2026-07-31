@@ -1,4 +1,4 @@
-namespace HPD.Base.LiveQuery.Configuration;
+namespace HPD.Base;
 
 /// <summary>Configures bounded server-side live-query coordination.</summary>
 public sealed class BaseLiveQueryOptions

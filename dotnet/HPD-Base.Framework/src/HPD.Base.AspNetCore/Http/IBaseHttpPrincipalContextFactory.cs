@@ -1,8 +1,8 @@
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.Runtime;
+using HPD.Base.AspNetCore;
+using HPD.Base;
 using Microsoft.AspNetCore.Http;
 
-namespace HPD.Base.AspNetCore.Http;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Creates HPD.BASE principal contexts from ASP.NET Core HTTP requests.

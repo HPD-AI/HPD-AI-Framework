@@ -1,12 +1,7 @@
 using System.Text.Json;
-using HPD.Base.Descriptors;
-using HPD.Base.Events;
-using HPD.Base.Health;
-using HPD.Base.Realtime.Configuration;
-using HPD.Base.Runtime.Descriptors;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Realtime.Descriptors;
+namespace HPD.Base;
 
 internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContributor
 {
@@ -27,7 +22,7 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
             {
                 Id = dto,
                 ContractVersion = "1.0",
-                JsonContextOwner = "HPD.Base.Realtime.Abstractions",
+                JsonContextOwner = "HPD.Base",
                 Visibility = VisibilityLevel.Public
             });
         }
@@ -35,7 +30,7 @@ internal sealed class BaseRealtimeDescriptorContributor : IBaseDescriptorContrib
         builder.AddModule(new BaseModuleDescriptor
         {
             Id = BaseRealtimeModuleIds.Module,
-            Name = "HPD.Base.Realtime",
+            Name = "HPD.Base",
             Kind = BaseModuleKind.Realtime,
             Version = "1.0.0",
             Status = _options.Enabled ? ModuleStatus.Installed : ModuleStatus.Disabled,

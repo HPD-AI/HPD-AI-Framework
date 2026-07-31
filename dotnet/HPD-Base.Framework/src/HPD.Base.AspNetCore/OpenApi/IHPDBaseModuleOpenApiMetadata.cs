@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 public interface IHPDBaseModuleOpenApiMetadata
 {

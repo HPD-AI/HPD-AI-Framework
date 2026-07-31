@@ -1,4 +1,4 @@
-namespace HPD.Base.Query;
+namespace HPD.Base;
 
 public sealed record QueryOperatorDescriptor
 {

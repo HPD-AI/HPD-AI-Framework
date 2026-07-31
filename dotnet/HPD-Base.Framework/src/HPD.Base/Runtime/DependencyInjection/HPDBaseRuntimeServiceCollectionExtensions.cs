@@ -1,25 +1,9 @@
-using HPD.Base.Events;
-using HPD.Base.Runtime.Builder;
-using HPD.Base.Runtime.Capabilities;
-using HPD.Base.Runtime.Configuration;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Runtime.Events;
-using HPD.Base.Runtime.Health;
-using HPD.Base.Runtime.Mutations;
-using HPD.Base.Runtime.Operations;
-using HPD.Base.Runtime.Policy;
-using HPD.Base.Runtime.Policy.Admin;
-using HPD.Base.Runtime.Query;
-using HPD.Base.Runtime.Results;
-using HPD.Base.Runtime.Schema;
-using HPD.Base.Runtime.Serialization;
-using HPD.Base.Runtime.Stores;
 using HPD.Events.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Runtime.DependencyInjection;
+namespace HPD.Base;
 
 public static class HPDBaseRuntimeServiceCollectionExtensions
 {

@@ -1,4 +1,6 @@
-namespace HPD.AI.Platform;
+using HPD.AI.Platform;
+
+namespace HPD.Base.Studio;
 
 public static class HPDBaseStudioBuilderExtensions
 {

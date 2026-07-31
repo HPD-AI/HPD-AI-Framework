@@ -1,4 +1,4 @@
-using HPD.Base.Runtime;
+using HPD.Base;
 
 namespace HPD.Base.Testing;
 

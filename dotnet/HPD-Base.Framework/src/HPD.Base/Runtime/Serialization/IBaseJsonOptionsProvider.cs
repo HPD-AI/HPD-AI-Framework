@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace HPD.Base.Runtime.Serialization;
+namespace HPD.Base;
 
 public interface IBaseJsonOptionsProvider
 {

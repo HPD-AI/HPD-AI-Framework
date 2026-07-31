@@ -1,8 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using HPD.Base.Observability;
 
-namespace HPD.Base.Runtime.Observability;
+namespace HPD.Base;
 
 internal static class HPDBaseRuntimeObservability
 {

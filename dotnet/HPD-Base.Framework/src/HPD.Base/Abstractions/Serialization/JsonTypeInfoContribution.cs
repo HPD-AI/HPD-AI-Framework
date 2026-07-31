@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization.Metadata;
 
-namespace HPD.Base.Serialization;
+namespace HPD.Base;
 
 public interface IBaseJsonTypeInfoContributor
 {

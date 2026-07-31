@@ -1,4 +1,4 @@
-namespace HPD.Base.Query;
+namespace HPD.Base;
 
 /// <summary>
 /// One-record discriminator shape for portable filter ASTs.

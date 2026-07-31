@@ -1,13 +1,7 @@
-using HPD.Base.Dependencies.Configuration;
-using HPD.Base.Dependencies.Internal;
-using HPD.Base.Dependencies.Descriptors;
-using HPD.Base.Dependencies.Serialization;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-namespace HPD.Base.Dependencies.DependencyInjection;
+namespace HPD.Base;
 
 public static class HPDBaseDependencyServiceCollectionExtensions
 {

@@ -1,8 +1,7 @@
 using System.Text.Json;
-using HPD.Base.Policy;
 using HPD.Events;
 
-namespace HPD.Base.Events;
+namespace HPD.Base;
 
 /// <summary>
 /// Base type for HPD.BASE domain events flowing through HPD.Events.

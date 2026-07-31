@@ -1,8 +1,6 @@
 using System.Text.Json.Serialization;
-using HPD.Base.Serialization;
-using HPD.Base.Dependencies;
 
-namespace HPD.Base.Realtime.Serialization;
+namespace HPD.Base;
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
@@ -11,7 +9,7 @@ namespace HPD.Base.Realtime.Serialization;
     Converters =
     [
         typeof(LowerCamelJsonStringEnumConverter<BaseOperationKind>),
-        typeof(LowerCamelJsonStringEnumConverter<HPD.Base.Records.RecordPayloadKind>)
+        typeof(LowerCamelJsonStringEnumConverter<RecordPayloadKind>)
     ])]
 [JsonSerializable(typeof(BaseRealtimeEvent))]
 [JsonSerializable(typeof(BaseRealtimeRecordResource))]

@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.EndpointMapping;
+namespace HPD.Base.AspNetCore;
 
 internal static class EndpointRouteBuilderValidation
 {

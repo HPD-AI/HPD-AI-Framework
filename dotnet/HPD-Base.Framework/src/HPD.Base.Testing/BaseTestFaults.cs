@@ -1,4 +1,4 @@
-using HPD.Base.Results;
+using HPD.Base;
 
 namespace HPD.Base.Testing;
 

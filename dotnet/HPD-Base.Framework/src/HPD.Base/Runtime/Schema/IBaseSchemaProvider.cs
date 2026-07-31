@@ -1,8 +1,5 @@
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Runtime.Schema;
+namespace HPD.Base;
 
 public interface IBaseSchemaProvider
 {

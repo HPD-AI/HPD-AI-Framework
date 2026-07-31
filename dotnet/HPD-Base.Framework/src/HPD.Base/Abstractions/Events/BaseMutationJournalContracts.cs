@@ -1,8 +1,5 @@
-using HPD.Base.Records;
-using HPD.Base.Runtime;
-using HPD.Base.Policy;
 
-namespace HPD.Base.Events;
+namespace HPD.Base;
 
 /// <summary>Identifies a provider-local committed mutation-journal position.</summary>
 public readonly record struct BaseMutationJournalPosition(long Value);

@@ -1,11 +1,7 @@
-using HPD.Base.Health;
-using HPD.Base.Realtime.Configuration;
-using HPD.Base.Realtime.Descriptors;
-using HPD.Base.Runtime.Health;
 using HPD.Events;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Realtime.Health;
+namespace HPD.Base;
 
 internal sealed class BaseRealtimeHealthContributor : IBaseHealthContributor, IBaseDiagnosticContributor
 {

@@ -1,13 +1,6 @@
-using HPD.Base;
-using HPD.Base.Descriptors;
-using HPD.Base.Files.Buckets;
-using HPD.Base.Files.Configuration;
-using HPD.Base.Files.Runtime;
-using HPD.Base.Health;
-using HPD.Base.Runtime.Descriptors;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Files.Descriptors;
+namespace HPD.Base;
 
 internal sealed class FileDescriptorContributor : IBaseDescriptorContributor
 {
@@ -29,7 +22,7 @@ internal sealed class FileDescriptorContributor : IBaseDescriptorContributor
             {
                 Id = dtoId,
                 ContractVersion = "1.0",
-                JsonContextOwner = "HPD.Base.Files.Abstractions",
+                JsonContextOwner = "HPD.Base",
                 Visibility = VisibilityLevel.Public
             });
         }
@@ -37,7 +30,7 @@ internal sealed class FileDescriptorContributor : IBaseDescriptorContributor
         builder.AddModule(new BaseModuleDescriptor
         {
             Id = FileModuleIds.Module,
-            Name = "HPD.Base.Files",
+            Name = "HPD.Base",
             Kind = BaseModuleKind.Files,
             Version = "1.0.0",
             Status = _options.Enabled ? ModuleStatus.Installed : ModuleStatus.Disabled,

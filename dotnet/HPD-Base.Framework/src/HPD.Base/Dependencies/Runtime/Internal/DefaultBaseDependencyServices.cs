@@ -2,10 +2,8 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
-using HPD.Base.Dependencies.Configuration;
-using HPD.Base.Events;
 
-namespace HPD.Base.Dependencies.Internal;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseDependencyServices :
     IBaseDependencyReferenceFactory,

@@ -1,6 +1,5 @@
-using HPD.Base.Dependencies;
 
-namespace HPD.Base.LiveQuery;
+namespace HPD.Base;
 
 /// <summary>Classifies one server-side live-query transition.</summary>
 public enum BaseLiveQueryTransitionKind

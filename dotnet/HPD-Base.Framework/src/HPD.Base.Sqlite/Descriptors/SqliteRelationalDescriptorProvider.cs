@@ -1,21 +1,10 @@
-using HPD.Base.Query;
-using HPD.Base.Descriptors;
-using HPD.Base.Relational.Capabilities;
-using HPD.Base.Relational.Descriptors;
-using HPD.Base.Relational.Planning;
-using HPD.Base.Relational.Providers;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Runtime.Results;
-using HPD.Base.Schema;
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.Internal;
-using HPD.Base.Sqlite.Serialization;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
 
-namespace HPD.Base.Sqlite.Descriptors;
+namespace HPD.Base.Sqlite;
 
 internal sealed class SqliteRelationalDescriptorProvider :
     IRelationalMetadataProvider,

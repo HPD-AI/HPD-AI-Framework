@@ -1,20 +1,9 @@
 using System.Runtime.CompilerServices;
-using HPD.Base.Events;
-using HPD.Base.Dependencies;
-using HPD.Base.Realtime.Configuration;
-using HPD.Base.Realtime.Durability;
-using HPD.Base.Realtime.Observability;
-using HPD.Base.Realtime.Observability.Logging;
-using HPD.Base.Realtime.Projection;
-using HPD.Base.Policy;
-using HPD.Base.Runtime.Schema;
-using HPD.Base.Runtime.Stores;
-using HPD.Base.Stores;
 using HPD.Events;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Realtime.Feeds;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseRealtimeFeedSource : IBaseRealtimeFeedSource
 {

@@ -1,15 +1,11 @@
-using HPD.Base.AspNetCore.Configuration;
-using HPD.Base.AspNetCore.Descriptors;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.AspNetCore.QueryBinding;
-using HPD.Base.AspNetCore.Results;
-using HPD.Base.Runtime.Descriptors;
+using HPD.Base.AspNetCore;
+using HPD.Base;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.AspNetCore.DependencyInjection;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Extension methods for registering HPD.BASE ASP.NET Core projection services.

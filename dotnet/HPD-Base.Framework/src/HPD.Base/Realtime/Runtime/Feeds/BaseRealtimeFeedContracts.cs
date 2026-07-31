@@ -1,7 +1,6 @@
-using HPD.Base.Runtime;
 using HPD.Events;
 
-namespace HPD.Base.Realtime.Feeds;
+namespace HPD.Base;
 
 public sealed record BaseRealtimeFeedRequest
 {

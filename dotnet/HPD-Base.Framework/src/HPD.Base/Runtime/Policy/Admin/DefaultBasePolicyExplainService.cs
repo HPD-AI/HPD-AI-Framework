@@ -1,17 +1,6 @@
-using HPD.Base.Observability;
-using HPD.Base.Policy;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Observability;
-using HPD.Base.Runtime.Query;
-using HPD.Base.Runtime.Results;
-using HPD.Base.Runtime.Schema;
-using HPD.Base.Runtime.Stores;
-using HPD.Base.Schema;
-using HPD.Base.Stores;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Runtime.Policy.Admin;
+namespace HPD.Base;
 
 internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainService
 {
@@ -153,7 +142,7 @@ internal sealed class DefaultBasePolicyExplainService : IBasePolicyExplainServic
             return failure;
         }
 
-        var query = request.Query ?? new HPD.Base.Query.RecordQuery();
+        var query = request.Query ?? new RecordQuery();
         var queryValidation = await _queryValidator.ValidateAsync(
             collection,
             query,

@@ -1,9 +1,6 @@
 using System.Globalization;
-using HPD.Base.Descriptors;
-using HPD.Base.LiveQuery.Configuration;
-using HPD.Base.Runtime.Descriptors;
 
-namespace HPD.Base.LiveQuery.Descriptors;
+namespace HPD.Base;
 
 internal sealed class BaseLiveQueryDescriptorContributor(
     BaseLiveQueryOptions options) : IBaseDescriptorContributor
@@ -15,7 +12,7 @@ internal sealed class BaseLiveQueryDescriptorContributor(
         builder.AddModule(new BaseModuleDescriptor
         {
             Id = BaseLiveQueryModuleIds.Module,
-            Name = "HPD.Base.LiveQuery",
+            Name = "HPD.Base",
             Kind = BaseModuleKind.Custom,
             Version = "1.0.0",
             Status = ModuleStatus.Installed,

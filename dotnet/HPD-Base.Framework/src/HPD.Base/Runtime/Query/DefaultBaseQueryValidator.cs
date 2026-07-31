@@ -1,13 +1,7 @@
 using System.Text.Json;
-using HPD.Base.Query;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Configuration;
-using HPD.Base.Runtime.Results;
-using HPD.Base.Runtime.Serialization;
-using HPD.Base.Schema;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Runtime.Query;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseQueryValidator : IBaseQueryValidator
 {

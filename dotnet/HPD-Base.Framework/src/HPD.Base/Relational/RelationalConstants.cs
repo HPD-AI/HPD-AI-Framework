@@ -1,4 +1,4 @@
-namespace HPD.Base.Relational;
+namespace HPD.Base;
 
 public static class RelationalModuleIds
 {

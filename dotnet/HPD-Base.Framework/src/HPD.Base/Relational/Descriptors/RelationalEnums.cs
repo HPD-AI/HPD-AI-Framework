@@ -1,4 +1,4 @@
-namespace HPD.Base.Relational.Descriptors;
+namespace HPD.Base;
 
 public enum RelationalObjectKind { Database, Catalog, Schema, Table, View, Column, Constraint, Index, Mapping, PolicyPlan }
 public enum RelationalNamespaceKind { Database, Catalog, Schema, AttachedDatabase, ProviderNamespace }

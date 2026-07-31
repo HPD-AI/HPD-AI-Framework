@@ -1,11 +1,11 @@
 using System.Text.Json.Nodes;
-using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class HPDBaseOpenApiOperationTransformer(IOptions<HPDBaseOpenApiOptions> options) : IOpenApiOperationTransformer
 {

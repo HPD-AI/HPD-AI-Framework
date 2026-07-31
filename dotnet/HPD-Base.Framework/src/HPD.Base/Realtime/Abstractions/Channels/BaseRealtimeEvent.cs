@@ -1,7 +1,5 @@
-using HPD.Base.Records;
-using HPD.Base.Dependencies;
 
-namespace HPD.Base.Realtime;
+namespace HPD.Base;
 
 /// <summary>Describes one policy-visible live record mutation.</summary>
 public sealed record BaseRealtimeEvent

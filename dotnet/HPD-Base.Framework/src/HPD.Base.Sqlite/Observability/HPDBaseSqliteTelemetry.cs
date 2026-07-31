@@ -1,13 +1,10 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using HPD.Base.Observability;
-using HPD.Base.Query;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Results;
-using HPD.Base.Sqlite.Internal;
+using HPD.Base;
+using HPD.Base.Sqlite;
 
-namespace HPD.Base.Sqlite.Observability;
+namespace HPD.Base.Sqlite;
 
 internal static class HPDBaseSqliteTelemetry
 {

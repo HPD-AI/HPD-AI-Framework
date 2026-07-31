@@ -1,10 +1,9 @@
-using HPD.Base.Descriptors;
-using HPD.Base.InMemory.Configuration;
-using HPD.Base.Runtime.Stores;
+using HPD.Base;
+using HPD.Base.InMemory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.InMemory.DependencyInjection;
+namespace HPD.Base.InMemory;
 
 /// <summary>
 /// Provides explicit HPD.BASE Runtime store-registry registration for the InMemory store.
@@ -32,7 +31,7 @@ public static class HPDBaseInMemoryRecordStoreRegistryExtensions
             Store = store,
             CollectionIds = options.CollectionIds,
             HealthRefs = options.ContributeHealth
-                ? [new HealthRefDescriptor { Id = options.HealthRefId, Scope = HPD.Base.Health.HealthScope.Store, TargetRef = options.StoreId, Visibility = VisibilityLevel.Admin }]
+                ? [new HealthRefDescriptor { Id = options.HealthRefId, Scope = HealthScope.Store, TargetRef = options.StoreId, Visibility = VisibilityLevel.Admin }]
                 : null,
             DiagnosticRefs = options.ContributeDiagnostics
                 ? [new DiagnosticRefDescriptor { Id = options.DiagnosticRefId, Visibility = VisibilityLevel.Admin }]

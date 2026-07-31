@@ -1,11 +1,10 @@
 using HPD.Base;
-using HPD.Base.AspNetCore.Configuration;
-using HPD.Base.Runtime;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.AspNetCore.Http;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class BaseHttpOperationContextFactory : IBaseHttpOperationContextFactory
 {

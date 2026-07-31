@@ -1,10 +1,8 @@
-using HPD.Base.Relational.Descriptors;
-using HPD.Base.Relational.Capabilities;
-using HPD.Base.Relational.Planning;
-using HPD.Base.Sqlite.Configuration;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using System.Text.Json.Serialization;
 
-namespace HPD.Base.Sqlite.Serialization;
+namespace HPD.Base.Sqlite;
 
 [JsonSerializable(typeof(HPDBaseSqliteOptions))]
 [JsonSerializable(typeof(RelationalStoreDescriptor))]

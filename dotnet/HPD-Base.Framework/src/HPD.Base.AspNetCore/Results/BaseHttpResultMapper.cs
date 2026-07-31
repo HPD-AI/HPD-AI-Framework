@@ -1,15 +1,9 @@
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Descriptors;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Runtime.Results;
-using HPD.Base.Runtime.Serialization;
-using HPD.Base.Schema;
+using HPD.Base;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Net.Http.Headers;
 
-namespace HPD.Base.AspNetCore.Results;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class BaseHttpResultMapper : IBaseHttpResultMapper
 {
@@ -90,20 +84,20 @@ internal sealed class BaseHttpResultMapper : IBaseHttpResultMapper
         if (!string.IsNullOrWhiteSpace(revision?.ETag))
             httpContext.Response.Headers.ETag = revision.ETag;
         if (!string.IsNullOrWhiteSpace(revision?.Revision))
-            httpContext.Response.Headers[Http.BaseHttpHeaders.Revision] = revision.Revision;
+            httpContext.Response.Headers[BaseHttpHeaders.Revision] = revision.Revision;
         if (revision?.LastModified is not null)
             httpContext.Response.Headers.LastModified = revision.LastModified.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
         if (status == OperationStatus.Created && !string.IsNullOrWhiteSpace(mappingContext.Location))
             httpContext.Response.Headers.Location = mappingContext.Location;
         var correlationId = diagnostics?.CorrelationId ?? mappingContext.CorrelationId;
         if (!string.IsNullOrWhiteSpace(correlationId))
-            httpContext.Response.Headers[Http.BaseHttpHeaders.CorrelationId] = correlationId;
+            httpContext.Response.Headers[BaseHttpHeaders.CorrelationId] = correlationId;
         if (events is { Length: > 0 })
-            httpContext.Response.Headers[Http.BaseHttpHeaders.EventIds] = string.Join(",", events.Select(static e => e.EventId));
+            httpContext.Response.Headers[BaseHttpHeaders.EventIds] = string.Join(",", events.Select(static e => e.EventId));
         if (mappingContext.RetryAfter is { } retryAfter)
-            httpContext.Response.Headers[Http.BaseHttpHeaders.RetryAfter] = Math.Max(0, (int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            httpContext.Response.Headers[BaseHttpHeaders.RetryAfter] = Math.Max(0, (int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
         if (mappingContext.PreferenceApplied is { Length: > 0 })
-            httpContext.Response.Headers[Http.BaseHttpHeaders.PreferenceApplied] = string.Join(", ", mappingContext.PreferenceApplied);
+            httpContext.Response.Headers[BaseHttpHeaders.PreferenceApplied] = string.Join(", ", mappingContext.PreferenceApplied);
     }
 
     private static void ApplyValueHeaders<T>(T? value, HttpContext httpContext)
@@ -113,7 +107,7 @@ internal sealed class BaseHttpResultMapper : IBaseHttpResultMapper
             if (!string.IsNullOrWhiteSpace(envelope.Metadata.ETag))
                 httpContext.Response.Headers.ETag = envelope.Metadata.ETag;
             if (envelope.Metadata.Revision is { } revision)
-                httpContext.Response.Headers[Http.BaseHttpHeaders.Revision] = revision.Value;
+                httpContext.Response.Headers[BaseHttpHeaders.Revision] = revision.Value;
             if (envelope.Metadata.UpdatedAt is not null)
                 httpContext.Response.Headers.LastModified = envelope.Metadata.UpdatedAt.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
         }

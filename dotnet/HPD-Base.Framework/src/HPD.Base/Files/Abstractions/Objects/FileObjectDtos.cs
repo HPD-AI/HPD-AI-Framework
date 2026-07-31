@@ -1,6 +1,5 @@
-using HPD.Base.Results;
 
-namespace HPD.Base.Files.Objects;
+namespace HPD.Base;
 
 public sealed record FileObjectRef
 {

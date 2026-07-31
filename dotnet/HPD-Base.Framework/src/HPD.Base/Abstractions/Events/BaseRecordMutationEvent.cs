@@ -1,8 +1,5 @@
-using HPD.Base.Policy;
-using HPD.Base.Records;
-using HPD.Base.Runtime;
 
-namespace HPD.Base.Events;
+namespace HPD.Base;
 
 /// <summary>
 /// Event emitted after a committed BASE record mutation.

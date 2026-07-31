@@ -1,8 +1,7 @@
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.Observability;
+using HPD.Base.Sqlite;
 using Microsoft.Data.Sqlite;
 
-namespace HPD.Base.Sqlite.Internal;
+namespace HPD.Base.Sqlite;
 
 internal sealed class SqliteConnectionFactory
 {

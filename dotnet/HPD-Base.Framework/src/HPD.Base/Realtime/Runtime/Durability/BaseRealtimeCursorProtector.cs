@@ -1,11 +1,9 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
-using HPD.Base.Events;
-using HPD.Base.Realtime.Configuration;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Realtime.Durability;
+namespace HPD.Base;
 
 internal enum BaseRealtimeCursorStatus
 {

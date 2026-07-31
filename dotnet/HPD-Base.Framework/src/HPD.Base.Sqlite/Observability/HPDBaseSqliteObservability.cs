@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using HPD.Base.Observability;
+using HPD.Base;
 
-namespace HPD.Base.Sqlite.Observability;
+namespace HPD.Base.Sqlite;
 
 internal static class HPDBaseSqliteObservability
 {

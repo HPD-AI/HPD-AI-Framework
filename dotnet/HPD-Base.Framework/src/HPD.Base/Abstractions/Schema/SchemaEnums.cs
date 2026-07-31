@@ -1,4 +1,4 @@
-namespace HPD.Base.Schema;
+namespace HPD.Base;
 
 public enum SchemaMetadataRole { ReadProjection }
 public enum SchemaMode { Strict, Loose, Inferred, Native, Hybrid }

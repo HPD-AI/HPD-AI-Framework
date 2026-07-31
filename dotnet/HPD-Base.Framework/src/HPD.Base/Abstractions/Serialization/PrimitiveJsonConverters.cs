@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace HPD.Base.Serialization;
+namespace HPD.Base;
 
 public sealed class RecordIdJsonConverter : JsonConverter<RecordId>
 {

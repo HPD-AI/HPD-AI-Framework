@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.QueryBinding;
+namespace HPD.Base.AspNetCore;
 
 internal static class BaseManifestExpandBinder
 {

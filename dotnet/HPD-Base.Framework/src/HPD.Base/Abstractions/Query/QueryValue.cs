@@ -1,4 +1,4 @@
-namespace HPD.Base.Query;
+namespace HPD.Base;
 
 /// <summary>
 /// Source-generation-friendly tagged value used by portable query contracts.

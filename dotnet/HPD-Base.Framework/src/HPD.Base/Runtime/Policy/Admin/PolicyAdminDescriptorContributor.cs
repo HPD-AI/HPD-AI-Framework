@@ -1,8 +1,5 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Health;
-using HPD.Base.Runtime.Descriptors;
 
-namespace HPD.Base.Runtime.Policy.Admin;
+namespace HPD.Base;
 
 internal sealed class PolicyAdminDescriptorContributor : IBaseDescriptorContributor
 {
@@ -13,7 +10,7 @@ internal sealed class PolicyAdminDescriptorContributor : IBaseDescriptorContribu
         builder.AddModule(new BaseModuleDescriptor
         {
             Id = "hpd.base.policy.admin",
-            Name = "HPD.Base.Runtime Policy Admin",
+            Name = "HPD.Base Policy Admin",
             Kind = BaseModuleKind.Policy,
             Version = "1.0.0",
             Status = ModuleStatus.Installed,

@@ -1,14 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using HPD.Base.Descriptors;
-using HPD.Base.Query;
-using HPD.Base.Relational.Capabilities;
-using HPD.Base.Relational.Descriptors;
-using HPD.Base.Relational.Planning;
-using HPD.Base.Results;
-using HPD.Base.Serialization;
 
-namespace HPD.Base.Relational.Serialization;
+namespace HPD.Base;
 
 using VisibilityLevelConverter = LowerCamelJsonStringEnumConverter<VisibilityLevel>;
 using CapabilityStatusConverter = LowerCamelJsonStringEnumConverter<CapabilityStatus>;

@@ -1,8 +1,5 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Health;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Runtime.Descriptors;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseDescriptorContributionBuilder : IBaseDescriptorContributionBuilder
 {

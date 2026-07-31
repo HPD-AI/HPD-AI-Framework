@@ -1,6 +1,5 @@
-using HPD.Base.Files.Buckets;
 
-namespace HPD.Base.Files.Configuration;
+namespace HPD.Base;
 
 public sealed class HPDBaseFilesOptions
 {

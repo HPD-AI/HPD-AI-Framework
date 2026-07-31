@@ -1,9 +1,9 @@
-using HPD.Base.AspNetCore.Serialization;
-using HPD.Base.Runtime.Serialization;
+using HPD.Base.AspNetCore;
+using HPD.Base;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.AspNetCore.DependencyInjection;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class HPDBaseAspNetCoreJsonOptionsSetup : IConfigureOptions<JsonOptions>
 {

@@ -1,6 +1,6 @@
-using HPD.Base.Schema;
+using HPD.Base;
 
-namespace HPD.Base.Sqlite.Configuration;
+namespace HPD.Base.Sqlite;
 
 /// <summary>Configures the durable HPD.BASE SQLite record store.</summary>
 public sealed class HPDBaseSqliteOptions

@@ -1,6 +1,5 @@
 using System.Security.Claims;
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.AspNetCore.Http;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Http;
 
 namespace HPD.Base.AspNetCore.Tests.Auth;

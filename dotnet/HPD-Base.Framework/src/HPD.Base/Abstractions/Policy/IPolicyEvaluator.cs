@@ -1,4 +1,4 @@
-namespace HPD.Base.Policy;
+namespace HPD.Base;
 
 public interface IPolicyEvaluator
 {

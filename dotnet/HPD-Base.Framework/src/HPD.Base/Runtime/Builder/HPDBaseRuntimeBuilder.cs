@@ -1,7 +1,6 @@
-using HPD.Base.Runtime.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace HPD.Base.Runtime.Builder;
+namespace HPD.Base;
 
 public sealed class HPDBaseRuntimeBuilder : IHPDBaseRuntimeBuilder
 {

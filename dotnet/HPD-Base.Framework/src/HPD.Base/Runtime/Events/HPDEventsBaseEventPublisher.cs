@@ -1,9 +1,6 @@
-using HPD.Base.Events;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Results;
 using HPD.Events;
 
-namespace HPD.Base.Runtime.Events;
+namespace HPD.Base;
 
 /// <summary>
 /// BASE event publisher backed by the HPD.Events event spine.

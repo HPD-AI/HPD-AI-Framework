@@ -1,4 +1,4 @@
-namespace HPD.Base.Realtime.Feeds;
+namespace HPD.Base;
 
 internal sealed class BaseRealtimeFeedException : Exception
 {

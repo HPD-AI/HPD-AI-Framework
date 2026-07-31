@@ -1,10 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
-using HPD.Base.Runtime.Configuration;
-using HPD.Base.Runtime.Query;
-using HPD.Base.Serialization;
 
-namespace HPD.Base.Runtime.Serialization;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseJsonTypeInfoResolverComposer : IBaseJsonTypeInfoResolverComposer
 {

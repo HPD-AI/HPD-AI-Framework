@@ -1,10 +1,8 @@
-using HPD.Base.Descriptors;
-using HPD.Base.InMemory.Configuration;
-using HPD.Base.Runtime.Descriptors;
-using HPD.Base.Schema;
+using HPD.Base;
+using HPD.Base.InMemory;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.InMemory.Descriptors;
+namespace HPD.Base.InMemory;
 
 internal sealed class InMemoryDescriptorContributor : IBaseDescriptorContributor
 {
@@ -44,7 +42,7 @@ internal sealed class InMemoryDescriptorContributor : IBaseDescriptorContributor
             builder.AddHealthRef(new HealthRefDescriptor
             {
                 Id = _options.HealthRefId,
-                Scope = HPD.Base.Health.HealthScope.Store,
+                Scope = HealthScope.Store,
                 TargetRef = _options.StoreId,
                 Visibility = VisibilityLevel.Admin
             });

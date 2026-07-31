@@ -1,5 +1,4 @@
-using HPD.Base.Runtime.Operations;
-using HPD.Base.Runtime.Stores;
+using HPD.Base;
 
 namespace HPD.Base.StoreConformance.Runtime;
 

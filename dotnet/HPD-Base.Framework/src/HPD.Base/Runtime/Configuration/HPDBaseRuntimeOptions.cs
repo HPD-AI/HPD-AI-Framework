@@ -1,7 +1,5 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Runtime.Observability;
 
-namespace HPD.Base.Runtime.Configuration;
+namespace HPD.Base;
 
 public sealed class HPDBaseRuntimeOptions
 {

@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace HPD.Base.Files.Observability.Logging;
+namespace HPD.Base;
 
 internal static partial class HPDBaseFilesLog
 {

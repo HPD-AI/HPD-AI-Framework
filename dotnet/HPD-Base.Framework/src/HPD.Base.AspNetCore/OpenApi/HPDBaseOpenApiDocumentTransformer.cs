@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.OpenApi;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class HPDBaseOpenApiDocumentTransformer(IOptions<HPDBaseOpenApiOptions> options) : IOpenApiDocumentTransformer
 {

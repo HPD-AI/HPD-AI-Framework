@@ -1,5 +1,4 @@
-using HPD.Base.Query;
-using HPD.Base.Serialization;
+using HPD.Base;
 using Microsoft.AspNetCore.Http;
 
 namespace HPD.Base.AspNetCore.Tests;

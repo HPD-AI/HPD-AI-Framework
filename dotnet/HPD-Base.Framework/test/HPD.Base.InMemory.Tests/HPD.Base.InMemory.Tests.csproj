@@ -30,5 +30,6 @@
     <ProjectReference Include="../../src/HPD.Base/HPD.Base.csproj" />
     <ProjectReference Include="../../src/HPD.Base.InMemory/HPD.Base.InMemory.csproj" />
     <ProjectReference Include="../HPD.Base.StoreConformance/HPD.Base.StoreConformance.csproj" />
+    <ProjectReference Include="../HPD.Base.Files.ProviderConformance/HPD.Base.Files.ProviderConformance.csproj" />
   </ItemGroup>
 </Project>

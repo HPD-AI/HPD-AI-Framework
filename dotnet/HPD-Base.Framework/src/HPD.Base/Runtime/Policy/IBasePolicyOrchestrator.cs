@@ -1,10 +1,5 @@
-using HPD.Base.Policy;
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Runtime.Policy;
+namespace HPD.Base;
 
 public interface IBasePolicyOrchestrator
 {

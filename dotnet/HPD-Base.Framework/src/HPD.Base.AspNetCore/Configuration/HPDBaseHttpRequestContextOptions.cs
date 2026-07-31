@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.Configuration;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Configures how HTTP request metadata is copied into HPD.BASE operation contexts.

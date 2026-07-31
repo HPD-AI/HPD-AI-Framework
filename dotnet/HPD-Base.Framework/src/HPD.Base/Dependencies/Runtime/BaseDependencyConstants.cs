@@ -1,4 +1,4 @@
-namespace HPD.Base.Dependencies;
+namespace HPD.Base;
 
 public static class BaseDependencyModuleIds
 {

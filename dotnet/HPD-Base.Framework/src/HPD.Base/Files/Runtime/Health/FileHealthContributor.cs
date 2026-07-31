@@ -1,10 +1,6 @@
-using HPD.Base.Files.Configuration;
-using HPD.Base.Files.Runtime;
-using HPD.Base.Health;
-using HPD.Base.Runtime.Health;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Files.Health;
+namespace HPD.Base;
 
 internal sealed class FileHealthContributor : IBaseHealthContributor, IBaseDiagnosticContributor
 {
@@ -52,7 +48,7 @@ internal sealed class FileHealthContributor : IBaseHealthContributor, IBaseDiagn
                 Status = !_options.Enabled || !bucket.Enabled ? HealthStatus.Disabled : HealthStatus.Unknown,
                 CheckedAt = now,
                 Summary = bucket.Enabled ? "File bucket is registered." : "File bucket is disabled.",
-                PublicSafe = bucket.Visibility == HPD.Base.Files.Buckets.FileBucketVisibility.PublicRead && bucket.DescriptorVisibility == VisibilityLevel.Public,
+                PublicSafe = bucket.Visibility == FileBucketVisibility.PublicRead && bucket.DescriptorVisibility == VisibilityLevel.Public,
                 Visibility = bucket.DescriptorVisibility
             })
         ]);

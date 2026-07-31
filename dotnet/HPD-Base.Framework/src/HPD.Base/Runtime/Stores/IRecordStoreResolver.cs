@@ -1,9 +1,5 @@
-using HPD.Base.Results;
-using HPD.Base.Schema;
-using HPD.Base.Stores;
-using HPD.Base.Runtime;
 
-namespace HPD.Base.Runtime.Stores;
+namespace HPD.Base;
 
 public interface IRecordStoreResolver
 {

@@ -1,16 +1,6 @@
 using System.Text.Json;
 using HPD.Base;
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.AspNetCore.Configuration;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.AspNetCore.OpenApi;
-using HPD.Base.AspNetCore.QueryBinding;
-using HPD.Base.AspNetCore.Results;
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Serialization;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
@@ -18,7 +8,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.AspNetCore.EndpointMapping.Endpoints;
+namespace HPD.Base.AspNetCore;
 
 internal static class RecordEndpoints
 {

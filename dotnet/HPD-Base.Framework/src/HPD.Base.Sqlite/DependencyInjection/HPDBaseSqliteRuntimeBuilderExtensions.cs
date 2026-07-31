@@ -1,7 +1,7 @@
-using HPD.Base.Runtime.Builder;
-using HPD.Base.Sqlite.Configuration;
+using HPD.Base;
+using HPD.Base.Sqlite;
 
-namespace HPD.Base.Sqlite.DependencyInjection;
+namespace HPD.Base.Sqlite;
 
 /// <summary>Adds HPD.BASE SQLite services to an existing HPD.BASE runtime builder.</summary>
 public static class HPDBaseSqliteRuntimeBuilderExtensions

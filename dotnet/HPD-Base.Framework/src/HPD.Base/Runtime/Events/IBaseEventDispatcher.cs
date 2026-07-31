@@ -1,7 +1,5 @@
-using HPD.Base.Events;
-using HPD.Base.Results;
 
-namespace HPD.Base.Runtime.Events;
+namespace HPD.Base;
 
 /// <summary>
 /// Dispatches BASE events produced by the runtime operation pipeline.

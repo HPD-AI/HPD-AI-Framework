@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using HPD.Base.InMemory.Tests.TestDoubles;
-using HPD.Base.Observability;
+using HPD.Base;
 using HPD.Base.Tests.Observability;
 
 namespace HPD.Base.InMemory.Tests.Observability;

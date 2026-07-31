@@ -1,4 +1,4 @@
-namespace HPD.Base.Realtime.Configuration;
+namespace HPD.Base;
 
 using HPD.Events;
 

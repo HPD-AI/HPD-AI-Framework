@@ -1,10 +1,6 @@
 using System.Text.Json;
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Stores;
 
-namespace HPD.Base.Descriptors;
+namespace HPD.Base;
 
 public sealed record CapabilityConstraintSet
 {

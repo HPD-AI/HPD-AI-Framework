@@ -1,7 +1,6 @@
 using FluentAssertions;
-using HPD.Base.Stores;
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.DependencyInjection;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using System.Data.Common;
 using System.Linq.Expressions;

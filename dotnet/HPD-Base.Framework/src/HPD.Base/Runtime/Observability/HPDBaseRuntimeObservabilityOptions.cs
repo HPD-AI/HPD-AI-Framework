@@ -1,4 +1,4 @@
-namespace HPD.Base.Runtime.Observability;
+namespace HPD.Base;
 
 /// <summary>
 /// Configures HPD.BASE runtime observability behavior.

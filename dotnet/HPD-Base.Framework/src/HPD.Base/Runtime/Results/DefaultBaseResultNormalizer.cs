@@ -1,9 +1,6 @@
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Runtime.Observability.Logging;
 using Microsoft.Extensions.Logging;
 
-namespace HPD.Base.Runtime.Results;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseResultNormalizer : IBaseResultNormalizer
 {

@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.Configuration;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Configures HTTP ProblemDetails responses emitted by HPD.BASE endpoints.

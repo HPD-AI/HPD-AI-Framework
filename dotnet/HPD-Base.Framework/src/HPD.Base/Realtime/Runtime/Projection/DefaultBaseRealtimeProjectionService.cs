@@ -1,10 +1,5 @@
-using HPD.Base.Events;
-using HPD.Base.Dependencies;
-using HPD.Base.Records;
-using HPD.Base.Runtime.Policy;
-using HPD.Base.Realtime.Policy;
 
-namespace HPD.Base.Realtime.Projection;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseRealtimeProjectionService : IBaseRealtimeProjectionService
 {

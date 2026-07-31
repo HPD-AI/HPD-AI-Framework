@@ -1,6 +1,5 @@
-using HPD.Base.Results;
 
-namespace HPD.Base.Records;
+namespace HPD.Base;
 
 /// <summary>Identifies one supported record mutation command.</summary>
 public enum BaseRecordMutationKind

@@ -1,9 +1,6 @@
 using System.Security.Claims;
-using HPD.Base.AspNetCore.Configuration;
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.AspNetCore.Results;
-using HPD.Base.Serialization;
+using HPD.Base.AspNetCore;
+using HPD.Base;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 

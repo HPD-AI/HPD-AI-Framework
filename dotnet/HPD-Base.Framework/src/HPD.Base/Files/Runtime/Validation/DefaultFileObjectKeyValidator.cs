@@ -1,11 +1,6 @@
-using HPD.Base.Files.Configuration;
-using HPD.Base.Files.Objects;
-using HPD.Base.Files.Runtime;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Results;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Files.Validation;
+namespace HPD.Base;
 
 internal sealed class DefaultFileObjectKeyValidator : IFileObjectKeyValidator
 {

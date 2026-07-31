@@ -1,4 +1,4 @@
-namespace HPD.Base.LiveQuery;
+namespace HPD.Base;
 
 public static class BaseLiveQueryModuleIds
 {

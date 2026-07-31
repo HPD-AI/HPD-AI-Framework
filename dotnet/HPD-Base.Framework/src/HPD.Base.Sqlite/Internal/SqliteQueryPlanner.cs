@@ -1,10 +1,9 @@
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Sqlite.Configuration;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using Microsoft.Data.Sqlite;
 using System.Globalization;
 
-namespace HPD.Base.Sqlite.Internal;
+namespace HPD.Base.Sqlite;
 
 internal sealed class SqliteQueryPlanner
 {

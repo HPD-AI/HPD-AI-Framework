@@ -1,6 +1,5 @@
-using HPD.Base.Query;
 
-namespace HPD.Base.Records;
+namespace HPD.Base;
 
 public sealed record RecordPage
 {

@@ -1,4 +1,4 @@
-namespace HPD.Base.Policy;
+namespace HPD.Base;
 
 public enum PolicyResourceKind { Collection, Query, Record, CreatePayload, UpdatePayload, DeleteCandidate, Field, File, Schema, AdminMetadata }
 public enum PolicyEffect { Allow, Deny, Abstain }

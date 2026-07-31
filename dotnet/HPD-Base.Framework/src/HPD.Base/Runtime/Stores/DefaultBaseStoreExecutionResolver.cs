@@ -1,10 +1,5 @@
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Results;
-using HPD.Base.Schema;
-using HPD.Base.Stores;
 
-namespace HPD.Base.Runtime.Stores;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseStoreExecutionResolver(
     IRecordStoreRegistry registry) : IBaseStoreExecutionResolver

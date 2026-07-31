@@ -1,9 +1,8 @@
-using HPD.Base.Health;
-using HPD.Base.InMemory.Configuration;
-using HPD.Base.Runtime.Health;
+using HPD.Base;
+using HPD.Base.InMemory;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.InMemory.Health;
+namespace HPD.Base.InMemory;
 
 internal sealed class InMemoryDiagnosticContributor : IBaseDiagnosticContributor
 {

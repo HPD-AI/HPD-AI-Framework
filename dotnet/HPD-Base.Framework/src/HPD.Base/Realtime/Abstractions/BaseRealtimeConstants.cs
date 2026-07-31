@@ -1,4 +1,4 @@
-namespace HPD.Base.Realtime;
+namespace HPD.Base;
 
 public static class BaseRealtimeModuleIds
 {

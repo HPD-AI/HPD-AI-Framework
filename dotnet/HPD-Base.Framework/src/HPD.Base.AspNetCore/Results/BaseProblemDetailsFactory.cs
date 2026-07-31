@@ -1,7 +1,7 @@
-using HPD.Base.Results;
+using HPD.Base;
 using Microsoft.AspNetCore.Mvc;
 
-namespace HPD.Base.AspNetCore.Results;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class BaseProblemDetailsFactory
 {

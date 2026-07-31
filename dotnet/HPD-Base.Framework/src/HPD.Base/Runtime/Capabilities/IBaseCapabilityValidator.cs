@@ -1,6 +1,5 @@
-using HPD.Base.Runtime.Descriptors;
 
-namespace HPD.Base.Runtime.Capabilities;
+namespace HPD.Base;
 
 public interface IBaseCapabilityValidator
 {

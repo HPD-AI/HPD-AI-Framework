@@ -1,18 +1,5 @@
 using HPD.Base;
-using HPD.Base.Events;
-using HPD.Base.Policy;
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
-using HPD.Base.Runtime.DependencyInjection;
-using HPD.Base.Runtime.Operations;
-using HPD.Base.Runtime.Stores;
-using HPD.Base.Schema;
-using HPD.Base.Relational.Providers;
-using HPD.Base.Sqlite.DependencyInjection;
-using HPD.Base.Sqlite.Serialization;
-using HPD.Base.Stores;
+using HPD.Base.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -58,7 +45,7 @@ try
     Require(journalPage.Entries.Length == 1, "Mutation journal append/read failed.");
     _ = JsonSerializer.Serialize(
         journalPage,
-        HPD.Base.Serialization.HPDBaseJsonSerializerContext.Default.BaseMutationJournalPage);
+        HPD.Base.HPDBaseJsonSerializerContext.Default.BaseMutationJournalPage);
 
     var list = await runtime.ListAsync("items", new RecordQuery { Count = QueryCountMode.Exact }, principal, Operation(BaseOperationKind.List));
     Require(list.Status == OperationStatus.Ok && list.Value!.Count!.Total == 1, "List/count failed.");
@@ -68,7 +55,7 @@ try
     Require(descriptor.Status == OperationStatus.Ok && descriptor.Value is not null, "Relational descriptor failed.");
     _ = JsonSerializer.Serialize(descriptor.Value, HPDBaseSqliteJsonSerializerContext.Default.RelationalStoreDescriptor);
     _ = JsonSerializer.Serialize(
-        new HPD.Base.Sqlite.Configuration.HPDBaseSqliteOptions { StoreId = "serialized", CollectionIds = ["items"] },
+        new HPD.Base.Sqlite.HPDBaseSqliteOptions { StoreId = "serialized", CollectionIds = ["items"] },
         HPDBaseSqliteJsonSerializerContext.Default.HPDBaseSqliteOptions);
 
     var delete = await runtime.DeleteAsync("items", create.Value!.Id, new RecordDeleteRequest { ExpectedRevision = create.Value.Metadata.Revision, ReturnPrevious = true }, principal, Operation(BaseOperationKind.Delete));

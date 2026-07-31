@@ -1,6 +1,6 @@
 using Microsoft.Data.Sqlite;
 
-namespace HPD.Base.Sqlite.Internal;
+namespace HPD.Base.Sqlite;
 
 internal interface ISqliteTransactionController
 {

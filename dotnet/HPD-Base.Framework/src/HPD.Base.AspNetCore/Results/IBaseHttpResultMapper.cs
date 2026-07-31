@@ -1,7 +1,7 @@
-using HPD.Base.Results;
+using HPD.Base;
 using Microsoft.AspNetCore.Http;
 
-namespace HPD.Base.AspNetCore.Results;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Maps HPD.BASE operation results to ASP.NET Core HTTP results.

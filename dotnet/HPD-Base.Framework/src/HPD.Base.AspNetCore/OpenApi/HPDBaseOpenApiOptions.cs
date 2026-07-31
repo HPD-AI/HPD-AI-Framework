@@ -1,6 +1,6 @@
 using Microsoft.OpenApi;
 
-namespace HPD.Base.AspNetCore.OpenApi;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Configures HPD.BASE OpenAPI document registration.

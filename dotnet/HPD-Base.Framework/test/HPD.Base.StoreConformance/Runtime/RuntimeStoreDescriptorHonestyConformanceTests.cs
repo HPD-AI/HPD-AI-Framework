@@ -1,5 +1,4 @@
-using HPD.Base.Descriptors;
-using HPD.Base.Runtime.Descriptors;
+using HPD.Base;
 
 namespace HPD.Base.StoreConformance.Runtime;
 

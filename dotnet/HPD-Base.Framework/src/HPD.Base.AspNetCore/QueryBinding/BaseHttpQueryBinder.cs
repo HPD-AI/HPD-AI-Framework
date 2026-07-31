@@ -1,13 +1,11 @@
 using System.Text.Json;
-using HPD.Base.Query;
-using HPD.Base.AspNetCore.Configuration;
-using HPD.Base.Results;
-using HPD.Base.Serialization;
+using HPD.Base;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 
-namespace HPD.Base.AspNetCore.QueryBinding;
+namespace HPD.Base.AspNetCore;
 
 internal sealed class BaseHttpQueryBinder : IBaseHttpQueryBinder
 {

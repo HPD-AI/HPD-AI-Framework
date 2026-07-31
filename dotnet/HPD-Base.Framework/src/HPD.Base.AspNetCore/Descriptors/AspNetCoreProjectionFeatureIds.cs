@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.Descriptors;
+namespace HPD.Base.AspNetCore;
 
 internal static class AspNetCoreProjectionFeatureIds
 {

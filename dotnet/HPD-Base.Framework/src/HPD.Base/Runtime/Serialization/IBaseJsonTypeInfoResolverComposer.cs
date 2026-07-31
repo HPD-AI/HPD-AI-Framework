@@ -1,7 +1,6 @@
 using System.Text.Json;
-using HPD.Base.Serialization;
 
-namespace HPD.Base.Runtime.Serialization;
+namespace HPD.Base;
 
 public interface IBaseJsonTypeInfoResolverComposer
 {

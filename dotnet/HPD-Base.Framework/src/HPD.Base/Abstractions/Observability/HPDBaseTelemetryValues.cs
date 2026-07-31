@@ -1,4 +1,4 @@
-namespace HPD.Base.Observability;
+namespace HPD.Base;
 
 /// <summary>
 /// Defines stable low-cardinality tag values used by BASE telemetry.

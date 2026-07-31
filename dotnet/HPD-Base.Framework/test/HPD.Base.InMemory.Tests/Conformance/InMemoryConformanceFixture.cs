@@ -1,7 +1,7 @@
 using HPD.Base.StoreConformance;
 using HPD.Base.StoreConformance.Runtime;
 using HPD.Base.InMemory.Tests.TestDoubles;
-using HPD.Base.Events;
+using HPD.Base;
 
 namespace HPD.Base.InMemory.Tests.Conformance;
 

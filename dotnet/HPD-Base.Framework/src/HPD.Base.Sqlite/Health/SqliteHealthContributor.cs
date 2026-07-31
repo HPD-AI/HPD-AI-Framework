@@ -1,10 +1,8 @@
-using HPD.Base.Health;
-using HPD.Base.Runtime.Health;
-using HPD.Base.Sqlite.Configuration;
-using HPD.Base.Sqlite.Internal;
+using HPD.Base;
+using HPD.Base.Sqlite;
 using Microsoft.Extensions.Options;
 
-namespace HPD.Base.Sqlite.Health;
+namespace HPD.Base.Sqlite;
 
 internal sealed class SqliteHealthContributor : IBaseHealthContributor
 {

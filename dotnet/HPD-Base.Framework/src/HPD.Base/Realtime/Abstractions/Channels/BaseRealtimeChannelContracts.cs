@@ -1,6 +1,5 @@
-using HPD.Base.Policy;
 
-namespace HPD.Base.Realtime;
+namespace HPD.Base;
 
 /// <summary>Defines a request to join the live record-mutation channel.</summary>
 public sealed record BaseRealtimeChannelJoinRequest

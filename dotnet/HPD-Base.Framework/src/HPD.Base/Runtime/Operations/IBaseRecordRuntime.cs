@@ -1,10 +1,5 @@
-using HPD.Base.Policy;
-using HPD.Base.Query;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime;
 
-namespace HPD.Base.Runtime.Operations;
+namespace HPD.Base;
 
 /// <summary>Executes portable record reads and canonical Runtime-owned mutations.</summary>
 public interface IBaseRecordRuntime

@@ -1,15 +1,11 @@
 using HPD.Base;
-using HPD.Base.AspNetCore.EndpointMapping;
-using HPD.Base.AspNetCore.Http;
-using HPD.Base.AspNetCore.OpenApi;
-using HPD.Base.AspNetCore.Results;
-using HPD.Base.Runtime;
+using HPD.Base.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace HPD.Base.AspNetCore.EndpointMapping.Endpoints;
+namespace HPD.Base.AspNetCore;
 
 internal static class DiagnosticEndpoints
 {

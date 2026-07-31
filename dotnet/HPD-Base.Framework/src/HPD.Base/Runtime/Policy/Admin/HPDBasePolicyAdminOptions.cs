@@ -1,4 +1,4 @@
-namespace HPD.Base.Runtime.Policy.Admin;
+namespace HPD.Base;
 
 /// <summary>
 /// Configures admin policy explain behavior.

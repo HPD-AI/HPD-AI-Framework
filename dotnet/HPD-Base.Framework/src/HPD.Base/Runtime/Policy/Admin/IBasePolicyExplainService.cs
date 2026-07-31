@@ -1,6 +1,5 @@
-using HPD.Base.Results;
 
-namespace HPD.Base.Runtime.Policy.Admin;
+namespace HPD.Base;
 
 /// <summary>
 /// Explains admin-safe BASE runtime policy behavior without executing store mutations.

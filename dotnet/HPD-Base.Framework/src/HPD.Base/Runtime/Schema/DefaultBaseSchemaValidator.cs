@@ -1,11 +1,6 @@
 using System.Text.Json;
-using HPD.Base.Records;
-using HPD.Base.Results;
-using HPD.Base.Runtime.Results;
-using HPD.Base.Runtime.Serialization;
-using HPD.Base.Schema;
 
-namespace HPD.Base.Runtime.Schema;
+namespace HPD.Base;
 
 internal sealed class DefaultBaseSchemaValidator : IBaseSchemaValidator
 {

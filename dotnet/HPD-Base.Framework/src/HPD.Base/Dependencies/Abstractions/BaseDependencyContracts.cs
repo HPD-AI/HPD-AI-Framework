@@ -1,4 +1,4 @@
-namespace HPD.Base.Dependencies;
+namespace HPD.Base;
 
 /// <summary>Describes the semantic kind of a dependency template.</summary>
 public enum BaseDependencyKind

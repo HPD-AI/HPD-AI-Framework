@@ -1,8 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using HPD.Base.Observability;
 
-namespace HPD.Base.Realtime.Observability;
+namespace HPD.Base;
 
 /// <summary>
 /// Owns HPD.BASE Realtime activity and metric instruments.

@@ -1,6 +1,5 @@
-using HPD.Base.Events;
 
-namespace HPD.Base.Dependencies;
+namespace HPD.Base;
 
 /// <summary>A trusted value used to resolve an opaque dependency reference.</summary>
 public readonly record struct BaseDependencyParameter(string Name, string? Value);

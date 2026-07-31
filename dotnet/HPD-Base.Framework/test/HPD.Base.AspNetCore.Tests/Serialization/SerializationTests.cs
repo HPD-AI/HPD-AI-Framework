@@ -28,7 +28,7 @@ public sealed class SerializationTests
             Status = 400,
             Title = "Validation failed",
             Extensions = { ["hpd.error.code"] = "code" }
-        }, HPD.Base.AspNetCore.Serialization.HPDBaseAspNetCoreJsonSerializerContext.Default.ProblemDetails);
+        }, HPD.Base.AspNetCore.HPDBaseAspNetCoreJsonSerializerContext.Default.ProblemDetails);
 
         json.Should().Contain("hpd.error.code");
         options.GetTypeInfo(typeof(ProblemDetails)).Should().NotBeNull();

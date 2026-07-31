@@ -1,4 +1,4 @@
-namespace HPD.Base.AspNetCore.Http;
+namespace HPD.Base.AspNetCore;
 
 /// <summary>
 /// Names HTTP headers used by the HPD.BASE ASP.NET Core projection.

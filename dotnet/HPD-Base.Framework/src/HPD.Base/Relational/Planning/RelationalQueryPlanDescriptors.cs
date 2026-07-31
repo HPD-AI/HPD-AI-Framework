@@ -1,8 +1,6 @@
 using System.Text.Json;
-using HPD.Base;
-using HPD.Base.Query;
 
-namespace HPD.Base.Relational.Planning;
+namespace HPD.Base;
 
 public enum RelationalQueryPlanStatus { Supported, Unsupported, PartiallySupported, Unsafe, Unavailable, ProviderSpecific }
 public enum RelationalPushdownSupport { Complete, Partial, None, Unsupported, Unsafe, Unknown }

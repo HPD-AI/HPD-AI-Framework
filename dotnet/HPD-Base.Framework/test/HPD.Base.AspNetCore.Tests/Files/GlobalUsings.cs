@@ -1,0 +1,11 @@
+global using System.Net;
+global using FluentAssertions;
+global using HPD.Base.AspNetCore;
+global using HPD.Base;
+global using HPD.Base.InMemory;
+global using Microsoft.AspNetCore.Builder;
+global using Microsoft.AspNetCore.Hosting;
+global using Microsoft.AspNetCore.Routing;
+global using Microsoft.AspNetCore.TestHost;
+global using Microsoft.Extensions.DependencyInjection;
+global using Xunit;
